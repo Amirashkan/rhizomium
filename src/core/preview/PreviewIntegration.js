@@ -4,32 +4,49 @@ export class PreviewIntegration {
   constructor(editor, previewSystem) {
     this.editor = editor;
     this.previewSystem = previewSystem;
+    this.timeUpdateInterval = null;
 
-    // Initialize with delay to ensure editor is ready
+    // Initialize with delay to ensure everything is ready
     setTimeout(() => {
-      if (this.editor.isPreviewEnabled) {
-        this.updateAllPreviews();
-      }
+      this.initialize();
     }, 100);
+  }
+
+  initialize() {
+    if (this.editor.isPreviewEnabled && this.previewSystem) {
+      this.updateAllPreviews();
+    }
 
     // Set up time-based updates for animated nodes
-    setInterval(() => {
-      if (this.editor.isPreviewEnabled) {
+    if (this.timeUpdateInterval) {
+      clearInterval(this.timeUpdateInterval);
+    }
+    
+    this.timeUpdateInterval = setInterval(() => {
+      if (this.editor.isPreviewEnabled && this.previewSystem) {
         this.updateTimeNodes();
       }
     }, 100);
   }
 
   updateAllPreviews() {
+    if (!this.previewSystem) {
+      console.warn("PreviewSystem not available for updateAllPreviews");
+      return;
+    }
     this.previewSystem.updateAllPreviews();
   }
 
   generateNodePreview(node) {
+    if (!this.previewSystem) {
+      console.warn("PreviewSystem not available for generateNodePreview");
+      return;
+    }
     this.previewSystem.generateNodePreview(node);
   }
 
   updateTimeNodes() {
-    if (!this.editor.graph?.nodes) return;
+    if (!this.editor.graph?.nodes || !this.previewSystem) return;
 
     const timeNodes = this.editor.graph.nodes.filter(
       (n) => n.kind.toLowerCase() === "time"
@@ -72,11 +89,28 @@ export class PreviewIntegration {
   }
 
   onGraphCleared() {
+    if (!this.previewSystem) {
+      console.warn("PreviewSystem not available for onGraphCleared");
+      return;
+    }
     this.previewSystem.clearCache();
+  }
+
+  // Cleanup method
+  destroy() {
+    if (this.timeUpdateInterval) {
+      clearInterval(this.timeUpdateInterval);
+      this.timeUpdateInterval = null;
+    }
   }
 
   // Expose preview system methods for backward compatibility
   renderTexture2D(node, size) {
+    if (!this.previewSystem) {
+      console.warn("PreviewSystem not available for renderTexture2D");
+      return null;
+    }
+
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;

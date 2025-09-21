@@ -26,8 +26,21 @@ export class PreviewSystem {
     // Register all renderers
     this._registerRenderers();
     
-    // Create integration layer
-    this.integration = new PreviewIntegration(editor, this);
+    // Don't create integration here - let it be created externally
+    this.integration = null;
+  }
+
+  // Method to set the integration after construction
+  setIntegration(integration) {
+    this.integration = integration;
+  }
+
+  // Static factory method for proper initialization
+  static create(editor) {
+    const previewSystem = new PreviewSystem(editor);
+    const integration = new PreviewIntegration(editor, previewSystem);
+    previewSystem.setIntegration(integration);
+    return previewSystem;
   }
 
   _registerRenderers() {
@@ -90,6 +103,76 @@ export class PreviewSystem {
     this.editor.draw();
   }
 
+  // Texture2D renderer method for backward compatibility
+  renderTexture2D(node, size) {
+    console.log(
+      "🔍 TEXTURE PREVIEW DEBUG: renderTexture2D called for node",
+      node.id,
+      "size:",
+      size,
+    );
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Check if texture is loaded
+    const textureInfo = window.textureManager?.getTexture(node.id);
+    console.log("Texture info for node", node.id, ":", textureInfo);
+
+    if (textureInfo && textureInfo.file) {
+      // Try to create image from file
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(img, 0, 0, size, size);
+
+        // Add indicator
+        ctx.fillStyle = "rgba(74, 144, 226, 0.9)";
+        ctx.fillRect(0, 0, 14, 10);
+        ctx.fillStyle = "white";
+        ctx.font = "bold 8px Arial";
+        ctx.fillText("2D", 2, 8);
+      };
+      img.src = URL.createObjectURL(textureInfo.file);
+
+      // Show loading state
+      ctx.fillStyle = "#555";
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = "#4a90e2";
+      ctx.font = "bold 10px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("Loading...", size / 2, size / 2);
+    } else {
+      // No texture - show clear placeholder
+      ctx.fillStyle = "#444";
+      ctx.fillRect(0, 0, size, size);
+
+      // Bright border
+      ctx.strokeStyle = "#4a90e2";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(2, 2, size - 4, size - 4);
+
+      // Clear text
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 12px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("2D", size / 2, size / 2 - 4);
+      ctx.fillText("TEX", size / 2, size / 2 + 10);
+    }
+
+    console.log(
+      "🎨 TEXTURE PREVIEW: Returning canvas:",
+      canvas,
+      "dimensions:",
+      canvas.width,
+      "x",
+      canvas.height,
+    );
+    return canvas;
+  }
+
   _renderGeneric(ctx, node) {
     const hash = this._hashString(node.kind);
     const hue = hash % 360;
@@ -128,7 +211,7 @@ export class PreviewSystem {
     this.canvasManager.clearCache();
   }
 
-  // Expose subsystem APIs
+  // Expose subsystem APIs for backward compatibility
   getParameter(node, name) {
     return node[name] || node.props?.[name] || 0;
   }
@@ -141,3 +224,6 @@ export class PreviewSystem {
     return this.nodeValueComputer.getConnectedInputs(node, visited);
   }
 }
+
+// Export the integration class for compatibility
+export { PreviewIntegration };

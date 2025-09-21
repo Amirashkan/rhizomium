@@ -6,7 +6,7 @@ import { ParameterPanel } from "../ui/ParameterPanel.js";
 import { SelectionManager } from "./SelectionManager.js";
 import { ConnectionManager } from "./ConnectionManager.js";
 import { ViewportManager } from "./ViewportManager.js";
-import { PreviewIntegration } from "./PreviewSystem.js";
+import { PreviewSystem } from "./PreviewSystem.js";
 
 export class Editor {
   constructor(graph, onChange) {
@@ -82,17 +82,18 @@ export class Editor {
   }
 
   // ---- NEW Preview System ----
-  initializePreviewSystem() {
-    console.log("Initializing NEW Preview System");
+initializePreviewSystem() {
+  console.log("Initializing NEW Preview System");
 
-    if (!this.graph || !this.graph.nodes) {
-      console.error("No graph or nodes available");
-      return;
-    }
-
-    // Initialize the NEW preview system
-    this.previewIntegration = new PreviewIntegration(this);
+  if (!this.graph || !this.graph.nodes) {
+    console.error("No graph or nodes available");
+    return;
   }
+
+  // Initialize the NEW preview system using factory method
+  this.previewSystem = PreviewSystem.create(this);
+  this.previewIntegration = this.previewSystem.integration;
+}
 
   // Node preview control methods
   toggleNodePreview(nodeId) {
