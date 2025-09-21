@@ -1,0 +1,45 @@
+[33mcommit 57cd34d89ad4584fb8bd1e1f4a4baf235aaf3d68[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;33mtag: [m[1;33mv1.3-parameter-panel[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 17:03:20 2025 +0330
+
+    Implement parameter panel system
+    
+    - Added parameter panel that opens on double-click
+    - Enhanced NodeDefs with detailed parameter definitions
+    - Real-time parameter editing with immediate shader recompilation
+    - Support for both parameter defaults and input overrides in CircleField
+    - Added numeric drag support (Shift+drag) for float parameters
+    - Parameter panel shows connection status and disables overridden inputs
+    - Fixed CircleField to use node.props values when inputs not connected
+
+[33mcommit a160389a110391541c81d7c1e29f4f0093f847f6[m[33m ([m[1;33mtag: [m[1;33mv1.2-context-menu-fix[m[33m)[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 15:59:47 2025 +0330
+
+    Fix context menu positioning issues
+    
+    - Implemented proper viewport boundary checking in _ensureMenuRoot()
+    - Context menu now appears near cursor with fallback positioning
+    - Prevents menu from appearing off-screen or getting clipped
+    - Added minimum margins from screen edges for better UX
+
+[33mcommit 1024a70f21ad9fe437fe97ed452f089826c6441f[m[33m ([m[1;33mtag: [m[1;33mv1.0-functional[m[33m, [m[1;31morigin/checkpoint-functional[m[33m, [m[1;32mcheckpoint-functional[m[33m)[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 15:05:11 2025 +0330
+
+    Checkpoint: Functional GLSL node editor with WebGPU
+    
+    - Working node graph with live shader compilation
+    - Interactive nodes: UV, Time, Circle, Multiply, Add, Saturate, Output
+    - Real-time parameter editing and preview
+    - WebGPU renderer with uniform buffer support
+    - WGSL shader generation from node graphs
+    - Save/load functionality
+    - All syntax errors resolved
+    - Ready for Tenderworld integration
+
+[33mcommit c7bae46f59577a1a6466debb6a939af2b00eeb38[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 13:56:15 2025 +0330
+
+    Initial commit: GLSL node editor foundation

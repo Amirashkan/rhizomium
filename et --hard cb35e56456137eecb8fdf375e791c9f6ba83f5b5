@@ -1,0 +1,157 @@
+[33mcommit cb35e56456137eecb8fdf375e791c9f6ba83f5b5[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Sat Sep 20 11:18:14 2025 +0330
+
+    added texture nodes
+
+[33mcommit e8f50a839fad00adffc08aeed50dba8a89d5f36f[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Fri Sep 19 16:27:17 2025 +0330
+
+    minor bug fixes
+
+[33mcommit 9063e8203f3df469e0a949183b11b1b196408af0[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Fri Sep 19 15:53:35 2025 +0330
+
+    Add vector operations to shader node editor
+    
+    - Add Dot, Cross, Normalize, Length, Distance, Reflect, Refract nodes
+    - Implement dynamic previews for all vector operations
+    - Fix ConstVec3 node computation in preview system
+    - Add proper input mapping for vector operations
+    - Clean up duplicate code in PreviewSystem.js
+
+[33mcommit 2b3afa7dcab5f31bc0571b754fba886fcaa31d9e[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Fri Sep 19 12:12:48 2025 +0330
+
+    Add math nodes and fix WGSL generation
+
+[33mcommit a52da230d00987835283d721a632a1885c2ea6be[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Fri Sep 19 02:33:25 2025 +0330
+
+    Complete noise nodes implementation with enhanced parameters and working previews
+
+[33mcommit f1f22c999b88c5897e7fd5f97d56667cbe1c75a2[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Thu Sep 18 22:52:58 2025 +0330
+
+    Fix black preview after loading files - resolve connection format and WebGPU reinitialization issues
+
+[33mcommit 5a9a388668b3902596e4f988c1a672c159f2e40b[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Thu Sep 18 15:52:35 2025 +0330
+
+    Complete save system implementation
+    
+    - Fixed duplicate HUD sections in index.html
+    - Updated setupUIEventHandlers with proper SaveLoadManager integration
+    - Added complete BackupDialog implementation
+    - Fixed file input handling for load/import buttons
+    - All save/load/export/backup functionality now working
+
+[33mcommit f4db8acb23213a4aeb537b0240d0052d3c1042ba[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Thu Sep 18 03:44:24 2025 +0330
+
+    Fix node preview system
+    
+    - Fixed Circle preview to show correct white circle instead of pink ring
+    - Added two-way binding between connected inputs and parameter panels
+    - Fixed parameter value storage/retrieval consistency between getParameter and computeNodeValue
+    - Updated Expression preview to handle slow frequencies by scaling u_time across X-axis
+    - Circle preview now updates when changing either Float input values or direct parameters
+    - Fixed WGSL shader compilation for Expression nodes
+    
+    Preview system now working for:
+    - Float nodes update their own previews
+    - Circle nodes update from both connected inputs and parameter panel
+    - Expression nodes show visible waves for slow sine frequencies
+    - Real-time dependency updates between connected nodes
+
+[33mcommit bd6953e85a88746bc82956ae4c2fbb17ac370847[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Mon Sep 15 21:29:43 2025 +0330
+
+    added final preview features
+
+[33mcommit c77849c08799a37ee029ef515a0e88a20171aadb[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Mon Sep 15 16:30:35 2025 +0330
+
+    Enhanced GLSL Node Editor UI
+    
+    - Fixed parameter panel closing immediately after opening
+    - Enhanced node previews with 32x32 canvas-based thumbnails
+    - Added glassmorphism styling for menus and UI elements
+    - Fixed category color consistency between nodes and menus
+    - Enhanced renderer with better node styling and pin labels
+    - Added modern CSS with backdrop filters and animations
+    - Improved menu system with category color coding
+    - Better typography and spacing throughout
+    - Added enhanced preview computer with visual representations
+
+[33mcommit ee8c3234bbb23153601cc24fa71265530e7005a2[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Mon Sep 15 16:02:14 2025 +0330
+
+    Fix parameter panel closing immediately after opening
+    
+    - Add paramPanelJustOpened flag to prevent immediate closure
+    - Stop event propagation in parameter panel elements
+    - Add canvas click handler to prevent double-click bubbling
+    - Fix global click handler timing issue
+
+[33mcommit b24f69a9f6ed3bc0e15ff8e7ff3d340e4a5224c4[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Sun Sep 14 23:04:37 2025 +0330
+
+    Update RadialMenu with wider submenus, search, and keyboard navigation
+
+[33mcommit 57cd34d89ad4584fb8bd1e1f4a4baf235aaf3d68[m[33m ([m[1;33mtag: [m[1;33mv1.3-parameter-panel[m[33m)[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 17:03:20 2025 +0330
+
+    Implement parameter panel system
+    
+    - Added parameter panel that opens on double-click
+    - Enhanced NodeDefs with detailed parameter definitions
+    - Real-time parameter editing with immediate shader recompilation
+    - Support for both parameter defaults and input overrides in CircleField
+    - Added numeric drag support (Shift+drag) for float parameters
+    - Parameter panel shows connection status and disables overridden inputs
+    - Fixed CircleField to use node.props values when inputs not connected
+
+[33mcommit a160389a110391541c81d7c1e29f4f0093f847f6[m[33m ([m[1;33mtag: [m[1;33mv1.2-context-menu-fix[m[33m)[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 15:59:47 2025 +0330
+
+    Fix context menu positioning issues
+    
+    - Implemented proper viewport boundary checking in _ensureMenuRoot()
+    - Context menu now appears near cursor with fallback positioning
+    - Prevents menu from appearing off-screen or getting clipped
+    - Added minimum margins from screen edges for better UX
+
+[33mcommit 1024a70f21ad9fe437fe97ed452f089826c6441f[m[33m ([m[1;33mtag: [m[1;33mv1.0-functional[m[33m, [m[1;31morigin/checkpoint-functional[m[33m, [m[1;32mcheckpoint-functional[m[33m)[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 15:05:11 2025 +0330
+
+    Checkpoint: Functional GLSL node editor with WebGPU
+    
+    - Working node graph with live shader compilation
+    - Interactive nodes: UV, Time, Circle, Multiply, Add, Saturate, Output
+    - Real-time parameter editing and preview
+    - WebGPU renderer with uniform buffer support
+    - WGSL shader generation from node graphs
+    - Save/load functionality
+    - All syntax errors resolved
+    - Ready for Tenderworld integration
+
+[33mcommit c7bae46f59577a1a6466debb6a939af2b00eeb38[m
+Author: Tenderworld <32334106+Amirashkan@users.noreply.github.com>
+Date:   Wed Sep 10 13:56:15 2025 +0330
+
+    Initial commit: GLSL node editor foundation
