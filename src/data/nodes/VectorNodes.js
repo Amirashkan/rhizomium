@@ -1,4 +1,8 @@
 // src/data/nodes/VectorNodes.js
+
+/**
+ * Vector operation node definitions for 3D math
+ */
 export const VectorNodes = {
   Dot: {
     label: "Dot Product",

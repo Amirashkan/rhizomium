@@ -1,4 +1,8 @@
 // src/data/nodes/NoiseNodes.js
+
+/**
+ * Noise generation node definitions for procedural textures
+ */
 export const NoiseNodes = {
   Random: {
     label: "Random",

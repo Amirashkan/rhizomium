@@ -1,4 +1,8 @@
 // src/data/nodes/TextureNodes.js
+
+/**
+ * Texture sampling node definitions for image processing
+ */
 export const TextureNodes = {
   Texture2D: {
     label: "Texture 2D",

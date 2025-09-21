@@ -1,4 +1,8 @@
 // src/data/nodes/UtilityNodes.js
+
+/**
+ * Utility node definitions for data manipulation and conversion
+ */
 export const UtilityNodes = {
   Expr: {
     label: "Expr",

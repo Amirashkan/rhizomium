@@ -1,75 +1,117 @@
 // src/data/nodes/NodeFactory.js
-let _nextId = 1;
+
+import { NodeDefs, makeNode, validateNodeDef } from '../NodeDefs.js';
+import { NodeCategories } from './NodeTypes.js';
 
 /**
- * Creates a new node instance based on the provided kind and position
- * @param {string} kind - The node type/kind
- * @param {number} x - X position (default: 0)
- * @param {number} y - Y position (default: 0)
- * @returns {Object} The created node instance
+ * Factory class for creating and managing nodes
  */
-export function makeNode(kind, x = 0, y = 0) {
-  const def = getNodeDefinition(kind);
-  if (!def) {
-    throw new Error(`Unknown node kind: ${kind}`);
+export class NodeFactory {
+  /**
+   * Create a new node instance
+   */
+  static createNode(kind, x = 0, y = 0) {
+    return makeNode(kind, x, y);
   }
 
-  const node = {
-    id: String(_nextId++),
-    kind,
-    x,
-    y,
-    w: 180,
-    h: Math.max(60, 40 + (def.inputs || 0) * 18),
-    inputs: new Array(def.inputs).fill(null),
-    params: {},
-    expr: def.params?.find((p) => p.name === "expr") ? "a" : undefined,
-    value: def.params?.find((p) => p.name === "value")?.default ?? undefined,
-  };
-
-  // Initialize all parameter defaults
-  if (def.params) {
-    initializeNodeParameters(node, def.params);
+  /**
+   * Get all available node types
+   */
+  static getAvailableNodeTypes() {
+    return Object.keys(NodeDefs);
   }
 
-  return node;
-}
+  /**
+   * Get nodes by category
+   */
+  static getNodesByCategory(category) {
+    return Object.entries(NodeDefs)
+      .filter(([_, def]) => def.cat === category)
+      .reduce((acc, [key, def]) => ({ ...acc, [key]: def }), {});
+  }
 
-/**
- * Initializes node parameters with their default values
- * @param {Object} node - The node to initialize
- * @param {Array} paramDefs - Parameter definitions
- */
-function initializeNodeParameters(node, paramDefs) {
-  for (const param of paramDefs) {
-    switch (param.name) {
-      case "value":
-        node.value = param.default;
-        break;
-      case "x":
-        node.x = param.default;
-        break;
-      case "y":
-        node.y = param.default;
-        break;
-      case "expr":
-        node.expr = param.default;
-        break;
-      default:
-        if (!node.props) node.props = {};
-        node.props[param.name] = param.default;
-        break;
+  /**
+   * Get all categories
+   */
+  static getCategories() {
+    return Object.values(NodeCategories);
+  }
+
+  /**
+   * Check if a node type exists
+   */
+  static hasNodeType(kind) {
+    return kind in NodeDefs;
+  }
+
+  /**
+   * Get node definition
+   */
+  static getNodeDefinition(kind) {
+    return NodeDefs[kind] || null;
+  }
+
+  /**
+   * Validate all node definitions
+   */
+  static validateAllNodeDefs() {
+    const errors = [];
+    
+    for (const [kind, def] of Object.entries(NodeDefs)) {
+      try {
+        validateNodeDef(def);
+      } catch (error) {
+        errors.push({ kind, error: error.message });
+      }
     }
+    
+    return errors;
   }
-}
 
-/**
- * Gets the definition for a specific node kind
- * @param {string} kind - The node kind
- * @returns {Object|null} The node definition or null if not found
- */
-function getNodeDefinition(kind) {
-  // This will be implemented in the main NodeDefs file
-  const { NodeDefs } = import('./NodeDefs');
-  return NodeDefs[kind] || null;
+  /**
+   * Get nodes that can connect to a specific output type
+   */
+  static getCompatibleNodes(outputType) {
+    return Object.entries(NodeDefs)
+      .filter(([_, def]) => {
+        return def.pinsIn.some(pin => {
+          // Simple type compatibility check - you might want to expand this
+          return pin === outputType || 
+                 (outputType === 'vec3' && ['vec2', 'f32'].includes(pin)) ||
+                 (outputType === 'vec2' && pin === 'f32');
+        });
+      })
+      .map(([kind, _]) => kind);
+  }
+
+  /**
+   * Create a default graph with basic nodes
+   */
+  static createDefaultGraph() {
+    const nodes = [];
+    
+    // Create UV input
+    const uvNode = this.createNode('UV', 100, 100);
+    nodes.push(uvNode);
+    
+    // Create output node
+    const outputNode = this.createNode('OutputFinal', 400, 100);
+    nodes.push(outputNode);
+    
+    return { nodes, connections: [] };
+  }
+
+  /**
+   * Clone a node with new position
+   */
+  static cloneNode(node, offsetX = 50, offsetY = 50) {
+    const newNode = this.createNode(node.kind, node.x + offsetX, node.y + offsetY);
+    
+    // Copy parameter values
+    if (node.value !== undefined) newNode.value = node.value;
+    if (node.expr !== undefined) newNode.expr = node.expr;
+    if (node.props) newNode.props = { ...node.props };
+    
+    return newNode;
+  }
 }

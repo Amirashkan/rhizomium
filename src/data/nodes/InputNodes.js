@@ -1,21 +1,18 @@
 // src/data/nodes/InputNodes.js
-export const InputNodes = {
-  OutputFinal: {
-    label: "Output",
-    cat: "Output",
-    inputs: 1,
-    pinsIn: ["color"],
-    pinsOut: [],
-    params: [],
-  },
 
+/**
+ * Input node definitions for constants and data sources
+ */
+export const InputNodes = {
   ConstFloat: {
     label: "Float",
     cat: "Input",
     inputs: 0,
     pinsIn: [],
     pinsOut: [{ label: "v", type: "f32" }],
-    params: [{ name: "value", type: "float", default: 0.0, label: "Value" }],
+    params: [
+      { name: "value", type: "float", default: 0.0, label: "Value" }
+    ],
   },
 
   ConstVec2: {

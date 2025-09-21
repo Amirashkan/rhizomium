@@ -1,15 +1,10 @@
 // src/data/nodes/MathNodes.js
-export const MathNodes = {
-  // Basic Math Operations
-  Multiply: {
-    label: "Multiply",
-    cat: "Math",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "v", type: "vec3" }],
-    params: [],
-  },
 
+/**
+ * Mathematical operation node definitions
+ */
+export const MathNodes = {
+  // Basic Arithmetic Operations
   Add: {
     label: "Add",
     cat: "Math",
@@ -25,6 +20,15 @@ export const MathNodes = {
     inputs: 2,
     pinsIn: ["A", "B"],
     pinsOut: [{ label: "out", type: "vec3" }],
+    params: [],
+  },
+
+  Multiply: {
+    label: "Multiply",
+    cat: "Math",
+    inputs: 2,
+    pinsIn: ["A", "B"],
+    pinsOut: [{ label: "v", type: "vec3" }],
     params: [],
   },
 
@@ -65,7 +69,7 @@ export const MathNodes = {
     params: [],
   },
 
-  // Math Functions
+  // Mathematical Functions
   Floor: {
     label: "Floor",
     cat: "Math",
@@ -129,7 +133,7 @@ export const MathNodes = {
     params: [],
   },
 
-  // Range Functions
+  // Range and Comparison Functions
   Min: {
     label: "Min",
     cat: "Math",
@@ -154,15 +158,6 @@ export const MathNodes = {
     inputs: 3,
     pinsIn: ["Value", "Min", "Max"],
     pinsOut: [{ label: "out", type: "f32" }],
-    params: [],
-  },
-
-  Saturate: {
-    label: "Saturate",
-    cat: "Math",
-    inputs: 1,
-    pinsIn: ["In"],
-    pinsOut: [{ label: "v", type: "vec3" }],
     params: [],
   },
 
@@ -191,6 +186,15 @@ export const MathNodes = {
     inputs: 3,
     pinsIn: ["A", "B", "T"],
     pinsOut: [{ label: "out", type: "vec3" }],
+    params: [],
+  },
+
+  Saturate: {
+    label: "Saturate",
+    cat: "Math",
+    inputs: 1,
+    pinsIn: ["In"],
+    pinsOut: [{ label: "v", type: "vec3" }],
     params: [],
   },
 };

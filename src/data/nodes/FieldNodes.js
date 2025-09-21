@@ -1,4 +1,8 @@
 // src/data/nodes/FieldNodes.js
+
+/**
+ * Field node definitions for distance fields and geometric shapes
+ */
 export const FieldNodes = {
   CircleField: {
     label: "Circle",
