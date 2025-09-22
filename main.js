@@ -1,4 +1,4 @@
-// main.js - Updated with Save/Load Integration and Texture Support
+// main.js - Complete version with Undo System
 import { initWebGPU, updateShader, drawFrame } from "./src/gpu/gpuRenderer.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
@@ -9,13 +9,13 @@ import { makeNode, NodeDefs } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
 import { TextureManager } from "./src/core/TextureManager.js";
+import { UndoManager } from "./src/core/UndoManager.js";
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
-  // Prevent default drag behavior on the entire document
   ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
     document.addEventListener(eventName, preventDefaults, false);
   });
@@ -25,12 +25,10 @@ function setupGlobalDragPrevention() {
     e.stopPropagation();
   }
 
-  // Only allow drops on designated drop zones
   document.addEventListener("drop", (e) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // Check if drop target is a valid drop zone
     const dropZone = e.target.closest(".file-drop-zone");
     if (!dropZone) {
       console.log("Drop ignored - not on a valid drop zone");
@@ -42,61 +40,49 @@ function setupGlobalDragPrevention() {
 }
 
 async function reinitializeWebGPUAfterLoad() {
-  console.log("🔧 Reinitializing WebGPU after file load...");
+  console.log("Reinitializing WebGPU after file load...");
 
-  // Clean up any duplicate canvases
   const allCanvases = document.querySelectorAll("#gpu-canvas");
   console.log(`Found ${allCanvases.length} canvas elements with gpu-canvas id`);
 
   if (allCanvases.length > 1) {
-    console.log("⚠️ Multiple canvases detected, cleaning up...");
-    // Remove all but the first one
+    console.log("Multiple canvases detected, cleaning up...");
     for (let i = 1; i < allCanvases.length; i++) {
       allCanvases[i].remove();
       console.log(`Removed duplicate canvas ${i}`);
     }
   }
 
-  // Get the remaining canvas
   const canvas = document.getElementById("gpu-canvas");
   if (!canvas) {
-    console.error("❌ No GPU canvas found after cleanup");
+    console.error("No GPU canvas found after cleanup");
     return false;
   }
 
-  // Force WebGPU reinitialization
   try {
-    console.log("🔄 Reinitializing WebGPU...");
-
-    // Reset device ready flag
+    console.log("Reinitializing WebGPU...");
     __deviceReady = false;
-
-    // Reinitialize WebGPU with the canvas
     const device = await initWebGPU(canvas);
 
     if (device) {
-      // Initialize texture manager
       window.textureManager = new TextureManager();
       await window.textureManager.initialize(device);
-      console.log("✅ TextureManager initialized successfully");
+      console.log("TextureManager initialized successfully");
     }
 
     __deviceReady = !!device;
 
     if (device) {
-      console.log("✅ WebGPU reinitialized successfully");
-
-      // Force a shader update to test
-      console.log("🔄 Testing shader update...");
+      console.log("WebGPU reinitialized successfully");
+      console.log("Testing shader update...");
       await updateShaderFromGraph();
-
       return true;
     } else {
-      console.error("❌ Failed to reinitialize WebGPU");
+      console.error("Failed to reinitialize WebGPU");
       return false;
     }
   } catch (error) {
-    console.error("❌ Error reinitializing WebGPU:", error);
+    console.error("Error reinitializing WebGPU:", error);
     return false;
   }
 }
@@ -104,13 +90,13 @@ async function reinitializeWebGPUAfterLoad() {
 if (window.__mainLoaded) throw new Error("main.js loaded twice");
 window.__mainLoaded = true;
 
-// DISABLE RhizomiumLoader completely
 window.__disableRhizomiumLoader = true;
 
 let graph = new Graph();
 let editor = null;
 let saveLoadManager = null;
 let backupDialog = null;
+let undoManager = null;
 let __deviceReady = false;
 let floatingPreview = null;
 
@@ -120,13 +106,11 @@ async function initialize() {
   if (canvas) {
     const device = await initWebGPU(canvas);
 
-    // ADD THIS BLOCK RIGHT HERE:
     if (device) {
-      // Initialize texture manager
       const { TextureManager } = await import("./src/core/TextureManager.js");
       window.textureManager = new TextureManager();
       await window.textureManager.initialize(device);
-      console.log("✅ TextureManager initialized successfully");
+      console.log("TextureManager initialized successfully");
     }
 
     __deviceReady = !!device;
@@ -135,85 +119,72 @@ async function initialize() {
   setupGlobalDragPrevention();
 
   try {
-    // COMPLETELY DISABLE RhizomiumLoader
-    // Override its functions before they can create duplicates
     if (typeof window.mountPill === "undefined") {
       window.mountPill = () => {
         console.log("RhizomiumLoader mountPill disabled");
       };
     }
 
-    // Remove any existing RhizomiumLoader elements
     const existingPill = document.getElementById("rz-fallback-pill");
     if (existingPill) {
       existingPill.remove();
       console.log("Removed existing RhizomiumLoader pill");
     }
 
-    // Initialize WebGPU
     const canvas =
       document.getElementById("gpu-canvas") || document.querySelector("canvas");
     if (canvas) {
       const device = await initWebGPU(canvas);
 
       if (device) {
-        // Initialize texture manager
         window.textureManager = new TextureManager();
         await window.textureManager.initialize(device);
-        console.log("✅ TextureManager initialized successfully");
+        console.log("TextureManager initialized successfully");
       }
 
       __deviceReady = !!device;
     }
 
-    // Create seed graph
     SeedGraphBuilder.createSeedGraph(graph);
 
-    // Initialize editor
     editor = new Editor(graph, updateShaderFromGraph);
 
-    // Initialize save/load system
+    // Initialize undo manager after editor
+    undoManager = new UndoManager(graph, editor);
+    console.log("UndoManager created:", undoManager);
+    window.undoManager = undoManager;
+
     console.log("Creating SaveLoadManager...");
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
     console.log("SaveLoadManager created:", saveLoadManager);
 
-    // Initialize backup dialog
     console.log("Creating BackupDialog...");
     backupDialog = new BackupDialog(saveLoadManager);
     console.log("BackupDialog created:", backupDialog);
 
-    // Initialize floating preview and connect to HTML buttons
     const gpuCanvas = document.getElementById("gpu-canvas");
     if (gpuCanvas) {
       floatingPreview = new FloatingGPUPreview(gpuCanvas);
-      setupPreviewButtons(); // Connect to HTML buttons instead of creating new ones
+      setupPreviewButtons();
       floatingPreview.show();
     }
 
-    // Setup UI event handlers
     setupUIEventHandlers();
-
-    // Setup keyboard shortcuts
     setupKeyboardShortcuts();
 
-    // Expose globals BEFORE setting up UI handlers
     window.graph = graph;
     window.editor = editor;
     window.saveLoadManager = saveLoadManager;
     window.backupDialog = backupDialog;
     window.rebuild = updateShaderFromGraph;
-    window.buildWGSL = buildWGSL; // For SaveLoadManager WGSL export
+    window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
 
-    // Check for autosave recovery
     await checkAutosaveRecovery();
-
-    // Initial shader update and render
     await updateShaderFromGraph();
 
     renderLoop();
 
-    // Periodic cleanup of RhizomiumLoader interference
     setInterval(() => {
       const pill = document.getElementById("rz-fallback-pill");
       if (pill && pill.style.display !== "none") {
@@ -229,6 +200,29 @@ async function initialize() {
   }
 }
 
+// Undo callback functions
+function onConnectionDeleted(connection) {
+  console.log("Connection deleted callback:", connection);
+  if (undoManager && connection) {
+    undoManager.recordConnectionDeletion(connection);
+  } else {
+    console.warn("UndoManager not available or connection invalid");
+  }
+}
+
+function onNodeDeleted(node) {
+  console.log("Node deleted callback:", node);
+  if (undoManager && node) {
+    undoManager.recordNodeDeletion(node);
+  } else {
+    console.warn("UndoManager not available or node invalid");
+  }
+}
+
+// Expose these functions globally so Editor can call them
+window.onConnectionDeleted = onConnectionDeleted;
+window.onNodeDeleted = onNodeDeleted;
+
 function setupUIEventHandlers() {
   console.log("Setting up UI event handlers...");
 
@@ -237,11 +231,10 @@ function setupUIEventHandlers() {
     return;
   }
 
-  // PREVENT DOUBLE HANDLERS: Remove existing listeners first
+  // Prevent double handlers: Remove existing listeners first
   const removeExistingHandlers = (elementId) => {
     const el = document.getElementById(elementId);
     if (el) {
-      // Clone and replace to remove all listeners
       const newEl = el.cloneNode(true);
       el.parentNode.replaceChild(newEl, el);
       return newEl;
@@ -249,15 +242,52 @@ function setupUIEventHandlers() {
     return null;
   };
 
-  // Save Project button - prevent double handlers
+  // Undo/Redo button handlers
+  console.log("Setting up undo/redo button handlers...");
+
+  const undoBtn = removeExistingHandlers("btn-undo");
+  if (undoBtn) {
+    undoBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      console.log("UNDO BUTTON CLICKED");
+      if (undoManager) {
+        const success = undoManager.undo();
+        console.log("Undo result:", success);
+      } else {
+        console.error("UndoManager not available");
+      }
+    });
+    console.log("Undo button handler attached");
+  } else {
+    console.error("Undo button not found in DOM");
+  }
+
+  const redoBtn = removeExistingHandlers("btn-redo");
+  if (redoBtn) {
+    redoBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      console.log("REDO BUTTON CLICKED");
+      if (undoManager) {
+        const success = undoManager.redo();
+        console.log("Redo result:", success);
+      } else {
+        console.error("UndoManager not available");
+      }
+    });
+    console.log("Redo button handler attached");
+  } else {
+    console.error("Redo button not found in DOM");
+  }
+
+  // Save Project button
   const saveBtn = removeExistingHandlers("btn-save");
   if (saveBtn) {
     saveBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("=== SAVE BUTTON CLICKED ===");
+      console.log("SAVE BUTTON CLICKED");
       saveLoadManager.saveToFile();
     });
-    console.log("Save button handler attached (clean)");
+    console.log("Save button handler attached");
   }
 
   // Load Project button
@@ -265,35 +295,39 @@ function setupUIEventHandlers() {
   if (loadBtn) {
     loadBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("=== LOAD BUTTON CLICKED ===");
+      console.log("LOAD BUTTON CLICKED");
       triggerFileLoad();
     });
-    console.log("Load button handler attached (clean)");
+    console.log("Load button handler attached");
   }
 
-  // File input change handler with WebGPU reinitialization
+  // File input change handler
   const fileInput = removeExistingHandlers("file-import");
   if (fileInput) {
     fileInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (file) {
-        console.log("=== FILE SELECTED ===", file.name);
+        console.log("FILE SELECTED", file.name);
 
         try {
           await saveLoadManager.loadFromFile(file);
 
-          // CRITICAL: Reinitialize WebGPU after loading
-          console.log("=== REINITIALIZING WEBGPU ===");
+          console.log("REINITIALIZING WEBGPU");
           const webgpuSuccess = await reinitializeWebGPUAfterLoad();
 
           if (webgpuSuccess) {
-            console.log("✅ WebGPU reinitialized successfully after load");
+            console.log("WebGPU reinitialized successfully after load");
           } else {
-            console.error("❌ Failed to reinitialize WebGPU after load");
+            console.error("Failed to reinitialize WebGPU after load");
           }
 
-          // Force node recalculation
-          console.log("=== FORCING NODE RECALCULATION ===");
+          // Clear undo history when loading a new project
+          if (undoManager) {
+            undoManager.clear();
+            console.log("Undo history cleared after load");
+          }
+
+          console.log("FORCING NODE RECALCULATION");
           if (graph && graph.nodes) {
             graph.nodes.forEach((node) => {
               delete node.cachedValue;
@@ -301,9 +335,7 @@ function setupUIEventHandlers() {
               node.needsUpdate = true;
             });
 
-            // Trigger preview refresh
-            console.log("=== TRIGGERING PREVIEW REFRESH ===");
-            // Find any node with a connection and briefly disconnect it to unlock previews
+            console.log("TRIGGERING PREVIEW REFRESH");
             const nodeWithConnection = graph.nodes.find(
               (node) =>
                 node.inputs && node.inputs.some((input) => input !== null),
@@ -315,11 +347,9 @@ function setupUIEventHandlers() {
               );
               const originalInput = nodeWithConnection.inputs[inputIndex];
 
-              // Disconnect briefly to trigger global preview unlock
               nodeWithConnection.inputs[inputIndex] = null;
 
               setTimeout(() => {
-                // Reconnect
                 nodeWithConnection.inputs[inputIndex] = originalInput;
                 if (editor.draw) {
                   editor.draw();
@@ -327,15 +357,11 @@ function setupUIEventHandlers() {
               }, 10);
             }
 
-            // Refresh node previews
-            console.log("=== REFRESHING NODE PREVIEWS ===");
+            console.log("REFRESHING NODE PREVIEWS");
             if (editor && editor.nodePreviews) {
-              // Force refresh all node previews
               graph.nodes.forEach((node) => {
                 if (editor.nodePreviews.has(node.id)) {
-                  // Get existing preview settings
                   const preview = editor.nodePreviews.get(node.id);
-                  // Force refresh by removing and re-adding
                   editor.nodePreviews.delete(node.id);
                   editor.nodePreviews.set(node.id, {
                     enabled: preview.enabled,
@@ -344,7 +370,6 @@ function setupUIEventHandlers() {
                     needsUpdate: true,
                   });
                 } else {
-                  // Create preview for nodes that don't have one
                   editor.nodePreviews.set(node.id, {
                     enabled: true,
                     size: "small",
@@ -354,7 +379,6 @@ function setupUIEventHandlers() {
                 }
               });
 
-              // Force editor redraw to update previews
               setTimeout(() => {
                 if (editor.draw) {
                   editor.draw();
@@ -362,16 +386,13 @@ function setupUIEventHandlers() {
               }, 100);
             }
 
-            // Auto-refresh node previews with connection simulation
-            console.log("=== AUTO-REFRESHING NODE PREVIEWS ===");
+            console.log("AUTO-REFRESHING NODE PREVIEWS");
             graph.nodes.forEach((node) => {
               if (node.inputs) {
                 node.inputs.forEach((input, index) => {
                   if (input) {
                     const originalInput = input;
-                    // Disconnect
                     node.inputs[index] = null;
-                    // Reconnect immediately
                     setTimeout(() => {
                       node.inputs[index] = originalInput;
                       if (editor.draw) {
@@ -383,7 +404,6 @@ function setupUIEventHandlers() {
               }
             });
 
-            // Final update after all connections are restored
             setTimeout(() => {
               if (window.updateShaderFromGraph) {
                 updateShaderFromGraph();
@@ -391,19 +411,17 @@ function setupUIEventHandlers() {
             }, 50);
           }
 
-          console.log("=== LOAD COMPLETE ===");
+          console.log("LOAD COMPLETE");
         } catch (error) {
           console.error("Load failed:", error);
         }
 
-        // Clear the input after processing
         e.target.value = "";
       }
     });
-    console.log("File input handler attached (clean)");
+    console.log("File input handler attached");
   }
 
-  // Helper function to reliably trigger file selection
   function triggerFileLoad() {
     const fileInput = document.getElementById("file-import");
     if (fileInput) {
@@ -422,7 +440,7 @@ function setupUIEventHandlers() {
       console.log("Export JSON clicked");
       saveLoadManager.saveToFile(null, "json");
     });
-    console.log("Export JSON handler attached (clean)");
+    console.log("Export JSON handler attached");
   }
 
   // Export WGSL button
@@ -433,7 +451,7 @@ function setupUIEventHandlers() {
       console.log("Export WGSL clicked");
       saveLoadManager.saveToFile(null, "wgsl");
     });
-    console.log("Export WGSL handler attached (clean)");
+    console.log("Export WGSL handler attached");
   }
 
   // Import button
@@ -444,7 +462,7 @@ function setupUIEventHandlers() {
       console.log("Import button clicked");
       triggerFileLoad();
     });
-    console.log("Import button handler attached (clean)");
+    console.log("Import button handler attached");
   }
 
   // Backups button
@@ -455,7 +473,7 @@ function setupUIEventHandlers() {
       console.log("Backups button clicked");
       backupDialog.show();
     });
-    console.log("Backups button handler attached (clean)");
+    console.log("Backups button handler attached");
   }
 
   // Rebuild button
@@ -466,10 +484,10 @@ function setupUIEventHandlers() {
       console.log("Rebuild button clicked");
       updateShaderFromGraph();
     });
-    console.log("Rebuild button handler attached (clean)");
+    console.log("Rebuild button handler attached");
   }
 
-  console.log("=== ALL HANDLERS SETUP COMPLETE ===");
+  console.log("ALL HANDLERS SETUP COMPLETE");
 }
 
 function setupKeyboardShortcuts() {
@@ -489,6 +507,35 @@ function setupKeyboardShortcuts() {
     if (!cmdKey) return;
 
     switch (e.key.toLowerCase()) {
+      // Undo/Redo shortcuts
+      case "z":
+        e.preventDefault();
+        if (e.shiftKey) {
+          // Ctrl+Shift+Z: Redo
+          console.log("Ctrl+Shift+Z pressed - REDO");
+          if (undoManager) {
+            undoManager.redo();
+          }
+        } else {
+          // Ctrl+Z: Undo
+          console.log("Ctrl+Z pressed - UNDO");
+          if (undoManager) {
+            undoManager.undo();
+          }
+        }
+        break;
+
+      case "y":
+        if (!e.shiftKey) {
+          e.preventDefault();
+          // Ctrl+Y: Redo
+          console.log("Ctrl+Y pressed - REDO");
+          if (undoManager) {
+            undoManager.redo();
+          }
+        }
+        break;
+
       case "s":
         e.preventDefault();
         if (e.shiftKey) {
@@ -556,6 +603,13 @@ function setupKeyboardShortcuts() {
         break;
     }
   });
+
+  // Add keyboard handler for Delete key
+  window.addEventListener("keydown", (e) => {
+    if (editor && editor.handleKeyDown) {
+      editor.handleKeyDown(e);
+    }
+  });
 }
 
 async function checkAutosaveRecovery() {
@@ -586,6 +640,12 @@ function createNewProject() {
   graph.nodes = [];
   graph.connections = [];
   graph.selection = new Set();
+
+  // Clear undo history
+  if (undoManager) {
+    undoManager.clear();
+    console.log("Undo history cleared for new project");
+  }
 
   // Reset editor state
   if (editor) {
@@ -777,6 +837,11 @@ function renderLoop() {
     floatingPreview.fpsCounter.frame();
   }
 
+  // Update undo/redo button states
+  if (undoManager) {
+    undoManager.updateUI();
+  }
+
   requestAnimationFrame(renderLoop);
 }
 
@@ -787,10 +852,555 @@ function showBackupDialog() {
   }
 }
 
-// Export backup dialog function to global scope for debugging/manual use
+// Export functions to global scope
 window.showBackupDialog = showBackupDialog;
 window.createNewProject = createNewProject;
 window.updateStatus = updateStatus;
+
+// Test function to manually create a fake connection deletion
+
+// REPLACE the testConnectionDeletion function in your main.js with this corrected version
+
+window.testConnectionDeletion = function() {
+  console.log("Testing manual connection deletion...");
+  
+  const graph = window.graph;
+  if (!graph || !graph.nodes || graph.nodes.length < 2) {
+    console.error("Need at least 2 nodes to test connection deletion");
+    return;
+  }
+  
+  // Find a node with an input connection
+  let targetNode = null;
+  let inputIndex = -1;
+  let sourceNodeId = null;
+  
+  for (const node of graph.nodes) {
+    if (node.inputs && node.inputs.length > 0) {
+      for (let i = 0; i < node.inputs.length; i++) {
+        // Your connections are stored as node IDs (numbers), not objects
+        if (node.inputs[i] !== null && node.inputs[i] !== undefined) {
+          sourceNodeId = node.inputs[i];
+          targetNode = node;
+          inputIndex = i;
+          break;
+        }
+      }
+      if (sourceNodeId !== null) break;
+    }
+  }
+  
+  if (sourceNodeId === null || !targetNode) {
+    console.error("No connections found to test with");
+    return;
+  }
+  
+  // Find the source node by ID
+  const sourceNode = graph.nodes.find(node => node.id == sourceNodeId);
+  if (!sourceNode) {
+    console.error("Source node not found for ID:", sourceNodeId);
+    return;
+  }
+  
+  console.log("Found test connection:", {
+    sourceId: sourceNodeId,
+    sourceType: sourceNode.kind,
+    targetId: targetNode.id,
+    targetType: targetNode.kind,
+    inputIndex: inputIndex
+  });
+  
+  // Record the connection for undo BEFORE deleting it
+  // We need to adapt to your connection structure
+  const connectionData = {
+    sourceNode: sourceNode,
+    sourceOutput: 0, // Assuming single output for now
+    targetNode: targetNode,
+    targetInput: inputIndex
+  };
+  
+  // Manually call the undo callback
+  if (window.onConnectionDeleted) {
+    window.onConnectionDeleted(connectionData);
+    console.log("Connection recorded for undo");
+  }
+  
+  // Delete the connection (store the original value for reference)
+  const originalConnection = targetNode.inputs[inputIndex];
+  targetNode.inputs[inputIndex] = null;
+  console.log("Connection deleted (was:", originalConnection, ")");
+  
+  // Trigger UI update
+  if (window.editor && window.editor.draw) {
+    window.editor.draw();
+  }
+  if (window.updateShaderFromGraph) {
+    window.updateShaderFromGraph();
+  }
+  
+  console.log("Test deletion complete. Try pressing Ctrl+Z or click Undo button!");
+};
+
+// Also, let's add a function to examine the connection structure more closely
+window.examineConnections = function() {
+  console.log("EXAMINING CONNECTION STRUCTURE");
+  console.log("==============================");
+  
+  const graph = window.graph;
+  if (!graph || !graph.nodes) {
+    console.error("No graph found");
+    return;
+  }
+  
+  console.log("Looking for connections...");
+  
+  graph.nodes.forEach((node, nodeIndex) => {
+    if (node.inputs && node.inputs.length > 0) {
+      console.log(`Node ${nodeIndex} (${node.kind}, id: ${node.id}):`);
+      node.inputs.forEach((input, inputIndex) => {
+        if (input !== null && input !== undefined) {
+          const sourceNode = graph.nodes.find(n => n.id == input);
+          console.log(`  Input ${inputIndex}: ${input} -> ${sourceNode ? sourceNode.kind : 'NOT_FOUND'}`);
+        }
+      });
+    }
+  });
+};
+
+console.log("Updated connection test loaded. Try 'examineConnections()' first, then 'testConnectionDeletion()'");
+
+// Fixed test function to manually create a fake node deletion
+window.testNodeDeletion = function() {
+  console.log("Testing manual node deletion...");
+  
+  const graph = window.graph;
+  if (!graph || !graph.nodes || graph.nodes.length === 0) {
+    console.error("No nodes found to test deletion");
+    return;
+  }
+  
+  // Find a node that's not critical (avoid deleting output nodes)
+  let testNode = null;
+  for (const node of graph.nodes) {
+    const nodeType = node.type || node.kind || 'unknown';
+    if (nodeType !== 'output' && nodeType !== 'Output') {
+      testNode = node;
+      break;
+    }
+  }
+  
+  if (!testNode) {
+    testNode = graph.nodes[graph.nodes.length - 1]; // Just take the last one
+  }
+  
+  const nodeType = testNode.type || testNode.kind || 'unknown';
+  console.log("Found test node:", nodeType, testNode.id);
+  
+  // Record the node for undo BEFORE deleting it
+  if (window.onNodeDeleted) {
+    window.onNodeDeleted(testNode);
+    console.log("Node recorded for undo");
+  }
+  
+  // Delete the node (simplified version)
+  const nodeIndex = graph.nodes.indexOf(testNode);
+  if (nodeIndex !== -1) {
+    graph.nodes.splice(nodeIndex, 1);
+    console.log("Node deleted from graph");
+  }
+  
+  // Remove connections to this node
+  graph.nodes.forEach(node => {
+    if (node.inputs) {
+      node.inputs.forEach((input, index) => {
+        if (input && (input.sourceNode === testNode || input.from === testNode || input.node === testNode)) {
+          node.inputs[index] = null;
+        }
+      });
+    }
+  });
+  
+  // Trigger UI update
+  if (window.editor && window.editor.draw) {
+    window.editor.draw();
+  }
+  if (window.updateShaderFromGraph) {
+    window.updateShaderFromGraph();
+  }
+  
+  console.log("Test node deletion complete. Try pressing Ctrl+Z or click Undo button!");
+};
+
+// Debug function to examine your node and connection structure
+window.debugNodeStructure = function() {
+  console.log("DEBUGGING NODE STRUCTURE");
+  console.log("========================");
+  
+  const graph = window.graph;
+  if (!graph || !graph.nodes) {
+    console.error("No graph or nodes found");
+    return;
+  }
+  
+  console.log("Total nodes:", graph.nodes.length);
+  
+  // Show first few nodes
+  const sampleNodes = graph.nodes.slice(0, 3);
+  sampleNodes.forEach((node, index) => {
+    console.log(`Node ${index}:`, {
+      id: node.id,
+      type: node.type,
+      kind: node.kind,
+      inputs: node.inputs ? node.inputs.length : 'none',
+      hasInputs: !!node.inputs
+    });
+    
+    if (node.inputs && node.inputs.length > 0) {
+      node.inputs.forEach((input, inputIndex) => {
+        if (input) {
+          console.log(`  Input ${inputIndex}:`, {
+            sourceNode: input.sourceNode ? (input.sourceNode.type || input.sourceNode.kind || input.sourceNode.id) : 'missing',
+            sourceOutput: input.sourceOutput,
+            structure: Object.keys(input)
+          });
+        }
+      });
+    }
+  });
+  
+  // Find nodes with connections
+  const connectedNodes = graph.nodes.filter(node => 
+    node.inputs && node.inputs.some(input => input !== null)
+  );
+  
+  console.log("Nodes with connections:", connectedNodes.length);
+  
+  if (connectedNodes.length > 0) {
+    const firstConnected = connectedNodes[0];
+    const firstInput = firstConnected.inputs.find(input => input !== null);
+    console.log("Sample connection structure:", firstInput);
+  }
+};
+
+console.log("Fixed test functions loaded. Run 'debugNodeStructure()' first to understand your node structure.");
+
+// Add this debug function to your main.js to check connection restoration
+
+window.debugConnectionAfterUndo = function() {
+  console.log("DEBUGGING CONNECTION AFTER UNDO");
+  console.log("================================");
+  
+  const graph = window.graph;
+  if (!graph || !graph.nodes) {
+    console.error("No graph found");
+    return;
+  }
+  
+  // Look for the specific nodes mentioned in the undo log
+  const sourceNode = graph.nodes.find(n => n.id == '6');
+  const targetNode = graph.nodes.find(n => n.id == '5');
+  
+  console.log("Source node (id: 6):", sourceNode ? {
+    id: sourceNode.id,
+    kind: sourceNode.kind,
+    exists: true
+  } : "NOT_FOUND");
+  
+  console.log("Target node (id: 5):", targetNode ? {
+    id: targetNode.id,
+    kind: targetNode.kind,
+    inputs: targetNode.inputs,
+    inputAtIndex0: targetNode.inputs ? targetNode.inputs[0] : "NO_INPUTS"
+  } : "NOT_FOUND");
+  
+  // Check all current connections
+  console.log("\nAll current connections:");
+  graph.nodes.forEach(node => {
+    if (node.inputs && node.inputs.length > 0) {
+      node.inputs.forEach((input, index) => {
+        if (input !== null && input !== undefined) {
+          console.log(`  ${node.kind}(${node.id}).input[${index}] = ${input}`);
+        }
+      });
+    }
+  });
+  
+  // Force a manual draw to see if that helps
+  console.log("\nForcing manual redraw...");
+  if (window.editor && window.editor.draw) {
+    window.editor.draw();
+  }
+  
+  // Force shader update
+  if (window.updateShaderFromGraph) {
+    console.log("Forcing shader update...");
+    window.updateShaderFromGraph();
+  }
+};
+
+// Also add a function to manually test wire drawing
+window.testWireDrawing = function() {
+  console.log("TESTING WIRE DRAWING");
+  console.log("====================");
+  
+  const graph = window.graph;
+  
+  // Find two unconnected nodes and manually connect them
+  const unconnectedNodes = graph.nodes.filter(node => 
+    !node.inputs || node.inputs.every(input => input === null || input === undefined)
+  );
+  
+  if (unconnectedNodes.length < 2) {
+    console.log("Not enough unconnected nodes for test");
+    return;
+  }
+  
+  const targetNode = unconnectedNodes[0];
+  const sourceNode = graph.nodes.find(n => n.id !== targetNode.id);
+  
+  console.log(`Manually connecting ${sourceNode.kind}(${sourceNode.id}) -> ${targetNode.kind}(${targetNode.id})`);
+  
+  // Ensure inputs array exists
+  if (!targetNode.inputs) {
+    targetNode.inputs = [];
+  }
+  
+  // Make sure array is long enough
+  while (targetNode.inputs.length === 0) {
+    targetNode.inputs.push(null);
+  }
+  
+  // Create connection
+  targetNode.inputs[0] = sourceNode.id;
+  
+  console.log("Connection created:", targetNode.inputs[0]);
+  
+  // Force redraw
+  if (window.editor && window.editor.draw) {
+    window.editor.draw();
+  }
+  
+  console.log("Check if wire is visible now!");
+};
+// Add this function to force a complete refresh of the editor
+
+window.forceCompleteRefresh = function() {
+  console.log("FORCING COMPLETE REFRESH");
+  console.log("=========================");
+  
+  // Clear any node caches
+  if (window.graph && window.graph.nodes) {
+    window.graph.nodes.forEach(node => {
+      // Clear common cache properties
+      delete node.cachedValue;
+      delete node.cached;
+      delete node.__thumb;
+      node.needsUpdate = true;
+    });
+  }
+  
+  // Force editor redraw
+  if (window.editor) {
+    if (window.editor.draw) {
+      console.log("Calling editor.draw()");
+      window.editor.draw();
+    }
+    
+    // Try to invalidate any renderer caches
+    if (window.editor.renderer) {
+      console.log("Refreshing renderer");
+      if (window.editor.renderer.invalidate) {
+        window.editor.renderer.invalidate();
+      }
+    }
+    
+    // Force preview updates
+    if (window.editor.nodePreviews) {
+      console.log("Refreshing node previews");
+      window.editor.nodePreviews.forEach((preview, nodeId) => {
+        preview.needsUpdate = true;
+      });
+    }
+  }
+  
+  // Force shader update
+  if (window.updateShaderFromGraph) {
+    console.log("Forcing shader update");
+    window.updateShaderFromGraph();
+  }
+  
+  // Force canvas refresh
+  const canvas = document.getElementById("ui-canvas");
+  if (canvas) {
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      console.log("Clearing canvas");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+  
+  // Force another draw after clearing
+  setTimeout(() => {
+    if (window.editor && window.editor.draw) {
+      console.log("Second draw call");
+      window.editor.draw();
+    }
+  }, 10);
+  
+  console.log("Refresh complete - check if wires are now visible!");
+};
+
+// Also let's update the UndoManager to force a more aggressive refresh
+window.enhanceUndoRefresh = function() {
+  if (window.undoManager) {
+    // Store original undo method
+    const originalUndo = window.undoManager.undo.bind(window.undoManager);
+    
+    // Replace with enhanced version
+    window.undoManager.undo = function() {
+      const result = originalUndo();
+      
+      if (result) {
+        console.log("Enhanced refresh after undo...");
+        
+        // Force complete refresh
+        setTimeout(() => {
+          window.forceCompleteRefresh();
+        }, 50);
+      }
+      
+      return result;
+    };
+    
+    console.log("Enhanced undo refresh installed");
+  }
+};
+
+console.log("Force refresh functions loaded:");
+console.log("- forceCompleteRefresh() - Force complete editor refresh");
+console.log("- enhanceUndoRefresh() - Make undo do aggressive refresh");
+console.log("Debug functions loaded:");
+console.log("- debugConnectionAfterUndo() - Check connection after undo");
+console.log("- testWireDrawing() - Test manual wire creation");
+// Test function to manually create a fake node deletion
+window.testNodeDeletion = function() {
+  console.log("Testing manual node deletion...");
+  
+  const graph = window.graph;
+  if (!graph || !graph.nodes || graph.nodes.length === 0) {
+    console.error("No nodes found to test deletion");
+    return;
+  }
+  
+  // Find a node that's not critical (avoid deleting output nodes)
+  let testNode = null;
+  for (const node of graph.nodes) {
+    if (node.type !== 'output' && node.type !== 'Output') {
+      testNode = node;
+      break;
+    }
+  }
+  
+  if (!testNode) {
+    testNode = graph.nodes[graph.nodes.length - 1]; // Just take the last one
+  }
+  
+  console.log("Found test node:", testNode.type, testNode.id);
+  
+  // Record the node for undo BEFORE deleting it
+  if (window.onNodeDeleted) {
+    window.onNodeDeleted(testNode);
+    console.log("Node recorded for undo");
+  }
+  
+  // Delete the node (simplified version)
+  const nodeIndex = graph.nodes.indexOf(testNode);
+  if (nodeIndex !== -1) {
+    graph.nodes.splice(nodeIndex, 1);
+    console.log("Node deleted from graph");
+  }
+  
+  // Remove connections to this node
+  graph.nodes.forEach(node => {
+    if (node.inputs) {
+      node.inputs.forEach((input, index) => {
+        if (input && input.sourceNode === testNode) {
+          node.inputs[index] = null;
+        }
+      });
+    }
+  });
+  
+  // Trigger UI update
+  if (window.editor && window.editor.draw) {
+    window.editor.draw();
+  }
+  if (window.updateShaderFromGraph) {
+    window.updateShaderFromGraph();
+  }
+  
+  console.log("Test node deletion complete. Try pressing Ctrl+Z or click Undo button!");
+};
+
+// Comprehensive test function
+window.testUndoSystem = function() {
+  console.log("COMPREHENSIVE UNDO SYSTEM TEST");
+  console.log("================================");
+  
+  // Check HTML elements
+  const undoBtn = document.getElementById("btn-undo");
+  const redoBtn = document.getElementById("btn-redo");
+  console.log("1. HTML Elements:");
+  console.log("   Undo button:", undoBtn ? "Found" : "Missing");
+  console.log("   Redo button:", redoBtn ? "Found" : "Missing");
+  
+  // Check UndoManager
+  console.log("2. UndoManager:");
+  console.log("   window.undoManager:", window.undoManager ? "Found" : "Missing");
+  if (window.undoManager) {
+    try {
+      const status = window.undoManager.getStatus();
+      console.log("   Status:", status);
+    } catch (e) {
+      console.log("   Error getting status:", e.message);
+    }
+  }
+  
+  // Check callback functions
+  console.log("3. Callback Functions:");
+  console.log("   onConnectionDeleted:", window.onConnectionDeleted ? "Found" : "Missing");
+  console.log("   onNodeDeleted:", window.onNodeDeleted ? "Found" : "Missing");
+  
+  // Check graph
+  console.log("4. Graph:");
+  console.log("   window.graph:", window.graph ? "Found" : "Missing");
+  if (window.graph) {
+    console.log("   Nodes count:", window.graph.nodes ? window.graph.nodes.length : "No nodes array");
+  }
+  
+  // Check editor
+  console.log("5. Editor:");
+  console.log("   window.editor:", window.editor ? "Found" : "Missing");
+  
+  console.log("================================");
+  console.log("Test functions available:");
+  console.log("   testConnectionDeletion() - Test connection undo");
+  console.log("   testNodeDeletion() - Test node undo");
+  console.log("   testUndo() - Basic system check");
+  
+  return {
+    htmlElements: { undo: !!undoBtn, redo: !!redoBtn },
+    undoManager: !!window.undoManager,
+    callbacks: { 
+      connection: !!window.onConnectionDeleted, 
+      node: !!window.onNodeDeleted 
+    },
+    graph: !!window.graph,
+    editor: !!window.editor
+  };
+};
+
+console.log("Undo test functions loaded. Run 'testUndoSystem()' in console to debug.");
 
 // Initialize when DOM is ready
 if (document.readyState === "loading") {

@@ -6,6 +6,55 @@
     <title>GLSL Node Editor</title>
     <link rel="stylesheet" href="./style.css" />
     <link rel="stylesheet" href="src/styles/texture.css" />
+    <style>
+      /* Undo/Redo button styling */
+      #btn-undo, #btn-redo {
+        background: var(--bg-secondary, #2a2a2a);
+        border: 1px solid var(--border-color, #444);
+        color: var(--text-color, #ffffff);
+        padding: 8px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 0 2px;
+      }
+
+      #btn-undo:hover:not(:disabled), 
+      #btn-redo:hover:not(:disabled) {
+        background: var(--bg-hover, #3a3a3a);
+        border-color: var(--accent-color, #0078d4);
+      }
+
+      #btn-undo:disabled, 
+      #btn-redo:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .icon {
+        font-size: 14px;
+        font-weight: bold;
+      }
+
+      /* History section styling */
+      .history-section {
+        display: inline-block;
+        margin: 0 8px;
+        padding: 0 8px;
+        border-left: 1px solid #444;
+        border-right: 1px solid #444;
+      }
+
+      .history-section label {
+        font-size: 11px;
+        color: #aaa;
+        margin-right: 4px;
+      }
+    </style>
   </head>
   <body>
     <canvas id="gpu-canvas"></canvas>
@@ -19,6 +68,18 @@
       <label style="margin-right: 8px"
         ><input type="checkbox" id="snap-toggle" /> Snap</label
       >
+      
+      <!-- History section with proper inline styling -->
+      <span class="history-section">
+        <label>History:</label>
+        <button id="btn-undo" title="Undo last action (Ctrl+Z)" disabled>
+          <span class="icon">↶</span> Undo
+        </button>
+        <button id="btn-redo" title="Redo last action (Ctrl+Y)" disabled>
+          <span class="icon">↷</span> Redo
+        </button>
+      </span>
+      
       <button id="btn-rebuild">Rebuild</button>
       <button id="btn-save">Save Project</button>
       <button id="btn-load">Load Project</button>
