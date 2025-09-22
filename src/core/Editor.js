@@ -199,8 +199,7 @@ initializePreviewSystem() {
   }
 
   // ---- Legacy compatibility methods ----
-  undo() {}
-  redo() {}
+
   copySelected() {}
   pasteAtCursor() {}
 }
