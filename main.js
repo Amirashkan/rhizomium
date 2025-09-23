@@ -716,11 +716,6 @@ window.traceDeleteActions = function() {
   console.log("Now try deleting a node or connection - you should see trace output");
 };
 
-// Run the trace setup
-window.traceDeleteActions();
-
-// Alternative: Quick fix by directly modifying the methods
-// Add this to your main.js after initialization:
 
 window.quickFixUndo = function() {
   console.log("=== APPLYING QUICK UNDO FIX ===");
@@ -825,44 +820,8 @@ window.quickFixUndo = function() {
   console.log("Now try deleting nodes/connections - undo should work!");
 };
 
-// Apply the quick fix
-window.quickFixUndo();
 
-// Test function to verify the fix works
-window.testRealDeletion = function() {
-  console.log("=== TESTING REAL DELETION WITH UNDO ===");
-  
-  // Select a node
-  if (window.graph && window.graph.nodes && window.graph.nodes.length > 0) {
-    const testNode = window.graph.nodes.find(n => n.kind !== 'OutputFinal');
-    if (testNode && window.editor && window.editor.selection) {
-      
-      // Select the node
-      if (window.editor.selection.clear) window.editor.selection.clear();
-      if (window.editor.selection.add) window.editor.selection.add(testNode);
-      
-      console.log("Selected node for testing:", testNode.kind, testNode.id);
-      console.log("Now calling deleteSelected() - should trigger undo recording...");
-      
-      // Delete using the real method
-      if (window.editor.selection.deleteSelected) {
-        window.editor.selection.deleteSelected();
-        
-        // Check undo state
-        if (window.undoManager) {
-          const status = window.undoManager.getStatus();
-          console.log("After deletion, undo status:", status);
-          
-          if (status.undoCount > 0) {
-            console.log("SUCCESS! Undo is now available - try Ctrl+Z");
-          } else {
-            console.log("FAILED! No undo recorded");
-          }
-        }
-      }
-    }
-  }
-};
+
   // Add keyboard handler for Delete key
   window.addEventListener("keydown", (e) => {
     if (editor && editor.handleKeyDown) {

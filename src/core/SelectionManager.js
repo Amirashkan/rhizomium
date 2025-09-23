@@ -1,4 +1,4 @@
-// src/core/SelectionManager.js
+// src/core/SelectionManager.js - Updated with permanent undo integration
 import { NodeDefs, makeNode } from "../data/NodeDefs.js";
 
 let _nextId = 1; // TODO: Move this to a proper ID generator utility
@@ -114,9 +114,21 @@ export class SelectionManager {
     if (this.onChange) this.onChange();
   }
 
+  // UPDATED: deleteSelected with undo support
   deleteSelected() {
     const ids = new Set(this.graph.selection);
     if (ids.size === 0) return;
+
+    // Get nodes to delete before removing them
+    const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
+
+    // Record each node for undo BEFORE deletion
+    nodesToDelete.forEach(node => {
+      if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
+        console.log("SelectionManager: Recording node deletion for undo:", node.kind, node.id);
+        window.onNodeDeleted(node);
+      }
+    });
 
     // Remove connections involving selected nodes
     this.graph.connections = this.graph.connections.filter(

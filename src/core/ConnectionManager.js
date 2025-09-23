@@ -1,4 +1,4 @@
-// src/core/ConnectionManager.js
+// src/core/ConnectionManager.js - Updated with permanent undo integration
 import { NodeDefs } from "../data/NodeDefs.js";
 
 export class ConnectionManager {
@@ -25,6 +25,7 @@ export class ConnectionManager {
     }
   }
 
+  // UPDATED: endWireDrag with undo support for connection creation
   endWireDrag(targetPos, hitInputPin) {
     if (!this.dragWire) return false;
 
@@ -47,6 +48,12 @@ export class ConnectionManager {
         toNode.inputs[hitInputPin.pin] = this.dragWire.from.nodeId;
       }
 
+      // Record for undo AFTER successful creation
+      if (window.onConnectionCreated && typeof window.onConnectionCreated === 'function') {
+        console.log("ConnectionManager: Recording connection creation for undo");
+        window.onConnectionCreated(this.dragWire.from.nodeId, hitInputPin.nodeId, hitInputPin.pin);
+      }
+
       if (this.onChange) this.onChange();
 
       // UPDATE PREVIEWS WHEN CONNECTION ADDED
@@ -62,11 +69,36 @@ export class ConnectionManager {
     return false;
   }
 
+  // UPDATED: removeConnection with undo support
   removeConnection(nodeId, inputPin) {
+    const targetNode = this.graph.nodes.find(n => n.id === nodeId);
+    
+    // Record connection for undo BEFORE deletion
+    if (targetNode && targetNode.inputs && targetNode.inputs[inputPin]) {
+      const sourceNodeId = targetNode.inputs[inputPin];
+      const sourceNode = this.graph.nodes.find(n => n.id == sourceNodeId);
+      
+      if (sourceNode && window.onConnectionDeleted && typeof window.onConnectionDeleted === 'function') {
+        const connectionData = {
+          sourceNode: sourceNode,
+          targetNode: targetNode,
+          targetInput: inputPin
+        };
+        console.log("ConnectionManager: Recording connection deletion for undo");
+        window.onConnectionDeleted(connectionData);
+      }
+    }
+
+    // Perform the actual removal
     const initialLength = this.graph.connections.length;
     this.graph.connections = this.graph.connections.filter(
       (c) => !(c.to.nodeId === nodeId && c.to.pin === inputPin),
     );
+
+    // Also remove from node inputs array
+    if (targetNode && targetNode.inputs) {
+      targetNode.inputs[inputPin] = null;
+    }
 
     if (this.graph.connections.length !== initialLength) {
       if (this.onChange) this.onChange();
