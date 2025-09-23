@@ -228,7 +228,14 @@ function onConnectionDeleted(connection) {
     console.warn("UndoManager not available or connection invalid:", { undoManager: !!undoManager, connection });
   }
 }
-
+function onNodesMovement(movementData) {
+  console.log("Nodes movement callback:", movementData);
+  if (undoManager && movementData) {
+    undoManager.recordNodeMovement(movementData);
+  } else {
+    console.warn("UndoManager not available or movement data invalid:", { undoManager: !!undoManager, movementData });
+  }
+}
 function onNodeDeleted(node) {
   console.log("Node deleted callback:", node);
   if (undoManager && node) {
@@ -257,6 +264,7 @@ window.onConnectionDeleted = onConnectionDeleted;
 window.onNodeDeleted = onNodeDeleted;
 window.onConnectionCreated = onConnectionCreated;
 window.onNodeCreated = onNodeCreated;
+window.onNodesMovement = onNodesMovement;
 
 function setupUIEventHandlers() {
   console.log("Setting up UI event handlers...");
@@ -536,42 +544,63 @@ function setupKeyboardShortcuts() {
       return;
     }
 
+    // UNDO/REDO SHORTCUTS - Handle these first
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      console.log("Ctrl+Z pressed - UNDO");
+      if (undoManager) {
+        const result = undoManager.undo();
+        console.log("Undo result:", result);
+        updateStatus(result ? "Undo successful" : "Nothing to undo");
+      }
+      return;
+    }
+
+    // Redo: Ctrl+Shift+Z or Ctrl+Y
+    if (((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) ||
+        ((e.ctrlKey || e.metaKey) && e.key === 'y')) {
+      e.preventDefault();
+      console.log("Redo shortcut pressed");
+      if (undoManager) {
+        const result = undoManager.redo();
+        console.log("Redo result:", result);
+        updateStatus(result ? "Redo successful" : "Nothing to redo");
+      }
+      return;
+    }
+    
+    // ARROW KEY MOVEMENT - Handle these next
+    if (e.key.startsWith('Arrow') && editor && editor.selection.getSelected().size > 0) {
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1; // Hold shift for larger steps
+      
+      switch (e.key) {
+        case 'ArrowLeft':
+          editor.selection.moveSelected(-step, 0);
+          break;
+        case 'ArrowRight':
+          editor.selection.moveSelected(step, 0);
+          break;
+        case 'ArrowUp':
+          editor.selection.moveSelected(0, -step);
+          break;
+        case 'ArrowDown':
+          editor.selection.moveSelected(0, step);
+          break;
+      }
+      if (editor.draw) {
+        editor.draw();
+      }
+      return;
+    }
+
+    // OTHER CTRL SHORTCUTS
     const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
     const cmdKey = isMac ? e.metaKey : e.ctrlKey;
 
     if (!cmdKey) return;
 
     switch (e.key.toLowerCase()) {
-      // Undo/Redo shortcuts
-      case "z":
-        e.preventDefault();
-        if (e.shiftKey) {
-          console.log("Ctrl+Shift+Z pressed - REDO");
-          if (undoManager) {
-            const result = undoManager.redo();
-            console.log("Redo result:", result);
-            updateStatus(result ? "Redo successful" : "Nothing to redo");
-          }
-        } else {
-          console.log("Ctrl+Z pressed - UNDO");
-          if (undoManager) {
-            const result = undoManager.undo();
-            console.log("Undo result:", result);
-            updateStatus(result ? "Undo successful" : "Nothing to undo");
-          }
-        }
-        break;
-      case "y":
-        if (!e.shiftKey) {
-          e.preventDefault();
-          // Ctrl+Y: Redo
-          console.log("Ctrl+Y pressed - REDO");
-          if (undoManager) {
-            undoManager.redo();
-          }
-        }
-        break;
-
       case "s":
         e.preventDefault();
         if (e.shiftKey) {

@@ -1,4 +1,4 @@
-// src/core/Editor.js - Clean version with proper undo integration
+// src/core/Editor.js - Updated with node movement undo support
 import { EventHandler } from "./EventHandler.js";
 import { Renderer } from "./Renderer.js";
 import { MenuManager } from "../ui/MenuManager.js";
@@ -32,14 +32,26 @@ export class Editor {
     // Use the provided UndoManager instead of creating a new one
     this.undoManager = undoManager;
     
+    // Set undo manager on selection manager for movement tracking
+    if (this.undoManager && this.selection.setUndoManager) {
+      this.selection.setUndoManager(this.undoManager);
+    }
+    
     // Create ParameterPanel with undo support
-this.paramPanel = new ParameterPanel(this.graph, this.onChange, this.undoManager, window.parameterEventSystem);
+    this.paramPanel = new ParameterPanel(this.graph, this.onChange, this.undoManager, window.parameterEventSystem);
 
     // Preview system settings
     this.previewSizes = { small: 32, medium: 64, large: 96 };
 
     // Initialize NEW preview system
     this.initializePreviewSystem();
+
+    // Track movement state for undo
+    this.movementState = {
+      isMoving: false,
+      originalPositions: new Map(),
+      movedNodes: new Set()
+    };
 
     // Initialize event handling
     this.eventHandler = new EventHandler({
@@ -98,6 +110,105 @@ this.paramPanel = new ParameterPanel(this.graph, this.onChange, this.undoManager
     // Initialize the NEW preview system using factory method
     this.previewSystem = PreviewSystem.create(this);
     this.previewIntegration = this.previewSystem.integration;
+  }
+
+  // ---- NODE MOVEMENT UNDO INTEGRATION ----
+  
+  /**
+   * Start tracking node movement for undo
+   * Call this when mouse down on a node that will be moved
+   */
+  startNodeMovement(nodesToMove) {
+    if (this.movementState.isMoving) {
+      return; // Already tracking movement
+    }
+
+    console.log('Editor: Starting node movement tracking for undo');
+    this.movementState.isMoving = true;
+    this.movementState.originalPositions.clear();
+    this.movementState.movedNodes.clear();
+
+    // Record original positions
+    nodesToMove.forEach(node => {
+      this.movementState.originalPositions.set(node.id, {
+        x: node.x,
+        y: node.y
+      });
+      this.movementState.movedNodes.add(node);
+    });
+  }
+
+  /**
+   * Finish tracking node movement and record for undo
+   * Call this when mouse up after moving nodes
+   */
+  finishNodeMovement() {
+    if (!this.movementState.isMoving || this.movementState.movedNodes.size === 0) {
+      return;
+    }
+
+    console.log('Editor: Finishing node movement tracking for undo');
+
+    // Check if any nodes actually moved
+    let hasMovement = false;
+    const movementData = [];
+
+    this.movementState.movedNodes.forEach(node => {
+      const originalPos = this.movementState.originalPositions.get(node.id);
+      if (originalPos && (originalPos.x !== node.x || originalPos.y !== node.y)) {
+        hasMovement = true;
+        movementData.push({
+          nodeId: node.id,
+          oldX: originalPos.x,
+          oldY: originalPos.y,
+          newX: node.x,
+          newY: node.y
+        });
+      }
+    });
+
+    // Only record undo if there was actual movement
+    if (hasMovement && window.onNodesMovement && typeof window.onNodesMovement === 'function') {
+      console.log('Editor: Recording node movement for undo:', movementData);
+      window.onNodesMovement(movementData);
+    }
+
+    // Reset movement state
+    this.movementState.isMoving = false;
+    this.movementState.originalPositions.clear();
+    this.movementState.movedNodes.clear();
+  }
+
+  /**
+   * Cancel node movement tracking without recording undo
+   * Call this if movement is cancelled (e.g., ESC key)
+   */
+  cancelNodeMovement() {
+    console.log('Editor: Cancelling node movement tracking');
+    this.movementState.isMoving = false;
+    this.movementState.originalPositions.clear();
+    this.movementState.movedNodes.clear();
+  }
+
+  /**
+   * Move nodes to specific positions (used by undo/redo)
+   */
+  moveNodesToPositions(movementData) {
+    console.log('Editor: Moving nodes to positions for undo/redo:', movementData);
+    
+    movementData.forEach(({ nodeId, newX, newY }) => {
+      const node = this.graph.nodes.find(n => n.id === nodeId);
+      if (node) {
+        node.x = newX;
+        node.y = newY;
+      }
+    });
+
+    // Trigger updates
+    if (this.onChange) {
+      this.onChange();
+    }
+    this.draw();
   }
 
   // ---- UNDO SYSTEM INTEGRATION ----
@@ -254,29 +365,35 @@ this.paramPanel = new ParameterPanel(this.graph, this.onChange, this.undoManager
   }
 
   // Keyboard handler that calls undo-aware methods
-handleKeyDown(event) {
-  if (event.key === 'Delete' || event.key === 'Backspace') {
-    event.preventDefault();
-    
-    if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
-      const nodesToDelete = Array.from(this.selection.getSelected());
-      console.log('Deleting selected nodes:', nodesToDelete.length);
+  handleKeyDown(event) {
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
       
-      nodesToDelete.forEach(node => {
-        this.deleteNode(node);
-      });
-      
-      // Check if clear method exists before calling it
-      if (this.selection.clear) {
-        this.selection.clear();
+      if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
+        const nodesToDelete = Array.from(this.selection.getSelected());
+        console.log('Deleting selected nodes:', nodesToDelete.length);
+        
+        nodesToDelete.forEach(node => {
+          this.deleteNode(node);
+        });
+        
+        // Check if clear method exists before calling it
+        if (this.selection.clear) {
+          this.selection.clear();
+        }
       }
+      
+      return true;
     }
     
-    return true;
+    // Cancel movement on ESC
+    if (event.key === 'Escape') {
+      this.cancelNodeMovement();
+      return true;
+    }
+    
+    return false;
   }
-  
-  return false;
-}
 
   // Mouse event handlers
   handleRightClick(mouseX, mouseY) {
@@ -294,26 +411,6 @@ handleKeyDown(event) {
 
     // Check if clicking on a node
     const node = this.getNodeAt(canvasX, canvasY);
-    if (node) {
-      if (confirm(`Delete node "${node.kind}"?`)) {
-        this.deleteNode(node);
-      }
-      return true;
-    }
-
-    return false;
-  }
-
-  handleRightClickOld(mouseX, mouseY) {
-    // Check if clicking on a connection
-    const connectionInfo = this.getConnectionAt(mouseX, mouseY);
-    if (connectionInfo) {
-      this.deleteConnection(connectionInfo.sourceNode, connectionInfo.targetNode, connectionInfo.targetInput);
-      return true;
-    }
-
-    // Check if clicking on a node
-    const node = this.getNodeAt(mouseX, mouseY);
     if (node) {
       if (confirm(`Delete node "${node.kind}"?`)) {
         this.deleteNode(node);

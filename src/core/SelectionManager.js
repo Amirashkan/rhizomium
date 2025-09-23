@@ -9,8 +9,39 @@ export class SelectionManager {
     this.onChange = onChange;
     this.boxSelect = null;
     this.dragging = null;
+    this.undoManager = null;
   }
 
+// Setter for undoManager (called from Editor)
+setUndoManager(undoManager) {
+  this.undoManager = undoManager;
+}
+
+// Updated startDrag method
+startDrag(nodeId, startX, startY) {
+  let dragIds;
+
+  if (this.graph.selection.has(nodeId)) {
+    dragIds = new Set(this.graph.selection);
+  } else {
+    dragIds = new Set([nodeId]);
+    this.graph.selection = new Set([nodeId]);
+    if (this.onChange) this.onChange();
+  }
+
+  const orig = {};
+  for (const id of dragIds) {
+    const n = this.graph.nodes.find((m) => m.id === id);
+    if (n) orig[id] = { x: n.x, y: n.y };
+  }
+
+  this.dragging = {
+    ids: dragIds,
+    start: { x: startX, y: startY },
+    orig,
+    hasMoved: false // Track if any movement has occurred
+  };
+}
   getSelected() {
     return this.graph.selection;
   }
@@ -87,27 +118,62 @@ export class SelectionManager {
     };
   }
 
-  updateDrag(currentX, currentY) {
-    if (!this.dragging) return;
+updateDrag(currentX, currentY) {
+  if (!this.dragging) return;
 
-    const dx = currentX - this.dragging.start.x;
-    const dy = currentY - this.dragging.start.y;
+  const dx = currentX - this.dragging.start.x;
+  const dy = currentY - this.dragging.start.y;
 
+  // Track if there's been any movement
+  if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+    this.dragging.hasMoved = true;
+  }
+
+  for (const id of this.dragging.ids) {
+    const n = this.graph.nodes.find((m) => m.id === id);
+    if (!n) continue;
+
+    const o = this.dragging.orig[id];
+    n.x = o.x + dx;
+    n.y = o.y + dy;
+  }
+
+  if (this.onChange) this.onChange();
+}
+
+endDrag() {
+  if (!this.dragging) return;
+
+  // Only record for undo if there was actual movement
+  if (this.dragging.hasMoved && this.undoManager) {
+    const nodePositions = {};
+    
     for (const id of this.dragging.ids) {
-      const n = this.graph.nodes.find((m) => m.id === id);
-      if (!n) continue;
-
-      const o = this.dragging.orig[id];
-      n.x = o.x + dx;
-      n.y = o.y + dy;
+      const node = this.graph.nodes.find(m => m.id === id);
+      if (node) {
+        const originalPos = this.dragging.orig[id];
+        const currentPos = { x: node.x, y: node.y };
+        
+        // Only record if position actually changed
+        if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
+          nodePositions[id] = {
+            oldPos: originalPos,
+            newPos: currentPos
+          };
+        }
+      }
     }
 
-    if (this.onChange) this.onChange();
+    // Record for undo if any nodes actually moved
+    if (Object.keys(nodePositions).length > 0) {
+      console.log('Recording node movement for undo:', Object.keys(nodePositions).length, 'nodes');
+      this.undoManager.recordNodeMovement(nodePositions);
+    }
   }
 
-  endDrag() {
-    this.dragging = null;
-  }
+  this.dragging = null;
+}
+
 
   selectAll() {
     this.graph.selection = new Set(this.graph.nodes.map((n) => n.id));
@@ -230,15 +296,31 @@ export class SelectionManager {
     const ids = this.graph.selection || new Set();
     if (!ids.size) return;
 
-    for (const n of this.graph.nodes) {
-      if (ids.has(n.id)) {
-        n.x = (n.x || 0) + dx;
-        n.y = (n.y || 0) + dy;
-      }
-    }
+  // Store original positions
+  const nodePositions = {};
+  
 
-    if (this.onChange) this.onChange();
+  for (const n of this.graph.nodes) {
+    if (ids.has(n.id)) {
+      const originalPos = { x: n.x || 0, y: n.y || 0 };
+      n.x = originalPos.x + dx;
+      n.y = originalPos.y + dy;
+      
+      nodePositions[n.id] = {
+        oldPos: originalPos,
+        newPos: { x: n.x, y: n.y }
+      };
+    }
   }
+
+  // Record for undo if we have an undoManager and nodes were moved
+  if (this.undoManager && Object.keys(nodePositions).length > 0) {
+    console.log('Recording keyboard movement for undo:', Object.keys(nodePositions).length, 'nodes');
+    this.undoManager.recordNodeMovement(nodePositions);
+  }
+
+  if (this.onChange) this.onChange();
+}
 
   duplicateSelected() {
     const ids = Array.from(this.graph.selection || []);
