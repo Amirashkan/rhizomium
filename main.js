@@ -535,33 +535,24 @@ function setupKeyboardShortcuts() {
 
     switch (e.key.toLowerCase()) {
       // Undo/Redo shortcuts
-      case "z":
-        e.preventDefault();
-        if (e.shiftKey) {
-          // Ctrl+Shift+Z: Redo
-          console.log("Ctrl+Shift+Z pressed - REDO");
-          if (undoManager) {
-            const result = undoManager.redo();
-            console.log("Redo result:", result);
-            updateStatus(result ? "Redo successful" : "Nothing to redo");
-          } else {
-            console.error("UndoManager not available for redo");
-            updateStatus("Redo not available", "error");
-          }
-        } else {
-          // Ctrl+Z: Undo
-          console.log("Ctrl+Z pressed - UNDO");
-          if (undoManager) {
-            const result = undoManager.undo();
-            console.log("Undo result:", result);
-            updateStatus(result ? "Undo successful" : "Nothing to undo");
-          } else {
-            console.error("UndoManager not available for undo");
-            updateStatus("Undo not available", "error");
-          }
-        }
-        break;
-
+case "z":
+  e.preventDefault();
+  if (e.shiftKey) {
+    console.log("Ctrl+Shift+Z pressed - REDO");
+    if (undoManager) {
+      const result = undoManager.redo();
+      console.log("Redo result:", result);
+      updateStatus(result ? "Redo successful" : "Nothing to redo");
+    }
+  } else {
+    console.log("Ctrl+Z pressed - UNDO");
+    if (undoManager) {
+      const result = undoManager.undo();
+      console.log("Undo result:", result);
+      updateStatus(result ? "Undo successful" : "Nothing to undo");
+    }
+  }
+  break;
       case "y":
         if (!e.shiftKey) {
           e.preventDefault();
