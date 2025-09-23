@@ -204,9 +204,16 @@ async function initialize() {
 function onConnectionDeleted(connection) {
   console.log("Connection deleted callback:", connection);
   if (undoManager && connection) {
-    undoManager.recordConnectionDeletion(connection);
+    // Ensure we have the right format for the UndoManager
+    const connectionData = {
+      sourceNode: connection.sourceNode || connection.from,
+      targetNode: connection.targetNode || connection.to,
+      targetInput: connection.targetInput || connection.inputIndex || 0
+    };
+    
+    undoManager.recordConnectionDeletion(connectionData);
   } else {
-    console.warn("UndoManager not available or connection invalid");
+    console.warn("UndoManager not available or connection invalid:", { undoManager: !!undoManager, connection });
   }
 }
 
@@ -215,13 +222,33 @@ function onNodeDeleted(node) {
   if (undoManager && node) {
     undoManager.recordNodeDeletion(node);
   } else {
-    console.warn("UndoManager not available or node invalid");
+    console.warn("UndoManager not available or node invalid:", { undoManager: !!undoManager, node });
   }
 }
 
 // Expose these functions globally so Editor can call them
 window.onConnectionDeleted = onConnectionDeleted;
 window.onNodeDeleted = onNodeDeleted;
+
+function onConnectionCreated(sourceNodeId, targetNodeId, targetInput) {
+  console.log("Connection created callback:", { sourceNodeId, targetNodeId, targetInput });
+  if (undoManager) {
+    undoManager.recordConnectionCreation(sourceNodeId, targetNodeId, targetInput);
+  }
+}
+
+function onNodeCreated(node) {
+  console.log("Node created callback:", node);
+  if (undoManager && node) {
+    undoManager.recordNodeCreation(node);
+  }
+}
+
+// Expose these functions globally so Editor can call them
+window.onConnectionDeleted = onConnectionDeleted;
+window.onNodeDeleted = onNodeDeleted;
+window.onConnectionCreated = onConnectionCreated;
+window.onNodeCreated = onNodeCreated;
 
 function setupUIEventHandlers() {
   console.log("Setting up UI event handlers...");
@@ -514,13 +541,23 @@ function setupKeyboardShortcuts() {
           // Ctrl+Shift+Z: Redo
           console.log("Ctrl+Shift+Z pressed - REDO");
           if (undoManager) {
-            undoManager.redo();
+            const result = undoManager.redo();
+            console.log("Redo result:", result);
+            updateStatus(result ? "Redo successful" : "Nothing to redo");
+          } else {
+            console.error("UndoManager not available for redo");
+            updateStatus("Redo not available", "error");
           }
         } else {
           // Ctrl+Z: Undo
           console.log("Ctrl+Z pressed - UNDO");
           if (undoManager) {
-            undoManager.undo();
+            const result = undoManager.undo();
+            console.log("Undo result:", result);
+            updateStatus(result ? "Undo successful" : "Nothing to undo");
+          } else {
+            console.error("UndoManager not available for undo");
+            updateStatus("Undo not available", "error");
           }
         }
         break;
@@ -603,7 +640,229 @@ function setupKeyboardShortcuts() {
         break;
     }
   });
+// Add this debug function to your main.js to trace what's happening:
 
+window.traceDeleteActions = function() {
+  console.log("=== TRACING DELETE ACTIONS ===");
+  
+  // Override selection manager to trace calls
+  if (window.editor && window.editor.selection && window.editor.selection.deleteSelected) {
+    const originalDelete = window.editor.selection.deleteSelected.bind(window.editor.selection);
+    
+    window.editor.selection.deleteSelected = function() {
+      console.log("SelectionManager.deleteSelected() called - this should trigger undo callbacks!");
+      console.log("Selected nodes:", Array.from(this.getSelected()));
+      
+      // Get selected nodes before deletion
+      const nodesToDelete = Array.from(this.getSelected());
+      
+      // Record each node for undo BEFORE deleting
+      nodesToDelete.forEach(node => {
+        if (window.onNodeDeleted) {
+          console.log("Recording node deletion for undo:", node.kind, node.id);
+          window.onNodeDeleted(node);
+        } else {
+          console.error("onNodeDeleted callback not available!");
+        }
+      });
+      
+      // Call original delete method
+      return originalDelete();
+    };
+    
+    console.log("SelectionManager.deleteSelected() has been wrapped with undo recording");
+  } else {
+    console.error("SelectionManager.deleteSelected() not found - this is the problem!");
+  }
+  
+  // Also trace connection manager
+  if (window.editor && window.editor.connections && window.editor.connections.removeConnection) {
+    const originalRemove = window.editor.connections.removeConnection.bind(window.editor.connections);
+    
+    window.editor.connections.removeConnection = function(nodeId, inputPin) {
+      console.log("ConnectionManager.removeConnection() called - should trigger undo callback!");
+      console.log("Removing connection:", nodeId, inputPin);
+      
+      // Get connection details BEFORE deletion
+      const targetNode = this.graph.nodes.find(n => n.id === nodeId);
+      if (targetNode && targetNode.inputs && targetNode.inputs[inputPin]) {
+        const sourceNodeId = targetNode.inputs[inputPin];
+        const sourceNode = this.graph.nodes.find(n => n.id == sourceNodeId);
+        
+        if (sourceNode) {
+          const connectionData = {
+            sourceNode: sourceNode,
+            targetNode: targetNode,
+            targetInput: inputPin
+          };
+          
+          if (window.onConnectionDeleted) {
+            console.log("Recording connection deletion for undo:", connectionData);
+            window.onConnectionDeleted(connectionData);
+          } else {
+            console.error("onConnectionDeleted callback not available!");
+          }
+        }
+      }
+      
+      // Call original remove method
+      return originalRemove(nodeId, inputPin);
+    };
+    
+    console.log("ConnectionManager.removeConnection() has been wrapped with undo recording");
+  }
+  
+  console.log("=== TRACE SETUP COMPLETE ===");
+  console.log("Now try deleting a node or connection - you should see trace output");
+};
+
+// Run the trace setup
+window.traceDeleteActions();
+
+// Alternative: Quick fix by directly modifying the methods
+// Add this to your main.js after initialization:
+
+window.quickFixUndo = function() {
+  console.log("=== APPLYING QUICK UNDO FIX ===");
+  
+  // Fix SelectionManager deletion
+  if (window.editor && window.editor.selection) {
+    const selection = window.editor.selection;
+    
+    // Store original method
+    const originalDeleteSelected = selection.deleteSelected ? 
+      selection.deleteSelected.bind(selection) : null;
+    
+    // Create undo-aware replacement
+    selection.deleteSelected = function() {
+      const selected = this.getSelected ? Array.from(this.getSelected()) : [];
+      console.log("Quick fix: deleting", selected.length, "nodes with undo support");
+      
+      // Record each for undo before deletion
+      selected.forEach(node => {
+        if (window.onNodeDeleted) {
+          window.onNodeDeleted(node);
+        }
+      });
+      
+      // Perform deletion
+      if (originalDeleteSelected) {
+        return originalDeleteSelected();
+      } else {
+        // Manual deletion if no original method
+        selected.forEach(node => {
+          const nodeIndex = this.graph.nodes.indexOf(node);
+          if (nodeIndex !== -1) {
+            // Remove connections first
+            this.graph.nodes.forEach(otherNode => {
+              if (otherNode.inputs) {
+                otherNode.inputs.forEach((input, index) => {
+                  if (input === node.id) {
+                    otherNode.inputs[index] = null;
+                  }
+                });
+              }
+            });
+            
+            // Remove node
+            this.graph.nodes.splice(nodeIndex, 1);
+          }
+        });
+        
+        // Clear selection
+        if (this.clear) this.clear();
+        
+        // Trigger updates
+        if (window.editor.onChange) window.editor.onChange();
+        if (window.updateShaderFromGraph) window.updateShaderFromGraph();
+      }
+    };
+    
+    console.log("SelectionManager.deleteSelected() fixed");
+  }
+  
+  // Fix ConnectionManager removal
+  if (window.editor && window.editor.connections) {
+    const connections = window.editor.connections;
+    
+    const originalRemove = connections.removeConnection ? 
+      connections.removeConnection.bind(connections) : null;
+    
+    connections.removeConnection = function(nodeId, inputPin) {
+      console.log("Quick fix: removing connection with undo support");
+      
+      // Record for undo before deletion
+      const targetNode = this.graph.nodes.find(n => n.id === nodeId);
+      if (targetNode && targetNode.inputs && targetNode.inputs[inputPin]) {
+        const sourceNodeId = targetNode.inputs[inputPin];
+        const sourceNode = this.graph.nodes.find(n => n.id == sourceNodeId);
+        
+        if (sourceNode && window.onConnectionDeleted) {
+          window.onConnectionDeleted({
+            sourceNode: sourceNode,
+            targetNode: targetNode,
+            targetInput: inputPin
+          });
+        }
+      }
+      
+      // Perform deletion
+      if (originalRemove) {
+        return originalRemove(nodeId, inputPin);
+      } else {
+        // Manual deletion
+        if (targetNode && targetNode.inputs) {
+          targetNode.inputs[inputPin] = null;
+          if (this.onChange) this.onChange();
+        }
+      }
+    };
+    
+    console.log("ConnectionManager.removeConnection() fixed");
+  }
+  
+  console.log("=== QUICK FIX APPLIED ===");
+  console.log("Now try deleting nodes/connections - undo should work!");
+};
+
+// Apply the quick fix
+window.quickFixUndo();
+
+// Test function to verify the fix works
+window.testRealDeletion = function() {
+  console.log("=== TESTING REAL DELETION WITH UNDO ===");
+  
+  // Select a node
+  if (window.graph && window.graph.nodes && window.graph.nodes.length > 0) {
+    const testNode = window.graph.nodes.find(n => n.kind !== 'OutputFinal');
+    if (testNode && window.editor && window.editor.selection) {
+      
+      // Select the node
+      if (window.editor.selection.clear) window.editor.selection.clear();
+      if (window.editor.selection.add) window.editor.selection.add(testNode);
+      
+      console.log("Selected node for testing:", testNode.kind, testNode.id);
+      console.log("Now calling deleteSelected() - should trigger undo recording...");
+      
+      // Delete using the real method
+      if (window.editor.selection.deleteSelected) {
+        window.editor.selection.deleteSelected();
+        
+        // Check undo state
+        if (window.undoManager) {
+          const status = window.undoManager.getStatus();
+          console.log("After deletion, undo status:", status);
+          
+          if (status.undoCount > 0) {
+            console.log("SUCCESS! Undo is now available - try Ctrl+Z");
+          } else {
+            console.log("FAILED! No undo recorded");
+          }
+        }
+      }
+    }
+  }
+};
   // Add keyboard handler for Delete key
   window.addEventListener("keydown", (e) => {
     if (editor && editor.handleKeyDown) {
@@ -861,6 +1120,9 @@ window.updateStatus = updateStatus;
 
 // REPLACE the testConnectionDeletion function in your main.js with this corrected version
 
+// Fixed testConnectionDeletion function for main.js
+// Replace the broken testConnectionDeletion function with this:
+
 window.testConnectionDeletion = function() {
   console.log("Testing manual connection deletion...");
   
@@ -878,7 +1140,6 @@ window.testConnectionDeletion = function() {
   for (const node of graph.nodes) {
     if (node.inputs && node.inputs.length > 0) {
       for (let i = 0; i < node.inputs.length; i++) {
-        // Your connections are stored as node IDs (numbers), not objects
         if (node.inputs[i] !== null && node.inputs[i] !== undefined) {
           sourceNodeId = node.inputs[i];
           targetNode = node;
@@ -895,7 +1156,6 @@ window.testConnectionDeletion = function() {
     return;
   }
   
-  // Find the source node by ID
   const sourceNode = graph.nodes.find(node => node.id == sourceNodeId);
   if (!sourceNode) {
     console.error("Source node not found for ID:", sourceNodeId);
@@ -910,27 +1170,27 @@ window.testConnectionDeletion = function() {
     inputIndex: inputIndex
   });
   
-  // Record the connection for undo BEFORE deleting it
-  // We need to adapt to your connection structure
+  // Create proper connection data for the callback
   const connectionData = {
     sourceNode: sourceNode,
-    sourceOutput: 0, // Assuming single output for now
     targetNode: targetNode,
     targetInput: inputIndex
   };
   
-  // Manually call the undo callback
+  // Record for undo BEFORE deleting
+  console.log("Recording connection for undo...");
   if (window.onConnectionDeleted) {
     window.onConnectionDeleted(connectionData);
-    console.log("Connection recorded for undo");
+  } else {
+    console.error("onConnectionDeleted callback not available");
   }
   
-  // Delete the connection (store the original value for reference)
+  // Delete the connection
   const originalConnection = targetNode.inputs[inputIndex];
   targetNode.inputs[inputIndex] = null;
   console.log("Connection deleted (was:", originalConnection, ")");
   
-  // Trigger UI update
+  // Force UI updates
   if (window.editor && window.editor.draw) {
     window.editor.draw();
   }
@@ -938,20 +1198,182 @@ window.testConnectionDeletion = function() {
     window.updateShaderFromGraph();
   }
   
-  console.log("Test deletion complete. Try pressing Ctrl+Z or click Undo button!");
+  console.log("Test deletion complete. Try Ctrl+Z to undo!");
+  
+  // Show undo manager status
+  if (window.undoManager) {
+    console.log("UndoManager status:", window.undoManager.getStatus());
+  }
 };
 
-// Also, let's add a function to examine the connection structure more closely
-window.examineConnections = function() {
-  console.log("EXAMINING CONNECTION STRUCTURE");
-  console.log("==============================");
+// Fixed testNodeDeletion function
+window.testNodeDeletion = function() {
+  console.log("Testing manual node deletion...");
   
   const graph = window.graph;
-  if (!graph || !graph.nodes) {
-    console.error("No graph found");
+  if (!graph || !graph.nodes || graph.nodes.length === 0) {
+    console.error("No nodes found to test deletion");
     return;
   }
   
+  // Find a non-critical node to delete
+  let testNode = null;
+  for (const node of graph.nodes) {
+    if (node.kind !== 'OutputFinal' && node.kind !== 'Output') {
+      testNode = node;
+      break;
+    }
+  }
+  
+  if (!testNode) {
+    testNode = graph.nodes[graph.nodes.length - 1];
+  }
+  
+  console.log("Found test node:", testNode.kind, testNode.id);
+  
+  // Record for undo BEFORE deleting
+  console.log("Recording node for undo...");
+  if (window.onNodeDeleted) {
+    window.onNodeDeleted(testNode);
+  } else {
+    console.error("onNodeDeleted callback not available");
+  }
+  
+  // Delete the node
+  const nodeIndex = graph.nodes.indexOf(testNode);
+  if (nodeIndex !== -1) {
+    graph.nodes.splice(nodeIndex, 1);
+    console.log("Node deleted from graph at index:", nodeIndex);
+  }
+  
+  // Remove connections to this node
+  graph.nodes.forEach(node => {
+    if (node.inputs) {
+      node.inputs.forEach((input, index) => {
+        if (input === testNode.id || input == testNode.id) {
+          node.inputs[index] = null;
+          console.log(`Removed connection from ${node.kind}[${index}]`);
+        }
+      });
+    }
+  });
+  
+  // Force UI updates
+  if (window.editor && window.editor.draw) {
+    window.editor.draw();
+  }
+  if (window.updateShaderFromGraph) {
+    window.updateShaderFromGraph();
+  }
+  
+  console.log("Test node deletion complete. Try Ctrl+Z to undo!");
+  
+  // Show undo manager status
+  if (window.undoManager) {
+    console.log("UndoManager status:", window.undoManager.getStatus());
+  }
+};
+// Enhanced debugging function
+window.debugUndoSystem = function() {
+  console.log("=== UNDO SYSTEM DEBUG ===");
+  
+  // Check components
+  console.log("1. Components Check:");
+  console.log("   - undoManager:", !!window.undoManager);
+  console.log("   - graph:", !!window.graph);
+  console.log("   - editor:", !!window.editor);
+  
+  // Check callbacks
+  console.log("2. Callbacks Check:");
+  console.log("   - onConnectionDeleted:", typeof window.onConnectionDeleted);
+  console.log("   - onNodeDeleted:", typeof window.onNodeDeleted);
+  console.log("   - onConnectionCreated:", typeof window.onConnectionCreated);
+  console.log("   - onNodeCreated:", typeof window.onNodeCreated);
+  
+  // Check UI elements
+  console.log("3. UI Elements Check:");
+  const undoBtn = document.getElementById('btn-undo');
+  const redoBtn = document.getElementById('btn-redo');
+  console.log("   - Undo button:", !!undoBtn, undoBtn?.disabled);
+  console.log("   - Redo button:", !!redoBtn, redoBtn?.disabled);
+  
+  // Check undo manager status
+  if (window.undoManager) {
+    console.log("4. UndoManager Status:");
+    const status = window.undoManager.getStatus();
+    console.log("   - Undo stack:", status.undoCount);
+    console.log("   - Redo stack:", status.redoCount);
+    console.log("   - Last action:", status.lastUndo?.type);
+  }
+  
+  // Check graph state
+  if (window.graph) {
+    console.log("5. Graph State:");
+    console.log("   - Nodes:", window.graph.nodes?.length || 0);
+    
+    // Show connections
+    let connectionCount = 0;
+    if (window.graph.nodes) {
+      window.graph.nodes.forEach(node => {
+        if (node.inputs) {
+          node.inputs.forEach(input => {
+            if (input !== null && input !== undefined) {
+              connectionCount++;
+            }
+          });
+        }
+      });
+    }
+    console.log("   - Connections:", connectionCount);
+  }
+  
+  console.log("========================");
+  console.log("Available test functions:");
+  console.log("- testConnectionDeletion()");
+  console.log("- testNodeDeletion()");
+  console.log("- debugUndoSystem() (this function)");
+  
+  return {
+    undoManager: !!window.undoManager,
+    callbacks: {
+      connectionDeleted: typeof window.onConnectionDeleted === 'function',
+      nodeDeleted: typeof window.onNodeDeleted === 'function'
+    },
+    ui: {
+      undoButton: !!undoBtn,
+      redoButton: !!redoBtn
+    }
+  };
+};
+
+// Manual undo/redo test functions for debugging
+window.manualUndo = function() {
+  console.log("=== MANUAL UNDO TEST ===");
+  if (window.undoManager) {
+    console.log("Before undo:", window.undoManager.getStatus());
+    const result = window.undoManager.undo();
+    console.log("Undo result:", result);
+    console.log("After undo:", window.undoManager.getStatus());
+    return result;
+  } else {
+    console.error("UndoManager not available");
+    return false;
+  }
+};
+
+window.manualRedo = function() {
+  console.log("=== MANUAL REDO TEST ===");
+  if (window.undoManager) {
+    console.log("Before redo:", window.undoManager.getStatus());
+    const result = window.undoManager.redo();
+    console.log("Redo result:", result);
+    console.log("After redo:", window.undoManager.getStatus());
+    return result;
+  } else {
+    console.error("UndoManager not available");
+    return false;
+  }
+};
   console.log("Looking for connections...");
   
   graph.nodes.forEach((node, nodeIndex) => {
@@ -964,8 +1386,8 @@ window.examineConnections = function() {
         }
       });
     }
-  });
-};
+});
+
 
 console.log("Updated connection test loaded. Try 'examineConnections()' first, then 'testConnectionDeletion()'");
 

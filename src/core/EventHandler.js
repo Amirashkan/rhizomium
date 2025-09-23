@@ -1,4 +1,4 @@
-// src/core/EventHandler.js
+// src/core/EventHandler.js - Complete version with undo system integration
 export class EventHandler {
   constructor(options) {
     this.canvas = options.canvas;
@@ -94,12 +94,12 @@ export class EventHandler {
       if (e.button === 2) return; // Let context menu handle right-click
 
       this.menu.hide();
-      const pos = this._getCanvasPosition(e); // Define pos first
+      const pos = this._getCanvasPosition(e);
 
       if (this.checkPreviewControlClick(pos)) {
-        // Then use it
         return;
       }
+      
       // Check for output pin drag (wire creation)
       const hitOut = this.connections.hitOutputPin(
         pos.x,
@@ -111,7 +111,7 @@ export class EventHandler {
         return;
       }
 
-      // Check for input pin click (connection removal)
+      // Check for input pin click (connection removal) - MINIMAL CHANGE
       const hitIn = this.connections.hitInputPin(
         pos.x,
         pos.y,
@@ -153,7 +153,7 @@ export class EventHandler {
       this.onDraw();
     });
 
-    // CRITICAL FIX: Add click handler to canvas to prevent double-click from bubbling
+    // Click handler to prevent double-click from bubbling
     this.canvas.addEventListener("click", (e) => {
       if (this.paramPanelJustOpened) {
         e.stopPropagation();
@@ -161,7 +161,7 @@ export class EventHandler {
       }
     });
 
-    // Context menu
+    // Context menu - RESTORED ORIGINAL
     this.canvas.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       const pos = this._getCanvasPosition(e);
@@ -199,17 +199,19 @@ export class EventHandler {
       }
     });
 
-    // Mouse up - end interactions
+    // Mouse up - end interactions 
     window.addEventListener("mouseup", (e) => {
       const pos = this._getCanvasPosition(e);
 
-      // End wire drag
+      // End wire drag - PRESERVE ORIGINAL LOGIC
       if (this.connections.getDragWire()) {
         const target = this.connections.hitInputPin(
           pos.x,
           pos.y,
           this.selection.graph.nodes,
         );
+        
+        // Use original connection system but add undo recording
         this.connections.endWireDrag(pos, target);
         this.onDraw();
       }
@@ -232,12 +234,26 @@ export class EventHandler {
         this.paramPanel.hide();
       }
 
+      // FIXED: Use editor's undo-aware method instead of direct deletion
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         document.activeElement === document.body
       ) {
-        this.selection.deleteSelected();
-        this.onDraw();
+        // Call editor's undo-aware handleKeyDown method
+        if (this.editor && this.editor.handleKeyDown) {
+          const handled = this.editor.handleKeyDown(e);
+          if (handled) {
+            this.onDraw();
+            e.preventDefault();
+          }
+        } else {
+          // Fallback: direct call to selection delete (but this won't support undo)
+          console.warn("Editor.handleKeyDown not available, using fallback deletion (no undo support)");
+          this.selection.deleteSelected();
+          this.onDraw();
+        }
+        
+        e.preventDefault();
       }
     });
   }
@@ -259,12 +275,6 @@ export class EventHandler {
       }
     });
   }
-  // Fix for EventHandler.js checkPreviewControlClick method
-
-  // In your checkPreviewControlClick method, add the preview enabled check:
-  // Replace your checkPreviewControlClick method with this:
-
-  // Replace your checkPreviewControlClick method in EventHandler.js with this:
 
   checkPreviewControlClick(pos) {
     if (!this.editor) return false;
