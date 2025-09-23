@@ -234,14 +234,25 @@ export class EventHandler {
         this.paramPanel.hide();
       }
 
-      // SIMPLIFIED: Use SelectionManager's undo-aware deleteSelected directly
+      // FIXED: Use editor's undo-aware method instead of direct deletion
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         document.activeElement === document.body
       ) {
-        // SelectionManager now handles undo recording automatically
-        this.selection.deleteSelected();
-        this.onDraw();
+        // Call editor's undo-aware handleKeyDown method
+        if (this.editor && this.editor.handleKeyDown) {
+          const handled = this.editor.handleKeyDown(e);
+          if (handled) {
+            this.onDraw();
+            e.preventDefault();
+          }
+        } else {
+          // Fallback: direct call to selection delete (but this won't support undo)
+          console.warn("Editor.handleKeyDown not available, using fallback deletion (no undo support)");
+          this.selection.deleteSelected();
+          this.onDraw();
+        }
+        
         e.preventDefault();
       }
     });

@@ -248,15 +248,21 @@ export class Editor {
     }
   }
 
-  // Simplified keyboard handler - let SelectionManager handle deletion with undo
+  // Keyboard handler that calls undo-aware methods
   handleKeyDown(event) {
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
       
-      // Use SelectionManager's undo-aware deleteSelected method
-      if (this.selection && this.selection.deleteSelected) {
-        this.selection.deleteSelected();
-        this.draw(); // Refresh UI
+      // Delete selected nodes using undo-aware method
+      if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
+        const nodesToDelete = Array.from(this.selection.getSelected());
+        console.log('Deleting selected nodes:', nodesToDelete.length);
+        
+        nodesToDelete.forEach(node => {
+          this.deleteNode(node); // This calls the undo-aware version
+        });
+        
+        this.selection.clear();
       }
       
       return true;
