@@ -1077,8 +1077,106 @@ window.updateStatus = updateStatus;
 
 // Test function to manually create a fake connection deletion
 
-// REPLACE the testConnectionDeletion function in your main.js with this corrected version
+window.debugUndo = function() {
+  console.log("=== UNDO SYSTEM DIAGNOSTIC ===");
+  
+  if (!window.undoManager) {
+    console.error("No UndoManager found!");
+    return;
+  }
+  
+  const status = window.undoManager.getStatus();
+  console.log("Undo status:", status);
+  
+  if (status.undoCount === 0) {
+    console.log("No undo actions available");
+    return;
+  }
+  
+  // Show what's in the undo stack
+  console.log("Undo stack contents:");
+  window.undoManager.undoStack.forEach((action, index) => {
+    console.log(`  ${index}: ${action.type}`, action.data || action);
+  });
+  
+  // Test undo restoration by examining what happens
+  console.log("Current graph state before undo:");
+  console.log("  Nodes:", window.graph.nodes.length);
+  
+  // Temporarily override the restoration methods to add logging
+  const originalUndo = window.undoManager.undo.bind(window.undoManager);
+  window.undoManager.undo = function() {
+    console.log("=== STARTING UNDO OPERATION ===");
+    
+    if (this.undoStack.length === 0) {
+      console.log("Nothing to undo");
+      return false;
+    }
 
+    const action = this.undoStack[this.undoStack.length - 1];
+    console.log("About to undo action:", action.type, action);
+    
+    const result = originalUndo();
+    
+    console.log("Undo operation result:", result);
+    console.log("Graph state after undo:");
+    console.log("  Nodes:", window.graph.nodes.length);
+    
+    // Restore original method
+    window.undoManager.undo = originalUndo;
+    
+    return result;
+  };
+  
+  console.log("=== DIAGNOSTIC COMPLETE ===");
+  console.log("Now try pressing Ctrl+Z and watch the detailed output");
+};
+
+// Run diagnostic
+window.debugUndo();
+
+// Also add a function to check if node restoration is working
+window.testNodeRestoration = function() {
+  console.log("=== TESTING NODE RESTORATION ===");
+  
+  const { makeNode } = window.NodeDefs || {};
+  if (!makeNode) {
+    console.error("makeNode function not available!");
+    return;
+  }
+  
+  // Test if we can create nodes the same way undo does
+  try {
+    const testNode = makeNode("ConstFloat", 100, 100);
+    console.log("Test node created successfully:", testNode);
+    
+    // Test if the node structure matches what undo expects
+    const nodeSnapshot = {
+      id: testNode.id,
+      kind: testNode.kind,
+      type: testNode.type,
+      x: testNode.x,
+      y: testNode.y,
+      w: testNode.w,
+      h: testNode.h,
+      inputs: testNode.inputs ? [...testNode.inputs] : [],
+      parameters: testNode.parameters ? { ...testNode.parameters } : {},
+    };
+    
+    console.log("Node snapshot for undo:", nodeSnapshot);
+    
+    // Clean up test node
+    const nodeIndex = window.graph.nodes.indexOf(testNode);
+    if (nodeIndex !== -1) {
+      window.graph.nodes.splice(nodeIndex, 1);
+    }
+    
+  } catch (error) {
+    console.error("Error creating test node:", error);
+  }
+};
+
+window.testNodeRestoration();
 // Fixed testConnectionDeletion function for main.js
 // Replace the broken testConnectionDeletion function with this:
 
@@ -1165,6 +1263,175 @@ window.testConnectionDeletion = function() {
   }
 };
 
+// Fixed testNodeDeletion function
+window.testNodeDeletion = function() {
+  console.log("Testing manual node deletion...");
+  
+  const graph = window.graph;
+  if (!graph || !graph.nodes || graph.nodes.length === 0) {
+    console.error("No nodes found to test deletion");
+    return;
+  }
+  
+  // Find a non-critical node to delete
+  let testNode = null;
+  for (const node of graph.nodes) {
+    if (node.kind !== 'OutputFinal' && node.kind !== 'Output') {
+      testNode = node;
+      break;
+    }
+  }
+  
+  if (!testNode) {
+    testNode = graph.nodes[graph.nodes.length - 1];
+  }
+  
+  console.log("Found test node:", testNode.kind, testNode.id);
+  
+  // Record for undo BEFORE deleting
+  console.log("Recording node for undo...");
+  if (window.onNodeDeleted) {
+    window.onNodeDeleted(testNode);
+  } else {
+    console.error("onNodeDeleted callback not available");
+  }
+  
+  // Delete the node
+  const nodeIndex = graph.nodes.indexOf(testNode);
+  if (nodeIndex !== -1) {
+    graph.nodes.splice(nodeIndex, 1);
+    console.log("Node deleted from graph at index:", nodeIndex);
+  }
+  
+  // Remove connections to this node
+  graph.nodes.forEach(node => {
+    if (node.inputs) {
+      node.inputs.forEach((input, index) => {
+        if (input === testNode.id || input == testNode.id) {
+          node.inputs[index] = null;
+          console.log(`Removed connection from ${node.kind}[${index}]`);
+        }
+      });
+    }
+  });
+  
+  // Force UI updates
+  if (window.editor && window.editor.draw) {
+    window.editor.draw();
+  }
+  if (window.updateShaderFromGraph) {
+    window.updateShaderFromGraph();
+  }
+  
+  console.log("Test node deletion complete. Try Ctrl+Z to undo!");
+  
+  // Show undo manager status
+  if (window.undoManager) {
+    console.log("UndoManager status:", window.undoManager.getStatus());
+  }
+};
+// Add this diagnostic code to your main.js to debug the undo restoration
+
+window.debugUndo = function() {
+  console.log("=== UNDO SYSTEM DIAGNOSTIC ===");
+  
+  if (!window.undoManager) {
+    console.error("No UndoManager found!");
+    return;
+  }
+  
+  const status = window.undoManager.getStatus();
+  console.log("Undo status:", status);
+  
+  if (status.undoCount === 0) {
+    console.log("No undo actions available");
+    return;
+  }
+  
+  // Show what's in the undo stack
+  console.log("Undo stack contents:");
+  window.undoManager.undoStack.forEach((action, index) => {
+    console.log(`  ${index}: ${action.type}`, action.data || action);
+  });
+  
+  // Test undo restoration by examining what happens
+  console.log("Current graph state before undo:");
+  console.log("  Nodes:", window.graph.nodes.length);
+  
+  // Temporarily override the restoration methods to add logging
+  const originalUndo = window.undoManager.undo.bind(window.undoManager);
+  window.undoManager.undo = function() {
+    console.log("=== STARTING UNDO OPERATION ===");
+    
+    if (this.undoStack.length === 0) {
+      console.log("Nothing to undo");
+      return false;
+    }
+
+    const action = this.undoStack[this.undoStack.length - 1];
+    console.log("About to undo action:", action.type, action);
+    
+    const result = originalUndo();
+    
+    console.log("Undo operation result:", result);
+    console.log("Graph state after undo:");
+    console.log("  Nodes:", window.graph.nodes.length);
+    
+    // Restore original method
+    window.undoManager.undo = originalUndo;
+    
+    return result;
+  };
+  
+  console.log("=== DIAGNOSTIC COMPLETE ===");
+  console.log("Now try pressing Ctrl+Z and watch the detailed output");
+};
+
+// Run diagnostic
+window.debugUndo();
+
+// Also add a function to check if node restoration is working
+window.testNodeRestoration = function() {
+  console.log("=== TESTING NODE RESTORATION ===");
+  
+  const { makeNode } = window.NodeDefs || {};
+  if (!makeNode) {
+    console.error("makeNode function not available!");
+    return;
+  }
+  
+  // Test if we can create nodes the same way undo does
+  try {
+    const testNode = makeNode("ConstFloat", 100, 100);
+    console.log("Test node created successfully:", testNode);
+    
+    // Test if the node structure matches what undo expects
+    const nodeSnapshot = {
+      id: testNode.id,
+      kind: testNode.kind,
+      type: testNode.type,
+      x: testNode.x,
+      y: testNode.y,
+      w: testNode.w,
+      h: testNode.h,
+      inputs: testNode.inputs ? [...testNode.inputs] : [],
+      parameters: testNode.parameters ? { ...testNode.parameters } : {},
+    };
+    
+    console.log("Node snapshot for undo:", nodeSnapshot);
+    
+    // Clean up test node
+    const nodeIndex = window.graph.nodes.indexOf(testNode);
+    if (nodeIndex !== -1) {
+      window.graph.nodes.splice(nodeIndex, 1);
+    }
+    
+  } catch (error) {
+    console.error("Error creating test node:", error);
+  }
+};
+
+window.testNodeRestoration();
 // Fixed testNodeDeletion function
 window.testNodeDeletion = function() {
   console.log("Testing manual node deletion...");

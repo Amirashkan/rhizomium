@@ -114,7 +114,7 @@ export class SelectionManager {
     if (this.onChange) this.onChange();
   }
 
-  // UPDATED: deleteSelected with undo support
+  // UPDATED: deleteSelected with better connection tracking for undo
   deleteSelected() {
     const ids = new Set(this.graph.selection);
     if (ids.size === 0) return;
@@ -122,11 +122,22 @@ export class SelectionManager {
     // Get nodes to delete before removing them
     const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
 
-    // Record each node for undo BEFORE deletion
+    // Record each node for undo BEFORE deletion, WITH proper connection tracking
     nodesToDelete.forEach(node => {
       if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
-        console.log("SelectionManager: Recording node deletion for undo:", node.kind, node.id);
-        window.onNodeDeleted(node);
+        console.log("SelectionManager: Recording node deletion with connections for undo:", node.kind, node.id);
+        
+        // Find all connections involving this node BEFORE deletion
+        const nodeConnections = this._findAllNodeConnections(node);
+        console.log("Found connections for node", node.id, ":", nodeConnections);
+        
+        // Create enhanced node record with connections
+        const enhancedNode = {
+          ...node,
+          _connectionSnapshot: nodeConnections
+        };
+        
+        window.onNodeDeleted(enhancedNode);
       }
     });
 
@@ -140,6 +151,79 @@ export class SelectionManager {
     this.graph.selection.clear();
 
     if (this.onChange) this.onChange();
+  }
+
+  // Helper method to find all connections involving a node
+  _findAllNodeConnections(node) {
+    const connections = {
+      incoming: [], // Connections TO this node
+      outgoing: [], // Connections FROM this node
+      nodeInputs: node.inputs ? [...node.inputs] : [] // Copy of node's input array
+    };
+
+    // Find incoming connections (this node as target)
+    this.graph.nodes.forEach(otherNode => {
+      if (otherNode.inputs && Array.isArray(otherNode.inputs)) {
+        otherNode.inputs.forEach((input, inputIndex) => {
+          if (input === node.id || input == node.id) {
+            connections.incoming.push({
+              sourceNodeId: node.id,
+              targetNodeId: otherNode.id,
+              targetInput: inputIndex
+            });
+          }
+        });
+      }
+    });
+
+    // Find outgoing connections (this node as source) - from node.inputs
+    if (node.inputs && Array.isArray(node.inputs)) {
+      node.inputs.forEach((input, inputIndex) => {
+        if (input !== null && input !== undefined) {
+          connections.outgoing.push({
+            sourceNodeId: input,
+            targetNodeId: node.id,
+            targetInput: inputIndex
+          });
+        }
+      });
+    }
+
+    // Also check graph.connections array for completeness
+    this.graph.connections.forEach(conn => {
+      if (conn.from.nodeId == node.id) {
+        // This node is source - add to outgoing if not already there
+        const exists = connections.outgoing.some(c => 
+          c.sourceNodeId == conn.from.nodeId && 
+          c.targetNodeId == conn.to.nodeId && 
+          c.targetInput == conn.to.pin
+        );
+        if (!exists) {
+          connections.outgoing.push({
+            sourceNodeId: conn.from.nodeId,
+            targetNodeId: conn.to.nodeId,
+            targetInput: conn.to.pin
+          });
+        }
+      }
+      if (conn.to.nodeId == node.id) {
+        // This node is target - add to incoming if not already there
+        const exists = connections.incoming.some(c => 
+          c.sourceNodeId == conn.from.nodeId && 
+          c.targetNodeId == conn.to.nodeId && 
+          c.targetInput == conn.to.pin
+        );
+        if (!exists) {
+          connections.incoming.push({
+            sourceNodeId: conn.from.nodeId,
+            targetNodeId: conn.to.nodeId,
+            targetInput: conn.to.pin
+          });
+        }
+      }
+    });
+
+    return connections;
   }
 
   moveSelected(dx, dy) {
