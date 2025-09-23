@@ -1,5 +1,9 @@
 // src/ui/components/SelectInputHandler.js
 export class SelectInputHandler {
+  constructor(undoManager = null) {
+    this.undoManager = undoManager;
+  }
+
   create(param, node, div, label, valueManager, onChange) {
     const select = this._createSelectElement(param);
     this._populateOptions(select, param);
@@ -42,8 +46,17 @@ export class SelectInputHandler {
   }
 
   _setupEventHandlers(select, param, node, valueManager, onChange) {
+    let previousValue = select.value;
+
+    // Store initial value when focus starts
+    select.addEventListener("focus", (e) => {
+      previousValue = select.value;
+    });
+
     select.addEventListener("change", (e) => {
       e.stopPropagation();
+      
+      // Record the change immediately since select changes are discrete
       valueManager.updateNodeParameter(node, param.name, select.value, onChange);
     });
 

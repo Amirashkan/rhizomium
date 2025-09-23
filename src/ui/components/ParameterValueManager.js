@@ -1,7 +1,11 @@
 // src/ui/components/ParameterValueManager.js
+import { ParameterEvents } from '../../utils/ParameterEventSystem.js';
+
 export class ParameterValueManager {
-  constructor(graph) {
+  constructor(graph, undoManager = null, eventSystem = null) {
     this.graph = graph;
+    this.undoManager = undoManager;
+    this.eventSystem = eventSystem;
   }
 
   // Get node parameter value with connected input support
@@ -22,17 +26,82 @@ export class ParameterValueManager {
     return defaultValue;
   }
 
-  // Update node parameter with connected input support
+  // Update node parameter with connected input support and undo tracking
   updateNodeParameter(node, paramName, value, onChange) {
     console.log("Parameter update:", node.kind, paramName, value);
+
+    // Get the old value for undo tracking
+    const oldValue = this.getNodeParameterValue(node, paramName, null);
+    
+    // Don't record undo if value hasn't actually changed
+    if (oldValue === value) {
+      return;
+    }
 
     const connectedSourceNode = this._findConnectedSourceNode(node, paramName);
 
     if (connectedSourceNode) {
-      this._updateConnectedSourceNode(connectedSourceNode, value, onChange);
+      this._updateConnectedSourceNode(connectedSourceNode, value, onChange, oldValue);
     } else {
-      this._updateNodeDirectly(node, paramName, value, onChange);
+      this._updateNodeDirectly(node, paramName, value, onChange, oldValue);
     }
+
+    // Emit parameter change event
+    if (this.eventSystem) {
+      this.eventSystem.emit(ParameterEvents.PARAMETER_CHANGED, {
+        node: node,
+        parameterName: paramName,
+        oldValue: oldValue,
+        newValue: value,
+        source: 'user'
+      });
+    }
+  }
+
+  // Apply parameter change from undo/redo system
+  applyParameterChange(node, paramName, value, source = 'undo') {
+    const oldValue = this.getNodeParameterValue(node, paramName, null);
+    
+    if (paramName === "value") {
+      node.value = isNaN(Number(value)) ? value : Number(value);
+    } else if (paramName === "x") {
+      node.x = isNaN(Number(value)) ? value : Number(value);
+    } else if (paramName === "y") {
+      node.y = isNaN(Number(value)) ? value : Number(value);
+    } else if (paramName === "expr") {
+      node.expr = value;
+    } else {
+      // For CircleField props and others
+      if (!node.props) node.props = {};
+      node.props[paramName] = isNaN(Number(value)) ? value : Number(value);
+    }
+
+    // Emit parameter change event
+    if (this.eventSystem) {
+      this.eventSystem.emit(
+        source === 'undo' ? ParameterEvents.PARAMETER_UNDONE : ParameterEvents.PARAMETER_REDONE,
+        {
+          node: node,
+          parameterName: paramName,
+          oldValue: oldValue,
+          newValue: value,
+          source: source
+        }
+      );
+    }
+
+    this._triggerUpdates(node, null);
+  }
+
+  // Batch update multiple parameters (useful for preventing too many undo steps)
+  batchUpdateParameters(updates, onChange) {
+    if (updates.length === 0) return;
+    
+    // For now, just process each update individually
+    // Could be enhanced to create a single compound undo action
+    updates.forEach(({ node, paramName, value }) => {
+      this.updateNodeParameter(node, paramName, value, onChange);
+    });
   }
 
   // Check if parameter has connected input
@@ -114,11 +183,17 @@ export class ParameterValueManager {
     return null;
   }
 
-  _updateConnectedSourceNode(connectedSourceNode, value, onChange) {
+  _updateConnectedSourceNode(connectedSourceNode, value, onChange, oldValue) {
     console.log("Updating connected source node:", connectedSourceNode.kind, connectedSourceNode.id);
 
     if (connectedSourceNode.kind === "ConstFloat" || connectedSourceNode.kind === "Float") {
       const numValue = isNaN(Number(value)) ? 0 : Number(value);
+
+      // Record undo for the connected source node
+      if (this.undoManager) {
+        const sourceOldValue = connectedSourceNode.props?.value || connectedSourceNode.value || 0;
+        this.undoManager.recordParameterChange(connectedSourceNode.id, 'value', sourceOldValue, numValue);
+      }
 
       // Store in both places for compatibility
       connectedSourceNode.value = numValue;
@@ -131,8 +206,13 @@ export class ParameterValueManager {
     }
   }
 
-  _updateNodeDirectly(node, paramName, value, onChange) {
+  _updateNodeDirectly(node, paramName, value, onChange, oldValue) {
     console.log("No connected input - updating node parameter directly");
+
+    // Record undo action before making the change
+    if (this.undoManager && oldValue !== undefined) {
+      this.undoManager.recordParameterChange(node.id, paramName, oldValue, value);
+    }
 
     if (paramName === "value") {
       node.value = isNaN(Number(value)) ? value : Number(value);

@@ -9,7 +9,7 @@ import { ViewportManager } from "./ViewportManager.js";
 import { PreviewSystem } from "./PreviewSystem.js";
 
 export class Editor {
-  constructor(graph, onChange) {
+  constructor(graph, onChange, undoManager = null) {
     // Initialize preview state EARLY
     this.isPreviewEnabled = true;
     this.nodePreviews = new Map();
@@ -28,7 +28,12 @@ export class Editor {
     this.connections = new ConnectionManager(this.graph, this.onChange);
     this.renderer = new Renderer(this.ctx, this.viewport);
     this.menu = new MenuManager(this.graph, this.onChange);
-    this.paramPanel = new ParameterPanel(this.graph, this.onChange);
+    
+    // Use the provided UndoManager instead of creating a new one
+    this.undoManager = undoManager;
+    
+    // Create ParameterPanel with undo support
+this.paramPanel = new ParameterPanel(this.graph, this.onChange, this.undoManager, window.parameterEventSystem);
 
     // Preview system settings
     this.previewSizes = { small: 32, medium: 64, large: 96 };
@@ -249,27 +254,29 @@ export class Editor {
   }
 
   // Keyboard handler that calls undo-aware methods
-  handleKeyDown(event) {
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      event.preventDefault();
+handleKeyDown(event) {
+  if (event.key === 'Delete' || event.key === 'Backspace') {
+    event.preventDefault();
+    
+    if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
+      const nodesToDelete = Array.from(this.selection.getSelected());
+      console.log('Deleting selected nodes:', nodesToDelete.length);
       
-      // Delete selected nodes using undo-aware method
-      if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
-        const nodesToDelete = Array.from(this.selection.getSelected());
-        console.log('Deleting selected nodes:', nodesToDelete.length);
-        
-        nodesToDelete.forEach(node => {
-          this.deleteNode(node); // This calls the undo-aware version
-        });
-        
+      nodesToDelete.forEach(node => {
+        this.deleteNode(node);
+      });
+      
+      // Check if clear method exists before calling it
+      if (this.selection.clear) {
         this.selection.clear();
       }
-      
-      return true;
     }
     
-    return false;
+    return true;
   }
+  
+  return false;
+}
 
   // Mouse event handlers
   handleRightClick(mouseX, mouseY) {

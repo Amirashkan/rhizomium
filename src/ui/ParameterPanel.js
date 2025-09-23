@@ -4,19 +4,68 @@ import { FileInputHandler } from "./components/FileInputHandler.js";
 import { SelectInputHandler } from "./components/SelectInputHandler.js";
 import { TextInputHandler } from "./components/TextInputHandler.js";
 import { ParameterValueManager } from "./components/ParameterValueManager.js";
+import { ParameterEvents } from "../utils/ParameterEventSystem.js";
 
 export class ParameterPanel {
-  constructor(graph, onChange) {
+  constructor(graph, onChange, undoManager = null, eventSystem = null) {
     this.graph = graph;
     this.onChange = onChange;
+    this.undoManager = undoManager;
+    this.eventSystem = eventSystem;
     this.panel = null;
     this.currentNode = null;
+    this.eventUnsubscribers = [];
     
-    // Initialize input handlers
-    this.fileHandler = new FileInputHandler(this.onChange);
-    this.selectHandler = new SelectInputHandler();
-    this.textHandler = new TextInputHandler();
-    this.valueManager = new ParameterValueManager(this.graph);
+    // Create value manager with undo and event support
+    this.valueManager = new ParameterValueManager(graph, undoManager, eventSystem);
+    
+    // Create input handlers with undo support
+    this.textHandler = new TextInputHandler(undoManager);
+    this.selectHandler = new SelectInputHandler(undoManager);
+    this.fileHandler = new FileInputHandler(this.onChange.bind(this));
+
+    // Subscribe to parameter events
+    this.setupEventListeners();
+  }
+
+  setupEventListeners() {
+    if (!this.eventSystem) return;
+
+    // Listen for parameter changes from undo/redo
+    const unsubscribeUndo = this.eventSystem.on(ParameterEvents.PARAMETER_UNDONE, (data) => {
+      this.onParameterChanged(data);
+    });
+
+    const unsubscribeRedo = this.eventSystem.on(ParameterEvents.PARAMETER_REDONE, (data) => {
+      this.onParameterChanged(data);
+    });
+
+    // Store unsubscribers for cleanup
+    this.eventUnsubscribers.push(unsubscribeUndo, unsubscribeRedo);
+  }
+
+  onParameterChanged(data) {
+    // Only update if the panel is open for this node
+    if (!this.panel || !this.currentNode || this.currentNode.id !== data.node.id) {
+      return;
+    }
+
+    console.log('Parameter panel updating for parameter change:', data);
+
+    // Find and update the input element for this parameter
+    const input = this.panel.querySelector(`[data-param="${data.parameterName}"]`);
+    if (input) {
+      input.value = data.newValue;
+      console.log('Updated parameter panel input for', data.parameterName, '=', data.newValue);
+      
+      // Trigger visual feedback
+      input.style.backgroundColor = data.source === 'undo' ? '#2a4a2a' : '#4a2a2a';
+      setTimeout(() => {
+        input.style.backgroundColor = '';
+      }, 200);
+    } else {
+      console.warn('Could not find input element for parameter:', data.parameterName);
+    }
   }
 
   hide() {
@@ -25,6 +74,15 @@ export class ParameterPanel {
       this.panel = null;
       this.currentNode = null;
     }
+  }
+
+  // Cleanup when panel is destroyed
+  destroy() {
+    this.hide();
+    
+    // Unsubscribe from all events
+    this.eventUnsubscribers.forEach(unsubscribe => unsubscribe());
+    this.eventUnsubscribers = [];
   }
 
   contains(element) {
@@ -117,12 +175,16 @@ export class ParameterPanel {
     label.textContent = param.label;
     div.appendChild(label);
 
-    // Delegate to appropriate handler
+    // Use the handlers with undo support
     switch (param.type) {
       case "file":
         return this.fileHandler.create(param, node, div, label, this.panel, this.currentNode);
       case "select":
+      case "enum":
         return this.selectHandler.create(param, node, div, label, this.valueManager, this.onChange);
+      case "float":
+      case "text":
+      case "expression":
       default:
         return this.textHandler.create(param, node, div, label, this.valueManager, this.onChange);
     }
