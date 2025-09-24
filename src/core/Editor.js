@@ -365,35 +365,103 @@ export class Editor {
   }
 
   // Keyboard handler that calls undo-aware methods
-  handleKeyDown(event) {
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      event.preventDefault();
+// Updated handleKeyDown method in Editor.js
+
+handleKeyDown(event) {
+  if (event.key === 'Delete' || event.key === 'Backspace') {
+    event.preventDefault();
+    
+    if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
+      // Get selected node IDs
+      const selectedNodeIds = Array.from(this.selection.getSelected());
       
-      if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
-        const nodesToDelete = Array.from(this.selection.getSelected());
-        console.log('Deleting selected nodes:', nodesToDelete.length);
-        
-        nodesToDelete.forEach(node => {
-          this.deleteNode(node);
-        });
-        
-        // Check if clear method exists before calling it
-        if (this.selection.clear) {
-          this.selection.clear();
-        }
+      // Convert IDs to actual node objects
+      const nodesToDelete = selectedNodeIds
+        .map(nodeId => this.graph.nodes.find(n => n.id === nodeId))
+        .filter(node => node !== undefined); // Remove any undefined nodes
+      
+      console.log('Deleting selected nodes:', nodesToDelete.length, 'nodes:', nodesToDelete.map(n => n.kind));
+      
+      // NEW: Handle group deletion as a single operation
+      if (nodesToDelete.length > 1) {
+        this.deleteNodesAsGroup(nodesToDelete);
+      } else if (nodesToDelete.length === 1) {
+        // Single node deletion - use existing method
+        this.deleteNode(nodesToDelete[0]);
       }
       
-      return true;
+      // Clear selection after deletion
+      if (this.selection.clear) {
+        this.selection.clear();
+      }
     }
     
-    // Cancel movement on ESC
-    if (event.key === 'Escape') {
-      this.cancelNodeMovement();
-      return true;
-    }
-    
-    return false;
+    return true;
   }
+  
+  // Cancel movement on ESC
+  if (event.key === 'Escape') {
+    this.cancelNodeMovement();
+    return true;
+  }
+  
+  return false;
+}
+
+// NEW: Add this method to Editor.js
+deleteNodesAsGroup(nodesToDelete) {
+  if (!nodesToDelete || nodesToDelete.length === 0) return false;
+  
+  console.log('Editor: Deleting nodes as group:', nodesToDelete.length, 'nodes');
+  
+  // Record for undo BEFORE deleting (as a single group operation)
+  if (window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
+    console.log('Editor: Recording group deletion for undo');
+    window.onGroupDeleted(nodesToDelete);
+  }
+  
+  // Remove from selection first
+  nodesToDelete.forEach(nodeToDelete => {
+    if (this.selection && this.selection.has && this.selection.has(nodeToDelete)) {
+      this.selection.delete(nodeToDelete);
+    }
+  });
+  
+  // Get all node IDs for efficient cleanup
+  const nodeIdsToDelete = new Set(nodesToDelete.map(n => n.id));
+  
+  // Remove all connections to these nodes
+  this.graph.nodes.forEach(node => {
+    if (node.inputs) {
+      node.inputs.forEach((input, index) => {
+        if (input !== null && input !== undefined && nodeIdsToDelete.has(input)) {
+          node.inputs[index] = null;
+          console.log(`Removed connection to deleted node from ${node.kind}[${index}]`);
+        }
+      });
+    }
+  });
+  
+  // Remove nodes from graph (in reverse order to maintain indices)
+  const sortedNodesToDelete = nodesToDelete
+    .map(node => ({ node, index: this.graph.nodes.indexOf(node) }))
+    .filter(item => item.index !== -1)
+    .sort((a, b) => b.index - a.index); // Sort by index descending
+  
+  sortedNodesToDelete.forEach(({ node, index }) => {
+    this.graph.nodes.splice(index, 1);
+    console.log(`Node ${node.kind}(${node.id}) deleted from graph`);
+  });
+  
+  // Trigger updates
+  if (this.onChange) {
+    this.onChange();
+  }
+  this.draw();
+  
+  console.log('Group deletion completed');
+  return true;
+}
 
   // Mouse event handlers
   handleRightClick(mouseX, mouseY) {

@@ -181,43 +181,51 @@ endDrag() {
   }
 
   // UPDATED: deleteSelected with better connection tracking for undo
-  deleteSelected() {
-    const ids = new Set(this.graph.selection);
-    if (ids.size === 0) return;
+// Replace the deleteSelected method in SelectionManager.js with this:
 
-    // Get nodes to delete before removing them
-    const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
+deleteSelected() {
+  const ids = new Set(this.graph.selection);
+  if (ids.size === 0) return;
 
-    // Record each node for undo BEFORE deletion, WITH proper connection tracking
-    nodesToDelete.forEach(node => {
-      if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
-        console.log("SelectionManager: Recording node deletion with connections for undo:", node.kind, node.id);
-        
-        // Find all connections involving this node BEFORE deletion
-        const nodeConnections = this._findAllNodeConnections(node);
-        console.log("Found connections for node", node.id, ":", nodeConnections);
-        
-        // Create enhanced node record with connections
-        const enhancedNode = {
-          ...node,
-          _connectionSnapshot: nodeConnections
-        };
-        
-        window.onNodeDeleted(enhancedNode);
-      }
-    });
+  // Get nodes to delete before removing them
+  const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
 
-    // Remove connections involving selected nodes
-    this.graph.connections = this.graph.connections.filter(
-      (c) => !(ids.has(c.from.nodeId) || ids.has(c.to.nodeId)),
-    );
+  console.log('SelectionManager.deleteSelected called with', nodesToDelete.length, 'nodes');
 
-    // Remove nodes
-    this.graph.nodes = this.graph.nodes.filter((n) => !ids.has(n.id));
-    this.graph.selection.clear();
-
-    if (this.onChange) this.onChange();
+  // USE GROUP DELETION for multiple nodes
+  if (nodesToDelete.length > 1 && window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
+    console.log("SelectionManager: Using group deletion for", nodesToDelete.length, "nodes");
+    window.onGroupDeleted(nodesToDelete);
+  } else if (nodesToDelete.length === 1) {
+    // Single node - use individual deletion with connection tracking
+    if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
+      console.log("SelectionManager: Recording single node deletion with connections for undo:", nodesToDelete[0].kind, nodesToDelete[0].id);
+      
+      // Find all connections involving this node BEFORE deletion
+      const nodeConnections = this._findAllNodeConnections(nodesToDelete[0]);
+      console.log("Found connections for node", nodesToDelete[0].id, ":", nodeConnections);
+      
+      // Create enhanced node record with connections
+      const enhancedNode = {
+        ...nodesToDelete[0],
+        _connectionSnapshot: nodeConnections
+      };
+      
+      window.onNodeDeleted(enhancedNode);
+    }
   }
+
+  // Remove connections involving selected nodes
+  this.graph.connections = this.graph.connections.filter(
+    (c) => !(ids.has(c.from.nodeId) || ids.has(c.to.nodeId)),
+  );
+
+  // Remove nodes
+  this.graph.nodes = this.graph.nodes.filter((n) => !ids.has(n.id));
+  this.graph.selection.clear();
+
+  if (this.onChange) this.onChange();
+}
 
   // Helper method to find all connections involving a node
   _findAllNodeConnections(node) {

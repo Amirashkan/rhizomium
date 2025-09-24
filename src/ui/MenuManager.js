@@ -390,20 +390,35 @@ export class MenuManager {
 
     if (this.onChange) this.onChange();
   }
+// Replace the _deleteSelected method in MenuManager.js with this:
 
-  _deleteSelected() {
-    const ids = new Set(this.graph.selection);
-    if (ids.size === 0) return;
+_deleteSelected() {
+  const ids = new Set(this.graph.selection);
+  if (ids.size === 0) return;
 
-    // Remove connections involving selected nodes
-    this.graph.connections = this.graph.connections.filter(
-      (c) => !(ids.has(c.from.nodeId) || ids.has(c.to.nodeId)),
-    );
+  // Get nodes to delete before removing them
+  const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
 
-    // Remove nodes
-    this.graph.nodes = this.graph.nodes.filter((n) => !ids.has(n.id));
-    this.graph.selection.clear();
+  console.log('MenuManager._deleteSelected called with', nodesToDelete.length, 'nodes');
 
-    if (this.onChange) this.onChange();
+  // USE GROUP DELETION for multiple nodes, single deletion for one node
+  if (nodesToDelete.length > 1 && window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
+    console.log("MenuManager: Using group deletion for", nodesToDelete.length, "nodes");
+    window.onGroupDeleted(nodesToDelete);
+  } else if (nodesToDelete.length === 1 && window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
+    console.log("MenuManager: Using single node deletion for", nodesToDelete[0].kind, nodesToDelete[0].id);
+    window.onNodeDeleted(nodesToDelete[0]);
   }
+
+  // Remove connections involving selected nodes
+  this.graph.connections = this.graph.connections.filter(
+    (c) => !(ids.has(c.from.nodeId) || ids.has(c.to.nodeId)),
+  );
+
+  // Remove nodes
+  this.graph.nodes = this.graph.nodes.filter((n) => !ids.has(n.id));
+  this.graph.selection.clear();
+
+  if (this.onChange) this.onChange();
+}
 }

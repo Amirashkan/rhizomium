@@ -258,8 +258,18 @@ function onNodeCreated(node) {
     undoManager.recordNodeCreation(node);
   }
 }
+// Add this function after your existing callback functions (around line 151)
+function onGroupDeleted(nodesToDelete) {
+  console.log("Group deleted callback:", nodesToDelete);
+  if (undoManager && nodesToDelete && nodesToDelete.length > 0) {
+    undoManager.recordGroupDeletion(nodesToDelete);
+  } else {
+    console.warn("UndoManager not available or nodes invalid:", { undoManager: !!undoManager, nodeCount: nodesToDelete?.length });
+  }
+}
 
 // Expose these functions globally so Editor can call them
+window.onGroupDeleted = onGroupDeleted;
 window.onConnectionDeleted = onConnectionDeleted;
 window.onNodeDeleted = onNodeDeleted;
 window.onConnectionCreated = onConnectionCreated;
