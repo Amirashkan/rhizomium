@@ -1,4 +1,4 @@
-// src/codegen/processors/GraphProcessor.js
+// src/codegen/processors/GraphProcessor.js - Enhanced with ErrorHandler integration
 export class GraphProcessor {
   /**
    * Process the graph to get ordered and filtered nodes
@@ -6,17 +6,40 @@ export class GraphProcessor {
    * @returns {Object} { orderedNodes, outputNode }
    */
   processGraph(graph) {
-    let orderedNodes = this.topologicalSort(graph);
-    
-    this.logDebugInfo(graph, orderedNodes);
-    
-    const outputNode = this.findActiveOutput(graph);
-    
-    if (outputNode) {
-      orderedNodes = this.filterUpstreamNodes(orderedNodes, outputNode, graph);
+    try {
+      if (!graph) {
+        throw new Error('Graph is required for processing');
+      }
+
+      if (!graph.nodes || !Array.isArray(graph.nodes)) {
+        throw new Error('Graph must have a nodes array');
+      }
+
+      let orderedNodes = this.topologicalSort(graph);
+      
+      this.logDebugInfo(graph, orderedNodes);
+      
+      const outputNode = this.findActiveOutput(graph);
+      
+      if (outputNode) {
+        orderedNodes = this.filterUpstreamNodes(orderedNodes, outputNode, graph);
+      }
+      
+      console.log(`Graph processing completed: ${orderedNodes.length} nodes ordered, output node: ${outputNode?.id || 'none'}`);
+      
+      return { orderedNodes, outputNode };
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'graph-processing',
+        nodeCount: graph?.nodes?.length || 0
+      });
+      
+      // Return safe fallback
+      return { 
+        orderedNodes: graph?.nodes || [], 
+        outputNode: null 
+      };
     }
-    
-    return { orderedNodes, outputNode };
   }
   
   /**
@@ -25,31 +48,92 @@ export class GraphProcessor {
    * @returns {Array} Sorted nodes
    */
   topologicalSort(graph) {
-    const nodes = graph.nodes || [];
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const visited = new Set();
-    const result = [];
-    
-    const visit = (id) => {
-      if (!id || visited.has(id)) return;
-      visited.add(id);
+    try {
+      if (!graph || !graph.nodes) {
+        return [];
+      }
+
+      const nodes = graph.nodes || [];
+      const byId = new Map();
+      const visited = new Set();
+      const visiting = new Set(); // For cycle detection
+      const result = [];
       
-      const node = byId.get(id);
-      if (!node) return;
-      
-      // Visit all inputs first
-      for (const input of node.inputs || []) {
-        if (input) visit(input);
+      // Build node lookup map with validation
+      for (const node of nodes) {
+        if (!node) {
+          console.warn('Null node found in graph');
+          continue;
+        }
+        
+        if (typeof node.id === 'undefined') {
+          console.warn('Node missing ID:', node);
+          continue;
+        }
+        
+        if (byId.has(node.id)) {
+          console.warn(`Duplicate node ID found: ${node.id}`);
+        }
+        
+        byId.set(node.id, node);
       }
       
-      result.push(node);
-    };
-    
-    for (const node of nodes) {
-      visit(node.id);
+      const visit = (id) => {
+        try {
+          if (!id || visited.has(id)) return;
+          
+          // Cycle detection
+          if (visiting.has(id)) {
+            console.warn(`Circular dependency detected involving node: ${id}`);
+            return;
+          }
+          
+          visiting.add(id);
+          
+          const node = byId.get(id);
+          if (!node) {
+            console.warn(`Referenced node not found: ${id}`);
+            visiting.delete(id);
+            return;
+          }
+          
+          // Visit all inputs first
+          if (node.inputs && Array.isArray(node.inputs)) {
+            for (const input of node.inputs) {
+              if (input !== null && input !== undefined) {
+                visit(input);
+              }
+            }
+          }
+          
+          visiting.delete(id);
+          visited.add(id);
+          result.push(node);
+        } catch (error) {
+          window.errorHandler?.handleError(error, { 
+            component: 'topological-sort-visit',
+            nodeId: id
+          });
+          visiting.delete(id);
+        }
+      };
+      
+      // Visit all nodes
+      for (const node of nodes) {
+        if (node && node.id) {
+          visit(node.id);
+        }
+      }
+      
+      console.log(`Topological sort completed: ${result.length} nodes ordered`);
+      return result;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'topological-sort',
+        nodeCount: graph?.nodes?.length || 0
+      });
+      return graph?.nodes || [];
     }
-    
-    return result;
   }
   
   /**
@@ -58,19 +142,55 @@ export class GraphProcessor {
    * @returns {Object|null} Output node
    */
   findActiveOutput(graph) {
-    const outputs = (graph.nodes || []).filter((n) =>
-      /OutputFinal/i.test(n.kind || n.type || n.name || "")
-    );
-    
-    const connected = outputs.filter(
-      (o) => Array.isArray(o.inputs) && o.inputs[0]
-    );
-    
-    if (connected.length) {
-      return connected[connected.length - 1];
+    try {
+      if (!graph || !graph.nodes || !Array.isArray(graph.nodes)) {
+        return null;
+      }
+
+      const nodes = graph.nodes.filter(n => n && (n.kind || n.type || n.name));
+      
+      const outputs = nodes.filter((n) => {
+        try {
+          const identifier = n.kind || n.type || n.name || "";
+          return /OutputFinal/i.test(identifier);
+        } catch (error) {
+          console.warn('Error checking node for output pattern:', error);
+          return false;
+        }
+      });
+      
+      if (outputs.length === 0) {
+        console.log('No output nodes found in graph');
+        return null;
+      }
+      
+      // Find connected outputs (those with inputs)
+      const connected = outputs.filter((o) => {
+        try {
+          return Array.isArray(o.inputs) && o.inputs[0] !== null && o.inputs[0] !== undefined;
+        } catch (error) {
+          console.warn('Error checking output node connections:', error);
+          return false;
+        }
+      });
+      
+      let selectedOutput;
+      if (connected.length > 0) {
+        selectedOutput = connected[connected.length - 1];
+        console.log(`Selected connected output node: ${selectedOutput.id}`);
+      } else {
+        selectedOutput = outputs[outputs.length - 1];
+        console.log(`Selected unconnected output node: ${selectedOutput.id}`);
+      }
+      
+      return selectedOutput;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'find-active-output',
+        nodeCount: graph?.nodes?.length || 0
+      });
+      return null;
     }
-    
-    return outputs[outputs.length - 1] || null;
   }
   
   /**
@@ -81,10 +201,50 @@ export class GraphProcessor {
    * @returns {Array} Filtered nodes
    */
   filterUpstreamNodes(orderedNodes, outputNode, graph) {
-    const byId = new Map((graph.nodes || []).map((n) => [n.id, n]));
-    const upstreamIds = this.getUpstreamSet(outputNode.id, byId);
-    
-    return orderedNodes.filter((n) => upstreamIds.has(n.id));
+    try {
+      if (!orderedNodes || !Array.isArray(orderedNodes)) {
+        console.warn('Invalid ordered nodes array for filtering');
+        return [];
+      }
+      
+      if (!outputNode || !outputNode.id) {
+        console.warn('Invalid output node for filtering');
+        return orderedNodes;
+      }
+      
+      if (!graph || !graph.nodes) {
+        console.warn('Invalid graph for upstream filtering');
+        return orderedNodes;
+      }
+
+      // Build node lookup map
+      const byId = new Map();
+      for (const node of graph.nodes) {
+        if (node && node.id) {
+          byId.set(node.id, node);
+        }
+      }
+      
+      const upstreamIds = this.getUpstreamSet(outputNode.id, byId);
+      
+      const filteredNodes = orderedNodes.filter((n) => {
+        if (!n || !n.id) {
+          console.warn('Invalid node in ordered nodes list');
+          return false;
+        }
+        return upstreamIds.has(n.id);
+      });
+      
+      console.log(`Filtered to ${filteredNodes.length} upstream nodes from ${orderedNodes.length} total`);
+      return filteredNodes;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'filter-upstream-nodes',
+        orderedCount: orderedNodes?.length || 0,
+        outputNodeId: outputNode?.id
+      });
+      return orderedNodes || [];
+    }
   }
   
   /**
@@ -94,22 +254,71 @@ export class GraphProcessor {
    * @returns {Set} Set of upstream node IDs
    */
   getUpstreamSet(startId, byId) {
-    const visited = new Set();
-    
-    const dfs = (id) => {
-      if (!id || visited.has(id)) return;
-      visited.add(id);
-      
-      const node = byId.get(id);
-      if (!node) return;
-      
-      for (const input of node.inputs || []) {
-        if (input) dfs(input);
+    try {
+      if (!startId) {
+        console.warn('No start ID provided for upstream search');
+        return new Set();
       }
-    };
-    
-    dfs(startId);
-    return visited;
+      
+      if (!byId || !(byId instanceof Map)) {
+        console.warn('Invalid node lookup map for upstream search');
+        return new Set();
+      }
+
+      const visited = new Set();
+      const visiting = new Set(); // For cycle detection
+      
+      const dfs = (id) => {
+        try {
+          if (!id || visited.has(id)) return;
+          
+          // Cycle detection
+          if (visiting.has(id)) {
+            console.warn(`Circular dependency detected in upstream search: ${id}`);
+            return;
+          }
+          
+          visiting.add(id);
+          visited.add(id);
+          
+          const node = byId.get(id);
+          if (!node) {
+            console.warn(`Node not found in upstream search: ${id}`);
+            visiting.delete(id);
+            return;
+          }
+          
+          // Traverse inputs
+          if (node.inputs && Array.isArray(node.inputs)) {
+            for (const input of node.inputs) {
+              if (input !== null && input !== undefined) {
+                dfs(input);
+              }
+            }
+          }
+          
+          visiting.delete(id);
+        } catch (error) {
+          window.errorHandler?.handleError(error, { 
+            component: 'upstream-dfs',
+            nodeId: id,
+            startId: startId
+          });
+          visiting.delete(id);
+        }
+      };
+      
+      dfs(startId);
+      
+      console.log(`Found ${visited.size} upstream nodes from ${startId}`);
+      return visited;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'get-upstream-set',
+        startId: startId
+      });
+      return new Set();
+    }
   }
   
   /**
@@ -118,18 +327,200 @@ export class GraphProcessor {
    * @param {Array} orderedNodes 
    */
   logDebugInfo(graph, orderedNodes) {
-    console.log("=== DEBUG: All nodes before filtering ===");
-    if (graph.nodes) {
-      graph.nodes.forEach((node) => {
-        console.log(
-          `Node ${node.id}: kind="${node.kind}" type="${node.type}" name="${node.name}"`
-        );
+    try {
+      console.log("=== DEBUG: All nodes before filtering ===");
+      if (graph && graph.nodes && Array.isArray(graph.nodes)) {
+        graph.nodes.forEach((node, index) => {
+          if (!node) {
+            console.log(`Node ${index}: NULL NODE`);
+            return;
+          }
+          
+          const id = node.id || 'NO_ID';
+          const kind = node.kind || 'NO_KIND';
+          const type = node.type || 'NO_TYPE';
+          const name = node.name || 'NO_NAME';
+          
+          console.log(`Node ${id}: kind="${kind}" type="${type}" name="${name}"`);
+        });
+      } else {
+        console.log("No valid nodes array found in graph");
+      }
+
+      console.log("=== DEBUG: Ordered nodes ===");
+      if (orderedNodes && Array.isArray(orderedNodes)) {
+        orderedNodes.forEach((node, index) => {
+          if (!node) {
+            console.log(`Ordered ${index}: NULL NODE`);
+            return;
+          }
+          
+          const id = node.id || 'NO_ID';
+          const kind = node.kind || 'NO_KIND';
+          
+          console.log(`Ordered: ${id} -> kind="${kind}"`);
+        });
+      } else {
+        console.log("No valid ordered nodes array");
+      }
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'debug-logging',
+        nodeCount: graph?.nodes?.length || 0,
+        orderedCount: orderedNodes?.length || 0
       });
     }
-
-    console.log("=== DEBUG: Ordered nodes ===");
-    orderedNodes.forEach((node) => {
-      console.log(`Ordered: ${node.id} -> kind="${node.kind}"`);
-    });
+  }
+  
+  /**
+   * Validate graph integrity and report issues
+   * @param {Object} graph 
+   * @returns {Array} Array of validation issues
+   */
+  validateGraph(graph) {
+    try {
+      const issues = [];
+      
+      if (!graph) {
+        issues.push('Graph is null or undefined');
+        return issues;
+      }
+      
+      if (!graph.nodes) {
+        issues.push('Graph missing nodes property');
+        return issues;
+      }
+      
+      if (!Array.isArray(graph.nodes)) {
+        issues.push('Graph nodes is not an array');
+        return issues;
+      }
+      
+      // Check for basic node integrity
+      const nodeIds = new Set();
+      const nullNodes = [];
+      const duplicateIds = [];
+      const missingIds = [];
+      const invalidConnections = [];
+      
+      graph.nodes.forEach((node, index) => {
+        if (!node) {
+          nullNodes.push(index);
+          return;
+        }
+        
+        if (typeof node.id === 'undefined') {
+          missingIds.push(index);
+          return;
+        }
+        
+        if (nodeIds.has(node.id)) {
+          duplicateIds.push(node.id);
+        } else {
+          nodeIds.add(node.id);
+        }
+        
+        // Check input connections
+        if (node.inputs && Array.isArray(node.inputs)) {
+          node.inputs.forEach((input, inputIndex) => {
+            if (input !== null && input !== undefined && !nodeIds.has(input)) {
+              invalidConnections.push({
+                nodeId: node.id,
+                inputIndex: inputIndex,
+                referencedId: input
+              });
+            }
+          });
+        }
+      });
+      
+      if (nullNodes.length > 0) {
+        issues.push(`Found ${nullNodes.length} null nodes at indices: ${nullNodes.join(', ')}`);
+      }
+      
+      if (missingIds.length > 0) {
+        issues.push(`Found ${missingIds.length} nodes missing IDs at indices: ${missingIds.join(', ')}`);
+      }
+      
+      if (duplicateIds.length > 0) {
+        issues.push(`Found duplicate node IDs: ${duplicateIds.join(', ')}`);
+      }
+      
+      if (invalidConnections.length > 0) {
+        issues.push(`Found ${invalidConnections.length} invalid connections`);
+        invalidConnections.forEach(conn => {
+          issues.push(`  Node ${conn.nodeId} input[${conn.inputIndex}] references non-existent node: ${conn.referencedId}`);
+        });
+      }
+      
+      if (issues.length === 0) {
+        console.log(`Graph validation passed: ${graph.nodes.length} nodes, ${nodeIds.size} unique IDs`);
+      } else {
+        console.warn(`Graph validation found ${issues.length} issues:`, issues);
+      }
+      
+      return issues;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'graph-validation',
+        nodeCount: graph?.nodes?.length || 0
+      });
+      return ['Validation failed due to error: ' + error.message];
+    }
+  }
+  
+  /**
+   * Get graph statistics for debugging
+   * @param {Object} graph 
+   * @returns {Object} Graph statistics
+   */
+  getGraphStats(graph) {
+    try {
+      if (!graph || !graph.nodes) {
+        return { 
+          nodeCount: 0, 
+          connectionCount: 0, 
+          outputNodes: 0,
+          error: 'Invalid graph'
+        };
+      }
+      
+      const stats = {
+        nodeCount: graph.nodes.length,
+        connectionCount: 0,
+        outputNodes: 0,
+        nodeTypes: {},
+        maxDepth: 0,
+        isolatedNodes: 0
+      };
+      
+      const validNodes = graph.nodes.filter(n => n && n.id);
+      stats.validNodes = validNodes.length;
+      
+      validNodes.forEach(node => {
+        // Count node types
+        const nodeType = node.kind || node.type || 'Unknown';
+        stats.nodeTypes[nodeType] = (stats.nodeTypes[nodeType] || 0) + 1;
+        
+        // Count connections
+        if (node.inputs && Array.isArray(node.inputs)) {
+          const validInputs = node.inputs.filter(input => input !== null && input !== undefined);
+          stats.connectionCount += validInputs.length;
+        }
+        
+        // Count output nodes
+        if (/OutputFinal/i.test(nodeType)) {
+          stats.outputNodes++;
+        }
+      });
+      
+      return stats;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'graph-stats',
+        nodeCount: graph?.nodes?.length || 0
+      });
+      return { error: error.message };
+    }
   }
 }

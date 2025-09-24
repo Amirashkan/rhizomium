@@ -8,17 +8,43 @@ export class TextureManager {
   }
 
   async initialize(device) {
-    this.device = device;
-    console.log("TextureManager initialized with device:", device);
+    try {
+      if (!device) {
+        throw new Error("WebGPU device is required");
+      }
+      this.device = device;
+      console.log("TextureManager initialized with device:", device);
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'texture-manager-init' 
+      });
+      throw error;
+    }
   }
 
   async loadTexture(nodeId, imageFile) {
     if (!this.device) {
-      throw new Error("TextureManager not initialized with WebGPU device");
+      const error = new Error("TextureManager not initialized with WebGPU device");
+      window.errorHandler?.handleError(error, { 
+        component: 'texture-loading',
+        nodeId 
+      });
+      throw error;
     }
 
     try {
       console.log("Loading texture for node:", nodeId, "file:", imageFile.name);
+
+      // Validate file
+      if (!imageFile || !imageFile.type.startsWith('image/')) {
+        throw new Error("Invalid image file provided");
+      }
+
+      // Check file size (limit to 50MB)
+      const maxSize = 50 * 1024 * 1024;
+      if (imageFile.size > maxSize) {
+        throw new Error(`Image file too large: ${(imageFile.size / 1024 / 1024).toFixed(1)}MB (max 50MB)`);
+      }
 
       // Create image bitmap from file
       const imageBitmap = await createImageBitmap(imageFile);
@@ -28,6 +54,14 @@ export class TextureManager {
         "x",
         imageBitmap.height,
       );
+
+      // Validate bitmap dimensions
+      if (imageBitmap.width > 4096 || imageBitmap.height > 4096) {
+        window.errorHandler?.handleError(
+          new Error("Image resolution too high (max 4096x4096)"), 
+          { component: 'texture-validation', nodeId, width: imageBitmap.width, height: imageBitmap.height }
+        );
+      }
 
       // Create texture
       const texture = this.device.createTexture({
@@ -77,7 +111,12 @@ export class TextureManager {
 
       return textureInfo;
     } catch (error) {
-      console.error("Failed to load texture for node", nodeId, ":", error);
+      window.errorHandler?.handleError(error, { 
+        component: 'texture-loading',
+        nodeId,
+        fileName: imageFile?.name,
+        type: 'texture-error'
+      });
       throw error;
     }
   }
@@ -91,182 +130,210 @@ export class TextureManager {
   }
 
   removeTexture(nodeId) {
-    const textureInfo = this.textures.get(nodeId);
-    if (textureInfo) {
-      // Cleanup WebGPU resources
-      if (textureInfo.texture && textureInfo.texture.destroy) {
-        textureInfo.texture.destroy();
+    try {
+      const textureInfo = this.textures.get(nodeId);
+      if (textureInfo) {
+        // Cleanup WebGPU resources
+        if (textureInfo.texture && textureInfo.texture.destroy) {
+          textureInfo.texture.destroy();
+        }
+        this.textures.delete(nodeId);
+
+        // Invalidate bind group
+        this.bindGroup = null;
+
+        console.log("Removed texture for node:", nodeId);
       }
-      this.textures.delete(nodeId);
-
-      // Invalidate bind group
-      this.bindGroup = null;
-
-      console.log("Removed texture for node:", nodeId);
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'texture-cleanup',
+        nodeId 
+      });
     }
   }
 
   // Create bind group layout that includes all current textures
   createBindGroupLayout(graph) {
-    if (!this.device) throw new Error("Device not initialized");
+    try {
+      if (!this.device) throw new Error("Device not initialized");
 
-    const entries = [
-      // Binding 0: Uniforms (time, etc.)
-      {
-        binding: 0,
-        visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
-      },
-    ];
+      const entries = [
+        // Binding 0: Uniforms (time, etc.)
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX,
+          buffer: { type: "uniform" },
+        },
+      ];
 
-    let bindingIndex = 1;
+      let bindingIndex = 1;
 
-    if (graph.nodes) {
-      for (const node of graph.nodes) {
-        if (node.kind === "Texture2D") {
-          // Texture binding
-          entries.push({
-            binding: bindingIndex,
-            visibility: GPUShaderStage.FRAGMENT,
-            texture: { sampleType: "float" },
-          });
+      if (graph.nodes) {
+        for (const node of graph.nodes) {
+          if (node.kind === "Texture2D") {
+            // Texture binding
+            entries.push({
+              binding: bindingIndex,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: "float" },
+            });
 
-          // Sampler binding
-          entries.push({
-            binding: bindingIndex + 1,
-            visibility: GPUShaderStage.FRAGMENT,
-            sampler: {},
-          });
+            // Sampler binding
+            entries.push({
+              binding: bindingIndex + 1,
+              visibility: GPUShaderStage.FRAGMENT,
+              sampler: {},
+            });
 
-          bindingIndex += 2;
-        } else if (node.kind === "TextureCube") {
-          // Cube texture binding
-          entries.push({
-            binding: bindingIndex,
-            visibility: GPUShaderStage.FRAGMENT,
-            texture: { sampleType: "float", viewDimension: "cube" },
-          });
+            bindingIndex += 2;
+          } else if (node.kind === "TextureCube") {
+            // Cube texture binding
+            entries.push({
+              binding: bindingIndex,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: "float", viewDimension: "cube" },
+            });
 
-          // Sampler binding
-          entries.push({
-            binding: bindingIndex + 1,
-            visibility: GPUShaderStage.FRAGMENT,
-            sampler: {},
-          });
+            // Sampler binding
+            entries.push({
+              binding: bindingIndex + 1,
+              visibility: GPUShaderStage.FRAGMENT,
+              sampler: {},
+            });
 
-          bindingIndex += 2;
+            bindingIndex += 2;
+          }
         }
       }
-    }
 
-    this.bindGroupLayout = this.device.createBindGroupLayout({ entries });
-    return this.bindGroupLayout;
+      this.bindGroupLayout = this.device.createBindGroupLayout({ entries });
+      return this.bindGroupLayout;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'bind-group-layout-creation' 
+      });
+      throw error;
+    }
   }
 
   // Create bind group with current textures
   createBindGroup(graph, uniformBuffer) {
-    if (!this.bindGroupLayout) {
-      throw new Error("Bind group layout not created");
-    }
+    try {
+      if (!this.bindGroupLayout) {
+        throw new Error("Bind group layout not created");
+      }
 
-    const entries = [
-      // Binding 0: Uniforms
-      {
-        binding: 0,
-        resource: { buffer: uniformBuffer },
-      },
-    ];
+      const entries = [
+        // Binding 0: Uniforms
+        {
+          binding: 0,
+          resource: { buffer: uniformBuffer },
+        },
+      ];
 
-    let bindingIndex = 1;
+      let bindingIndex = 1;
 
-    if (graph.nodes) {
-      for (const node of graph.nodes) {
-        const textureInfo = this.getTexture(node.id);
+      if (graph.nodes) {
+        for (const node of graph.nodes) {
+          const textureInfo = this.getTexture(node.id);
 
-        if (node.kind === "Texture2D" && textureInfo) {
-          // Texture binding
-          entries.push({
-            binding: bindingIndex,
-            resource: textureInfo.textureView,
-          });
+          if (node.kind === "Texture2D" && textureInfo) {
+            // Texture binding
+            entries.push({
+              binding: bindingIndex,
+              resource: textureInfo.textureView,
+            });
 
-          // Sampler binding
-          entries.push({
-            binding: bindingIndex + 1,
-            resource: textureInfo.sampler,
-          });
+            // Sampler binding
+            entries.push({
+              binding: bindingIndex + 1,
+              resource: textureInfo.sampler,
+            });
 
-          bindingIndex += 2;
-        } else if (node.kind === "TextureCube" && textureInfo) {
-          // Cube texture binding
-          entries.push({
-            binding: bindingIndex,
-            resource: textureInfo.textureView,
-          });
+            bindingIndex += 2;
+          } else if (node.kind === "TextureCube" && textureInfo) {
+            // Cube texture binding
+            entries.push({
+              binding: bindingIndex,
+              resource: textureInfo.textureView,
+            });
 
-          // Sampler binding
-          entries.push({
-            binding: bindingIndex + 1,
-            resource: textureInfo.sampler,
-          });
+            // Sampler binding
+            entries.push({
+              binding: bindingIndex + 1,
+              resource: textureInfo.sampler,
+            });
 
-          bindingIndex += 2;
-        } else if (node.kind === "Texture2D" || node.kind === "TextureCube") {
-          // Missing texture - create dummy bindings
-          console.warn(
-            "Missing texture for node:",
-            node.id,
-            "creating dummy texture",
-          );
+            bindingIndex += 2;
+          } else if (node.kind === "Texture2D" || node.kind === "TextureCube") {
+            // Missing texture - create dummy bindings
+            console.warn(
+              "Missing texture for node:",
+              node.id,
+              "creating dummy texture",
+            );
 
-          // Create a 1x1 dummy texture
-          const dummyTexture = this.createDummyTexture();
-          const dummySampler = this.device.createSampler({
-            magFilter: "linear",
-            minFilter: "linear",
-          });
+            // Create a 1x1 dummy texture
+            const dummyTexture = this.createDummyTexture();
+            const dummySampler = this.device.createSampler({
+              magFilter: "linear",
+              minFilter: "linear",
+            });
 
-          entries.push({
-            binding: bindingIndex,
-            resource: dummyTexture.createView(),
-          });
+            entries.push({
+              binding: bindingIndex,
+              resource: dummyTexture.createView(),
+            });
 
-          entries.push({
-            binding: bindingIndex + 1,
-            resource: dummySampler,
-          });
+            entries.push({
+              binding: bindingIndex + 1,
+              resource: dummySampler,
+            });
 
-          bindingIndex += 2;
+            bindingIndex += 2;
+          }
         }
       }
+
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries,
+      });
+
+      return this.bindGroup;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'bind-group-creation' 
+      });
+      throw error;
     }
-
-    this.bindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries,
-    });
-
-    return this.bindGroup;
   }
 
   // Create a dummy 1x1 texture for missing textures
   createDummyTexture() {
-    const texture = this.device.createTexture({
-      size: [1, 1, 1],
-      format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
+    try {
+      const texture = this.device.createTexture({
+        size: [1, 1, 1],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
 
-    // Fill with magenta to indicate missing texture
-    const data = new Uint8Array([255, 0, 255, 255]); // Magenta
-    this.device.queue.writeTexture(
-      { texture },
-      data,
-      { bytesPerRow: 4 },
-      [1, 1, 1],
-    );
+      // Fill with magenta to indicate missing texture
+      const data = new Uint8Array([255, 0, 255, 255]); // Magenta
+      this.device.queue.writeTexture(
+        { texture },
+        data,
+        { bytesPerRow: 4 },
+        [1, 1, 1],
+      );
 
-    return texture;
+      return texture;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'dummy-texture-creation' 
+      });
+      throw error;
+    }
   }
 
   // Check if bind group needs rebuilding
@@ -281,13 +348,19 @@ export class TextureManager {
 
   // Clean up all resources
   destroy() {
-    for (const [nodeId, textureInfo] of this.textures) {
-      if (textureInfo.texture && textureInfo.texture.destroy) {
-        textureInfo.texture.destroy();
+    try {
+      for (const [nodeId, textureInfo] of this.textures) {
+        if (textureInfo.texture && textureInfo.texture.destroy) {
+          textureInfo.texture.destroy();
+        }
       }
+      this.textures.clear();
+      this.bindGroup = null;
+      this.bindGroupLayout = null;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'texture-manager-cleanup' 
+      });
     }
-    this.textures.clear();
-    this.bindGroup = null;
-    this.bindGroupLayout = null;
   }
 }

@@ -11,19 +11,44 @@ export class CircleFieldNode extends Node {
   }
 
   getPreviewValue() {
-    return `r=${this.radius.toFixed(2)} @ (${circlePos.x.toFixed(2)}, ${circlePos.y.toFixed(2)})`;
+    try {
+      return `r=${this.radius.toFixed(2)} @ (${circlePos.x.toFixed(2)}, ${circlePos.y.toFixed(2)})`;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'node-preview',
+        nodeType: 'CircleFieldNode' 
+      });
+      return "Circle (invalid)";
+    }
   }
 
   getGLSL(id) {
-    const cx = circlePos.x.toFixed(3);
-    const cy = circlePos.y.toFixed(3);
-    const inputExpr = this.input !== null ? `node${this.input}` : "in.uv";
-    const r = this.radius;
-    const edge0 = r - 0.02;
-    const edge1 = r + 0.02;
-    return `
-      let dist${id} = distance(${inputExpr}, vec2<f32>(${cx}, ${cy}));
-      let node${id} = 1.0 - smoothstep(${edge0}, ${edge1}, dist${id});
-    `;
+    try {
+      // Validate radius
+      if (typeof this.radius !== 'number' || isNaN(this.radius)) {
+        throw new Error('Invalid radius value');
+      }
+
+      const cx = circlePos.x.toFixed(3);
+      const cy = circlePos.y.toFixed(3);
+      const inputExpr = this.input !== null ? `node${this.input}` : "in.uv";
+      const r = this.radius;
+      const edge0 = r - 0.02;
+      const edge1 = r + 0.02;
+      
+      return `
+        let dist${id} = distance(${inputExpr}, vec2<f32>(${cx}, ${cy}));
+        let node${id} = 1.0 - smoothstep(${edge0}, ${edge1}, dist${id});
+      `;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'node-processing',
+        nodeType: 'CircleFieldNode',
+        nodeId: id,
+        radius: this.radius
+      });
+      
+      return `let node${id} = 0.0;`;
+    }
   }
 }

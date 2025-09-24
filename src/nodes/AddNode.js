@@ -12,7 +12,6 @@ export class AddNode extends Node {
     const a = this.inputs?.[0];
     const b = this.inputs?.[1];
 
-    // اگه ورودی‌ها وجود نداشته باشن یا خودش به خودش وصل شده باشه، GLSL نده
     if (a == null || b == null || a === id || b === id) return "";
 
     return `let node${id} = node${a} + node${b};`;

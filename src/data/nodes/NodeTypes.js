@@ -113,19 +113,28 @@ export function validatePinCount(pinsIn, inputCount) {
  * Validate a parameter definition
  */
 export function validateParameter(param) {
-  if (!param.name || !param.type) {
-    throw new Error('Parameter must have name and type');
-  }
+  try {
+    if (!param.name || !param.type) {
+      throw new Error('Parameter must have name and type');
+    }
 
-  if (!Object.values(ParameterTypes).includes(param.type)) {
-    throw new Error(`Invalid parameter type: ${param.type}`);
-  }
+    if (!Object.values(ParameterTypes).includes(param.type)) {
+      throw new Error(`Invalid parameter type: ${param.type}`);
+    }
 
-  if (param.type === ParameterTypes.SELECT && !param.options) {
-    throw new Error('Select parameter must have options array');
-  }
+    if (param.type === ParameterTypes.SELECT && !param.options) {
+      throw new Error('Select parameter must have options array');
+    }
 
-  return true;
+    return true;
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'parameter-validation',
+      paramName: param?.name,
+      paramType: param?.type
+    });
+    throw error; // Re-throw so calling code knows validation failed
+  }
 }
 
 /**

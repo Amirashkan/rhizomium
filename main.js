@@ -11,6 +11,7 @@ import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
 import { TextureManager } from "./src/core/TextureManager.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
+import { ErrorHandler } from './src/core/ErrorHandler.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -103,6 +104,12 @@ let __deviceReady = false;
 let floatingPreview = null;
 
 async function initialize() {
+  
+    const errorHandler = new ErrorHandler();
+  window.errorHandler = errorHandler;
+  
+  // Add a simple UI listener
+
   const canvas =
     document.getElementById("gpu-canvas") || document.querySelector("canvas");
   if (canvas) {
@@ -207,8 +214,8 @@ async function initialize() {
 
     console.log("GLSL Node Editor initialized successfully");
   } catch (error) {
-    console.error("Initialization failed:", error);
-    updateStatus("Initialization failed: " + error.message, "error");
+errorHandler.handleError(error, { component: 'initialization' });
+
   }
 }
 
@@ -840,9 +847,10 @@ async function updateShaderFromGraph() {
       }, 100); // Small delay to ensure GPU render is complete
     }
   } catch (error) {
-    console.error("Shader update failed:", error);
-    updateStatus(`Shader error: ${error.message}`, "error");
-
+errorHandler.handleError(error, { 
+  component: 'shader-compilation', 
+  type: 'shader-error' 
+});
     // Show error overlay
     showShaderError(error.message);
   }

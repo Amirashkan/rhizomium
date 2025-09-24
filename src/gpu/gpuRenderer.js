@@ -26,220 +26,271 @@ function hash(s) {
 export async function initWebGPU(canvas) {
   if (_device) return _device;
 
-  if (!navigator.gpu) {
-    console.warn("WebGPU not available");
-    return null;
+  try {
+    if (!navigator.gpu) {
+      throw new Error("WebGPU not available in this browser");
+    }
+
+    _canvas = canvas || document.getElementById("gpu-canvas");
+    if (!_canvas) {
+      throw new Error("Canvas element not found");
+    }
+
+    _context = _canvas.getContext("webgpu");
+    if (!_context) {
+      throw new Error("Failed to get WebGPU context from canvas");
+    }
+
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      throw new Error("WebGPU adapter not available");
+    }
+
+    _device = await adapter.requestDevice();
+    if (!_device) {
+      throw new Error("Failed to get WebGPU device");
+    }
+
+    _format = navigator.gpu.getPreferredCanvasFormat();
+    _context.configure({
+      device: _device,
+      format: _format,
+      alphaMode: "premultiplied",
+    });
+
+    // Create uniform buffer for time
+    _uniformBuffer = _device.createBuffer({
+      size: 16, // 4 bytes for f32, padded to 16 bytes for alignment
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    console.log("WebGPU initialized successfully");
+    return _device;
+
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'webgpu-init',
+      type: 'webgpu-error' 
+    });
+    throw error;
   }
-
-  _canvas = canvas || document.getElementById("gpu-canvas");
-  if (!_canvas) {
-    throw new Error("Canvas element not found");
-  }
-
-  _context = _canvas.getContext("webgpu");
-  const adapter = await navigator.gpu.requestAdapter();
-  _device = await adapter.requestDevice();
-
-  _format = navigator.gpu.getPreferredCanvasFormat();
-  _context.configure({
-    device: _device,
-    format: _format,
-    alphaMode: "premultiplied",
-  });
-
-  // Create uniform buffer for time
-  _uniformBuffer = _device.createBuffer({
-    size: 16, // 4 bytes for f32, padded to 16 bytes for alignment
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-
-  return _device;
 }
 
 function createDummyTexture() {
-  // Create a 1x1 white texture as fallback
-  const texture = _device.createTexture({
-    size: [1, 1, 1],
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
+  try {
+    // Create a 1x1 white texture as fallback
+    const texture = _device.createTexture({
+      size: [1, 1, 1],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
 
-  // Fill with white
-  const whitePixel = new Uint8Array([255, 255, 255, 255]);
-  _device.queue.writeTexture(
-    { texture },
-    whitePixel,
-    { bytesPerRow: 4 },
-    { width: 1, height: 1 },
-  );
-
-  const textureView = texture.createView();
-  const sampler = _device.createSampler({
-    magFilter: "linear",
-    minFilter: "linear",
-  });
-
-  return { textureView, sampler };
-}
-
-function createDummyCubeTexture() {
-  // Create a 1x1 white cube texture as fallback
-  const texture = _device.createTexture({
-    size: [1, 1, 6], // 6 faces for cube
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    dimension: "2d",
-  });
-
-  // Fill all 6 faces with white
-  const whitePixel = new Uint8Array([255, 255, 255, 255]);
-  for (let face = 0; face < 6; face++) {
+    // Fill with white
+    const whitePixel = new Uint8Array([255, 255, 255, 255]);
     _device.queue.writeTexture(
-      { texture, origin: [0, 0, face] },
+      { texture },
       whitePixel,
       { bytesPerRow: 4 },
       { width: 1, height: 1 },
     );
+
+    const textureView = texture.createView();
+    const sampler = _device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+    });
+
+    return { textureView, sampler };
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'texture-creation',
+      type: 'texture-error' 
+    });
+    throw error;
   }
-
-  const textureView = texture.createView({ dimension: "cube" });
-  const sampler = _device.createSampler({
-    magFilter: "linear",
-    minFilter: "linear",
-  });
-
-  return { textureView, sampler };
 }
 
-// Replace your createPipelineAndBindGroup function with this:
+function createDummyCubeTexture() {
+  try {
+    // Create a 1x1 white cube texture as fallback
+    const texture = _device.createTexture({
+      size: [1, 1, 6], // 6 faces for cube
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      dimension: "2d",
+    });
 
-// Replace your createPipelineAndBindGroup function with this:
+    // Fill all 6 faces with white
+    const whitePixel = new Uint8Array([255, 255, 255, 255]);
+    for (let face = 0; face < 6; face++) {
+      _device.queue.writeTexture(
+        { texture, origin: [0, 0, face] },
+        whitePixel,
+        { bytesPerRow: 4 },
+        { width: 1, height: 1 },
+      );
+    }
 
-// Replace your createPipelineAndBindGroup function with this:
+    const textureView = texture.createView({ dimension: "cube" });
+    const sampler = _device.createSampler({
+      magFilter: "linear",
+      minFilter: "linear",
+    });
 
-// Replace your createPipelineAndBindGroup function with this:
+    return { textureView, sampler };
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'cube-texture-creation',
+      type: 'texture-error' 
+    });
+    throw error;
+  }
+}
 
 function createPipelineAndBindGroup(wgsl) {
-  const module = _device.createShaderModule({ code: wgsl });
+  try {
+    const module = _device.createShaderModule({ code: wgsl });
 
-  const pipeline = _device.createRenderPipeline({
-    layout: "auto",
-    vertex: { module, entryPoint: "vs_main" },
-    fragment: { module, entryPoint: "fs_main", targets: [{ format: _format }] },
-    primitive: { topology: "triangle-list" },
-  });
+    const pipeline = _device.createRenderPipeline({
+      layout: "auto",
+      vertex: { module, entryPoint: "vs_main" },
+      fragment: { module, entryPoint: "fs_main", targets: [{ format: _format }] },
+      primitive: { topology: "triangle-list" },
+    });
 
-  // CORRECT DETECTION: Only count textures that are actually USED, not just declared
-  const hasTextureSample = wgsl.includes("textureSample(");
-  const hasTexture2D = hasTextureSample && wgsl.includes("texture_2d<f32>");
-  const hasTextureCube = hasTextureSample && wgsl.includes("texture_cube<f32>");
-  const needsTextures = hasTexture2D || hasTextureCube;
+    // CORRECT DETECTION: Only count textures that are actually USED, not just declared
+    const hasTextureSample = wgsl.includes("textureSample(");
+    const hasTexture2D = hasTextureSample && wgsl.includes("texture_2d<f32>");
+    const hasTextureCube = hasTextureSample && wgsl.includes("texture_cube<f32>");
+    const needsTextures = hasTexture2D || hasTextureCube;
 
-  console.log("Shader analysis:", {
-    hasTextureSample,
-    hasTexture2D,
-    hasTextureCube,
-    needsTextures,
-  });
+    console.log("Shader analysis:", {
+      hasTextureSample,
+      hasTexture2D,
+      hasTextureCube,
+      needsTextures,
+    });
 
-  const bindGroupLayout = pipeline.getBindGroupLayout(0);
-  let bindGroup = null;
+    const bindGroupLayout = pipeline.getBindGroupLayout(0);
+    let bindGroup = null;
 
-  if (needsTextures) {
-    console.log("Creating texture bind group (texture is actually used)");
+    if (needsTextures) {
+      console.log("Creating texture bind group (texture is actually used)");
 
-    let textureView, sampler;
+      let textureView, sampler;
 
-    if (hasTextureCube) {
-      // Shader expects cube texture - ALWAYS use cube texture
-      const dummy = createDummyCubeTexture();
-      textureView = dummy.textureView;
-      sampler = dummy.sampler;
-      console.log("Using dummy cube texture (shader expects cube)");
-    } else if (hasTexture2D) {
-      // Shader expects 2D texture - try to use loaded image
-      if (window.textureManager && window.textureManager.textures.size > 0) {
-        const textureInfo = Array.from(
-          window.textureManager.textures.values(),
-        )[0];
-        textureView = textureInfo.textureView;
-        sampler = textureInfo.sampler;
-        console.log("Using loaded 2D texture");
+      if (hasTextureCube) {
+        // Shader expects cube texture - ALWAYS use cube texture
+        const dummy = createDummyCubeTexture();
+        textureView = dummy.textureView;
+        sampler = dummy.sampler;
+        console.log("Using dummy cube texture (shader expects cube)");
+      } else if (hasTexture2D) {
+        // Shader expects 2D texture - try to use loaded image
+        if (window.textureManager && window.textureManager.textures.size > 0) {
+          const textureInfo = Array.from(
+            window.textureManager.textures.values(),
+          )[0];
+          textureView = textureInfo.textureView;
+          sampler = textureInfo.sampler;
+          console.log("Using loaded 2D texture");
+        } else {
+          const dummy = createDummyTexture();
+          textureView = dummy.textureView;
+          sampler = dummy.sampler;
+          console.log("Using dummy 2D texture");
+        }
       } else {
+        // Fallback - use 2D dummy
         const dummy = createDummyTexture();
         textureView = dummy.textureView;
         sampler = dummy.sampler;
-        console.log("Using dummy 2D texture");
+        console.log("Using fallback 2D texture");
       }
+
+      bindGroup = _device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: _uniformBuffer } },
+          { binding: 1, resource: textureView },
+          { binding: 2, resource: sampler },
+        ],
+      });
+      console.log("SUCCESS: Created texture bind group");
     } else {
-      // Fallback - use 2D dummy
-      const dummy = createDummyTexture();
-      textureView = dummy.textureView;
-      sampler = dummy.sampler;
-      console.log("Using fallback 2D texture");
+      console.log("Creating simple bind group (texture declared but not used)");
+
+      bindGroup = _device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: _uniformBuffer } }],
+      });
+      console.log("SUCCESS: Created simple bind group");
     }
 
-    bindGroup = _device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: _uniformBuffer } },
-        { binding: 1, resource: textureView },
-        { binding: 2, resource: sampler },
-      ],
+    return { pipeline, bindGroup };
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'pipeline-creation',
+      type: 'compilation-error' 
     });
-    console.log("SUCCESS: Created texture bind group");
-  } else {
-    console.log("Creating simple bind group (texture declared but not used)");
-
-    bindGroup = _device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: _uniformBuffer } }],
-    });
-    console.log("SUCCESS: Created simple bind group");
+    throw error;
   }
-
-  return { pipeline, bindGroup };
 }
+
 export function render() {
   if (!_device || !_context || !_pipeline) return;
 
-  // Only update uniforms if we have a bind group (shader uses uniforms)
-  if (_bindGroup) {
-    const time = performance.now() / 1000;
-    const timeData = new Float32Array([time]);
-    _device.queue.writeBuffer(_uniformBuffer, 0, timeData);
+  try {
+    // Only update uniforms if we have a bind group (shader uses uniforms)
+    if (_bindGroup) {
+      const time = performance.now() / 1000;
+      const timeData = new Float32Array([time]);
+      _device.queue.writeBuffer(_uniformBuffer, 0, timeData);
+    }
+
+    // Render
+    const encoder = _device.createCommandEncoder();
+    const view = _context.getCurrentTexture().createView();
+
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view,
+          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+          loadOp: "clear",
+          storeOp: "store",
+        },
+      ],
+    });
+
+    pass.setPipeline(_pipeline);
+
+    // Only set bind group if the shader expects it
+    if (_bindGroup) {
+      pass.setBindGroup(0, _bindGroup);
+    }
+
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+
+    _device.queue.submit([encoder.finish()]);
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'gpu-render',
+      type: 'webgpu-error' 
+    });
   }
-
-  // Render
-  const encoder = _device.createCommandEncoder();
-  const view = _context.getCurrentTexture().createView();
-
-  const pass = encoder.beginRenderPass({
-    colorAttachments: [
-      {
-        view,
-        clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      },
-    ],
-  });
-
-  pass.setPipeline(_pipeline);
-
-  // Only set bind group if the shader expects it
-  if (_bindGroup) {
-    pass.setBindGroup(0, _bindGroup);
-  }
-
-  pass.draw(3, 1, 0, 0);
-  pass.end();
-
-  _device.queue.submit([encoder.finish()]);
 }
 
 export async function setShaderSource(wgsl) {
-  if (!_device) throw new Error("initWebGPU must be called first");
+  if (!_device) {
+    const error = new Error("initWebGPU must be called first");
+    window.errorHandler?.handleError(error, { 
+      component: 'shader-compilation',
+      type: 'shader-error' 
+    });
+    throw error;
+  }
 
   const srcHash = hash(String(wgsl || ""));
   if (srcHash === _lastUserSrcHash && !_lastCompileOK) {
@@ -278,7 +329,11 @@ export async function setShaderSource(wgsl) {
     _lastCompileOK = false;
     if (!_loggedForHash.has(srcHash)) {
       _loggedForHash.add(srcHash);
-      console.warn("[WGSL] Shader compilation failed:", e.message || e);
+      window.errorHandler?.handleError(e, { 
+        component: 'shader-compilation',
+        type: 'shader-error',
+        shaderSource: wgsl
+      });
     }
     return false;
   }

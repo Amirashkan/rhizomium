@@ -165,8 +165,8 @@ export class FileInputHandler {
       this._triggerUpdates(node);
 
     } catch (error) {
-      console.error("Failed to load texture:", error);
-      this._showErrorState(dropZone, error.message);
+window.errorHandler?.handleError(error, { component: 'texture-load', nodeId: node.id });
+this._showErrorState(dropZone, error.message);
     }
   }
 
@@ -211,7 +211,6 @@ export class FileInputHandler {
       }, 3000);
     }
 
-    alert(`Failed to load texture: ${errorMessage}`);
   }
 
   _updateParameterPanel(panel, currentNode, node, file) {
