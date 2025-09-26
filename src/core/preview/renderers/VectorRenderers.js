@@ -1,4 +1,4 @@
-// src/core/preview/renderers/VectorRenderers.js
+// src/core/preview/renderers/VectorRenderers.js - Updated with expression support
 
 export class VectorRenderers {
   constructor(previewSystem) {
@@ -18,15 +18,75 @@ export class VectorRenderers {
     });
   }
 
+  // Helper method to get parameter values with expression support
+  getParameterValue(node, paramName, defaultValue = 0) {
+    try {
+      // Try the expression-aware method first
+      if (this.previewSystem.getParameterValue) {
+        return this.previewSystem.getParameterValue(node, paramName, defaultValue);
+      }
+      
+      // Fallback to the old method if expression system isn't integrated yet
+      if (this.previewSystem.getParameter) {
+        return this.previewSystem.getParameter(node, paramName) ?? defaultValue;
+      }
+      
+      // Direct fallback to node parameters
+      return node.params?.[paramName] ?? defaultValue;
+    } catch (error) {
+      console.warn(`Error getting parameter ${paramName}:`, error);
+      return defaultValue;
+    }
+  }
+
+  // Helper to safely convert values to numbers
+  toSafeNumber(value, defaultValue = 0) {
+    if (value == null) return defaultValue;
+    
+    if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+      return value;
+    }
+    
+    const parsed = Number(value);
+    return !isNaN(parsed) && isFinite(parsed) ? parsed : defaultValue;
+  }
+
+  // Helper to check if any parameter is an expression
+  hasExpressions(node) {
+    try {
+      if (!node.params) return false;
+      return Object.values(node.params).some(value => 
+        typeof value === 'string' && value.trim().startsWith('=')
+      );
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Draw expression indicator
+  drawExpressionIndicator(ctx) {
+    ctx.save();
+    ctx.fillStyle = "#4CAF50";
+    ctx.fillRect(this.size - 12, 2, 10, 8);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "6px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("fx", this.size - 7, 6);
+    ctx.restore();
+  }
+
   renderDot(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const a = inputs.a || [1, 0, 0];
-    const b = inputs.b || [0, 1, 0];
+    
+    // Get vector inputs with expression support
+    const aInput = inputs.a || this.getParameterValue(node, "a", [1, 0, 0]);
+    const bInput = inputs.b || this.getParameterValue(node, "b", [0, 1, 0]);
+    
+    const a = this._toVec3(aInput);
+    const b = this._toVec3(bInput);
 
-    const vecA = this._toVec3(a);
-    const vecB = this._toVec3(b);
-
-    const dotResult = vecA[0] * vecB[0] + vecA[1] * vecB[1] + vecA[2] * vecB[2];
+    const dotResult = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
     const normalized = (dotResult + 1) / 2;
     const hue = normalized * 240;
@@ -43,14 +103,28 @@ export class VectorRenderers {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
-    ctx.lineTo(centerX + vecA[0] * scale, centerY - vecA[1] * scale);
+    ctx.lineTo(centerX + a[0] * scale, centerY - a[1] * scale);
     ctx.stroke();
 
     // Vector B
     ctx.strokeStyle = "#44ff44";
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
-    ctx.lineTo(centerX + vecB[0] * scale, centerY - vecB[1] * scale);
+    ctx.lineTo(centerX + b[0] * scale, centerY - b[1] * scale);
+    ctx.stroke();
+
+    // Dot product visualization - angle arc
+    const angleA = Math.atan2(a[1], a[0]);
+    const angleB = Math.atan2(b[1], b[0]);
+    let angleDiff = Math.abs(angleB - angleA);
+    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+    ctx.strokeStyle = "#ffffff80";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, scale * 0.3, 
+           Math.min(angleA, angleB), 
+           Math.max(angleA, angleB));
     ctx.stroke();
 
     // Result
@@ -58,20 +132,26 @@ export class VectorRenderers {
     ctx.font = "bold 8px monospace";
     ctx.textAlign = "center";
     ctx.fillText(dotResult.toFixed(2), centerX, this.size - 6);
+
+    // Expression indicator
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderCross(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const a = inputs.a || [1, 0, 0];
-    const b = inputs.b || [0, 1, 0];
-
-    const vecA = this._toVec3(a);
-    const vecB = this._toVec3(b);
+    
+    const aInput = inputs.a || this.getParameterValue(node, "a", [1, 0, 0]);
+    const bInput = inputs.b || this.getParameterValue(node, "b", [0, 1, 0]);
+    
+    const a = this._toVec3(aInput);
+    const b = this._toVec3(bInput);
 
     const cross = [
-      vecA[1] * vecB[2] - vecA[2] * vecB[1],
-      vecA[2] * vecB[0] - vecA[0] * vecB[2],
-      vecA[0] * vecB[1] - vecA[1] * vecB[0],
+      a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0],
     ];
 
     const magnitude = Math.sqrt(
@@ -91,26 +171,28 @@ export class VectorRenderers {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
-    ctx.lineTo(centerX + vecA[0] * scale, centerY - vecA[1] * scale);
+    ctx.lineTo(centerX + a[0] * scale, centerY - a[1] * scale);
     ctx.stroke();
 
     // Vector B
     ctx.strokeStyle = "#44ff44";
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
-    ctx.lineTo(centerX + vecB[0] * scale, centerY - vecB[1] * scale);
+    ctx.lineTo(centerX + b[0] * scale, centerY - b[1] * scale);
     ctx.stroke();
 
-    // Cross product result
-    ctx.strokeStyle = "#4444ff";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY);
-    ctx.lineTo(
-      centerX + cross[0] * scale * 0.5,
-      centerY - cross[1] * scale * 0.5
-    );
-    ctx.stroke();
+    // Cross product result (perpendicular to both)
+    if (magnitude > 0.001) {
+      ctx.strokeStyle = "#4444ff";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY);
+      ctx.lineTo(
+        centerX + cross[0] * scale * 0.5,
+        centerY - cross[1] * scale * 0.5
+      );
+      ctx.stroke();
+    }
 
     // Cross symbol
     ctx.strokeStyle = "#fff";
@@ -122,12 +204,23 @@ export class VectorRenderers {
     ctx.moveTo(centerX + crossSize, centerY - crossSize);
     ctx.lineTo(centerX - crossSize, centerY + crossSize);
     ctx.stroke();
+
+    // Magnitude text
+    ctx.fillStyle = "#fff";
+    ctx.font = "6px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`|${magnitude.toFixed(2)}|`, centerX, this.size - 6);
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderNormalize(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const input = inputs.vec || inputs.a || [1, 0.5, 0];
-    const vec = this._toVec3(input);
+    
+    const vecInput = inputs.vec || inputs.a || this.getParameterValue(node, "vec", [1, 0.5, 0]);
+    const vec = this._toVec3(vecInput);
 
     const length = Math.sqrt(
       vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]
@@ -143,6 +236,13 @@ export class VectorRenderers {
     const centerX = this.size / 2;
     const centerY = this.size / 2;
     const scale = this.size * 0.4;
+
+    // Unit circle
+    ctx.strokeStyle = "#444";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, scale, 0, Math.PI * 2);
+    ctx.stroke();
 
     // Original vector (dashed)
     if (length > 0.001) {
@@ -170,39 +270,45 @@ export class VectorRenderers {
     );
     ctx.stroke();
 
-    // Unit circle
-    ctx.strokeStyle = "#444";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, scale, 0, Math.PI * 2);
-    ctx.stroke();
-
     // Arrow head
-    const angle = Math.atan2(-normalized[1], normalized[0]);
-    const headLength = 6;
-    const endX = centerX + normalized[0] * scale;
-    const endY = centerY - normalized[1] * scale;
+    if (length > 0.001) {
+      const angle = Math.atan2(-normalized[1], normalized[0]);
+      const headLength = 6;
+      const endX = centerX + normalized[0] * scale;
+      const endY = centerY - normalized[1] * scale;
 
-    ctx.strokeStyle = "#00ff88";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(endX, endY);
-    ctx.lineTo(
-      endX - headLength * Math.cos(angle - 0.5),
-      endY + headLength * Math.sin(angle - 0.5)
-    );
-    ctx.moveTo(endX, endY);
-    ctx.lineTo(
-      endX - headLength * Math.cos(angle + 0.5),
-      endY + headLength * Math.sin(angle + 0.5)
-    );
-    ctx.stroke();
+      ctx.strokeStyle = "#00ff88";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - headLength * Math.cos(angle - 0.5),
+        endY + headLength * Math.sin(angle - 0.5)
+      );
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - headLength * Math.cos(angle + 0.5),
+        endY + headLength * Math.sin(angle + 0.5)
+      );
+      ctx.stroke();
+    }
+
+    // Length text
+    ctx.fillStyle = "#fff";
+    ctx.font = "6px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`L:${length.toFixed(2)}`, centerX, this.size - 6);
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderLength(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const input = inputs.vec || inputs.a || [1, 1, 0];
-    const vec = this._toVec3(input);
+    
+    const vecInput = inputs.vec || inputs.a || this.getParameterValue(node, "vec", [1, 1, 0]);
+    const vec = this._toVec3(vecInput);
 
     const length = Math.sqrt(
       vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]
@@ -252,15 +358,27 @@ export class VectorRenderers {
     ctx.font = "bold 8px monospace";
     ctx.textAlign = "center";
     ctx.fillText(length.toFixed(2), centerX, barY - 2);
+
+    // Component values
+    ctx.font = "6px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(`X:${vec[0].toFixed(1)}`, 2, 10);
+    ctx.fillText(`Y:${vec[1].toFixed(1)}`, 2, 18);
+    ctx.fillText(`Z:${vec[2].toFixed(1)}`, 2, 26);
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderDistance(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const a = inputs.a || [0, 0, 0];
-    const b = inputs.b || [1, 1, 0];
-
-    const vecA = this._toVec3(a);
-    const vecB = this._toVec3(b);
+    
+    const aInput = inputs.a || this.getParameterValue(node, "a", [0, 0, 0]);
+    const bInput = inputs.b || this.getParameterValue(node, "b", [1, 1, 0]);
+    
+    const vecA = this._toVec3(aInput);
+    const vecB = this._toVec3(bInput);
 
     const diff = [vecB[0] - vecA[0], vecB[1] - vecA[1], vecB[2] - vecA[2]];
     const distance = Math.sqrt(
@@ -306,15 +424,27 @@ export class VectorRenderers {
     ctx.font = "bold 8px monospace";
     ctx.textAlign = "center";
     ctx.fillText(distance.toFixed(2), centerX, this.size - 6);
+
+    // Component difference display
+    ctx.font = "6px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(`ΔX:${diff[0].toFixed(1)}`, 2, 10);
+    ctx.fillText(`ΔY:${diff[1].toFixed(1)}`, 2, 18);
+    ctx.fillText(`ΔZ:${diff[2].toFixed(1)}`, 2, 26);
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderReflect(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const incident = inputs.i || inputs.a || [1, -1, 0];
-    const normal = inputs.n || inputs.b || [0, 1, 0];
-
-    const I = this._toVec3(incident);
-    const N = this._toVec3(normal);
+    
+    const incidentInput = inputs.i || inputs.a || this.getParameterValue(node, "incident", [1, -1, 0]);
+    const normalInput = inputs.n || inputs.b || this.getParameterValue(node, "normal", [0, 1, 0]);
+    
+    const I = this._toVec3(incidentInput);
+    const N = this._toVec3(normalInput);
 
     const dotNI = N[0] * I[0] + N[1] * I[1] + N[2] * I[2];
     const R = [
@@ -368,16 +498,35 @@ export class VectorRenderers {
     ctx.moveTo(centerX, centerY);
     ctx.lineTo(centerX + R[0] * scale, centerY - R[1] * scale);
     ctx.stroke();
+
+    // Angle indicators
+    const incidentAngle = Math.atan2(-I[1], -I[0]);
+    const reflectedAngle = Math.atan2(-R[1], R[0]);
+    
+    ctx.strokeStyle = "#ffffff40";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, scale * 0.2, incidentAngle, Math.atan2(N[1], N[0]), false);
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, scale * 0.2, Math.atan2(N[1], N[0]), reflectedAngle, false);
+    ctx.stroke();
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderRefract(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const incident = inputs.i || inputs.a || [1, -1, 0];
-    const normal = inputs.n || inputs.b || [0, 1, 0];
-    const eta = inputs.eta || inputs.c || 1.5;
+    
+    const incidentInput = inputs.i || inputs.a || this.getParameterValue(node, "incident", [1, -1, 0]);
+    const normalInput = inputs.n || inputs.b || this.getParameterValue(node, "normal", [0, 1, 0]);
+    const etaValue = this.toSafeNumber(inputs.eta || inputs.c || this.getParameterValue(node, "eta", 1.5), 1.5);
 
-    const I = this._toVec3(incident);
-    const N = this._toVec3(normal);
+    const I = this._toVec3(incidentInput);
+    const N = this._toVec3(normalInput);
 
     ctx.fillStyle = "#0a0a1a";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -412,37 +561,81 @@ export class VectorRenderers {
     // Normal
     ctx.strokeStyle = "#ffff44";
     ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
     ctx.lineTo(centerX + N[0] * scale * 0.5, centerY - N[1] * scale * 0.5);
     ctx.stroke();
+    ctx.setLineDash([]);
 
-    // Refracted ray
-    const refractionAngle = Math.asin(Math.sin(Math.acos(-I[1])) / eta);
-    const refractedX = Math.sin(refractionAngle);
-    const refractedY = -Math.cos(refractionAngle);
+    // Refracted ray (simplified calculation for 2D visualization)
+    try {
+      const incidentAngle = Math.acos(-I[1]);
+      const sinIncident = Math.sin(incidentAngle);
+      const sinRefracted = sinIncident / etaValue;
+      
+      if (sinRefracted <= 1) { // No total internal reflection
+        const refractionAngle = Math.asin(sinRefracted);
+        const refractedX = Math.sin(refractionAngle);
+        const refractedY = -Math.cos(refractionAngle);
 
-    ctx.strokeStyle = "#44ff44";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY);
-    ctx.lineTo(centerX + refractedX * scale, centerY + refractedY * scale);
-    ctx.stroke();
+        ctx.strokeStyle = "#44ff44";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(centerX + refractedX * scale, centerY + refractedY * scale);
+        ctx.stroke();
+      } else {
+        // Total internal reflection
+        ctx.fillStyle = "#ff4444";
+        ctx.font = "6px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("TIR", centerX, centerY + 20);
+      }
+    } catch (error) {
+      // Fallback for calculation errors
+      ctx.strokeStyle = "#44ff44";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY);
+      ctx.lineTo(centerX, centerY + scale);
+      ctx.stroke();
+    }
 
     // Eta value
     ctx.fillStyle = "#fff";
     ctx.font = "8px monospace";
     ctx.textAlign = "center";
-    ctx.fillText(`η=${eta.toFixed(1)}`, centerX, this.size - 6);
+    ctx.fillText(`η=${etaValue.toFixed(1)}`, centerX, this.size - 6);
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   _toVec3(input) {
-    if (Array.isArray(input)) {
-      if (input.length >= 3) return [input[0], input[1], input[2]];
-      if (input.length === 2) return [input[0], input[1], 0];
-      if (input.length === 1) return [input[0], input[0], input[0]];
+    // Handle expression-evaluated results
+    if (typeof input === 'number') {
+      return [input, input, input];
     }
-    if (typeof input === "number") return [input, input, input];
+    
+    if (Array.isArray(input)) {
+      // Ensure all elements are numbers
+      const vec = input.map(v => this.toSafeNumber(v, 0));
+      
+      if (vec.length >= 3) return [vec[0], vec[1], vec[2]];
+      if (vec.length === 2) return [vec[0], vec[1], 0];
+      if (vec.length === 1) return [vec[0], vec[0], vec[0]];
+    }
+    
+    // Handle objects with x, y, z properties
+    if (input && typeof input === 'object') {
+      const x = this.toSafeNumber(input.x, 0);
+      const y = this.toSafeNumber(input.y, 0);
+      const z = this.toSafeNumber(input.z, 0);
+      return [x, y, z];
+    }
+    
     return [0, 0, 0];
   }
 }

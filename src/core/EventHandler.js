@@ -142,7 +142,11 @@ export class EventHandler {
           this.paramPanelJustOpened = false;
         }, 100);
 
-        this.paramPanel.show(clicked, e.clientX, e.clientY);
+        if (this.paramPanel.showNodeParameters) {
+  this.paramPanel.showNodeParameters(clicked);
+} else if (this.paramPanel.show) {
+  this.paramPanel.show(clicked, e.clientX, e.clientY);
+}
         e.preventDefault();
         e.stopPropagation();
         return;
@@ -247,24 +251,23 @@ export class EventHandler {
     });
   }
 
-  _setupGlobalEvents() {
-    document.addEventListener("click", (e) => {
-      // Don't close panel if it was just opened
-      if (this.paramPanelJustOpened) {
-        return;
-      }
+_setupGlobalEvents() {
+  document.addEventListener("click", (e) => {
+    // Don't close panel if it was just opened
+    if (this.paramPanelJustOpened) {
+      return;
+    }
 
-      if (!this.menu.contains(e.target)) {
-        this.menu.hide();
-      }
+    if (!this.menu.contains(e.target)) {
+      this.menu.hide();
+    }
 
-      // Only close parameter panel if click is truly outside
-      if (this.paramPanel.panel && !this.paramPanel.contains(e.target)) {
-        this.paramPanel.hide();
-      }
-    });
-  }
-
+    // FIXED: Use this.paramPanel.panel.contains instead of this.paramPanel.contains
+    if (this.paramPanel.panel && !this.paramPanel.panel.contains(e.target)) {
+      this.paramPanel.hide();
+    }
+  });
+}
   checkPreviewControlClick(pos) {
     if (!this.editor) return false;
 

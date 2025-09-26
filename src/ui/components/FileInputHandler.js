@@ -1,16 +1,17 @@
-// src/ui/components/FileInputHandler.js
+// src/ui/components/FileInputHandler.js - Updated for expression system integration
+
 export class FileInputHandler {
-  constructor(onChange) {
-    this.onChange = onChange;
+  constructor(undoManager = null) {
+    this.undoManager = undoManager;
   }
 
-  create(param, node, div, label, panel, currentNode) {
+  create(param, node, div, label, valueManager, onChange) {
     this._showCurrentFile(node, div);
     
     const fileInput = this._createFileInput(param);
     const dropZone = this._createDropZone();
     
-    this._setupEventHandlers(fileInput, dropZone, node, panel, currentNode);
+    this._setupEventHandlers(fileInput, dropZone, node, param, valueManager, onChange);
     
     div.appendChild(dropZone);
     div.appendChild(fileInput);
@@ -39,6 +40,8 @@ export class FileInputHandler {
     fileInput.type = "file";
     fileInput.accept = param.accept || "image/*";
     fileInput.style.display = "none";
+    fileInput.setAttribute("data-param", param.name);
+    fileInput.setAttribute("data-param-type", param.type);
     
     return fileInput;
   }
@@ -61,6 +64,7 @@ export class FileInputHandler {
       display: flex;
       align-items: center;
       justify-content: center;
+      box-sizing: border-box;
     `;
 
     dropZone.innerHTML = `
@@ -73,7 +77,7 @@ export class FileInputHandler {
     return dropZone;
   }
 
-  _setupEventHandlers(fileInput, dropZone, node, panel, currentNode) {
+  _setupEventHandlers(fileInput, dropZone, node, param, valueManager, onChange) {
     // Click to open file dialog
     dropZone.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -81,13 +85,13 @@ export class FileInputHandler {
     });
 
     // Drag and drop events
-    this._setupDragDropEvents(dropZone, node);
+    this._setupDragDropEvents(dropZone, node, param, valueManager, onChange);
     
     // File input change handler
     fileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (file) {
-        this._handleFileLoad(node, file, dropZone, panel, currentNode);
+        this._handleFileLoad(node, file, dropZone, param, valueManager, onChange);
       }
     });
 
@@ -95,7 +99,7 @@ export class FileInputHandler {
     fileInput.addEventListener("click", (e) => e.stopPropagation());
   }
 
-  _setupDragDropEvents(dropZone, node) {
+  _setupDragDropEvents(dropZone, node, param, valueManager, onChange) {
     dropZone.addEventListener("dragenter", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -126,9 +130,9 @@ export class FileInputHandler {
       if (files.length > 0) {
         const file = files[0];
         if (file.type.startsWith("image/")) {
-          this._handleFileLoad(node, file, dropZone);
+          this._handleFileLoad(node, file, dropZone, param, valueManager, onChange);
         } else {
-          alert("Please drop an image file");
+          this._showErrorState(dropZone, "Please drop an image file");
         }
       }
     });
@@ -146,7 +150,7 @@ export class FileInputHandler {
     dropZone.style.transform = "scale(1)";
   }
 
-  async _handleFileLoad(node, file, dropZone, panel, currentNode) {
+  async _handleFileLoad(node, file, dropZone, param, valueManager, onChange) {
     try {
       console.log("Loading texture file:", file.name, "for node:", node.id);
 
@@ -156,17 +160,46 @@ export class FileInputHandler {
 
       this._showLoadingState(dropZone);
       
+      // Record the old file for undo if available
+      const oldTextureInfo = window.textureManager?.getTexture(node.id);
+      const oldFileName = oldTextureInfo?.file?.name || null;
+      
       // Load the texture
       await window.textureManager.loadTexture(node.id, file, node);
       console.log("✅ Texture loaded successfully");
 
+      // Update parameter value through the value manager
+      if (valueManager && valueManager.setValue) {
+        // Record for undo
+        if (this.undoManager && oldFileName !== file.name) {
+          this.undoManager.recordParameterChange(node.id, param.name, oldFileName, file.name);
+        }
+        
+        // Set the file name as the parameter value
+        valueManager.setValue(node, param.name, file.name);
+      } else {
+        // Fallback: direct parameter update
+        if (!node.params) node.params = {};
+        
+        if (this.undoManager && oldFileName !== file.name) {
+          this.undoManager.recordParameterChange(node.id, param.name, oldFileName, file.name);
+        }
+        
+        node.params[param.name] = file.name;
+      }
+
       this._showSuccessState(dropZone, file);
-      this._updateParameterPanel(panel, currentNode, node, file);
-      this._triggerUpdates(node);
+      this._triggerUpdates(node, onChange);
 
     } catch (error) {
-window.errorHandler?.handleError(error, { component: 'texture-load', nodeId: node.id });
-this._showErrorState(dropZone, error.message);
+      console.error('File load error:', error);
+      if (window.errorHandler?.handleError) {
+        window.errorHandler.handleError(error, { 
+          component: 'texture-load', 
+          nodeId: node.id 
+        });
+      }
+      this._showErrorState(dropZone, error.message);
     }
   }
 
@@ -200,6 +233,8 @@ this._showErrorState(dropZone, error.message);
       dropZone.style.borderColor = "#d9534f";
       dropZone.innerHTML = '<div style="color: #d9534f;">❌ Load failed</div>';
 
+      console.error('File load error:', errorMessage);
+
       setTimeout(() => {
         dropZone.style.borderColor = "#666";
         dropZone.innerHTML = `
@@ -210,31 +245,29 @@ this._showErrorState(dropZone, error.message);
         `;
       }, 3000);
     }
-
   }
 
-  _updateParameterPanel(panel, currentNode, node, file) {
-    // Update parameter panel to show new file
-    if (panel && currentNode === node) {
-      const fileLabels = panel.querySelectorAll(".current-file");
-      fileLabels.forEach((label) => {
-        label.textContent = `✓ ${file.name}`;
-        label.style.color = "#5cb85c";
-      });
-    }
-  }
+  _triggerUpdates(node, onChange) {
+    try {
+      // Update node preview if available
+      if (window.editor?.previewIntegration) {
+        window.editor.previewIntegration.generateNodePreview(node);
+      }
+      
+      // Trigger editor redraw
+      if (window.editor?.safeDraw) {
+        window.editor.safeDraw();
+      } else if (window.editor?.draw) {
+        window.editor.draw();
+      }
 
-  _triggerUpdates(node) {
-    // Update node preview if available
-    if (window.editor?.previewIntegration) {
-      window.editor.previewIntegration.generateNodePreview(node);
-      window.editor.draw();
-    }
-
-    // Trigger shader rebuild
-    if (this.onChange) {
-      console.log("Triggering shader rebuild...");
-      this.onChange();
+      // Call the onChange callback
+      if (onChange) {
+        console.log("Triggering parameter update callback...");
+        onChange(`File loaded for ${node.kind}`);
+      }
+    } catch (error) {
+      console.warn('Error triggering updates after file load:', error);
     }
   }
 }

@@ -1,4 +1,5 @@
 // src/core/preview/renderers/BasicRenderers.js
+// Updated to support expression system integration
 
 export class BasicRenderers {
   constructor(previewSystem) {
@@ -20,8 +21,29 @@ export class BasicRenderers {
     });
   }
 
+  // Helper method to get parameter values with expression support
+  getParameterValue(node, paramName, defaultValue = 0) {
+    try {
+      // Try the expression-aware method first
+      if (this.previewSystem.getParameterValue) {
+        return this.previewSystem.getParameterValue(node, paramName, defaultValue);
+      }
+      
+      // Fallback to the old method if expression system isn't integrated yet
+      if (this.previewSystem.getParameter) {
+        return this.previewSystem.getParameter(node, paramName) ?? defaultValue;
+      }
+      
+      // Direct fallback to node parameters
+      return node.params?.[paramName] ?? defaultValue;
+    } catch (error) {
+      console.warn(`Error getting parameter ${paramName}:`, error);
+      return defaultValue;
+    }
+  }
+
   renderFloat(ctx, node) {
-    const value = this.previewSystem.getParameter(node, "value") || 0;
+    const value = this.getParameterValue(node, "value", 0);
     const numValue = typeof value === "number" ? value : parseFloat(value) || 0;
 
     const intensity = Math.min(0.8, Math.abs(numValue) / 10);
@@ -53,13 +75,18 @@ export class BasicRenderers {
       ctx.lineTo(this.size, i);
       ctx.stroke();
     }
+
+    // Add expression indicator if this is an expression
+    if (this.isExpression(node, "value")) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderVec3(ctx, node) {
-    // Safe parameter access with type conversion and fallbacks
-    let x = this.previewSystem.getParameter(node, "x");
-    let y = this.previewSystem.getParameter(node, "y");
-    let z = this.previewSystem.getParameter(node, "z");
+    // Use expression-aware parameter access with type conversion and fallbacks
+    let x = this.getParameterValue(node, "x", 0);
+    let y = this.getParameterValue(node, "y", 0);
+    let z = this.getParameterValue(node, "z", 0);
 
     // Convert to numbers and provide fallbacks
     x = typeof x === "number" ? x : parseFloat(x) || 0;
@@ -87,6 +114,11 @@ export class BasicRenderers {
     ctx.fillText(`X:${x.toFixed(2)}`, this.size / 2, 10);
     ctx.fillText(`Y:${y.toFixed(2)}`, this.size / 2, 20);
     ctx.fillText(`Z:${z.toFixed(2)}`, this.size / 2, 30);
+
+    // Add expression indicators for any parameter that's an expression
+    if (this.isExpression(node, "x") || this.isExpression(node, "y") || this.isExpression(node, "z")) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderUV(ctx, node) {
@@ -113,7 +145,13 @@ export class BasicRenderers {
   }
 
   renderTime(ctx, node) {
-    const time = (Date.now() / 1000) % (Math.PI * 2);
+    // Use expression-aware time access
+    let time = this.getParameterValue(node, "time", (Date.now() / 1000) % (Math.PI * 2));
+    
+    // If time parameter doesn't exist, use current time
+    if (time === 0 || time === undefined) {
+      time = (Date.now() / 1000) % (Math.PI * 2);
+    }
 
     ctx.fillStyle = "#0f172a";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -137,10 +175,15 @@ export class BasicRenderers {
     ctx.beginPath();
     ctx.arc(indicatorX, this.size / 2, 2, 0, Math.PI * 2);
     ctx.fill();
+
+    // Show expression indicator if time is expression-based
+    if (this.isExpression(node, "time")) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
 
   renderExpression(ctx, node) {
-    const expr = this.previewSystem.getParameter(node, "expr") || node.expr || "x";
+    const expr = this.getParameterValue(node, "expr", node.expr || "x");
 
     ctx.fillStyle = "#0c1821";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -204,11 +247,14 @@ export class BasicRenderers {
     ctx.textAlign = "left";
     const displayExpr = expr.length > 10 ? expr.substring(0, 10) + "..." : expr;
     ctx.fillText(displayExpr, 2, this.size - 2);
+
+    // Always show expression indicator for expression nodes
+    this.drawExpressionIndicator(ctx);
   }
 
   renderOutput(ctx, node) {
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const value = inputs.input || inputs.color || inputs.value || 0;
+    const value = inputs.input || inputs.color || inputs.value || this.getParameterValue(node, "value", 0);
 
     if (typeof value === "number") {
       const intensity = Math.max(0, Math.min(1, value));
@@ -231,7 +277,52 @@ export class BasicRenderers {
       const label = node.kind.substring(0, 4);
       ctx.fillText(label, this.size / 2, this.size / 2);
     }
+
+    // Show expression indicator if any parameter is an expression
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
   }
+
+  // Helper methods for expression system integration
+
+  isExpression(node, paramName) {
+    try {
+      const rawValue = node.params?.[paramName];
+      return typeof rawValue === 'string' && rawValue.trim().startsWith('=');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  hasExpressions(node) {
+    try {
+      if (!node.params) return false;
+      return Object.values(node.params).some(value => 
+        typeof value === 'string' && value.trim().startsWith('=')
+      );
+    } catch (error) {
+      return false;
+    }
+  }
+
+  drawExpressionIndicator(ctx) {
+    // Draw a small "fx" indicator in the top-right corner
+    ctx.save();
+    
+    ctx.fillStyle = "#4CAF50";
+    ctx.fillRect(this.size - 12, 2, 10, 8);
+    
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "6px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("fx", this.size - 7, 6);
+    
+    ctx.restore();
+  }
+
+  // Existing helper methods (preserved)
 
   _evaluateExpression(expr, vars) {
     try {

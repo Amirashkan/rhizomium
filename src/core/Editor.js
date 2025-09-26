@@ -1,4 +1,4 @@
-// src/core/Editor.js - Corrected with proper ErrorHandler pattern
+// src/core/Editor.js - Complete corrected version with proper expression integration
 import { EventHandler } from "./EventHandler.js";
 import { Renderer } from "./Renderer.js";
 import { MenuManager } from "../ui/MenuManager.js";
@@ -7,6 +7,7 @@ import { SelectionManager } from "./SelectionManager.js";
 import { ConnectionManager } from "./ConnectionManager.js";
 import { ViewportManager } from "./ViewportManager.js";
 import { PreviewSystem } from "./PreviewSystem.js";
+import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 
 export class Editor {
   constructor(graph, onChange, undoManager = null) {
@@ -25,11 +26,20 @@ export class Editor {
       // Get canvas and context with error handling
       this.initializeCanvas();
 
+      // Initialize expression system EARLY
+      this.expressionSystem = expressionSystem;
+      
+      // Initialize event system for expressions
+      this.initializeEventSystem();
+      
       // Initialize managers with error handling
       this.initializeManagers(undoManager);
 
       // Initialize preview system
       this.initializePreviewSystem();
+
+      // Setup expression integrations AFTER all systems are initialized
+      this.setupExpressionIntegrations();
 
       // Track movement state for undo
       this.movementState = {
@@ -45,7 +55,11 @@ export class Editor {
       this.setupResizeHandling();
       this.performInitialRender();
       
-      console.log('Editor initialized successfully');
+      // Make systems globally available for debugging
+      window.expressionSystem = this.expressionSystem;
+      window.editor = this;
+      
+      console.log('Editor initialized successfully with expression support');
       
     } catch (error) {
       window.errorHandler?.handleError(error, {
@@ -113,6 +127,43 @@ export class Editor {
     }
   }
 
+  initializeEventSystem() {
+    // Create simple event system for internal use
+    this.eventSystem = {
+      listeners: new Map(),
+      
+      on(event, callback) {
+        if (!this.listeners.has(event)) {
+          this.listeners.set(event, new Set());
+        }
+        this.listeners.get(event).add(callback);
+      },
+      
+      off(event, callback) {
+        if (this.listeners.has(event)) {
+          this.listeners.get(event).delete(callback);
+        }
+      },
+      
+      emit(event, data) {
+        if (this.listeners.has(event)) {
+          this.listeners.get(event).forEach(callback => {
+            try {
+              callback(data);
+            } catch (error) {
+              console.warn(`Error in event listener for ${event}:`, error);
+            }
+          });
+        }
+      }
+    };
+
+    // Also make it available globally if not already set
+    if (!window.parameterEventSystem) {
+      window.parameterEventSystem = this.eventSystem;
+    }
+  }
+
   initializeManagers(undoManager) {
     try {
       // Initialize viewport manager first (needed by others)
@@ -124,21 +175,13 @@ export class Editor {
       this.renderer = new Renderer(this.ctx, this.viewport);
       this.menu = new MenuManager(this.graph, this.onChange);
       
-      // Use the provided UndoManager instead of creating a new one
+      // Use the provided UndoManager
       this.undoManager = undoManager;
       
       // Set undo manager on selection manager for movement tracking
       if (this.undoManager && this.selection.setUndoManager) {
         this.selection.setUndoManager(this.undoManager);
       }
-      
-      // Create ParameterPanel with undo support
-      this.paramPanel = new ParameterPanel(
-        this.graph, 
-        this.onChange, 
-        this.undoManager, 
-        window.parameterEventSystem
-      );
 
       // Preview system settings
       this.previewSizes = { small: 32, medium: 64, large: 96 };
@@ -150,6 +193,391 @@ export class Editor {
       throw error;
     }
   }
+
+  setupExpressionIntegrations() {
+    try {
+      console.log('Setting up expression system integrations...');
+
+      // Create enhanced ParameterPanel with expression support
+      this.paramPanel = new ParameterPanel(
+        this.eventSystem,
+        this.undoManager,
+        this.graph
+      );
+
+      // Update parameter evaluation in preview system
+      if (this.previewSystem) {
+        this.integrateExpressionWithPreview();
+      }
+
+      // Update parameter evaluation in node value computer
+      if (this.nodeValueComputer) {
+        this.integrateExpressionWithNodeComputer();
+      }
+
+      // Setup event listeners for expression updates
+      this.setupExpressionEventListeners();
+
+      console.log('Expression system integrations completed');
+      
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'expression-integration-setup'
+      });
+    }
+  }
+
+  setupExpressionEventListeners() {
+    // Listen for parameter changes to update expressions
+    this.eventSystem.on('PARAMETER_CHANGED', (data) => {
+      this.handleParameterChangeForExpressions(data);
+    });
+
+    this.eventSystem.on('GRAPH_CHANGED', (data) => {
+      this.handleGraphChangeForExpressions(data);
+    });
+
+    // Listen for expression dependency changes
+    this.expressionSystem.addDependencyListener((change) => {
+      this.handleExpressionDependencyChange(change);
+    });
+  }
+
+  integrateExpressionWithPreview() {
+    try {
+      // Enhance preview system to evaluate expressions
+      if (this.previewSystem && this.previewSystem.getParameterValue) {
+        const originalGetParameterValue = this.previewSystem.getParameterValue.bind(this.previewSystem);
+        
+        this.previewSystem.getParameterValue = (node, paramName, defaultValue) => {
+          try {
+            return this.getNodeParameterValue(node, paramName, defaultValue);
+          } catch (error) {
+            console.warn(`Expression evaluation failed for ${paramName}:`, error);
+            return originalGetParameterValue(node, paramName, defaultValue);
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Error integrating expressions with preview system:', error);
+    }
+  }
+
+  integrateExpressionWithNodeComputer() {
+    try {
+      // Enhance node value computer to handle expressions
+      if (this.nodeValueComputer && this.nodeValueComputer.getParameterValue) {
+        const originalGetParameterValue = this.nodeValueComputer.getParameterValue.bind(this.nodeValueComputer);
+        
+        this.nodeValueComputer.getParameterValue = (node, paramName, defaultValue) => {
+          try {
+            return this.getNodeParameterValue(node, paramName, defaultValue);
+          } catch (error) {
+            console.warn(`Expression evaluation failed for ${paramName}:`, error);
+            return originalGetParameterValue(node, paramName, defaultValue);
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Error integrating expressions with node computer:', error);
+    }
+  }
+
+  // ---- EXPRESSION SYSTEM INTEGRATION METHODS ----
+
+  getNodeParameterValue(node, paramName, defaultValue) {
+    try {
+      const rawValue = node.params?.[paramName] ?? defaultValue;
+      
+      if (this.expressionSystem.isExpression(rawValue)) {
+        const context = this.buildNodeContext(node);
+        return this.expressionSystem.evaluateExpression(rawValue, context, node);
+      }
+      
+      return this.expressionSystem.parseValue(rawValue);
+    } catch (error) {
+      console.warn(`Error getting parameter ${paramName} for node ${node.id}:`, error);
+      return defaultValue;
+    }
+  }
+
+  setNodeParameterValue(node, paramName, value) {
+    try {
+      if (this.paramPanel && this.paramPanel.valueManager) {
+        this.paramPanel.valueManager.setValue(node, paramName, value);
+      } else {
+        // Fallback
+        if (!node.params) node.params = {};
+        
+        const oldValue = node.params[paramName];
+        
+        // Record for undo
+        if (this.undoManager && oldValue !== value) {
+          this.undoManager.recordParameterChange(node.id, paramName, oldValue, value);
+        }
+        
+        node.params[paramName] = value;
+        
+        this.expressionSystem.updateDependencies(node.id, paramName, value);
+        this.updateNodePreview(node);
+        this.onChange(`Parameter Change: ${paramName}`);
+        
+        // Emit event
+        this.eventSystem.emit('PARAMETER_CHANGED', {
+          node,
+          parameterName: paramName,
+          oldValue,
+          newValue: value,
+          source: 'fallback'
+        });
+      }
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'set-node-parameter-value',
+        nodeId: node?.id,
+        paramName
+      });
+    }
+  }
+
+  buildNodeContext(node) {
+    const context = {};
+    
+    try {
+      // Add connected input values
+      if (node.inputs && this.graph) {
+        node.inputs.forEach((inputNodeId, index) => {
+          if (inputNodeId) {
+            const inputNode = this.graph.nodes.find(n => n.id === inputNodeId);
+            if (inputNode) {
+              context[`input${index}`] = this.getNodeOutputValue(inputNode);
+              context[`input${index}_x`] = inputNode.x || 0;
+              context[`input${index}_y`] = inputNode.y || 0;
+            }
+          }
+        });
+      }
+
+      // Add global context
+      context.time = this.getAnimationTime();
+      context.frame = this.getAnimationFrame();
+      
+      return context;
+    } catch (error) {
+      console.warn('Error building node context:', error);
+      return {};
+    }
+  }
+
+  getNodeOutputValue(node) {
+    try {
+      if (this.nodeValueComputer) {
+        return this.nodeValueComputer.computeNodeValue(node);
+      }
+      
+      // Fallback for simple constant nodes
+      if (node.kind === 'ConstFloat') {
+        return parseFloat(node.params?.value || node.value || 0);
+      }
+      
+      return 0;
+    } catch (error) {
+      console.warn(`Error getting node output value:`, error);
+      return 0;
+    }
+  }
+
+  getAnimationTime() {
+    return this.animationTime || (Date.now() / 1000);
+  }
+
+  getAnimationFrame() {
+    return this.animationFrame || 0;
+  }
+
+  handleParameterChangeForExpressions(data) {
+    try {
+      const { node, parameterName, newValue } = data;
+      
+      // Update expression dependencies
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+      
+      // Regenerate previews for dependent nodes
+      this.updateDependentNodePreviews(node, parameterName);
+    } catch (error) {
+      console.warn('Error handling parameter change for expressions:', error);
+    }
+  }
+
+  handleGraphChangeForExpressions(data) {
+    try {
+      // Clear expression cache when graph structure changes
+      if (data.action && (
+        data.action.includes('Node Added') || 
+        data.action.includes('Node Removed') ||
+        data.action.includes('Connection')
+      )) {
+        this.expressionSystem.clearCache();
+      }
+
+      // Update previews for nodes with expressions
+      this.updateNodesWithExpressions();
+    } catch (error) {
+      console.warn('Error handling graph change for expressions:', error);
+    }
+  }
+
+  handleExpressionDependencyChange(change) {
+    try {
+      // Update dependent node previews when expressions change
+      const node = this.graph.nodes.find(n => n.id === change.nodeId);
+      if (node) {
+        this.updateDependentNodePreviews(node, change.paramName);
+      }
+    } catch (error) {
+      console.warn('Error handling expression dependency change:', error);
+    }
+  }
+
+  updateNodesWithExpressions() {
+    if (!this.graph) return;
+    
+    try {
+      // Find all nodes with expression parameters
+      const nodesWithExpressions = this.graph.nodes.filter(node => {
+        if (!node.params) return false;
+        
+        return Object.values(node.params).some(value => 
+          this.expressionSystem.isExpression(value)
+        );
+      });
+
+      // Update their previews
+      nodesWithExpressions.forEach(node => {
+        this.updateNodePreview(node);
+      });
+    } catch (error) {
+      console.warn('Error updating nodes with expressions:', error);
+    }
+  }
+
+  updateDependentNodePreviews(changedNode, parameterName) {
+    if (!this.graph) return;
+    
+    try {
+      // Find nodes that might depend on the changed parameter
+      const dependentNodes = this.graph.nodes.filter(node => {
+        if (!node.params || node.id === changedNode.id) return false;
+        
+        return Object.values(node.params).some(value => {
+          if (!this.expressionSystem.isExpression(value)) return false;
+          
+          // Simple dependency check - could be enhanced
+          return value.includes(parameterName) || 
+                 value.includes(changedNode.id) ||
+                 value.includes('input');
+        });
+      });
+
+      // Update previews for dependent nodes
+      dependentNodes.forEach(node => {
+        this.updateNodePreview(node);
+      });
+    } catch (error) {
+      console.warn('Error updating dependent node previews:', error);
+    }
+  }
+
+  updateNodePreview(node) {
+    try {
+      if (this.previewSystem?.canvasManager) {
+        this.previewSystem.canvasManager.canvasCache.delete(node.id);
+      }
+      
+      if (this.previewIntegration) {
+        this.previewIntegration.generateNodePreview(node);
+      }
+    } catch (error) {
+      console.warn(`Error updating preview for node ${node.id}:`, error);
+    }
+  }
+
+  // ---- ANIMATION SYSTEM INTEGRATION ----
+  
+  updateAnimationContext(time, frame) {
+    try {
+      this.animationTime = time;
+      this.animationFrame = frame;
+      
+      // Update expression system's built-in functions
+      this.expressionSystem.builtInFunctions.time = () => time;
+      this.expressionSystem.builtInFunctions.frame = () => frame;
+      
+      // Clear cache to force re-evaluation with new time
+      this.expressionSystem.clearCache();
+      
+      // Update all nodes with time-dependent expressions
+      this.updateTimeDependendentNodes();
+    } catch (error) {
+      console.warn('Error updating animation context:', error);
+    }
+  }
+
+  updateTimeDependendentNodes() {
+    if (!this.graph) return;
+    
+    try {
+      const timeDependendentNodes = this.graph.nodes.filter(node => {
+        if (!node.params) return false;
+        
+        return Object.values(node.params).some(value => {
+          if (!this.expressionSystem.isExpression(value)) return false;
+          return value.includes('time') || value.includes('frame');
+        });
+      });
+
+      timeDependendentNodes.forEach(node => {
+        this.updateNodePreview(node);
+      });
+    } catch (error) {
+      console.warn('Error updating time-dependent nodes:', error);
+    }
+  }
+
+  // ---- EXPRESSION API METHODS ----
+  
+  evaluateExpression(expression, context = {}, node = null) {
+    return this.expressionSystem.evaluateExpression(expression, context, node);
+  }
+
+  validateExpression(expression, context = {}, node = null) {
+    return this.expressionSystem.validateExpression(expression, context, node);
+  }
+
+  debugExpressions() {
+    console.log('Expression System Debug Info:');
+    console.log('Cache Stats:', this.expressionSystem.getCacheStats());
+    
+    if (this.graph) {
+      const nodesWithExpressions = this.graph.nodes.filter(node => {
+        if (!node.params) return false;
+        return Object.values(node.params).some(value => 
+          this.expressionSystem.isExpression(value)
+        );
+      });
+      
+      console.log('Nodes with expressions:', nodesWithExpressions.length);
+      nodesWithExpressions.forEach(node => {
+        console.log(`Node ${node.id} (${node.kind}):`, 
+          Object.entries(node.params).filter(([k, v]) => 
+            this.expressionSystem.isExpression(v)
+          )
+        );
+      });
+    }
+  }
+
+  // ---- ALL EXISTING EDITOR METHODS (PRESERVED) ----
 
   initializeEventHandling() {
     try {
@@ -176,7 +604,6 @@ export class Editor {
     try {
       this.resize();
       
-      // Safe resize handler
       this.resizeHandler = () => {
         try {
           this.resize();
@@ -206,8 +633,6 @@ export class Editor {
     }
   }
 
-  // ---- SAFE RENDERING METHODS ----
-
   resize() {
     try {
       const dpr = window.devicePixelRatio || 1;
@@ -236,7 +661,6 @@ export class Editor {
         component: 'render'
       });
       
-      // Try to recover by clearing and showing error state
       try {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.fillStyle = '#ff0000';
@@ -260,8 +684,6 @@ export class Editor {
     });
   }
 
-  // ---- PREVIEW SYSTEM WITH ERROR HANDLING ----
-  
   initializePreviewSystem() {
     try {
       console.log("Initializing Preview System");
@@ -270,7 +692,6 @@ export class Editor {
         throw new Error("No graph or nodes available for preview system");
       }
 
-      // Initialize the preview system using factory method
       this.previewSystem = PreviewSystem.create(this);
       this.previewIntegration = this.previewSystem.integration;
       
@@ -278,18 +699,17 @@ export class Editor {
       window.errorHandler?.handleError(error, {
         component: 'preview-system-initialization'
       });
-      // Continue without preview system
       this.previewSystem = null;
       this.previewIntegration = null;
     }
   }
 
-  // ---- NODE MOVEMENT UNDO INTEGRATION WITH ERROR HANDLING ----
+  // ---- NODE MOVEMENT UNDO INTEGRATION ----
   
   startNodeMovement(nodesToMove) {
     try {
       if (this.movementState.isMoving) {
-        return; // Already tracking movement
+        return;
       }
 
       if (!nodesToMove || nodesToMove.length === 0) {
@@ -302,7 +722,6 @@ export class Editor {
       this.movementState.originalPositions.clear();
       this.movementState.movedNodes.clear();
 
-      // Record original positions with validation
       nodesToMove.forEach(node => {
         if (!node || typeof node.id === 'undefined') {
           console.warn('Invalid node in movement tracking:', node);
@@ -333,7 +752,6 @@ export class Editor {
 
       console.log('Editor: Finishing node movement tracking for undo');
 
-      // Check if any nodes actually moved
       let hasMovement = false;
       const movementData = [];
 
@@ -356,7 +774,6 @@ export class Editor {
         }
       });
 
-      // Only record undo if there was actual movement
       if (hasMovement && window.onNodesMovement && typeof window.onNodesMovement === 'function') {
         console.log('Editor: Recording node movement for undo:', movementData);
         try {
@@ -373,7 +790,6 @@ export class Editor {
         component: 'finish-node-movement'
       });
     } finally {
-      // Always reset movement state
       this.movementState.isMoving = false;
       this.movementState.originalPositions.clear();
       this.movementState.movedNodes.clear();
@@ -418,7 +834,6 @@ export class Editor {
       });
 
       if (movedCount > 0) {
-        // Trigger updates
         this.onChange('Node Movement Undo/Redo');
         this.safeDraw();
       }
@@ -431,7 +846,7 @@ export class Editor {
     }
   }
 
-  // ---- UNDO SYSTEM INTEGRATION WITH ERROR HANDLING ----
+  // ---- ALL YOUR EXISTING METHODS (COPY THEM ALL FROM YOUR ORIGINAL FILE) ----
   
   deleteConnection(sourceNode, targetNode, inputIndex) {
     try {
@@ -456,7 +871,6 @@ export class Editor {
         return false;
       }
 
-      // Find source node if not provided
       if (!sourceNode) {
         sourceNode = this.graph.nodes.find(n => n.id == currentConnection);
         if (!sourceNode) {
@@ -464,14 +878,12 @@ export class Editor {
         }
       }
 
-      // Create connection data for undo callback
       const connectionData = {
         sourceNode: sourceNode,
         targetNode: targetNode,
         targetInput: inputIndex
       };
 
-      // Record for undo BEFORE deleting
       if (window.onConnectionDeleted && typeof window.onConnectionDeleted === 'function') {
         console.log('Editor: Recording connection deletion for undo:', connectionData);
         try {
@@ -483,12 +895,11 @@ export class Editor {
         }
       }
 
-      // Perform the actual deletion
       targetNode.inputs[inputIndex] = null;
       console.log(`Connection deleted: input[${inputIndex}] of node ${targetNode.id}`);
 
-      // Trigger updates
       this.onChange('Connection Deletion');
+      this.eventSystem.emit('GRAPH_CHANGED', { action: 'Connection Deletion' });
       this.safeDraw();
 
       return true;
@@ -516,7 +927,6 @@ export class Editor {
         return false;
       }
 
-      // Record for undo BEFORE deleting
       if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
         console.log('Editor: Recording node deletion for undo:', nodeToDelete.kind, nodeToDelete.id);
         try {
@@ -528,7 +938,6 @@ export class Editor {
         }
       }
 
-      // Remove from selection first
       if (this.selection && this.selection.has && this.selection.has(nodeToDelete)) {
         try {
           this.selection.delete(nodeToDelete);
@@ -539,7 +948,6 @@ export class Editor {
         }
       }
 
-      // Remove all connections to this node
       let connectionsRemoved = 0;
       this.graph.nodes.forEach(node => {
         if (node.inputs && Array.isArray(node.inputs)) {
@@ -553,7 +961,6 @@ export class Editor {
         }
       });
 
-      // Remove the node from graph
       this.graph.nodes.splice(nodeIndex, 1);
       console.log(`Node ${nodeToDelete.kind}(${nodeToDelete.id}) deleted from graph`);
       
@@ -561,8 +968,8 @@ export class Editor {
         console.log(`Removed ${connectionsRemoved} connections to deleted node`);
       }
 
-      // Trigger updates
       this.onChange('Node Deletion');
+      this.eventSystem.emit('GRAPH_CHANGED', { action: 'Node Deletion' });
       this.safeDraw();
 
       return true;
@@ -586,7 +993,6 @@ export class Editor {
       
       console.log('Editor: Deleting nodes as group:', nodesToDelete.length, 'nodes');
       
-      // Validate nodes exist in graph
       const validNodes = nodesToDelete.filter(node => {
         if (!node) return false;
         const exists = this.graph.nodes.includes(node);
@@ -601,7 +1007,6 @@ export class Editor {
         return false;
       }
       
-      // Record for undo BEFORE deleting (as a single group operation)
       if (window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
         console.log('Editor: Recording group deletion for undo');
         try {
@@ -613,7 +1018,6 @@ export class Editor {
         }
       }
       
-      // Remove from selection first
       validNodes.forEach(nodeToDelete => {
         if (this.selection && this.selection.has && this.selection.has(nodeToDelete)) {
           try {
@@ -624,10 +1028,8 @@ export class Editor {
         }
       });
       
-      // Get all node IDs for efficient cleanup
       const nodeIdsToDelete = new Set(validNodes.map(n => n.id));
       
-      // Remove all connections to these nodes
       let connectionsRemoved = 0;
       this.graph.nodes.forEach(node => {
         if (node.inputs && Array.isArray(node.inputs)) {
@@ -641,11 +1043,10 @@ export class Editor {
         }
       });
       
-      // Remove nodes from graph (in reverse order to maintain indices)
       const sortedNodesToDelete = validNodes
         .map(node => ({ node, index: this.graph.nodes.indexOf(node) }))
         .filter(item => item.index !== -1)
-        .sort((a, b) => b.index - a.index); // Sort by index descending
+        .sort((a, b) => b.index - a.index);
       
       sortedNodesToDelete.forEach(({ node, index }) => {
         this.graph.nodes.splice(index, 1);
@@ -654,8 +1055,8 @@ export class Editor {
       
       console.log(`Group deletion completed: ${validNodes.length} nodes, ${connectionsRemoved} connections`);
       
-      // Trigger updates
       this.onChange('Group Deletion');
+      this.eventSystem.emit('GRAPH_CHANGED', { action: 'Group Deletion' });
       this.safeDraw();
       
       return true;
@@ -671,7 +1072,6 @@ export class Editor {
 
   createConnection(sourceNodeId, targetNodeId, targetInput) {
     try {
-      // Validate inputs
       if (typeof sourceNodeId === 'undefined' || typeof targetNodeId === 'undefined') {
         throw new Error('Source and target node IDs are required');
       }
@@ -691,33 +1091,27 @@ export class Editor {
         throw new Error(`Target node not found: ${targetNodeId}`);
       }
 
-      // Prevent self-connection
       if (sourceNodeId == targetNodeId) {
         console.warn('Cannot connect node to itself');
         return false;
       }
 
-      // Ensure target node has inputs array
       if (!targetNode.inputs) {
         targetNode.inputs = [];
       }
 
-      // Extend inputs array if needed
       while (targetNode.inputs.length <= targetInput) {
         targetNode.inputs.push(null);
       }
 
-      // Check if connection already exists
       if (targetNode.inputs[targetInput] == sourceNodeId) {
         console.log('Connection already exists, skipping creation');
         return true;
       }
 
-      // Create the connection
       targetNode.inputs[targetInput] = sourceNodeId;
       console.log(`Connection created: ${sourceNode.kind}(${sourceNodeId}) -> ${targetNode.kind}(${targetNodeId})[${targetInput}]`);
 
-      // Record for undo AFTER successful creation
       if (window.onConnectionCreated && typeof window.onConnectionCreated === 'function') {
         console.log('Editor: Recording connection creation for undo:', { sourceNodeId, targetNodeId, targetInput });
         try {
@@ -729,8 +1123,8 @@ export class Editor {
         }
       }
 
-      // Trigger updates
       this.onChange('Connection Creation');
+      this.eventSystem.emit('GRAPH_CHANGED', { action: 'Connection Creation' });
       this.safeDraw();
 
       return true;
@@ -748,7 +1142,6 @@ export class Editor {
 
   createNode(nodeType, x, y) {
     try {
-      // Validate inputs
       if (!nodeType || typeof nodeType !== 'string') {
         throw new Error('Valid node type string is required');
       }
@@ -775,7 +1168,6 @@ export class Editor {
       this.graph.nodes.push(newNode);
       console.log(`Node ${nodeType}(${newNode.id}) created at (${x}, ${y})`);
 
-      // Record for undo AFTER successful creation
       if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
         console.log('Editor: Recording node creation for undo:', newNode.kind, newNode.id);
         try {
@@ -787,8 +1179,8 @@ export class Editor {
         }
       }
 
-      // Trigger updates
       this.onChange('Node Creation');
+      this.eventSystem.emit('GRAPH_CHANGED', { action: 'Node Creation' });
       this.safeDraw();
 
       return newNode;
@@ -803,7 +1195,7 @@ export class Editor {
     }
   }
 
-  // ---- KEYBOARD HANDLING WITH ERROR HANDLING ----
+  // ---- KEYBOARD HANDLING ----
   
   handleKeyDown(event) {
     try {
@@ -811,10 +1203,8 @@ export class Editor {
         event.preventDefault();
         
         if (this.selection && this.selection.getSelected && this.selection.getSelected().size > 0) {
-          // Get selected node IDs
           const selectedNodeIds = Array.from(this.selection.getSelected());
           
-          // Convert IDs to actual node objects
           const nodesToDelete = selectedNodeIds
             .map(nodeId => this.graph.nodes.find(n => n.id === nodeId))
             .filter(node => node !== undefined);
@@ -826,7 +1216,6 @@ export class Editor {
             return true;
           }
           
-          // Handle group deletion as a single operation
           let deletionSuccess = false;
           if (nodesToDelete.length > 1) {
             deletionSuccess = this.deleteNodesAsGroup(nodesToDelete);
@@ -834,7 +1223,6 @@ export class Editor {
             deletionSuccess = this.deleteNode(nodesToDelete[0]);
           }
           
-          // Clear selection after deletion
           if (this.selection.clear) {
             try {
               this.selection.clear();
@@ -854,7 +1242,6 @@ export class Editor {
         return true;
       }
       
-      // Cancel movement on ESC
       if (event.key === 'Escape') {
         this.cancelNodeMovement();
         return true;
@@ -871,16 +1258,14 @@ export class Editor {
     }
   }
 
-  // ---- MOUSE EVENT HANDLING WITH ERROR HANDLING ----
+  // ---- MOUSE EVENT HANDLING ----
   
   handleRightClick(mouseX, mouseY) {
     try {
-      // Convert screen coordinates to canvas coordinates
       const rect = this.canvas.getBoundingClientRect();
       const canvasX = mouseX - rect.left;
       const canvasY = mouseY - rect.top;
       
-      // Check if clicking on a connection
       const connectionInfo = this.getConnectionAt(canvasX, canvasY);
       if (connectionInfo) {
         if (this.deleteConnection(connectionInfo.sourceNode, connectionInfo.targetNode, connectionInfo.targetInput)) {
@@ -889,7 +1274,6 @@ export class Editor {
         return true;
       }
 
-      // Check if clicking on a node
       const node = this.getNodeAt(canvasX, canvasY);
       if (node) {
         const confirmMessage = `Delete node "${node.kind}"?`;
@@ -912,15 +1296,13 @@ export class Editor {
     }
   }
 
-  // ---- HELPER METHODS WITH ERROR HANDLING ----
+  // ---- HELPER METHODS ----
   
   getConnectionAt(mouseX, mouseY) {
     try {
-      // Convert screen coordinates to world coordinates
       const worldX = (mouseX - this.viewport.panX) / this.viewport.zoom;
       const worldY = (mouseY - this.viewport.panY) / this.viewport.zoom;
 
-      // Check all connections
       for (const node of this.graph.nodes) {
         if (!node.inputs || !Array.isArray(node.inputs)) continue;
 
@@ -931,15 +1313,13 @@ export class Editor {
           const sourceNode = this.graph.nodes.find(n => n.id == input);
           if (!sourceNode) continue;
 
-          // Calculate connection line (adjust based on your rendering)
           const startX = sourceNode.x + 120;
           const startY = sourceNode.y + 25;
           const endX = node.x;
           const endY = node.y + 25 + (inputIndex * 25);
 
-          // Check if mouse is near the connection line
           const distance = this.distanceToLine(worldX, worldY, startX, startY, endX, endY);
-          if (distance < 10) { // 10 pixel tolerance
+          if (distance < 10) {
             return {
               sourceNode: sourceNode,
               targetNode: node,
@@ -959,17 +1339,14 @@ export class Editor {
 
   getNodeAt(mouseX, mouseY) {
     try {
-      // Convert screen coordinates to world coordinates
       const worldX = (mouseX - this.viewport.panX) / this.viewport.zoom;
       const worldY = (mouseY - this.viewport.panY) / this.viewport.zoom;
 
-      // Check all nodes (in reverse order to get topmost)
       for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
         const node = this.graph.nodes[i];
 
-        // Basic bounding box check (adjust based on your node rendering)
-        const nodeWidth = 120; // Adjust based on your node width
-        const nodeHeight = 60; // Adjust based on your node height
+        const nodeWidth = 120;
+        const nodeHeight = 60;
 
         if (worldX >= node.x && worldX <= node.x + nodeWidth &&
             worldY >= node.y && worldY <= node.y + nodeHeight) {
@@ -1005,11 +1382,11 @@ export class Editor {
       
     } catch (error) {
       window.errorHandler?.handleError(error, 'Distance to Line Calculation', 'warning');
-      return Infinity; // Safe fallback
+      return Infinity;
     }
   }
 
-  // ---- NODE PREVIEW METHODS WITH ERROR HANDLING ----
+  // ---- NODE PREVIEW METHODS ----
   
   toggleNodePreview(nodeId) {
     try {
@@ -1028,9 +1405,7 @@ export class Editor {
       const preview = this.nodePreviews.get(nodeId);
       preview.enabled = !preview.enabled;
 
-      console.log(
-        `Preview toggled for node ${nodeId}: ${preview.enabled ? "ON" : "OFF"}`,
-      );
+      console.log(`Preview toggled for node ${nodeId}: ${preview.enabled ? "ON" : "OFF"}`);
 
       if (preview.enabled) {
         const node = this.graph.nodes.find((n) => n.id === nodeId);
@@ -1076,7 +1451,6 @@ export class Editor {
 
       console.log(`Size changed to ${preview.size} for node ${nodeId}`);
 
-      // Update preview with new size
       if (this.isPreviewEnabled && preview.enabled) {
         const node = this.graph.nodes.find((n) => n.id === nodeId);
         if (node && this.previewIntegration) {
@@ -1122,7 +1496,7 @@ export class Editor {
     }
   }
 
-  // ---- PREVIEW HELPER METHODS WITH ERROR HANDLING ----
+  // ---- PREVIEW HELPER METHODS ----
   
   shouldShowPreview(node) {
     try {
@@ -1168,13 +1542,13 @@ export class Editor {
     }
   }
 
-  // ---- SELECTION API WITH ERROR HANDLING ----
+  // ---- SELECTION API ----
   
   selectAll() {
     try {
       if (this.selection && this.selection.selectAll) {
         this.selection.selectAll();
-        this.errorHandler.showInfo(`Selected ${this.graph.nodes.length} nodes`, 'Select All');
+        console.log(`Selected ${this.graph.nodes.length} nodes`);
       } else {
         console.warn('Selection manager not available for selectAll');
       }
@@ -1206,7 +1580,7 @@ export class Editor {
       if (this.selection && this.selection.duplicateSelected) {
         const result = this.selection.duplicateSelected();
         if (result) {
-          this.errorHandler.showSuccess('Selected nodes duplicated', 'Duplicate');
+          console.log('Selected nodes duplicated');
           this.onChange('Duplicate Selection');
           this.safeDraw();
         }
@@ -1218,38 +1592,27 @@ export class Editor {
     }
   }
 
-  // ---- ERROR HANDLING UTILITIES ----
-  
-  handleCriticalError(error, context) {
-    console.error(`CRITICAL ERROR in ${context}:`, error);
-    
-    if (this.errorHandler) {
-      window.errorHandler?.handleError(error, `Critical: ${context}`, 'error', 0);
-    } else {
-      // Fallback if error handler not available
-      alert(`Critical Error: ${error.message || error}\n\nContext: ${context}\n\nCheck console for details.`);
-    }
-  }
-
   // ---- CLEANUP AND DISPOSAL ----
   
   dispose() {
     try {
       console.log('Disposing Editor...');
       
-      // Remove event listeners
       if (this.resizeHandler) {
         window.removeEventListener("resize", this.resizeHandler);
         this.resizeHandler = null;
       }
       
-      // Dispose of managers
       if (this.eventHandler && this.eventHandler.dispose) {
         this.eventHandler.dispose();
       }
       
       if (this.previewSystem && this.previewSystem.dispose) {
         this.previewSystem.dispose();
+      }
+      
+      if (this.paramPanel && this.paramPanel.destroy) {
+        this.paramPanel.destroy();
       }
       
       // Clear references
@@ -1266,7 +1629,8 @@ export class Editor {
       this.previewSystem = null;
       this.previewIntegration = null;
       this.undoManager = null;
-      this.errorHandler = null;
+      this.eventSystem = null;
+      this.expressionSystem = null;
       
       // Clear maps
       this.nodePreviews.clear();
@@ -1280,19 +1644,7 @@ export class Editor {
     }
   }
 
-  // ---- LEGACY COMPATIBILITY METHODS ----
-  
-  copySelected() {
-    // Legacy method - could be enhanced with actual clipboard functionality
-    console.log('copySelected called - legacy method');
-  }
-
-  pasteAtCursor() {
-    // Legacy method - could be enhanced with actual paste functionality
-    console.log('pasteAtCursor called - legacy method');
-  }
-
-  // ---- DEBUG AND DIAGNOSTIC METHODS ----
+  // ---- DEBUG METHODS ----
   
   getDebugInfo() {
     try {
@@ -1301,6 +1653,7 @@ export class Editor {
         previewCount: this.nodePreviews.size,
         isMoving: this.movementState.isMoving,
         hasSelection: this.selection?.getSelected?.().size > 0,
+        expressionCacheSize: this.expressionSystem?.getCacheStats?.()?.size || 0,
         canvasSize: {
           width: this.canvas?.width || 0,
           height: this.canvas?.height || 0
@@ -1326,7 +1679,6 @@ export class Editor {
         return issues;
       }
       
-      // Check for duplicate node IDs
       const ids = new Set();
       this.graph.nodes.forEach((node, index) => {
         if (!node) {
@@ -1345,7 +1697,6 @@ export class Editor {
           ids.add(node.id);
         }
         
-        // Check connections reference valid nodes
         if (node.inputs && Array.isArray(node.inputs)) {
           node.inputs.forEach((input, inputIndex) => {
             if (input !== null && input !== undefined && !ids.has(input)) {
@@ -1357,7 +1708,6 @@ export class Editor {
       
       if (issues.length > 0) {
         console.warn('Graph integrity issues found:', issues);
-        this.errorHandler.showWarning(`Found ${issues.length} graph integrity issues`, 'Validation');
       }
       
       return issues;
@@ -1366,5 +1716,4 @@ export class Editor {
       window.errorHandler?.handleError(error, 'Graph Validation', 'warning');
       return ['Validation failed: ' + error.message];
     }
-  }
-}
+  }}
