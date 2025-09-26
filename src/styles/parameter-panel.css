@@ -174,3 +174,116 @@
   margin-top: 4px;
   font-style: italic;
 }
+
+/* Expression input styling */
+.param-input.has-expression {
+  background: #2a2a3e !important;
+  border-color: #4CAF50 !important;
+  color: #a8e6cf !important;
+  font-weight: normal !important;
+}
+
+.param-input.has-expression:focus {
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+.param-input.has-expression:invalid {
+  border-color: #f44336 !important;
+  box-shadow: 0 0 0 2px rgba(244, 67, 54, 0.2);
+}
+
+/* Expression helper button */
+.expression-helper-btn {
+  background: #4CAF50;
+  border: none;
+  color: white;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: bold;
+  min-width: 20px;
+  height: 24px;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease;
+}
+
+.expression-helper-btn:hover {
+  background: #45a049;
+}
+
+.expression-helper-btn:active {
+  background: #3d8b40;
+}
+
+/* Parameter input container */
+.param-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Expression result display */
+.expression-result {
+  font-size: 10px;
+  color: #888;
+  margin-top: 2px;
+  font-style: italic;
+  min-height: 12px;
+  padding-left: 4px;
+  transition: color 0.2s ease;
+}
+
+/* Connected input styling */
+.param-input:disabled {
+  background: #2a4a2a !important;
+  border-color: #4a6a4a !important;
+  color: #aaa !important;
+  cursor: not-allowed;
+}
+
+/* Drag cursor for numeric inputs */
+.param-input[data-param-type="float"]:hover {
+  cursor: text;
+}
+
+.param-input[data-param-type="float"]:hover::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 3px solid #666;
+  opacity: 0.5;
+}
+
+/* Animation for expression validation */
+@keyframes expressionError {
+  0%, 100% { border-color: #f44336; }
+  50% { border-color: #ff6b6b; }
+}
+
+.param-input.has-expression.error {
+  animation: expressionError 1s ease-in-out;
+}
+
+/* Tooltip styling */
+.param-input[title]:hover::before {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 1000;
+  pointer-events: none;
+}

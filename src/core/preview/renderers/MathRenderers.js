@@ -1,4 +1,4 @@
-// src/core/preview/renderers/MathRenderers.js
+// src/core/preview/renderers/MathRenderers.js - Fixed for expression support
 
 export class MathRenderers {
   constructor(previewSystem) {
@@ -16,6 +16,49 @@ export class MathRenderers {
     });
   }
 
+  // Helper function to safely convert values to numbers (handles expressions)
+  toSafeNumber(value, defaultValue = 0) {
+    // Handle null/undefined
+    if (value == null) return defaultValue;
+    
+    // If already a number, return it
+    if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+      return value;
+    }
+    
+    // Handle expressions
+    if (typeof value === 'string' && value.trim().startsWith('=')) {
+      try {
+        // Use the parameter value manager if available
+        if (window.editor?.paramPanel?.valueManager?.expressionSystem) {
+          return window.editor.paramPanel.valueManager.expressionSystem.evaluateExpression(value, {}, {});
+        }
+        
+        // Fallback basic expression evaluation
+        const expr = value.slice(1).trim();
+        const processed = expr
+          .replace(/PI/g, Math.PI)
+          .replace(/sin/g, 'Math.sin')
+          .replace(/cos/g, 'Math.cos')
+          .replace(/tan/g, 'Math.tan')
+          .replace(/sqrt/g, 'Math.sqrt')
+          .replace(/abs/g, 'Math.abs')
+          .replace(/min/g, 'Math.min')
+          .replace(/max/g, 'Math.max');
+        
+        const result = Function(`"use strict"; return (${processed})`)();
+        return typeof result === 'number' && !isNaN(result) ? result : defaultValue;
+      } catch (error) {
+        console.warn('Expression evaluation failed in MathRenderers:', error);
+        return defaultValue;
+      }
+    }
+    
+    // Try to parse as number
+    const parsed = Number(value);
+    return !isNaN(parsed) && isFinite(parsed) ? parsed : defaultValue;
+  }
+
   renderMath(ctx, node, symbol, color) {
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
@@ -24,13 +67,18 @@ export class MathRenderers {
     switch (node.kind.toLowerCase()) {
       case "divide":
       case "subtract":
-        a = inputs.a !== undefined ? inputs.a : 1;
-        b = inputs.b !== undefined ? inputs.b : 1;
+        // Convert inputs to safe numbers with proper defaults
+        a = this.toSafeNumber(inputs.a, 1);
+        b = this.toSafeNumber(inputs.b, 1);
         break;
       default:
-        a = inputs.a !== undefined ? inputs.a : 1;
-        b = inputs.b !== undefined ? inputs.b : 1;
+        // Convert inputs to safe numbers with proper defaults  
+        a = this.toSafeNumber(inputs.a, 1);
+        b = this.toSafeNumber(inputs.b, 1);
     }
+
+    // Ensure computedResult is also a safe number
+    const safeResult = this.toSafeNumber(computedResult, 0);
 
     ctx.fillStyle = color + "20";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -41,42 +89,42 @@ export class MathRenderers {
     ctx.fillText(symbol, this.size / 2, this.size / 2 - 4);
 
     ctx.font = "8px monospace";
-    const resultText =
-      Math.abs(computedResult) < 0.01
-        ? computedResult.toExponential(1)
-        : computedResult.toFixed(2);
+    const resultText = Math.abs(safeResult) < 0.01
+        ? safeResult.toExponential(1)
+        : safeResult.toFixed(2);
+
     ctx.fillText(resultText, this.size / 2, this.size / 2 + 12);
 
+    // Display input values safely
     ctx.font = "6px monospace";
-    ctx.textAlign = "left";
-    const aText = Math.abs(a) < 0.01 ? a.toExponential(1) : a.toFixed(2);
-    const bText = Math.abs(b) < 0.01 ? b.toExponential(1) : b.toFixed(2);
-    ctx.fillText(`A:${aText}`, 2, 10);
-    ctx.fillText(`B:${bText}`, 2, 18);
+    ctx.fillText(`A:${a.toFixed(1)}`, 8, 12);
+    ctx.fillText(`B:${b.toFixed(1)}`, 8, 22);
   }
 
   renderSaturate(ctx, node) {
+    const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
-    const input = inputs.input || 0.5;
-    const result = Math.max(0, Math.min(1, input));
+    
+    // Convert input to safe number
+    const input = this.toSafeNumber(inputs.input || inputs.a || inputs[0], 0.5);
+    const safeResult = this.toSafeNumber(computedResult, 0);
 
-    // Render gradient showing saturation effect
-    for (let x = 0; x < this.size; x++) {
-      const testValue = (x / this.size) * 2 - 0.5;
-      const saturated = Math.max(0, Math.min(1, testValue));
-      const color = Math.floor(saturated * 255);
-      ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
-      ctx.fillRect(x, 0, 1, this.size);
-    }
+    ctx.fillStyle = "#10b98120";
+    ctx.fillRect(0, 0, this.size, this.size);
 
-    // Input indicator
-    const inputX = Math.floor(((input + 0.5) * this.size) / 2);
-    const outputX = Math.floor(result * this.size);
+    ctx.fillStyle = "#10b981";
+    ctx.font = "bold 12px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("SAT", this.size / 2, this.size / 2 - 2);
 
-    ctx.fillStyle = "#ff4444";
-    ctx.fillRect(inputX, this.size - 4, 1, 4);
+    ctx.font = "8px monospace";
+    const resultText = Math.abs(safeResult) < 0.01
+        ? safeResult.toExponential(1)
+        : safeResult.toFixed(2);
 
-    ctx.fillStyle = "#44ff44";
-    ctx.fillRect(outputX, 0, 1, 4);
+    ctx.fillText(resultText, this.size / 2, this.size / 2 + 12);
+
+    ctx.font = "6px monospace";
+    ctx.fillText(`IN:${input.toFixed(1)}`, 8, 12);
   }
 }
