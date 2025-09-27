@@ -51,10 +51,6 @@ export class NodeValueComputer {
           result = 0.5;
           break;
 
-        case "circle":
-        case "circlefield":
-          result = this._getParameter(node, "radius") || 0.5;
-          break;
 
         case "multiply": {
           const inputs = this.getConnectedInputs(node, visited);
@@ -88,23 +84,17 @@ export class NodeValueComputer {
           break;
         }
 
-        case "expr": {
-          const inputs = this.getConnectedInputs(node, visited);
-          const expr = this._getParameter(node, "expr") || node.expr || "a";
-          const a = inputs.a || 0;
-          const b = inputs.b || 0;
-          const variables = {
-            a: a,
-            b: b,
-            t: (Date.now() / 1000) % (Math.PI * 2),
-            u_time: Date.now() / 1000,
-            pi: Math.PI,
-            PI: Math.PI,
-          };
-          result = this._evaluateExpression(expr, variables, node.id);
-          break;
-        }
-
+case "circle":
+case "circlefield": {
+  const inputs = this.getConnectedInputs(node, visited);
+  
+  // Parameters first, inputs can override
+  let radius = this._getParameter(node, "radius") || 0.25;
+  if (inputs.a !== undefined) radius = inputs.a;
+  
+  result = this._getParameter(node, "radius") || 0.25;
+  break;
+}
         case "saturate": {
           const inputs = this.getConnectedInputs(node, visited);
           const input = inputs.input || inputs.a || 0;
@@ -247,13 +237,13 @@ export class NodeValueComputer {
     }
   }
 
-  _getParameter(node, name) {
-    try {
-      return node[name] || node.props?.[name] || 0;
-    } catch (error) {
-      return 0;
-    }
+_getParameter(node, name) {
+  try {
+    return node.params?.[name] || node[name] || node.props?.[name] || 0;
+  } catch (error) {
+    return 0;
   }
+}
 
   _toVec3(input) {
     try {
@@ -290,7 +280,38 @@ export class NodeValueComputer {
       return fallback;
     }
   }
+// Add this to your NodeValueComputer class:
 
+getNodeParameter(node, paramName, defaultValue = 0) {
+  try {
+    // Use the editor's value manager if available
+    if (this.editor?.paramPanel?.valueManager?.getValue) {
+      return this.editor.paramPanel.valueManager.getValue(node, paramName) ?? defaultValue;
+    }
+    
+    // Fallback with expression evaluation
+    const rawValue = node.params?.[paramName] ?? defaultValue;
+    
+    if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
+      try {
+        const expressionSystem = window.expressionSystem || this.editor?.expressionSystem;
+        if (expressionSystem) {
+          return expressionSystem.evaluateExpression(rawValue, {}, node);
+        }
+      } catch (error) {
+        console.warn(`Expression evaluation failed for ${paramName}:`, error);
+      }
+    }
+    
+    return typeof rawValue === 'number' ? rawValue : parseFloat(rawValue) || defaultValue;
+  } catch (error) {
+    console.warn(`Error getting node parameter ${paramName}:`, error);
+    return defaultValue;
+  }
+}
+
+// Update any methods that access node parameters to use this helper:
+// Example: Instead of node.params.radius, use this.getNodeParameter(node, 'radius', 1.0)
   _evaluateExpression(expr, vars, nodeId) {
     try {
       if (!expr || typeof expr !== 'string') {

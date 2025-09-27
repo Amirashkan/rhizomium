@@ -213,13 +213,77 @@ export class MathNodes {
   }
   
   /**
-   * Compile circle field
+   * Check if expression is incomplete (to avoid compilation errors)
+   */
+  isIncompleteExpression(expression) {
+    const incompletePatterns = [
+      /[+\-*/]$/, // Ends with operator
+      /[+\-*/]\s*$/, // Ends with operator and whitespace
+      /\($/, // Ends with opening parenthesis
+      /,\s*$/, // Ends with comma
+      /^\s*$/, // Empty or whitespace only
+    ];
+    
+    return incompletePatterns.some(pattern => pattern.test(expression.trim()));
+  }
+  
+  /**
+   * Safely evaluate expression parameter
+   */
+  safeEvaluateParameter(paramValue, defaultValue, node) {
+    if (typeof paramValue !== 'string' || !paramValue.startsWith('=')) {
+      return parseFloat(paramValue) || defaultValue;
+    }
+    
+    try {
+      const expression = paramValue.slice(1).trim();
+      
+      // Check for incomplete expressions
+      if (this.isIncompleteExpression(expression)) {
+        console.log('Incomplete expression detected, using default:', expression);
+        return defaultValue;
+      }
+      
+      // Evaluate complete expression
+      if (window.editor?.paramPanel?.expressionSystem) {
+        const result = window.editor.paramPanel.expressionSystem.evaluateExpression(paramValue, {}, node);
+        console.log('Expression evaluated:', { paramValue, result });
+        return result;
+      } else {
+        console.warn('Expression system not available');
+        return defaultValue;
+      }
+    } catch (error) {
+      console.warn('Expression evaluation failed during compilation:', error);
+      return defaultValue;
+    }
+  }
+  
+  /**
+   * Compile circle field with expression support and validation
    */
   compileCircleField(node, getInput, nodeId) {
-    const R = getInput(0, "f32", null) || (node.props?.radius ?? 0.25);
-    const E = getInput(1, "f32", null) || (node.props?.epsilon ?? 0.02);
+    // Since CircleField now has no inputs, get parameters directly
+    const radiusParam = node.params?.radius ?? 0.25;
+    const epsilonParam = node.params?.epsilon ?? 0.02;
+    
+    // Safely evaluate parameters with validation
+    const R = this.safeEvaluateParameter(radiusParam, 0.25, node);
+    const E = this.safeEvaluateParameter(epsilonParam, 0.02, node);
+    
+    console.log('CircleField compiling with:', { 
+      radiusParam, 
+      evaluatedRadius: R, 
+      epsilonParam, 
+      evaluatedEpsilon: E 
+    });
+    
+    // Ensure values are valid numbers for WGSL
+    const safeR = (typeof R === 'number' && isFinite(R)) ? R.toFixed(6) : '0.25';
+    const safeE = (typeof E === 'number' && isFinite(E)) ? E.toFixed(6) : '0.02';
+    
     return {
-      line: `let node_${nodeId} = 1.0 - smoothstep((${R}) - max(${E}, 0.0001), (${R}) + max(${E}, 0.0001), distance(in.uv, vec2<f32>(0.5, 0.5)));`,
+      line: `let node_${nodeId} = 1.0 - smoothstep((${safeR}) - max(${safeE}, 0.0001), (${safeR}) + max(${safeE}, 0.0001), distance(in.uv, vec2<f32>(0.5, 0.5)));`,
       outputType: "f32"
     };
   }

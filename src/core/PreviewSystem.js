@@ -516,30 +516,39 @@ export class PreviewSystem {
       });
     }
   }
+getParameterValue(node, paramName, defaultValue = 0) {
+  try {
+    // Use the value manager if available
+    if (this.editor?.paramPanel?.valueManager?.getValue) {
+      return this.editor.paramPanel.valueManager.getValue(node, paramName) ?? defaultValue;
+    }
+    
+    // Fallback to direct access with expression check
+    const rawValue = node.params?.[paramName] ?? defaultValue;
+    
+    // Check if it's an expression and evaluate it
+    if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
+      try {
+        const expressionSystem = window.expressionSystem || this.editor?.expressionSystem;
+        if (expressionSystem) {
+          return expressionSystem.evaluateExpression(rawValue, {}, node);
+        }
+      } catch (error) {
+        console.warn(`Expression evaluation failed for ${paramName}:`, error);
+      }
+    }
+    
+    return rawValue;
+  } catch (error) {
+    console.warn(`Error getting parameter ${paramName}:`, error);
+    return defaultValue;
+  }
+}
 
   // Expose subsystem APIs for backward compatibility
-  getParameter(node, name) {
-    try {
-      if (!node) {
-        console.warn('No node provided for parameter retrieval');
-        return 0;
-      }
-
-      if (!name || typeof name !== 'string') {
-        console.warn('Invalid parameter name');
-        return 0;
-      }
-
-      return node[name] || node.props?.[name] || 0;
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'parameter-get',
-        nodeId: node?.id,
-        parameterName: name
-      });
-      return 0;
-    }
-  }
+getParameter(node, name) {
+  return this.getParameterValue(node, name, 0);
+}
 
   computeNodeValue(node, visited = new Set()) {
     try {

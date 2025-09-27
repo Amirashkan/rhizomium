@@ -217,6 +217,7 @@ export class Editor {
 
       // Setup event listeners for expression updates
       this.setupExpressionEventListeners();
+      this.setupGPUAnimationLoop();
 
       console.log('Expression system integrations completed');
       
@@ -227,6 +228,27 @@ export class Editor {
     }
   }
 
+setupGPUAnimationLoop() {
+  // Start the animation loop immediately, check for expressions inside
+  this.gpuAnimationLoop = setInterval(() => {
+    // Check for time expressions on every frame
+    const hasTimeExpressions = this.graph?.nodes?.some(node => {
+      if (!node.params) return false;
+      return Object.values(node.params).some(value => 
+        typeof value === 'string' && 
+        value.includes('time') && 
+        value.startsWith('=')
+      );
+    });
+
+    // Only rebuild if time expressions exist
+    if (hasTimeExpressions && window.rebuild) {
+      window.rebuild();
+    }
+  }, 33); // 30 FPS
+  
+  console.log('GPU animation loop started (will check for time expressions dynamically)');
+}
   setupExpressionEventListeners() {
     // Listen for parameter changes to update expressions
     this.eventSystem.on('PARAMETER_CHANGED', (data) => {

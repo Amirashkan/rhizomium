@@ -1,28 +1,130 @@
 import { PreviewSettings } from "./PreviewSettings.js";
 
 export class FloatingGPUPreview {
-  constructor(gpuCanvas) {
-    this.gpuCanvas = gpuCanvas;
-    this.container = null;
-    this.isVisible = false;
-    this.isFullscreen = false;
-    this.isDragging = false;
-    this.isLocked = false;
-    this.isDocked = false;
-    this.isResizing = false;
-    this.position = { x: 20, y: 60 };
-    this.previewScale = 0.5;
-    this.originalCanvasParent = gpuCanvas.parentNode;
-    this.originalCanvasStyles = {
-      position: gpuCanvas.style.position,
-      width: gpuCanvas.style.width,
-      height: gpuCanvas.style.height,
-      zIndex: gpuCanvas.style.zIndex,
-    };
+constructor(gpuCanvas) {
+  this.gpuCanvas = gpuCanvas;
+  this.container = null;
+  this.isVisible = false;
+  this.isFullscreen = false;
+  this.isDragging = false;
+  this.isLocked = false;
+  this.isDocked = false;
+  this.isResizing = false;
+  this.position = { x: 20, y: 60 };
+  this.previewScale = 0.5;
+  this.originalCanvasParent = gpuCanvas.parentNode;
+  this.originalCanvasStyles = {
+    position: gpuCanvas.style.position,
+    width: gpuCanvas.style.width,
+    height: gpuCanvas.style.height,
+    zIndex: gpuCanvas.style.zIndex,
+  };
 
-    this.settings = new PreviewSettings(this);
-    this.fpsCounter = new FPSCounter();
+  this.settings = new PreviewSettings(this);
+  this.fpsCounter = new FPSCounter();
+  
+  // Animation loop for time-based expressions
+  this.animationLoop = null;
+  
+  // Listen for parameter changes to trigger GPU preview rebuild
+  this._setupParameterListeners();
+  this._setupAnimationLoop();
+}
+
+_setupParameterListeners() {
+  // Listen for expression evaluation events
+  if (window.editor?.eventSystem) {
+    window.editor.eventSystem.on('EXPRESSION_EVALUATED', () => {
+      if (this.isVisible && window.rebuild) {
+        window.rebuild();
+      }
+    });
+    
+    window.editor.eventSystem.on('PARAMETER_CHANGED', () => {
+      if (this.isVisible && window.rebuild) {
+        window.rebuild();
+      }
+    });
   }
+  
+  // Fallback: listen for expression system changes
+  if (window.expressionSystem) {
+    window.expressionSystem.addDependencyListener(() => {
+      if (this.isVisible && window.rebuild) {
+        window.rebuild();
+      }
+    });
+  }
+}
+
+_setupAnimationLoop() {
+  // Check if any nodes have time-dependent expressions
+  const hasTimeExpressions = () => {
+    if (!window.editor?.graph?.nodes) return false;
+    
+    return window.editor.graph.nodes.some(node => {
+      if (!node.params) return false;
+      return Object.values(node.params).some(value => 
+        typeof value === 'string' && 
+        value.includes('time') && 
+        value.startsWith('=')
+      );
+    });
+  };
+
+  // Start animation loop when preview is shown
+  const originalShow = this.show.bind(this);
+  this.show = () => {
+    originalShow();
+    
+    if (hasTimeExpressions() && !this.animationLoop) {
+      this.animationLoop = setInterval(() => {
+        if (this.isVisible && window.rebuild) {
+          window.rebuild();
+        }
+      }, 16); // ~60 FPS
+    }
+  };
+
+  // Stop animation loop when preview is hidden
+  const originalHide = this.hide.bind(this);
+  this.hide = () => {
+    if (this.animationLoop) {
+      clearInterval(this.animationLoop);
+      this.animationLoop = null;
+    }
+    originalHide();
+  };
+}
+
+_setupParameterListeners() {
+  // Listen for expression evaluation events
+  if (window.editor?.eventSystem) {
+    window.editor.eventSystem.on('EXPRESSION_EVALUATED', () => {
+      if (this.isVisible && window.rebuild) {
+        console.log('Expression updated, rebuilding GPU preview');
+        window.rebuild();
+      }
+    });
+    
+    window.editor.eventSystem.on('PARAMETER_CHANGED', () => {
+      if (this.isVisible && window.rebuild) {
+        console.log('Parameter changed, rebuilding GPU preview');
+        window.rebuild();
+      }
+    });
+  }
+  
+  // Fallback: listen for expression system changes
+  if (window.expressionSystem) {
+    window.expressionSystem.addDependencyListener(() => {
+      if (this.isVisible && window.rebuild) {
+        console.log('Expression dependency changed, rebuilding GPU preview');
+        window.rebuild();
+      }
+    });
+  }
+}
 
   updateSize() {
     if (!this.container || this.isFullscreen) return;

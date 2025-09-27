@@ -1,4 +1,4 @@
-// src/core/preview/renderers/TextureRenderers.js - Updated with expression support
+// src/core/preview/renderers/TextureRenderers.js - Fixed with expression evaluation
 
 export class TextureRenderers {
   constructor(previewSystem) {
@@ -7,11 +7,76 @@ export class TextureRenderers {
   }
 
   register(registry) {
+    // Helper function for smoothstep
+    const smoothstep = (edge0, edge1, x) => {
+      const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(0.0001, edge1 - edge0)));
+      return t * t * (3 - 2 * t);
+    };
+
     registry.registerMultiple({
       'texture2d': (ctx, node) => this.renderTexture2D(ctx, node),
       'texturecube': (ctx, node) => this.renderTextureCube(ctx, node),
-      'circle': (ctx, node) => this.renderCircle(ctx, node),
-      'circlefield': (ctx, node) => this.renderCircle(ctx, node),
+      'circle': (ctx, node) => {
+        // Get raw parameter values
+        let radiusParam = node.params?.radius ?? 0.25;
+        let epsilonParam = node.params?.epsilon ?? 0.02;
+        
+        // Evaluate expressions if they exist
+        let radius, epsilon;
+        if (typeof radiusParam === 'string' && radiusParam.startsWith('=')) {
+          try {
+            radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
+          } catch (error) {
+            console.warn('Expression evaluation failed:', error);
+            radius = 0.25;
+          }
+        } else {
+          radius = parseFloat(radiusParam) || 0.25;
+        }
+        
+        if (typeof epsilonParam === 'string' && epsilonParam.startsWith('=')) {
+          try {
+            epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
+          } catch (error) {
+            console.warn('Expression evaluation failed:', error);
+            epsilon = 0.02;
+          }
+        } else {
+          epsilon = parseFloat(epsilonParam) || 0.02;
+        }
+        
+        console.log('Circle evaluating expression:', { radiusParam, radius, epsilonParam, epsilon });
+        
+        // Get canvas size
+        const size = ctx.canvas.width || 64;
+        
+        // Render black background
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, size, size);
+        
+        // Render circle field
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const v = y / size;
+            const centerX = 0.5, centerY = 0.5;
+            const dist = Math.sqrt((u - centerX) * (u - centerX) + (v - centerY) * (v - centerY));
+            const safeEpsilon = Math.max(epsilon, 0.0001);
+            const field = 1.0 - smoothstep(radius - safeEpsilon, radius + safeEpsilon, dist);
+            
+            if (field > 0.01) {
+              const intensity = Math.max(0, Math.min(1, field));
+              const color = Math.floor(intensity * 255);
+              ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
+              ctx.fillRect(x, y, 1, 1);
+            }
+          }
+        }
+      },
+      'circlefield': (ctx, node) => {
+        // Use the same logic as circle
+        registry.renderers.get('circle')(ctx, node);
+      },
       'rectangle': (ctx, node) => this.renderRectangle(ctx, node),
       'rectfield': (ctx, node) => this.renderRectangle(ctx, node),
       'gradient': (ctx, node) => this.renderGradient(ctx, node),
@@ -22,18 +87,15 @@ export class TextureRenderers {
   // Helper method to get parameter values with expression support
   getParameterValue(node, paramName, defaultValue = 0) {
     try {
-      // Try the expression-aware method first
-      if (this.previewSystem.getParameterValue) {
-        return this.previewSystem.getParameterValue(node, paramName, defaultValue);
+      const rawValue = node.params?.[paramName] ?? defaultValue;
+      
+      // Check if it's an expression
+      if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
+        return window.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
       }
       
-      // Fallback to the old method if expression system isn't integrated yet
-      if (this.previewSystem.getParameter) {
-        return this.previewSystem.getParameter(node, paramName) ?? defaultValue;
-      }
-      
-      // Direct fallback to node parameters or props
-      return node.params?.[paramName] ?? node.props?.[paramName] ?? defaultValue;
+      // Return parsed value or default
+      return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
     } catch (error) {
       console.warn(`Error getting parameter ${paramName}:`, error);
       return defaultValue;
@@ -251,18 +313,33 @@ export class TextureRenderers {
   }
 
   renderCircle(ctx, node) {
-    const inputs = this.previewSystem.getConnectedInputs(node);
-
-    // Get parameters with expression support
-    let radius = this.toSafeNumber(
-      inputs.a ?? inputs.radius ?? this.getParameterValue(node, "radius", 0.25), 
-      0.25
-    );
+    // Get raw parameter values
+    let radiusParam = node.params?.radius ?? 0.25;
+    let epsilonParam = node.params?.epsilon ?? 0.02;
     
-    let epsilon = this.toSafeNumber(
-      inputs.b ?? inputs.epsilon ?? this.getParameterValue(node, "epsilon", 0.02), 
-      0.02
-    );
+    // Evaluate expressions if they exist
+    let radius, epsilon;
+    if (typeof radiusParam === 'string' && radiusParam.startsWith('=')) {
+      try {
+        radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
+      } catch (error) {
+        console.warn('Expression evaluation failed:', error);
+        radius = 0.25;
+      }
+    } else {
+      radius = parseFloat(radiusParam) || 0.25;
+    }
+    
+    if (typeof epsilonParam === 'string' && epsilonParam.startsWith('=')) {
+      try {
+        epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
+      } catch (error) {
+        console.warn('Expression evaluation failed:', error);
+        epsilon = 0.02;
+      }
+    } else {
+      epsilon = parseFloat(epsilonParam) || 0.02;
+    }
 
     const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
     const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);

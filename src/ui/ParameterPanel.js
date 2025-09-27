@@ -11,7 +11,8 @@ export class ParameterPanel {
     this.graph = graph;
     this.selectedNode = null;
     this.panel = null;
-    
+    this.expressionSystem = expressionSystem;
+    this.expressionSystem.startAnimationLoop();
     // Initialize expression system components
     this.expressionSystem = expressionSystem;
     this.valueManager = new ExpressionParameterValueManager(
