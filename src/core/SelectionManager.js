@@ -164,46 +164,51 @@ export class SelectionManager {
     }
   }
 
-  endDrag() {
-    try {
-      if (!this.dragging) return;
+// Replace the endDrag() method in your SelectionManager with this fixed version:
 
-      // Only record for undo if there was actual movement
-      if (this.dragging.hasMoved && this.undoManager) {
-        const nodePositions = {};
-        
-        for (const id of this.dragging.ids) {
-          const node = this.graph.nodes.find(m => m.id === id);
-          if (node) {
-            const originalPos = this.dragging.orig[id];
-            const currentPos = { x: node.x, y: node.y };
-            
-            // Only record if position actually changed
-            if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
-              nodePositions[id] = {
-                oldPos: originalPos,
-                newPos: currentPos
-              };
-            }
+endDrag() {
+  try {
+    if (!this.dragging) return;
+
+    // Only record for undo if there was actual movement
+    if (this.dragging.hasMoved && this.undoManager) {
+      const nodeMovements = []; // Array format expected by UndoManager
+      
+      for (const id of this.dragging.ids) {
+        const node = this.graph.nodes.find(m => m.id === id);
+        if (node) {
+          const originalPos = this.dragging.orig[id];
+          const currentPos = { x: node.x, y: node.y };
+          
+          // Only record if position actually changed
+          if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
+            nodeMovements.push({
+              nodeId: id,
+              oldX: originalPos.x,
+              oldY: originalPos.y,
+              newX: currentPos.x,
+              newY: currentPos.y
+            });
           }
-        }
-
-        // Record for undo if any nodes actually moved
-        if (Object.keys(nodePositions).length > 0) {
-          console.log('Recording node movement for undo:', Object.keys(nodePositions).length, 'nodes');
-          this.undoManager.recordNodeMovement(nodePositions);
         }
       }
 
-      this.dragging = null;
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'drag-end' 
-      });
-      // Reset dragging state even if error occurs
-      this.dragging = null;
+      // Record for undo if any nodes actually moved
+      if (nodeMovements.length > 0) {
+        console.log('Recording node movement for undo:', nodeMovements.length, 'nodes');
+        this.undoManager.recordNodeMovement(nodeMovements);
+      }
     }
+
+    this.dragging = null;
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'drag-end' 
+    });
+    // Reset dragging state even if error occurs
+    this.dragging = null;
   }
+}
 
   selectAll() {
     try {
