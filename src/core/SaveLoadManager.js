@@ -145,58 +145,103 @@ export class SaveLoadManager {
         this.importPreviews(projectData.previews);
       }
 
-      // CRITICAL: Force shader rebuild after loading
-      console.log("Forcing shader update after project load...");
+      // CRITICAL: Enhanced shader rebuild sequence after loading
+      console.log("🔄 Starting comprehensive shader rebuild after project load...");
 
-      // Method 1: Try the callback
-      if (this.updateCallback) {
-        await this.updateCallback();
+      // Step 1: Wait a frame to ensure DOM is stable
+      await new Promise(resolve => requestAnimationFrame(resolve));
+
+      // Step 2: Force WebGPU reinitialization
+      const webgpuSuccess = await this.reinitializeWebGPU();
+      if (!webgpuSuccess) {
+        console.warn("WebGPU reinitialization failed, continuing with shader update...");
       }
 
-      // Method 2: Force update via global function (more reliable)
-      if (typeof window.updateShaderFromGraph === "function") {
-        await window.updateShaderFromGraph();
-      } else if (typeof window.rebuild === "function") {
-        await window.rebuild();
-      }
+      // Step 3: Wait another frame after WebGPU init
+      await new Promise(resolve => requestAnimationFrame(resolve));
 
-      // Method 3: Manual shader build if needed
-      if (
-        typeof window.buildWGSL === "function" &&
-        typeof window.updateShader === "function"
-      ) {
-        try {
-          const wgsl = window.buildWGSL(this.graph);
-          await window.updateShader(wgsl);
-          console.log("Manual shader update successful");
-        } catch (error) {
-          console.warn("Manual shader update failed:", error);
-        }
-      }
+      // Step 4: Multiple shader update attempts with different methods
+      await this.forceShaderUpdate();
 
-      // Force editor redraw
+      // Step 5: Wait for GPU pipeline to stabilize
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Step 6: Force editor redraw
       if (this.editor && this.editor.draw) {
         this.editor.draw();
       }
 
-      // Force preview updates if available
-      if (this.editor && this.editor.previewIntegration) {
-        if (
-          typeof this.editor.previewIntegration.onShaderUpdate === "function"
-        ) {
-          this.editor.previewIntegration.onShaderUpdate();
-        }
-      }
+// Step 7: Simple GPU stability and preview fix
+console.log("Ensuring GPU and previews are ready...");
 
-      // Update any floating previews
-      if (window.floatingPreview && window.floatingPreview.refresh) {
-        window.floatingPreview.refresh();
-      }
+// CRITICAL: Reconnect GPU device to preview system (fixes black thumbnails)
+console.log("Reconnecting GPU device to preview system...");
+
+if (window.textureManager && window.textureManager.device) {
+  if (this.editor && this.editor.previewSystem) {
+    // Reconnect GPU device to preview components
+    if (this.editor.previewSystem.canvasManager) {
+      this.editor.previewSystem.canvasManager.device = window.textureManager.device;
+      console.log("GPU device reconnected to CanvasManager");
+    }
+    
+    if (this.editor.previewSystem.rendererRegistry) {
+      this.editor.previewSystem.rendererRegistry.device = window.textureManager.device;
+      console.log("GPU device reconnected to RendererRegistry");
+    }
+    
+    // Clear cache and force preview updates
+    if (this.editor.previewSystem.canvasManager.clearCache) {
+      this.editor.previewSystem.canvasManager.clearCache();
+    }
+    
+    // Force preview regeneration with working GPU connection
+    if (this.editor.previewSystem.updateAllPreviews) {
+      await this.editor.previewSystem.updateAllPreviews();
+    }
+  }
+} else {
+  console.warn("TextureManager or GPU device not found for reconnection");
+}
+
+
+// Force several renders to stabilize GPU
+for (let i = 0; i < 3; i++) {
+  if (typeof window.render === "function") {
+    await window.render();
+  }
+  await new Promise(resolve => setTimeout(resolve, 100));
+}
+
+// Force shader update
+if (typeof window.updateShaderFromGraph === "function") {
+  await window.updateShaderFromGraph();
+}
+
+// Force preview updates
+if (this.editor && this.editor.draw) {
+  this.editor.draw();
+}
+
+// Update preview integrations
+if (this.editor && this.editor.previewSystem) {
+  if (typeof this.editor.previewSystem.refreshAll === "function") {
+    await this.editor.previewSystem.refreshAll();
+  }
+}
+
+// Final delay and redraw
+await new Promise(resolve => setTimeout(resolve, 200));
+if (this.editor && this.editor.draw) {
+  this.editor.draw();
+}
+
+console.log("GPU and preview update completed");
 
       this.hasUnsavedChanges = false;
       this.updateStatus("Project loaded successfully");
 
-      console.log("Project import completed with shader update");
+      console.log("✅ Project import completed with full shader update sequence");
       return true;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -206,6 +251,478 @@ export class SaveLoadManager {
       });
       this.updateStatus(`Import failed: ${error.message}`, "error");
       throw new Error(`Failed to import project: ${error.message}`);
+    }
+  }
+
+  // =============================================================================
+  // ENHANCED WEBGPU AND SHADER UPDATE METHODS
+  // =============================================================================
+
+  async reinitializeWebGPU() {
+    try {
+      console.log("🔧 Reinitializing WebGPU after file load...");
+
+      // Clean up any duplicate canvases
+      const allCanvases = document.querySelectorAll("#gpu-canvas");
+      console.log(`Found ${allCanvases.length} canvas elements with gpu-canvas id`);
+
+      if (allCanvases.length > 1) {
+        console.log("⚠️ Multiple canvases detected, cleaning up...");
+        for (let i = 1; i < allCanvases.length; i++) {
+          allCanvases[i].remove();
+          console.log(`Removed duplicate canvas ${i}`);
+        }
+      }
+
+      // Get the remaining canvas
+      const canvas = document.getElementById("gpu-canvas");
+      if (!canvas) {
+        console.error("No GPU canvas found after cleanup");
+        return false;
+      }
+
+      // Force WebGPU reinitialization if the function exists
+      if (typeof window.initWebGPU === "function") {
+        console.log("🔄 Calling initWebGPU...");
+        const device = await window.initWebGPU(canvas);
+        if (device) {
+          console.log("✅ WebGPU reinitialized successfully");
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error("WebGPU reinitialization failed:", error);
+      window.errorHandler?.handleError(error, { 
+        component: 'webgpu-reinitialization',
+        context: 'after-file-load'
+      });
+      return false;
+    }
+  }
+
+  async forceShaderUpdate() {
+    console.log("🔄 Forcing shader update with multiple methods...");
+
+    const updateMethods = [
+      // Method 1: Primary update callback
+      async () => {
+        if (this.updateCallback) {
+          console.log("Trying primary update callback...");
+          await this.updateCallback();
+          return true;
+        }
+        return false;
+      },
+
+      // Method 2: Global updateShaderFromGraph function
+      async () => {
+        if (typeof window.updateShaderFromGraph === "function") {
+          console.log("Trying window.updateShaderFromGraph...");
+          await window.updateShaderFromGraph();
+          return true;
+        }
+        return false;
+      },
+
+      // Method 3: Global rebuild function
+      async () => {
+        if (typeof window.rebuild === "function") {
+          console.log("Trying window.rebuild...");
+          await window.rebuild();
+          return true;
+        }
+        return false;
+      },
+
+      // Method 4: Manual WGSL build and update
+      async () => {
+        if (typeof window.buildWGSL === "function" && typeof window.updateShader === "function") {
+          try {
+            console.log("Trying manual WGSL build...");
+            const wgsl = window.buildWGSL(this.graph);
+            await window.updateShader(wgsl);
+            console.log("Manual shader update successful");
+            return true;
+          } catch (error) {
+            console.warn("Manual shader update failed:", error);
+            return false;
+          }
+        }
+        return false;
+      },
+
+      // Method 5: Direct shader compilation if available
+      async () => {
+        if (typeof window.compileShader === "function") {
+          try {
+            console.log("Trying direct shader compilation...");
+            await window.compileShader(this.graph);
+            return true;
+          } catch (error) {
+            console.warn("Direct shader compilation failed:", error);
+            return false;
+          }
+        }
+        return false;
+      }
+    ];
+
+    // Try each method in sequence
+    let success = false;
+    for (const method of updateMethods) {
+      try {
+        if (await method()) {
+          success = true;
+          console.log("✅ Shader update method succeeded");
+          break;
+        }
+      } catch (error) {
+        console.warn("Shader update method failed:", error);
+      }
+    }
+
+    if (!success) {
+      console.warn("⚠️ All shader update methods failed");
+    }
+
+    return success;
+  }
+
+  async updatePreviewSystems() {
+    console.log("🔄 Updating preview systems...");
+
+    try {
+      // Update editor preview integration
+      if (this.editor && this.editor.previewIntegration) {
+        if (typeof this.editor.previewIntegration.onShaderUpdate === "function") {
+          console.log("Updating editor preview integration...");
+          this.editor.previewIntegration.onShaderUpdate();
+        }
+      }
+
+      // Update floating preview
+      if (window.floatingPreview && window.floatingPreview.refresh) {
+        console.log("Refreshing floating preview...");
+        window.floatingPreview.refresh();
+      }
+
+      // Update GPU renderer if available
+      if (window.gpuRenderer && window.gpuRenderer.refresh) {
+        console.log("Refreshing GPU renderer...");
+        window.gpuRenderer.refresh();
+      }
+
+      // Trigger canvas refresh events
+      const canvas = document.getElementById("gpu-canvas");
+      if (canvas) {
+        // Dispatch custom events that might trigger updates
+        canvas.dispatchEvent(new CustomEvent('shaderUpdated'));
+        canvas.dispatchEvent(new CustomEvent('forceRefresh'));
+      }
+
+      console.log("✅ Preview systems updated");
+    } catch (error) {
+      console.warn("Preview system update failed:", error);
+      window.errorHandler?.handleError(error, { 
+        component: 'preview-system-update'
+      });
+    }
+  }
+
+  async reinitializeRenderingPipeline() {
+    console.log("🔄 Reinitializing rendering pipeline...");
+
+    try {
+      // Method 1: Force GPU device recreation
+      if (window.gpuDevice) {
+        console.log("Destroying existing GPU device...");
+        if (window.gpuDevice.destroy) {
+          window.gpuDevice.destroy();
+        }
+        window.gpuDevice = null;
+      }
+
+      // Method 2: Reset render pipelines
+      if (window.renderPipeline) {
+        console.log("Clearing render pipeline...");
+        window.renderPipeline = null;
+      }
+
+      // Method 3: Force canvas context recreation
+      const canvas = document.getElementById("gpu-canvas");
+      if (canvas) {
+        console.log("Recreating canvas context...");
+        
+        // Get new WebGPU context
+        if (typeof window.initWebGPU === "function") {
+          const newDevice = await window.initWebGPU(canvas);
+          if (newDevice) {
+            console.log("Canvas context recreated successfully");
+          }
+        }
+      }
+
+      // Method 4: Force texture recreation
+      if (window.textureManager && typeof window.textureManager.recreateAll === "function") {
+        console.log("Recreating textures...");
+        await window.textureManager.recreateAll();
+      }
+
+      // Method 5: Reset shader modules
+      if (window.shaderModule) {
+        console.log("Clearing shader modules...");
+        window.shaderModule = null;
+      }
+
+      // Method 6: Force buffer recreation
+      const bufferObjects = ['uniformBuffer', 'vertexBuffer', 'indexBuffer'];
+      for (const bufferName of bufferObjects) {
+        if (window[bufferName]) {
+          console.log(`Clearing ${bufferName}...`);
+          if (window[bufferName].destroy) {
+            window[bufferName].destroy();
+          }
+          window[bufferName] = null;
+        }
+      }
+
+      // Method 7: Force a complete render cycle
+      if (typeof window.render === "function") {
+        console.log("Forcing render cycle...");
+        await window.render();
+      }
+
+      // Method 8: Force preview renderer reinitialization
+      if (window.previewRenderer && typeof window.previewRenderer.reinitialize === "function") {
+        console.log("Reinitializing preview renderer...");
+        await window.previewRenderer.reinitialize();
+      }
+
+      console.log("✅ Rendering pipeline reinitialization completed");
+      return true;
+    } catch (error) {
+      console.warn("Rendering pipeline reinitialization failed:", error);
+      window.errorHandler?.handleError(error, { 
+        component: 'rendering-pipeline-reinitialization'
+      });
+      return false;
+    }
+  }
+
+  async recomputeNodePreviews() {
+    console.log("🔄 Recomputing node previews with rendering...");
+
+    try {
+      // Method 1: Ensure rendering pipeline is ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Method 2: Force a full render before computing previews
+      if (typeof window.render === "function") {
+        console.log("Pre-render to initialize GPU state...");
+        await window.render();
+        await window.render(); // Double render to ensure stability
+      }
+
+      // Method 3: Simulate canvas interaction to trigger preview system
+      console.log("Simulating canvas interaction...");
+      const canvas = document.getElementById("gpu-canvas");
+      if (canvas) {
+        // Simulate mouse move to trigger canvas activity
+        const mouseMoveEvent = new MouseEvent('mousemove', {
+          clientX: canvas.offsetLeft + 10,
+          clientY: canvas.offsetTop + 10,
+          bubbles: true
+        });
+        canvas.dispatchEvent(mouseMoveEvent);
+        
+        // Simulate click to ensure canvas is active
+        const clickEvent = new MouseEvent('click', {
+          clientX: canvas.offsetLeft + 10,
+          clientY: canvas.offsetTop + 10,
+          bubbles: true
+        });
+        canvas.dispatchEvent(clickEvent);
+        
+        // Trigger focus to activate canvas
+        canvas.focus();
+      }
+
+      // Wait for canvas events to process
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Method 4: Force thumbnail rendering for each node
+      if (this.graph && this.graph.nodes) {
+        console.log("Force rendering thumbnails for all nodes...");
+        
+        for (const node of this.graph.nodes) {
+          try {
+            // Force render this specific node's preview
+            if (typeof window.renderNodePreview === "function") {
+              await window.renderNodePreview(node.id);
+            }
+            
+            // Force compute and render node value
+            if (typeof window.computeAndRenderNodeValue === "function") {
+              await window.computeAndRenderNodeValue(node);
+            }
+            
+            // Force preview update with rendering
+            if (this.editor && this.editor.renderNodePreview) {
+              await this.editor.renderNodePreview(node.id);
+            }
+            
+            // Small delay between node renders
+            await new Promise(resolve => setTimeout(resolve, 10));
+          } catch (error) {
+            console.warn(`Failed to render preview for node ${node.id}:`, error);
+          }
+        }
+      }
+
+      // Method 5: Force recomputation through preview system
+      if (this.editor && this.editor.previewSystem) {
+        console.log("Triggering preview system recomputation...");
+        
+        // Force recompute all node values
+        if (typeof this.editor.previewSystem.recomputeAll === "function") {
+          await this.editor.previewSystem.recomputeAll();
+        }
+        
+        // Force refresh all previews
+        if (typeof this.editor.previewSystem.refreshAll === "function") {
+          await this.editor.previewSystem.refreshAll();
+        }
+        
+        // Force render all previews
+        if (typeof this.editor.previewSystem.renderAll === "function") {
+          await this.editor.previewSystem.renderAll();
+        }
+      }
+
+      // Method 6: Trigger through preview computer
+      if (window.previewComputer) {
+        console.log("Triggering preview computer...");
+        if (typeof window.previewComputer.recomputeAll === "function") {
+          await window.previewComputer.recomputeAll();
+        }
+        if (typeof window.previewComputer.renderAll === "function") {
+          await window.previewComputer.renderAll();
+        }
+      }
+
+      // Method 7: Force parameter panel updates for restored parameters
+      console.log("Updating parameter panels...");
+      if (typeof window.updateParameterPanel === "function") {
+        window.updateParameterPanel();
+      }
+      
+      // Trigger parameter binding system updates
+      if (window.parameterBindingSystem && typeof window.parameterBindingSystem.updateAll === "function") {
+        window.parameterBindingSystem.updateAll();
+      }
+
+      // Method 8: Simulate connection events to trigger recomputation
+      if (this.graph && this.graph.connections) {
+        console.log("Simulating connection events to trigger preview updates...");
+        
+        for (const connection of this.graph.connections) {
+          try {
+            // Dispatch connection event that might trigger preview updates
+            if (this.editor && this.editor.onConnectionChanged) {
+              this.editor.onConnectionChanged(connection);
+            }
+            
+            // Trigger node update for the target node
+            const targetNode = this.graph.nodes.find(n => n.id === connection.to.nodeId);
+            if (targetNode && this.editor && this.editor.onNodeChanged) {
+              this.editor.onNodeChanged(targetNode);
+            }
+          } catch (error) {
+            console.warn(`Failed to trigger connection event for connection:`, error);
+          }
+        }
+      }
+
+      // Method 9: Force redraw with preview updates multiple times
+      if (this.editor) {
+        console.log("Forcing editor redraw with preview updates...");
+        
+        // Mark all nodes as needing preview updates
+        if (this.editor.nodePreviews) {
+          for (const [nodeId, preview] of this.editor.nodePreviews) {
+            preview.needsUpdate = true;
+            preview.needsRender = true; // Force rendering flag
+          }
+        }
+        
+        // Force redraw multiple times with delays
+        const redraws = [0, 50, 150, 300, 500, 1000];
+        for (const delay of redraws) {
+          setTimeout(() => {
+            if (this.editor.draw) {
+              this.editor.draw();
+            }
+            
+            // Also force render after draw
+            if (typeof window.render === "function") {
+              window.render();
+            }
+          }, delay);
+        }
+      }
+
+      // Method 10: Trigger global preview and parameter update functions
+      const globalUpdateFunctions = [
+        'updateAllPreviews',
+        'recomputePreviews', 
+        'refreshPreviews',
+        'renderPreviews',
+        'updateNodePreviews',
+        'renderNodePreviews',
+        'computeAllNodeValues',
+        'renderAllNodeValues',
+        'updateParameters',
+        'refreshParameters',
+        'updateParameterPanels'
+      ];
+
+      for (const funcName of globalUpdateFunctions) {
+        if (typeof window[funcName] === "function") {
+          try {
+            console.log(`Calling ${funcName}...`);
+            await window[funcName]();
+          } catch (error) {
+            console.warn(`${funcName} failed:`, error);
+          }
+        }
+      }
+
+      // Method 11: Final canvas interaction and render simulation
+      if (canvas) {
+        console.log("Final canvas interaction and render simulation...");
+        setTimeout(async () => {
+          const finalEvent = new MouseEvent('mousemove', {
+            clientX: canvas.offsetLeft + 20,
+            clientY: canvas.offsetTop + 20,
+            bubbles: true
+          });
+          canvas.dispatchEvent(finalEvent);
+          
+          // Final render to ensure everything is displayed
+          if (typeof window.render === "function") {
+            await window.render();
+          }
+        }, 300);
+      }
+
+      console.log("✅ Node preview recomputation with rendering completed");
+    } catch (error) {
+      console.warn("Node preview recomputation failed:", error);
+      window.errorHandler?.handleError(error, { 
+        component: 'node-preview-recomputation'
+      });
     }
   }
 
@@ -428,7 +945,7 @@ export class SaveLoadManager {
     try {
       // Auto-save interval
       setInterval(() => {
-        if (this.hasUnsavedChanges) {
+        if (this.hasUnsavedChanges && this.shouldAutoSave()) {
           this.saveToLocal();
           this.createBackup("autosave");
         }
@@ -444,6 +961,42 @@ export class SaveLoadManager {
       window.errorHandler?.handleError(error, { 
         component: 'autosave-setup'
       });
+    }
+  }
+
+  shouldAutoSave() {
+    try {
+      // Only autosave if there's actual content worth saving
+      if (!this.graph || !this.graph.nodes || this.graph.nodes.length === 0) {
+        return false;
+      }
+      
+      // Don't autosave if it's the same as what's already saved
+      const currentData = this.exportProject();
+      const stored = localStorage.getItem(this.autosaveKey);
+      
+      if (stored) {
+        try {
+          const { data: storedData } = JSON.parse(stored);
+          // Simple comparison - if node count is the same, probably the same project
+          if (storedData && 
+              storedData.nodes && 
+              storedData.nodes.length === currentData.nodes.length &&
+              storedData.connections &&
+              storedData.connections.length === currentData.connections.length) {
+            return false; // Don't save if it looks like the same content
+          }
+        } catch (e) {
+          // If we can't parse stored data, go ahead and save
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'autosave-should-save-check'
+      });
+      return true; // Default to saving if we can't determine
     }
   }
 
@@ -464,7 +1017,29 @@ export class SaveLoadManager {
 
   hasAutosave() {
     try {
-      return !!localStorage.getItem(this.autosaveKey);
+      const stored = localStorage.getItem(this.autosaveKey);
+      if (!stored) return false;
+      
+      const { data, timestamp } = JSON.parse(stored);
+      
+      // Check if the autosave has actual content (nodes)
+      if (!data || !data.nodes || data.nodes.length === 0) {
+        return false;
+      }
+      
+      // Check if the autosave is recent enough to matter (not older than 24 hours)
+      const age = Date.now() - timestamp;
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+      if (age > maxAge) {
+        return false;
+      }
+      
+      // Check if current graph is empty (only show autosave prompt if starting fresh)
+      if (this.graph && this.graph.nodes && this.graph.nodes.length > 0) {
+        return false; // Don't show autosave prompt if there's already content
+      }
+      
+      return true;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'autosave-check'
@@ -479,7 +1054,15 @@ export class SaveLoadManager {
       if (!stored) return null;
 
       const { timestamp } = JSON.parse(stored);
-      return Date.now() - timestamp;
+      const age = Date.now() - timestamp;
+      
+      // Return null if autosave is too old to be relevant
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+      if (age > maxAge) {
+        return null;
+      }
+      
+      return age;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'autosave-age-check'
@@ -494,28 +1077,34 @@ export class SaveLoadManager {
 
   exportNodes() {
     try {
-      return (this.graph.nodes || []).map((node) => ({
-        id: node.id,
-        kind: node.kind,
-        position: { x: node.x || 0, y: node.y || 0 },
-        size: { width: node.w || 180, height: node.h || 60 },
+      return (this.graph.nodes || []).map((node) => {
+        const exportedNode = {
+          id: node.id,
+          kind: node.kind,
+          position: { x: node.x || 0, y: node.y || 0 },
+          size: { width: node.w || 180, height: node.h || 60 },
+        };
 
-        // Node-specific properties
-        ...(node.value !== undefined && { value: node.value }),
-        ...(node.xv !== undefined && { xv: node.xv }),
-        ...(node.yv !== undefined && { yv: node.yv }),
-        ...(node.expr && { expr: node.expr }),
-        ...(node.props && { props: { ...node.props } }),
+        // Export ALL node properties, not just specific ones
+        const excludedKeys = ['inputs', 'outputs', 'x', 'y', 'w', 'h', 'id', 'kind', 'type'];
+        
+        for (const [key, value] of Object.entries(node)) {
+          if (!excludedKeys.includes(key) && value !== undefined) {
+            exportedNode[key] = value;
+          }
+        }
 
-        // Input connections
-        inputs: (node.inputs || []).map((input, index) => ({
+        // Export input connections
+        exportedNode.inputs = (node.inputs || []).map((input, index) => ({
           index,
           connected: !!input,
           ...(input && {
             from: { nodeId: input.from, pin: input.pin },
           }),
-        })),
-      }));
+        }));
+
+        return exportedNode;
+      });
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'node-export',
@@ -644,12 +1233,28 @@ export class SaveLoadManager {
           outputs: [],
         };
 
-        // Restore node-specific properties
+        // Restore ALL node-specific properties including parameters
         if (data.value !== undefined) node.value = data.value;
         if (data.xv !== undefined) node.xv = data.xv;
         if (data.yv !== undefined) node.yv = data.yv;
-        if (data.expr) node.expr = data.expr;
-        if (data.props) node.props = { ...data.props };
+        if (data.expr !== undefined) node.expr = data.expr;
+        if (data.props !== undefined) node.props = { ...data.props };
+
+        // Restore additional parameter properties that might exist
+        const parameterKeys = ['min', 'max', 'step', 'default', 'label', 'units', 'precision'];
+        for (const key of parameterKeys) {
+          if (data[key] !== undefined) {
+            node[key] = data[key];
+          }
+        }
+
+        // Restore any other custom properties
+        for (const [key, value] of Object.entries(data)) {
+          if (!['id', 'kind', 'position', 'size', 'inputs', 'outputs'].includes(key) && 
+              !node.hasOwnProperty(key)) {
+            node[key] = value;
+          }
+        }
 
         // Set up inputs array - make sure it's the right length
         const inputCount = data.inputs?.length || 0;
@@ -662,8 +1267,17 @@ export class SaveLoadManager {
       });
 
       console.log(
-        "Nodes imported with types:",
-        this.graph.nodes.map((n) => ({ id: n.id, type: n.type, kind: n.kind })),
+        "Nodes imported with full properties:",
+        this.graph.nodes.map((n) => ({ 
+          id: n.id, 
+          type: n.type, 
+          kind: n.kind,
+          value: n.value,
+          xv: n.xv,
+          yv: n.yv,
+          expr: n.expr,
+          props: n.props
+        })),
       );
     } catch (error) {
       window.errorHandler?.handleError(error, { 
