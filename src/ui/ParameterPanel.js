@@ -1,8 +1,9 @@
-// src/ui/ParameterPanel.js - Complete implementation with preview updates
+// src/ui/ParameterPanel.js - Clean implementation with binding support
 
 import { ExpressionTextInputHandler, ExpressionParameterValueManager, expressionSystem, expressionStyles } from '../utils/ParameterExpressionSystem.js';
 import { SelectInputHandler } from './components/SelectInputHandler.js';
 import { FileInputHandler } from './components/FileInputHandler.js';
+import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
@@ -12,9 +13,13 @@ export class ParameterPanel {
     this.selectedNode = null;
     this.panel = null;
     this.expressionSystem = expressionSystem;
+    
+    // Initialize binding system
+    this.bindingSystem = new ParameterBindingSystem(graph, eventSystem, undoManager);
+    
     this.expressionSystem.startAnimationLoop();
+    
     // Initialize expression system components
-    this.expressionSystem = expressionSystem;
     this.valueManager = new ExpressionParameterValueManager(
       graph, 
       undoManager, 
@@ -98,6 +103,23 @@ export class ParameterPanel {
       this.eventSystem.on('PARAMETER_CHANGED', (data) => {
         this.handleParameterChange(data);
       });
+
+      // Listen for binding events
+      this.eventSystem.on('BINDING_CREATED', (data) => {
+        console.log('Binding created:', data);
+        if (this.selectedNode && 
+            (this.selectedNode.id === data.sourceNodeId || this.selectedNode.id === data.targetNodeId)) {
+          this.renderParameters(this.selectedNode);
+        }
+      });
+
+      this.eventSystem.on('BINDING_REMOVED', (data) => {
+        console.log('Binding removed:', data);
+        if (this.selectedNode && 
+            (this.selectedNode.id === data.sourceNodeId || this.selectedNode.id === data.targetNodeId)) {
+          this.renderParameters(this.selectedNode);
+        }
+      });
     }
 
     // Close panel when clicking outside
@@ -108,16 +130,33 @@ export class ParameterPanel {
         this.hide();
       }
     });
+
+    // Add keyboard shortcuts for binding
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+        if (e.key === 'C' || e.key === 'c') {
+          e.preventDefault();
+          const selectedParam = this.getSelectedParameter();
+          if (selectedParam && this.selectedNode) {
+            this.copyParameterReference(this.selectedNode, selectedParam);
+          }
+        } else if (e.key === 'V' || e.key === 'v') {
+          e.preventDefault();
+          const selectedParam = this.getSelectedParameter();
+          if (selectedParam && this.selectedNode) {
+            this.pasteParameterReference(this.selectedNode, selectedParam);
+          }
+        }
+      }
+    });
   }
 
   // Get parameter definitions based on node type
   getParameterDefinitions(node) {
-    // First check if node already has parameter definitions
     if (node.parameterDefinitions && node.parameterDefinitions.length > 0) {
       return node.parameterDefinitions;
     }
 
-    // Generate parameter definitions based on node type
     const definitions = [];
     
     switch (node.kind.toLowerCase()) {
@@ -250,7 +289,6 @@ export class ParameterPanel {
         break;
         
       default:
-        // For unknown node types, try to infer from existing params
         if (node.params && Object.keys(node.params).length > 0) {
           Object.keys(node.params).forEach(key => {
             const value = node.params[key];
@@ -263,7 +301,6 @@ export class ParameterPanel {
             });
           });
         } else {
-          // Add a generic value parameter for unknown types
           definitions.push({
             name: 'value',
             type: 'float',
@@ -295,7 +332,6 @@ export class ParameterPanel {
       return;
     }
 
-    // Get parameter definitions for this node type
     const parameterDefinitions = this.getParameterDefinitions(node);
 
     if (!parameterDefinitions || parameterDefinitions.length === 0) {
@@ -309,12 +345,10 @@ export class ParameterPanel {
       return;
     }
 
-    // Initialize node.params if it doesn't exist
     if (!node.params) {
       node.params = {};
     }
 
-    // Initialize any missing parameters with defaults
     parameterDefinitions.forEach(param => {
       if (!(param.name in node.params)) {
         node.params[param.name] = param.default;
@@ -335,48 +369,72 @@ export class ParameterPanel {
     this.panel.innerHTML = '';
     this.panel.appendChild(title);
 
-    // Render each parameter
     parameterDefinitions.forEach(param => {
       this.renderParameter(param, node);
     });
 
-    // Add expression help section
     this.addExpressionHelp();
   }
 
   renderParameter(param, node) {
     const paramContainer = document.createElement('div');
     paramContainer.className = 'parameter-container';
+    
+    // Get binding info
+    const bindingInfo = this.bindingSystem ? 
+      this.bindingSystem.getBindingInfo(node.id, param.name) : 
+      { isBound: false, hasTargets: false };
+    
     paramContainer.style.cssText = `
       margin-bottom: 12px;
       padding: 8px;
-      background: #333;
+      background: ${bindingInfo.isBound ? '#2a2a4a' : '#333'};
       border-radius: 4px;
-      border-left: 3px solid #4CAF50;
+      border-left: 3px solid ${bindingInfo.isBound ? '#ff9800' : '#4CAF50'};
+      position: relative;
     `;
 
-    // Parameter label
+    // Create label container
+    const labelContainer = document.createElement('div');
+    labelContainer.style.cssText = `
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    `;
+
     const label = document.createElement('label');
     label.className = 'parameter-label';
     label.textContent = param.displayName || param.name;
     label.style.cssText = `
-      display: block;
-      margin-bottom: 4px;
       font-weight: bold;
-      color: #ccc;
+      color: ${bindingInfo.isBound ? '#ff9800' : '#ccc'};
     `;
 
     if (param.description) {
       label.title = param.description;
     }
 
-    paramContainer.appendChild(label);
+    labelContainer.appendChild(label);
+
+    // Add binding controls
+    if (this.bindingSystem) {
+      const bindingControls = this.createBindingControls(param, node, bindingInfo);
+      labelContainer.appendChild(bindingControls);
+    }
+
+    paramContainer.appendChild(labelContainer);
+
+    // Add binding status if needed
+    if (this.bindingSystem && (bindingInfo.isBound || bindingInfo.hasTargets)) {
+      const bindingStatus = this.createBindingStatus(param, node, bindingInfo);
+      paramContainer.appendChild(bindingStatus);
+    }
 
     // Input container
     const inputContainer = document.createElement('div');
     inputContainer.className = 'parameter-input-container';
 
-    // Get appropriate input handler
     const handler = this.getInputHandler(param);
     if (handler) {
       try {
@@ -388,6 +446,16 @@ export class ParameterPanel {
           this.valueManager, 
           (action) => this.handleParameterUpdate(action)
         );
+        
+        // Disable input if parameter is bound
+        if (bindingInfo.isBound) {
+          const input = inputContainer.querySelector('.param-input');
+          if (input) {
+            input.disabled = true;
+            input.style.opacity = '0.6';
+            input.title = `Bound to ${bindingInfo.source.nodeId}.${bindingInfo.source.parameterName}`;
+          }
+        }
       } catch (error) {
         console.error(`Error creating input for parameter ${param.name}:`, error);
         this.createFallbackInput(param, node, inputContainer);
@@ -412,6 +480,246 @@ export class ParameterPanel {
     }
 
     this.panel.appendChild(paramContainer);
+  }
+
+  createBindingControls(param, node, bindingInfo) {
+    const controls = document.createElement('div');
+    controls.className = 'binding-controls';
+    controls.style.cssText = `
+      display: flex;
+      gap: 2px;
+    `;
+
+    // Copy reference button
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'binding-btn copy-ref-btn';
+    copyBtn.innerHTML = '📋';
+    copyBtn.title = 'Copy as reference (Ctrl+Shift+C)';
+    copyBtn.style.cssText = `
+      width: 18px;
+      height: 18px;
+      background: #2196F3;
+      border: none;
+      border-radius: 3px;
+      color: white;
+      cursor: pointer;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+
+    copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.copyParameterReference(node, param);
+    });
+
+    // Paste reference button
+    const pasteBtn = document.createElement('button');
+    pasteBtn.type = 'button';
+    pasteBtn.className = 'binding-btn paste-ref-btn';
+    pasteBtn.innerHTML = '📎';
+    pasteBtn.title = 'Paste reference (Ctrl+Shift+V)';
+    pasteBtn.style.cssText = `
+      width: 18px;
+      height: 18px;
+      background: #4CAF50;
+      border: none;
+      border-radius: 3px;
+      color: white;
+      cursor: pointer;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+
+    pasteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.pasteParameterReference(node, param);
+    });
+
+    // Unbind button (only show if parameter is bound)
+    if (bindingInfo.isBound) {
+      const unbindBtn = document.createElement('button');
+      unbindBtn.type = 'button';
+      unbindBtn.className = 'binding-btn unbind-btn';
+      unbindBtn.innerHTML = '🔗';
+      unbindBtn.title = 'Remove binding';
+      unbindBtn.style.cssText = `
+        width: 18px;
+        height: 18px;
+        background: #f44336;
+        border: none;
+        border-radius: 3px;
+        color: white;
+        cursor: pointer;
+        font-size: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      `;
+
+      unbindBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.removeParameterBinding(node, param);
+      });
+
+      controls.appendChild(unbindBtn);
+    }
+
+    controls.appendChild(copyBtn);
+    controls.appendChild(pasteBtn);
+
+    return controls;
+  }
+
+  createBindingStatus(param, node, bindingInfo) {
+    const status = document.createElement('div');
+    status.className = 'binding-status';
+    status.style.cssText = `
+      font-size: 9px;
+      margin-bottom: 4px;
+      padding: 2px 4px;
+      border-radius: 2px;
+      background: rgba(0,0,0,0.2);
+    `;
+
+    if (bindingInfo.isBound) {
+      const sourceNode = this.graph.nodes.find(n => n.id === bindingInfo.source.nodeId);
+      const sourceNodeName = sourceNode ? sourceNode.kind : 'Unknown';
+      
+      status.innerHTML = `
+        <span style="color: #ff9800;">⬅ Bound to:</span> 
+        <span style="color: #fff;">${sourceNodeName}.${bindingInfo.source.parameterName}</span>
+      `;
+    }
+
+    if (bindingInfo.hasTargets) {
+      const targetCount = bindingInfo.targets.length;
+      const targetsText = targetCount === 1 ? '1 parameter' : `${targetCount} parameters`;
+      
+      const targetInfo = document.createElement('div');
+      targetInfo.innerHTML = `
+        <span style="color: #4CAF50;">➡ Controls:</span> 
+        <span style="color: #fff;">${targetsText}</span>
+      `;
+      
+      if (bindingInfo.isBound) {
+        status.appendChild(document.createElement('br'));
+      }
+      status.appendChild(targetInfo);
+    }
+
+    return status;
+  }
+
+  copyParameterReference(node, param) {
+    this.bindingSystem.clipboard = {
+      nodeId: node.id,
+      parameterName: param.name,
+      nodeKind: node.kind,
+      timestamp: Date.now()
+    };
+
+    this.showToast(`Copied ${node.kind}.${param.name} as reference`, 'success');
+  }
+
+  pasteParameterReference(node, param) {
+    if (!this.bindingSystem.clipboard) {
+      this.showToast('No parameter reference in clipboard', 'warning');
+      return;
+    }
+
+    const success = this.bindingSystem.createBinding(
+      this.bindingSystem.clipboard.nodeId,
+      this.bindingSystem.clipboard.parameterName,
+      node.id,
+      param.name
+    );
+
+    if (success) {
+      this.showToast(`Bound ${param.name} to ${this.bindingSystem.clipboard.nodeKind}.${this.bindingSystem.clipboard.parameterName}`, 'success');
+      this.renderParameters(node);
+    } else {
+      this.showToast('Failed to create binding', 'error');
+    }
+  }
+
+  removeParameterBinding(node, param) {
+    const bindingInfo = this.bindingSystem.getBindingInfo(node.id, param.name);
+    
+    if (bindingInfo.isBound) {
+      const success = this.bindingSystem.removeBinding(
+        bindingInfo.source.nodeId,
+        bindingInfo.source.parameterName,
+        node.id,
+        param.name
+      );
+
+      if (success) {
+        this.showToast(`Removed binding from ${param.name}`, 'success');
+        this.renderParameters(node);
+      }
+    }
+  }
+
+  showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    
+    const colors = {
+      success: '#4CAF50',
+      warning: '#ff9800',
+      error: '#f44336',
+      info: '#2196F3'
+    };
+    
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${colors[type]};
+      color: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      z-index: 10000;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      opacity: 0;
+      transition: opacity 0.3s;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.style.opacity = '1';
+    }, 10);
+    
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 300);
+    }, 3000);
+  }
+
+  getSelectedParameter() {
+    const focusedInput = this.panel.querySelector('.param-input:focus');
+    if (focusedInput) {
+      const paramName = focusedInput.getAttribute('data-param');
+      
+      if (this.selectedNode && paramName) {
+        const paramDef = this.getParameterDefinitions(this.selectedNode)
+          .find(p => p.name === paramName);
+        return paramDef;
+      }
+    }
+    return null;
   }
 
   getInputHandler(param) {
@@ -486,9 +794,9 @@ export class ParameterPanel {
         • <code>=random() * PI</code><br><br>
         
         <strong>Tips:</strong><br>
-        • Click <span style="background: #4CAF50; padding: 1px 4px; border-radius: 2px;">fx</span> to toggle expression mode<br>
-        • Shift+drag numeric values to adjust<br>
-        • Expressions update in real-time
+        • Click copy button to copy parameter as reference<br>
+        • Use Ctrl+Shift+C/V for keyboard shortcuts<br>
+        • Bound parameters show orange highlighting
       </div>
     `;
 
@@ -500,7 +808,6 @@ export class ParameterPanel {
   handleParameterUpdate(action) {
     console.log('Parameter updated:', action);
     
-    // Trigger graph update
     if (this.eventSystem && this.eventSystem.emit) {
       this.eventSystem.emit('GRAPH_CHANGED', {
         action,
@@ -508,13 +815,11 @@ export class ParameterPanel {
       });
     }
 
-    // FORCE PREVIEW UPDATE IMMEDIATELY
     if (this.selectedNode) {
       this.updateNodePreview(this.selectedNode);
       this.updateDependentExpressions(this.selectedNode);
     }
 
-    // FORCE EDITOR REDRAW
     this.forceEditorUpdate();
   }
 
@@ -522,13 +827,11 @@ export class ParameterPanel {
     try {
       console.log('Updating preview for node:', node.id);
       
-      // Clear preview cache completely
       if (window.editor?.previewSystem?.canvasManager) {
         window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
         console.log('Cleared preview cache for node:', node.id);
       }
       
-      // Regenerate preview
       if (window.editor?.previewIntegration) {
         window.editor.previewIntegration.generateNodePreview(node);
         console.log('Regenerated preview for node:', node.id);
@@ -541,17 +844,14 @@ export class ParameterPanel {
 
   forceEditorUpdate() {
     try {
-      // Multiple approaches to force editor update
       if (window.editor) {
         console.log('Forcing editor update...');
         
-        // Clear all preview caches
         if (window.editor.previewSystem?.canvasManager?.canvasCache) {
           window.editor.previewSystem.canvasManager.canvasCache.clear();
           console.log('Cleared all preview caches');
         }
         
-        // Force redraw
         if (window.editor.safeDraw) {
           window.editor.safeDraw();
           console.log('Called editor.safeDraw()');
@@ -560,7 +860,6 @@ export class ParameterPanel {
           console.log('Called editor.draw()');
         }
         
-        // Trigger onChange if available
         if (window.editor.onChange) {
           window.editor.onChange('Parameter Panel Update');
           console.log('Called editor.onChange()');
@@ -717,10 +1016,16 @@ export class ParameterPanel {
       this.textInputHandler.destroy();
     }
     
+    if (this.bindingSystem) {
+      this.bindingSystem.destroy();
+    }
+    
     if (this.eventSystem && this.eventSystem.off) {
       this.eventSystem.off('NODE_SELECTED');
       this.eventSystem.off('NODE_DESELECTED');
       this.eventSystem.off('PARAMETER_CHANGED');
+      this.eventSystem.off('BINDING_CREATED');
+      this.eventSystem.off('BINDING_REMOVED');
     }
   }
 }

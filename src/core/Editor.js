@@ -8,7 +8,8 @@ import { ConnectionManager } from "./ConnectionManager.js";
 import { ViewportManager } from "./ViewportManager.js";
 import { PreviewSystem } from "./PreviewSystem.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
-
+import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
+import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
 export class Editor {
   constructor(graph, onChange, undoManager = null) {
     try {
@@ -195,6 +196,8 @@ export class Editor {
   }
 
   setupExpressionIntegrations() {
+    this.bindingSystem = new ParameterBindingSystem(this.graph, this.eventSystem, this.undoManager);
+this.bindingMenu = new ParameterBindingMenu(this.bindingSystem, this.paramPanel);
     try {
       console.log('Setting up expression system integrations...');
 
@@ -245,7 +248,7 @@ setupGPUAnimationLoop() {
     if (hasTimeExpressions && window.rebuild) {
       window.rebuild();
     }
-  }, 33); // 30 FPS
+  }, 18); // 30 FPS
   
   console.log('GPU animation loop started (will check for time expressions dynamically)');
 }
