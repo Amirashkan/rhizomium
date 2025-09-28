@@ -1,4 +1,4 @@
-// src/core/Editor.js - Complete corrected version with proper expression integration
+// src/core/Editor.js - Complete corrected version with performance optimizations
 import { EventHandler } from "./EventHandler.js";
 import { Renderer } from "./Renderer.js";
 import { MenuManager } from "../ui/MenuManager.js";
@@ -10,6 +10,7 @@ import { PreviewSystem } from "./PreviewSystem.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
+
 export class Editor {
   constructor(graph, onChange, undoManager = null) {
     try {
@@ -196,8 +197,6 @@ export class Editor {
   }
 
   setupExpressionIntegrations() {
-    this.bindingSystem = new ParameterBindingSystem(this.graph, this.eventSystem, this.undoManager);
-this.bindingMenu = new ParameterBindingMenu(this.bindingSystem, this.paramPanel);
     try {
       console.log('Setting up expression system integrations...');
 
@@ -207,6 +206,9 @@ this.bindingMenu = new ParameterBindingMenu(this.bindingSystem, this.paramPanel)
         this.undoManager,
         this.graph
       );
+
+      this.bindingSystem = new ParameterBindingSystem(this.graph, this.eventSystem, this.undoManager);
+      this.bindingMenu = new ParameterBindingMenu(this.bindingSystem, this.paramPanel);
 
       // Update parameter evaluation in preview system
       if (this.previewSystem) {
@@ -220,7 +222,7 @@ this.bindingMenu = new ParameterBindingMenu(this.bindingSystem, this.paramPanel)
 
       // Setup event listeners for expression updates
       this.setupExpressionEventListeners();
-      this.setupGPUAnimationLoop();
+      this.setupOptimizedGPUAnimationLoop();
 
       console.log('Expression system integrations completed');
       
@@ -231,11 +233,67 @@ this.bindingMenu = new ParameterBindingMenu(this.bindingSystem, this.paramPanel)
     }
   }
 
-setupGPUAnimationLoop() {
-  // Start the animation loop immediately, check for expressions inside
-  this.gpuAnimationLoop = setInterval(() => {
-    // Check for time expressions on every frame
-    const hasTimeExpressions = this.graph?.nodes?.some(node => {
+  // PERFORMANCE FIX: Completely rewritten GPU animation loop
+  setupOptimizedGPUAnimationLoop() {
+    // Clear any existing loop
+    if (this.gpuAnimationLoop) {
+      clearInterval(this.gpuAnimationLoop);
+      this.gpuAnimationLoop = null;
+    }
+    
+    if (this.gpuAnimationRequestId) {
+      cancelAnimationFrame(this.gpuAnimationRequestId);
+      this.gpuAnimationRequestId = null;
+    }
+
+    // Initialize animation timing
+    this.animationFrame = 0;
+    this.lastAnimationTime = 0;
+
+    // OPTIMIZATION: Use requestAnimationFrame instead of setInterval
+    // This syncs with display refresh rate and doesn't rebuild shaders
+    const animate = (timestamp) => {
+      try {
+        // CRITICAL FIX: Don't rebuild shaders, just update uniforms
+        // The GPU renderer will handle time updates automatically
+        
+        // Update animation context for expressions
+        this.updateAnimationContext(timestamp / 1000, this.animationFrame);
+        this.animationFrame++;
+        
+        // OPTIMIZATION: Only trigger GPU render, not full rebuild
+        // The GPU renderer's render() function will update time uniforms automatically
+        const hasTimeExpressions = this.hasTimeBasedExpressions();
+
+        if (hasTimeExpressions) {
+          // Just trigger GPU render, don't rebuild the entire shader!
+          if (window.gpuRenderer && window.gpuRenderer.render) {
+            window.gpuRenderer.render();
+          }
+        }
+        
+      } catch (error) {
+        console.warn('Error in GPU animation loop:', error);
+      }
+      
+      // Continue the loop
+      this.gpuAnimationRequestId = requestAnimationFrame(animate);
+    };
+
+    // Start the animation loop
+    this.gpuAnimationRequestId = requestAnimationFrame(animate);
+    console.log('Optimized GPU animation loop started (no shader rebuilding)');
+  }
+
+  // PERFORMANCE OPTIMIZATION: Cache time expression detection
+  hasTimeBasedExpressions() {
+    // Cache the result for a short time to avoid repeated traversal
+    const now = performance.now();
+    if (this.timeExpressionCache && (now - this.timeExpressionCache.timestamp) < 100) {
+      return this.timeExpressionCache.hasTime;
+    }
+
+    const hasTime = this.graph?.nodes?.some(node => {
       if (!node.params) return false;
       return Object.values(node.params).some(value => 
         typeof value === 'string' && 
@@ -244,14 +302,39 @@ setupGPUAnimationLoop() {
       );
     });
 
-    // Only rebuild if time expressions exist
-    if (hasTimeExpressions && window.rebuild) {
-      window.rebuild();
+    this.timeExpressionCache = {
+      hasTime,
+      timestamp: now
+    };
+
+    return hasTime;
+  }
+
+  // PERFORMANCE OPTIMIZATION: Debounced shader rebuild
+  triggerShaderRebuild(reason = 'Unknown') {
+    console.log(`Triggering shader rebuild: ${reason}`);
+    
+    // Debounce rebuild calls to prevent spam
+    if (this.rebuildTimeout) {
+      clearTimeout(this.rebuildTimeout);
     }
-  }, 18); // 30 FPS
-  
-  console.log('GPU animation loop started (will check for time expressions dynamically)');
-}
+    
+    this.rebuildTimeout = setTimeout(() => {
+      if (window.rebuild && typeof window.rebuild === 'function') {
+        try {
+          window.rebuild();
+          console.log('Shader rebuild completed');
+          
+          // Clear time expression cache after rebuild
+          this.timeExpressionCache = null;
+        } catch (error) {
+          console.error('Error during shader rebuild:', error);
+        }
+      }
+      this.rebuildTimeout = null;
+    }, 16); // Debounce for ~60fps max rebuild rate
+  }
+
   setupExpressionEventListeners() {
     // Listen for parameter changes to update expressions
     this.eventSystem.on('PARAMETER_CHANGED', (data) => {
@@ -413,7 +496,7 @@ setupGPUAnimationLoop() {
   }
 
   getAnimationTime() {
-    return this.animationTime || (Date.now() / 1000);
+    return this.animationTime || (performance.now() / 1000);
   }
 
   getAnimationFrame() {
@@ -443,6 +526,7 @@ setupGPUAnimationLoop() {
         data.action.includes('Connection')
       )) {
         this.expressionSystem.clearCache();
+        this.timeExpressionCache = null; // Clear time expression cache too
       }
 
       // Update previews for nodes with expressions
@@ -541,31 +625,8 @@ setupGPUAnimationLoop() {
       // Clear cache to force re-evaluation with new time
       this.expressionSystem.clearCache();
       
-      // Update all nodes with time-dependent expressions
-      this.updateTimeDependendentNodes();
     } catch (error) {
       console.warn('Error updating animation context:', error);
-    }
-  }
-
-  updateTimeDependendentNodes() {
-    if (!this.graph) return;
-    
-    try {
-      const timeDependendentNodes = this.graph.nodes.filter(node => {
-        if (!node.params) return false;
-        
-        return Object.values(node.params).some(value => {
-          if (!this.expressionSystem.isExpression(value)) return false;
-          return value.includes('time') || value.includes('frame');
-        });
-      });
-
-      timeDependendentNodes.forEach(node => {
-        this.updateNodePreview(node);
-      });
-    } catch (error) {
-      console.warn('Error updating time-dependent nodes:', error);
     }
   }
 
@@ -871,8 +932,6 @@ setupGPUAnimationLoop() {
     }
   }
 
-  // ---- ALL YOUR EXISTING METHODS (COPY THEM ALL FROM YOUR ORIGINAL FILE) ----
-  
   deleteConnection(sourceNode, targetNode, inputIndex) {
     try {
       if (!targetNode) {
@@ -995,6 +1054,10 @@ setupGPUAnimationLoop() {
 
       this.onChange('Node Deletion');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Node Deletion' });
+      
+      // PERFORMANCE FIX: Use debounced rebuild
+      this.triggerShaderRebuild('Node Deletion');
+      
       this.safeDraw();
 
       return true;
@@ -1082,6 +1145,10 @@ setupGPUAnimationLoop() {
       
       this.onChange('Group Deletion');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Group Deletion' });
+      
+      // PERFORMANCE FIX: Use debounced rebuild
+      this.triggerShaderRebuild('Group Deletion');
+      
       this.safeDraw();
       
       return true;
@@ -1150,6 +1217,10 @@ setupGPUAnimationLoop() {
 
       this.onChange('Connection Creation');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Connection Creation' });
+      
+      // PERFORMANCE FIX: Use debounced rebuild
+      this.triggerShaderRebuild('Connection Creation');
+      
       this.safeDraw();
 
       return true;
@@ -1206,6 +1277,10 @@ setupGPUAnimationLoop() {
 
       this.onChange('Node Creation');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Node Creation' });
+      
+      // PERFORMANCE FIX: Use debounced rebuild
+      this.triggerShaderRebuild('Node Creation');
+      
       this.safeDraw();
 
       return newNode;
@@ -1607,6 +1682,7 @@ setupGPUAnimationLoop() {
         if (result) {
           console.log('Selected nodes duplicated');
           this.onChange('Duplicate Selection');
+          this.triggerShaderRebuild('Duplicate Selection');
           this.safeDraw();
         }
       } else {
@@ -1622,6 +1698,22 @@ setupGPUAnimationLoop() {
   dispose() {
     try {
       console.log('Disposing Editor...');
+      
+      // Clean up GPU animation loop
+      if (this.gpuAnimationLoop) {
+        clearInterval(this.gpuAnimationLoop);
+        this.gpuAnimationLoop = null;
+      }
+      
+      if (this.gpuAnimationRequestId) {
+        cancelAnimationFrame(this.gpuAnimationRequestId);
+        this.gpuAnimationRequestId = null;
+      }
+      
+      if (this.rebuildTimeout) {
+        clearTimeout(this.rebuildTimeout);
+        this.rebuildTimeout = null;
+      }
       
       if (this.resizeHandler) {
         window.removeEventListener("resize", this.resizeHandler);
@@ -1656,6 +1748,7 @@ setupGPUAnimationLoop() {
       this.undoManager = null;
       this.eventSystem = null;
       this.expressionSystem = null;
+      this.timeExpressionCache = null;
       
       // Clear maps
       this.nodePreviews.clear();
@@ -1679,6 +1772,8 @@ setupGPUAnimationLoop() {
         isMoving: this.movementState.isMoving,
         hasSelection: this.selection?.getSelected?.().size > 0,
         expressionCacheSize: this.expressionSystem?.getCacheStats?.()?.size || 0,
+        timeExpressionCache: this.timeExpressionCache,
+        animationFrame: this.animationFrame,
         canvasSize: {
           width: this.canvas?.width || 0,
           height: this.canvas?.height || 0
@@ -1741,4 +1836,5 @@ setupGPUAnimationLoop() {
       window.errorHandler?.handleError(error, 'Graph Validation', 'warning');
       return ['Validation failed: ' + error.message];
     }
-  }}
+  }
+}

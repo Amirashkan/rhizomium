@@ -1,10 +1,13 @@
 // src/core/preview/PreviewIntegration.js
+// OPTIMIZED VERSION - Fixes timer spam and unnecessary updates
 
 export class PreviewIntegration {
   constructor(editor, previewSystem) {
     this.editor = editor;
     this.previewSystem = previewSystem;
     this.timeUpdateInterval = null;
+    this.lastTimeUpdate = 0;
+    this.frameRequestId = null;
 
     // Initialize with delay to ensure everything is ready
     setTimeout(() => {
@@ -17,16 +20,30 @@ export class PreviewIntegration {
       this.updateAllPreviews();
     }
 
-    // Set up time-based updates for animated nodes
-    if (this.timeUpdateInterval) {
-      clearInterval(this.timeUpdateInterval);
+    // OPTIMIZATION: Use requestAnimationFrame instead of setInterval
+    // This syncs with display refresh rate and is much more efficient
+    this.startAnimationLoop();
+  }
+
+  startAnimationLoop() {
+    if (this.frameRequestId) {
+      cancelAnimationFrame(this.frameRequestId);
     }
-    
-    this.timeUpdateInterval = setInterval(() => {
+
+    const animate = (timestamp) => {
       if (this.editor.isPreviewEnabled && this.previewSystem) {
-        this.updateTimeNodes();
+        // OPTIMIZATION: Only update time nodes if enough time has passed
+        // Limit to 30 FPS max for time updates (33.33ms between updates)
+        if (timestamp - this.lastTimeUpdate >= 33.33) {
+          this.updateTimeNodes();
+          this.lastTimeUpdate = timestamp;
+        }
       }
-    }, 100);
+      
+      this.frameRequestId = requestAnimationFrame(animate);
+    };
+
+    this.frameRequestId = requestAnimationFrame(animate);
   }
 
   updateAllPreviews() {
@@ -45,18 +62,33 @@ export class PreviewIntegration {
     this.previewSystem.generateNodePreview(node);
   }
 
-  updateTimeNodes() {
-    if (!this.editor.graph?.nodes || !this.previewSystem) return;
+updateTimeNodes() {
+  if (!this.editor.graph?.nodes || !this.previewSystem) return;
 
-    const timeNodes = this.editor.graph.nodes.filter(
-      (n) => n.kind.toLowerCase() === "time"
-    );
+  const timeNodes = this.editor.graph.nodes.filter(
+    (n) => n.kind.toLowerCase() === "time"
+  );
 
-    if (timeNodes.length > 0) {
-      timeNodes.forEach((node) => this.previewSystem.generateNodePreview(node));
+  if (timeNodes.length > 0) {
+    // OPTIMIZATION: Only update if significant time has passed
+    const now = performance.now();
+    if (now - this.lastSignificantUpdate < 33) { // 30 FPS max
+      return;
+    }
+    this.lastSignificantUpdate = now;
+
+    let needsRedraw = false;
+    
+    timeNodes.forEach((node) => {
+      this.previewSystem.generateNodePreview(node);
+      needsRedraw = true;
+    });
+    
+    if (needsRedraw) {
       this.editor.draw();
     }
   }
+}
 
   onParameterChange(node) {
     this.generateNodePreview(node);
@@ -70,14 +102,21 @@ export class PreviewIntegration {
       .filter((conn) => conn.from.nodeId === changedNode.id)
       .map((conn) => conn.to.nodeId);
 
+    // OPTIMIZATION: Batch dependent node updates
+    let needsRedraw = false;
+    
     dependents.forEach((nodeId) => {
       const node = this.editor.graph.nodes.find((n) => n.id === nodeId);
       if (node) {
         this.generateNodePreview(node);
+        needsRedraw = true;
       }
     });
 
-    this.editor.draw();
+    // OPTIMIZATION: Only call draw once after all dependents are updated
+    if (needsRedraw) {
+      this.editor.draw();
+    }
   }
 
   onNodeAdded(node) {
@@ -96,11 +135,16 @@ export class PreviewIntegration {
     this.previewSystem.clearCache();
   }
 
-  // Cleanup method
+  // OPTIMIZATION: Cleanup method with proper animation frame cancellation
   destroy() {
     if (this.timeUpdateInterval) {
       clearInterval(this.timeUpdateInterval);
       this.timeUpdateInterval = null;
+    }
+    
+    if (this.frameRequestId) {
+      cancelAnimationFrame(this.frameRequestId);
+      this.frameRequestId = null;
     }
   }
 
@@ -122,5 +166,24 @@ export class PreviewIntegration {
     }
     
     return canvas;
+  }
+
+  // OPTIMIZATION: Add method to pause/resume animation for better control
+  pauseAnimation() {
+    if (this.frameRequestId) {
+      cancelAnimationFrame(this.frameRequestId);
+      this.frameRequestId = null;
+    }
+  }
+
+  resumeAnimation() {
+    if (!this.frameRequestId) {
+      this.startAnimationLoop();
+    }
+  }
+
+  // OPTIMIZATION: Add method to temporarily disable time updates during heavy operations
+  setTimeUpdatesEnabled(enabled) {
+    this.timeUpdatesEnabled = enabled;
   }
 }

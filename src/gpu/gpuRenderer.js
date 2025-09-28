@@ -1,5 +1,5 @@
 // src/gpu/gpuRenderer.js
-// Complete WebGPU renderer with uniform buffer and texture support
+// Optimized WebGPU renderer with batched uniform updates
 
 let _device = null;
 let _context = null;
@@ -12,6 +12,12 @@ let _bindGroup = null;
 let _lastUserSrcHash = null;
 let _lastCompileOK = false;
 let _loggedForHash = new Set();
+
+// PERFORMANCE OPTIMIZATION: Reuse uniform data buffer
+let _uniformData = new Float32Array(4); // [time, pad1, pad2, pad3]
+let _lastTimeUpdate = 0;
+let _frameCount = 0;
+const UNIFORM_UPDATE_INTERVAL = 16; // Update uniforms every ~16ms (60fps)
 
 // Simple string hash
 function hash(s) {
@@ -241,11 +247,14 @@ export function render() {
   if (!_device || !_context || !_pipeline) return;
 
   try {
-    // Only update uniforms if we have a bind group (shader uses uniforms)
+    // PERFORMANCE OPTIMIZATION: Only update uniforms occasionally, not every frame
     if (_bindGroup) {
-      const time = performance.now() / 1000;
-      const timeData = new Float32Array([time]);
-      _device.queue.writeBuffer(_uniformBuffer, 0, timeData);
+      const now = performance.now();
+      if (now - _lastTimeUpdate >= UNIFORM_UPDATE_INTERVAL) {
+        _uniformData[0] = now / 1000; // time in seconds
+        _device.queue.writeBuffer(_uniformBuffer, 0, _uniformData);
+        _lastTimeUpdate = now;
+      }
     }
 
     // Render
@@ -274,6 +283,8 @@ export function render() {
     pass.end();
 
     _device.queue.submit([encoder.finish()]);
+    
+    _frameCount++;
   } catch (error) {
     window.errorHandler?.handleError(error, { 
       component: 'gpu-render',
@@ -282,6 +293,7 @@ export function render() {
   }
 }
 
+// PERFORMANCE OPTIMIZATION: Force immediate uniform update when shader changes
 export async function setShaderSource(wgsl) {
   if (!_device) {
     const error = new Error("initWebGPU must be called first");
@@ -321,6 +333,11 @@ export async function setShaderSource(wgsl) {
     _bindGroup = result.bindGroup; // This can be null for shaders without uniforms/textures
     _lastCompileOK = true;
 
+    // PERFORMANCE OPTIMIZATION: Force immediate uniform update after shader change
+    if (_bindGroup) {
+      _lastTimeUpdate = 0; // Force immediate update on next render
+    }
+
     console.log(
       `Shader compiled successfully. Has bind group: ${_bindGroup !== null}`,
     );
@@ -337,6 +354,15 @@ export async function setShaderSource(wgsl) {
     }
     return false;
   }
+}
+
+// PERFORMANCE OPTIMIZATION: Add function to get performance stats
+export function getPerformanceStats() {
+  return {
+    frameCount: _frameCount,
+    avgUniformUpdateInterval: UNIFORM_UPDATE_INTERVAL,
+    lastTimeUpdate: _lastTimeUpdate
+  };
 }
 
 // Backward-compatible aliases
