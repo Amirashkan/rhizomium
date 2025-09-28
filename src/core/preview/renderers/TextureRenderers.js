@@ -14,6 +14,8 @@ export class TextureRenderers {
     };
 
     registry.registerMultiple({
+      'rectfield': (ctx, node) => this.renderRectangle(ctx, node),
+      'rectangle': (ctx, node) => this.renderRectangle(ctx, node),
       'texture2d': (ctx, node) => this.renderTexture2D(ctx, node),
       'texturecube': (ctx, node) => this.renderTextureCube(ctx, node),
       'circle': (ctx, node) => {
@@ -376,55 +378,39 @@ export class TextureRenderers {
     }
   }
 
-  renderRectangle(ctx, node) {
-    const inputs = this.previewSystem.getConnectedInputs(node);
+ 
+renderRectangle(ctx, node) {
+  const width = this.getParameterValue(node, "width", 0.5);
+  const height = this.getParameterValue(node, "height", 0.3);
+  const centerX = this.getParameterValue(node, "centerX", 0.5);
+  const centerY = this.getParameterValue(node, "centerY", 0.5);
+  const epsilon = this.getParameterValue(node, "epsilon", 0.02);
 
-    // Get parameters with expression support
-    const width = this.toSafeNumber(
-      inputs.width ?? this.getParameterValue(node, "width", 0.5), 
-      0.5
-    );
-    
-    const height = this.toSafeNumber(
-      inputs.height ?? this.getParameterValue(node, "height", 0.3), 
-      0.3
-    );
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, this.size, this.size);
 
-    const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
-    const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
-    const epsilon = this.toSafeNumber(this.getParameterValue(node, "epsilon", 0.02), 0.02);
+  // Render rectangle field
+  for (let y = 0; y < this.size; y++) {
+    for (let x = 0; x < this.size; x++) {
+      const u = x / this.size;
+      const v = y / this.size;
+      
+      // Distance to rectangle edges (SDF)
+      const dx = Math.max(0, Math.abs(u - centerX) - width / 2);
+      const dy = Math.max(0, Math.abs(v - centerY) - height / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      const safeEpsilon = Math.max(epsilon, 0.0001);
+      const field = 1.0 - this._smoothstep(-safeEpsilon, safeEpsilon, dist);
 
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, this.size, this.size);
-
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = x / this.size;
-        const v = y / this.size;
-        
-        // Distance to rectangle edges
-        const dx = Math.max(0, Math.abs(u - centerX) - width / 2);
-        const dy = Math.max(0, Math.abs(v - centerY) - height / 2);
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        const safeEpsilon = Math.max(epsilon, 0.0001);
-        const field = 1.0 - this._smoothstep(-safeEpsilon, safeEpsilon, dist);
-
-        if (field > 0.01) {
-          const intensity = Math.max(0, Math.min(1, field));
-          const color = Math.floor(intensity * 255);
-          ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
-          ctx.fillRect(x, y, 1, 1);
-        }
+      if (field > 0.01) {
+        const intensity = Math.max(0, Math.min(1, field));
+        const color = Math.floor(intensity * 255);
+        ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
+        ctx.fillRect(x, y, 1, 1);
       }
     }
-
-    this.drawParameterInfo(ctx, { w: width, h: height, eps: epsilon });
-
-    if (this.hasExpressions(node)) {
-      this.drawExpressionIndicator(ctx);
-    }
-  }
+}}
 
   renderGradient(ctx, node) {
     const direction = this.getParameterValue(node, "direction", "horizontal");

@@ -195,7 +195,56 @@ export class ParameterPanel {
           }
         );
         break;
-        
+        case 'rectfield':
+case 'rectangle':
+  definitions.push(
+    {
+      name: 'width',
+      type: 'float',
+      displayName: 'Width',
+      default: 0.5,
+      min: 0.01,
+      max: 2.0,
+      description: 'Rectangle width'
+    },
+    {
+      name: 'height',
+      type: 'float',
+      displayName: 'Height',
+      default: 0.3,
+      min: 0.01,
+      max: 2.0,
+      description: 'Rectangle height'
+    },
+    {
+      name: 'centerX',
+      type: 'float',
+      displayName: 'Center X',
+      default: 0.5,
+      min: 0.0,
+      max: 1.0,
+      description: 'Rectangle center X position'
+    },
+    {
+      name: 'centerY',
+      type: 'float',
+      displayName: 'Center Y',
+      default: 0.5,
+      min: 0.0,
+      max: 1.0,
+      description: 'Rectangle center Y position'
+    },
+    {
+      name: 'epsilon',
+      type: 'float',
+      displayName: 'Softness',
+      default: 0.02,
+      min: 0.001,
+      max: 0.1,
+      description: 'Edge softness'
+    }
+  );
+  break;
       case 'circle':
       case 'circlefield':
         definitions.push(

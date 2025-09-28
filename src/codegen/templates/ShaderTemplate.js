@@ -90,6 +90,11 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
     return `fn random(st: vec2<f32>) -> f32 {
   return fract(sin(dot(st, vec2<f32>(12.9898, 78.233))) * 43758.5453);
 }
+fn rectField(uv: vec2<f32>, center: vec2<f32>, size: vec2<f32>, epsilon: f32) -> f32 {
+  let d = abs(uv - center) - size * 0.5;
+  let dist = length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
+  return 1.0 - smoothstep(-epsilon, epsilon, dist);
+}
 
 fn valueNoise(st: vec2<f32>) -> f32 {
   let i = floor(st);
