@@ -234,87 +234,26 @@ export class Editor {
   }
 
   // PERFORMANCE FIX: Completely rewritten GPU animation loop
- setupOptimizedGPUAnimationLoop() {
-  // Clear any existing loop
-  if (this.gpuAnimationLoop) {
-    clearInterval(this.gpuAnimationLoop);
-    this.gpuAnimationLoop = null;
-  }
-  
-  if (this.gpuAnimationRequestId) {
-    cancelAnimationFrame(this.gpuAnimationRequestId);
-    this.gpuAnimationRequestId = null;
-  }
-
-  // Initialize animation timing
-  this.animationFrame = 0;
-  this.lastAnimationTime = 0;
-
-  // CORRECTED: Find the actual GPU rendering function
-  const findGPURenderer = () => {
-    // Try different possible locations for the GPU renderer
-    if (window.gpuRenderer && window.gpuRenderer.render) {
-      return () => window.gpuRenderer.render();
-    }
-    
-    // Check if it's a direct function
-    if (window.renderGPU && typeof window.renderGPU === 'function') {
-      return window.renderGPU;
-    }
-    
-    // Check if it's in the global render function
-    if (window.render && typeof window.render === 'function') {
-      return window.render;
-    }
-    
-    // Check if it's in a different namespace
-    if (window.gpu && window.gpu.render) {
-      return () => window.gpu.render();
-    }
-    
-    // Import and use the GPU renderer directly
-    if (window.initWebGPU && window.drawFrame) {
-      return window.drawFrame;
-    }
-    
-    console.warn('GPU renderer not found, falling back to rebuild');
-    return null;
-  };
-
-  const gpuRenderFunction = findGPURenderer();
-  console.log('GPU render function found:', !!gpuRenderFunction);
-
-  // OPTIMIZATION: Use requestAnimationFrame with proper GPU rendering
+setupOptimizedGPUAnimationLoop() {
   const animate = (timestamp) => {
-    try {
-      // Update animation context for expressions
-      this.updateAnimationContext(timestamp / 1000, this.animationFrame);
-      this.animationFrame++;
-      
-      // Check if we have time expressions (with caching)
-      const hasTimeExpressions = this.hasTimeBasedExpressions();
+    this.updateAnimationContext(timestamp / 1000, this.animationFrame);
+    this.animationFrame++;
+    
+    const hasTimeExpressions = this.hasTimeBasedExpressions();
 
-      if (hasTimeExpressions) {
-        if (gpuRenderFunction) {
-          // CORRECTED: Call the actual GPU render function
-          gpuRenderFunction();
-        } else {
-          // FALLBACK: Use the existing rebuild system (less optimal but works)
-          this.triggerShaderRebuild('Time Animation');
-        }
+    if (hasTimeExpressions) {
+      // FIXED: Call the correct function we established before
+      if (window.render && typeof window.render === 'function') {
+        window.render();
+      } else {
+        console.warn('window.render not available');
       }
-      
-    } catch (error) {
-      console.warn('Error in GPU animation loop:', error);
     }
     
-    // Continue the loop
     this.gpuAnimationRequestId = requestAnimationFrame(animate);
   };
-
-  // Start the animation loop
+  
   this.gpuAnimationRequestId = requestAnimationFrame(animate);
-  console.log('Corrected GPU animation loop started');
 }
 
 // ADDITIONAL FIX: Add method to manually connect GPU renderer
