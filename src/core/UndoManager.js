@@ -1,4 +1,4 @@
-// src/core/UndoManager.js - Complete working version
+// src/core/UndoManager.js - Complete working version with proper scoping
 
 export class UndoManager {
   constructor(graph, editor) {
@@ -42,6 +42,31 @@ export class UndoManager {
 
     this.pushAction(action);
     console.log('Connection deletion recorded:', action);
+  }
+
+  // Record generic actions for custom undo operations
+  recordAction(action) {
+    // Validate action object
+    if (!action || typeof action !== 'object' || !action.type) {
+      console.warn('Invalid action passed to recordAction:', action);
+      return;
+    }
+
+    // Add timestamp if not present
+    if (!action.timestamp) {
+      action.timestamp = Date.now();
+    }
+
+    this.undoStack.push(action);
+    this.redoStack = []; // Clear redo stack when new action is recorded
+    
+    // Limit stack size
+    if (this.undoStack.length > this.maxUndoSteps) {
+      this.undoStack.shift();
+    }
+
+    console.log('Recorded action:', action.type, action);
+    this.updateUI();
   }
 
   // Record node deletion with enhanced connection tracking
@@ -100,12 +125,13 @@ export class UndoManager {
       h: node.h,
       inputs: node.inputs ? [...node.inputs] : [],
       parameters: node.parameters ? { ...node.parameters } : {},
+      params: node.params ? { ...node.params } : {},
       nodeIndex: this.graph.nodes.indexOf(node)
     };
 
     // Copy any other custom properties (excluding the connection snapshot)
     Object.keys(node).forEach(key => {
-      if (!['id', 'kind', 'type', 'x', 'y', 'w', 'h', 'inputs', 'parameters', 'nodeIndex', '_connectionSnapshot'].includes(key)) {
+      if (!['id', 'kind', 'type', 'x', 'y', 'w', 'h', 'inputs', 'parameters', 'params', 'nodeIndex', '_connectionSnapshot'].includes(key)) {
         if (typeof node[key] !== 'function') {
           nodeSnapshot[key] = node[key];
         }
@@ -125,46 +151,77 @@ export class UndoManager {
                incomingConnections.length, 'incoming and', 
                outgoingConnections.length, 'outgoing connections');
   }
-recordNodeMovement(nodeMovements) {
-  // Don't record if no movements or movements array is empty
-  if (!nodeMovements || nodeMovements.length === 0) {
-    return;
+
+  // Record node movement
+  recordNodeMovement(nodeMovements) {
+    // Don't record if no movements or movements array is empty
+    if (!nodeMovements || nodeMovements.length === 0) {
+      return;
+    }
+
+    // Check if any nodes actually moved
+    const actualMovements = nodeMovements.filter(movement => {
+      const deltaX = Math.abs(movement.newX - movement.oldX);
+      const deltaY = Math.abs(movement.newY - movement.oldY);
+      return deltaX > 0.01 || deltaY > 0.01; // Only record if moved more than 0.01 pixels
+    });
+
+    if (actualMovements.length === 0) {
+      return; // No actual movement occurred
+    }
+
+    const action = {
+      type: 'MOVE_NODES',
+      timestamp: Date.now(),
+      movements: actualMovements.map(movement => ({
+        nodeId: movement.nodeId,
+        oldX: movement.oldX,
+        oldY: movement.oldY,
+        newX: movement.newX,
+        newY: movement.newY
+      }))
+    };
+
+    this.undoStack.push(action);
+    this.redoStack = []; // Clear redo stack when new action is recorded
+    
+    // Limit stack size
+    if (this.undoStack.length > this.maxUndoSteps) {
+      this.undoStack.shift();
+    }
+
+    console.log('Recorded node movement:', action);
+    this.updateUI();
   }
 
-  // Check if any nodes actually moved
-  const actualMovements = nodeMovements.filter(movement => {
-    const deltaX = Math.abs(movement.newX - movement.oldX);
-    const deltaY = Math.abs(movement.newY - movement.oldY);
-    return deltaX > 0.01 || deltaY > 0.01; // Only record if moved more than 0.01 pixels
-  });
+  // Record parameter changes
+  recordParameterChange(nodeId, parameterName, oldValue, newValue) {
+    // Don't record if values are the same
+    if (oldValue === newValue) {
+      return;
+    }
 
-  if (actualMovements.length === 0) {
-    return; // No actual movement occurred
+    const action = {
+      type: 'PARAMETER_CHANGE',
+      timestamp: Date.now(),
+      nodeId: nodeId,
+      parameterName: parameterName,
+      oldValue: oldValue,
+      newValue: newValue
+    };
+
+    this.undoStack.push(action);
+    this.redoStack = []; // Clear redo stack when new action is recorded
+    
+    // Limit stack size
+    if (this.undoStack.length > this.maxUndoSteps) {
+      this.undoStack.shift();
+    }
+
+    console.log('Recorded parameter change:', action);
+    this.updateUI();
   }
 
-  const action = {
-    type: 'MOVE_NODES',
-    timestamp: Date.now(),
-    movements: actualMovements.map(movement => ({
-      nodeId: movement.nodeId,
-      oldX: movement.oldX,
-      oldY: movement.oldY,
-      newX: movement.newX,
-      newY: movement.newY
-    }))
-  };
-
-  this.undoStack.push(action);
-  this.redoStack = []; // Clear redo stack when new action is recorded
-  
-  // Limit stack size
-  if (this.undoStack.length > this.maxUndoSteps) {
-    this.undoStack.shift();
-  }
-
-  console.log('Recorded node movement:', action);
-  this.updateUI();
-}
   // Record connection creation (for when user creates a connection)
   recordConnectionCreation(sourceNodeId, targetNodeId, targetInput) {
     const action = {
@@ -203,32 +260,7 @@ recordNodeMovement(nodeMovements) {
     
     this.updateUI();
   }
-recordParameterChange(nodeId, parameterName, oldValue, newValue) {
-  // Don't record if values are the same
-  if (oldValue === newValue) {
-    return;
-  }
 
-  const action = {
-    type: 'PARAMETER_CHANGE',
-    timestamp: Date.now(),
-    nodeId: nodeId,
-    parameterName: parameterName,
-    oldValue: oldValue,
-    newValue: newValue
-  };
-
-  this.undoStack.push(action);
-  this.redoStack = []; // Clear redo stack when new action is recorded
-  
-  // Limit stack size
-  if (this.undoStack.length > this.maxUndoSteps) {
-    this.undoStack.shift();
-  }
-
-  console.log('Recorded parameter change:', action);
-  this.updateUI();
-}
   // Perform undo
   undo() {
     if (this.undoStack.length === 0) {
@@ -246,50 +278,116 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         case 'DELETE_CONNECTION':
           success = this.undoConnectionDeletion(action);
           break;
+          
         case 'DELETE_NODE':
           success = this.undoNodeDeletion(action);
           break;
+          
         case 'CREATE_CONNECTION':
           success = this.undoConnectionCreation(action);
           break;
+          
         case 'CREATE_NODE':
           success = this.undoNodeCreation(action);
           break;
-          case 'PARAMETER_CHANGE':
-  const node = this.graph.nodes.find(n => n.id === action.nodeId);
-  if (node) {
-    // Restore old value
-    if (!node.params) node.params = {};
-    node.params[action.parameterName] = action.oldValue;
-    
-    // Update parameter panel if this node is selected
-    if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(node)) {
-      window.editor.paramPanel.updateParameterDisplay(node, action.parameterName, action.oldValue);
-    }
-    
-    // Trigger preview update
-    if (window.editor && window.editor.previewIntegration) {
-      window.editor.previewIntegration.generateNodePreview(node);
-    }
-    
-    if (this.onChange) {
-      this.onChange(`Undo parameter change: ${action.parameterName}`);
-    }
-  }
-  break;
-  case 'MOVE_NODES':
-  action.movements.forEach(movement => {
-    const node = this.graph.nodes.find(n => n.id === movement.nodeId);
-    if (node) {
-      node.x = movement.oldX;
-      node.y = movement.oldY;
-    }
-  });
-  
-  if (this.onChange) {
-    this.onChange(`Undo move ${action.movements.length} node(s)`);
-  }
-  break;
+          
+        case 'CREATE_BINDING': {
+          // Undo parameter binding creation
+          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
+          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
+          
+          if (targetNode && sourceNode) {
+            // Remove the binding by restoring the old value
+            if (!targetNode.params) targetNode.params = {};
+            targetNode.params[action.targetParameter] = action.oldValue;
+            
+            // Update parameter panel if this node is selected
+            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
+              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.oldValue);
+            }
+            
+            // Trigger preview update
+            if (window.editor && window.editor.previewIntegration) {
+              window.editor.previewIntegration.generateNodePreview(targetNode);
+            }
+            
+            if (this.onChange) {
+              this.onChange(`Undo parameter binding: ${action.targetParameter}`);
+            }
+          }
+          success = true;
+          break;
+        }
+
+        case 'REMOVE_BINDING': {
+          // Undo parameter binding removal
+          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
+          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
+          
+          if (targetNode && sourceNode) {
+            // Restore the binding reference
+            if (!targetNode.params) targetNode.params = {};
+            targetNode.params[action.targetParameter] = action.bindingReference;
+            
+            // Update parameter panel if this node is selected
+            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
+              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.bindingReference);
+            }
+            
+            // Trigger preview update
+            if (window.editor && window.editor.previewIntegration) {
+              window.editor.previewIntegration.generateNodePreview(targetNode);
+            }
+            
+            if (this.onChange) {
+              this.onChange(`Restore parameter binding: ${action.targetParameter}`);
+            }
+          }
+          success = true;
+          break;
+        }
+        
+        case 'PARAMETER_CHANGE': {
+          const node = this.graph.nodes.find(n => n.id === action.nodeId);
+          if (node) {
+            // Restore old value
+            if (!node.params) node.params = {};
+            node.params[action.parameterName] = action.oldValue;
+            
+            // Update parameter panel if this node is selected
+            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(node)) {
+              window.editor.paramPanel.updateParameterDisplay(node, action.parameterName, action.oldValue);
+            }
+            
+            // Trigger preview update
+            if (window.editor && window.editor.previewIntegration) {
+              window.editor.previewIntegration.generateNodePreview(node);
+            }
+            
+            if (this.onChange) {
+              this.onChange(`Undo parameter change: ${action.parameterName}`);
+            }
+          }
+          success = true;
+          break;
+        }
+        
+        case 'MOVE_NODES': {
+          action.movements.forEach(movement => {
+            const node = this.graph.nodes.find(n => n.id === movement.nodeId);
+            if (node) {
+              node.x = movement.oldX;
+              node.y = movement.oldY;
+            }
+          });
+          
+          if (this.onChange) {
+            this.onChange(`Undo move ${action.movements.length} node(s)`);
+          }
+          success = true;
+          break;
+        }
+        
         default:
           console.error('Unknown action type:', action.type);
           return false;
@@ -316,7 +414,6 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
   // Perform redo
   redo() {
-    
     if (this.redoStack.length === 0) {
       console.log('Nothing to redo');
       return false;
@@ -332,50 +429,116 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         case 'DELETE_CONNECTION':
           success = this.redoConnectionDeletion(action);
           break;
+          
         case 'DELETE_NODE':
           success = this.redoNodeDeletion(action);
           break;
+          
         case 'CREATE_CONNECTION':
           success = this.redoConnectionCreation(action);
           break;
+          
         case 'CREATE_NODE':
           success = this.redoNodeCreation(action);
           break;
-          case 'PARAMETER_CHANGE':
-  const node = this.graph.nodes.find(n => n.id === action.nodeId);
-  if (node) {
-    // Restore new value
-    if (!node.params) node.params = {};
-    node.params[action.parameterName] = action.newValue;
-    
-    // Update parameter panel if this node is selected
-    if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(node)) {
-      window.editor.paramPanel.updateParameterDisplay(node, action.parameterName, action.newValue);
-    }
-    
-    // Trigger preview update
-    if (window.editor && window.editor.previewIntegration) {
-      window.editor.previewIntegration.generateNodePreview(node);
-    }
-    
-    if (this.onChange) {
-      this.onChange(`Redo parameter change: ${action.parameterName}`);
-    }
-  }
-  break;
-  case 'MOVE_NODES':
-  action.movements.forEach(movement => {
-    const node = this.graph.nodes.find(n => n.id === movement.nodeId);
-    if (node) {
-      node.x = movement.newX;
-      node.y = movement.newY;
-    }
-  });
-  
-  if (this.onChange) {
-    this.onChange(`Redo move ${action.movements.length} node(s)`);
-  }
-  break;
+          
+        case 'CREATE_BINDING': {
+          // Redo parameter binding creation
+          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
+          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
+          
+          if (targetNode && sourceNode) {
+            // Restore the binding reference
+            if (!targetNode.params) targetNode.params = {};
+            targetNode.params[action.targetParameter] = action.bindingReference;
+            
+            // Update parameter panel if this node is selected
+            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
+              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.bindingReference);
+            }
+            
+            // Trigger preview update
+            if (window.editor && window.editor.previewIntegration) {
+              window.editor.previewIntegration.generateNodePreview(targetNode);
+            }
+            
+            if (this.onChange) {
+              this.onChange(`Redo parameter binding: ${action.targetParameter}`);
+            }
+          }
+          success = true;
+          break;
+        }
+
+        case 'REMOVE_BINDING': {
+          // Redo parameter binding removal
+          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
+          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
+          
+          if (targetNode && sourceNode) {
+            // Remove the binding by restoring the old value
+            if (!targetNode.params) targetNode.params = {};
+            targetNode.params[action.targetParameter] = action.oldValue;
+            
+            // Update parameter panel if this node is selected
+            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
+              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.oldValue);
+            }
+            
+            // Trigger preview update
+            if (window.editor && window.editor.previewIntegration) {
+              window.editor.previewIntegration.generateNodePreview(targetNode);
+            }
+            
+            if (this.onChange) {
+              this.onChange(`Remove parameter binding: ${action.targetParameter}`);
+            }
+          }
+          success = true;
+          break;
+        }
+        
+        case 'PARAMETER_CHANGE': {
+          const node = this.graph.nodes.find(n => n.id === action.nodeId);
+          if (node) {
+            // Restore new value
+            if (!node.params) node.params = {};
+            node.params[action.parameterName] = action.newValue;
+            
+            // Update parameter panel if this node is selected
+            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(node)) {
+              window.editor.paramPanel.updateParameterDisplay(node, action.parameterName, action.newValue);
+            }
+            
+            // Trigger preview update
+            if (window.editor && window.editor.previewIntegration) {
+              window.editor.previewIntegration.generateNodePreview(node);
+            }
+            
+            if (this.onChange) {
+              this.onChange(`Redo parameter change: ${action.parameterName}`);
+            }
+          }
+          success = true;
+          break;
+        }
+        
+        case 'MOVE_NODES': {
+          action.movements.forEach(movement => {
+            const node = this.graph.nodes.find(n => n.id === movement.nodeId);
+            if (node) {
+              node.x = movement.newX;
+              node.y = movement.newY;
+            }
+          });
+          
+          if (this.onChange) {
+            this.onChange(`Redo move ${action.movements.length} node(s)`);
+          }
+          success = true;
+          break;
+        }
+        
         default:
           console.error('Unknown redo action type:', action.type);
           return false;
@@ -459,11 +622,12 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         h: action.node.h || 60,
         inputs: action.node.inputs ? [...action.node.inputs] : [],
         parameters: action.node.parameters ? { ...action.node.parameters } : {},
+        params: action.node.params ? { ...action.node.params } : {},
       };
 
       // Copy any additional custom properties
       Object.keys(action.node).forEach(key => {
-        if (!['id', 'kind', 'type', 'x', 'y', 'w', 'h', 'inputs', 'parameters', 'nodeIndex'].includes(key)) {
+        if (!['id', 'kind', 'type', 'x', 'y', 'w', 'h', 'inputs', 'parameters', 'params', 'nodeIndex'].includes(key)) {
           restoredNode[key] = action.node[key];
         }
       });
@@ -721,16 +885,30 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
     if (undoBtn) {
       undoBtn.disabled = this.undoStack.length === 0;
-      undoBtn.title = this.undoStack.length > 0 
-        ? `Undo ${this.undoStack[this.undoStack.length - 1].type}` 
-        : 'Nothing to undo';
+      const lastUndo = this.undoStack[this.undoStack.length - 1];
+      if (lastUndo) {
+        let actionDesc = lastUndo.type;
+        if (lastUndo.type === 'PARAMETER_CHANGE') {
+          actionDesc += ` (${lastUndo.parameterName})`;
+        }
+        undoBtn.title = `Undo ${actionDesc}`;
+      } else {
+        undoBtn.title = 'Nothing to undo';
+      }
     }
 
     if (redoBtn) {
       redoBtn.disabled = this.redoStack.length === 0;
-      redoBtn.title = this.redoStack.length > 0 
-        ? `Redo ${this.redoStack[this.redoStack.length - 1].type}` 
-        : 'Nothing to redo';
+      const lastRedo = this.redoStack[this.redoStack.length - 1];
+      if (lastRedo) {
+        let actionDesc = lastRedo.type;
+        if (lastRedo.type === 'PARAMETER_CHANGE') {
+          actionDesc += ` (${lastRedo.parameterName})`;
+        }
+        redoBtn.title = `Redo ${actionDesc}`;
+      } else {
+        redoBtn.title = 'Nothing to redo';
+      }
     }
   }
 
