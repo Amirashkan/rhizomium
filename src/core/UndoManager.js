@@ -69,6 +69,95 @@ export class UndoManager {
     this.updateUI();
   }
 
+  // Record group deletion (multiple nodes at once)
+  recordGroupDeletion(nodes) {
+    if (!nodes || nodes.length === 0) {
+      console.warn('No nodes provided for group deletion recording');
+      return;
+    }
+
+    console.log('Recording group deletion:', nodes.length, 'nodes');
+
+    const nodeSnapshots = [];
+    const allConnections = [];
+
+    // Create snapshots for each node
+    nodes.forEach(node => {
+      // Get connections for this node
+      let incomingConnections = [];
+      let outgoingConnections = [];
+      
+      if (node._connectionSnapshot) {
+        incomingConnections = node._connectionSnapshot.incoming;
+        outgoingConnections = node._connectionSnapshot.outgoing;
+      } else {
+        // Fallback connection detection
+        this.graph.nodes.forEach(otherNode => {
+          if (otherNode.inputs && Array.isArray(otherNode.inputs)) {
+            otherNode.inputs.forEach((input, inputIndex) => {
+              if (input === node.id || input == node.id) {
+                incomingConnections.push({
+                  sourceNodeId: node.id,
+                  targetNodeId: otherNode.id,
+                  targetInput: inputIndex
+                });
+              }
+            });
+          }
+        });
+
+        if (node.inputs && Array.isArray(node.inputs)) {
+          node.inputs.forEach((input, inputIndex) => {
+            if (input !== null && input !== undefined) {
+              outgoingConnections.push({
+                sourceNodeId: input,
+                targetNodeId: node.id,
+                targetInput: inputIndex
+              });
+            }
+          });
+        }
+      }
+
+      // Create node snapshot
+      const nodeSnapshot = {
+        id: node.id,
+        kind: node.kind,
+        type: node.type,
+        x: node.x,
+        y: node.y,
+        w: node.w,
+        h: node.h,
+        inputs: node.inputs ? [...node.inputs] : [],
+        parameters: node.parameters ? { ...node.parameters } : {},
+        params: node.params ? { ...node.params } : {},
+        nodeIndex: this.graph.nodes.indexOf(node),
+        incomingConnections: incomingConnections,
+        outgoingConnections: outgoingConnections
+      };
+
+      // Copy additional properties
+      Object.keys(node).forEach(key => {
+        if (!['id', 'kind', 'type', 'x', 'y', 'w', 'h', 'inputs', 'parameters', 'params', 'nodeIndex', '_connectionSnapshot'].includes(key)) {
+          if (typeof node[key] !== 'function') {
+            nodeSnapshot[key] = node[key];
+          }
+        }
+      });
+
+      nodeSnapshots.push(nodeSnapshot);
+    });
+
+    const action = {
+      type: 'DELETE_GROUP',
+      timestamp: Date.now(),
+      nodes: nodeSnapshots
+    };
+
+    this.pushAction(action);
+    console.log('Group deletion recorded:', nodeSnapshots.length, 'nodes with connections');
+  }
+
   // Record node deletion with enhanced connection tracking
   recordNodeDeletion(node) {
     console.log('Recording node deletion:', node.kind, node.id);
@@ -283,6 +372,107 @@ export class UndoManager {
           success = this.undoNodeDeletion(action);
           break;
           
+        case 'DELETE_GROUP': {
+          // Undo group deletion (restore all nodes)
+          let restoredCount = 0;
+          
+          // Sort nodes by original index to restore in correct order
+          const sortedNodes = action.nodes.sort((a, b) => a.nodeIndex - b.nodeIndex);
+          
+          sortedNodes.forEach(nodeData => {
+            // Check if node already exists
+            if (!this.graph.nodes.find(n => n.id === nodeData.id)) {
+              // Recreate the node
+              const restoredNode = {
+                id: nodeData.id,
+                kind: nodeData.kind,
+                type: nodeData.type,
+                x: nodeData.x,
+                y: nodeData.y,
+                w: nodeData.w || 120,
+                h: nodeData.h || 60,
+                inputs: nodeData.inputs ? [...nodeData.inputs] : [],
+                parameters: nodeData.parameters ? { ...nodeData.parameters } : {},
+                params: nodeData.params ? { ...nodeData.params } : {},
+              };
+
+              // Copy additional properties
+              Object.keys(nodeData).forEach(key => {
+                if (!['id', 'kind', 'type', 'x', 'y', 'w', 'h', 'inputs', 'parameters', 'params', 'nodeIndex', 'incomingConnections', 'outgoingConnections'].includes(key)) {
+                  restoredNode[key] = nodeData[key];
+                }
+              });
+
+              // Add node at original position
+              if (nodeData.nodeIndex >= 0 && nodeData.nodeIndex <= this.graph.nodes.length) {
+                this.graph.nodes.splice(nodeData.nodeIndex, 0, restoredNode);
+              } else {
+                this.graph.nodes.push(restoredNode);
+              }
+
+              restoredCount++;
+            }
+          });
+
+          // Restore all connections after all nodes are restored
+          sortedNodes.forEach(nodeData => {
+            // Restore incoming connections
+            if (nodeData.incomingConnections) {
+              nodeData.incomingConnections.forEach(conn => {
+                const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
+                if (targetNode) {
+                  if (!targetNode.inputs) targetNode.inputs = [];
+                  while (targetNode.inputs.length <= conn.targetInput) {
+                    targetNode.inputs.push(null);
+                  }
+                  targetNode.inputs[conn.targetInput] = conn.sourceNodeId;
+                  
+                  // Also restore to graph.connections
+                  if (!this.graph.connections) this.graph.connections = [];
+                  this.graph.connections = this.graph.connections.filter(
+                    c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
+                  );
+                  this.graph.connections.push({
+                    from: { nodeId: conn.sourceNodeId, pin: 0 },
+                    to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
+                  });
+                }
+              });
+            }
+
+            // Restore outgoing connections
+            if (nodeData.outgoingConnections) {
+              nodeData.outgoingConnections.forEach(conn => {
+                const restoredNode = this.graph.nodes.find(n => n.id === nodeData.id);
+                if (restoredNode) {
+                  if (!restoredNode.inputs) restoredNode.inputs = [];
+                  while (restoredNode.inputs.length <= conn.targetInput) {
+                    restoredNode.inputs.push(null);
+                  }
+                  restoredNode.inputs[conn.targetInput] = conn.sourceNodeId;
+                  
+                  // Also restore to graph.connections
+                  if (!this.graph.connections) this.graph.connections = [];
+                  this.graph.connections = this.graph.connections.filter(
+                    c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
+                  );
+                  this.graph.connections.push({
+                    from: { nodeId: conn.sourceNodeId, pin: 0 },
+                    to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
+                  });
+                }
+              });
+            }
+          });
+
+          console.log(`Restored ${restoredCount} nodes from group deletion`);
+          if (this.onChange) {
+            this.onChange(`Undo delete ${restoredCount} nodes`);
+          }
+          success = restoredCount > 0;
+          break;
+        }
+          
         case 'CREATE_CONNECTION':
           success = this.undoConnectionCreation(action);
           break;
@@ -433,6 +623,49 @@ export class UndoManager {
         case 'DELETE_NODE':
           success = this.redoNodeDeletion(action);
           break;
+          
+        case 'DELETE_GROUP': {
+          // Redo group deletion (delete all nodes again)
+          let deletedCount = 0;
+          const nodeIds = action.nodes.map(n => n.id);
+          
+          // Remove all connections involving any of these nodes
+          action.nodes.forEach(nodeData => {
+            // Remove incoming connections
+            if (nodeData.incomingConnections) {
+              nodeData.incomingConnections.forEach(conn => {
+                const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
+                if (targetNode && targetNode.inputs) {
+                  targetNode.inputs[conn.targetInput] = null;
+                }
+              });
+            }
+          });
+
+          // Remove from graph.connections
+          if (this.graph.connections) {
+            this.graph.connections = this.graph.connections.filter(
+              c => !nodeIds.includes(c.from?.nodeId) && !nodeIds.includes(c.to?.nodeId)
+            );
+          }
+
+          // Remove the nodes (in reverse order to maintain indices)
+          const sortedNodes = action.nodes.sort((a, b) => b.nodeIndex - a.nodeIndex);
+          sortedNodes.forEach(nodeData => {
+            const nodeIndex = this.graph.nodes.findIndex(n => n.id === nodeData.id);
+            if (nodeIndex !== -1) {
+              this.graph.nodes.splice(nodeIndex, 1);
+              deletedCount++;
+            }
+          });
+
+          console.log(`Re-deleted ${deletedCount} nodes from group`);
+          if (this.onChange) {
+            this.onChange(`Redo delete ${deletedCount} nodes`);
+          }
+          success = deletedCount > 0;
+          break;
+        }
           
         case 'CREATE_CONNECTION':
           success = this.redoConnectionCreation(action);
