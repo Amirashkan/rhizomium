@@ -12,6 +12,7 @@ import { VectorRenderers } from './preview/renderers/VectorRenderers.js';
 import { NoiseRenderers } from './preview/renderers/NoiseRenderers.js';
 import { TextureRenderers } from './preview/renderers/TextureRenderers.js';
 import { UtilityRenderers } from './preview/renderers/UtilityRenderers.js';
+import { TransformRenderers } from './preview/renderers/TransformRenderers.js';
 
 export class PreviewSystem {
   constructor(editor) {
@@ -98,46 +99,47 @@ export class PreviewSystem {
         VectorRenderers,
         NoiseRenderers,
         TextureRenderers,
-        UtilityRenderers
+        UtilityRenderers,
+        TransformRenderers,
       ];
 
-      let registeredCount = 0;
-      let failedCount = 0;
 
-      rendererGroups.forEach((RendererGroup, index) => {
-        try {
-          if (!RendererGroup) {
-            console.warn(`Renderer group at index ${index} is null/undefined`);
-            failedCount++;
-            return;
-          }
+    let registeredCount = 0;
+    let failedCount = 0;
 
-          const renderers = new RendererGroup(this);
-          if (renderers && typeof renderers.register === 'function') {
-            renderers.register(this.rendererRegistry);
-            registeredCount++;
-          } else {
-            console.warn(`Renderer group ${RendererGroup.name || 'Unknown'} missing register method`);
-            failedCount++;
-          }
-        } catch (rendererError) {
-          window.errorHandler?.handleError(rendererError, { 
-            component: 'renderer-group-registration',
-            rendererGroupIndex: index,
-            rendererGroupName: RendererGroup?.name || 'Unknown'
-          });
+    rendererGroups.forEach((RendererGroup, index) => {
+      try {
+        if (!RendererGroup) {
+          console.warn(`Renderer group at index ${index} is null/undefined`);
+          failedCount++;
+          return;
+        }
+
+        const renderers = new RendererGroup(this);
+        if (renderers && typeof renderers.register === 'function') {
+          renderers.register(this.rendererRegistry);
+          registeredCount++;
+        } else {
+          console.warn(`Renderer group ${RendererGroup.name || 'Unknown'} missing register method`);
           failedCount++;
         }
-      });
+      } catch (rendererError) {
+        window.errorHandler?.handleError(rendererError, { 
+          component: 'renderer-group-registration',
+          rendererGroupIndex: index,
+          rendererGroupName: RendererGroup?.name || 'Unknown'
+        });
+        failedCount++;
+      }
+    });
 
-      console.log(`Renderer registration completed: ${registeredCount} successful, ${failedCount} failed`);
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'renderer-registration'
-      });
-    }
+    console.log(`Renderer registration completed: ${registeredCount} successful, ${failedCount} failed`);
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'renderer-registration'
+    });
   }
-
+}
   generateNodePreview(node) {
     try {
       if (!node) {

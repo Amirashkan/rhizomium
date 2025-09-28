@@ -262,7 +262,60 @@ export class ParameterPanel {
           }
         );
         break;
-        
+        // In src/ui/ParameterPanel.js, find the getParameterDefinitions method
+// and add these cases to the switch statement:
+
+case 'transform2d':
+  definitions.push(
+    { name: 'translateX', type: 'float', displayName: 'Translate X', default: 0.0, description: 'Horizontal translation' },
+    { name: 'translateY', type: 'float', displayName: 'Translate Y', default: 0.0, description: 'Vertical translation' },
+    { name: 'scaleX', type: 'float', displayName: 'Scale X', default: 1.0, min: 0.01, description: 'Horizontal scale' },
+    { name: 'scaleY', type: 'float', displayName: 'Scale Y', default: 1.0, min: 0.01, description: 'Vertical scale' },
+    { name: 'rotation', type: 'float', displayName: 'Rotation (rad)', default: 0.0, description: 'Rotation angle' },
+    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation center X' },
+    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation center Y' }
+  );
+  break;
+
+case 'scale2d':
+  definitions.push(
+    { name: 'scaleX', type: 'float', displayName: 'Scale X', default: 1.0, min: 0.01, description: 'Horizontal scale' },
+    { name: 'scaleY', type: 'float', displayName: 'Scale Y', default: 1.0, min: 0.01, description: 'Vertical scale' },
+    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Scale center X' },
+    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Scale center Y' }
+  );
+  break;
+
+case 'rotate2d':
+  definitions.push(
+    { name: 'rotation', type: 'float', displayName: 'Rotation (rad)', default: 0.0, description: 'Rotation angle' },
+    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation center X' },
+    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation center Y' }
+  );
+  break;
+
+case 'translate2d':
+  definitions.push(
+    { name: 'translateX', type: 'float', displayName: 'Translate X', default: 0.0, description: 'Horizontal offset' },
+    { name: 'translateY', type: 'float', displayName: 'Translate Y', default: 0.0, description: 'Vertical offset' }
+  );
+  break;
+
+case 'tileandoffset':
+  definitions.push(
+    { name: 'tilingX', type: 'float', displayName: 'Tiling X', default: 1.0, min: 0.01, description: 'Horizontal tiling' },
+    { name: 'tilingY', type: 'float', displayName: 'Tiling Y', default: 1.0, min: 0.01, description: 'Vertical tiling' },
+    { name: 'offsetX', type: 'float', displayName: 'Offset X', default: 0.0, description: 'Horizontal offset' },
+    { name: 'offsetY', type: 'float', displayName: 'Offset Y', default: 0.0, description: 'Vertical offset' }
+  );
+  break;
+
+case 'flip2d':
+  definitions.push(
+    { name: 'flipX', type: 'boolean', displayName: 'Flip X', default: false, description: 'Mirror horizontally' },
+    { name: 'flipY', type: 'boolean', displayName: 'Flip Y', default: false, description: 'Mirror vertically' }
+  );
+  break;
       case 'valuenoise':
       case 'fbmnoise':
       case 'simplexnoise':

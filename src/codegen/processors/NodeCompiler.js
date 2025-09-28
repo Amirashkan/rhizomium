@@ -6,6 +6,7 @@ import { VectorNodes } from '../compilers/VectorNodes.js';
 import { NoiseNodes } from '../compilers/NoiseNodes.js';
 import { TextureNodes } from '../compilers/TextureNodes.js';
 import { UtilityNodes } from '../compilers/UtilityNodes.js';
+import { TransformNodes } from '../compilers/TransformNodes.js'; // ADD THIS LINE
 
 /**
  * Utility function to sanitize node IDs
@@ -25,7 +26,8 @@ export class NodeCompiler {
       vector: new VectorNodes(),
       noise: new NoiseNodes(),
       texture: new TextureNodes(),
-      utility: new UtilityNodes()
+      utility: new UtilityNodes(),
+      transform: new TransformNodes() // ADD THIS LINE
     };
   }
   
@@ -95,7 +97,11 @@ export class NodeCompiler {
       result = this.compilers.texture.compile(node, getInput);
     } else if (this.compilers.utility.handles(kind)) {
       result = this.compilers.utility.compile(node, getInput);
-    } else {
+    } else if (this.compilers.transform.handles(kind)) { // ADD THIS BLOCK
+      result = this.compilers.transform.compile(node, getInput);
+    } else if (this.compilers.transform.handles(kind)) {
+      result = this.compilers.transform.compile(node, getInput);
+   } else {
       // Unknown node type
       console.log(`UNKNOWN NODE TYPE: "${kind}"`);
       result = {

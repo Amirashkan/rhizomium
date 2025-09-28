@@ -6,7 +6,8 @@ CircleField: {
   label: "Circle",
   cat: "Field",
   inputs: 0,  // ← No input pins
-  // Remove pinsIn entirely
+  inputs: 1,  // Add this line
+  pinsIn: ["UV"], 
   pinsOut: [{ label: "f", type: "f32" }],
   params: [
     { name: "radius", type: "float", default: 0.25, label: "Radius" },

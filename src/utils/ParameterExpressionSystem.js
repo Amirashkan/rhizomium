@@ -278,17 +278,19 @@ safeEvaluate(expression, context) {
 
 // Add this helper method
 isIncompleteExpression(expression) {
-  // Check for common incomplete patterns
   const incompletePatterns = [
     /[+\-*/]$/, // Ends with operator
-    /[+\-*/]\s*$/, // Ends with operator and whitespace
     /\($/, // Ends with opening parenthesis
     /,\s*$/, // Ends with comma
+    /\bsin$/, /\bcos$/, /\btan$/, // Incomplete function names
+    /\bsine$/, /\bcosine$/, // Common typos
+    /vec2\s*\($/, // Incomplete vec2 call
+    /vec3\s*\($/, // Incomplete vec3 call
+    /[a-zA-Z_][a-zA-Z0-9_]*\s*\($/, // Any incomplete function call
   ];
   
   return incompletePatterns.some(pattern => pattern.test(expression.trim()));
 }
-
   /**
    * Basic safety check for expressions
    */

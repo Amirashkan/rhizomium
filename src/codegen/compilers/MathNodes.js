@@ -262,7 +262,10 @@ export class MathNodes {
   /**
    * Compile circle field with expression support and validation
    */
-  compileCircleField(node, getInput, nodeId) {
+compileCircleField(node, getInput, nodeId) {
+    // Get UV input (falls back to in.uv if no input connected)
+    const uv = getInput(0, "vec2", "in.uv");
+    
     // Since CircleField now has no inputs, get parameters directly
     const radiusParam = node.params?.radius ?? 0.25;
     const epsilonParam = node.params?.epsilon ?? 0.02;
@@ -275,7 +278,8 @@ export class MathNodes {
       radiusParam, 
       evaluatedRadius: R, 
       epsilonParam, 
-      evaluatedEpsilon: E 
+      evaluatedEpsilon: E,
+      uvInput: uv  // Add this for debugging
     });
     
     // Ensure values are valid numbers for WGSL
@@ -283,8 +287,8 @@ export class MathNodes {
     const safeE = (typeof E === 'number' && isFinite(E)) ? E.toFixed(6) : '0.02';
     
     return {
-      line: `let node_${nodeId} = 1.0 - smoothstep((${safeR}) - max(${safeE}, 0.0001), (${safeR}) + max(${safeE}, 0.0001), distance(in.uv, vec2<f32>(0.5, 0.5)));`,
+      line: `let node_${nodeId} = 1.0 - smoothstep((${safeR}) - max(${safeE}, 0.0001), (${safeR}) + max(${safeE}, 0.0001), distance(${uv}, vec2<f32>(0.5, 0.5)));`,
       outputType: "f32"
     };
-  }
+}
 }

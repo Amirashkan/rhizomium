@@ -7,6 +7,7 @@ import { VectorNodes } from './nodes/VectorNodes.js';
 import { UtilityNodes } from './nodes/UtilityNodes.js';
 import { NoiseNodes } from './nodes/NoiseNodes.js';
 import { TextureNodes } from './nodes/TextureNodes.js';
+import { TransformNodes } from './nodes/TransformNodes.js';
 
 let _nextId = 1;
 
@@ -22,6 +23,7 @@ export const NodeDefs = {
   ...UtilityNodes,
   ...NoiseNodes,
   ...TextureNodes,
+  ...TransformNodes,
 };
 
 /**
