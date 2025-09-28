@@ -234,56 +234,98 @@ export class Editor {
   }
 
   // PERFORMANCE FIX: Completely rewritten GPU animation loop
-  setupOptimizedGPUAnimationLoop() {
-    // Clear any existing loop
-    if (this.gpuAnimationLoop) {
-      clearInterval(this.gpuAnimationLoop);
-      this.gpuAnimationLoop = null;
+ setupOptimizedGPUAnimationLoop() {
+  // Clear any existing loop
+  if (this.gpuAnimationLoop) {
+    clearInterval(this.gpuAnimationLoop);
+    this.gpuAnimationLoop = null;
+  }
+  
+  if (this.gpuAnimationRequestId) {
+    cancelAnimationFrame(this.gpuAnimationRequestId);
+    this.gpuAnimationRequestId = null;
+  }
+
+  // Initialize animation timing
+  this.animationFrame = 0;
+  this.lastAnimationTime = 0;
+
+  // CORRECTED: Find the actual GPU rendering function
+  const findGPURenderer = () => {
+    // Try different possible locations for the GPU renderer
+    if (window.gpuRenderer && window.gpuRenderer.render) {
+      return () => window.gpuRenderer.render();
     }
     
-    if (this.gpuAnimationRequestId) {
-      cancelAnimationFrame(this.gpuAnimationRequestId);
-      this.gpuAnimationRequestId = null;
+    // Check if it's a direct function
+    if (window.renderGPU && typeof window.renderGPU === 'function') {
+      return window.renderGPU;
     }
+    
+    // Check if it's in the global render function
+    if (window.render && typeof window.render === 'function') {
+      return window.render;
+    }
+    
+    // Check if it's in a different namespace
+    if (window.gpu && window.gpu.render) {
+      return () => window.gpu.render();
+    }
+    
+    // Import and use the GPU renderer directly
+    if (window.initWebGPU && window.drawFrame) {
+      return window.drawFrame;
+    }
+    
+    console.warn('GPU renderer not found, falling back to rebuild');
+    return null;
+  };
 
-    // Initialize animation timing
-    this.animationFrame = 0;
-    this.lastAnimationTime = 0;
+  const gpuRenderFunction = findGPURenderer();
+  console.log('GPU render function found:', !!gpuRenderFunction);
 
-    // OPTIMIZATION: Use requestAnimationFrame instead of setInterval
-    // This syncs with display refresh rate and doesn't rebuild shaders
-    const animate = (timestamp) => {
-      try {
-        // CRITICAL FIX: Don't rebuild shaders, just update uniforms
-        // The GPU renderer will handle time updates automatically
-        
-        // Update animation context for expressions
-        this.updateAnimationContext(timestamp / 1000, this.animationFrame);
-        this.animationFrame++;
-        
-        // OPTIMIZATION: Only trigger GPU render, not full rebuild
-        // The GPU renderer's render() function will update time uniforms automatically
-        const hasTimeExpressions = this.hasTimeBasedExpressions();
+  // OPTIMIZATION: Use requestAnimationFrame with proper GPU rendering
+  const animate = (timestamp) => {
+    try {
+      // Update animation context for expressions
+      this.updateAnimationContext(timestamp / 1000, this.animationFrame);
+      this.animationFrame++;
+      
+      // Check if we have time expressions (with caching)
+      const hasTimeExpressions = this.hasTimeBasedExpressions();
 
-        if (hasTimeExpressions) {
-          // Just trigger GPU render, don't rebuild the entire shader!
-          if (window.gpuRenderer && window.gpuRenderer.render) {
-            window.gpuRenderer.render();
-          }
+      if (hasTimeExpressions) {
+        if (gpuRenderFunction) {
+          // CORRECTED: Call the actual GPU render function
+          gpuRenderFunction();
+        } else {
+          // FALLBACK: Use the existing rebuild system (less optimal but works)
+          this.triggerShaderRebuild('Time Animation');
         }
-        
-      } catch (error) {
-        console.warn('Error in GPU animation loop:', error);
       }
       
-      // Continue the loop
-      this.gpuAnimationRequestId = requestAnimationFrame(animate);
-    };
-
-    // Start the animation loop
+    } catch (error) {
+      console.warn('Error in GPU animation loop:', error);
+    }
+    
+    // Continue the loop
     this.gpuAnimationRequestId = requestAnimationFrame(animate);
-    console.log('Optimized GPU animation loop started (no shader rebuilding)');
+  };
+
+  // Start the animation loop
+  this.gpuAnimationRequestId = requestAnimationFrame(animate);
+  console.log('Corrected GPU animation loop started');
+}
+
+// ADDITIONAL FIX: Add method to manually connect GPU renderer
+connectGPURenderer(renderFunction) {
+  if (typeof renderFunction === 'function') {
+    this.gpuRenderFunction = renderFunction;
+    console.log('GPU renderer manually connected to Editor');
+  } else {
+    console.warn('Invalid GPU render function provided');
   }
+}
 
   // PERFORMANCE OPTIMIZATION: Cache time expression detection
   hasTimeBasedExpressions() {
