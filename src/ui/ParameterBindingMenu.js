@@ -52,6 +52,10 @@ export class ParameterBindingMenu {
   }
 
   showForParameter(event, inputElement) {
+        if (!this.selectionManager || !this.selectionManager.selectedNode) {
+        console.warn('No node selected for parameter binding');
+        return;
+    }
     const paramName = inputElement.getAttribute('data-param');
     const node = this.paramPanel.selectedNode;
     

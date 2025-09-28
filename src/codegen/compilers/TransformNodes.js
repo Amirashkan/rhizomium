@@ -53,8 +53,6 @@ getParam(node, name, defaultValue) {
   // Check if it's an expression and evaluate it
   if (typeof value === 'string' && value.startsWith('=')) {
     try {
-        if (this.isIncompleteExpression(value.slice(1))) {
-        return defaultValue;}
       // Use the global expression system
       if (window.editor?.paramPanel?.expressionSystem) {
         return window.editor.paramPanel.expressionSystem.evaluateExpression(value, {}, node);
@@ -66,7 +64,6 @@ getParam(node, name, defaultValue) {
   
   return parseFloat(value) || defaultValue;
 }
-
   /**
    * Compile full 2D transformation matrix
    */
