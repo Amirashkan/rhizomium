@@ -198,7 +198,7 @@ async function initialize() {
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
-
+    window.render = drawFrame;
     await checkAutosaveRecovery();
     await updateShaderFromGraph();
 
@@ -897,15 +897,8 @@ function updateStatus(message, type = "info") {
 }
 
 function renderLoop() {
-  // Render GPU frame
-  if (__deviceReady) {
-    try {
-      drawFrame();
-    } catch (error) {
-      console.error("GPU render failed:", error);
-    }
-  }
-
+  const start = performance.now();
+  
   // Render editor UI
   if (editor) {
     try {
@@ -925,9 +918,13 @@ function renderLoop() {
     undoManager.updateUI();
   }
 
+  const end = performance.now();
+  if (end - start > 16) {
+    console.log('Slow frame:', end - start, 'ms');
+  }
+
   requestAnimationFrame(renderLoop);
 }
-
 // Enhanced backup management
 function showBackupDialog() {
   if (backupDialog) {

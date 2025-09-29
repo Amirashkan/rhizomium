@@ -245,13 +245,14 @@ function createPipelineAndBindGroup(wgsl) {
 
 export function render() {
   if (!_device || !_context || !_pipeline) return;
+  window._gpuFrameCount = (window._gpuFrameCount || 0) + 1;
 
   try {
-    // PERFORMANCE OPTIMIZATION: Only update uniforms occasionally, not every frame
+    // Update uniforms
     if (_bindGroup) {
       const now = performance.now();
       if (now - _lastTimeUpdate >= UNIFORM_UPDATE_INTERVAL) {
-        _uniformData[0] = now / 1000; // time in seconds
+        _uniformData[0] = now / 1000;
         _device.queue.writeBuffer(_uniformBuffer, 0, _uniformData);
         _lastTimeUpdate = now;
       }
@@ -274,7 +275,6 @@ export function render() {
 
     pass.setPipeline(_pipeline);
 
-    // Only set bind group if the shader expects it
     if (_bindGroup) {
       pass.setBindGroup(0, _bindGroup);
     }
