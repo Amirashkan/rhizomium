@@ -139,8 +139,8 @@ export class PreviewSystem {
       component: 'renderer-registration'
     });
   }
-}
-  generateNodePreview(node) {
+}generateNodePreview(node) {
+
     try {
       if (!node) {
         console.warn('Null node provided for preview generation');

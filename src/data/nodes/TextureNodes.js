@@ -12,6 +12,9 @@ export const TextureNodes = {
     pinsOut: [
       { label: "RGBA", type: "vec4" },
       { label: "RGB", type: "vec3" },
+      { label: "R", type: "f32" },
+      { label: "G", type: "f32" },
+      { label: "B", type: "f32" },
       { label: "A", type: "f32" },
     ],
     params: [

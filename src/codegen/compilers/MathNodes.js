@@ -7,10 +7,19 @@ export class MathNodes {
    */
   handles(kind) {
     const mathNodes = [
-      'Multiply', 'Add', 'Subtract', 'Divide',
-      'Sin', 'Cos', 'Tan', 'Floor', 'Fract', 'Abs', 'Sqrt',
-      'Pow', 'Min', 'Max', 'Clamp', 'Smoothstep', 'Step',
-      'Mix', 'Sign', 'Mod', 'Saturate', 'CircleField'
+      // Arithmetic
+      'Add', 'Subtract', 'Multiply', 'Divide', 'Power',
+      // Trigonometry
+      'Sin', 'Cos', 'Tan', 'Asin', 'Acos', 'Atan', 'Atan2',
+      // Math functions
+      'Floor', 'Ceil', 'Round', 'Fract', 'Abs', 'Sqrt', 'Sign', 'Mod',
+      'Exp', 'Exp2', 'Log', 'Log2',
+      // Range/Comparison
+      'Min', 'Max', 'Clamp',
+      // Interpolation
+      'Smoothstep', 'Step', 'Mix', 'Lerp', 'InverseLerp', 'Saturate',
+      // Utilities
+      'OneMinus', 'Negate', 'Reciprocal'
     ];
     return mathNodes.includes(kind);
   }
@@ -25,57 +34,88 @@ export class MathNodes {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
     
     switch (node.kind) {
-      // Vector math operations
-      case 'Multiply':
-        return this.compileBinaryVectorOp(nodeId, getInput, '*', 'vec3<f32>(1.0)');
+      // Arithmetic Operations
       case 'Add':
-        return this.compileBinaryVectorOp(nodeId, getInput, '+', 'vec3<f32>(0.0)');
+        return this.compileBinaryOp(nodeId, getInput, '+', '0.0', '0.0');
       case 'Subtract':
-        return this.compileBinaryVectorOp(nodeId, getInput, '-', 'vec3<f32>(0.0)');
+        return this.compileBinaryOp(nodeId, getInput, '-', '0.0', '0.0');
+      case 'Multiply':
+        return this.compileBinaryOp(nodeId, getInput, '*', '1.0', '1.0');
       case 'Divide':
         return this.compileDivide(nodeId, getInput);
+      case 'Power':
+        return this.compileBinaryMath(nodeId, getInput, 'pow', '1.0', '2.0');
         
-      // Single value math functions
+      // Trigonometric Functions
       case 'Sin':
         return this.compileUnaryMath(nodeId, getInput, 'sin');
       case 'Cos':
         return this.compileUnaryMath(nodeId, getInput, 'cos');
       case 'Tan':
         return this.compileUnaryMath(nodeId, getInput, 'tan');
+      case 'Asin':
+        return this.compileUnaryMath(nodeId, getInput, 'asin');
+      case 'Acos':
+        return this.compileUnaryMath(nodeId, getInput, 'acos');
+      case 'Atan':
+        return this.compileUnaryMath(nodeId, getInput, 'atan');
+      case 'Atan2':
+        return this.compileBinaryMath(nodeId, getInput, 'atan2', '0.0', '1.0');
+        
+      // Mathematical Functions
       case 'Floor':
         return this.compileUnaryMath(nodeId, getInput, 'floor');
+      case 'Ceil':
+        return this.compileUnaryMath(nodeId, getInput, 'ceil');
+      case 'Round':
+        return this.compileUnaryMath(nodeId, getInput, 'round');
       case 'Fract':
         return this.compileUnaryMath(nodeId, getInput, 'fract');
       case 'Abs':
         return this.compileUnaryMath(nodeId, getInput, 'abs');
       case 'Sqrt':
         return this.compileSqrt(nodeId, getInput);
+      case 'Sign':
+        return this.compileUnaryMath(nodeId, getInput, 'sign');
+      case 'Mod':
+        return this.compileMod(nodeId, getInput);
+      case 'Exp':
+        return this.compileUnaryMath(nodeId, getInput, 'exp');
+      case 'Exp2':
+        return this.compileUnaryMath(nodeId, getInput, 'exp2');
+      case 'Log':
+        return this.compileUnaryMath(nodeId, getInput, 'log');
+      case 'Log2':
+        return this.compileUnaryMath(nodeId, getInput, 'log2');
         
-      // Binary math functions
-      case 'Pow':
-        return this.compileBinaryMath(nodeId, getInput, 'pow', '1.0', '2.0');
+      // Range and Comparison Functions
       case 'Min':
         return this.compileBinaryMath(nodeId, getInput, 'min', '0.0', '0.0');
       case 'Max':
         return this.compileBinaryMath(nodeId, getInput, 'max', '0.0', '0.0');
-        
-      // Special functions
       case 'Clamp':
         return this.compileClamp(nodeId, getInput);
+        
+      // Interpolation Functions
       case 'Smoothstep':
         return this.compileSmoothstep(nodeId, getInput);
       case 'Step':
         return this.compileStep(nodeId, getInput);
       case 'Mix':
+      case 'Lerp':
         return this.compileMix(nodeId, getInput);
-      case 'Sign':
-        return this.compileUnaryMath(nodeId, getInput, 'sign');
-      case 'Mod':
-        return this.compileMod(nodeId, getInput);
+      case 'InverseLerp':
+        return this.compileInverseLerp(nodeId, getInput);
       case 'Saturate':
         return this.compileSaturate(nodeId, getInput);
-      case 'CircleField':
-        return this.compileCircleField(node, getInput, nodeId);
+        
+      // Utility Operations
+      case 'OneMinus':
+        return this.compileOneMinus(nodeId, getInput);
+      case 'Negate':
+        return this.compileNegate(nodeId, getInput);
+      case 'Reciprocal':
+        return this.compileReciprocal(nodeId, getInput);
         
       default:
         return null;
@@ -83,25 +123,27 @@ export class MathNodes {
   }
   
   /**
-   * Compile binary vector operations
+   * Compile binary operations
    */
-  compileBinaryVectorOp(nodeId, getInput, operator, defaultValue) {
-    const A = getInput(0, "vec3", defaultValue);
-    const B = getInput(1, "vec3", defaultValue);
-    const line = `let node_${nodeId} = (${A}) ${operator} (${B});`;
-    console.log(`${operator} line: ${line}`);
-    return { line, outputType: "vec3" };
+  compileBinaryOp(nodeId, getInput, operator, default1, default2) {
+    const a = getInput(0, "f32", default1);
+    const b = getInput(1, "f32", default2);
+    return {
+      line: `let node_${nodeId} = (${a}) ${operator} (${b});`,
+      outputType: "f32"
+    };
   }
   
   /**
    * Compile divide with safety check
    */
   compileDivide(nodeId, getInput) {
-    const A = getInput(0, "vec3", "vec3<f32>(1.0)");
-    const B = getInput(1, "vec3", "vec3<f32>(1.0)");
-    const line = `let node_${nodeId} = (${A}) / max((${B}), vec3<f32>(0.0001));`;
-    console.log(`Divide line: ${line}`);
-    return { line, outputType: "vec3" };
+    const a = getInput(0, "f32", "1.0");
+    const b = getInput(1, "f32", "1.0");
+    return {
+      line: `let node_${nodeId} = (${a}) / max((${b}), 0.0001);`,
+      outputType: "f32"
+    };
   }
   
   /**
@@ -177,15 +219,39 @@ export class MathNodes {
   }
   
   /**
-   * Compile mix function
+   * Compile mix/lerp function
    */
   compileMix(nodeId, getInput) {
-    const a = getInput(0, "vec3", "vec3<f32>(0.0)");
-    const b = getInput(1, "vec3", "vec3<f32>(1.0)");
+    const a = getInput(0, "f32", "0.0");
+    const b = getInput(1, "f32", "1.0");
     const t = getInput(2, "f32", "0.5");
     return {
       line: `let node_${nodeId} = mix(${a}, ${b}, ${t});`,
-      outputType: "vec3"
+      outputType: "f32"
+    };
+  }
+  
+  /**
+   * Compile inverse lerp function
+   */
+  compileInverseLerp(nodeId, getInput) {
+    const a = getInput(0, "f32", "0.0");
+    const b = getInput(1, "f32", "1.0");
+    const value = getInput(2, "f32", "0.5");
+    return {
+      line: `let node_${nodeId} = clamp((${value} - ${a}) / max(${b} - ${a}, 0.0001), 0.0, 1.0);`,
+      outputType: "f32"
+    };
+  }
+  
+  /**
+   * Compile saturate function (clamp 0-1)
+   */
+  compileSaturate(nodeId, getInput) {
+    const v = getInput(0, "f32", "0.0");
+    return {
+      line: `let node_${nodeId} = clamp(${v}, 0.0, 1.0);`,
+      outputType: "f32"
     };
   }
   
@@ -202,93 +268,35 @@ export class MathNodes {
   }
   
   /**
-   * Compile saturate function
+   * Compile OneMinus (1.0 - x)
    */
-  compileSaturate(nodeId, getInput) {
-    const v = getInput(0, "vec3", "vec3<f32>(0.0)");
+  compileOneMinus(nodeId, getInput) {
+    const x = getInput(0, "f32", "0.0");
     return {
-      line: `let node_${nodeId} = clamp(${v}, vec3<f32>(0.0), vec3<f32>(1.0));`,
-      outputType: "vec3"
-    };
-  }
-  
-  /**
-   * Check if expression is incomplete (to avoid compilation errors)
-   */
-  isIncompleteExpression(expression) {
-    const incompletePatterns = [
-      /[+\-*/]$/, // Ends with operator
-      /[+\-*/]\s*$/, // Ends with operator and whitespace
-      /\($/, // Ends with opening parenthesis
-      /,\s*$/, // Ends with comma
-      /^\s*$/, // Empty or whitespace only
-    ];
-    
-    return incompletePatterns.some(pattern => pattern.test(expression.trim()));
-  }
-  
-  /**
-   * Safely evaluate expression parameter
-   */
-  safeEvaluateParameter(paramValue, defaultValue, node) {
-    if (typeof paramValue !== 'string' || !paramValue.startsWith('=')) {
-      return parseFloat(paramValue) || defaultValue;
-    }
-    
-    try {
-      const expression = paramValue.slice(1).trim();
-      
-      // Check for incomplete expressions
-      if (this.isIncompleteExpression(expression)) {
-        console.log('Incomplete expression detected, using default:', expression);
-        return defaultValue;
-      }
-      
-      // Evaluate complete expression
-      if (window.editor?.paramPanel?.expressionSystem) {
-        const result = window.editor.paramPanel.expressionSystem.evaluateExpression(paramValue, {}, node);
-        console.log('Expression evaluated:', { paramValue, result });
-        return result;
-      } else {
-        console.warn('Expression system not available');
-        return defaultValue;
-      }
-    } catch (error) {
-      console.warn('Expression evaluation failed during compilation:', error);
-      return defaultValue;
-    }
-  }
-  
-  /**
-   * Compile circle field with expression support and validation
-   */
-compileCircleField(node, getInput, nodeId) {
-    // Get UV input (falls back to in.uv if no input connected)
-    const uv = getInput(0, "vec2", "in.uv");
-    
-    // Since CircleField now has no inputs, get parameters directly
-    const radiusParam = node.params?.radius ?? 0.25;
-    const epsilonParam = node.params?.epsilon ?? 0.02;
-    
-    // Safely evaluate parameters with validation
-    const R = this.safeEvaluateParameter(radiusParam, 0.25, node);
-    const E = this.safeEvaluateParameter(epsilonParam, 0.02, node);
-    
-    console.log('CircleField compiling with:', { 
-      radiusParam, 
-      evaluatedRadius: R, 
-      epsilonParam, 
-      evaluatedEpsilon: E,
-      uvInput: uv  // Add this for debugging
-    });
-    
-    // Ensure values are valid numbers for WGSL
-    const safeR = (typeof R === 'number' && isFinite(R)) ? R.toFixed(6) : '0.25';
-    const safeE = (typeof E === 'number' && isFinite(E)) ? E.toFixed(6) : '0.02';
-    
-    return {
-      line: `let node_${nodeId} = 1.0 - smoothstep((${safeR}) - max(${safeE}, 0.0001), (${safeR}) + max(${safeE}, 0.0001), distance(${uv}, vec2<f32>(0.5, 0.5)));`,
+      line: `let node_${nodeId} = 1.0 - (${x});`,
       outputType: "f32"
     };
-}
+  }
+  
+  /**
+   * Compile Negate (-x)
+   */
+  compileNegate(nodeId, getInput) {
+    const x = getInput(0, "f32", "0.0");
+    return {
+      line: `let node_${nodeId} = -(${x});`,
+      outputType: "f32"
+    };
+  }
+  
+  /**
+   * Compile Reciprocal (1.0 / x)
+   */
+  compileReciprocal(nodeId, getInput) {
+    const x = getInput(0, "f32", "1.0");
+    return {
+      line: `let node_${nodeId} = 1.0 / max(${x}, 0.0001);`,
+      outputType: "f32"
+    };
+  }
 }

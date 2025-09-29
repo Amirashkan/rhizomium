@@ -86,7 +86,6 @@ export class RadialMenu {
   }
 
   _handleDocumentClick(e) {
-    // Only close on LEFT click outside the menu, not right-click
     if (e.button === 0 && (!this.element || !this.element.contains(e.target))) {
       this.hide();
     }
@@ -646,7 +645,6 @@ export class RadialMenu {
     const visibleNodes = this._getVisibleNodes(category.items, scrollOffset);
 
     const categoryAngle = category._angle;
-    // WIDE submenus with MORE distance between them
     const nodeAngleSpread = Math.PI / 1.1;
     const startAngle = categoryAngle - nodeAngleSpread / 2;
     const angleStep = nodeAngleSpread / Math.max(1, this.maxVisibleNodes - 1);
@@ -655,7 +653,6 @@ export class RadialMenu {
       const nodeAngle = startAngle + index * angleStep;
       const isSelected = this.selectedNodeIndex === index;
 
-      // WIDE segments like you wanted
       const segmentStartAngle = nodeAngle - angleStep / 1.6;
       const segmentEndAngle = nodeAngle + angleStep / 1.6;
 
@@ -844,6 +841,7 @@ export class RadialMenu {
         Input: "#1e40af",
         Math: "#991b1b",
         Field: "#047857",
+        Transform: "#c2410c",
         Utility: "#581c87",
         Output: "#92400e",
       }[categoryName] || "#374151"
@@ -856,6 +854,7 @@ export class RadialMenu {
         Input: "#1e3a8a",
         Math: "#7f1d1d",
         Field: "#064e3b",
+        Transform: "#9a3412",
         Utility: "#4c1d95",
         Output: "#78350f",
       }[categoryName] || "#2d3748"
@@ -868,6 +867,7 @@ export class RadialMenu {
         Input: "#2563eb",
         Math: "#b91c1c",
         Field: "#065f46",
+        Transform: "#ea580c",
         Utility: "#6d28d9",
         Output: "#a16207",
       }[categoryName] || "#374151"

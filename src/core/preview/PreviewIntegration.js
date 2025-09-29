@@ -70,15 +70,17 @@ updateTimeNodes() {
   );
 
   if (timeNodes.length > 0) {
-    // OPTIMIZATION: Only update if significant time has passed
+    // ADD THIS CHECK to throttle updates
     const now = performance.now();
-    if (now - this.lastSignificantUpdate < 33) { // 30 FPS max
+    if (!this.lastSignificantUpdate) this.lastSignificantUpdate = 0;
+    
+    // Only update every 100ms (10 FPS) instead of every frame (60+ FPS)
+    if (now - this.lastSignificantUpdate < 100) {
       return;
     }
     this.lastSignificantUpdate = now;
 
     let needsRedraw = false;
-    
     timeNodes.forEach((node) => {
       this.previewSystem.generateNodePreview(node);
       needsRedraw = true;

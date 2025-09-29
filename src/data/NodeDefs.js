@@ -3,26 +3,28 @@ import { InputNodes } from './nodes/InputNodes.js';
 import { OutputNodes } from './nodes/OutputNodes.js';
 import { FieldNodes } from './nodes/FieldNodes.js';
 import { MathNodes } from './nodes/MathNodes.js';
-import { VectorNodes } from './nodes/VectorNodes.js';
 import { UtilityNodes } from './nodes/UtilityNodes.js';
-import { NoiseNodes } from './nodes/NoiseNodes.js';
-import { TextureNodes } from './nodes/TextureNodes.js';
 import { TransformNodes } from './nodes/TransformNodes.js';
 
 let _nextId = 1;
 
 /**
  * Central registry of all node definitions organized by category
+ * 
+ * Categories:
+ * - Input: Constants, runtime data, and textures (13 nodes)
+ * - Math: Scalar and vector mathematical operations (43 nodes)
+ * - Field: Procedural patterns and noise generation (20 nodes)
+ * - Transform: UV coordinate manipulation (11 nodes)
+ * - Utility: Data manipulation and component operations (19 nodes)
+ * - Output: Final rendering (1 node)
  */
 export const NodeDefs = {
   ...OutputNodes,
   ...InputNodes,
   ...FieldNodes,
   ...MathNodes,
-  ...VectorNodes,
   ...UtilityNodes,
-  ...NoiseNodes,
-  ...TextureNodes,
   ...TransformNodes,
 };
 

@@ -33,7 +33,7 @@ export class TextureNodes {
    */
   compileTexture2D(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const textureId = nodeId; // Use sanitized node ID
+    const textureId = nodeId;
     
     const line = `let node_${nodeId} = textureSample(texture_${textureId}, sampler_${textureId}, ${uv});`;
     console.log(`Texture2D line: ${line}`);
@@ -50,7 +50,7 @@ export class TextureNodes {
   compileTextureCube(node, getInput, nodeId) {
     const dir = getInput(0, "vec3", 
       "normalize(vec3<f32>(in.uv.x * 2.0 - 1.0, in.uv.y * 2.0 - 1.0, 1.0))");
-    const textureId = nodeId; // Use sanitized node ID
+    const textureId = nodeId;
     
     const line = `let node_${nodeId} = textureSample(textureCube_${textureId}, samplerCube_${textureId}, ${dir});`;
     console.log(`TextureCube line: ${line}`);

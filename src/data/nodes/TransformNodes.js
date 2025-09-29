@@ -1,25 +1,24 @@
 // src/data/nodes/TransformNodes.js
 
 /**
- * Transform node definitions for UV coordinate transformation
+ * Transform node definitions for UV coordinate manipulation
  */
 export const TransformNodes = {
+  // === BASIC TRANSFORMS ===
   Transform2D: {
     label: "Transform 2D",
     cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [
-      { label: "UV", type: "vec2" }
-    ],
+    pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "translateX", type: "number", default: 0.0, label: "Translate X", step: 0.01 },
-      { name: "translateY", type: "number", default: 0.0, label: "Translate Y", step: 0.01 },
-      { name: "scaleX", type: "number", default: 1.0, label: "Scale X", step: 0.01, min: 0.01 },
-      { name: "scaleY", type: "number", default: 1.0, label: "Scale Y", step: 0.01, min: 0.01 },
-      { name: "rotation", type: "number", default: 0.0, label: "Rotation (rad)", step: 0.01 },
-      { name: "centerX", type: "number", default: 0.5, label: "Center X", step: 0.01 },
-      { name: "centerY", type: "number", default: 0.5, label: "Center Y", step: 0.01 }
+      { name: "translateX", type: "float", default: 0.0, label: "Translate X" },
+      { name: "translateY", type: "float", default: 0.0, label: "Translate Y" },
+      { name: "scaleX", type: "float", default: 1.0, label: "Scale X" },
+      { name: "scaleY", type: "float", default: 1.0, label: "Scale Y" },
+      { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
+      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
     ],
   },
 
@@ -28,14 +27,12 @@ export const TransformNodes = {
     cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [
-      { label: "UV", type: "vec2" }
-    ],
+    pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "scaleX", type: "number", default: 1.0, label: "Scale X", step: 0.01, min: 0.01 },
-      { name: "scaleY", type: "number", default: 1.0, label: "Scale Y", step: 0.01, min: 0.01 },
-      { name: "centerX", type: "number", default: 0.5, label: "Center X", step: 0.01 },
-      { name: "centerY", type: "number", default: 0.5, label: "Center Y", step: 0.01 }
+      { name: "scaleX", type: "float", default: 1.0, label: "Scale X" },
+      { name: "scaleY", type: "float", default: 1.0, label: "Scale Y" },
+      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
     ],
   },
 
@@ -44,36 +41,23 @@ export const TransformNodes = {
     cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [
-      { label: "UV", type: "vec2" }
-    ],
+    pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "rotation", type: "number", default: 0.0, label: "Rotation (rad)", step: 0.01 },
-      { name: "centerX", type: "number", default: 0.5, label: "Center X", step: 0.01 },
-      { name: "centerY", type: "number", default: 0.5, label: "Center Y", step: 0.01 }
+      { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
+      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
     ],
   },
-UVToColor: {
-  label: "UV to Color",
-  cat: "Transform",
-  inputs: 1,
-  pinsIn: ["UV"],
-  pinsOut: [
-    { label: "RGB", type: "vec3" }
-  ],
-  params: []
-},
+
   Translate2D: {
     label: "Translate 2D",
     cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [
-      { label: "UV", type: "vec2" }
-    ],
+    pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "translateX", type: "number", default: 0.0, label: "Translate X", step: 0.01 },
-      { name: "translateY", type: "number", default: 0.0, label: "Translate Y", step: 0.01 }
+      { name: "translateX", type: "float", default: 0.0, label: "Translate X" },
+      { name: "translateY", type: "float", default: 0.0, label: "Translate Y" },
     ],
   },
 
@@ -82,14 +66,12 @@ UVToColor: {
     cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [
-      { label: "UV", type: "vec2" }
-    ],
+    pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "tilingX", type: "number", default: 1.0, label: "Tiling X", step: 0.01, min: 0.01 },
-      { name: "tilingY", type: "number", default: 1.0, label: "Tiling Y", step: 0.01, min: 0.01 },
-      { name: "offsetX", type: "number", default: 0.0, label: "Offset X", step: 0.01 },
-      { name: "offsetY", type: "number", default: 0.0, label: "Offset Y", step: 0.01 }
+      { name: "tilingX", type: "float", default: 1.0, label: "Tiling X" },
+      { name: "tilingY", type: "float", default: 1.0, label: "Tiling Y" },
+      { name: "offsetX", type: "float", default: 0.0, label: "Offset X" },
+      { name: "offsetY", type: "float", default: 0.0, label: "Offset Y" },
     ],
   },
 
@@ -98,12 +80,77 @@ UVToColor: {
     cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [
-      { label: "UV", type: "vec2" }
-    ],
+    pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "flipX", type: "boolean", default: false, label: "Flip X" },
-      { name: "flipY", type: "boolean", default: false, label: "Flip Y" }
+      { name: "flipX", type: "bool", default: false, label: "Flip X" },
+      { name: "flipY", type: "bool", default: false, label: "Flip Y" },
     ],
-  }
+  },
+
+  // === COORDINATE CONVERSION ===
+  UVToColor: {
+    label: "UV to Color",
+    cat: "Transform",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [{ label: "out", type: "vec3" }],
+    params: [],
+  },
+
+  PolarCoordinates: {
+    label: "Polar Coordinates",
+    cat: "Transform",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [{ label: "out", type: "vec2" }],
+    params: [
+      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "radialScale", type: "float", default: 1.0, label: "Radial Scale" },
+      { name: "angularScale", type: "float", default: 1.0, label: "Angular Scale" },
+    ],
+  },
+
+  // === DISTORTION EFFECTS ===
+  Spherize: {
+    label: "Spherize",
+    cat: "Transform",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [{ label: "out", type: "vec2" }],
+    params: [
+      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "strength", type: "float", default: 0.5, label: "Strength" },
+      { name: "radius", type: "float", default: 0.5, label: "Radius" },
+    ],
+  },
+
+  Twirl: {
+    label: "Twirl",
+    cat: "Transform",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [{ label: "out", type: "vec2" }],
+    params: [
+      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "strength", type: "float", default: 1.0, label: "Strength" },
+      { name: "radius", type: "float", default: 0.5, label: "Radius" },
+    ],
+  },
+
+  Kaleidoscope: {
+    label: "Kaleidoscope",
+    cat: "Transform",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [{ label: "out", type: "vec2" }],
+    params: [
+      { name: "segments", type: "int", default: 6, label: "Segments" },
+      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
+    ],
+  },
 };

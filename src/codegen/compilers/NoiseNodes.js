@@ -5,7 +5,7 @@ export class NoiseNodes {
   handles(kind) {
     const noiseTypes = [
       'Random', 'ValueNoise', 'FBMNoise', 'SimplexNoise', 
-      'VoronoiNoise', 'RidgedNoise', 'WarpNoise'
+    'VoronoiNoise', 'RidgedNoise', 'WarpNoise', 'PerlinNoise'
     ];
     return noiseTypes.includes(kind);
   }

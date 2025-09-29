@@ -10,7 +10,6 @@ import { PreviewSystem } from "./PreviewSystem.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
-
 export class Editor {
   constructor(graph, onChange, undoManager = null) {
     try {
@@ -239,15 +238,9 @@ setupOptimizedGPUAnimationLoop() {
     this.updateAnimationContext(timestamp / 1000, this.animationFrame);
     this.animationFrame++;
     
-    const hasTimeExpressions = this.hasTimeBasedExpressions();
-
-    if (hasTimeExpressions) {
-      // FIXED: Call the correct function we established before
-      if (window.render && typeof window.render === 'function') {
-        window.render();
-      } else {
-        console.warn('window.render not available');
-      }
+    // ALWAYS render if GPU preview is visible
+    if (window.render && typeof window.render === 'function') {
+      window.render();
     }
     
     this.gpuAnimationRequestId = requestAnimationFrame(animate);

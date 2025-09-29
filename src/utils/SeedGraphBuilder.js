@@ -16,7 +16,7 @@ export class SeedGraphBuilder {
     const expr = makeNode("Expr", 260, 150);
     expr.expr = "a + sin(u_time*0.8)*0.05";
 
-    const circle = makeNode("CircleField", 480, 60);
+    const circle = makeNode("Circle", 480, 60);
     const multiply = makeNode("Multiply", 700, 60);
     const add = makeNode("Add", 920, 60);
     const saturate = makeNode("Saturate", 1140, 60);
