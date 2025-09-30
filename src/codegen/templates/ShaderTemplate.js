@@ -1,4 +1,6 @@
 // src/codegen/templates/ShaderTemplate.js
+import { OPTIMIZED_NOISE_FUNCTIONS_WGSL } from '../compilers/NoiseNodes.js';
+
 export class ShaderTemplate {
   /**
    * Get the default shader when no valid graph is provided
@@ -84,28 +86,34 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
   
   /**
    * Get utility functions for noise and math operations
+   * INCLUDES: Basic utilities + Legacy noise + Optimized noise functions
    * @returns {string}
    */
   getUtilityFunctions() {
-    return `fn random(st: vec2<f32>) -> f32 {
+    return `
+// ============================================================================
+// BASIC UTILITY FUNCTIONS
+// ============================================================================
+
+fn random(st: vec2<f32>) -> f32 {
   return fract(sin(dot(st, vec2<f32>(12.9898, 78.233))) * 43758.5453);
 }
+
 fn rectField(uv: vec2<f32>, center: vec2<f32>, size: vec2<f32>, epsilon: f32) -> f32 {
   let d = abs(uv - center) - size * 0.5;
   let dist = length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
   return 1.0 - smoothstep(-epsilon, epsilon, dist);
 }
 
-fn valueNoise(st: vec2<f32>) -> f32 {
-  let i = floor(st);
-  let f = fract(st);
-  let a = random(i);
-  let b = random(i + vec2<f32>(1.0, 0.0));
-  let c = random(i + vec2<f32>(0.0, 1.0));
-  let d = random(i + vec2<f32>(1.0, 1.0));
-  let u = f * f * (3.0 - 2.0 * f);
-  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
-}
+// ============================================================================
+// OPTIMIZED NOISE FUNCTIONS (from NoiseNodes.js)
+// ============================================================================
+
+${OPTIMIZED_NOISE_FUNCTIONS_WGSL}
+
+// ============================================================================
+// LEGACY/ADDITIONAL NOISE FUNCTIONS (kept for compatibility)
+// ============================================================================
 
 fn fbm(st: vec2<f32>, octaves: i32, persistence: f32, lacunarity: f32) -> f32 {
   var value = 0.0;
@@ -119,23 +127,6 @@ fn fbm(st: vec2<f32>, octaves: i32, persistence: f32, lacunarity: f32) -> f32 {
     frequency *= lacunarity;
   }
   return value / maxValue;
-}
-
-fn simplexNoise(st: vec2<f32>) -> f32 {
-  let K1 = 0.366025404;
-  let K2 = 0.211324865;
-  let i = floor(st + (st.x + st.y) * K1);
-  let a = st - i + (i.x + i.y) * K2;
-  let o = vec2<f32>(step(a.y, a.x), 1.0 - step(a.y, a.x));
-  let b = a - o + K2;
-  let c = a - 1.0 + 2.0 * K2;
-  let h = max(0.5 - vec3<f32>(dot(a, a), dot(b, b), dot(c, c)), vec3<f32>(0.0));
-  let n = h * h * h * h * vec3<f32>(
-    dot(a, vec2<f32>(random(i) - 0.5, random(i + vec2<f32>(1.0, 0.0)) - 0.5)),
-    dot(b, vec2<f32>(random(i + o) - 0.5, random(i + o + vec2<f32>(1.0, 0.0)) - 0.5)),
-    dot(c, vec2<f32>(random(i + vec2<f32>(1.0)) - 0.5, random(i + vec2<f32>(2.0, 1.0)) - 0.5))
-  );
-  return dot(n, vec3<f32>(70.0));
 }
 
 fn voronoi(st: vec2<f32>, randomness: f32) -> vec2<f32> {
@@ -161,27 +152,6 @@ fn voronoi(st: vec2<f32>, randomness: f32) -> vec2<f32> {
   return vec2<f32>(minDist, minPoint.x);
 }
 
-fn ridgedNoise(st: vec2<f32>, octaves: i32, lacunarity: f32, gain: f32, offset: f32, threshold: f32) -> f32 {
-  var value = 0.0;
-  var amplitude = 1.0;
-  var frequency = 1.0;
-  var prev = 1.0;
-  
-  for (var i = 0; i < octaves; i++) {
-    var n = valueNoise(st * frequency);
-    n = abs(n);
-    n = offset - n;
-    n = n * n;
-    n = n * prev;
-    prev = n;
-    value += n * amplitude;
-    amplitude *= gain;
-    frequency *= lacunarity;
-  }
-  
-  return max(value - threshold, 0.0);
-}
-
 fn warpedNoise(st: vec2<f32>, scale: f32, warpScale: f32, warpStrength: f32, octaves: i32) -> f32 {
   let warp1 = vec2<f32>(
     valueNoise(st * warpScale),
@@ -195,9 +165,11 @@ fn warpedNoise(st: vec2<f32>, scale: f32, warpScale: f32, warpStrength: f32, oct
   
   let warpedPos = st + warpStrength * warp2;
   return fbm(warpedPos * scale, octaves, 0.5, 2.0);
-}`;
+}
+`;
   }
 }
+
 export function generateShader(compiledData, textureBindings) {
   const { lines, uniformStruct } = compiledData;
   
@@ -207,7 +179,7 @@ export function generateShader(compiledData, textureBindings) {
   // Adjust parameter uniform binding based on texture presence
   let adjustedUniformStruct = uniformStruct || '';
   if (adjustedUniformStruct) {
-    const correctBinding = hasTextures ? 3 : 1;  // ← FIXED: was 3 : 2
+    const correctBinding = hasTextures ? 3 : 1;
     // Replace binding placeholder if it exists, otherwise add it
     if (adjustedUniformStruct.includes('@binding(')) {
       adjustedUniformStruct = adjustedUniformStruct.replace(/@binding\(\d+\)/, `@binding(${correctBinding})`);
@@ -264,24 +236,11 @@ ${lines.join('\n')}
 }
 
 function generateHelperFunctions() {
-  return `fn random(st: vec2<f32>) -> f32 {
+  return `
+${OPTIMIZED_NOISE_FUNCTIONS_WGSL}
+
+fn random(st: vec2<f32>) -> f32 {
   return fract(sin(dot(st, vec2<f32>(12.9898, 78.233))) * 43758.5453);
 }
-
-fn hash12(p: vec2<f32>) -> f32 {
-  var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-  p3 += dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
-fn valueNoise(st: vec2<f32>) -> f32 {
-  let i = floor(st);
-  let f = fract(st);
-  let a = random(i);
-  let b = random(i + vec2<f32>(1.0, 0.0));
-  let c = random(i + vec2<f32>(0.0, 1.0));
-  let d = random(i + vec2<f32>(1.0, 1.0));
-  let u = f * f * (3.0 - 2.0 * f);
-  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
-}`;
+`;
 }

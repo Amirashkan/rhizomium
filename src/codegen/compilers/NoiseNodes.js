@@ -1,11 +1,10 @@
-// src/codegen/compilers/NoiseNodes.js - OPTIMIZED VERSION
-// Key changes: Much faster simplex noise + LOD system for performance
+// src/codegen/compilers/NoiseNodes.js - FIXED & OPTIMIZED VERSION
 
 export class NoiseNodes {
   handles(kind) {
     const noiseTypes = [
       'Random', 'ValueNoise', 'FBMNoise', 'SimplexNoise', 
-    'VoronoiNoise', 'RidgedNoise', 'WarpNoise', 'PerlinNoise'
+      'VoronoiNoise', 'RidgedNoise', 'WarpNoise', 'PerlinNoise'
     ];
     return noiseTypes.includes(kind);
   }
@@ -21,7 +20,9 @@ export class NoiseNodes {
       case 'FBMNoise':
         return this.compileFBMNoise(node, getInput, nodeId);
       case 'SimplexNoise':
-        return this.compileOptimizedSimplexNoise(node, getInput, nodeId); // OPTIMIZED
+        return this.compileOptimizedSimplexNoise(node, getInput, nodeId);
+      case 'PerlinNoise':
+        return this.compilePerlinNoise(node, getInput, nodeId);
       case 'VoronoiNoise':
         return this.compileVoronoiNoise(node, getInput, nodeId);
       case 'RidgedNoise':
@@ -78,7 +79,7 @@ export class NoiseNodes {
     return '0.0';
   }
 
-  // OPTIMIZATION: New optimized simplex noise with LOD system
+  // OPTIMIZED: Simplex noise with LOD system
   compileOptimizedSimplexNoise(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const scale = this.formatParam(this.getParam(node, 'scale', 4.0));
@@ -87,21 +88,18 @@ export class NoiseNodes {
     const ridge = this.getParam(node, 'ridge', false);
     const turbulence = this.getParam(node, 'turbulence', false);
     
-    // OPTIMIZATION: Use faster noise for high frequency details
+    // LOD system: choose noise algorithm based on frequency
     const scaleValue = parseFloat(scale);
     let noiseCall;
     
     if (scaleValue > 10.0) {
       // High frequency - use fast hash-based noise
-      console.log(`Using fast noise for high frequency scale: ${scaleValue}`);
       noiseCall = `fastNoise(${uv} * ${scale})`;
     } else if (scaleValue > 5.0) {
-      // Medium frequency - use value noise (faster than simplex)
-      console.log(`Using value noise for medium frequency scale: ${scaleValue}`);
+      // Medium frequency - use value noise
       noiseCall = `valueNoise(${uv} * ${scale})`;
     } else {
       // Low frequency - use full simplex for quality
-      console.log(`Using simplex noise for low frequency scale: ${scaleValue}`);
       noiseCall = `simplexNoise(${uv} * ${scale})`;
     }
     
@@ -116,8 +114,18 @@ export class NoiseNodes {
     const line = `let node_${nodeId} = vec3<f32>(${noiseCall} * ${amplitude} + ${offset});`;
     return { line, outputType: "vec3" };
   }
+
+  // FIXED: Added Perlin Noise compiler
+  compilePerlinNoise(node, getInput, nodeId) {
+    const uv = getInput(0, "vec2", "in.uv");
+    const scale = this.formatParam(this.getParam(node, 'scale', 5.0));
+    const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
+    const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
+    
+    const line = `let node_${nodeId} = vec3<f32>(perlinNoise(${uv} * ${scale}) * ${amplitude} + ${offset});`;
+    return { line, outputType: "vec3" };
+  }
   
-  // Keep existing methods unchanged...
   compileRandom(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const seed = this.formatParam(this.getParam(node, 'seed', 1.0));
@@ -159,6 +167,7 @@ export class NoiseNodes {
     return { line, outputType: "vec3" };
   }
   
+  // FIXED: Voronoi now properly outputs multiple values
   compileVoronoiNoise(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const scale = this.formatParam(this.getParam(node, 'scale', 8.0));
@@ -168,8 +177,16 @@ export class NoiseNodes {
     const cellType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'cellType', 0))));
     const outputType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'outputType', 0))));
     
-    const line = `let node_${nodeId} = vec3<f32>(voronoiNoise(${uv} * ${scale}, ${randomness}, ${minkowskiP}, ${smoothness}, ${cellType}, ${outputType}));`;
-    return { line, outputType: "vec3" };
+    // Generate multiple outputs for Voronoi
+    const lines = [
+      `let voronoi_result_${nodeId} = voronoiNoise(${uv} * ${scale}, ${randomness}, ${minkowskiP}, ${smoothness}, ${cellType}, ${outputType});`,
+      `let node_${nodeId}_F1 = vec3<f32>(voronoi_result_${nodeId}.x);`,
+      `let node_${nodeId}_F2 = vec3<f32>(voronoi_result_${nodeId}.y);`,
+      `let node_${nodeId}_cells = vec3<f32>(voronoi_result_${nodeId}.z, voronoi_result_${nodeId}.w, 0.0);`,
+      `let node_${nodeId} = node_${nodeId}_F1;` // Default output
+    ];
+    
+    return { line: lines.join('\n  '), outputType: "vec3" };
   }
   
   compileRidgedNoise(node, getInput, nodeId) {
@@ -203,14 +220,17 @@ export class NoiseNodes {
     const scale = this.formatParam(this.getParam(node, 'scale', 5.0));
     
     console.warn(`Unknown noise type: ${node.kind}, using generic noise`);
-    const line = `let node_${nodeId} = vec3<f32>(fastNoise(${uv} * ${scale}));`; // Use fast noise for unknown types
+    const line = `let node_${nodeId} = vec3<f32>(fastNoise(${uv} * ${scale}));`;
     return { line, outputType: "vec3" };
   }
 }
 
-// OPTIMIZED WGSL Noise Functions
+// FIXED & OPTIMIZED WGSL Noise Functions
 export const OPTIMIZED_NOISE_FUNCTIONS_WGSL = `
-// FAST Hash functions - optimized for speed
+// ============================================================================
+// HASH FUNCTIONS
+// ============================================================================
+
 fn hash12(p: vec2<f32>) -> f32 {
   let p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
   return fract((p3.x + p3.y) * p3.z + dot(p3, vec3<f32>(33.33)));
@@ -221,11 +241,14 @@ fn hash22(p: vec2<f32>) -> vec2<f32> {
   return fract((p3.xx + p3.yz) * p3.zy + vec2<f32>(33.33));
 }
 
-// FAST NOISE - Much faster than simplex for high frequencies
+// ============================================================================
+// FAST NOISE - Optimized for high frequencies
+// ============================================================================
+
 fn fastNoise(p: vec2<f32>) -> f32 {
   let i = floor(p);
   let f = fract(p);
-  let u = f * f * (3.0 - 2.0 * f); // Smoother interpolation
+  let u = f * f * (3.0 - 2.0 * f);
   
   return mix(
     mix(hash12(i), hash12(i + vec2<f32>(1.0, 0.0)), u.x),
@@ -234,7 +257,10 @@ fn fastNoise(p: vec2<f32>) -> f32 {
   );
 }
 
-// VALUE NOISE - Medium performance, good quality
+// ============================================================================
+// VALUE NOISE - Balanced performance and quality
+// ============================================================================
+
 fn valueNoise(p: vec2<f32>) -> f32 {
   let i = floor(p);
   let f = fract(p);
@@ -247,7 +273,47 @@ fn valueNoise(p: vec2<f32>) -> f32 {
   );
 }
 
-// OPTIMIZED SIMPLEX NOISE - Reduced precision for speed
+// ============================================================================
+// PERLIN NOISE - Classic gradient noise
+// ============================================================================
+
+fn perlinNoise(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  
+  // Quintic interpolation
+  let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  
+  // Gradient vectors (normalized)
+  let g00 = normalize(hash22(i + vec2<f32>(0.0, 0.0)) * 2.0 - 1.0);
+  let g10 = normalize(hash22(i + vec2<f32>(1.0, 0.0)) * 2.0 - 1.0);
+  let g01 = normalize(hash22(i + vec2<f32>(0.0, 1.0)) * 2.0 - 1.0);
+  let g11 = normalize(hash22(i + vec2<f32>(1.0, 1.0)) * 2.0 - 1.0);
+  
+  // Distance vectors
+  let d00 = f - vec2<f32>(0.0, 0.0);
+  let d10 = f - vec2<f32>(1.0, 0.0);
+  let d01 = f - vec2<f32>(0.0, 1.0);
+  let d11 = f - vec2<f32>(1.0, 1.0);
+  
+  // Dot products
+  let n00 = dot(g00, d00);
+  let n10 = dot(g10, d10);
+  let n01 = dot(g01, d01);
+  let n11 = dot(g11, d11);
+  
+  // Bilinear interpolation
+  return mix(
+    mix(n00, n10, u.x),
+    mix(n01, n11, u.x),
+    u.y
+  );
+}
+
+// ============================================================================
+// SIMPLEX NOISE - Optimized version
+// ============================================================================
+
 fn simplexNoise(v: vec2<f32>) -> f32 {
   let C = vec4<f32>(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
   
@@ -259,20 +325,21 @@ fn simplexNoise(v: vec2<f32>) -> f32 {
   var x12 = x0.xyxy + C.xxzz;
   x12 = x12 - vec4<f32>(i1.xy, 0.0, 0.0);
   
-  i = i % 289.0;
+  // FIXED: Use proper modulo for WGSL
+  i = i - floor(i / 289.0) * 289.0;
   
-  // OPTIMIZATION: Simplified permutation
-  let p = ((i.y + vec3<f32>(0.0, i1.y, 1.0)) * 34.0 + 1.0) * (i.x + vec3<f32>(0.0, i1.x, 1.0)) % 289.0;
+  // Simplified permutation
+  let p = ((i.y + vec3<f32>(0.0, i1.y, 1.0)) * 34.0 + 1.0) * (i.x + vec3<f32>(0.0, i1.x, 1.0));
+  let p_mod = p - floor(p / 289.0) * 289.0;
   
   var m = max(0.5 - vec3<f32>(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), vec3<f32>(0.0));
-  m = m * m * m * m; // m^4 instead of separate calculations
+  m = m * m * m * m;
   
-  let x = 2.0 * fract(p * C.www) - 1.0;
+  let x = 2.0 * fract(p_mod * C.www) - 1.0;
   let h = abs(x) - 0.5;
   let ox = floor(x + 0.5);
   let a0 = x - ox;
   
-  // OPTIMIZATION: Simplified normalization
   m = m * (1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h));
   
   let g = vec3<f32>(
@@ -284,19 +351,22 @@ fn simplexNoise(v: vec2<f32>) -> f32 {
   return 130.0 * dot(m, g);
 }
 
-// FBM noise with performance optimizations
+// ============================================================================
+// FBM NOISE - Fractal Brownian Motion with LOD
+// ============================================================================
+
 fn fbmNoise(p: vec2<f32>, octaves: i32, persistence: f32, lacunarity: f32) -> f32 {
   var value = 0.0;
   var amplitude = 1.0;
   var frequency = 1.0;
   var maxValue = 0.0;
   
-  // OPTIMIZATION: Use fast noise for higher octaves
+  // Use simplex for first 2 octaves, fast noise for details
   for (var i = 0; i < octaves; i = i + 1) {
     if (i < 2) {
       value += simplexNoise(p * frequency) * amplitude;
     } else {
-      value += fastNoise(p * frequency) * amplitude; // Fast noise for detail
+      value += fastNoise(p * frequency) * amplitude;
     }
     maxValue += amplitude;
     amplitude *= persistence;
@@ -306,32 +376,41 @@ fn fbmNoise(p: vec2<f32>, octaves: i32, persistence: f32, lacunarity: f32) -> f3
   return value / maxValue;
 }
 
-// Keep other noise functions unchanged but optimized...
+// ============================================================================
+// RIDGED NOISE - For terrain/mountain effects
+// ============================================================================
+
 fn ridgedNoise(p: vec2<f32>, octaves: i32, lacunarity: f32, gain: f32, amplitude: f32, offset: f32, threshold: f32) -> f32 {
   var value = 0.0;
   var weight = 1.0;
   var frequency = 1.0;
+  var amp = amplitude;
   
   for (var i = 0; i < octaves; i = i + 1) {
-    var n = abs(fastNoise(p * frequency)); // Use fast noise instead of simplex
+    var n = abs(fastNoise(p * frequency));
     n = offset - n;
     n = n * n;
     n *= weight;
     weight = clamp(n * gain, 0.0, 1.0);
-    value += n * amplitude;
+    value += n * amp;
     frequency *= lacunarity;
-    amplitude *= 0.5;
+    amp *= 0.5;
   }
   
   return max(value - threshold, 0.0);
 }
 
-fn voronoiNoise(p: vec2<f32>, randomness: f32, minkowskiP: f32, smoothness: f32, cellType: i32, outputType: i32) -> f32 {
+// ============================================================================
+// VORONOI NOISE - FIXED to return vec4
+// ============================================================================
+
+fn voronoiNoise(p: vec2<f32>, randomness: f32, minkowskiP: f32, smoothness: f32, cellType: i32, outputType: i32) -> vec4<f32> {
   let i = floor(p);
   let f = fract(p);
   
   var minDist = 1.0;
   var secondMinDist = 1.0;
+  var closestPoint = vec2<f32>(0.0);
   
   for (var y = -1; y <= 1; y = y + 1) {
     for (var x = -1; x <= 1; x = x + 1) {
@@ -342,13 +421,16 @@ fn voronoiNoise(p: vec2<f32>, randomness: f32, minkowskiP: f32, smoothness: f32,
       var dist: f32;
       if (minkowskiP == 2.0) {
         dist = length(diff);
+      } else if (minkowskiP == 1.0) {
+        dist = abs(diff.x) + abs(diff.y);
       } else {
-        dist = abs(diff.x) + abs(diff.y); // Simplified for performance
+        dist = pow(pow(abs(diff.x), minkowskiP) + pow(abs(diff.y), minkowskiP), 1.0 / minkowskiP);
       }
       
       if (dist < minDist) {
         secondMinDist = minDist;
         minDist = dist;
+        closestPoint = point;
       } else if (dist < secondMinDist) {
         secondMinDist = dist;
       }
@@ -358,19 +440,36 @@ fn voronoiNoise(p: vec2<f32>, randomness: f32, minkowskiP: f32, smoothness: f32,
   var result: f32;
   if (outputType == 0) {
     result = minDist;
-  } else {
+  } else if (outputType == 1) {
     result = secondMinDist - minDist;
+  } else {
+    result = secondMinDist;
   }
   
-  return result;
+  // Apply smoothness if needed
+  if (smoothness > 0.0) {
+    result = mix(result, smoothstep(0.0, 1.0, result), smoothness);
+  }
+  
+  // Return F1, F2, and cell coordinates
+  return vec4<f32>(minDist, secondMinDist, closestPoint);
 }
+
+// ============================================================================
+// WARP NOISE - Domain warping effect
+// ============================================================================
 
 fn warpNoise(p: vec2<f32>, warpScale: f32, warpStrength: f32, octaves: i32) -> f32 {
   let q = vec2<f32>(
-    fastNoise(p), // Use fast noise for warping
+    fastNoise(p),
     fastNoise(p + vec2<f32>(5.2, 1.3))
   );
   
-  return fastNoise(p + q * warpStrength * warpScale);
+  let r = vec2<f32>(
+    fastNoise(p + q * warpScale),
+    fastNoise(p + q * warpScale + vec2<f32>(8.3, 2.8))
+  );
+  
+  return fastNoise(p + r * warpStrength);
 }
 `;
