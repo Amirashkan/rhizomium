@@ -82,9 +82,36 @@ function createBaseNode(kind, x, y, def) {
  */
 function initializeNodeParameters(node, def) {
   if (!def.params) return;
+ 
+  if (!node.params) {
+    node.params = {};
+  }
+
+  for (const param of def.params) {
+        // Initialize with default value
+    node.params[param.name] = param.default;
+    if (param.type === 'colorstops') {
+      // Deep clone the default array of objects
+      node.params[param.name] = JSON.parse(JSON.stringify(param.default));
+    } else if (param.type === 'select') {
+      node.params[param.name] = param.default;
+    } else {
+      switch (param.name) {
+        case 'value':
+          node.value = param.default;
+          break;
+        case 'expr':
+          node.expr = param.default;
+          break;
+        default:
+          node.params[param.name] = param.default;
+      }
+    }
+  }
 
   for (const param of def.params) {
     switch (param.name) {
+      
       case 'value':
         node.value = param.default;
         break;

@@ -198,3 +198,90 @@ fn warpedNoise(st: vec2<f32>, scale: f32, warpScale: f32, warpStrength: f32, oct
 }`;
   }
 }
+export function generateShader(compiledData, textureBindings) {
+  const { lines, uniformStruct } = compiledData;
+  
+  // Determine binding numbers based on what's present
+  const hasTextures = textureBindings && textureBindings.trim().length > 0;
+  
+  // Adjust parameter uniform binding based on texture presence
+  let adjustedUniformStruct = uniformStruct || '';
+  if (adjustedUniformStruct) {
+    const correctBinding = hasTextures ? 3 : 2;
+    // Replace binding placeholder if it exists, otherwise add it
+    if (adjustedUniformStruct.includes('@binding(')) {
+      adjustedUniformStruct = adjustedUniformStruct.replace(/@binding\(\d+\)/, `@binding(${correctBinding})`);
+    } else {
+      // Insert binding before var<uniform>
+      adjustedUniformStruct = adjustedUniformStruct.replace(
+        'var<uniform> params:',
+        `@binding(${correctBinding}) var<uniform> params:`
+      );
+    }
+  }
+
+  return `
+struct Globals {
+  time: f32,
+}
+
+@group(0) @binding(0) var<uniform> u : Globals;
+
+${textureBindings || ''}
+
+${adjustedUniformStruct}
+
+struct VSOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0), 
+    vec2<f32>( 3.0, -1.0), 
+    vec2<f32>(-1.0,  3.0)
+  );
+  var out: VSOut;
+  out.pos = vec4<f32>(p[vid], 0.0, 1.0);
+  out.uv = 0.5 * (p[vid] + vec2<f32>(1.0, 1.0));
+  return out;
+}
+
+${generateHelperFunctions()}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+  var finalColor = vec3<f32>(0.0);
+  
+${lines.join('\n')}
+  
+  let _keep_uniform = u.time * 0.0;
+  return vec4<f32>(finalColor + vec3<f32>(_keep_uniform), 1.0);
+}
+`;
+}
+
+function generateHelperFunctions() {
+  return `fn random(st: vec2<f32>) -> f32 {
+  return fract(sin(dot(st, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+}
+
+fn hash12(p: vec2<f32>) -> f32 {
+  var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, vec3<f32>(p3.y, p3.z, p3.x) + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+fn valueNoise(st: vec2<f32>) -> f32 {
+  let i = floor(st);
+  let f = fract(st);
+  let a = random(i);
+  let b = random(i + vec2<f32>(1.0, 0.0));
+  let c = random(i + vec2<f32>(0.0, 1.0));
+  let d = random(i + vec2<f32>(1.0, 1.0));
+  let u = f * f * (3.0 - 2.0 * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}`;
+}

@@ -4,9 +4,12 @@ import { ExpressionTextInputHandler, ExpressionParameterValueManager, expression
 import { SelectInputHandler } from './components/SelectInputHandler.js';
 import { FileInputHandler } from './components/FileInputHandler.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
+import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
+import { BooleanInputHandler } from './components/BooleanInputHandler.js';
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
+    this.colorStopInputHandler = new ColorStopInputHandler(undoManager);
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
     this.graph = graph;
@@ -42,7 +45,9 @@ export class ParameterPanel {
       int: this.textInputHandler,
       expression: this.textInputHandler,
       select: this.selectInputHandler,
-      file: this.fileInputHandler
+      file: this.fileInputHandler,
+      colorstops: this.colorStopInputHandler,
+      boolean: this.booleanInputHandler
     };
     
     this.init();
@@ -160,6 +165,247 @@ export class ParameterPanel {
     const definitions = [];
     
     switch (node.kind.toLowerCase()) {
+      case 'lineargradient':
+  definitions.push(
+    { 
+      name: 'angle', 
+      type: 'float', 
+      displayName: 'Angle (rad)', 
+      default: 0.0, 
+      min: 0, 
+      max: 6.28318, 
+      description: 'Gradient rotation angle in radians' 
+    },
+    { 
+      name: 'offset', 
+      type: 'float', 
+      displayName: 'Offset', 
+      default: 0.0, 
+      min: -2.0, 
+      max: 2.0, 
+      description: 'Shifts the gradient position' 
+    },
+    { 
+      name: 'scale', 
+      type: 'float', 
+      displayName: 'Scale', 
+      default: 1.0, 
+      min: 0.1, 
+      max: 10.0, 
+      description: 'Scales the gradient frequency' 
+    },
+    { 
+      name: 'repeat', 
+      type: 'boolean', 
+      displayName: 'Repeat', 
+      default: false, 
+      description: 'Tile the gradient pattern' 
+    }
+  );
+  break;
+
+case 'radialgradient':
+  definitions.push(
+    { 
+      name: 'centerX', 
+      type: 'float', 
+      displayName: 'Center X', 
+      default: 0.5, 
+      min: 0, 
+      max: 1, 
+      description: 'Horizontal center position' 
+    },
+    { 
+      name: 'centerY', 
+      type: 'float', 
+      displayName: 'Center Y', 
+      default: 0.5, 
+      min: 0, 
+      max: 1, 
+      description: 'Vertical center position' 
+    },
+    { 
+      name: 'radius', 
+      type: 'float', 
+      displayName: 'Radius', 
+      default: 0.5, 
+      min: 0.01, 
+      max: 2.0, 
+      description: 'Gradient radius' 
+    },
+    { 
+      name: 'falloff', 
+      type: 'float', 
+      displayName: 'Falloff', 
+      default: 1.0, 
+      min: 0.1, 
+      max: 5.0, 
+      description: 'Controls gradient falloff curve' 
+    },
+    { 
+      name: 'invert', 
+      type: 'boolean', 
+      displayName: 'Invert', 
+      default: false, 
+      description: 'Reverse gradient direction' 
+    }
+  );
+  break;
+
+case 'angulargradient':
+  definitions.push(
+    { 
+      name: 'centerX', 
+      type: 'float', 
+      displayName: 'Center X', 
+      default: 0.5, 
+      min: 0, 
+      max: 1, 
+      description: 'Horizontal center position' 
+    },
+    { 
+      name: 'centerY', 
+      type: 'float', 
+      displayName: 'Center Y', 
+      default: 0.5, 
+      min: 0, 
+      max: 1, 
+      description: 'Vertical center position' 
+    },
+    { 
+      name: 'rotation', 
+      type: 'float', 
+      displayName: 'Rotation (rad)', 
+      default: 0.0, 
+      min: 0, 
+      max: 6.28318, 
+      description: 'Starting angle rotation' 
+    },
+    { 
+      name: 'repeat', 
+      type: 'float', 
+      displayName: 'Repeat', 
+      default: 1.0, 
+      min: 1.0, 
+      max: 20.0, 
+      description: 'Number of gradient repetitions' 
+    }
+  );
+  break;
+
+case 'conicgradient':
+  definitions.push(
+    { 
+      name: 'centerX', 
+      type: 'float', 
+      displayName: 'Center X', 
+      default: 0.5, 
+      min: 0, 
+      max: 1, 
+      description: 'Horizontal center position' 
+    },
+    { 
+      name: 'centerY', 
+      type: 'float', 
+      displayName: 'Center Y', 
+      default: 0.5, 
+      min: 0, 
+      max: 1, 
+      description: 'Vertical center position' 
+    },
+    { 
+      name: 'startAngle', 
+      type: 'float', 
+      displayName: 'Start Angle (rad)', 
+      default: 0.0, 
+      min: 0, 
+      max: 6.28318, 
+      description: 'Gradient start angle' 
+    },
+    { 
+      name: 'endAngle', 
+      type: 'float', 
+      displayName: 'End Angle (rad)', 
+      default: 6.28318, 
+      min: 0, 
+      max: 6.28318, 
+      description: 'Gradient end angle' 
+    },
+    { 
+      name: 'smoothness', 
+      type: 'float', 
+      displayName: 'Smoothness', 
+      default: 0.0, 
+      min: 0, 
+      max: 1.0, 
+      description: 'Smooth interpolation amount' 
+    }
+  );
+  break;
+
+case 'colorramp':
+  definitions.push(
+    {
+      name: 'stops',
+      type: 'colorstops',
+      displayName: 'Color Stops',
+      default: [
+        { position: 0.0, color: [0, 0, 0, 1] },
+        { position: 1.0, color: [1, 1, 1, 1] }
+      ],
+      description: 'Gradient color stops'
+    },
+    {
+      name: 'mode',
+      type: 'select',
+      displayName: 'Interpolation',
+      options: ['Linear', 'Step', 'Smooth'],
+      default: 'Linear',
+      description: 'Color interpolation mode'
+    }
+  );
+  break;
+      case 'colorramp':
+  definitions.push(
+    {
+      name: 'stops',
+      type: 'colorstops',
+      displayName: 'Color Stops',
+      default: [
+        { position: 0.0, color: [0, 0, 0, 1] },
+        { position: 1.0, color: [1, 1, 1, 1] }
+      ],
+      description: 'Gradient color stops'
+    },
+    {
+      name: 'mode',
+      type: 'select',
+      displayName: 'Interpolation',
+      options: ['Linear', 'Step', 'Smooth'],
+      default: 'Linear',
+      description: 'Interpolation mode'
+    }
+  );
+  break;
+case 'lineargradient':
+  definitions.push(
+    { name: 'angle', type: 'float', displayName: 'Angle', default: 0.0, min: 0, max: 6.28318, description: 'Gradient angle in radians' },
+    { name: 'offset', type: 'float', displayName: 'Offset', default: 0.0, description: 'Gradient offset' },
+    { name: 'scale', type: 'float', displayName: 'Scale', default: 1.0, min: 0.1, max: 10.0, description: 'Gradient scale' },
+    { name: 'repeat', type: 'boolean', displayName: 'Repeat', default: false, description: 'Repeat gradient' }
+  );
+  break;
+
+case 'radialgradient':
+  definitions.push(
+    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, min: 0, max: 1, description: 'Center X position' },
+    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, min: 0, max: 1, description: 'Center Y position' },
+    { name: 'radius', type: 'float', displayName: 'Radius', default: 0.5, min: 0.01, max: 2.0, description: 'Gradient radius' },
+    { name: 'falloff', type: 'float', displayName: 'Falloff', default: 1.0, min: 0.1, max: 5.0, description: 'Falloff power' },
+    { name: 'invert', type: 'boolean', displayName: 'Invert', default: false, description: 'Invert gradient' }
+  );
+  break;
+
       case 'constfloat':
         definitions.push({
           name: 'value',
@@ -245,30 +491,27 @@ case 'rectangle':
     }
   );
   break;
-      case 'circle':
-      case 'circlefield':
-        definitions.push(
-          {
-            name: 'radius',
-            type: 'float',
-            displayName: 'Radius',
-            default: 0.25,
-            min: 0.0,
-            max: 2.0,
-            description: 'Circle radius'
-          },
-          {
-            name: 'epsilon',
-            type: 'float',
-            displayName: 'Softness',
-            default: 0.02,
-            min: 0.001,
-            max: 0.1,
-            description: 'Edge softness'
-          }
-        );
-        break;
-        
+case 'circle':
+case 'circlefield':
+  definitions.push(
+    {
+      name: 'radius',
+      type: 'float',
+      displayName: 'Radius',
+      default: 0.25,
+      min: 0.0,
+      max: 2.0
+    },
+    {
+      name: 'epsilon',
+      type: 'float',
+      displayName: 'Softness',
+      default: 0.02,
+      min: 0.001,  // Minimum is 0.001, but value might still be 0
+      max: 0.1
+    }
+  );
+  break;
       case 'add':
       case 'multiply':
       case 'subtract':
@@ -824,18 +1067,21 @@ case 'flip2d':
     return null;
   }
 
-  getInputHandler(param) {
-    let inputType = param.type;
-    
-    if (param.options && param.options.length > 0) {
-      inputType = 'select';
-    } else if (param.type === 'file' || param.accept) {
-      inputType = 'file';
-    }
-    
-    return this.inputHandlers[inputType] || this.inputHandlers.text;
+getInputHandler(param) {
+  let inputType = param.type;
+  
+  if (param.type === 'boolean') {
+    inputType = 'boolean';
+  } else if (param.options && param.options.length > 0) {
+    inputType = 'select';
+  } else if (param.type === 'file' || param.accept) {
+    inputType = 'file';
+  } else if (param.type === 'colorstops') {
+    inputType = 'colorstops';
   }
-
+  
+  return this.inputHandlers[inputType] || this.inputHandlers.text;
+}
   createFallbackInput(param, node, container) {
     const input = document.createElement('input');
     input.type = 'text';

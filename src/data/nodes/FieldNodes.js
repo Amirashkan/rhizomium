@@ -4,19 +4,42 @@
  * Field and noise generation node definitions for procedural patterns
  */
 export const FieldNodes = {
+   ColorRamp: {
+    label: "Color Ramp",
+    cat: "Field",
+    inputs: 1,
+    pinsIn: ["Value"],
+    pinsOut: ["Color"],
+    params: [
+      { 
+        name: "stops", 
+        type: "colorstops", 
+        default: [
+          { position: 0.0, color: [0, 0, 0, 1] },
+          { position: 1.0, color: [1, 1, 1, 1] }
+        ]
+      },
+      { 
+        name: "mode", 
+        type: "select", 
+        options: ["Linear", "Step", "Smooth"], 
+        default: "Linear" 
+      }
+    ]
+  },
   // === GRADIENT PATTERNS ===
   LinearGradient: {
     label: "Linear Gradient",
     cat: "Field",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: ["Value"],
     params: [
-      { name: "angle", type: "float", default: 0.0, label: "Angle" },
-      { name: "offset", type: "float", default: 0.0, label: "Offset" },
-      { name: "scale", type: "float", default: 1.0, label: "Scale" },
-      { name: "repeat", type: "bool", default: false, label: "Repeat" },
-    ],
+      { name: 'angle', type: 'float', default: 0.0 },
+      { name: 'offset', type: 'float', default: 0.0 },
+      { name: 'scale', type: 'float', default: 1.0 },
+      { name: 'repeat', type: 'boolean', default: false }
+    ]
   },
 
   RadialGradient: {
@@ -24,14 +47,14 @@ export const FieldNodes = {
     cat: "Field",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: ["Value"],
     params: [
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
-      { name: "radius", type: "float", default: 0.5, label: "Radius" },
-      { name: "falloff", type: "float", default: 1.0, label: "Falloff" },
-      { name: "invert", type: "bool", default: false, label: "Invert" },
-    ],
+      { name: 'centerX', type: 'float', default: 0.5 },
+      { name: 'centerY', type: 'float', default: 0.5 },
+      { name: 'radius', type: 'float', default: 0.5 },
+      { name: 'falloff', type: 'float', default: 1.0 },
+      { name: 'invert', type: 'boolean', default: false }
+    ]
   },
 
   AngularGradient: {
@@ -39,13 +62,13 @@ export const FieldNodes = {
     cat: "Field",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: ["Value"],
     params: [
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
-      { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
-      { name: "repeat", type: "float", default: 1.0, label: "Repeat" },
-    ],
+      { name: 'centerX', type: 'float', default: 0.5 },
+      { name: 'centerY', type: 'float', default: 0.5 },
+      { name: 'rotation', type: 'float', default: 0.0 },
+      { name: 'repeat', type: 'float', default: 1.0 }
+    ]
   },
 
   ConicGradient: {
@@ -53,14 +76,38 @@ export const FieldNodes = {
     cat: "Field",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: ["Value"],
     params: [
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
-      { name: "startAngle", type: "float", default: 0.0, label: "Start Angle" },
-      { name: "endAngle", type: "float", default: 6.28318, label: "End Angle" },
-      { name: "smoothness", type: "float", default: 0.0, label: "Smoothness" },
-    ],
+      { name: 'centerX', type: 'float', default: 0.5 },
+      { name: 'centerY', type: 'float', default: 0.5 },
+      { name: 'startAngle', type: 'float', default: 0.0 },
+      { name: 'endAngle', type: 'float', default: 6.28318 },
+      { name: 'smoothness', type: 'float', default: 0.0 }
+    ]
+  },
+
+  ColorRamp: {
+    label: "Color Ramp",
+    cat: "Field",
+    inputs: 1,
+    pinsIn: ["Value"],
+    pinsOut: ["Color"],
+    params: [
+      { 
+        name: "stops", 
+        type: "colorstops", 
+        default: [
+          { position: 0.0, color: [0, 0, 0, 1] },
+          { position: 1.0, color: [1, 1, 1, 1] }
+        ]
+      },
+      { 
+        name: "mode", 
+        type: "select", 
+        options: ["Linear", "Step", "Smooth"], 
+        default: "Linear" 
+      }
+    ]
   },
 
   // === PATTERN GENERATORS ===
@@ -306,4 +353,18 @@ export const FieldNodes = {
       { name: "smooth", type: "bool", default: false, label: "Smooth" },
     ],
   },
+  ColorRamp: {
+  label: "Color Ramp",
+  cat: "Field",
+  inputs: 1,
+  pinsIn: ["Value"],
+  pinsOut: ["Color"],
+  params: [
+    { name: "stops", type: "colorstops", default: [
+      { position: 0.0, color: [0, 0, 0, 1] },
+      { position: 1.0, color: [1, 1, 1, 1] }
+    ]},
+    { name: "mode", type: "select", options: ["Linear", "Step", "Smooth"], default: "Linear" }
+  ]
+}
 };

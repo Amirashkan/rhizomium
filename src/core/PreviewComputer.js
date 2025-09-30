@@ -19,6 +19,118 @@ export class PreviewComputer {
 
         try {
           switch (node.kind) {
+            case "LinearGradient": {
+  const angle = node.params?.angle ?? 0.0;
+  const offset = node.params?.offset ?? 0.0;
+  const scale = node.params?.scale ?? 1.0;
+  const repeat = node.params?.repeat ?? false;
+  
+  // Simple UV evaluation at center
+  const uv = [0.5, 0.5];
+  const dir = [Math.cos(angle), Math.sin(angle)];
+  const proj = (uv[0] - 0.5) * dir[0] + (uv[1] - 0.5) * dir[1];
+  const t = proj * scale + offset;
+  result = repeat ? (t - Math.floor(t)) : t;
+  break;
+}
+
+case "RadialGradient": {
+  const centerX = node.params?.centerX ?? 0.5;
+  const centerY = node.params?.centerY ?? 0.5;
+  const radius = node.params?.radius ?? 0.5;
+  const falloff = node.params?.falloff ?? 1.0;
+  const invert = node.params?.invert ?? false;
+  
+  const uv = [0.5, 0.5];
+  const dx = uv[0] - centerX;
+  const dy = uv[1] - centerY;
+  const dist = Math.sqrt(dx * dx + dy * dy) / radius;
+  const field = Math.pow(dist, falloff);
+  result = invert ? (1.0 - field) : field;
+  result = Math.max(0, Math.min(1, result));
+  break;
+}
+
+case "AngularGradient": {
+  const centerX = node.params?.centerX ?? 0.5;
+  const centerY = node.params?.centerY ?? 0.5;
+  const rotation = node.params?.rotation ?? 0.0;
+  const repeat = node.params?.repeat ?? 1.0;
+  
+  const uv = [0.5, 0.5];
+  const dx = uv[0] - centerX;
+  const dy = uv[1] - centerY;
+  const angle = Math.atan2(dy, dx) + rotation;
+  const t = (angle / (Math.PI * 2)) * repeat;
+  result = t - Math.floor(t);
+  break;
+}
+case "ColorRamp": {
+  const t = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0.5;
+  const stops = node.params?.stops || [
+    { position: 0.0, color: [0, 0, 0, 1] },
+    { position: 1.0, color: [1, 1, 1, 1] }
+  ];
+  const mode = node.params?.mode || "Linear";
+  
+  const sortedStops = [...stops].sort((a, b) => a.position - b.position);
+  const clampedT = Math.max(0, Math.min(1, t));
+  
+  // Find which segment we're in
+  let resultColor = sortedStops[0].color;
+  
+  for (let i = 0; i < sortedStops.length - 1; i++) {
+    const s1 = sortedStops[i];
+    const s2 = sortedStops[i + 1];
+    
+    if (clampedT >= s1.position && clampedT <= s2.position) {
+      const segmentT = (clampedT - s1.position) / (s2.position - s1.position);
+      const c1 = s1.color;
+      const c2 = s2.color;
+      
+      if (mode === "Step") {
+        resultColor = clampedT >= (s1.position + s2.position) / 2 ? c2 : c1;
+      } else if (mode === "Smooth") {
+        const smoothT = segmentT * segmentT * (3 - 2 * segmentT);
+        resultColor = [
+          c1[0] * (1 - smoothT) + c2[0] * smoothT,
+          c1[1] * (1 - smoothT) + c2[1] * smoothT,
+          c1[2] * (1 - smoothT) + c2[2] * smoothT,
+          1
+        ];
+      } else { // Linear
+        resultColor = [
+          c1[0] * (1 - segmentT) + c2[0] * segmentT,
+          c1[1] * (1 - segmentT) + c2[1] * segmentT,
+          c1[2] * (1 - segmentT) + c2[2] * segmentT,
+          1
+        ];
+      }
+      break;
+    }
+  }
+  
+  if (clampedT > sortedStops[sortedStops.length - 1].position) {
+    resultColor = sortedStops[sortedStops.length - 1].color;
+  }
+  
+  result = [resultColor[0], resultColor[1], resultColor[2]];
+  break;
+}
+case "ConicGradient": {
+  const centerX = node.params?.centerX ?? 0.5;
+  const centerY = node.params?.centerY ?? 0.5;
+  const startAngle = node.params?.startAngle ?? 0.0;
+  const endAngle = node.params?.endAngle ?? 6.28318;
+  
+  const uv = [0.5, 0.5];
+  const dx = uv[0] - centerX;
+  const dy = uv[1] - centerY;
+  const angle = Math.atan2(dy, dx);
+  const t = (angle - startAngle) / (endAngle - startAngle);
+  result = Math.max(0, Math.min(1, t));
+  break;
+}
             // Input Nodes
             case "UV":
               result = [0.5, 0.5];
@@ -635,6 +747,7 @@ export class PreviewComputer {
         case "OutputFinal":
           this._renderOutputThumbnail(ctx, size, node.__preview);
           break;
+          
         default:
           this._renderDefaultThumbnail(ctx, size, node.__preview);
       }

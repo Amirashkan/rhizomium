@@ -279,6 +279,9 @@ safeEvaluate(expression, context) {
 // Add this helper method
 isIncompleteExpression(expression) {
   const incompletePatterns = [
+        /[+\-*/]$/, // Ends with operator ← This catches "time*"
+    /\($/, 
+    /,\s*$/,
     /[+\-*/]$/, // Ends with operator
     /\($/, // Ends with opening parenthesis
     /,\s*$/, // Ends with comma
@@ -452,37 +455,56 @@ export class ExpressionTextInputHandler {
     this.activeInputs = new Map(); // Track active inputs for real-time updates
   }
 
-  create(param, node, div, label, valueManager, onChange) {
-    try {
-      const container = this.createContainer();
-      const input = this.createInput(param, node, valueManager);
-      const helperButton = this.createExpressionHelper(input, param, node, valueManager, onChange);
-      const resultDisplay = this.createResultDisplay();
+create(param, node, div, label, valueManager, onChange) {
+  try {
+    const container = this.createContainer();
+    const input = this.createInput(param, node, valueManager);
+    // REMOVE THIS LINE:
+    // const helperButton = this.createExpressionHelper(input, param, node, valueManager, onChange);
+    const resultDisplay = this.createResultDisplay();
 
-      // Setup event handlers
-      this.setupEventHandlers(input, param, node, valueManager, onChange, resultDisplay);
-      this.setupNumericDragSupport(input, param, node, valueManager, onChange);
+    // Setup event handlers
+    this.setupEventHandlers(input, param, node, valueManager, onChange, resultDisplay);
+    this.setupNumericDragSupport(input, param, node, valueManager, onChange);
 
-      // Initial validation and display update
-      this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+    // Initial validation and display update
+    this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
 
-      // Track this input for updates
-      this.activeInputs.set(`${node.id}_${param.name}`, {
-        input, resultDisplay, param, node, valueManager, onChange
-      });
+    // Track this input for updates
+    this.activeInputs.set(`${node.id}_${param.name}`, {
+      input, resultDisplay, param, node, valueManager, onChange
+    });
 
-      container.appendChild(input);
-      container.appendChild(helperButton);
-      container.appendChild(resultDisplay);
-      div.appendChild(container);
+    container.appendChild(input);
+    // REMOVE THIS LINE:
+    // container.appendChild(helperButton);
+    container.appendChild(resultDisplay);
+    div.appendChild(container);
 
-      return div;
-    } catch (error) {
-      console.error('Error creating expression input:', error);
-      return div;
-    }
+    return div;
+  } catch (error) {
+    console.error('Error creating expression input:', error);
+    return div;
   }
-
+}
+isIncomplete(value) {
+  if (!value || typeof value !== 'string') return false;
+  
+  const trimmed = value.trim();
+  
+  // Incomplete operators
+  if (/[+\-*/]$/.test(trimmed)) return true;
+  
+  // Incomplete function calls
+  if (/\w+\($/.test(trimmed)) return true;
+  
+  // Incomplete parentheses
+  const openCount = (trimmed.match(/\(/g) || []).length;
+  const closeCount = (trimmed.match(/\)/g) || []).length;
+  if (openCount !== closeCount) return true;
+  
+  return false;
+}
   createContainer() {
     const container = document.createElement('div');
     container.className = 'expression-input-container';
@@ -503,18 +525,17 @@ export class ExpressionTextInputHandler {
     const currentValue = node.params?.[param.name] ?? param.default ?? '';
     input.value = String(currentValue);
 
-    input.style.cssText = `
-      width: calc(100% - 25px);
-      padding: 6px;
-      background: #333;
-      color: #fff;
-      border: 1px solid #555;
-      border-radius: 4px 0 0 4px;
-      font-size: 11px;
-      box-sizing: border-box;
-      font-family: ${this.expressionSystem.isExpression(currentValue) ? 'monospace' : 'inherit'};
-    `;
-
+input.style.cssText = `
+  width: 100%;  /* Change from calc(100% - 25px) */
+  padding: 6px;
+  background: #333;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;  /* Change from 4px 0 0 4px */
+  font-size: 11px;
+  box-sizing: border-box;
+  font-family: ${this.expressionSystem.isExpression(currentValue) ? 'monospace' : 'inherit'};
+`;
     // Set placeholder based on parameter type
     input.placeholder = param.type === 'float' ? 'Number or =expression' : 
                       param.type === 'int' ? 'Integer or =expression' :
@@ -523,39 +544,7 @@ export class ExpressionTextInputHandler {
     return input;
   }
 
-  createExpressionHelper(input, param, node, valueManager, onChange) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'expression-helper-btn';
-    button.textContent = 'fx';
-    button.title = 'Toggle expression mode (=)';
-    
-    button.style.cssText = `
-      position: absolute;
-      right: 0;
-      top: 0;
-      bottom: 0;
-      width: 25px;
-      background: #4CAF50;
-      border: 1px solid #555;
-      border-left: none;
-      border-radius: 0 4px 4px 0;
-      color: white;
-      cursor: pointer;
-      font-size: 9px;
-      font-weight: bold;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    `;
 
-    button.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.toggleExpressionMode(input, param, node, valueManager, onChange);
-    });
-
-    return button;
-  }
 
   createResultDisplay() {
     const display = document.createElement('div');
@@ -592,30 +581,36 @@ export class ExpressionTextInputHandler {
     });
 
     // Real-time input handling with debouncing
-    input.addEventListener('input', (e) => {
-      e.stopPropagation();
-      
-      // Clear previous timer
-      if (inputTimer) {
-        clearTimeout(inputTimer);
-      }
+// Real-time input handling with debouncing
+input.addEventListener('input', (e) => {
+  e.stopPropagation();
+  
+  // Clear previous timer
+  if (inputTimer) {
+    clearTimeout(inputTimer);
+  }
 
-      // Update display immediately
-      this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+  // Update display immediately
+  this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
 
-      // Debounce actual parameter updates
-      inputTimer = setTimeout(() => {
-        const newValue = input.value.trim();
-        if (newValue !== lastValue) {
-          valueManager.setValue(node, param.name, newValue);
-          this.expressionSystem.updateDependencies(node.id, param.name, newValue);
-          onChange(`Parameter Change: ${param.name}`);
-          lastValue = newValue;
-        }
-        inputTimer = null;
-      }, 300);
-    });
-
+  // Debounce actual parameter updates
+  inputTimer = setTimeout(() => {
+    const newValue = input.value.trim();
+    
+    // ADD THIS: Don't update if incomplete
+    if (this.isIncomplete(newValue)) {
+      return; // Wait for complete expression
+    }
+    
+    if (newValue !== lastValue) {
+      valueManager.setValue(node, param.name, newValue);
+      this.expressionSystem.updateDependencies(node.id, param.name, newValue);
+      onChange(`Parameter Change: ${param.name}`);
+      lastValue = newValue;
+    }
+    inputTimer = null;
+  }, 300);
+});
     // Final update on blur
     input.addEventListener('blur', () => {
       if (inputTimer) {
@@ -702,29 +697,7 @@ export class ExpressionTextInputHandler {
                  'Shift+drag to adjust value (Ctrl: fine, Alt: coarse)';
   }
 
-  toggleExpressionMode(input, param, node, valueManager, onChange) {
-    const currentValue = input.value;
-    
-    if (this.expressionSystem.isExpression(currentValue)) {
-      // Remove expression prefix
-      input.value = currentValue.slice(1);
-    } else {
-      // Add expression prefix
-      input.value = '=' + currentValue;
-    }
-    
-    // Update immediately
-    valueManager.setValue(node, param.name, input.value);
-    onChange(`Toggle Expression: ${param.name}`);
-    
-    // Update display
-    const resultDisplay = input.parentElement.querySelector('.expression-result');
-    if (resultDisplay) {
-      this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
-    }
-    
-    input.focus();
-  }
+
 
   updateExpressionDisplay(input, resultDisplay, param, node, valueManager) {
     const value = input.value;

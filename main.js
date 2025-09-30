@@ -802,12 +802,26 @@ async function updateShaderFromGraph() {
 
   try {
     updateStatus("Building shader...");
-    const wgsl = buildWGSL(graph);
+    
+    const buildResult = buildWGSL(graph);  // ✅ Note: buildResult, not result
+    
+    // Handle both old format (string) and new format (object)
+    let wgsl, uniformManager;
+    
+    if (typeof buildResult === 'string') {
+      wgsl = buildResult;
+      uniformManager = null;
+      console.warn('buildWGSL returned string only - no uniform manager available');
+    } else if (buildResult && typeof buildResult === 'object') {
+      wgsl = buildResult.wgsl;
+      uniformManager = buildResult.uniformManager;
+    } else {
+      throw new Error('buildWGSL returned invalid result');
+    }
 
     updateStatus("Updating GPU shader...");
-    await updateShader(wgsl);
+    await updateShader(wgsl, uniformManager);
 
-    // Update code display
     const codeEl = document.getElementById("code");
     if (codeEl) {
       codeEl.textContent = wgsl;
@@ -815,43 +829,28 @@ async function updateShaderFromGraph() {
 
     updateStatus("Shader updated successfully");
 
-    // Trigger preview updates if needed
-    if (
-      editor &&
-      editor.previewIntegration &&
-      typeof editor.previewIntegration.onShaderUpdate === "function"
-    ) {
+    if (editor?.previewIntegration?.onShaderUpdate) {
       editor.previewIntegration.onShaderUpdate();
     }
 
-    // Update floating preview
     if (window.floatingPreview) {
       setTimeout(() => {
         const mainCanvas = document.getElementById("gpu-canvas");
-        const previewCanvas =
-          window.floatingPreview.canvas || window.floatingPreview.previewCanvas;
-
+        const previewCanvas = window.floatingPreview.canvas || window.floatingPreview.previewCanvas;
         if (mainCanvas && previewCanvas) {
           const ctx = previewCanvas.getContext("2d");
           if (ctx) {
             ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-            ctx.drawImage(
-              mainCanvas,
-              0,
-              0,
-              previewCanvas.width,
-              previewCanvas.height,
-            );
+            ctx.drawImage(mainCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
           }
         }
-      }, 100); // Small delay to ensure GPU render is complete
+      }, 100);
     }
   } catch (error) {
-errorHandler.handleError(error, { 
-  component: 'shader-compilation', 
-  type: 'shader-error' 
-});
-    // Show error overlay
+    errorHandler.handleError(error, { 
+      component: 'shader-compilation', 
+      type: 'shader-error' 
+    });
     showShaderError(error.message);
   }
 }

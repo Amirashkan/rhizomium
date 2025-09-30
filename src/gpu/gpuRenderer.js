@@ -1,5 +1,8 @@
 // src/gpu/gpuRenderer.js
 // Optimized WebGPU renderer with batched uniform updates
+let _paramUniformBuffer = null;
+let _uniformManager = null;
+let _paramUniformData = null;
 
 let _device = null;
 let _context = null;
@@ -66,7 +69,7 @@ export async function initWebGPU(canvas) {
 
     // Create uniform buffer for time
     _uniformBuffer = _device.createBuffer({
-      size: 16, // 4 bytes for f32, padded to 16 bytes for alignment
+      size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -84,14 +87,12 @@ export async function initWebGPU(canvas) {
 
 function createDummyTexture() {
   try {
-    // Create a 1x1 white texture as fallback
     const texture = _device.createTexture({
       size: [1, 1, 1],
       format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
 
-    // Fill with white
     const whitePixel = new Uint8Array([255, 255, 255, 255]);
     _device.queue.writeTexture(
       { texture },
@@ -118,15 +119,13 @@ function createDummyTexture() {
 
 function createDummyCubeTexture() {
   try {
-    // Create a 1x1 white cube texture as fallback
     const texture = _device.createTexture({
-      size: [1, 1, 6], // 6 faces for cube
+      size: [1, 1, 6],
       format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       dimension: "2d",
     });
 
-    // Fill all 6 faces with white
     const whitePixel = new Uint8Array([255, 255, 255, 255]);
     for (let face = 0; face < 6; face++) {
       _device.queue.writeTexture(
@@ -164,39 +163,38 @@ function createPipelineAndBindGroup(wgsl) {
       primitive: { topology: "triangle-list" },
     });
 
-    // CORRECT DETECTION: Only count textures that are actually USED, not just declared
     const hasTextureSample = wgsl.includes("textureSample(");
     const hasTexture2D = hasTextureSample && wgsl.includes("texture_2d<f32>");
     const hasTextureCube = hasTextureSample && wgsl.includes("texture_cube<f32>");
     const needsTextures = hasTexture2D || hasTextureCube;
+    const hasParamUniforms = _paramUniformBuffer !== null;
 
     console.log("Shader analysis:", {
       hasTextureSample,
       hasTexture2D,
       hasTextureCube,
       needsTextures,
+      hasParamUniforms
     });
 
     const bindGroupLayout = pipeline.getBindGroupLayout(0);
-    let bindGroup = null;
+
+    // Build bind group entries
+    const entries = [
+      { binding: 0, resource: { buffer: _uniformBuffer } }
+    ];
 
     if (needsTextures) {
-      console.log("Creating texture bind group (texture is actually used)");
-
       let textureView, sampler;
 
       if (hasTextureCube) {
-        // Shader expects cube texture - ALWAYS use cube texture
         const dummy = createDummyCubeTexture();
         textureView = dummy.textureView;
         sampler = dummy.sampler;
-        console.log("Using dummy cube texture (shader expects cube)");
+        console.log("Using dummy cube texture");
       } else if (hasTexture2D) {
-        // Shader expects 2D texture - try to use loaded image
-        if (window.textureManager && window.textureManager.textures.size > 0) {
-          const textureInfo = Array.from(
-            window.textureManager.textures.values(),
-          )[0];
+        if (window.textureManager?.textures.size > 0) {
+          const textureInfo = Array.from(window.textureManager.textures.values())[0];
           textureView = textureInfo.textureView;
           sampler = textureInfo.sampler;
           console.log("Using loaded 2D texture");
@@ -206,34 +204,31 @@ function createPipelineAndBindGroup(wgsl) {
           sampler = dummy.sampler;
           console.log("Using dummy 2D texture");
         }
-      } else {
-        // Fallback - use 2D dummy
-        const dummy = createDummyTexture();
-        textureView = dummy.textureView;
-        sampler = dummy.sampler;
-        console.log("Using fallback 2D texture");
       }
 
-      bindGroup = _device.createBindGroup({
-        layout: bindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: _uniformBuffer } },
-          { binding: 1, resource: textureView },
-          { binding: 2, resource: sampler },
-        ],
-      });
-      console.log("SUCCESS: Created texture bind group");
-    } else {
-      console.log("Creating simple bind group (texture declared but not used)");
-
-      bindGroup = _device.createBindGroup({
-        layout: bindGroupLayout,
-        entries: [{ binding: 0, resource: { buffer: _uniformBuffer } }],
-      });
-      console.log("SUCCESS: Created simple bind group");
+      entries.push(
+        { binding: 1, resource: textureView },
+        { binding: 2, resource: sampler }
+      );
     }
 
+    if (hasParamUniforms) {
+      const paramBinding = needsTextures ? 3 : 2;
+      entries.push({
+        binding: paramBinding,
+        resource: { buffer: _paramUniformBuffer }
+      });
+      console.log(`Added parameter uniforms at binding ${paramBinding}`);
+    }
+
+    const bindGroup = _device.createBindGroup({
+      layout: bindGroupLayout,
+      entries: entries
+    });
+
+    console.log(`Created bind group with ${entries.length} entries`);
     return { pipeline, bindGroup };
+    
   } catch (error) {
     window.errorHandler?.handleError(error, { 
       component: 'pipeline-creation',
@@ -243,58 +238,7 @@ function createPipelineAndBindGroup(wgsl) {
   }
 }
 
-export function render() {
-  if (!_device || !_context || !_pipeline) return;
-  window._gpuFrameCount = (window._gpuFrameCount || 0) + 1;
-
-  try {
-    // Update uniforms
-    if (_bindGroup) {
-      const now = performance.now();
-      if (now - _lastTimeUpdate >= UNIFORM_UPDATE_INTERVAL) {
-        _uniformData[0] = now / 1000;
-        _device.queue.writeBuffer(_uniformBuffer, 0, _uniformData);
-        _lastTimeUpdate = now;
-      }
-    }
-
-    // Render
-    const encoder = _device.createCommandEncoder();
-    const view = _context.getCurrentTexture().createView();
-
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view,
-          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
-          loadOp: "clear",
-          storeOp: "store",
-        },
-      ],
-    });
-
-    pass.setPipeline(_pipeline);
-
-    if (_bindGroup) {
-      pass.setBindGroup(0, _bindGroup);
-    }
-
-    pass.draw(3, 1, 0, 0);
-    pass.end();
-
-    _device.queue.submit([encoder.finish()]);
-    
-    _frameCount++;
-  } catch (error) {
-    window.errorHandler?.handleError(error, { 
-      component: 'gpu-render',
-      type: 'webgpu-error' 
-    });
-  }
-}
-
-// PERFORMANCE OPTIMIZATION: Force immediate uniform update when shader changes
-export async function setShaderSource(wgsl) {
+export async function setShaderSource(wgsl, uniformManager = null) {
   if (!_device) {
     const error = new Error("initWebGPU must be called first");
     window.errorHandler?.handleError(error, { 
@@ -306,19 +250,41 @@ export async function setShaderSource(wgsl) {
 
   const srcHash = hash(String(wgsl || ""));
   if (srcHash === _lastUserSrcHash && !_lastCompileOK) {
-    return false; // Already tried this broken shader
+    return false;
   }
 
   _lastUserSrcHash = srcHash;
+  _uniformManager = uniformManager;
 
-  // Debug: log the shader to see what we're actually trying to compile
   console.log("=== SHADER COMPILATION ===");
   console.log("WGSL Source (first 500 chars):", wgsl.substring(0, 500));
+  console.log("Has uniform manager:", !!uniformManager);
+  console.log("Dynamic params count:", uniformManager?.uniformValues.size || 0);
   console.log("===========================");
 
   try {
     _device.pushErrorScope("validation");
     _device.pushErrorScope("internal");
+
+    // Create parameter uniform buffer if needed
+    if (uniformManager && uniformManager.uniformValues.size > 0) {
+      const valueCount = uniformManager.uniformValues.size;
+      const bufferSize = Math.max(16, Math.ceil(valueCount * 4 / 16) * 16);
+      
+      _paramUniformBuffer = _device.createBuffer({
+        size: bufferSize,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: 'Parameter Uniforms'
+      });
+
+      _paramUniformData = new Float32Array(Array.from(uniformManager.uniformValues.values()));
+      _device.queue.writeBuffer(_paramUniformBuffer, 0, _paramUniformData);
+      
+      console.log(`Created parameter uniform buffer: ${bufferSize} bytes, ${valueCount} params`);
+    } else {
+      _paramUniformBuffer = null;
+      _paramUniformData = null;
+    }
 
     const result = createPipelineAndBindGroup(wgsl);
 
@@ -330,17 +296,14 @@ export async function setShaderSource(wgsl) {
     if (msgs.length) throw msgs[0];
 
     _pipeline = result.pipeline;
-    _bindGroup = result.bindGroup; // This can be null for shaders without uniforms/textures
+    _bindGroup = result.bindGroup;
     _lastCompileOK = true;
 
-    // PERFORMANCE OPTIMIZATION: Force immediate uniform update after shader change
     if (_bindGroup) {
-      _lastTimeUpdate = 0; // Force immediate update on next render
+      _lastTimeUpdate = 0;
     }
 
-    console.log(
-      `Shader compiled successfully. Has bind group: ${_bindGroup !== null}`,
-    );
+    console.log(`Shader compiled successfully. Has bind group: ${_bindGroup !== null}`);
     return true;
   } catch (e) {
     _lastCompileOK = false;
@@ -356,7 +319,72 @@ export async function setShaderSource(wgsl) {
   }
 }
 
-// PERFORMANCE OPTIMIZATION: Add function to get performance stats
+export function render() {
+  if (!_device || !_context || !_pipeline) return;
+  window._gpuFrameCount = (window._gpuFrameCount || 0) + 1;
+
+  try {
+    // Update time uniform
+    if (_bindGroup) {
+      const now = performance.now();
+      if (now - _lastTimeUpdate >= UNIFORM_UPDATE_INTERVAL) {
+        _uniformData[0] = now / 1000;
+        _device.queue.writeBuffer(_uniformBuffer, 0, _uniformData);
+        _lastTimeUpdate = now;
+      }
+    }
+
+    // Update parameter uniforms if needed
+    if (_uniformManager && _paramUniformBuffer && window.editor?.graph) {
+      _uniformManager.updateValues(window.editor.graph);
+      
+      const values = Array.from(_uniformManager.uniformValues.values());
+      
+      // Safety check: only update if we have values and buffer exists
+      if (values.length > 0 && _paramUniformData) {
+        // Check if buffer size matches
+        if (values.length === _paramUniformData.length) {
+          _paramUniformData.set(values);
+          _device.queue.writeBuffer(_paramUniformBuffer, 0, _paramUniformData);
+        } else {
+          // Buffer size mismatch - shader needs recompilation
+          console.warn('Parameter uniform buffer size mismatch - skipping update until recompile');
+        }
+      }
+    }
+
+    // Render
+    const encoder = _device.createCommandEncoder();
+    const view = _context.getCurrentTexture().createView();
+
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view,
+        clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+        loadOp: "clear",
+        storeOp: "store",
+      }],
+    });
+
+    pass.setPipeline(_pipeline);
+
+    if (_bindGroup) {
+      pass.setBindGroup(0, _bindGroup);
+    }
+
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+
+    _device.queue.submit([encoder.finish()]); // ← Fixed: was commandEncoder
+    
+    _frameCount++;
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'gpu-render',
+      type: 'webgpu-error' 
+    });
+  }
+}
 export function getPerformanceStats() {
   return {
     frameCount: _frameCount,
@@ -368,9 +396,5 @@ export function getPerformanceStats() {
 // Backward-compatible aliases
 export const updateShader = setShaderSource;
 export const drawFrame = render;
-export function clearOnce() {
-  /* no-op */
-}
-export function smokeTest() {
-  /* no-op */
-}
+export function clearOnce() { /* no-op */ }
+export function smokeTest() { /* no-op */ }
