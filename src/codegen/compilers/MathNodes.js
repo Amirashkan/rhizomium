@@ -178,22 +178,48 @@ export class MathNodes {
   /**
    * Compile binary operations (type-aware)
    */
-  compileBinaryOp(nodeId, getInput, operator) {
-    // Get inputs without forcing type - let them be whatever type they are
-    const aInfo = getInput(0, null, null);
-    const bInfo = getInput(1, null, null);
-    
-    const a = aInfo.code || this.getDefaultForType(aInfo.type || 'f32');
-    const b = bInfo.code || this.getDefaultForType(bInfo.type || 'f32');
-    
-    // Use the type of the first input, or f32 if neither has a type
-    const outputType = aInfo.type || bInfo.type || 'f32';
-    
-    return {
-      line: `let node_${nodeId} = (${a}) ${operator} (${b});`,
-      outputType: outputType
-    };
+compileBinaryOp(nodeId, getInput, operator) {
+  const aInfo = getInput(0, null, null);
+  const bInfo = getInput(1, null, null);
+  
+  const aType = aInfo.type || 'f32';
+  const bType = bInfo.type || 'f32';
+  
+  // If types don't match, convert both to the larger type
+  let targetType = aType;
+  if (aType !== bType) {
+    const typeRank = { 'f32': 1, 'vec2': 2, 'vec3': 3, 'vec4': 4 };
+    targetType = typeRank[aType] > typeRank[bType] ? aType : bType;
   }
+  
+  const a = aInfo.code || this.getDefaultForType(targetType);
+  const b = bInfo.code || this.getDefaultForType(targetType);
+  
+  // Convert if needed
+  const aConverted = aType === targetType ? a : this.convertToType(a, aType, targetType);
+  const bConverted = bType === targetType ? b : this.convertToType(b, bType, targetType);
+  
+  return {
+    line: `let node_${nodeId} = (${aConverted}) ${operator} (${bConverted});`,
+    outputType: targetType
+  };
+}
+
+convertToType(expr, fromType, toType) {
+  if (fromType === toType) return expr;
+  
+  if (toType === 'vec2') return `vec2<f32>(${expr})`;
+  if (toType === 'vec3') {
+    if (fromType === 'vec2') return `vec3<f32>(${expr}, 0.0)`;
+    return `vec3<f32>(${expr})`;
+  }
+  if (toType === 'vec4') {
+    if (fromType === 'vec3') return `vec4<f32>(${expr}, 1.0)`;
+    if (fromType === 'vec2') return `vec4<f32>(${expr}, 0.0, 1.0)`;
+    return `vec4<f32>(${expr})`;
+  }
+  return expr;
+}
   
   /**
    * Compile divide with safety check (type-aware)
