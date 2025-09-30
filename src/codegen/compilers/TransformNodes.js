@@ -66,29 +66,31 @@ export class TransformNodes {
   /**
    * OPTIMIZED: Generate shader expression for parameter
    */
-  getShaderParam(node, name, defaultValue) {
-    const value = this.getParam(node, name, defaultValue);
-    
-    if (typeof value === 'string' && value.startsWith('=')) {
-      // Convert expression to WGSL
-      let expr = value.substring(1); // Remove '='
-      
-      // Replace common expressions
-      expr = expr.replace(/time/g, 'u.time');
-      expr = expr.replace(/sin\(/g, 'sin(');
-      expr = expr.replace(/cos\(/g, 'cos(');
-      expr = expr.replace(/\*/g, ' * ');
-      
-      return expr;
-    }
-    
-    if (typeof value === 'number') {
-      return value.toString();
-    }
-    
-    const parsed = parseFloat(value);
-    return isNaN(parsed) ? defaultValue.toString() : parsed.toString();
+getShaderParam(node, name, defaultValue) {
+  const value = this.getParam(node, name, defaultValue);
+  
+  if (typeof value === 'string' && value.startsWith('=')) {
+    let expr = value.substring(1);
+    expr = expr.replace(/time/g, 'u.time');
+    expr = expr.replace(/sin\(/g, 'sin(');
+    expr = expr.replace(/cos\(/g, 'cos(');
+    expr = expr.replace(/\*/g, ' * ');
+    return expr;
   }
+  
+  // Handle expressions without = prefix (like "time" or "time*10")
+  if (typeof value === 'string' && /\btime\b/.test(value)) {
+    let expr = value.replace(/time/g, 'u.time');
+    return expr;
+  }
+  
+  if (typeof value === 'number') {
+    return value.toString();
+  }
+  
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? defaultValue.toString() : parsed.toString();
+}
 
   /**
    * OPTIMIZED: Compile full 2D transformation with GPU-side calculations

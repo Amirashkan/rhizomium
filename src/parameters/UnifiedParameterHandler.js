@@ -47,11 +47,13 @@ export class UnifiedParameterHandler {
   /**
    * Check if an expression depends on time
    */
-  isTimeDependentExpression(expr) {
-    // Simple check: does it contain 'time'?
-    // Could be more sophisticated later
-    return expr.includes('time');
-  }
+isTimeDependentExpression(expr) {
+  // Bare 'time' should also be dynamic
+  if (expr.trim() === 'time') return true;
+  
+  // Or expressions containing time with operators/functions
+  return /\btime\b/.test(expr) && this.isMathExpression(expr);
+}
 
   /**
    * Check if capabilities support expressions
@@ -95,18 +97,21 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
 
   // 3. Check if it's a math expression (contains functions/operators with time)
   if (typeof value === 'string' && this.isMathExpression(value)) {
-      if (/[+\-*/]$/.test(value)) {
-    return def?.default ?? 0;  // Return default while typing
-    
-  }
+    if (/[+\-*/]$/.test(value)) {
+      return def?.default ?? 0;
+    }
     // Return as-is for shader code (don't evaluate!)
     return value.replace(/\btime\b/g, 'u.time');
   }
 
-  // 4. Handle shader variables
+  // 4. Handle shader variables - BUT SKIP if it's JUST "time" without context
   if (this.supportsShaderVars(capabilities)) {
-    const shaderVar = this.toShaderVariable(value);
-    if (shaderVar) return shaderVar;
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    // Don't convert bare "time" - let it be handled by uniform manager
+    if (trimmed !== 'time') {
+      const shaderVar = this.toShaderVariable(value);
+      if (shaderVar) return shaderVar;
+    }
   }
 
   // 5. Parse as literal

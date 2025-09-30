@@ -19,13 +19,22 @@ export class TypeConverter {
   /**
    * Get an expression with type conversion
    * @param {string} nodeId 
-   * @param {string} targetType 
-   * @returns {string} Converted expression
+   * @param {string} targetType - If null, returns object with code and type
+   * @returns {string|Object} Converted expression or { code: string, type: string }
    */
   convertTo(nodeId, targetType) {
     const expression = this.expressions.get(nodeId) || "vec3<f32>(0.0)";
     const currentType = this.types.get(nodeId) || "vec3";
     
+    // NEW: If targetType is null, return both code and type (for type-aware operations)
+    if (targetType === null || targetType === undefined) {
+      return {
+        code: expression,
+        type: currentType
+      };
+    }
+    
+    // Original behavior: return converted expression string
     return this.performConversion(expression, currentType, targetType);
   }
   

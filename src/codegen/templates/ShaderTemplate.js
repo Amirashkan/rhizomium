@@ -207,7 +207,7 @@ export function generateShader(compiledData, textureBindings) {
   // Adjust parameter uniform binding based on texture presence
   let adjustedUniformStruct = uniformStruct || '';
   if (adjustedUniformStruct) {
-    const correctBinding = hasTextures ? 3 : 2;
+    const correctBinding = hasTextures ? 3 : 1;  // ← FIXED: was 3 : 2
     // Replace binding placeholder if it exists, otherwise add it
     if (adjustedUniformStruct.includes('@binding(')) {
       adjustedUniformStruct = adjustedUniformStruct.replace(/@binding\(\d+\)/, `@binding(${correctBinding})`);

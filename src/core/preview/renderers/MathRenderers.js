@@ -1,4 +1,5 @@
 // src/core/preview/renderers/MathRenderers.js
+
 export class MathRenderers {
   constructor(previewSystem) {
     this.previewSystem = previewSystem;
@@ -54,6 +55,15 @@ export class MathRenderers {
       'OneMinus': (ctx, node) => this.renderUnaryMath(ctx, node, "1-x", "#10b981"),
       'Negate': (ctx, node) => this.renderUnaryMath(ctx, node, "-x", "#ef4444"),
       'Reciprocal': (ctx, node) => this.renderUnaryMath(ctx, node, "1/x", "#f97316"),
+      
+      // Vector operations
+      'Dot': (ctx, node) => this.renderVectorOp(ctx, node, "dot", "#14b8a6"),
+      'Cross': (ctx, node) => this.renderVectorOp(ctx, node, "×", "#06b6d4"),
+      'Normalize': (ctx, node) => this.renderUnaryMath(ctx, node, "norm", "#0ea5e9"),
+      'Length': (ctx, node) => this.renderVectorOp(ctx, node, "|v|", "#0891b2"),
+      'Distance': (ctx, node) => this.renderVectorOp(ctx, node, "dist", "#0e7490"),
+      'Reflect': (ctx, node) => this.renderVectorOp(ctx, node, "refl", "#155e75"),
+      'Refract': (ctx, node) => this.renderVectorOp(ctx, node, "refr", "#164e63"),
     });
   }
 
@@ -80,13 +90,74 @@ export class MathRenderers {
     return !isNaN(parsed) && isFinite(parsed) ? parsed : defaultValue;
   }
 
+  /**
+   * Extract a displayable value from various types (scalar, vec2, vec3, vec4)
+   */
+  extractDisplayValue(value) {
+    if (value == null) return 0;
+    
+    // If it's already a number
+    if (typeof value === 'number' && isFinite(value)) {
+      return value;
+    }
+    
+    // If it's a vector-like object or array
+    if (typeof value === 'object') {
+      if (Array.isArray(value) && value.length > 0) {
+        // Return average of components for display
+        return value.reduce((sum, v) => sum + (this.toSafeNumber(v, 0)), 0) / value.length;
+      }
+      if (value.x !== undefined) return this.toSafeNumber(value.x, 0);
+      if (value[0] !== undefined) return this.toSafeNumber(value[0], 0);
+    }
+    
+    return this.toSafeNumber(value, 0);
+  }
+
+  /**
+   * Format value for display (handles vectors and scalars)
+   */
+  formatValue(value, decimals = 2) {
+    if (value == null) return "0.00";
+    
+    // Handle vector types
+    if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        // Show as vector notation
+        if (value.length === 2) {
+          return `(${value[0].toFixed(1)},${value[1].toFixed(1)})`;
+        } else if (value.length === 3) {
+          return `(${value[0].toFixed(1)},${value[1].toFixed(1)},${value[2].toFixed(1)})`;
+        } else if (value.length === 4) {
+          return `(${value[0].toFixed(1)},${value[1].toFixed(1)},${value[2].toFixed(1)},${value[3].toFixed(1)})`;
+        }
+      }
+      if (value.x !== undefined && value.y !== undefined) {
+        if (value.z !== undefined) {
+          if (value.w !== undefined) {
+            return `(${value.x.toFixed(1)},${value.y.toFixed(1)},${value.z.toFixed(1)},${value.w.toFixed(1)})`;
+          }
+          return `(${value.x.toFixed(1)},${value.y.toFixed(1)},${value.z.toFixed(1)})`;
+        }
+        return `(${value.x.toFixed(1)},${value.y.toFixed(1)})`;
+      }
+    }
+    
+    // Handle scalar
+    const num = this.toSafeNumber(value, 0);
+    if (Math.abs(num) < 0.01 && num !== 0) {
+      return num.toExponential(1);
+    }
+    return num.toFixed(decimals);
+  }
+
   renderMath(ctx, node, symbol, color) {
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
 
-    const a = this.toSafeNumber(inputs.a || inputs[0], 0);
-    const b = this.toSafeNumber(inputs.b || inputs[1], 0);
-    const result = this.toSafeNumber(computedResult, 0);
+    const a = inputs.a || inputs[0];
+    const b = inputs.b || inputs[1];
+    const result = computedResult;
 
     ctx.fillStyle = color + "20";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -97,24 +168,23 @@ export class MathRenderers {
     ctx.textBaseline = "middle";
     ctx.fillText(symbol, this.size / 2, this.size / 2 - 4);
 
-    ctx.font = "8px monospace";
-    const resultText = Math.abs(result) < 0.01 && result !== 0
-      ? result.toExponential(1)
-      : result.toFixed(2);
-    ctx.fillText(resultText, this.size / 2, this.size / 2 + 12);
+    // Display result
+    ctx.font = "7px monospace";
+    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
 
+    // Display inputs
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
-    ctx.fillText(`A:${a.toFixed(1)}`, 2, 12);
-    ctx.fillText(`B:${b.toFixed(1)}`, 2, 22);
+    ctx.fillText(`A:${this.formatValue(a, 1)}`, 2, 12);
+    ctx.fillText(`B:${this.formatValue(b, 1)}`, 2, 22);
   }
 
   renderUnaryMath(ctx, node, symbol, color) {
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
 
-    const input = this.toSafeNumber(inputs.x || inputs[0], 0);
-    const result = this.toSafeNumber(computedResult, 0);
+    const input = inputs.x || inputs[0];
+    const result = computedResult;
 
     ctx.fillStyle = color + "20";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -125,23 +195,45 @@ export class MathRenderers {
     ctx.textBaseline = "middle";
     ctx.fillText(symbol, this.size / 2, this.size / 2 - 4);
 
-    ctx.font = "8px monospace";
-    const resultText = Math.abs(result) < 0.01 && result !== 0
-      ? result.toExponential(1)
-      : result.toFixed(2);
-    ctx.fillText(resultText, this.size / 2, this.size / 2 + 12);
+    ctx.font = "7px monospace";
+    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
 
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
-    ctx.fillText(`IN:${input.toFixed(2)}`, 2, 12);
+    ctx.fillText(`IN:${this.formatValue(input, 2)}`, 2, 12);
+  }
+
+  renderVectorOp(ctx, node, symbol, color) {
+    const computedResult = this.previewSystem.computeNodeValue(node);
+    const inputs = this.previewSystem.getConnectedInputs(node);
+
+    ctx.fillStyle = color + "20";
+    ctx.fillRect(0, 0, this.size, this.size);
+
+    ctx.fillStyle = color;
+    ctx.font = "bold 14px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(symbol, this.size / 2, this.size / 2 - 4);
+
+    ctx.font = "7px monospace";
+    ctx.fillText(this.formatValue(computedResult, 2), this.size / 2, this.size / 2 + 12);
+
+    // Show input info
+    ctx.font = "5px monospace";
+    ctx.textAlign = "left";
+    const inputKeys = Object.keys(inputs);
+    inputKeys.slice(0, 3).forEach((key, idx) => {
+      ctx.fillText(`${key}:${this.formatValue(inputs[key], 1)}`, 2, 10 + idx * 8);
+    });
   }
 
   renderSaturate(ctx, node) {
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
     
-    const input = this.toSafeNumber(inputs.x || inputs[0], 0.5);
-    const result = this.toSafeNumber(computedResult, 0);
+    const input = inputs.x || inputs[0];
+    const result = computedResult;
 
     ctx.fillStyle = "#10b98120";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -152,14 +244,16 @@ export class MathRenderers {
     ctx.textBaseline = "middle";
     ctx.fillText("SAT", this.size / 2, this.size / 2 - 2);
 
-    ctx.font = "8px monospace";
-    ctx.fillText(result.toFixed(2), this.size / 2, this.size / 2 + 12);
+    ctx.font = "7px monospace";
+    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
 
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
-    ctx.fillText(`IN:${input.toFixed(2)}`, 2, 12);
+    ctx.fillText(`IN:${this.formatValue(input, 2)}`, 2, 12);
 
-    const clampedInput = Math.max(0, Math.min(1, input));
+    // Bar visualization (use extracted value)
+    const displayVal = this.extractDisplayValue(input);
+    const clampedInput = Math.max(0, Math.min(1, displayVal));
     const barWidth = (this.size - 4) * clampedInput;
     ctx.fillStyle = "#10b981";
     ctx.fillRect(2, this.size - 10, barWidth, 6);
@@ -169,10 +263,10 @@ export class MathRenderers {
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
     
-    const input = this.toSafeNumber(inputs.value || inputs[0], 0.5);
-    const min = this.toSafeNumber(inputs.min || inputs[1], 0);
-    const max = this.toSafeNumber(inputs.max || inputs[2], 1);
-    const result = this.toSafeNumber(computedResult, input);
+    const input = inputs.value || inputs[0];
+    const min = inputs.min || inputs[1];
+    const max = inputs.max || inputs[2];
+    const result = computedResult;
 
     ctx.fillStyle = "#8b5cf620";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -184,23 +278,23 @@ export class MathRenderers {
 
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
-    ctx.fillText(`IN:${input.toFixed(2)}`, 2, 10);
-    ctx.fillText(`MIN:${min.toFixed(1)}`, 2, 18);
-    ctx.fillText(`MAX:${max.toFixed(1)}`, 2, 26);
+    ctx.fillText(`IN:${this.formatValue(input, 2)}`, 2, 10);
+    ctx.fillText(`MIN:${this.formatValue(min, 1)}`, 2, 18);
+    ctx.fillText(`MAX:${this.formatValue(max, 1)}`, 2, 26);
 
-    ctx.font = "8px monospace";
+    ctx.font = "7px monospace";
     ctx.textAlign = "center";
-    ctx.fillText(result.toFixed(2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
   }
 
   renderLerp(ctx, node) {
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
     
-    const a = this.toSafeNumber(inputs.a || inputs[0], 0);
-    const b = this.toSafeNumber(inputs.b || inputs[1], 1);
-    const t = this.toSafeNumber(inputs.t || inputs[2], 0.5);
-    const result = this.toSafeNumber(computedResult, a);
+    const a = inputs.a || inputs[0];
+    const b = inputs.b || inputs[1];
+    const t = inputs.t || inputs[2];
+    const result = computedResult;
 
     ctx.fillStyle = "#06b6d420";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -212,23 +306,24 @@ export class MathRenderers {
 
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
-    ctx.fillText(`A:${a.toFixed(2)}`, 2, 10);
-    ctx.fillText(`B:${b.toFixed(2)}`, 2, 18);
-    ctx.fillText(`T:${t.toFixed(2)}`, 2, 26);
+    ctx.fillText(`A:${this.formatValue(a, 2)}`, 2, 10);
+    ctx.fillText(`B:${this.formatValue(b, 2)}`, 2, 18);
+    ctx.fillText(`T:${this.formatValue(t, 2)}`, 2, 26);
 
-    const lerpPos = Math.max(0, Math.min(1, t)) * (this.size - 4);
+    const tVal = this.extractDisplayValue(t);
+    const lerpPos = Math.max(0, Math.min(1, tVal)) * (this.size - 4);
     ctx.fillStyle = "#06b6d4";
     ctx.fillRect(2, this.size - 8, this.size - 4, 2);
     ctx.fillRect(lerpPos, this.size - 12, 4, 8);
 
-    ctx.font = "8px monospace";
+    ctx.font = "7px monospace";
     ctx.textAlign = "center";
-    ctx.fillText(result.toFixed(2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
   }
 
   renderSmoothstep(ctx, node) {
     const computedResult = this.previewSystem.computeNodeValue(node);
-    const result = this.toSafeNumber(computedResult, 0);
+    const result = computedResult;
 
     ctx.fillStyle = "#f59e0b20";
     ctx.fillRect(0, 0, this.size, this.size);
@@ -252,8 +347,8 @@ export class MathRenderers {
     }
     ctx.stroke();
 
-    ctx.font = "8px monospace";
+    ctx.font = "7px monospace";
     ctx.fillStyle = "#f59e0b";
-    ctx.fillText(result.toFixed(2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
   }
 }

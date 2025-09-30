@@ -2,6 +2,7 @@
 
 /**
  * Mathematical operation node definitions including scalar and vector math
+ * Now type-aware: operations preserve input types (f32, vec2, vec3, vec4)
  */
 export const MathNodes = {
   // === BASIC ARITHMETIC ===
@@ -10,7 +11,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }], // Type matches inputs
     params: [],
   },
 
@@ -19,7 +20,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -28,7 +29,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -37,7 +38,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -46,7 +47,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["Base", "Exp"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -56,7 +57,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -65,7 +66,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -74,7 +75,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -83,7 +84,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -92,7 +93,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -101,7 +102,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -110,7 +111,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["y", "x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -120,7 +121,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -129,7 +130,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -138,7 +139,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -147,7 +148,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -156,7 +157,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -165,7 +166,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -174,7 +175,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -183,7 +184,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["x", "y"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -192,7 +193,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -201,7 +202,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -210,7 +211,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -219,7 +220,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -229,7 +230,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -238,7 +239,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -247,7 +248,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 3,
     pinsIn: ["Value", "Min", "Max"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -257,7 +258,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 3,
     pinsIn: ["Edge0", "Edge1", "X"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -266,7 +267,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["Edge", "X"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -275,7 +276,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 3,
     pinsIn: ["A", "B", "T"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -284,7 +285,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 3,
     pinsIn: ["A", "B", "T"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -293,7 +294,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 3,
     pinsIn: ["A", "B", "Value"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "f32" }], // Always returns scalar
     params: [],
   },
 
@@ -302,7 +303,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -311,7 +312,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -320,7 +321,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -329,7 +330,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["x"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -339,7 +340,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "f32" }], // Always returns scalar
     params: [],
   },
 
@@ -348,7 +349,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
+    pinsOut: [{ label: "out", type: "vec3" }], // Always vec3
     params: [],
   },
 
@@ -357,7 +358,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["Vec"],
-    pinsOut: [{ label: "out", type: "vec3" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -366,7 +367,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 1,
     pinsIn: ["Vec"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "f32" }], // Always returns scalar
     params: [],
   },
 
@@ -375,7 +376,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "f32" }], // Always returns scalar
     params: [],
   },
 
@@ -384,7 +385,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 2,
     pinsIn: ["I", "N"],
-    pinsOut: [{ label: "out", type: "vec3" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 
@@ -393,53 +394,7 @@ export const MathNodes = {
     cat: "Math",
     inputs: 3,
     pinsIn: ["I", "N", "eta"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  // === VECTOR ARITHMETIC ===
-  VectorAdd: {
-    label: "Vector Add",
-    cat: "Math",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorSubtract: {
-    label: "Vector Subtract",
-    cat: "Math",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorMultiply: {
-    label: "Vector Multiply",
-    cat: "Math",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorDivide: {
-    label: "Vector Divide",
-    cat: "Math",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorScale: {
-    label: "Vector Scale",
-    cat: "Math",
-    inputs: 2,
-    pinsIn: ["Vec", "Scale"],
-    pinsOut: [{ label: "out", type: "vec3" }],
+    pinsOut: [{ label: "out", type: "dynamic" }],
     params: [],
   },
 };

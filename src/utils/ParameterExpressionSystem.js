@@ -212,8 +212,7 @@ buildEvaluationContext(context, node) {
     E: Math.E,
     
     // Real-time computed values
-    get time() { return Date.now() / 1000; },
-    get frame() { return 0; }, // Can be updated by animation system
+get time() { return performance.now() / 1000; },    get frame() { return 0; }, // Can be updated by animation system
     
     // Math functions
     sin: Math.sin,

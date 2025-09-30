@@ -58,17 +58,22 @@ export class FieldNodes {
 getParam(node, paramName, defaultValue) {
   const rawValue = node.params?.[paramName] ?? defaultValue;
   
-  // Check if using uniform
   const uniformName = this.uniformManager?.isDynamicParam(node.id, paramName)
     ? this.uniformManager.getUniformName(node.id, paramName)
     : null;
   
-  // If it's a dynamic param, return the uniform reference
   if (uniformName) {
     return `params.${uniformName}`;
   }
   
-  return this.paramHandler.toShaderCode(node.kind, paramName, rawValue, uniformName);
+  const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, uniformName);
+  
+  // Ensure numbers are formatted as WGSL floats
+  if (typeof result === 'number') {
+    return result === Math.floor(result) ? `${result}.0` : result.toString();
+  }
+  
+  return result;
 }
 
   // Gradient compile methods - these stay the same, just use getParam()
@@ -150,18 +155,25 @@ compileRadialGradient(node, getInput, nodeId) {
     return { line, outputType: "f32" };
   }
 
-  compileRectangle(node, getInput, nodeId) {
-    const uv = getInput(0, "vec2", "in.uv");
-    const width = this.getParam(node, 'width', 0.5);
-    const height = this.getParam(node, 'height', 0.5);
-    const epsilon = this.getParam(node, 'epsilon', 0.02);
-    
-    const line = `
-  let node_${nodeId} = rectField(${uv}, vec2<f32>(0.5), vec2<f32>(${width}, ${height}), ${epsilon});`;
-    
-    return { line, outputType: "f32" };
-  }
-
+compileRectangle(node, getInput, nodeId) {
+  const uv = getInput(0, "vec2", "in.uv");
+  const centerX = this.getParam(node, 'centerX', 0.5);
+  const centerY = this.getParam(node, 'centerY', 0.5);
+  const width = this.getParam(node, 'width', 0.5);
+  const height = this.getParam(node, 'height', 0.5);
+  const epsilon = this.getParam(node, 'epsilon', 0.02);
+  
+  console.log('Rectangle params:', { centerX, centerY, width, height, epsilon });
+  
+  const line = `
+  let d_${nodeId} = abs(${uv} - vec2<f32>(${centerX}, ${centerY})) - vec2<f32>(${width}, ${height}) * 0.5;
+  let dist_${nodeId} = length(max(d_${nodeId}, vec2<f32>(0.0))) + min(max(d_${nodeId}.x, d_${nodeId}.y), 0.0);
+  let node_${nodeId} = 1.0 - smoothstep(-${epsilon}, ${epsilon}, dist_${nodeId});`;
+  
+  console.log('Rectangle generated line:', line);
+  
+  return { line, outputType: "f32" };
+}
   compileColorRamp(node, getInput, nodeId) {
     const input = getInput(0, "f32", "0.0");
     

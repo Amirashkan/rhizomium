@@ -1,9 +1,8 @@
 // src/codegen/compilers/MathNodes.js
+
 export class MathNodes {
   /**
    * Check if this compiler handles the given node kind
-   * @param {string} kind 
-   * @returns {boolean}
    */
   handles(kind) {
     const mathNodes = [
@@ -19,16 +18,15 @@ export class MathNodes {
       // Interpolation
       'Smoothstep', 'Step', 'Mix', 'Lerp', 'InverseLerp', 'Saturate',
       // Utilities
-      'OneMinus', 'Negate', 'Reciprocal'
+      'OneMinus', 'Negate', 'Reciprocal',
+      // Vector operations
+      'Dot', 'Cross', 'Normalize', 'Length', 'Distance', 'Reflect', 'Refract'
     ];
     return mathNodes.includes(kind);
   }
   
   /**
-   * Compile math nodes
-   * @param {Object} node 
-   * @param {Function} getInput 
-   * @returns {Object} { line, outputType }
+   * Compile math nodes with type awareness
    */
   compile(node, getInput) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -36,15 +34,15 @@ export class MathNodes {
     switch (node.kind) {
       // Arithmetic Operations
       case 'Add':
-        return this.compileBinaryOp(nodeId, getInput, '+', '0.0', '0.0');
+        return this.compileBinaryOp(nodeId, getInput, '+');
       case 'Subtract':
-        return this.compileBinaryOp(nodeId, getInput, '-', '0.0', '0.0');
+        return this.compileBinaryOp(nodeId, getInput, '-');
       case 'Multiply':
-        return this.compileBinaryOp(nodeId, getInput, '*', '1.0', '1.0');
+        return this.compileBinaryOp(nodeId, getInput, '*');
       case 'Divide':
         return this.compileDivide(nodeId, getInput);
       case 'Power':
-        return this.compileBinaryMath(nodeId, getInput, 'pow', '1.0', '2.0');
+        return this.compileBinaryMath(nodeId, getInput, 'pow');
         
       // Trigonometric Functions
       case 'Sin':
@@ -60,7 +58,7 @@ export class MathNodes {
       case 'Atan':
         return this.compileUnaryMath(nodeId, getInput, 'atan');
       case 'Atan2':
-        return this.compileBinaryMath(nodeId, getInput, 'atan2', '0.0', '1.0');
+        return this.compileBinaryMath(nodeId, getInput, 'atan2');
         
       // Mathematical Functions
       case 'Floor':
@@ -90,9 +88,9 @@ export class MathNodes {
         
       // Range and Comparison Functions
       case 'Min':
-        return this.compileBinaryMath(nodeId, getInput, 'min', '0.0', '0.0');
+        return this.compileBinaryMath(nodeId, getInput, 'min');
       case 'Max':
-        return this.compileBinaryMath(nodeId, getInput, 'max', '0.0', '0.0');
+        return this.compileBinaryMath(nodeId, getInput, 'max');
       case 'Clamp':
         return this.compileClamp(nodeId, getInput);
         
@@ -117,127 +115,238 @@ export class MathNodes {
       case 'Reciprocal':
         return this.compileReciprocal(nodeId, getInput);
         
+      // Vector Operations
+      case 'Dot':
+        return this.compileDot(nodeId, getInput);
+      case 'Cross':
+        return this.compileCross(nodeId, getInput);
+      case 'Normalize':
+        return this.compileNormalize(nodeId, getInput);
+      case 'Length':
+        return this.compileLength(nodeId, getInput);
+      case 'Distance':
+        return this.compileDistance(nodeId, getInput);
+      case 'Reflect':
+        return this.compileReflect(nodeId, getInput);
+      case 'Refract':
+        return this.compileRefract(nodeId, getInput);
+        
       default:
         return null;
     }
   }
   
   /**
-   * Compile binary operations
+   * Get default value for a type
    */
-  compileBinaryOp(nodeId, getInput, operator, default1, default2) {
-    const a = getInput(0, "f32", default1);
-    const b = getInput(1, "f32", default2);
+  getDefaultForType(type) {
+    switch (type) {
+      case 'f32': return '0.0';
+      case 'vec2': return 'vec2(0.0)';
+      case 'vec3': return 'vec3(0.0)';
+      case 'vec4': return 'vec4(0.0)';
+      default: return '0.0';
+    }
+  }
+  
+  /**
+   * Get appropriate one value for a type
+   */
+  getOneForType(type) {
+    switch (type) {
+      case 'f32': return '1.0';
+      case 'vec2': return 'vec2(1.0)';
+      case 'vec3': return 'vec3(1.0)';
+      case 'vec4': return 'vec4(1.0)';
+      default: return '1.0';
+    }
+  }
+  
+  /**
+   * Get epsilon value for type (for safe division)
+   */
+  getEpsilonForType(type) {
+    switch (type) {
+      case 'f32': return '0.0001';
+      case 'vec2': return 'vec2(0.0001)';
+      case 'vec3': return 'vec3(0.0001)';
+      case 'vec4': return 'vec4(0.0001)';
+      default: return '0.0001';
+    }
+  }
+  
+  /**
+   * Compile binary operations (type-aware)
+   */
+  compileBinaryOp(nodeId, getInput, operator) {
+    // Get inputs without forcing type - let them be whatever type they are
+    const aInfo = getInput(0, null, null);
+    const bInfo = getInput(1, null, null);
+    
+    const a = aInfo.code || this.getDefaultForType(aInfo.type || 'f32');
+    const b = bInfo.code || this.getDefaultForType(bInfo.type || 'f32');
+    
+    // Use the type of the first input, or f32 if neither has a type
+    const outputType = aInfo.type || bInfo.type || 'f32';
+    
     return {
       line: `let node_${nodeId} = (${a}) ${operator} (${b});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile divide with safety check
+   * Compile divide with safety check (type-aware)
    */
   compileDivide(nodeId, getInput) {
-    const a = getInput(0, "f32", "1.0");
-    const b = getInput(1, "f32", "1.0");
+    const aInfo = getInput(0, null, null);
+    const bInfo = getInput(1, null, null);
+    
+    const a = aInfo.code || this.getOneForType(aInfo.type || 'f32');
+    const b = bInfo.code || this.getOneForType(bInfo.type || 'f32');
+    
+    const outputType = aInfo.type || bInfo.type || 'f32';
+    const epsilon = this.getEpsilonForType(outputType);
+    
     return {
-      line: `let node_${nodeId} = (${a}) / max((${b}), 0.0001);`,
-      outputType: "f32"
+      line: `let node_${nodeId} = (${a}) / max((${b}), ${epsilon});`,
+      outputType: outputType
     };
   }
   
   /**
-   * Compile unary math functions
+   * Compile unary math functions (type-aware)
    */
   compileUnaryMath(nodeId, getInput, funcName) {
-    const inp = getInput(0, "f32", "0.0");
+    const inpInfo = getInput(0, null, null);
+    const inp = inpInfo.code || this.getDefaultForType(inpInfo.type || 'f32');
+    const outputType = inpInfo.type || 'f32';
+    
     return {
       line: `let node_${nodeId} = ${funcName}(${inp});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile sqrt with safety check
+   * Compile sqrt with safety check (type-aware)
    */
   compileSqrt(nodeId, getInput) {
-    const inp = getInput(0, "f32", "0.0");
+    const inpInfo = getInput(0, null, null);
+    const inp = inpInfo.code || this.getDefaultForType(inpInfo.type || 'f32');
+    const outputType = inpInfo.type || 'f32';
+    const zero = this.getDefaultForType(outputType);
+    
     return {
-      line: `let node_${nodeId} = sqrt(max(${inp}, 0.0));`,
-      outputType: "f32"
+      line: `let node_${nodeId} = sqrt(max(${inp}, ${zero}));`,
+      outputType: outputType
     };
   }
   
   /**
-   * Compile binary math functions
+   * Compile binary math functions (type-aware)
    */
-  compileBinaryMath(nodeId, getInput, funcName, default1, default2) {
-    const a = getInput(0, "f32", default1);
-    const b = getInput(1, "f32", default2);
+  compileBinaryMath(nodeId, getInput, funcName) {
+    const aInfo = getInput(0, null, null);
+    const bInfo = getInput(1, null, null);
+    
+    const a = aInfo.code || this.getDefaultForType(aInfo.type || 'f32');
+    const b = bInfo.code || this.getDefaultForType(bInfo.type || 'f32');
+    
+    const outputType = aInfo.type || bInfo.type || 'f32';
+    
     return {
       line: `let node_${nodeId} = ${funcName}(${a}, ${b});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile clamp function
+   * Compile clamp function (type-aware)
    */
   compileClamp(nodeId, getInput) {
-    const value = getInput(0, "f32", "0.0");
-    const minVal = getInput(1, "f32", "0.0");
-    const maxVal = getInput(2, "f32", "1.0");
+    const valueInfo = getInput(0, null, null);
+    const minInfo = getInput(1, null, null);
+    const maxInfo = getInput(2, null, null);
+    
+    const outputType = valueInfo.type || 'f32';
+    
+    const value = valueInfo.code || this.getDefaultForType(outputType);
+    const minVal = minInfo.code || this.getDefaultForType(outputType);
+    const maxVal = maxInfo.code || this.getOneForType(outputType);
+    
     return {
       line: `let node_${nodeId} = clamp(${value}, ${minVal}, ${maxVal});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile smoothstep function
+   * Compile smoothstep function (type-aware)
    */
   compileSmoothstep(nodeId, getInput) {
-    const edge0 = getInput(0, "f32", "0.0");
-    const edge1 = getInput(1, "f32", "1.0");
-    const x = getInput(2, "f32", "0.5");
+    const edge0Info = getInput(0, null, null);
+    const edge1Info = getInput(1, null, null);
+    const xInfo = getInput(2, null, null);
+    
+    const outputType = xInfo.type || 'f32';
+    
+    const edge0 = edge0Info.code || this.getDefaultForType(outputType);
+    const edge1 = edge1Info.code || this.getOneForType(outputType);
+    const x = xInfo.code || this.getDefaultForType(outputType);
+    
     return {
       line: `let node_${nodeId} = smoothstep(${edge0}, ${edge1}, ${x});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile step function
+   * Compile step function (type-aware)
    */
   compileStep(nodeId, getInput) {
-    const edge = getInput(0, "f32", "0.5");
-    const x = getInput(1, "f32", "0.0");
+    const edgeInfo = getInput(0, null, null);
+    const xInfo = getInput(1, null, null);
+    
+    const outputType = xInfo.type || 'f32';
+    
+    const edge = edgeInfo.code || '0.5';
+    const x = xInfo.code || this.getDefaultForType(outputType);
+    
     return {
       line: `let node_${nodeId} = step(${edge}, ${x});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile mix/lerp function
+   * Compile mix/lerp function (type-aware)
    */
   compileMix(nodeId, getInput) {
-    const a = getInput(0, "f32", "0.0");
-    const b = getInput(1, "f32", "1.0");
-    const t = getInput(2, "f32", "0.5");
+    const aInfo = getInput(0, null, null);
+    const bInfo = getInput(1, null, null);
+    const tInfo = getInput(2, null, null);
+    
+    const outputType = aInfo.type || bInfo.type || 'f32';
+    
+    const a = aInfo.code || this.getDefaultForType(outputType);
+    const b = bInfo.code || this.getOneForType(outputType);
+    const t = tInfo.code || '0.5';
+    
     return {
       line: `let node_${nodeId} = mix(${a}, ${b}, ${t});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile inverse lerp function
+   * Compile inverse lerp function (always returns scalar)
    */
   compileInverseLerp(nodeId, getInput) {
     const a = getInput(0, "f32", "0.0");
     const b = getInput(1, "f32", "1.0");
     const value = getInput(2, "f32", "0.5");
+    
     return {
       line: `let node_${nodeId} = clamp((${value} - ${a}) / max(${b} - ${a}, 0.0001), 0.0, 1.0);`,
       outputType: "f32"
@@ -245,58 +354,207 @@ export class MathNodes {
   }
   
   /**
-   * Compile saturate function (clamp 0-1)
+   * Compile saturate function (type-aware)
    */
   compileSaturate(nodeId, getInput) {
-    const v = getInput(0, "f32", "0.0");
+    const vInfo = getInput(0, null, null);
+    const outputType = vInfo.type || 'f32';
+    
+    const v = vInfo.code || this.getDefaultForType(outputType);
+    const zero = this.getDefaultForType(outputType);
+    const one = this.getOneForType(outputType);
+    
     return {
-      line: `let node_${nodeId} = clamp(${v}, 0.0, 1.0);`,
-      outputType: "f32"
+      line: `let node_${nodeId} = clamp(${v}, ${zero}, ${one});`,
+      outputType: outputType
     };
   }
   
   /**
-   * Compile mod function
+   * Compile mod function (type-aware)
    */
   compileMod(nodeId, getInput) {
-    const a = getInput(0, "f32", "0.0");
-    const b = getInput(1, "f32", "1.0");
+    const aInfo = getInput(0, null, null);
+    const bInfo = getInput(1, null, null);
+    
+    const a = aInfo.code || this.getDefaultForType(aInfo.type || 'f32');
+    const b = bInfo.code || this.getOneForType(bInfo.type || 'f32');
+    
+    const outputType = aInfo.type || bInfo.type || 'f32';
+    const epsilon = this.getEpsilonForType(outputType);
+    
     return {
-      line: `let node_${nodeId} = ${a} - ${b} * floor(${a} / max(${b}, 0.0001));`,
-      outputType: "f32"
+      line: `let node_${nodeId} = ${a} - ${b} * floor(${a} / max(${b}, ${epsilon}));`,
+      outputType: outputType
     };
   }
   
   /**
-   * Compile OneMinus (1.0 - x)
+   * Compile OneMinus (type-aware)
    */
   compileOneMinus(nodeId, getInput) {
-    const x = getInput(0, "f32", "0.0");
+    const xInfo = getInput(0, null, null);
+    const outputType = xInfo.type || 'f32';
+    
+    const x = xInfo.code || this.getDefaultForType(outputType);
+    const one = this.getOneForType(outputType);
+    
     return {
-      line: `let node_${nodeId} = 1.0 - (${x});`,
-      outputType: "f32"
+      line: `let node_${nodeId} = ${one} - (${x});`,
+      outputType: outputType
     };
   }
   
   /**
-   * Compile Negate (-x)
+   * Compile Negate (type-aware)
    */
   compileNegate(nodeId, getInput) {
-    const x = getInput(0, "f32", "0.0");
+    const xInfo = getInput(0, null, null);
+    const x = xInfo.code || this.getDefaultForType(xInfo.type || 'f32');
+    const outputType = xInfo.type || 'f32';
+    
     return {
       line: `let node_${nodeId} = -(${x});`,
-      outputType: "f32"
+      outputType: outputType
     };
   }
   
   /**
-   * Compile Reciprocal (1.0 / x)
+   * Compile Reciprocal (type-aware)
    */
   compileReciprocal(nodeId, getInput) {
-    const x = getInput(0, "f32", "1.0");
+    const xInfo = getInput(0, null, null);
+    const outputType = xInfo.type || 'f32';
+    
+    const x = xInfo.code || this.getOneForType(outputType);
+    const one = this.getOneForType(outputType);
+    const epsilon = this.getEpsilonForType(outputType);
+    
     return {
-      line: `let node_${nodeId} = 1.0 / max(${x}, 0.0001);`,
-      outputType: "f32"
+      line: `let node_${nodeId} = ${one} / max(${x}, ${epsilon});`,
+      outputType: outputType
     };
   }
-}
+  
+  // === VECTOR OPERATIONS ===
+  
+  /**
+   * Compile dot product (always returns scalar)
+   */
+  compileDot(nodeId, getInput) {
+    const aInfo = getInput(0, null, null);
+    const bInfo = getInput(1, null, null);
+    
+    // Default to vec3 if no type specified
+    const inputType = aInfo.type || bInfo.type || 'vec3';
+    
+    const a = aInfo.code || this.getDefaultForType(inputType);
+    const b = bInfo.code || this.getDefaultForType(inputType);
+    
+    return {
+      line: `let node_${nodeId} = dot(${a}, ${b});`,
+      outputType: 'f32'
+    };
+  }
+  
+  /**
+   * Compile cross product (always vec3)
+   */
+  compileCross(nodeId, getInput) {
+    const aInfo = getInput(0, 'vec3', null);
+    const bInfo = getInput(1, 'vec3', null);
+    
+    const a = aInfo.code || 'vec3(1.0, 0.0, 0.0)';
+    const b = bInfo.code || 'vec3(0.0, 1.0, 0.0)';
+    
+    return {
+      line: `let node_${nodeId} = cross(${a}, ${b});`,
+      outputType: 'vec3'
+    };
+  }
+  
+  /**
+   * Compile normalize (type-aware)
+   */
+  compileNormalize(nodeId, getInput) {
+    const vecInfo = getInput(0, null, null);
+    const inputType = vecInfo.type || 'vec3';
+    
+    const vec = vecInfo.code || this.getDefaultForType(inputType);
+    
+    return {
+      line: `let node_${nodeId} = normalize(${vec});`,
+      outputType: inputType
+    };
+  }
+  
+  /**
+   * Compile length (always returns scalar)
+   */
+  compileLength(nodeId, getInput) {
+    const vecInfo = getInput(0, null, null);
+    const inputType = vecInfo.type || 'vec3';
+    
+    const vec = vecInfo.code || this.getDefaultForType(inputType);
+    
+    return {
+      line: `let node_${nodeId} = length(${vec});`,
+      outputType: 'f32'
+    };
+  }
+  
+  /**
+   * Compile distance (always returns scalar)
+   */
+  compileDistance(nodeId, getInput) {
+    const aInfo = getInput(0, null, null);
+    const bInfo = getInput(1, null, null);
+    
+    const inputType = aInfo.type || bInfo.type || 'vec3';
+    
+    const a = aInfo.code || this.getDefaultForType(inputType);
+    const b = bInfo.code || this.getDefaultForType(inputType);
+    
+    return {
+      line: `let node_${nodeId} = distance(${a}, ${b});`,
+      outputType: 'f32'
+    };
+  }
+  
+  /**
+   * Compile reflect (type-aware)
+   */
+  compileReflect(nodeId, getInput) {
+    const iInfo = getInput(0, null, null);
+    const nInfo = getInput(1, null, null);
+    
+    const inputType = iInfo.type || nInfo.type || 'vec3';
+    
+    const i = iInfo.code || this.getDefaultForType(inputType);
+    const n = nInfo.code || this.getDefaultForType(inputType);
+    
+    return {
+      line: `let node_${nodeId} = reflect(${i}, ${n});`,
+      outputType: inputType
+    };
+  }
+  
+  /**
+   * Compile refract (type-aware)
+   */
+  compileRefract(nodeId, getInput) {
+    const iInfo = getInput(0, null, null);
+    const nInfo = getInput(1, null, null);
+    const etaInfo = getInput(2, 'f32', null);
+    
+    const inputType = iInfo.type || nInfo.type || 'vec3';
+    
+    const i = iInfo.code || this.getDefaultForType(inputType);
+    const n = nInfo.code || this.getDefaultForType(inputType);
+    const eta = etaInfo.code || '1.0';
+    
+    return {
+      line: `let node_${nodeId} = refract(${i}, ${n}, ${eta});`,
+      outputType: inputType
+    };
+  }}

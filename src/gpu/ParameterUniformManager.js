@@ -14,49 +14,90 @@ export class ParameterUniformManager {
   /**
    * Analyze a node to determine which parameters need uniforms
    */
-analyzeNode(node) {
-  if (!node.params) return;
+  analyzeNode(node) {
+    if (!node.params) return;
 
-  const dynamicParams = new Set();
+    const dynamicParams = new Set();
 
-  Object.entries(node.params).forEach(([paramName, value]) => {
-    console.log(`Analyzing ${node.id}.${paramName} = ${value}`);
-    if (this.isDynamicParameter(value)) {
-      console.log(`  ✅ Is dynamic!`);
-      dynamicParams.add(paramName);
-      this.uniformValues.set(`${node.id}.${paramName}`, this.evaluateParameter(value, node));
+    Object.entries(node.params).forEach(([paramName, value]) => {
+      console.log(`Analyzing ${node.id}.${paramName} = ${value}`);
+      if (this.isDynamicParameter(value)) {
+        console.log(`  ✅ Is dynamic!`);
+        dynamicParams.add(paramName);
+        this.uniformValues.set(`${node.id}.${paramName}`, this.evaluateParameter(value, node));
+      }
+    });
+
+    if (dynamicParams.size > 0) {
+      this.uniformParameters.set(node.id, dynamicParams);
+      console.log(`Node ${node.id} has ${dynamicParams.size} dynamic params:`, Array.from(dynamicParams));
     }
-  });
-
-  if (dynamicParams.size > 0) {
-    this.uniformParameters.set(node.id, dynamicParams);
-    console.log(`Node ${node.id} has ${dynamicParams.size} dynamic params:`, Array.from(dynamicParams));
   }
-}
 
   /**
-   * Check if a parameter value is dynamic (expression)
+   * Check if a parameter value is dynamic (needs uniform buffer)
+   * Detects:
+   * 1. Explicit expressions starting with =
+   * 2. Time-dependent math expressions (sin(time), time*2, etc.)
    */
-isDynamicParameter(value) {
-  return typeof value === 'string' && value.trim().startsWith('=');
+  isDynamicParameter(value) {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    
+    // Explicit expressions with =
+    if (trimmed.startsWith('=')) return true;
+    
+    // Auto-detect time-dependent expressions
+    return this.isTimeDependentExpression(trimmed);
+  }
+
+  /**
+   * Check if an expression depends on time (without = prefix)
+   */
+  isTimeDependentExpression(expr) {
+  if (expr.trim() === 'time') {
+    return true;
+  }
+  
+  // Or expressions containing time with operators/functions
+  return /\btime\b/.test(expr) && this.isMathExpression(expr);
 }
+  /**
+   * Check if a string looks like a math expression
+   */
+  isMathExpression(value) {
+    // Has function calls like sin(, cos(, etc.
+    if (/\b(sin|cos|tan|sqrt|abs|pow|min|max|floor|ceil|round|clamp|lerp|smoothstep)\s*\(/.test(value)) {
+      return true;
+    }
+    
+    // Contains 'time' with operators
+    if (value.includes('time') && /[+\-*/()]/.test(value)) {
+      return true;
+    }
+    
+    return false;
+  }
 
   /**
    * Evaluate a parameter using the expression system
    */
-evaluateParameter(value, node) {
-  if (window.expressionSystem) {
-    try {
-      const result = window.expressionSystem.evaluateExpression(value, {}, node);
-      console.log(`📊 Evaluated ${node.id} param: ${value} = ${result}`);
-      return result;
-    } catch (error) {
-      console.warn('Failed to evaluate parameter:', error);
-      return 0;
+  evaluateParameter(value, node) {
+    if (window.expressionSystem) {
+      try {
+        // Add = prefix if not present for expression system
+        const exprValue = value.startsWith('=') ? value : `=${value}`;
+        const result = window.expressionSystem.evaluateExpression(exprValue, {}, node);
+        console.log(`📊 Evaluated ${node.id} param: ${value} = ${result}`);
+        return result;
+      } catch (error) {
+        console.warn('Failed to evaluate parameter:', error);
+        return 0;
+      }
     }
+    return 0;
   }
-  return 0;
-}
+
   /**
    * Check if a node has any dynamic parameters
    */
@@ -111,26 +152,25 @@ evaluateParameter(value, node) {
   /**
    * Generate WGSL uniform struct declaration
    */
-generateUniformStruct() {
-  if (this.uniformValues.size === 0) {
-    return '';
-  }
+  generateUniformStruct() {
+    if (this.uniformValues.size === 0) {
+      return '';
+    }
 
-  const entries = Array.from(this.uniformValues.keys()).map(key => {
-    const [nodeId, paramName] = key.split('.');
-    const uniformName = this.getUniformName(nodeId, paramName);
-    return `  ${uniformName}: f32,`;
-  });
+    const entries = Array.from(this.uniformValues.keys()).map(key => {
+      const [nodeId, paramName] = key.split('.');
+      const uniformName = this.getUniformName(nodeId, paramName);
+      return `  ${uniformName}: f32,`;
+    });
 
-  // Don't include @binding here - let generateShader add it with correct number
-  return `
+    return `
 struct DynamicParams {
 ${entries.join('\n')}
 }
 
 @group(0) var<uniform> params: DynamicParams;
 `;
-}
+  }
 
   /**
    * Create GPU buffer for uniforms
@@ -141,7 +181,6 @@ ${entries.join('\n')}
       return null;
     }
 
-    // Each f32 is 4 bytes, align to 16 bytes
     const valueCount = this.uniformValues.size;
     const bufferSize = Math.max(16, Math.ceil(valueCount * 4 / 16) * 16);
 

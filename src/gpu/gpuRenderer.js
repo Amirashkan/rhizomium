@@ -213,7 +213,7 @@ function createPipelineAndBindGroup(wgsl) {
     }
 
     if (hasParamUniforms) {
-      const paramBinding = needsTextures ? 3 : 2;
+      const paramBinding = needsTextures ? 3 : 1;
       entries.push({
         binding: paramBinding,
         resource: { buffer: _paramUniformBuffer }
@@ -337,7 +337,7 @@ export function render() {
     // Update parameter uniforms if needed
     if (_uniformManager && _paramUniformBuffer && window.editor?.graph) {
       _uniformManager.updateValues(window.editor.graph);
-      
+        console.log('Frame update - params changed:', changed);
       const values = Array.from(_uniformManager.uniformValues.values());
       
       // Safety check: only update if we have values and buffer exists

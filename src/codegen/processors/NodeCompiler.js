@@ -62,6 +62,11 @@ export class NodeCompiler {
       }
     }
     
+    // ADD LOGGING HERE:
+    console.log('=== UNIFORM STRUCT ===');
+    console.log(this.uniformManager.generateUniformStruct());
+    console.log('=====================');
+    
     return {
       lines,
       types: this.typeConverter.types,
@@ -77,12 +82,41 @@ export class NodeCompiler {
     
     console.log(`Processing node ${nodeId}: kind="${kind}"`);
     
+    /**
+     * Enhanced getInput function that supports both traditional and type-aware modes
+     * @param {number} index - Input index
+     * @param {string|null} targetType - Desired type, or null for type-aware mode
+     * @param {string|null} defaultValue - Default value if no input connected
+     * @returns {string|Object} - String for traditional mode, {code, type} for type-aware mode
+     */
     const getInput = (index, targetType, defaultValue = null) => {
       const inputId = node.inputs?.[index];
-      if (inputId) {
-        return this.typeConverter.convertTo(inputId, targetType);
+      
+      if (!inputId) {
+        // No input connected - return default
+        if (targetType === null || targetType === undefined) {
+          // Type-aware mode: return object with code and inferred type
+          return {
+            code: defaultValue,
+            type: this.inferTypeFromDefault(defaultValue)
+          };
+        } else {
+          // Traditional mode: return string
+          return defaultValue;
+        }
       }
-      return defaultValue;
+      
+      // Input is connected
+      const result = this.typeConverter.convertTo(inputId, targetType);
+      
+      // Check if result is an object (type-aware mode) or string (traditional mode)
+      if (typeof result === 'object' && result !== null && result.code !== undefined) {
+        // Type-aware mode: return the object as-is
+        return result;
+      } else {
+        // Traditional mode: return the string
+        return result;
+      }
     };
     
     // Delegate to appropriate compiler
@@ -117,5 +151,25 @@ export class NodeCompiler {
     }
     
     return result || { line: "", outputType: "vec3" };
+  }
+  
+  /**
+   * Infer WGSL type from a default value string
+   * @param {string} defaultValue 
+   * @returns {string}
+   */
+  inferTypeFromDefault(defaultValue) {
+    if (!defaultValue) return 'f32';
+    
+    const val = String(defaultValue);
+    
+    if (val.includes('vec4')) return 'vec4';
+    if (val.includes('vec3')) return 'vec3';
+    if (val.includes('vec2')) return 'vec2';
+    
+    // Check for number patterns
+    if (/^\d+\.?\d*$/.test(val)) return 'f32';
+    
+    return 'f32'; // Default to scalar
   }
 }
