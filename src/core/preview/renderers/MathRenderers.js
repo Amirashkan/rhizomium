@@ -6,66 +6,66 @@ export class MathRenderers {
     this.size = previewSystem.size;
   }
 
-  register(registry) {
-    registry.registerMultiple({
-      // Arithmetic
-      'Add': (ctx, node) => this.renderMath(ctx, node, "+", "#60a5fa"),
-      'Subtract': (ctx, node) => this.renderMath(ctx, node, "−", "#f87171"),
-      'Multiply': (ctx, node) => this.renderMath(ctx, node, "×", "#f59e0b"),
-      'Divide': (ctx, node) => this.renderMath(ctx, node, "÷", "#a78bfa"),
-      'Power': (ctx, node) => this.renderMath(ctx, node, "^", "#ec4899"),
-      
-      // Trigonometry
-      'Sin': (ctx, node) => this.renderUnaryMath(ctx, node, "sin", "#3b82f6"),
-      'Cos': (ctx, node) => this.renderUnaryMath(ctx, node, "cos", "#3b82f6"),
-      'Tan': (ctx, node) => this.renderUnaryMath(ctx, node, "tan", "#3b82f6"),
-      'Asin': (ctx, node) => this.renderUnaryMath(ctx, node, "asin", "#6366f1"),
-      'Acos': (ctx, node) => this.renderUnaryMath(ctx, node, "acos", "#6366f1"),
-      'Atan': (ctx, node) => this.renderUnaryMath(ctx, node, "atan", "#6366f1"),
-      'Atan2': (ctx, node) => this.renderMath(ctx, node, "atan2", "#6366f1"),
-      
-      // Math functions
-      'Floor': (ctx, node) => this.renderUnaryMath(ctx, node, "⌊⌋", "#8b5cf6"),
-      'Ceil': (ctx, node) => this.renderUnaryMath(ctx, node, "⌈⌉", "#8b5cf6"),
-      'Round': (ctx, node) => this.renderUnaryMath(ctx, node, "≈", "#8b5cf6"),
-      'Fract': (ctx, node) => this.renderUnaryMath(ctx, node, "frac", "#a855f7"),
-      'Abs': (ctx, node) => this.renderUnaryMath(ctx, node, "|x|", "#d946ef"),
-      'Sqrt': (ctx, node) => this.renderUnaryMath(ctx, node, "√", "#e879f9"),
-      'Sign': (ctx, node) => this.renderUnaryMath(ctx, node, "sgn", "#f0abfc"),
-      'Exp': (ctx, node) => this.renderUnaryMath(ctx, node, "exp", "#c084fc"),
-      'Exp2': (ctx, node) => this.renderUnaryMath(ctx, node, "2^x", "#c084fc"),
-      'Log': (ctx, node) => this.renderUnaryMath(ctx, node, "ln", "#a78bfa"),
-      'Log2': (ctx, node) => this.renderUnaryMath(ctx, node, "log2", "#a78bfa"),
-      
-      // Range/Comparison
-      'Min': (ctx, node) => this.renderMath(ctx, node, "min", "#14b8a6"),
-      'Max': (ctx, node) => this.renderMath(ctx, node, "max", "#06b6d4"),
-      'Clamp': (ctx, node) => this.renderClamp(ctx, node),
-      'Mod': (ctx, node) => this.renderMath(ctx, node, "%", "#0ea5e9"),
-      
-      // Interpolation
-      'Smoothstep': (ctx, node) => this.renderSmoothstep(ctx, node),
-      'Step': (ctx, node) => this.renderUnaryMath(ctx, node, "step", "#f59e0b"),
-      'Mix': (ctx, node) => this.renderLerp(ctx, node),
-      'Lerp': (ctx, node) => this.renderLerp(ctx, node),
-      'InverseLerp': (ctx, node) => this.renderUnaryMath(ctx, node, "invLrp", "#0891b2"),
-      'Saturate': (ctx, node) => this.renderSaturate(ctx, node),
-      
-      // Utilities
-      'OneMinus': (ctx, node) => this.renderUnaryMath(ctx, node, "1-x", "#10b981"),
-      'Negate': (ctx, node) => this.renderUnaryMath(ctx, node, "-x", "#ef4444"),
-      'Reciprocal': (ctx, node) => this.renderUnaryMath(ctx, node, "1/x", "#f97316"),
-      
-      // Vector operations
-      'Dot': (ctx, node) => this.renderVectorOp(ctx, node, "dot", "#14b8a6"),
-      'Cross': (ctx, node) => this.renderVectorOp(ctx, node, "×", "#06b6d4"),
-      'Normalize': (ctx, node) => this.renderUnaryMath(ctx, node, "norm", "#0ea5e9"),
-      'Length': (ctx, node) => this.renderVectorOp(ctx, node, "|v|", "#0891b2"),
-      'Distance': (ctx, node) => this.renderVectorOp(ctx, node, "dist", "#0e7490"),
-      'Reflect': (ctx, node) => this.renderVectorOp(ctx, node, "refl", "#155e75"),
-      'Refract': (ctx, node) => this.renderVectorOp(ctx, node, "refr", "#164e63"),
-    });
-  }
+register(registry) {
+  registry.registerMultiple({
+    // Arithmetic
+    'add': (ctx, node) => this.renderMath(ctx, node, "+", "#60a5fa"),
+    'subtract': (ctx, node) => this.renderMath(ctx, node, "−", "#f87171"),
+    'multiply': (ctx, node) => this.renderMath(ctx, node, "×", "#f59e0b"),
+    'divide': (ctx, node) => this.renderMath(ctx, node, "÷", "#a78bfa"),
+    'power': (ctx, node) => this.renderMath(ctx, node, "^", "#ec4899"),
+    
+    // Trigonometry
+    'sin': (ctx, node) => this.renderUnaryMath(ctx, node, "sin", "#3b82f6"),
+    'cos': (ctx, node) => this.renderUnaryMath(ctx, node, "cos", "#3b82f6"),
+    'tan': (ctx, node) => this.renderUnaryMath(ctx, node, "tan", "#3b82f6"),
+    'asin': (ctx, node) => this.renderUnaryMath(ctx, node, "asin", "#6366f1"),
+    'acos': (ctx, node) => this.renderUnaryMath(ctx, node, "acos", "#6366f1"),
+    'atan': (ctx, node) => this.renderUnaryMath(ctx, node, "atan", "#6366f1"),
+    'atan2': (ctx, node) => this.renderMath(ctx, node, "atan2", "#6366f1"),
+    
+    // Math functions
+    'floor': (ctx, node) => this.renderUnaryMath(ctx, node, "⌊⌋", "#8b5cf6"),
+    'ceil': (ctx, node) => this.renderUnaryMath(ctx, node, "⌈⌉", "#8b5cf6"),
+    'round': (ctx, node) => this.renderUnaryMath(ctx, node, "≈", "#8b5cf6"),
+    'fract': (ctx, node) => this.renderUnaryMath(ctx, node, "frac", "#a855f7"),
+    'abs': (ctx, node) => this.renderUnaryMath(ctx, node, "|x|", "#d946ef"),
+    'sqrt': (ctx, node) => this.renderUnaryMath(ctx, node, "√", "#e879f9"),
+    'sign': (ctx, node) => this.renderUnaryMath(ctx, node, "sgn", "#f0abfc"),
+    'exp': (ctx, node) => this.renderUnaryMath(ctx, node, "exp", "#c084fc"),
+    'exp2': (ctx, node) => this.renderUnaryMath(ctx, node, "2^x", "#c084fc"),
+    'log': (ctx, node) => this.renderUnaryMath(ctx, node, "ln", "#a78bfa"),
+    'log2': (ctx, node) => this.renderUnaryMath(ctx, node, "log2", "#a78bfa"),
+    
+    // Range/Comparison
+    'min': (ctx, node) => this.renderMath(ctx, node, "min", "#14b8a6"),
+    'max': (ctx, node) => this.renderMath(ctx, node, "max", "#06b6d4"),
+    'clamp': (ctx, node) => this.renderClamp(ctx, node),
+    'mod': (ctx, node) => this.renderMath(ctx, node, "%", "#0ea5e9"),
+    
+    // Interpolation
+    'smoothstep': (ctx, node) => this.renderSmoothstep(ctx, node),
+    'step': (ctx, node) => this.renderUnaryMath(ctx, node, "step", "#f59e0b"),
+    'mix': (ctx, node) => this.renderLerp(ctx, node),
+    'lerp': (ctx, node) => this.renderLerp(ctx, node),
+    'inverselerp': (ctx, node) => this.renderUnaryMath(ctx, node, "invLrp", "#0891b2"),
+    'saturate': (ctx, node) => this.renderSaturate(ctx, node),
+    
+    // Utilities
+    'oneminus': (ctx, node) => this.renderUnaryMath(ctx, node, "1-x", "#10b981"),
+    'negate': (ctx, node) => this.renderUnaryMath(ctx, node, "-x", "#ef4444"),
+    'reciprocal': (ctx, node) => this.renderUnaryMath(ctx, node, "1/x", "#f97316"),
+    
+    // Vector operations
+    'dot': (ctx, node) => this.renderVectorOp(ctx, node, "dot", "#14b8a6"),
+    'cross': (ctx, node) => this.renderVectorOp(ctx, node, "×", "#06b6d4"),
+    'normalize': (ctx, node) => this.renderUnaryMath(ctx, node, "norm", "#0ea5e9"),
+    'length': (ctx, node) => this.renderVectorOp(ctx, node, "|v|", "#0891b2"),
+    'distance': (ctx, node) => this.renderVectorOp(ctx, node, "dist", "#0e7490"),
+    'reflect': (ctx, node) => this.renderVectorOp(ctx, node, "refl", "#155e75"),
+    'refract': (ctx, node) => this.renderVectorOp(ctx, node, "refr", "#164e63"),
+  });
+}
 
   getParameterValue(node, paramName, defaultValue = 0) {
     try {

@@ -13,6 +13,7 @@ import { NoiseRenderers } from './preview/renderers/NoiseRenderers.js';
 import { TextureRenderers } from './preview/renderers/TextureRenderers.js';
 import { UtilityRenderers } from './preview/renderers/UtilityRenderers.js';
 import { TransformRenderers } from './preview/renderers/TransformRenderers.js';
+import { GradientRenderers } from './preview/renderers/GradientRenderers.js';
 
 export class PreviewSystem {
   constructor(editor) {
@@ -92,6 +93,7 @@ export class PreviewSystem {
   }
 
   _registerRenderers() {
+
     try {
       const rendererGroups = [
         BasicRenderers,
@@ -100,6 +102,7 @@ export class PreviewSystem {
         NoiseRenderers,
         TextureRenderers,
         UtilityRenderers,
+        GradientRenderers, 
         TransformRenderers,
       ];
 
@@ -118,6 +121,8 @@ export class PreviewSystem {
         const renderers = new RendererGroup(this);
         if (renderers && typeof renderers.register === 'function') {
           renderers.register(this.rendererRegistry);
+                    console.log(`Registered ${RendererGroup.name}:`, Object.keys(this.rendererRegistry.renderers || {}));
+
           registeredCount++;
         } else {
           console.warn(`Renderer group ${RendererGroup.name || 'Unknown'} missing register method`);

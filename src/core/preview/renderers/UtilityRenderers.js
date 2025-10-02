@@ -5,22 +5,22 @@ export class UtilityRenderers {
     this.size = previewSystem.size;
   }
 
-  register(registry) {
-    registry.registerMultiple({
-      'Expr': (ctx, node) => this.renderExpr(ctx, node),
-      'Remap': (ctx, node) => this.renderRemap(ctx, node),
-      'Posterize': (ctx, node) => this.renderPosterize(ctx, node),
-      'ColorToGrayscale': (ctx, node) => this.renderColorToGrayscale(ctx, node),
-      'ColorInvert': (ctx, node) => this.renderColorInvert(ctx, node),
-      'ColorSaturate': (ctx, node) => this.renderColorSaturate(ctx, node),
-      'ColorContrast': (ctx, node) => this.renderColorContrast(ctx, node),
-      'ColorBrightness': (ctx, node) => this.renderColorBrightness(ctx, node),
-      'HSVToRGB': (ctx, node) => this.renderColorConversion(ctx, node, "HSV→RGB"),
-      'RGBToHSV': (ctx, node) => this.renderColorConversion(ctx, node, "RGB→HSV"),
-      'Select': (ctx, node) => this.renderSelect(ctx, node),
-      'Compare': (ctx, node) => this.renderCompare(ctx, node),
-    });
-  }
+register(registry) {
+  registry.registerMultiple({
+    'expr': (ctx, node) => this.renderExpr(ctx, node),
+    'remap': (ctx, node) => this.renderRemap(ctx, node),
+    'posterize': (ctx, node) => this.renderPosterize(ctx, node),
+    'colortograyscale': (ctx, node) => this.renderColorToGrayscale(ctx, node),
+    'colorinvert': (ctx, node) => this.renderColorInvert(ctx, node),
+    'colorsaturate': (ctx, node) => this.renderColorSaturate(ctx, node),
+    'colorcontrast': (ctx, node) => this.renderColorContrast(ctx, node),
+    'colorbrightness': (ctx, node) => this.renderColorBrightness(ctx, node),
+    'hsvtorgb': (ctx, node) => this.renderColorConversion(ctx, node, "HSV→RGB"),
+    'rgbtohsv': (ctx, node) => this.renderColorConversion(ctx, node, "RGB→HSV"),
+    'select': (ctx, node) => this.renderSelect(ctx, node),
+    'compare': (ctx, node) => this.renderCompare(ctx, node),
+  });
+}
 
   renderExpr(ctx, node) {
     const expr = (node.expr || "a").substring(0, 10);
