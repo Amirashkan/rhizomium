@@ -284,7 +284,7 @@ console.log("GPU and preview update completed");
       // Force WebGPU reinitialization if the function exists
       if (typeof window.initWebGPU === "function") {
         console.log("🔄 Calling initWebGPU...");
-        const device = await window.initWebGPU(canvas);
+        const device = await window.initWebGPU(canvas, true);
         if (device) {
           console.log("✅ WebGPU reinitialized successfully");
           return true;
@@ -1222,7 +1222,7 @@ console.log("GPU and preview update completed");
       this.graph.nodes = (nodeData || []).map((data) => {
         // Create node with proper type/kind properties
         const node = {
-          id: data.id,
+          id: String(data.id),
           type: data.kind || "Unknown", // Set BOTH type and kind
           kind: data.kind || "Unknown",
           x: data.position?.x || data.x || 0,
@@ -1288,43 +1288,40 @@ console.log("GPU and preview update completed");
     }
   }
 
-  importConnections(connectionData) {
-    try {
-      this.graph.connections = [...(connectionData || [])];
+importConnections(connectionData) {
+  try {
+    this.graph.connections = [...(connectionData || [])];
 
-      // Create a map of nodeId -> node for fast lookup
-      const nodeMap = new Map(this.graph.nodes.map((n) => [n.id, n]));
+    const nodeMap = new Map(
+      this.graph.nodes.map((n) => [String(n.id), n])
+    );
+    for (const conn of this.graph.connections) {
+      const toNode = nodeMap.get(String(conn.to.nodeId));
+      if (toNode && toNode.inputs) {
+        const toPin = conn.to.pin || 0;
+        const fromNodeId = String(conn.from.nodeId);
 
-      // Set up the simple input format that matches the original working version
-      for (const conn of this.graph.connections) {
-        const toNode = nodeMap.get(conn.to.nodeId);
-        if (toNode && toNode.inputs) {
-          const toPin = conn.to.pin || 0;
-          const fromNodeId = String(conn.from.nodeId); // Convert to string to match original format
-
-          // Make sure inputs array is long enough
-          while (toNode.inputs.length <= toPin) {
-            toNode.inputs.push(null);
-          }
-
-          // Use the simple format: just store the source node ID as a string
-          toNode.inputs[toPin] = fromNodeId;
-
-          console.log(
-            `Connected: node ${fromNodeId} → node ${toNode.id} input ${toPin}`,
-          );
+        while (toNode.inputs.length <= toPin) {
+          toNode.inputs.push(null);
         }
-      }
 
-      console.log("Connections imported using simple ID format");
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'connection-import',
-        connectionDataLength: connectionData?.length || 0
-      });
-      this.graph.connections = [];
+        toNode.inputs[toPin] = fromNodeId;
+
+        console.log(
+          `Connected: node ${fromNodeId} → node ${toNode.id} input ${toPin}`,
+        );
+      }
     }
+
+    console.log("Connections imported using simple ID format");
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'connection-import',
+      connectionDataLength: connectionData?.length || 0
+    });
+    this.graph.connections = [];
   }
+}
 
   importViewport(viewportData) {
     try {

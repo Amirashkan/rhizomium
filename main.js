@@ -61,30 +61,28 @@ async function reinitializeWebGPUAfterLoad() {
     return false;
   }
 
-  try {
-    console.log("Reinitializing WebGPU...");
-    __deviceReady = false;
-    const device = await initWebGPU(canvas);
+try {
+  console.log("Reinitializing WebGPU...");
+  __deviceReady = false;
+  
+  const device = await initWebGPU(canvas, true); // ← Add this line with 'true' parameter
+  
+  if (device) {
+    window.textureManager = new TextureManager();
+    await window.textureManager.initialize(device);
+    console.log("TextureManager initialized successfully");
+    __deviceReady = true; // ← Move this inside the if block
+  }
 
-    if (device) {
-      window.textureManager = new TextureManager();
-      await window.textureManager.initialize(device);
-      console.log("TextureManager initialized successfully");
-    }
-
-    __deviceReady = !!device;
-
-    if (device) {
-      console.log("WebGPU reinitialized successfully");
-      console.log("Testing shader update...");
-      await updateShaderFromGraph();
-      return true;
-    } else {
-      console.error("Failed to reinitialize WebGPU");
-      return false;
+  if (device) {
+    console.log("WebGPU reinitialized successfully");
+    console.log("Testing shader update...");
+    await updateShaderFromGraph();
+    return true;
+  } else {
+    console.error("Failed to reinitialize WebGPU");      return false;
     }
   } catch (error) {
-    console.error("Error reinitializing WebGPU:", error);
     return false;
   }
 }

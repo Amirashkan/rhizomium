@@ -32,9 +32,17 @@ function hash(s) {
   return (h >>> 0).toString(36);
 }
 
-export async function initWebGPU(canvas) {
-  if (_device) return _device;
+export async function initWebGPU(canvas, forceReconfigure = false) {
+  console.log('🔧 initWebGPU called, _device exists:', !!_device, 'force:', forceReconfigure);
+  
+  // Early return only if we have device AND not forcing reconfiguration
+  if (_device && !forceReconfigure) {
+    console.log('✅ Returning existing device');
+    return _device;
+  }
 
+  console.log('🔧 Initializing/reconfiguring WebGPU...');
+  
   try {
     if (!navigator.gpu) {
       throw new Error("WebGPU not available in this browser");
@@ -50,6 +58,20 @@ export async function initWebGPU(canvas) {
       throw new Error("Failed to get WebGPU context from canvas");
     }
 
+    // If we already have a device and just need to reconfigure
+    if (_device && forceReconfigure) {
+      console.log('🔄 Reconfiguring existing device with canvas');
+      _format = navigator.gpu.getPreferredCanvasFormat();
+      _context.configure({
+        device: _device,
+        format: _format,
+        alphaMode: "premultiplied",
+      });
+      console.log("✅ Context reconfigured with existing device");
+      return _device;
+    }
+
+    // First-time initialization: create new device
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) {
       throw new Error("WebGPU adapter not available");
@@ -73,7 +95,7 @@ export async function initWebGPU(canvas) {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    console.log("WebGPU initialized successfully");
+    console.log("✅ WebGPU initialized successfully");
     return _device;
 
   } catch (error) {
@@ -167,19 +189,23 @@ function createPipelineAndBindGroup(wgsl) {
     const hasTexture2D = hasTextureSample && wgsl.includes("texture_2d<f32>");
     const hasTextureCube = hasTextureSample && wgsl.includes("texture_cube<f32>");
     const needsTextures = hasTexture2D || hasTextureCube;
-    const hasParamUniforms = _paramUniformBuffer !== null;
+    
+    // FIX: Check the actual current state, not global variables
+    const hasParamUniforms = _paramUniformBuffer !== null && _uniformManager && _uniformManager.uniformValues.size > 0;
 
     console.log("Shader analysis:", {
       hasTextureSample,
       hasTexture2D,
       hasTextureCube,
       needsTextures,
-      hasParamUniforms
+      hasParamUniforms,
+      paramBufferExists: _paramUniformBuffer !== null,
+      uniformManagerExists: _uniformManager !== null
     });
 
     const bindGroupLayout = pipeline.getBindGroupLayout(0);
 
-    // Build bind group entries
+    // Build bind group entries - start with time uniform only
     const entries = [
       { binding: 0, resource: { buffer: _uniformBuffer } }
     ];
@@ -212,6 +238,7 @@ function createPipelineAndBindGroup(wgsl) {
       );
     }
 
+    // FIX: Only add param uniforms if buffer actually exists AND has data
     if (hasParamUniforms) {
       const paramBinding = needsTextures ? 3 : 1;
       entries.push({
@@ -221,18 +248,22 @@ function createPipelineAndBindGroup(wgsl) {
       console.log(`Added parameter uniforms at binding ${paramBinding}`);
     }
 
+    console.log(`Creating bind group with ${entries.length} entries for ${bindGroupLayout.label || 'pipeline'}`);
+    
     const bindGroup = _device.createBindGroup({
       layout: bindGroupLayout,
       entries: entries
     });
 
-    console.log(`Created bind group with ${entries.length} entries`);
+    console.log(`Created bind group successfully`);
     return { pipeline, bindGroup };
     
   } catch (error) {
+    console.error('Pipeline creation error:', error);
     window.errorHandler?.handleError(error, { 
       component: 'pipeline-creation',
-      type: 'compilation-error' 
+      type: 'compilation-error',
+      details: `Entries attempted: ${entries?.length}, Shader length: ${wgsl?.length}`
     });
     throw error;
   }
@@ -254,6 +285,14 @@ export async function setShaderSource(wgsl, uniformManager = null) {
   }
 
   _lastUserSrcHash = srcHash;
+  
+  // CRITICAL: Clean up old state BEFORE setting new uniform manager
+  if (_paramUniformBuffer) {
+    _paramUniformBuffer.destroy();
+    _paramUniformBuffer = null;
+    _paramUniformData = null;
+  }
+  
   _uniformManager = uniformManager;
 
   console.log("=== SHADER COMPILATION ===");
@@ -281,9 +320,6 @@ export async function setShaderSource(wgsl, uniformManager = null) {
       _device.queue.writeBuffer(_paramUniformBuffer, 0, _paramUniformData);
       
       console.log(`Created parameter uniform buffer: ${bufferSize} bytes, ${valueCount} params`);
-    } else {
-      _paramUniformBuffer = null;
-      _paramUniformData = null;
     }
 
     const result = createPipelineAndBindGroup(wgsl);
@@ -293,8 +329,22 @@ export async function setShaderSource(wgsl, uniformManager = null) {
       _device.popErrorScope(),
     ]);
     const msgs = errs.filter(Boolean);
-    if (msgs.length) throw msgs[0];
+    
+    if (msgs.length) {
+      // FIX: Don't use the result if there were validation errors
+      console.warn('WebGPU validation error during shader compilation:', msgs[0]);
+      window.errorHandler?.handleError(msgs[0], { 
+        component: 'shader-compilation',
+        type: 'shader-warning',
+        shaderSource: wgsl.substring(0, 200)
+      });
+      
+      // Keep the old pipeline/bindGroup if they exist, or set to null
+      _lastCompileOK = false;
+      return false;
+    }
 
+    // Only update if no errors
     _pipeline = result.pipeline;
     _bindGroup = result.bindGroup;
     _lastCompileOK = true;
