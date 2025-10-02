@@ -151,11 +151,11 @@ export class SaveLoadManager {
       // Step 1: Wait a frame to ensure DOM is stable
       await new Promise(resolve => requestAnimationFrame(resolve));
 
-      // Step 2: Force WebGPU reinitialization
-      const webgpuSuccess = await this.reinitializeWebGPU();
-      if (!webgpuSuccess) {
-        console.warn("WebGPU reinitialization failed, continuing with shader update...");
-      }
+// Step 2: Force WebGPU reinitialization and capture the device
+let gpuDevice = await this.reinitializeWebGPU(); // Change const to let
+if (!gpuDevice) {
+  console.warn("WebGPU reinitialization failed, continuing with shader update...");
+}
 
       // Step 3: Wait another frame after WebGPU init
       await new Promise(resolve => requestAnimationFrame(resolve));
@@ -171,37 +171,52 @@ export class SaveLoadManager {
         this.editor.draw();
       }
 
-// Step 7: Simple GPU stability and preview fix
+// Step 7: Enhanced GPU stability and preview fix
 console.log("Ensuring GPU and previews are ready...");
 
-// CRITICAL: Reconnect GPU device to preview system (fixes black thumbnails)
-console.log("Reconnecting GPU device to preview system...");
 
+// Try multiple ways to get the GPU device
 if (window.textureManager && window.textureManager.device) {
-  if (this.editor && this.editor.previewSystem) {
-    // Reconnect GPU device to preview components
-    if (this.editor.previewSystem.canvasManager) {
-      this.editor.previewSystem.canvasManager.device = window.textureManager.device;
-      console.log("GPU device reconnected to CanvasManager");
-    }
-    
-    if (this.editor.previewSystem.rendererRegistry) {
-      this.editor.previewSystem.rendererRegistry.device = window.textureManager.device;
-      console.log("GPU device reconnected to RendererRegistry");
-    }
-    
-    // Clear cache and force preview updates
-    if (this.editor.previewSystem.canvasManager.clearCache) {
-      this.editor.previewSystem.canvasManager.clearCache();
-    }
-    
-    // Force preview regeneration with working GPU connection
-    if (this.editor.previewSystem.updateAllPreviews) {
-      await this.editor.previewSystem.updateAllPreviews();
-    }
+  gpuDevice = window.textureManager.device;
+  console.log("Got GPU device from textureManager");
+} else if (window.gpuDevice) {
+  gpuDevice = window.gpuDevice;
+  console.log("Got GPU device from window.gpuDevice");
+} else if (window.device) {
+  gpuDevice = window.device;
+  console.log("Got GPU device from window.device");
+}
+
+if (gpuDevice && this.editor && this.editor.previewSystem) {
+  console.log("Reconnecting GPU device to preview system...");
+  
+  // Reconnect GPU device to preview components
+  if (this.editor.previewSystem.canvasManager) {
+    this.editor.previewSystem.canvasManager.device = gpuDevice;
+    console.log("GPU device reconnected to CanvasManager");
+  }
+  
+  if (this.editor.previewSystem.rendererRegistry) {
+    this.editor.previewSystem.rendererRegistry.device = gpuDevice;
+    console.log("GPU device reconnected to RendererRegistry");
+  }
+  
+  // Force reinitialize preview system with new device
+  if (typeof this.editor.previewSystem.reinitialize === 'function') {
+    await this.editor.previewSystem.reinitialize(gpuDevice);
+  }
+  
+  // Clear cache and force preview updates
+  if (this.editor.previewSystem.canvasManager && this.editor.previewSystem.canvasManager.clearCache) {
+    this.editor.previewSystem.canvasManager.clearCache();
+  }
+  
+  // Force preview regeneration with working GPU connection
+  if (typeof this.editor.previewSystem.updateAllPreviews === 'function') {
+    await this.editor.previewSystem.updateAllPreviews();
   }
 } else {
-  console.warn("TextureManager or GPU device not found for reconnection");
+  console.warn("GPU device or preview system not available for reconnection");
 }
 
 
@@ -258,49 +273,56 @@ console.log("GPU and preview update completed");
   // ENHANCED WEBGPU AND SHADER UPDATE METHODS
   // =============================================================================
 
-  async reinitializeWebGPU() {
-    try {
-      console.log("🔧 Reinitializing WebGPU after file load...");
+async reinitializeWebGPU() {
+  try {
+    console.log("🔧 Reinitializing WebGPU after file load...");
 
-      // Clean up any duplicate canvases
-      const allCanvases = document.querySelectorAll("#gpu-canvas");
-      console.log(`Found ${allCanvases.length} canvas elements with gpu-canvas id`);
+    // Clean up any duplicate canvases
+    const allCanvases = document.querySelectorAll("#gpu-canvas");
+    console.log(`Found ${allCanvases.length} canvas elements with gpu-canvas id`);
 
-      if (allCanvases.length > 1) {
-        console.log("⚠️ Multiple canvases detected, cleaning up...");
-        for (let i = 1; i < allCanvases.length; i++) {
-          allCanvases[i].remove();
-          console.log(`Removed duplicate canvas ${i}`);
-        }
+    if (allCanvases.length > 1) {
+      console.log("⚠️ Multiple canvases detected, cleaning up...");
+      for (let i = 1; i < allCanvases.length; i++) {
+        allCanvases[i].remove();
+        console.log(`Removed duplicate canvas ${i}`);
       }
-
-      // Get the remaining canvas
-      const canvas = document.getElementById("gpu-canvas");
-      if (!canvas) {
-        console.error("No GPU canvas found after cleanup");
-        return false;
-      }
-
-      // Force WebGPU reinitialization if the function exists
-      if (typeof window.initWebGPU === "function") {
-        console.log("🔄 Calling initWebGPU...");
-        const device = await window.initWebGPU(canvas, true);
-        if (device) {
-          console.log("✅ WebGPU reinitialized successfully");
-          return true;
-        }
-      }
-
-      return false;
-    } catch (error) {
-      console.error("WebGPU reinitialization failed:", error);
-      window.errorHandler?.handleError(error, { 
-        component: 'webgpu-reinitialization',
-        context: 'after-file-load'
-      });
-      return false;
     }
+
+    // Get the remaining canvas
+    const canvas = document.getElementById("gpu-canvas");
+    if (!canvas) {
+      console.error("No GPU canvas found after cleanup");
+      return null;
+    }
+
+    // Force WebGPU reinitialization if the function exists
+    if (typeof window.initWebGPU === "function") {
+      console.log("🔄 Calling initWebGPU...");
+      const device = await window.initWebGPU(canvas, true);
+      if (device) {
+        console.log("✅ WebGPU reinitialized successfully");
+        
+        // Store device in multiple locations for reliability
+        window.gpuDevice = device;
+        if (window.textureManager) {
+          window.textureManager.device = device;
+        }
+        
+        return device;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("WebGPU reinitialization failed:", error);
+    window.errorHandler?.handleError(error, { 
+      component: 'webgpu-reinitialization',
+      context: 'after-file-load'
+    });
+    return null;
   }
+}
 
   async forceShaderUpdate() {
     console.log("🔄 Forcing shader update with multiple methods...");
@@ -1258,10 +1280,8 @@ console.log("GPU and preview update completed");
 
         // Set up inputs array - make sure it's the right length
         const inputCount = data.inputs?.length || 0;
-        node.inputs = new Array(inputCount).fill(null).map(() => ({
-          connection: null,
-          value: undefined,
-        }));
+        
+node.inputs = new Array(inputCount).fill(null);
 
         return node;
       });
@@ -1287,7 +1307,6 @@ console.log("GPU and preview update completed");
       this.graph.nodes = [];
     }
   }
-
 importConnections(connectionData) {
   try {
     this.graph.connections = [...(connectionData || [])];
@@ -1295,16 +1314,18 @@ importConnections(connectionData) {
     const nodeMap = new Map(
       this.graph.nodes.map((n) => [String(n.id), n])
     );
+    
     for (const conn of this.graph.connections) {
       const toNode = nodeMap.get(String(conn.to.nodeId));
       if (toNode && toNode.inputs) {
         const toPin = conn.to.pin || 0;
-        const fromNodeId = String(conn.from.nodeId);
+        const fromNodeId = String(conn.from.nodeId); // Ensure it's a string
 
         while (toNode.inputs.length <= toPin) {
           toNode.inputs.push(null);
         }
 
+        // Store just the node ID string, not an object
         toNode.inputs[toPin] = fromNodeId;
 
         console.log(
@@ -1313,7 +1334,7 @@ importConnections(connectionData) {
       }
     }
 
-    console.log("Connections imported using simple ID format");
+    console.log("Connections imported successfully");
   } catch (error) {
     window.errorHandler?.handleError(error, { 
       component: 'connection-import',
