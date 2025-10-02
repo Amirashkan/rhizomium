@@ -218,61 +218,101 @@ export class PreviewSystem {
     }
   }
 
-  updateAllPreviews() {
-    try {
-      if (!this.editor) {
-        console.warn('No editor available for preview update');
-        return;
-      }
-
-      if (!this.editor.graph?.nodes) {
-        console.log('No nodes available for preview update');
-        return;
-      }
-
-      const nodes = this.editor.graph.nodes;
-      let successCount = 0;
-      let failCount = 0;
-
-      nodes.forEach((node, index) => {
-        try {
-          if (!node) {
-            console.warn(`Null node at index ${index}`);
-            failCount++;
-            return;
-          }
-
-          this.generateNodePreview(node);
-          successCount++;
-        } catch (nodeError) {
-          window.errorHandler?.handleError(nodeError, { 
-            component: 'preview-update-individual',
-            nodeIndex: index,
-            nodeId: node?.id
-          });
-          failCount++;
-        }
-      });
-
-      console.log(`Preview update completed: ${successCount} successful, ${failCount} failed`);
-
-      // Trigger editor redraw
-      if (this.editor.draw && typeof this.editor.draw === 'function') {
-        try {
-          this.editor.draw();
-        } catch (drawError) {
-          window.errorHandler?.handleError(drawError, { 
-            component: 'preview-update-draw'
-          });
-        }
-      }
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'preview-update-all',
-        nodeCount: this.editor?.graph?.nodes?.length || 0
-      });
+updateAllPreviews(nodes) {
+  try {
+    // Safety check
+    if (!nodes || !Array.isArray(nodes)) {
+      console.warn('updateAllPreviews called with invalid nodes:', nodes);
+      return;
     }
+    
+    console.log('Updating all previews for', nodes.length, 'nodes');
+    
+    // Sort nodes in topological order so dependencies are rendered first
+    const sortedNodes = this.topologicalSort(nodes);
+    
+    let successCount = 0;
+    let failCount = 0;
+
+    sortedNodes.forEach((node) => {
+      try {
+        this.generateNodePreview(node);
+        successCount++;
+      } catch (error) {
+        failCount++;
+        window.errorHandler?.handleError(error, {
+          component: 'preview-generation',
+          nodeId: node.id,
+          nodeKind: node.kind
+        });
+      }
+    });
+
+    console.log(`Preview update completed: ${successCount} successful, ${failCount} failed`);
+  } catch (error) {
+    window.errorHandler?.handleError(error, {
+      component: 'update-all-previews'
+    });
   }
+}
+
+// Add this helper method to PreviewSystem
+topologicalSort(nodes) {
+  if (!nodes || !Array.isArray(nodes)) return [];
+  
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const visited = new Set();
+  const result = [];
+
+  const visit = (nodeId) => {
+    if (!nodeId || visited.has(nodeId)) return;
+    visited.add(nodeId);
+
+    const node = byId.get(nodeId);
+    if (!node) return;
+
+    // Visit dependencies first
+    if (node.inputs && Array.isArray(node.inputs)) {
+      for (const inputId of node.inputs) {
+        if (inputId) visit(inputId);
+      }
+    }
+
+    result.push(node);
+  };
+
+  nodes.forEach(node => {
+    if (node && node.id) visit(node.id);
+  });
+  
+  return result;
+}
+// Add this helper method to PreviewSystem
+topologicalSort(nodes) {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const visited = new Set();
+  const result = [];
+
+  const visit = (nodeId) => {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+
+    const node = byId.get(nodeId);
+    if (!node) return;
+
+    // Visit dependencies first
+    if (node.inputs && Array.isArray(node.inputs)) {
+      for (const inputId of node.inputs) {
+        if (inputId) visit(inputId);
+      }
+    }
+
+    result.push(node);
+  };
+
+  nodes.forEach(node => visit(node.id));
+  return result;
+}
 
   // Texture2D renderer method for backward compatibility
   renderTexture2D(node, size) {

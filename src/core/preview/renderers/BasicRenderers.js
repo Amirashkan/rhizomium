@@ -252,38 +252,66 @@ export class BasicRenderers {
     this.drawExpressionIndicator(ctx);
   }
 
-  renderOutput(ctx, node) {
-    const inputs = this.previewSystem.getConnectedInputs(node);
-    const value = inputs.input || inputs.color || inputs.value || this.getParameterValue(node, "value", 0);
-
-    if (typeof value === "number") {
-      const intensity = Math.max(0, Math.min(1, value));
-      const color = Math.floor(intensity * 255);
-      ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
-      ctx.fillRect(0, 0, this.size, this.size);
-    } else {
-      // Fallback to generic rendering
-      const hash = this._hashString(node.kind);
-      const hue = hash % 360;
-
-      ctx.fillStyle = `hsl(${hue}, 60%, 25%)`;
-      ctx.fillRect(0, 0, this.size, this.size);
-
-      ctx.fillStyle = `hsl(${hue}, 80%, 70%)`;
-      ctx.font = "8px monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-
-      const label = node.kind.substring(0, 4);
-      ctx.fillText(label, this.size / 2, this.size / 2);
-    }
-
-    // Show expression indicator if any parameter is an expression
-    if (this.hasExpressions(node)) {
-      this.drawExpressionIndicator(ctx);
+renderOutput(ctx, node) {
+  // Get the connected input node ID
+  const inputNodeId = node.inputs?.[0];
+  
+  if (inputNodeId) {
+    // Find the input node
+    const graph = window.editor?.graph;
+    const inputNode = graph?.nodes?.find(n => n.id === inputNodeId);
+    
+    if (inputNode) {
+      // Try to get the already-rendered canvas for this node
+      const canvasManager = this.previewSystem.canvasManager;
+      
+      if (canvasManager) {
+        const inputCanvas = canvasManager.getCanvas(inputNodeId);
+        
+        if (inputCanvas) {
+          // Draw the input node's canvas
+          ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+          
+          // Add a border to indicate this is an output
+          ctx.strokeStyle = "rgba(76, 175, 80, 0.5)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(1, 1, this.size - 2, this.size - 2);
+          
+          if (this.hasExpressions(node)) {
+            this.drawExpressionIndicator(ctx);
+          }
+          return;
+        }
+      }
     }
   }
 
+  // Fallback rendering
+  const inputs = this.previewSystem.getConnectedInputs(node);
+  const value = inputs.input || inputs.color || inputs.value || this.getParameterValue(node, "value", 0);
+
+  if (typeof value === "number") {
+    const intensity = Math.max(0, Math.min(1, value));
+    const color = Math.floor(intensity * 255);
+    ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
+    ctx.fillRect(0, 0, this.size, this.size);
+  } else if (typeof value === "object" && value !== null) {
+    const r = Math.floor((value.x || value.r || 0) * 255);
+    const g = Math.floor((value.y || value.g || 0) * 255);
+    const b = Math.floor((value.z || value.b || 0) * 255);
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fillRect(0, 0, this.size, this.size);
+  } else {
+    const hash = this._hashString(node.kind);
+    const hue = hash % 360;
+    ctx.fillStyle = `hsl(${hue}, 60%, 25%)`;
+    ctx.fillRect(0, 0, this.size, this.size);
+  }
+
+  if (this.hasExpressions(node)) {
+    this.drawExpressionIndicator(ctx);
+  }
+}
   // Helper methods for expression system integration
 
   isExpression(node, paramName) {

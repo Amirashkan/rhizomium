@@ -667,110 +667,116 @@ case "ConicGradient": {
     return forbidden.some(keyword => lowerExpr.includes(keyword));
   }
 
-  _generateEnhancedThumbnails(nodes, values) {
-    try {
-      for (const node of nodes) {
-        node.__thumb = this._createNodeThumbnail(node, values);
-      }
-    } catch (error) {
-      window.errorHandler?.handleError(error, {
-        component: 'thumbnail-generation'
-      });
+// In PreviewComputer.js, replace the _generateEnhancedThumbnails method:
+
+_generateEnhancedThumbnails(nodes, values) {
+  try {
+    // Use topological sort to ensure dependencies are processed first
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const ordered = this._topologicalSort(nodes, byId);
+    
+    // Process nodes in dependency order
+    for (const node of ordered) {
+      node.__thumb = this._createNodeThumbnail(node, values);
     }
+  } catch (error) {
+    window.errorHandler?.handleError(error, {
+      component: 'thumbnail-generation'
+    });
   }
+}
+// In PreviewComputer.js, update _createNodeThumbnail to pass the node to _renderOutputThumbnail:
 
-  _createNodeThumbnail(node, values) {
-    try {
-      const size = this.previewSize;
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext("2d");
+_createNodeThumbnail(node, values) {
+  try {
+    const size = this.previewSize;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
 
-      if (!ctx) {
-        throw new Error("Failed to get 2D canvas context");
-      }
+    if (!ctx) {
+      throw new Error("Failed to get 2D canvas context");
+    }
 
-      ctx.fillStyle = "#1a1a1a";
-      ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(0, 0, size, size);
 
-      switch (node.kind) {
-        case "UV":
-          this._renderUVThumbnail(ctx, size);
-          break;
-        case "Time":
-          this._renderTimeThumbnail(ctx, size, node.__preview);
-          break;
-        case "ConstFloat":
-          this._renderFloatThumbnail(ctx, size, node.__preview);
-          break;
-        case "ConstVec2":
-          this._renderVec2Thumbnail(ctx, size, node.__preview);
-          break;
-        case "ConstVec3":
-        case "ConstVec4":
-          this._renderColorThumbnail(ctx, size, node.__preview);
-          break;
-        case "Circle":
-          this._renderCircleThumbnail(ctx, size, node.__preview);
-          break;
-        case "Sin":
-        case "Cos":
-          this._renderWaveThumbnail(ctx, size, node.kind);
-          break;
-        case "Expr":
-          this._renderExpressionThumbnail(ctx, size, node.expr || "a");
-          break;
-        case "Multiply":
-        case "Add":
-        case "Subtract":
-        case "Divide":
-          this._renderMathThumbnail(ctx, size, node.kind);
-          break;
-        case "Mix":
-        case "Lerp":
-          this._renderMixThumbnail(ctx, size);
-          break;
-        case "Split2":
-        case "Split3":
-        case "Split4":
-          this._renderSplitThumbnail(ctx, size, node.__preview);
-          break;
-        case "Combine2":
-        case "Combine3":
-        case "Combine4":
-          this._renderCombineThumbnail(ctx, size);
-          break;
-        case "Saturate":
-          this._renderSaturateThumbnail(ctx, size);
-          break;
-        case "OutputFinal":
-          this._renderOutputThumbnail(ctx, size, node.__preview);
-          break;
+    switch (node.kind) {
+      // ... other cases ...
+      
+      case "OutputFinal":
+        this._renderOutputThumbnail(ctx, size, node.__preview, node); // Pass node here
+        break;
+        
+      // ... rest of cases ...
+    }
+
+    return canvas;
+  } catch (error) {
+    // ... error handling ...
+  }
+}
+
+// Then update _renderOutputThumbnail to accept and use the node parameter:
+
+_renderOutputThumbnail(ctx, size, color, node) {
+  console.log('=== OUTPUT THUMBNAIL DEBUG ===');
+  console.log('Node:', node);
+  console.log('Node inputs:', node?.inputs);
+  console.log('Input[0]:', node?.inputs?.[0]);
+  
+  // If we have a connected input node, try to copy its thumbnail
+  if (node && node.inputs && node.inputs[0]) {
+    const inputNodeId = node.inputs[0];
+    console.log('Looking for input node ID:', inputNodeId);
+    
+    // Find the input node
+    if (window.editor && window.editor.graph && window.editor.graph.nodes) {
+      const inputNode = window.editor.graph.nodes.find(n => n.id === inputNodeId);
+      console.log('Found input node:', inputNode);
+      console.log('Input node __thumb:', inputNode?.__thumb);
+      console.log('__thumb type:', inputNode?.__thumb?.constructor?.name);
+      
+      if (inputNode && inputNode.__thumb) {
+        try {
+          if (inputNode.__thumb instanceof HTMLCanvasElement) {
+            console.log('Drawing from canvas');
+            ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
+          } else if (inputNode.__thumb instanceof ImageData) {
+            console.log('Drawing from ImageData');
+            ctx.putImageData(inputNode.__thumb, 0, 0);
+          } else {
+            console.log('Unknown thumb type, trying drawImage anyway');
+            ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
+          }
           
-        default:
-          this._renderDefaultThumbnail(ctx, size, node.__preview);
+          // Add green border
+          ctx.strokeStyle = "rgba(76, 175, 80, 0.6)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(1, 1, size - 2, size - 2);
+          console.log('Successfully copied input thumbnail');
+          return;
+        } catch (err) {
+          console.error('Failed to copy input thumbnail:', err);
+        }
+      } else {
+        console.log('Input node or __thumb not found');
       }
-
-      return canvas;
-    } catch (error) {
-      window.errorHandler?.handleError(error, {
-        component: 'thumbnail-creation',
-        nodeType: node.kind,
-        nodeId: node.id
-      });
-
-      const fallbackCanvas = document.createElement("canvas");
-      fallbackCanvas.width = this.previewSize;
-      fallbackCanvas.height = this.previewSize;
-      const fallbackCtx = fallbackCanvas.getContext("2d");
-      if (fallbackCtx) {
-        fallbackCtx.fillStyle = "#ff0000";
-        fallbackCtx.fillRect(0, 0, this.previewSize, this.previewSize);
-      }
-      return fallbackCanvas;
+    } else {
+      console.log('Editor/graph/nodes not available');
     }
+  } else {
+    console.log('No node or inputs');
   }
+  
+  // Fallback
+  console.log('Using fallback color rendering');
+  this._renderColorThumbnail(ctx, size, color);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2, 2, size - 4, size - 4);
+}
 
 // Thumbnail rendering methods (continued)
   _renderUVThumbnail(ctx, size) {
@@ -1040,13 +1046,41 @@ case "ConicGradient": {
     ctx.fillText("SAT", size / 2, size / 2 + 2);
   }
 
-  _renderOutputThumbnail(ctx, size, color) {
-    this._renderColorThumbnail(ctx, size, color);
-
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(2, 2, size - 4, size - 4);
+_renderOutputThumbnail(ctx, size, color) {
+  // Check if we have a connected input node with a thumbnail
+  const node = Array.from(window.editor?.graph?.nodes || []).find(n => n.kind === 'OutputFinal');
+  if (node && node.inputs && node.inputs[0]) {
+    const inputNodeId = node.inputs[0];
+    const inputNode = window.editor?.graph?.nodes?.find(n => n.id === inputNodeId);
+    
+    // If the input node has a thumbnail, copy it
+    if (inputNode && inputNode.__thumb) {
+      if (inputNode.__thumb instanceof HTMLCanvasElement) {
+        ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
+      } else if (inputNode.__thumb instanceof ImageData) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = inputNode.__thumb.width;
+        tempCanvas.height = inputNode.__thumb.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(inputNode.__thumb, 0, 0);
+        ctx.drawImage(tempCanvas, 0, 0, size, size);
+      }
+      
+      // Add a subtle border to indicate this is an output
+      ctx.strokeStyle = "rgba(76, 175, 80, 0.5)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, size - 2, size - 2);
+      return;
+    }
   }
+  
+  // Fallback: render as color if we couldn't get the input thumbnail
+  this._renderColorThumbnail(ctx, size, color);
+  
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2, 2, size - 4, size - 4);
+}
 
   _renderDefaultThumbnail(ctx, size, value) {
     const isVector = Array.isArray(value) && value.length >= 3;

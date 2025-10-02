@@ -1172,24 +1172,40 @@ getInputHandler(param) {
     this.forceEditorUpdate();
   }
 
-  updateNodePreview(node) {
-    try {
-      console.log('Updating preview for node:', node.id);
-      
-      if (window.editor?.previewSystem?.canvasManager) {
-        window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
-        console.log('Cleared preview cache for node:', node.id);
-      }
-      
-      if (window.editor?.previewIntegration) {
-        window.editor.previewIntegration.generateNodePreview(node);
-        console.log('Regenerated preview for node:', node.id);
-      }
-      
-    } catch (error) {
-      console.warn(`Error updating preview for node ${node.id}:`, error);
+updateNodePreview(node) {
+  try {
+    console.log('Updating preview for node:', node.id);
+    
+    if (window.editor?.previewSystem?.canvasManager) {
+      window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
+      console.log('Cleared preview cache for node:', node.id);
     }
+    
+    if (window.editor?.previewIntegration) {
+      window.editor.previewIntegration.generateNodePreview(node);
+      console.log('Regenerated preview for node:', node.id);
+      
+      // NEW: Also update downstream nodes (nodes that use this node as input)
+      if (window.editor?.graph?.nodes) {
+        const downstreamNodes = window.editor.graph.nodes.filter(n => 
+          n.inputs && Array.isArray(n.inputs) && n.inputs.includes(node.id)
+        );
+        
+        console.log(`Found ${downstreamNodes.length} downstream nodes for ${node.id}`);
+        
+        // Regenerate previews for downstream nodes
+        downstreamNodes.forEach(downstreamNode => {
+          console.log('Updating downstream node:', downstreamNode.id);
+          window.editor.previewSystem.canvasManager.canvasCache.delete(downstreamNode.id);
+          window.editor.previewIntegration.generateNodePreview(downstreamNode);
+        });
+      }
+    }
+    
+  } catch (error) {
+    console.warn(`Error updating preview for node ${node.id}:`, error);
   }
+}
 
   forceEditorUpdate() {
     try {

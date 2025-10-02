@@ -96,6 +96,16 @@ export class ConnectionManager {
         if (this.onChange) this.onChange();
 
         // FIXED: Regenerate preview for the target node specifically
+if (window.editor?.previewIntegration) {
+  const sourceNode = window.editor.graph.nodes.find(n => n.id === this.dragWire.from.nodeId);
+  if (sourceNode) {
+    console.log('🔄 Connection created: regenerating preview for source node', sourceNode.id);
+    window.editor.previewIntegration.generateNodePreview(sourceNode);
+  }
+  
+  console.log('🔄 Connection created: regenerating preview for target node', targetNode.id);
+  window.editor.previewIntegration.generateNodePreview(targetNode);
+}
         if (window.editor?.previewIntegration) {
           try {
             console.log(`🔄 Connection created: regenerating preview for node ${targetNode.id}`);
