@@ -10,6 +10,7 @@ import { BooleanInputHandler } from './components/BooleanInputHandler.js';
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
     this.colorStopInputHandler = new ColorStopInputHandler(undoManager);
+    this.booleanInputHandler = new BooleanInputHandler(undoManager);
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
     this.graph = graph;
