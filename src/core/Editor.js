@@ -232,15 +232,18 @@ export class Editor {
     }
   }
 
-  // PERFORMANCE FIX: Completely rewritten GPU animation loop
 setupOptimizedGPUAnimationLoop() {
   const animate = (timestamp) => {
     this.updateAnimationContext(timestamp / 1000, this.animationFrame);
     this.animationFrame++;
     
-    // ALWAYS render if GPU preview is visible
+    // Safety check - only render if function exists
     if (window.render && typeof window.render === 'function') {
-      window.render();
+      try {
+        window.render();
+      } catch (error) {
+        console.warn('GPU render failed:', error);
+      }
     }
     
     this.gpuAnimationRequestId = requestAnimationFrame(animate);

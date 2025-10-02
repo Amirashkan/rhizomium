@@ -16,6 +16,15 @@ export function buildWGSL(graph) {
   const compiler = new NodeCompiler();
   const template = new ShaderTemplate();
   
+  // Clear function caches before compilation
+  processor.clearFunctionCollection();
+  if (compiler.compilers.field.clearFunctionCache) {
+    compiler.compilers.field.clearFunctionCache();
+  }
+  if (compiler.compilers.transform.clearHelperCache) {
+    compiler.compilers.transform.clearHelperCache();
+  }
+  
   // Process the graph to get ordered, filtered nodes
   const result = processor.processGraph(graph);
   const { orderedNodes, outputNode } = result;
@@ -31,12 +40,26 @@ export function buildWGSL(graph) {
   const compiledData = compiler.compileNodes(orderedNodes);
   const { lines, types, expressions, uniformStruct, uniformManager } = compiledData;
   
+  // Collect function definitions from field and transform nodes
+  const shapeFunctions = compiler.compilers.field.getAllFunctionDefinitions 
+    ? compiler.compilers.field.getAllFunctionDefinitions() 
+    : '';
+  
+  const transformHelpers = compiler.compilers.transform.getHelperFunctions
+    ? compiler.compilers.transform.getHelperFunctions()
+    : '';
+  
   // Generate texture bindings
   const textureBindings = TextureBindings.generate(graph);
   
-  // Build final shader using the generateShader function
+  // Build final shader using the generateShader function with function support
   const wgsl = generateShader(
-    { lines, uniformStruct },
+    { 
+      lines, 
+      uniformStruct,
+      shapeFunctions,    // NEW: Shape function definitions
+      transformHelpers   // NEW: Transform helper functions
+    },
     textureBindings
   );
   

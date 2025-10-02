@@ -1,5 +1,12 @@
-// src/codegen/processors/GraphProcessor.js - Enhanced with ErrorHandler integration
+// src/codegen/processors/GraphProcessor.js
+// UPDATED: Orchestrates function-based compilation
+
 export class GraphProcessor {
+  constructor() {
+    this.functionDefinitions = []; // Collect all function definitions
+    this.helperFunctions = new Set(); // Collect all helper functions needed
+  }
+
   /**
    * Process the graph to get ordered and filtered nodes
    * @param {Object} graph 
@@ -34,12 +41,50 @@ export class GraphProcessor {
         nodeCount: graph?.nodes?.length || 0
       });
       
-      // Return safe fallback
       return { 
         orderedNodes: graph?.nodes || [], 
         outputNode: null 
       };
     }
+  }
+
+  /**
+   * NEW: Collect function definitions and helper functions from compilation results
+   */
+  collectFunctionsFromCompilation(compiledNode) {
+    if (!compiledNode) return;
+
+    // Collect function definition if present (from shape nodes)
+    if (compiledNode.functionDef) {
+      this.functionDefinitions.push(compiledNode.functionDef);
+    }
+
+    // Collect helper function names if present (from transform nodes)
+    if (compiledNode.helpers && Array.isArray(compiledNode.helpers)) {
+      compiledNode.helpers.forEach(helper => this.helperFunctions.add(helper));
+    }
+  }
+
+  /**
+   * NEW: Get all collected function definitions as a single string
+   */
+  getAllFunctionDefinitions() {
+    return this.functionDefinitions.join('\n\n');
+  }
+
+  /**
+   * NEW: Get all helper function names that were used
+   */
+  getNeededHelpers() {
+    return Array.from(this.helperFunctions);
+  }
+
+  /**
+   * NEW: Clear function collection (call before each compilation)
+   */
+  clearFunctionCollection() {
+    this.functionDefinitions = [];
+    this.helperFunctions.clear();
   }
   
   /**
@@ -56,10 +101,9 @@ export class GraphProcessor {
       const nodes = graph.nodes || [];
       const byId = new Map();
       const visited = new Set();
-      const visiting = new Set(); // For cycle detection
+      const visiting = new Set();
       const result = [];
       
-      // Build node lookup map with validation
       for (const node of nodes) {
         if (!node) {
           console.warn('Null node found in graph');
@@ -82,7 +126,6 @@ export class GraphProcessor {
         try {
           if (!id || visited.has(id)) return;
           
-          // Cycle detection
           if (visiting.has(id)) {
             console.warn(`Circular dependency detected involving node: ${id}`);
             return;
@@ -97,7 +140,6 @@ export class GraphProcessor {
             return;
           }
           
-          // Visit all inputs first
           if (node.inputs && Array.isArray(node.inputs)) {
             for (const input of node.inputs) {
               if (input !== null && input !== undefined) {
@@ -118,7 +160,6 @@ export class GraphProcessor {
         }
       };
       
-      // Visit all nodes
       for (const node of nodes) {
         if (node && node.id) {
           visit(node.id);
@@ -164,7 +205,6 @@ export class GraphProcessor {
         return null;
       }
       
-      // Find connected outputs (those with inputs)
       const connected = outputs.filter((o) => {
         try {
           return Array.isArray(o.inputs) && o.inputs[0] !== null && o.inputs[0] !== undefined;
@@ -217,7 +257,6 @@ export class GraphProcessor {
         return orderedNodes;
       }
 
-      // Build node lookup map
       const byId = new Map();
       for (const node of graph.nodes) {
         if (node && node.id) {
@@ -266,13 +305,12 @@ export class GraphProcessor {
       }
 
       const visited = new Set();
-      const visiting = new Set(); // For cycle detection
+      const visiting = new Set();
       
       const dfs = (id) => {
         try {
           if (!id || visited.has(id)) return;
           
-          // Cycle detection
           if (visiting.has(id)) {
             console.warn(`Circular dependency detected in upstream search: ${id}`);
             return;
@@ -288,7 +326,6 @@ export class GraphProcessor {
             return;
           }
           
-          // Traverse inputs
           if (node.inputs && Array.isArray(node.inputs)) {
             for (const input of node.inputs) {
               if (input !== null && input !== undefined) {
@@ -396,7 +433,6 @@ export class GraphProcessor {
         return issues;
       }
       
-      // Check for basic node integrity
       const nodeIds = new Set();
       const nullNodes = [];
       const duplicateIds = [];
@@ -420,7 +456,6 @@ export class GraphProcessor {
           nodeIds.add(node.id);
         }
         
-        // Check input connections
         if (node.inputs && Array.isArray(node.inputs)) {
           node.inputs.forEach((input, inputIndex) => {
             if (input !== null && input !== undefined && !nodeIds.has(input)) {
@@ -498,17 +533,14 @@ export class GraphProcessor {
       stats.validNodes = validNodes.length;
       
       validNodes.forEach(node => {
-        // Count node types
         const nodeType = node.kind || node.type || 'Unknown';
         stats.nodeTypes[nodeType] = (stats.nodeTypes[nodeType] || 0) + 1;
         
-        // Count connections
         if (node.inputs && Array.isArray(node.inputs)) {
           const validInputs = node.inputs.filter(input => input !== null && input !== undefined);
           stats.connectionCount += validInputs.length;
         }
         
-        // Count output nodes
         if (/OutputFinal/i.test(nodeType)) {
           stats.outputNodes++;
         }

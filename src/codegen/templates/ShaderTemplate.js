@@ -1,4 +1,6 @@
 // src/codegen/templates/ShaderTemplate.js
+// UPDATED: Integrates function definitions before fs_main
+
 import { OPTIMIZED_NOISE_FUNCTIONS_WGSL } from '../compilers/NoiseNodes.js';
 
 export class ShaderTemplate {
@@ -36,9 +38,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
    * @param {Object} options 
    * @param {Array} options.lines - Compiled node lines
    * @param {string} options.textureBindings - Texture binding declarations
+   * @param {string} options.shapeFunctions - Shape function definitions (NEW)
+   * @param {string} options.transformHelpers - Transform helper functions (NEW)
    * @returns {string} Complete WGSL shader
    */
-  buildShader({ lines, textureBindings }) {
+  buildShader({ lines, textureBindings, shapeFunctions = '', transformHelpers = '' }) {
     return `
 struct Globals {
   time: f32,
@@ -54,6 +58,18 @@ struct VSOut {
 ${this.getVertexShader()}
 
 ${this.getUtilityFunctions()}
+
+// ============================================================================
+// TRANSFORM HELPER FUNCTIONS
+// ============================================================================
+
+${transformHelpers}
+
+// ============================================================================
+// SHAPE FUNCTIONS
+// ============================================================================
+
+${shapeFunctions}
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
@@ -170,8 +186,11 @@ fn warpedNoise(st: vec2<f32>, scale: f32, warpScale: f32, warpStrength: f32, oct
   }
 }
 
+/**
+ * NEW: Generate shader with function-based compilation support
+ */
 export function generateShader(compiledData, textureBindings) {
-  const { lines, uniformStruct } = compiledData;
+  const { lines, uniformStruct, shapeFunctions = '', transformHelpers = '' } = compiledData;
   
   // Determine binding numbers based on what's present
   const hasTextures = textureBindings && textureBindings.trim().length > 0;
@@ -180,11 +199,9 @@ export function generateShader(compiledData, textureBindings) {
   let adjustedUniformStruct = uniformStruct || '';
   if (adjustedUniformStruct) {
     const correctBinding = hasTextures ? 3 : 1;
-    // Replace binding placeholder if it exists, otherwise add it
     if (adjustedUniformStruct.includes('@binding(')) {
       adjustedUniformStruct = adjustedUniformStruct.replace(/@binding\(\d+\)/, `@binding(${correctBinding})`);
     } else {
-      // Insert binding before var<uniform>
       adjustedUniformStruct = adjustedUniformStruct.replace(
         'var<uniform> params:',
         `@binding(${correctBinding}) var<uniform> params:`
@@ -222,6 +239,18 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
 }
 
 ${generateHelperFunctions()}
+
+// ============================================================================
+// TRANSFORM HELPER FUNCTIONS
+// ============================================================================
+
+${transformHelpers}
+
+// ============================================================================
+// SHAPE FUNCTIONS
+// ============================================================================
+
+${shapeFunctions}
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {

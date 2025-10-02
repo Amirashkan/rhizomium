@@ -8,12 +8,12 @@ import { UtilityNodes } from '../compilers/UtilityNodes.js';
 import { TransformNodes } from '../compilers/TransformNodes.js';
 import { FieldNodes } from '../compilers/FieldNodes.js';
 import { TypeConverter } from './TypeConverter.js';
-
+import { BlendNodes } from '../compilers/BlendNodes.js';
 export class NodeCompiler {
   constructor() {
     this.typeConverter = new TypeConverter();
     this.uniformManager = new ParameterUniformManager();
-    
+    this.blendNodes = new BlendNodes();
     this.compilers = {
       input: new InputNodes(),
       math: new MathNodes(),
@@ -22,6 +22,7 @@ export class NodeCompiler {
       texture: new TextureNodes(),
       utility: new UtilityNodes(),
       transform: new TransformNodes(),
+      blend: new BlendNodes(),
       field: new FieldNodes(),
     };
     
@@ -138,6 +139,8 @@ export class NodeCompiler {
       result = this.compilers.transform.compile(node, getInput);
     } else if (this.compilers.field.handles(kind)) {
       result = this.compilers.field.compile(node, getInput);
+      } else if (this.compilers.blend.handles(kind)) {
+  result = this.compilers.blend.compile(node, getInput);
     } else {
       console.log(`UNKNOWN NODE TYPE: "${kind}"`);
       result = {

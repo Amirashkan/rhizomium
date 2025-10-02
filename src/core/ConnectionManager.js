@@ -1,4 +1,4 @@
-// src/core/ConnectionManager.js - Updated with permanent undo integration and error handling
+// src/core/ConnectionManager.js - Fixed preview updates
 import { NodeDefs } from "../data/NodeDefs.js";
 
 export class ConnectionManager {
@@ -43,7 +43,7 @@ export class ConnectionManager {
     }
   }
 
-  // UPDATED: endWireDrag with undo support for connection creation
+  // FIXED: endWireDrag with proper preview regeneration
   endWireDrag(targetPos, hitInputPin) {
     try {
       if (!this.dragWire) return false;
@@ -95,10 +95,23 @@ export class ConnectionManager {
 
         if (this.onChange) this.onChange();
 
-        // UPDATE PREVIEWS WHEN CONNECTION ADDED
+        // FIXED: Regenerate preview for the target node specifically
         if (window.editor?.previewIntegration) {
           try {
-            window.editor.previewIntegration.updateAllPreviews();
+            console.log(`🔄 Connection created: regenerating preview for node ${targetNode.id}`);
+            
+            // Clear the canvas cache for this node to force regeneration
+            if (window.editor.previewSystem?.canvasManager?.canvasCache) {
+              window.editor.previewSystem.canvasManager.canvasCache.delete(targetNode.id);
+            }
+            
+            // Regenerate the specific node's preview
+            window.editor.previewIntegration.generateNodePreview(targetNode);
+            
+            // Force a redraw of the editor
+            if (window.editor.draw) {
+              window.editor.draw();
+            }
           } catch (previewError) {
             window.errorHandler?.handleError(previewError, { 
               component: 'preview-update-after-connection' 
@@ -126,7 +139,7 @@ export class ConnectionManager {
     }
   }
 
-  // UPDATED: removeConnection with undo support
+  // FIXED: removeConnection with proper preview regeneration
   removeConnection(nodeId, inputPin) {
     try {
       if (!nodeId || inputPin === undefined) {
@@ -168,10 +181,23 @@ export class ConnectionManager {
       if (this.graph.connections.length !== initialLength) {
         if (this.onChange) this.onChange();
 
-        // UPDATE PREVIEWS WHEN CONNECTION REMOVED
+        // FIXED: Regenerate preview for the disconnected node
         if (window.editor?.previewIntegration) {
           try {
-            window.editor.previewIntegration.updateAllPreviews();
+            console.log(`🔄 Connection removed: regenerating preview for node ${targetNode.id}`);
+            
+            // Clear the canvas cache for this node to force regeneration
+            if (window.editor.previewSystem?.canvasManager?.canvasCache) {
+              window.editor.previewSystem.canvasManager.canvasCache.delete(targetNode.id);
+            }
+            
+            // Regenerate the specific node's preview
+            window.editor.previewIntegration.generateNodePreview(targetNode);
+            
+            // Force a redraw of the editor
+            if (window.editor.draw) {
+              window.editor.draw();
+            }
           } catch (previewError) {
             window.errorHandler?.handleError(previewError, { 
               component: 'preview-update-after-disconnection' 

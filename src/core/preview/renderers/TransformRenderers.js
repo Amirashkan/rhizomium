@@ -67,6 +67,152 @@ export class TransformRenderers {
     }
   }
 
+  // Get the preview of the input node (if connected)
+  getInputPreview(node) {
+    try {
+      // Check if node has an input connection (usually input[0] for transforms)
+      if (!node.inputs || !node.inputs[0]) {
+        console.log(`Transform node ${node.id} has no input connection`);
+        return null;
+      }
+
+      const inputNodeId = node.inputs[0];
+      const graph = this.previewSystem?.editor?.graph;
+      
+      if (!graph) {
+        console.warn('No graph available in preview system');
+        return null;
+      }
+
+      // Find the input node
+      const inputNode = graph.nodes.find(n => n.id === inputNodeId);
+      
+      if (!inputNode) {
+        console.warn(`Input node ${inputNodeId} not found in graph`);
+        return null;
+      }
+
+      console.log(`Transform ${node.id} checking input ${inputNode.kind} (${inputNode.id})`);
+
+      // Get or generate the input node's preview
+      if (!inputNode.__thumb) {
+        console.log(`Input node ${inputNode.id} has no preview, generating...`);
+        // Generate preview for input node if it doesn't exist
+        if (this.previewSystem.generateNodePreview) {
+          this.previewSystem.generateNodePreview(inputNode);
+        }
+      }
+
+      if (inputNode.__thumb) {
+        console.log(`✓ Got input preview from ${inputNode.kind}, size: ${inputNode.__thumb.width}x${inputNode.__thumb.height}`);
+      } else {
+        console.warn(`✗ Failed to get preview from ${inputNode.kind}`);
+      }
+
+      return inputNode.__thumb;
+    } catch (error) {
+      console.warn('Error getting input preview:', error);
+      return null;
+    }
+  }
+
+  // Apply transformation to an input image
+  applyImageTransform(ctx, inputCanvas, params) {
+    try {
+      const { translateX, translateY, scaleX, scaleY, rotation, centerX, centerY } = params;
+
+      // Clear background
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, this.size, this.size);
+
+      // Save context state
+      ctx.save();
+
+      // For transform preview, we need to think about UV space transformation
+      // The shader does: transformed_uv = (scale * rotate * (uv - center)) + center + translate
+      
+      // Start by moving origin to center of canvas
+      ctx.translate(this.size / 2, this.size / 2);
+      
+      // Apply the translation (in pixels)
+      ctx.translate(-translateX * this.size, -translateY * this.size);
+      
+      // Move to the pivot point (relative to center)
+      const pivotOffsetX = (centerX - 0.5) * this.size;
+      const pivotOffsetY = (centerY - 0.5) * this.size;
+      ctx.translate(pivotOffsetX, pivotOffsetY);
+      
+      // Apply rotation
+      ctx.rotate(-rotation);  // Negative because canvas Y is inverted
+      
+      // Apply scale
+      ctx.scale(scaleX, scaleY);
+      
+      // Move back from pivot
+      ctx.translate(-pivotOffsetX, -pivotOffsetY);
+
+      // Draw the image centered
+      ctx.drawImage(
+        inputCanvas,
+        -this.size / 2,
+        -this.size / 2,
+        this.size,
+        this.size
+      );
+
+      // Restore context state
+      ctx.restore();
+    } catch (error) {
+      console.warn('Error applying image transform:', error);
+      // Fallback: just draw the input
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, this.size, this.size);
+      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+    }
+  }
+
+  // Apply tiling transformation (repeating pattern)
+  applyTilingTransform(ctx, inputCanvas, params) {
+    try {
+      const { tilingX, tilingY, offsetX, offsetY } = params;
+
+      // Clear background
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, this.size, this.size);
+
+      // Create pattern and draw tiled
+      ctx.save();
+      
+      // Scale the context to apply tiling
+      ctx.scale(tilingX, tilingY);
+      
+      // Apply offset
+      ctx.translate(offsetX * this.size / tilingX, offsetY * this.size / tilingY);
+      
+      // Draw multiple tiles to fill the canvas
+      const tilesX = Math.ceil(1 / tilingX) + 2;
+      const tilesY = Math.ceil(1 / tilingY) + 2;
+      
+      for (let ty = -1; ty < tilesY; ty++) {
+        for (let tx = -1; tx < tilesX; tx++) {
+          ctx.drawImage(
+            inputCanvas,
+            tx * this.size / tilingX,
+            ty * this.size / tilingY,
+            this.size / tilingX,
+            this.size / tilingY
+          );
+        }
+      }
+      
+      ctx.restore();
+    } catch (error) {
+      console.warn('Error applying tiling transform:', error);
+      // Fallback: just draw the input once
+      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+    }
+  }
+
   // Draw expression indicator
   drawExpressionIndicator(ctx) {
     ctx.save();
@@ -92,12 +238,12 @@ export class TransformRenderers {
     
     let y = this.size - 14;
     Object.entries(params).forEach(([key, value], index) => {
-      if (index < 3 && key && value !== undefined) { // Check for undefined
+      if (index < 3 && key && value !== undefined) {
         let displayValue;
         if (typeof value === 'number') {
           displayValue = Math.abs(value) < 0.01 ? value.toExponential(1) : value.toFixed(2);
         } else {
-          displayValue = String(value); // Safe conversion
+          displayValue = String(value);
         }
         ctx.fillText(`${key}:${displayValue}`, 2, y + index * 6);
       }
@@ -170,8 +316,6 @@ export class TransformRenderers {
   }
 
   renderTransform2D(ctx, node) {
-    console.log('Transform2D render called for node:', node.id, 'params:', node.params);
-    
     const translateX = this.toSafeNumber(this.getParameterValue(node, "translateX", 0.0), 0.0);
     const translateY = this.toSafeNumber(this.getParameterValue(node, "translateY", 0.0), 0.0);
     const scaleX = this.toSafeNumber(this.getParameterValue(node, "scaleX", 1.0), 1.0);
@@ -180,27 +324,49 @@ export class TransformRenderers {
     const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
     const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
-    console.log('Transform2D evaluated params:', {
-      translateX, translateY, scaleX, scaleY, rotation, centerX, centerY
-    });
+    // Check if there's an input to transform
+    const inputCanvas = this.getInputPreview(node);
+    
+    if (inputCanvas) {
+      console.log(`✓ Transform2D rendering with input from Circle`);
+      console.log(`   Canvas context: ${ctx.canvas.width}x${ctx.canvas.height}`);
+      
+      // Transform the input image
+      this.applyImageTransform(ctx, inputCanvas, {
+        translateX, translateY, scaleX, scaleY, rotation, centerX, centerY
+      });
+      
+      // Log after drawing
+      console.log(`   Finished drawing to canvas, node.__thumb will be:`, ctx.canvas);
+      
+      // Add visual indicator that this is showing transformed input
+      ctx.save();
+      ctx.fillStyle = "rgba(74, 144, 226, 0.8)";
+      ctx.fillRect(0, 0, 12, 10);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 7px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("T", 6, 7);
+      ctx.restore();
+      
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
 
+    // No input - show UV grid
+    console.log(`Transform2D has no input, showing UV grid`);
     const cos_r = Math.cos(rotation);
     const sin_r = Math.sin(rotation);
 
     const transformFunc = (u, v) => {
-      // Center
       u -= centerX;
       v -= centerY;
-      
-      // Rotate
       const rotU = u * cos_r - v * sin_r;
       const rotV = u * sin_r + v * cos_r;
-      
-      // Scale
       const scaleU = rotU * scaleX;
       const scaleV = rotV * scaleY;
-      
-      // Uncenter and translate
       return {
         u: scaleU + centerX + translateX,
         v: scaleV + centerY + translateY
@@ -226,6 +392,24 @@ export class TransformRenderers {
     const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
     const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
+    // Check for input
+    const inputCanvas = this.getInputPreview(node);
+    
+    if (inputCanvas) {
+      this.applyImageTransform(ctx, inputCanvas, {
+        translateX: 0, translateY: 0,
+        scaleX, scaleY,
+        rotation: 0,
+        centerX, centerY
+      });
+      
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
+
+    // No input - show UV grid
     const transformFunc = (u, v) => {
       u -= centerX;
       v -= centerY;
@@ -253,6 +437,24 @@ export class TransformRenderers {
     const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
     const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
+    // Check for input
+    const inputCanvas = this.getInputPreview(node);
+    
+    if (inputCanvas) {
+      this.applyImageTransform(ctx, inputCanvas, {
+        translateX: 0, translateY: 0,
+        scaleX: 1, scaleY: 1,
+        rotation,
+        centerX, centerY
+      });
+      
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
+
+    // No input - show UV grid
     const cos_r = Math.cos(rotation);
     const sin_r = Math.sin(rotation);
 
@@ -279,6 +481,24 @@ export class TransformRenderers {
     const translateX = this.toSafeNumber(this.getParameterValue(node, "translateX", 0.0), 0.0);
     const translateY = this.toSafeNumber(this.getParameterValue(node, "translateY", 0.0), 0.0);
 
+    // Check for input
+    const inputCanvas = this.getInputPreview(node);
+    
+    if (inputCanvas) {
+      this.applyImageTransform(ctx, inputCanvas, {
+        translateX, translateY,
+        scaleX: 1, scaleY: 1,
+        rotation: 0,
+        centerX: 0.5, centerY: 0.5
+      });
+      
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
+
+    // No input - show UV grid
     const transformFunc = (u, v) => ({
       u: u + translateX,
       v: v + translateY
@@ -300,6 +520,22 @@ export class TransformRenderers {
     const offsetX = this.toSafeNumber(this.getParameterValue(node, "offsetX", 0.0), 0.0);
     const offsetY = this.toSafeNumber(this.getParameterValue(node, "offsetY", 0.0), 0.0);
 
+    // Check for input
+    const inputCanvas = this.getInputPreview(node);
+    
+    if (inputCanvas) {
+      // For tiling, we need a different approach
+      this.applyTilingTransform(ctx, inputCanvas, {
+        tilingX, tilingY, offsetX, offsetY
+      });
+      
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
+
+    // No input - show UV grid
     const transformFunc = (u, v) => ({
       u: u * tilingX + offsetX,
       v: v * tilingY + offsetY
@@ -321,6 +557,29 @@ export class TransformRenderers {
     const flipX = this.getParameterValue(node, "flipX", false);
     const flipY = this.getParameterValue(node, "flipY", false);
 
+    // Check for input
+    const inputCanvas = this.getInputPreview(node);
+    
+    if (inputCanvas) {
+      const scaleX = flipX ? -1.0 : 1.0;
+      const scaleY = flipY ? -1.0 : 1.0;
+      const centerX = flipX ? 1.0 : 0.0;
+      const centerY = flipY ? 1.0 : 0.0;
+      
+      this.applyImageTransform(ctx, inputCanvas, {
+        translateX: centerX, translateY: centerY,
+        scaleX, scaleY,
+        rotation: 0,
+        centerX: 0.5, centerY: 0.5
+      });
+      
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
+
+    // No input - show UV grid
     const scaleX = flipX ? -1.0 : 1.0;
     const scaleY = flipY ? -1.0 : 1.0;
     const offsetX = flipX ? 1.0 : 0.0;
