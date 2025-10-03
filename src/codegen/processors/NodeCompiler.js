@@ -9,6 +9,7 @@ import { TransformNodes } from '../compilers/TransformNodes.js';
 import { FieldNodes } from '../compilers/FieldNodes.js';
 import { TypeConverter } from './TypeConverter.js';
 import { BlendNodes } from '../compilers/BlendNodes.js';
+
 export class NodeCompiler {
   constructor() {
     this.typeConverter = new TypeConverter();
@@ -55,11 +56,20 @@ export class NodeCompiler {
       }
       
       if (node.kind !== "OutputFinal") {
-        this.typeConverter.setNodeOutput(
-          node.id,
-          `node_${this.sanitize(node.id)}`,
-          result.outputType
-        );
+        // NEW: Check if node has multiple output pins
+        if (result.outputPins && Array.isArray(result.outputPins)) {
+          this.typeConverter.setNodeOutputPins(
+            node.id,
+            result.outputPins
+          );
+        } else {
+          // Legacy: single output
+          this.typeConverter.setNodeOutput(
+            node.id,
+            `node_${this.sanitize(node.id)}`,
+            result.outputType
+          );
+        }
       }
     }
     
@@ -85,6 +95,7 @@ export class NodeCompiler {
     
     /**
      * Enhanced getInput function that supports both traditional and type-aware modes
+     * FIXED: Now tracks which output pin is connected for multi-output nodes
      * @param {number} index - Input index
      * @param {string|null} targetType - Desired type, or null for type-aware mode
      * @param {string|null} defaultValue - Default value if no input connected
@@ -108,7 +119,22 @@ export class NodeCompiler {
       }
       
       // Input is connected
-      const result = this.typeConverter.convertTo(inputId, targetType);
+      // NEW: Find the connection to get which output pin was used
+      let nodeIdWithPin = inputId;
+      
+      if (window.editor?.graph?.connections) {
+        const connection = window.editor.graph.connections.find(
+          c => c.to.nodeId === node.id && c.to.pin === index
+        );
+        
+        if (connection && connection.from.pin !== undefined && connection.from.pin !== 0) {
+          // Append pin index for multi-output nodes (pin 0 is default, no need to append)
+          nodeIdWithPin = `${inputId}:${connection.from.pin}`;
+          console.log(`Multi-output detected: Using ${nodeIdWithPin} for channel extraction`);
+        }
+      }
+      
+      const result = this.typeConverter.convertTo(nodeIdWithPin, targetType);
       
       // Check if result is an object (type-aware mode) or string (traditional mode)
       if (typeof result === 'object' && result !== null && result.code !== undefined) {
@@ -139,8 +165,8 @@ export class NodeCompiler {
       result = this.compilers.transform.compile(node, getInput);
     } else if (this.compilers.field.handles(kind)) {
       result = this.compilers.field.compile(node, getInput);
-      } else if (this.compilers.blend.handles(kind)) {
-  result = this.compilers.blend.compile(node, getInput);
+    } else if (this.compilers.blend.handles(kind)) {
+      result = this.compilers.blend.compile(node, getInput);
     } else {
       console.log(`UNKNOWN NODE TYPE: "${kind}"`);
       result = {

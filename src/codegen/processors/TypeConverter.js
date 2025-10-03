@@ -3,10 +3,11 @@ export class TypeConverter {
   constructor() {
     this.types = new Map(); // nodeId -> 'f32' | 'vec2' | 'vec3' | 'vec4'
     this.expressions = new Map(); // nodeId -> expression string
+    this.outputPins = new Map(); // nodeId -> array of {expression, type} for each output pin
   }
   
   /**
-   * Set the type and expression for a node
+   * Set the type and expression for a node (legacy single-output)
    * @param {string} nodeId 
    * @param {string} expression 
    * @param {string} type 
@@ -17,16 +18,51 @@ export class TypeConverter {
   }
   
   /**
-   * Get an expression with type conversion
+   * NEW: Set multiple output pins for a node with channel extraction
    * @param {string} nodeId 
+   * @param {Array} pins - Array of {expression, type} for each output pin
+   */
+  setNodeOutputPins(nodeId, pins) {
+    this.outputPins.set(nodeId, pins);
+    // Also set default (first pin) for backward compatibility
+    if (pins.length > 0) {
+      this.expressions.set(nodeId, pins[0].expression);
+      this.types.set(nodeId, pins[0].type);
+    }
+  }
+  
+  /**
+   * Get an expression with type conversion
+   * @param {string} nodeId - Can be "nodeId" or "nodeId:pinIndex"
    * @param {string} targetType - If null, returns object with code and type
    * @returns {string|Object} Converted expression or { code: string, type: string }
    */
   convertTo(nodeId, targetType) {
-    const expression = this.expressions.get(nodeId) || "vec3<f32>(0.0)";
-    const currentType = this.types.get(nodeId) || "vec3";
+    // Check if nodeId contains pin index (format: "nodeId:pinIndex")
+    let actualNodeId = nodeId;
+    let pinIndex = 0;
     
-    // NEW: If targetType is null, return both code and type (for type-aware operations)
+    if (typeof nodeId === 'string' && nodeId.includes(':')) {
+      const parts = nodeId.split(':');
+      actualNodeId = parts[0];
+      pinIndex = parseInt(parts[1]) || 0;
+    }
+    
+    // Try to get specific output pin
+    const outputPins = this.outputPins.get(actualNodeId);
+    let expression, currentType;
+    
+    if (outputPins && outputPins[pinIndex]) {
+      expression = outputPins[pinIndex].expression;
+      currentType = outputPins[pinIndex].type;
+      console.log(`TypeConverter: Using pin ${pinIndex} of node ${actualNodeId}: ${expression} (${currentType})`);
+    } else {
+      // Fall back to legacy single-output
+      expression = this.expressions.get(actualNodeId) || "vec3<f32>(0.0)";
+      currentType = this.types.get(actualNodeId) || "vec3";
+    }
+    
+    // If targetType is null, return both code and type
     if (targetType === null || targetType === undefined) {
       return {
         code: expression,
@@ -34,7 +70,7 @@ export class TypeConverter {
       };
     }
     
-    // Original behavior: return converted expression string
+    // Return converted expression string
     return this.performConversion(expression, currentType, targetType);
   }
   
