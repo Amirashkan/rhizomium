@@ -2,6 +2,100 @@
 // UPDATED: Orchestrates function-based compilation
 
 export class GraphProcessor {
+  // Add this method to your GraphProcessor class:
+
+/**
+ * Validate that graph has a valid output node before compilation
+ * @param {Object} graph 
+ * @returns {Object} { valid: boolean, message: string }
+ */
+validateForCompilation(graph) {
+  try {
+    if (!graph || !graph.nodes || !Array.isArray(graph.nodes)) {
+      return {
+        valid: false,
+        message: 'Invalid graph structure'
+      };
+    }
+
+    const outputNode = this.findActiveOutput(graph);
+    
+    if (!outputNode) {
+      return {
+        valid: false,
+        message: 'No output node found in graph'
+      };
+    }
+
+    // Check if output node is connected
+    const hasConnection = Array.isArray(outputNode.inputs) && 
+                         outputNode.inputs[0] !== null && 
+                         outputNode.inputs[0] !== undefined;
+    
+    if (!hasConnection) {
+      return {
+        valid: false,
+        message: 'Output node is not connected'
+      };
+    }
+
+    return {
+      valid: true,
+      outputNode: outputNode
+    };
+    
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'graph-validation-for-compilation'
+    });
+    return {
+      valid: false,
+      message: 'Validation error: ' + error.message
+    };
+  }
+}
+
+// Also modify processGraph to return validation info:
+processGraph(graph) {
+  try {
+    if (!graph) {
+      throw new Error('Graph is required for processing');
+    }
+
+    if (!graph.nodes || !Array.isArray(graph.nodes)) {
+      throw new Error('Graph must have a nodes array');
+    }
+
+    let orderedNodes = this.topologicalSort(graph);
+    
+    this.logDebugInfo(graph, orderedNodes);
+    
+    const outputNode = this.findActiveOutput(graph);
+    
+    if (outputNode) {
+      orderedNodes = this.filterUpstreamNodes(orderedNodes, outputNode, graph);
+    }
+    
+    console.log(`Graph processing completed: ${orderedNodes.length} nodes ordered, output node: ${outputNode?.id || 'none'}`);
+    
+    return { 
+      orderedNodes, 
+      outputNode,
+      hasValidOutput: outputNode !== null // NEW
+    };
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'graph-processing',
+      nodeCount: graph?.nodes?.length || 0
+    });
+    
+    return { 
+      orderedNodes: graph?.nodes || [], 
+      outputNode: null,
+      hasValidOutput: false // NEW
+    };
+  }
+}
   constructor() {
     this.functionDefinitions = []; // Collect all function definitions
     this.helperFunctions = new Set(); // Collect all helper functions needed

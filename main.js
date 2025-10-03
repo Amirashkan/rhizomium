@@ -1,5 +1,5 @@
 // main.js - Complete version with Undo System and Event System
-import { initWebGPU, updateShader, drawFrame } from "./src/gpu/gpuRenderer.js";
+import { initWebGPU, updateShader, drawFrame, clearPipeline } from "./src/gpu/gpuRenderer.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
@@ -61,28 +61,30 @@ async function reinitializeWebGPUAfterLoad() {
     return false;
   }
 
-try {
-  console.log("Reinitializing WebGPU...");
-  __deviceReady = false;
-  
-  const device = await initWebGPU(canvas, true); // ← Add this line with 'true' parameter
-  
-  if (device) {
-    window.textureManager = new TextureManager();
-    await window.textureManager.initialize(device);
-    console.log("TextureManager initialized successfully");
-    __deviceReady = true; // ← Move this inside the if block
-  }
+  try {
+    console.log("Reinitializing WebGPU...");
+    __deviceReady = false;
+    
+    const device = await initWebGPU(canvas, true);
+    
+    if (device) {
+      window.textureManager = new TextureManager();
+      await window.textureManager.initialize(device);
+      console.log("TextureManager initialized successfully");
+      __deviceReady = true;
+    }
 
-  if (device) {
-    console.log("WebGPU reinitialized successfully");
-    console.log("Testing shader update...");
-    await updateShaderFromGraph();
-    return true;
-  } else {
-    console.error("Failed to reinitialize WebGPU");      return false;
+    if (device) {
+      console.log("WebGPU reinitialized successfully");
+      console.log("Testing shader update...");
+      await updateShaderFromGraph();
+      return true;
+    } else {
+      console.error("Failed to reinitialize WebGPU");
+      return false;
     }
   } catch (error) {
+    console.error("Error reinitializing WebGPU:", error);
     return false;
   }
 }
@@ -102,11 +104,8 @@ let __deviceReady = false;
 let floatingPreview = null;
 
 async function initialize() {
-  
-    const errorHandler = new ErrorHandler();
+  const errorHandler = new ErrorHandler();
   window.errorHandler = errorHandler;
-  
-  // Add a simple UI listener
 
   const canvas =
     document.getElementById("gpu-canvas") || document.querySelector("canvas");
@@ -136,20 +135,6 @@ async function initialize() {
     if (existingPill) {
       existingPill.remove();
       console.log("Removed existing RhizomiumLoader pill");
-    }
-
-    const canvas =
-      document.getElementById("gpu-canvas") || document.querySelector("canvas");
-    if (canvas) {
-      const device = await initWebGPU(canvas);
-
-      if (device) {
-        window.textureManager = new TextureManager();
-        await window.textureManager.initialize(device);
-        console.log("TextureManager initialized successfully");
-      }
-
-      __deviceReady = !!device;
     }
 
     // Create and populate graph FIRST
@@ -197,6 +182,7 @@ async function initialize() {
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
     window.render = drawFrame;
+    
     await checkAutosaveRecovery();
     await updateShaderFromGraph();
 
@@ -212,8 +198,7 @@ async function initialize() {
 
     console.log("GLSL Node Editor initialized successfully");
   } catch (error) {
-errorHandler.handleError(error, { component: 'initialization' });
-
+    errorHandler.handleError(error, { component: 'initialization' });
   }
 }
 
@@ -221,7 +206,6 @@ errorHandler.handleError(error, { component: 'initialization' });
 function onConnectionDeleted(connection) {
   console.log("Connection deleted callback:", connection);
   if (undoManager && connection) {
-    // Ensure we have the right format for the UndoManager
     const connectionData = {
       sourceNode: connection.sourceNode || connection.from,
       targetNode: connection.targetNode || connection.to,
@@ -233,6 +217,7 @@ function onConnectionDeleted(connection) {
     console.warn("UndoManager not available or connection invalid:", { undoManager: !!undoManager, connection });
   }
 }
+
 function onNodesMovement(movementData) {
   console.log("Nodes movement callback:", movementData);
   if (undoManager && movementData) {
@@ -241,6 +226,7 @@ function onNodesMovement(movementData) {
     console.warn("UndoManager not available or movement data invalid:", { undoManager: !!undoManager, movementData });
   }
 }
+
 function onNodeDeleted(node) {
   console.log("Node deleted callback:", node);
   if (undoManager && node) {
@@ -263,7 +249,7 @@ function onNodeCreated(node) {
     undoManager.recordNodeCreation(node);
   }
 }
-// Add this function after your existing callback functions (around line 151)
+
 function onGroupDeleted(nodesToDelete) {
   console.log("Group deleted callback:", nodesToDelete);
   if (undoManager && nodesToDelete && nodesToDelete.length > 0) {
@@ -587,7 +573,7 @@ function setupKeyboardShortcuts() {
     // ARROW KEY MOVEMENT - Handle these next
     if (e.key.startsWith('Arrow') && editor && editor.selection.getSelected().size > 0) {
       e.preventDefault();
-      const step = e.shiftKey ? 10 : 1; // Hold shift for larger steps
+      const step = e.shiftKey ? 10 : 1;
       
       switch (e.key) {
         case 'ArrowLeft':
@@ -619,17 +605,14 @@ function setupKeyboardShortcuts() {
       case "s":
         e.preventDefault();
         if (e.shiftKey) {
-          // Ctrl+Shift+S: Save to local storage
           saveLoadManager.saveToLocal();
         } else {
-          // Ctrl+S: Save to file
           saveLoadManager.saveToFile();
         }
         break;
 
       case "o":
         e.preventDefault();
-        // Ctrl+O: Open file
         const fileInput = document.getElementById("file-import");
         if (fileInput) {
           fileInput.value = "";
@@ -639,24 +622,20 @@ function setupKeyboardShortcuts() {
 
       case "l":
         e.preventDefault();
-        // Ctrl+L: Load from local storage
         saveLoadManager.loadFromLocal();
         break;
 
       case "e":
         e.preventDefault();
         if (e.shiftKey) {
-          // Ctrl+Shift+E: Export WGSL
           saveLoadManager.saveToFile(null, "wgsl");
         } else {
-          // Ctrl+E: Export JSON
           saveLoadManager.saveToFile(null, "json");
         }
         break;
 
       case "n":
         e.preventDefault();
-        // Ctrl+N: New project
         if (confirm("Create new project? Unsaved changes will be lost.")) {
           createNewProject();
         }
@@ -664,19 +643,15 @@ function setupKeyboardShortcuts() {
 
       case "b":
         e.preventDefault();
-        // Ctrl+B: Show backup dialog
         if (backupDialog) {
           backupDialog.show();
         }
         break;
 
       case "r":
-        // Don't preventDefault for Ctrl+R - let browser refresh
         if (!e.shiftKey) {
-          // Ctrl+R: Let browser handle page refresh
           return;
         } else {
-          // Ctrl+Shift+R: Rebuild shader
           e.preventDefault();
           updateShaderFromGraph();
         }
@@ -698,9 +673,7 @@ async function checkAutosaveRecovery() {
   const age = saveLoadManager.getAutosaveAge();
   const ageText = saveLoadManager.formatAge(age);
 
-  // Show recovery dialog if autosave is recent (less than 1 hour old)
   if (age < 3600000) {
-    // 1 hour in milliseconds
     const shouldRecover = confirm(
       `Found an autosave from ${ageText} ago. Would you like to recover it?`,
     );
@@ -711,23 +684,19 @@ async function checkAutosaveRecovery() {
     }
   }
 
-  // If not recovering, create a backup of current state
   saveLoadManager.createBackup("startup");
 }
 
 function createNewProject() {
-  // Clear current graph
   graph.nodes = [];
   graph.connections = [];
   graph.selection = new Set();
 
-  // Clear undo history
   if (undoManager) {
     undoManager.clear();
     console.log("Undo history cleared for new project");
   }
 
-  // Reset editor state
   if (editor) {
     if (editor.selection && editor.selection.clear) {
       editor.selection.clear();
@@ -735,7 +704,6 @@ function createNewProject() {
     if (editor.nodePreviews) {
       editor.nodePreviews.clear();
     }
-    // Reset viewport
     if (editor.viewport) {
       editor.viewport.panX = 0;
       editor.viewport.panY = 0;
@@ -743,16 +711,13 @@ function createNewProject() {
     }
   }
 
-  // Create new seed graph
   SeedGraphBuilder.createSeedGraph(graph);
 
-  // Update shader and UI
   updateShaderFromGraph();
   if (editor && editor.draw) {
     editor.draw();
   }
 
-  // Mark as clean project
   if (saveLoadManager) {
     saveLoadManager.hasUnsavedChanges = false;
     saveLoadManager.updateStatus("New project created");
@@ -762,7 +727,6 @@ function createNewProject() {
 function setupPreviewButtons() {
   if (!floatingPreview) return;
 
-  // Connect to HTML buttons instead of creating new ones
   const toggleBtn = document.getElementById("btn-toggle-preview");
   const dockBtn = document.getElementById("btn-dock-preview");
   const lockBtn = document.getElementById("btn-lock-preview");
@@ -792,64 +756,78 @@ function setupPreviewButtons() {
   }
 }
 
-async function updateShaderFromGraph() {
-  if (!__deviceReady) {
-    updateStatus("WebGPU not ready", "warning");
-    return;
-  }
-
+function updateShaderFromGraph() {
   try {
-    updateStatus("Building shader...");
-    
-    const buildResult = buildWGSL(graph);  // ✅ Note: buildResult, not result
-    
-    // Handle both old format (string) and new format (object)
-    let wgsl, uniformManager;
-    
-    if (typeof buildResult === 'string') {
-      wgsl = buildResult;
-      uniformManager = null;
-      console.warn('buildWGSL returned string only - no uniform manager available');
-    } else if (buildResult && typeof buildResult === 'object') {
-      wgsl = buildResult.wgsl;
-      uniformManager = buildResult.uniformManager;
-    } else {
-      throw new Error('buildWGSL returned invalid result');
+    if (!graph || !graph.nodes || graph.nodes.length === 0) {
+      console.log('Empty graph - skipping shader update');
+      return;
     }
-
-    updateStatus("Updating GPU shader...");
-    await updateShader(wgsl, uniformManager);
-
-    const codeEl = document.getElementById("code");
-    if (codeEl) {
-      codeEl.textContent = wgsl;
+    
+    // Check if output node exists
+    const outputNode = graph.nodes.find(node => 
+      node && /OutputFinal/i.test(node.kind || node.type || node.name || '')
+    );
+    
+    if (!outputNode) {
+      console.log('No output node found - skipping shader update');
+      return;
     }
-
-    updateStatus("Shader updated successfully");
-
-    if (editor?.previewIntegration?.onShaderUpdate) {
-      editor.previewIntegration.onShaderUpdate();
+    
+    // Check if output is connected
+    const hasConnection = Array.isArray(outputNode.inputs) && 
+                         outputNode.inputs[0] !== null && 
+                         outputNode.inputs[0] !== undefined;
+    
+    if (!hasConnection) {
+      console.log('Output node not connected - skipping shader update');
+      return;
     }
-
-    if (window.floatingPreview) {
-      setTimeout(() => {
-        const mainCanvas = document.getElementById("gpu-canvas");
-        const previewCanvas = window.floatingPreview.canvas || window.floatingPreview.previewCanvas;
-        if (mainCanvas && previewCanvas) {
-          const ctx = previewCanvas.getContext("2d");
-          if (ctx) {
-            ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-            ctx.drawImage(mainCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
-          }
+    
+    console.log('Graph valid - compiling shader');
+    
+    // Compile the shader using buildWGSL
+    const result = buildWGSL(graph);
+    
+    if (!result || !result.wgsl) {
+      console.error('Shader compilation produced no code');
+      if (typeof updateStatus === 'function') {
+        updateStatus('Shader compilation failed', 'error');
+      }
+      return;
+    }
+    
+    console.log('Shader code generated, length:', result.wgsl.length);
+    
+    // Update the shader using the imported updateShader function
+    updateShader(result.wgsl, result.uniformManager).then(success => {
+      if (success) {
+        console.log('Shader updated successfully');
+        if (typeof updateStatus === 'function') {
+          updateStatus('Shader compiled');
         }
-      }, 100);
-    }
-  } catch (error) {
-    errorHandler.handleError(error, { 
-      component: 'shader-compilation', 
-      type: 'shader-error' 
+      } else {
+        console.warn('Shader update returned false');
+      }
+    }).catch(error => {
+      console.error('Error updating shader:', error);
+      if (typeof updateStatus === 'function') {
+        updateStatus('Shader error', 'error');
+      }
     });
-    showShaderError(error.message);
+    
+  } catch (error) {
+    console.error('Error in updateShaderFromGraph:', error);
+    
+    if (window.errorHandler && typeof window.errorHandler.handleError === 'function') {
+      window.errorHandler.handleError(error, {
+        component: 'shader-update',
+        type: 'compilation-error'
+      });
+    }
+    
+    if (typeof updateStatus === 'function') {
+      updateStatus('Shader compilation failed', 'error');
+    }
   }
 }
 
@@ -861,12 +839,10 @@ function showShaderError(errorMessage) {
     errorLog.textContent = errorMessage;
     errorOverlay.classList.remove("hidden");
 
-    // Auto-hide after 5 seconds
     setTimeout(() => {
       errorOverlay.classList.add("hidden");
     }, 5000);
 
-    // Click to dismiss
     errorOverlay.onclick = () => {
       errorOverlay.classList.add("hidden");
     };
@@ -879,7 +855,6 @@ function updateStatus(message, type = "info") {
     statusEl.textContent = message;
     statusEl.className = type;
 
-    // Clear status after 3 seconds for non-error messages
     if (type !== "error") {
       setTimeout(() => {
         if (statusEl.textContent === message) {
@@ -896,7 +871,6 @@ function updateStatus(message, type = "info") {
 function renderLoop() {
   const start = performance.now();
   
-  // Render editor UI
   if (editor) {
     try {
       editor.draw();
@@ -905,12 +879,10 @@ function renderLoop() {
     }
   }
 
-  // Update FPS counter
   if (floatingPreview && floatingPreview.fpsCounter) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Update undo/redo button states
   if (undoManager) {
     undoManager.updateUI();
   }
@@ -922,7 +894,7 @@ function renderLoop() {
 
   requestAnimationFrame(renderLoop);
 }
-// Enhanced backup management
+
 function showBackupDialog() {
   if (backupDialog) {
     backupDialog.show();

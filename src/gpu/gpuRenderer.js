@@ -369,8 +369,71 @@ export async function setShaderSource(wgsl, uniformManager = null) {
   }
 }
 
+/**
+ * NEW: Clear the GPU pipeline and resources
+ * Call this when there's no valid output node or graph state
+ */
+export function clearPipeline() {
+  console.log('🧹 Clearing GPU pipeline and resources');
+  
+  try {
+    // Clean up parameter uniform buffer
+    if (_paramUniformBuffer) {
+      _paramUniformBuffer.destroy();
+      _paramUniformBuffer = null;
+      _paramUniformData = null;
+    }
+    
+    // Clear uniform manager reference
+    _uniformManager = null;
+    
+    // Clear pipeline and bind group
+    _pipeline = null;
+    _bindGroup = null;
+    
+    // Reset compilation state
+    _lastCompileOK = false;
+    _lastUserSrcHash = null;
+    
+    // Clear the canvas with a default color
+    if (_device && _context) {
+      try {
+        const encoder = _device.createCommandEncoder();
+        const view = _context.getCurrentTexture().createView();
+        
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view,
+            clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+        pass.end();
+        
+        _device.queue.submit([encoder.finish()]);
+        console.log('✅ Canvas cleared successfully');
+      } catch (clearError) {
+        console.warn('Could not clear canvas:', clearError);
+      }
+    }
+    
+    console.log('✅ Pipeline cleared successfully');
+  } catch (error) {
+    console.error('Error clearing pipeline:', error);
+    window.errorHandler?.handleError(error, { 
+      component: 'gpu-pipeline-clear',
+      type: 'webgpu-error' 
+    });
+  }
+}
+
 export function render() {
-  if (!_device || !_context || !_pipeline) return;
+  // FIX: Check for both pipeline AND bindGroup
+  if (!_device || !_context || !_pipeline || !_bindGroup) {
+    return;
+  }
+  
   window._gpuFrameCount = (window._gpuFrameCount || 0) + 1;
 
   try {
@@ -424,7 +487,7 @@ export function render() {
     pass.draw(3, 1, 0, 0);
     pass.end();
 
-    _device.queue.submit([encoder.finish()]); // ← Fixed: was commandEncoder
+    _device.queue.submit([encoder.finish()]);
     
     _frameCount++;
   } catch (error) {
@@ -434,6 +497,7 @@ export function render() {
     });
   }
 }
+
 export function getPerformanceStats() {
   return {
     frameCount: _frameCount,
