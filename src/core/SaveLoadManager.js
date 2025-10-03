@@ -253,6 +253,36 @@ if (this.editor && this.editor.draw) {
 
 console.log("GPU and preview update completed");
 
+// Generate previews for all nodes that should have them enabled
+console.log("🔄 Generating previews for enabled nodes...");
+await new Promise(resolve => setTimeout(resolve, 300));
+
+if (this.editor && this.editor.previewSystem && this.graph && this.graph.nodes) {
+  for (const node of this.graph.nodes) {
+    // Check if this node should have a preview enabled
+    const previewSettings = this.editor.nodePreviews?.get(node.id);
+    
+    if (previewSettings && previewSettings.enabled) {
+      console.log(`Generating preview for node ${node.kind} (${node.id})`);
+      
+      // Generate the preview using the preview system
+      if (typeof this.editor.previewSystem.generatePreview === 'function') {
+        await this.editor.previewSystem.generatePreview(node.id, node);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+}
+
+// Force final editor redraw
+await new Promise(resolve => setTimeout(resolve, 200));
+if (this.editor && this.editor.draw) {
+  this.editor.draw();
+}
+
+this.hasUnsavedChanges = false;
+this.updateStatus("Project loaded successfully");
 await new Promise(resolve => setTimeout(resolve, 300));
 console.log("🔄 Forcing thumbnail regeneration with direct rendering...");
 
@@ -260,77 +290,53 @@ if (this.graph && this.graph.nodes) {
   // Sort nodes by dependency (leaf nodes first)
   const sorted = this.topologicalSortNodes(this.graph.nodes);
   
-  for (const node of sorted) {
-    try {
-          if (node.kind?.toLowerCase() === 'outputfinal') {
+for (const node of sorted) {
+  try {
+    if (node.kind?.toLowerCase() === 'outputfinal') {
       console.log(`Skipping direct render for OutputFinal, will use shader result`);
       continue;
     }
-      // Clear existing thumbnail
-      delete node.__thumb;
-      
-      // Create canvas for this node
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 128;
-      const ctx = canvas.getContext('2d');
-      
-      // Get the renderer for this node type
-// Get the renderer for this node type
-let renderer = null;
+    
+    // Clear existing thumbnail
+    delete node.__thumb;
+    
+    // Create canvas for this node
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    
+    // Get the renderer for this node type
+    let renderer = null;
 
-// Try different ways to access the renderer
-if (this.editor?.previewSystem?.rendererRegistry) {
-  const registry = this.editor.previewSystem.rendererRegistry;
-  const nodeType = node.kind?.toLowerCase();
-  
-  // Method 1: Direct property access
-  if (registry[nodeType]) {
-    renderer = registry[nodeType];
-  }
-  // Method 2: Check if it has a get method
-  else if (typeof registry.get === 'function') {
-    renderer = registry.get(nodeType);
-  }
-  // Method 3: Check if it has a getRenderer method
-  else if (typeof registry.getRenderer === 'function') {
-    renderer = registry.getRenderer(nodeType);
-  }
-  // Method 4: Check renderers property
-  else if (registry.renderers && registry.renderers[nodeType]) {
-    renderer = registry.renderers[nodeType];
-  }
-}
-
-if (renderer && typeof renderer === 'function') {
-  // Directly call the renderer
-  renderer(ctx, node);
-  
-  // Store the rendered canvas as the thumbnail
-  node.__thumb = canvas;
-  
-  console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
-} else {
-  console.warn(`No renderer found for ${node.kind}`);
-}
+    if (this.editor?.previewSystem?.rendererRegistry) {
+      const registry = this.editor.previewSystem.rendererRegistry;
+      const nodeType = node.kind?.toLowerCase();
       
-      if (renderer && typeof renderer === 'function') {
-        // Directly call the renderer
-        renderer(ctx, node);
-        
-        // Store the rendered canvas as the thumbnail
-        node.__thumb = canvas;
-        
-        console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
-      } else {
-        console.warn(`No renderer found for ${node.kind}`);
+      if (registry[nodeType]) {
+        renderer = registry[nodeType];
+      } else if (typeof registry.get === 'function') {
+        renderer = registry.get(nodeType);
+      } else if (typeof registry.getRenderer === 'function') {
+        renderer = registry.getRenderer(nodeType);
+      } else if (registry.renderers && registry.renderers[nodeType]) {
+        renderer = registry.renderers[nodeType];
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 30));
-    } catch (error) {
-      console.warn(`Failed to render thumbnail for node ${node.id}:`, error);
     }
+
+    if (renderer && typeof renderer === 'function') {
+      renderer(ctx, node);
+      node.__thumb = canvas;
+      console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
+    } else {
+      console.warn(`No renderer found for ${node.kind}`);
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 30));
+  } catch (error) {
+    console.warn(`Failed to render thumbnail for node ${node.id}:`, error);
   }
+}
   
 console.log("✅ Direct thumbnail rendering complete");
 
@@ -362,7 +368,35 @@ if (outputNode) {
     // Assign this as the OutputFinal thumbnail
     outputNode.__thumb = thumbCanvas;
     
-    console.log("✓ OutputFinal thumbnail captured from main canvas");
+
+// Force the editor to redraw all nodes to display the thumbnails
+console.log("🔄 Forcing editor to display all thumbnails...");
+await new Promise(resolve => setTimeout(resolve, 200));
+
+// Force multiple redraws to ensure thumbnails are displayed
+for (let i = 0; i < 5; i++) {
+  if (this.editor && this.editor.draw) {
+    this.editor.draw();
+  }
+  await new Promise(resolve => setTimeout(resolve, 50));
+}
+
+// Trigger any node update events that might cause thumbnails to render
+if (this.graph && this.graph.nodes) {
+  for (const node of this.graph.nodes) {
+    // Dispatch node changed event
+    if (this.editor && typeof this.editor.onNodeChanged === 'function') {
+      this.editor.onNodeChanged(node);
+    }
+  }
+}
+
+// Final draw
+if (this.editor && this.editor.draw) {
+  this.editor.draw();
+}
+
+this.hasUnsavedChanges = false;    
   } else {
     console.warn("Main GPU canvas not found for OutputFinal capture");
   }
@@ -1273,8 +1307,7 @@ async reinitializeWebGPU() {
           index,
           connected: !!input,
           ...(input && {
-            from: { nodeId: input.from, pin: input.pin },
-          }),
+          from: { nodeId: input, pin: 0 },          }),
         }));
 
         return exportedNode;
