@@ -30,12 +30,17 @@ export class TextureNodes {
   
   /**
    * Compile 2D texture sampling
+   * Fixed to flip Y coordinate to handle upside-down textures
    */
   compileTexture2D(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const textureId = nodeId;
     
-    const line = `let node_${nodeId} = textureSample(texture_${textureId}, sampler_${textureId}, ${uv});`;
+    // Flip the Y coordinate to fix upside-down texture
+    // This creates a temporary variable with inverted Y
+    const line = `let uv_${nodeId} = vec2<f32>(${uv}.x, 1.0 - ${uv}.y);
+    let node_${nodeId} = textureSample(texture_${textureId}, sampler_${textureId}, uv_${nodeId});`;
+    
     console.log(`Texture2D line: ${line}`);
     
     return {
