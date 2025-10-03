@@ -144,85 +144,86 @@ export class PreviewSystem {
       component: 'renderer-registration'
     });
   }
-}generateNodePreview(node) {
+}
+generateNodePreview(node) {
+  try {
+    if (!node) {
+      console.warn('Null node provided for preview generation');
+      return;
+    }
 
-    try {
-      if (!node) {
-        console.warn('Null node provided for preview generation');
-        return;
-      }
+    if (!node.id) {
+      console.warn('Node missing ID for preview generation');
+      return;
+    }
 
-      if (!node.id) {
-        console.warn('Node missing ID for preview generation');
-        return;
-      }
+    if (!node.kind) {
+      console.warn(`Node ${node.id} missing kind for preview generation`);
+      return;
+    }
 
-      if (!node.kind) {
-        console.warn(`Node ${node.id} missing kind for preview generation`);
-        return;
-      }
+    console.log("Generating preview for:", node.kind, node.kind.toLowerCase());
 
-      console.log("Generating preview for:", node.kind, node.kind.toLowerCase());
+    if (!this.editor.isPreviewEnabled) {
+      node.__thumb = null;
+      return;
+    }
 
-      if (!this.editor.isPreviewEnabled) {
-        node.__thumb = null;
-        return;
-      }
+    const canvas = this.canvasManager.getCanvas(node.id);
+    if (!canvas) {
+      throw new Error(`Failed to get canvas for node ${node.id}`);
+    }
 
-      const canvas = this.canvasManager.getCanvas(node.id);
-      if (!canvas) {
-        throw new Error(`Failed to get canvas for node ${node.id}`);
-      }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error(`Failed to get 2D context for node ${node.id}`);
+    }
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        throw new Error(`Failed to get 2D context for node ${node.id}`);
-      }
+    // Clear canvas
+    ctx.fillStyle = "#141414";
+    ctx.fillRect(0, 0, this.size, this.size);
 
-      // Clear canvas
-      ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, this.size, this.size);
-
-      // Get and execute renderer
-      const rendererKey = node.kind.toLowerCase();
-      const renderer = this.rendererRegistry.getRenderer(rendererKey);
-      
-      if (renderer && typeof renderer === 'function') {
-        try {
-          renderer(ctx, node);
-        } catch (rendererError) {
-          console.warn(`Renderer failed for ${node.kind}:`, rendererError);
-          this._renderError(ctx, node, `Renderer: ${rendererError.message}`);
-        }
-      } else {
-        console.log(`No specific renderer for ${node.kind}, using generic renderer`);
-        this._renderGeneric(ctx, node);
-      }
-
-      node.__thumb = canvas;
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'node-preview-generation',
-        nodeId: node?.id,
-        nodeKind: node?.kind
-      });
-
-      // Ensure we still set a thumb even on error
+    // Get and execute renderer
+    const rendererKey = node.kind.toLowerCase();
+    const renderer = this.rendererRegistry.getRenderer(rendererKey);
+    if (!renderer) {
+  console.log(`❌ No renderer found for: ${node.kind} (looking for key: ${rendererKey})`);
+}
+    if (renderer && typeof renderer === 'function') {
       try {
-        const canvas = this.canvasManager?.getCanvas(node?.id || 'error');
-        if (canvas) {
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            this._renderError(ctx, node, error.message);
-            node.__thumb = canvas;
-          }
-        }
-      } catch (recoveryError) {
-        console.warn('Failed to render error preview:', recoveryError);
+        renderer(ctx, node);
+      } catch (rendererError) {
+        console.warn(`Renderer failed for ${node.kind}:`, rendererError);
+        this._renderError(ctx, node, `Renderer: ${rendererError.message}`);
       }
+    } else {
+      console.log(`No specific renderer for ${node.kind}, using generic renderer`);
+      this._renderGeneric(ctx, node);
+    }
+
+    node.__thumb = canvas;
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'node-preview-generation',
+      nodeId: node?.id,
+      nodeKind: node?.kind
+    });
+
+    // Ensure we still set a thumb even on error
+    try {
+      const canvas = this.canvasManager?.getCanvas(node?.id || 'error');
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          this._renderError(ctx, node, error.message);
+          node.__thumb = canvas;
+        }
+      }
+    } catch (recoveryError) {
+      console.warn('Failed to render error preview:', recoveryError);
     }
   }
-
+}
 updateAllPreviews(nodes) {
   try {
     // Safety check

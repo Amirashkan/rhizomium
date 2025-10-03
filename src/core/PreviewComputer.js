@@ -19,6 +19,8 @@ export class PreviewComputer {
 
         try {
           switch (node.kind) {
+
+            
             case "LinearGradient": {
   const angle = node.params?.angle ?? 0.0;
   const offset = node.params?.offset ?? 0.0;
@@ -704,7 +706,53 @@ _createNodeThumbnail(node, values) {
 
     switch (node.kind) {
       // ... other cases ...
-      
+      case "Expr":
+  this._renderExpressionThumbnail(ctx, size, node.expr || "a");
+  break;
+
+case "Remap":
+  this._renderRemapThumbnail(ctx, size, node);
+  break;
+
+case "Posterize":
+  this._renderPosterizeThumbnail(ctx, size, node);
+  break;
+
+case "ColorToGrayscale":
+  this._renderGrayscaleThumbnail(ctx, size);
+  break;
+
+case "ColorInvert":
+  this._renderInvertThumbnail(ctx, size);
+  break;
+
+case "ColorSaturate":
+  this._renderColorSaturateThumbnail(ctx, size);
+  break;
+
+case "ColorContrast":
+  this._renderContrastThumbnail(ctx, size);
+  break;
+
+case "ColorBrightness":
+  this._renderBrightnessThumbnail(ctx, size);
+  break;
+
+case "HSVToRGB":
+  this._renderColorConversionThumbnail(ctx, size, "HSV→RGB");
+  break;
+
+case "RGBToHSV":
+  this._renderColorConversionThumbnail(ctx, size, "RGB→HSV");
+  break;
+
+case "Select":
+  this._renderSelectThumbnail(ctx, size);
+  break;
+
+case "Compare":
+  this._renderCompareThumbnail(ctx, size, node);
+  break;
       case "OutputFinal":
         this._renderOutputThumbnail(ctx, size, node.__preview, node); // Pass node here
         break;
@@ -720,6 +768,155 @@ _createNodeThumbnail(node, values) {
 
 // Then update _renderOutputThumbnail to accept and use the node parameter:
 
+_renderRemapThumbnail(ctx, size, node) {
+  ctx.fillStyle = "#8b5cf620";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#8b5cf6";
+  ctx.font = "bold 10px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("REMAP", size / 2, size / 2 - 2);
+  
+  // Draw remap visualization
+  ctx.strokeStyle = "#8b5cf6";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(4, size - 4);
+  ctx.lineTo(size / 2, size / 2);
+  ctx.lineTo(size - 4, 4);
+  ctx.stroke();
+}
+
+_renderPosterizeThumbnail(ctx, size, node) {
+  const steps = node.params?.steps || 8;
+  
+  ctx.fillStyle = "#f59e0b20";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#f59e0b";
+  ctx.font = "bold 9px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("POST", size / 2, size / 2 - 4);
+  
+  ctx.font = "7px monospace";
+  ctx.fillText(`${Math.round(steps)}`, size / 2, size / 2 + 6);
+  
+  // Draw steps
+  const stepHeight = size / Math.min(steps, 8);
+  for (let i = 0; i < Math.min(steps, 8); i++) {
+    const brightness = i / steps;
+    ctx.fillStyle = `rgba(245, 158, 11, ${0.3 + brightness * 0.7})`;
+    ctx.fillRect(2, i * stepHeight, size - 4, stepHeight);
+  }
+}
+
+_renderGrayscaleThumbnail(ctx, size) {
+  ctx.fillStyle = "#6b728020";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "bold 9px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("GRAY", size / 2, size / 2);
+  
+  // Draw gradient
+  const gradient = ctx.createLinearGradient(0, 0, size, 0);
+  gradient.addColorStop(0, "#000000");
+  gradient.addColorStop(1, "#ffffff");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(2, size - 8, size - 4, 5);
+}
+
+_renderInvertThumbnail(ctx, size) {
+  ctx.fillStyle = "#ec489920";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#ec4899";
+  ctx.font = "bold 11px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("INV", size / 2, size / 2 + 2);
+}
+
+_renderColorSaturateThumbnail(ctx, size) {
+  ctx.fillStyle = "#10b98120";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#10b981";
+  ctx.font = "bold 9px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("SAT", size / 2, size / 2 + 1);
+}
+
+_renderContrastThumbnail(ctx, size) {
+  ctx.fillStyle = "#3b82f620";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#3b82f6";
+  ctx.font = "bold 9px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("CONT", size / 2, size / 2 + 1);
+}
+
+_renderBrightnessThumbnail(ctx, size) {
+  ctx.fillStyle = "#f59e0b20";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#f59e0b";
+  ctx.font = "bold 9px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("BRIT", size / 2, size / 2 + 1);
+}
+
+_renderColorConversionThumbnail(ctx, size, label) {
+  ctx.fillStyle = "#a855f720";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#a855f7";
+  ctx.font = "bold 7px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(label, size / 2, size / 2 + 1);
+}
+
+_renderSelectThumbnail(ctx, size) {
+  ctx.fillStyle = "#06b6d420";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#06b6d4";
+  ctx.font = "bold 11px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("SEL", size / 2, size / 2 + 2);
+  
+  // Draw selection visualization
+  ctx.strokeStyle = "#06b6d4";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(8, 8);
+  ctx.lineTo(size / 2, size / 2);
+  ctx.moveTo(8, size - 8);
+  ctx.lineTo(size / 2, size / 2);
+  ctx.lineTo(size - 8, size / 2);
+  ctx.stroke();
+}
+
+_renderCompareThumbnail(ctx, size, node) {
+  const operator = node.params?.operator || "greater";
+  const symbols = {
+    equal: "=",
+    notEqual: "≠",
+    greater: ">",
+    greaterEqual: "≥",
+    less: "<",
+    lessEqual: "≤"
+  };
+  
+  ctx.fillStyle = "#14b8a620";
+  ctx.fillRect(0, 0, size, size);
+  
+  ctx.fillStyle = "#14b8a6";
+  ctx.font = "bold 14px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(symbols[operator] || ">", size / 2, size / 2 + 3);
+}
 _renderOutputThumbnail(ctx, size, color, node) {
   console.log('=== OUTPUT THUMBNAIL DEBUG ===');
   console.log('Node:', node);
