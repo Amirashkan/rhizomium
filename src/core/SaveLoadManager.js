@@ -253,6 +253,124 @@ if (this.editor && this.editor.draw) {
 
 console.log("GPU and preview update completed");
 
+await new Promise(resolve => setTimeout(resolve, 300));
+console.log("🔄 Forcing thumbnail regeneration with direct rendering...");
+
+if (this.graph && this.graph.nodes) {
+  // Sort nodes by dependency (leaf nodes first)
+  const sorted = this.topologicalSortNodes(this.graph.nodes);
+  
+  for (const node of sorted) {
+    try {
+          if (node.kind?.toLowerCase() === 'outputfinal') {
+      console.log(`Skipping direct render for OutputFinal, will use shader result`);
+      continue;
+    }
+      // Clear existing thumbnail
+      delete node.__thumb;
+      
+      // Create canvas for this node
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      
+      // Get the renderer for this node type
+// Get the renderer for this node type
+let renderer = null;
+
+// Try different ways to access the renderer
+if (this.editor?.previewSystem?.rendererRegistry) {
+  const registry = this.editor.previewSystem.rendererRegistry;
+  const nodeType = node.kind?.toLowerCase();
+  
+  // Method 1: Direct property access
+  if (registry[nodeType]) {
+    renderer = registry[nodeType];
+  }
+  // Method 2: Check if it has a get method
+  else if (typeof registry.get === 'function') {
+    renderer = registry.get(nodeType);
+  }
+  // Method 3: Check if it has a getRenderer method
+  else if (typeof registry.getRenderer === 'function') {
+    renderer = registry.getRenderer(nodeType);
+  }
+  // Method 4: Check renderers property
+  else if (registry.renderers && registry.renderers[nodeType]) {
+    renderer = registry.renderers[nodeType];
+  }
+}
+
+if (renderer && typeof renderer === 'function') {
+  // Directly call the renderer
+  renderer(ctx, node);
+  
+  // Store the rendered canvas as the thumbnail
+  node.__thumb = canvas;
+  
+  console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
+} else {
+  console.warn(`No renderer found for ${node.kind}`);
+}
+      
+      if (renderer && typeof renderer === 'function') {
+        // Directly call the renderer
+        renderer(ctx, node);
+        
+        // Store the rendered canvas as the thumbnail
+        node.__thumb = canvas;
+        
+        console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
+      } else {
+        console.warn(`No renderer found for ${node.kind}`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 30));
+    } catch (error) {
+      console.warn(`Failed to render thumbnail for node ${node.id}:`, error);
+    }
+  }
+  
+console.log("✅ Direct thumbnail rendering complete");
+
+// Capture OutputFinal thumbnail from the actual rendered shader
+const outputNode = this.graph.nodes.find(n => n.kind?.toLowerCase() === 'outputfinal');
+if (outputNode) {
+  console.log("Capturing OutputFinal thumbnail from main canvas...");
+  
+  // Wait for any pending renders to complete
+  await new Promise(resolve => setTimeout(resolve, 150));
+  
+  // Force a render to ensure the main canvas is up to date
+  if (typeof window.render === "function") {
+    await window.render();
+  }
+  
+  // Get the main GPU canvas
+  const gpuCanvas = document.getElementById("gpu-canvas");
+  if (gpuCanvas) {
+    // Create a thumbnail-sized canvas
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = 128;
+    thumbCanvas.height = 128;
+    const thumbCtx = thumbCanvas.getContext('2d');
+    
+    // Draw the GPU canvas scaled down to thumbnail size
+    thumbCtx.drawImage(gpuCanvas, 0, 0, 128, 128);
+    
+    // Assign this as the OutputFinal thumbnail
+    outputNode.__thumb = thumbCanvas;
+    
+    console.log("✓ OutputFinal thumbnail captured from main canvas");
+  } else {
+    console.warn("Main GPU canvas not found for OutputFinal capture");
+  }
+}}
+
+// Helper method to sort nodes
+
+
       this.hasUnsavedChanges = false;
       this.updateStatus("Project loaded successfully");
 
@@ -267,6 +385,7 @@ console.log("GPU and preview update completed");
       this.updateStatus(`Import failed: ${error.message}`, "error");
       throw new Error(`Failed to import project: ${error.message}`);
     }
+    
   }
 
   // =============================================================================
@@ -322,6 +441,39 @@ async reinitializeWebGPU() {
     });
     return null;
   }
+}topologicalSortNodes(nodes) {
+  const sorted = [];
+  const visited = new Set();
+  const temp = new Set();
+  
+  const visit = (node) => {
+    if (temp.has(node.id)) return; // Circular dependency
+    if (visited.has(node.id)) return;
+    
+    temp.add(node.id);
+    
+    // Visit dependencies first
+    if (node.inputs) {
+      for (const inputId of node.inputs) {
+        if (inputId) {
+          const inputNode = nodes.find(n => n.id === inputId);
+          if (inputNode) visit(inputNode);
+        }
+      }
+    }
+    
+    temp.delete(node.id);
+    visited.add(node.id);
+    sorted.push(node);
+  };
+  
+  for (const node of nodes) {
+    if (!visited.has(node.id)) {
+      visit(node);
+    }
+  }
+  
+  return sorted;
 }
 
   async forceShaderUpdate() {
@@ -1317,24 +1469,31 @@ importConnections(connectionData) {
     
     for (const conn of this.graph.connections) {
       const toNode = nodeMap.get(String(conn.to.nodeId));
-      if (toNode && toNode.inputs) {
+      if (toNode) {
         const toPin = conn.to.pin || 0;
-        const fromNodeId = String(conn.from.nodeId); // Ensure it's a string
+        const fromNodeId = String(conn.from.nodeId);
 
+        // Ensure inputs array is large enough
         while (toNode.inputs.length <= toPin) {
           toNode.inputs.push(null);
         }
 
-        // Store just the node ID string, not an object
+        // Store ONLY the string ID, nothing else
         toNode.inputs[toPin] = fromNodeId;
 
         console.log(
-          `Connected: node ${fromNodeId} → node ${toNode.id} input ${toPin}`,
+          `Connected: node ${fromNodeId} → node ${toNode.id} input ${toPin} (stored as: ${typeof toNode.inputs[toPin]})`
         );
       }
     }
 
-    console.log("Connections imported successfully");
+    console.log("Connections imported. Sample node inputs:", 
+      this.graph.nodes.slice(0, 3).map(n => ({
+        id: n.id, 
+        inputs: n.inputs,
+        inputTypes: n.inputs?.map(i => typeof i)
+      }))
+    );
   } catch (error) {
     window.errorHandler?.handleError(error, { 
       component: 'connection-import',
