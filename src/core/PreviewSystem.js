@@ -565,33 +565,33 @@ topologicalSort(nodes) {
       });
     }
   }
+// Replace the entire getParameterValue method (lines 72-85) with this:
 getParameterValue(node, paramName, defaultValue = 0) {
-  try {
-    // Use the value manager if available
-    if (this.editor?.paramPanel?.valueManager?.getValue) {
-      return this.editor.paramPanel.valueManager.getValue(node, paramName) ?? defaultValue;
+  const rawValue = node.params?.[paramName] ?? defaultValue;
+  
+  // Handle expressions containing 'time' with preview-specific evaluation
+  if (typeof rawValue === 'string' && /\btime\b/i.test(rawValue)) {
+    try {
+      // Use a fixed preview time (π/2 shows sin at peak, cos at zero)
+      const previewTime = Math.PI / 2;
+      
+      // Simple expression evaluation for preview
+      const expression = rawValue
+        .replace(/\bsin\(/g, 'Math.sin(')
+        .replace(/\bcos\(/g, 'Math.cos(')
+        .replace(/\btan\(/g, 'Math.tan(')
+        .replace(/\btime\b/g, previewTime.toString());
+      
+      const result = eval(expression);
+      return isNaN(result) ? defaultValue : result;
+    } catch (error) {
+      console.warn(`Preview expression evaluation failed for ${paramName}:`, error);
+      return defaultValue;
     }
-    
-    // Fallback to direct access with expression check
-    const rawValue = node.params?.[paramName] ?? defaultValue;
-    
-    // Check if it's an expression and evaluate it
-    if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
-      try {
-        const expressionSystem = window.expressionSystem || this.editor?.expressionSystem;
-        if (expressionSystem) {
-          return expressionSystem.evaluateExpression(rawValue, {}, node);
-        }
-      } catch (error) {
-        console.warn(`Expression evaluation failed for ${paramName}:`, error);
-      }
-    }
-    
-    return rawValue;
-  } catch (error) {
-    console.warn(`Error getting parameter ${paramName}:`, error);
-    return defaultValue;
   }
+  
+  // For non-time expressions, return the raw value or parse it
+  return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
 }
 
   // Expose subsystem APIs for backward compatibility

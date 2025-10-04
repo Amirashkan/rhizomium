@@ -63,21 +63,26 @@ export class TextureRenderers {
 
   // Helper method to get parameter values with expression support
 getParameterValue(node, paramName, defaultValue = 0) {
-  // Use the uniform manager's evaluated values
-  if (window.nodeCompiler?.uniformManager) {
-    const uniformMgr = window.nodeCompiler.uniformManager;
-    const key = `${node.id}.${paramName}`;
-    
-    if (uniformMgr.uniformValues && uniformMgr.uniformValues.has(key)) {
-      return uniformMgr.uniformValues.get(key);
+  const rawValue = node.params?.[paramName] ?? defaultValue;
+  
+  // Handle expressions containing 'time'
+  if (typeof rawValue === 'string' && /\btime\b/i.test(rawValue)) {
+    try {
+      const previewTime = Math.PI / 2;
+      const safeEval = new Function('time', `return ${rawValue.replace(/\bsin\(/g, 'Math.sin(').replace(/\bcos\(/g, 'Math.cos(').replace(/\btan\(/g, 'Math.tan(')}`);
+      const result = safeEval(previewTime);
+      
+      console.log('✅ Evaluated', rawValue, '=', result);
+      return isNaN(result) ? defaultValue : result;
+    } catch (error) {
+      console.warn(`Preview expression evaluation failed for ${paramName}:`, error);
+      return defaultValue;
     }
   }
   
-  // Fall back to node params
-  const rawValue = node.params?.[paramName] ?? defaultValue;
+  // ADD THIS LINE - handles all non-time parameters
   return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
 }
-
   // Helper to safely convert values to numbers
   toSafeNumber(value, defaultValue = 0) {
     if (value == null) return defaultValue;
@@ -359,7 +364,7 @@ renderRectangle(ctx, node) {
   const centerX = this.getParameterValue(node, "centerX", 0.5);
   const centerY = this.getParameterValue(node, "centerY", 0.5);
   const epsilon = this.getParameterValue(node, "epsilon", 0.02);
-
+console.log('Rectangle render:', {width, height, centerX, centerY, epsilon});
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, this.size, this.size);
 
