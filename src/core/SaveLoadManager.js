@@ -1595,109 +1595,103 @@ async reinitializeWebGPU() {
   // DATA IMPORT HELPERS
   // =============================================================================
 
-  async importNodes(nodeData) {
-    try {
-      this.graph.nodes = (nodeData || []).map((data) => {
-        // Create node with proper type/kind properties
-        const node = {
-          id: String(data.id),
-          type: data.kind || "Unknown", // Set BOTH type and kind
-          kind: data.kind || "Unknown",
-          x: data.position?.x || data.x || 0,
-          y: data.position?.y || data.y || 0,
-          w: data.size?.width || data.w || 180,
-          h: data.size?.height || data.h || 60,
-          inputs: [],
-          outputs: [],
-        };
+async importNodes(nodeData) {
+  try {
+    // Create an ID mapping to preserve connections
+    const idMap = new Map();
+    
+    this.graph.nodes = (nodeData || []).map((data) => {
+      // Generate a NEW unique ID to avoid any collisions
+      const oldId = String(data.id);
+      const newId = this.generateId();
+      idMap.set(oldId, newId);
+      
+      const node = {
+        id: newId,  // Use the new ID
+        type: data.kind || "Unknown",
+        kind: data.kind || "Unknown",
+        x: data.position?.x || data.x || 0,
+        y: data.position?.y || data.y || 0,
+        w: data.size?.width || data.w || 180,
+        h: data.size?.height || data.h || 60,
+        inputs: [],
+        outputs: [],
+      };
 
-        // Restore ALL node-specific properties including parameters
-        if (data.value !== undefined) node.value = data.value;
-        if (data.xv !== undefined) node.xv = data.xv;
-        if (data.yv !== undefined) node.yv = data.yv;
-        if (data.expr !== undefined) node.expr = data.expr;
-        if (data.props !== undefined) node.props = { ...data.props };
+      // ... rest of property restoration
+      if (data.value !== undefined) node.value = data.value;
+      if (data.xv !== undefined) node.xv = data.xv;
+      if (data.yv !== undefined) node.yv = data.yv;
+      if (data.expr !== undefined) node.expr = data.expr;
+      if (data.props !== undefined) node.props = { ...data.props };
 
-        // Restore additional parameter properties that might exist
-        const parameterKeys = ['min', 'max', 'step', 'default', 'label', 'units', 'precision'];
-        for (const key of parameterKeys) {
-          if (data[key] !== undefined) {
-            node[key] = data[key];
-          }
+      const parameterKeys = ['min', 'max', 'step', 'default', 'label', 'units', 'precision'];
+      for (const key of parameterKeys) {
+        if (data[key] !== undefined) {
+          node[key] = data[key];
         }
+      }
 
-        // Restore any other custom properties
-        for (const [key, value] of Object.entries(data)) {
-          if (!['id', 'kind', 'position', 'size', 'inputs', 'outputs'].includes(key) && 
-              !node.hasOwnProperty(key)) {
-            node[key] = value;
-          }
+      for (const [key, value] of Object.entries(data)) {
+        if (!['id', 'kind', 'position', 'size', 'inputs', 'outputs'].includes(key) && 
+            !node.hasOwnProperty(key)) {
+          node[key] = value;
         }
+      }
 
-        // Set up inputs array - make sure it's the right length
-        const inputCount = data.inputs?.length || 0;
-        
-node.inputs = new Array(inputCount).fill(null);
+      const inputCount = data.inputs?.length || 0;
+      node.inputs = new Array(inputCount).fill(null);
 
-        return node;
-      });
+      return node;
+    });
 
-      console.log(
-        "Nodes imported with full properties:",
-        this.graph.nodes.map((n) => ({ 
-          id: n.id, 
-          type: n.type, 
-          kind: n.kind,
-          value: n.value,
-          xv: n.xv,
-          yv: n.yv,
-          expr: n.expr,
-          props: n.props
-        })),
-      );
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'node-import',
-        nodeDataLength: nodeData?.length || 0
-      });
-      this.graph.nodes = [];
-    }
+    // Store the ID map for use in importConnections
+    this._importIdMap = idMap;
+
+    console.log("Nodes imported with new IDs:", this.graph.nodes.map(n => ({ 
+      id: n.id, 
+      type: n.type 
+    })));
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'node-import',
+      nodeDataLength: nodeData?.length || 0
+    });
+    this.graph.nodes = [];
   }
+}
 importConnections(connectionData) {
   try {
-    this.graph.connections = [...(connectionData || [])];
+    const idMap = this._importIdMap || new Map();
+    
+    this.graph.connections = (connectionData || []).map(conn => ({
+      from: {
+        nodeId: idMap.get(String(conn.from.nodeId)) || String(conn.from.nodeId),
+        pin: conn.from.pin || 0,
+      },
+      to: {
+        nodeId: idMap.get(String(conn.to.nodeId)) || String(conn.to.nodeId),
+        pin: conn.to.pin || 0,
+      },
+    }));
 
-    const nodeMap = new Map(
-      this.graph.nodes.map((n) => [String(n.id), n])
-    );
+    const nodeMap = new Map(this.graph.nodes.map(n => [n.id, n]));
     
     for (const conn of this.graph.connections) {
-      const toNode = nodeMap.get(String(conn.to.nodeId));
+      const toNode = nodeMap.get(conn.to.nodeId);
       if (toNode) {
         const toPin = conn.to.pin || 0;
-        const fromNodeId = String(conn.from.nodeId);
-
-        // Ensure inputs array is large enough
         while (toNode.inputs.length <= toPin) {
           toNode.inputs.push(null);
         }
-
-        // Store ONLY the string ID, nothing else
-        toNode.inputs[toPin] = fromNodeId;
-
-        console.log(
-          `Connected: node ${fromNodeId} → node ${toNode.id} input ${toPin} (stored as: ${typeof toNode.inputs[toPin]})`
-        );
+        toNode.inputs[toPin] = conn.from.nodeId;
       }
     }
 
-    console.log("Connections imported. Sample node inputs:", 
-      this.graph.nodes.slice(0, 3).map(n => ({
-        id: n.id, 
-        inputs: n.inputs,
-        inputTypes: n.inputs?.map(i => typeof i)
-      }))
-    );
+    // Clean up the temporary ID map
+    delete this._importIdMap;
+
+    console.log("Connections imported with remapped IDs");
   } catch (error) {
     window.errorHandler?.handleError(error, { 
       component: 'connection-import',
