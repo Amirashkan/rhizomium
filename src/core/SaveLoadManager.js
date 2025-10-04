@@ -1,3 +1,5 @@
+
+
 async function reinitializeWebGPUAfterLoad() {
   try {
     console.log("🔧 Reinitializing WebGPU after file load...");
@@ -49,6 +51,7 @@ async function reinitializeWebGPUAfterLoad() {
 export class SaveLoadManager {
   constructor(editor, graph, updateCallback) {
     this.editor = editor;
+    this.textureManager = null;
     this.graph = graph;
     this.updateCallback = updateCallback || (() => {});
     this.autosaveKey = "rhizomium.autosave.v2";
@@ -63,364 +66,521 @@ export class SaveLoadManager {
     this.setupAutoSave();
     this.setupUnloadHandler();
   }
+// ADD THESE THREE METHODS to your SaveLoadManager class
+// Put them after your export methods, before the file operations section
 
+/**
+ * Restore textures from saved data
+ */
+async restoreTextures(textureData) {
+  if (!textureData || !this.textureManager) {
+    console.log("No texture data to restore or no texture manager");
+    return;
+  }
+  
+  const restorePromises = [];
+
+  for (const [nodeId, texInfo] of Object.entries(textureData)) {
+    if (texInfo.dataUrl) {
+      console.log(`Scheduling restoration of texture for node ${nodeId}: ${texInfo.filename}`);
+      const promise = this.loadTextureFromDataUrl(nodeId, texInfo.dataUrl, texInfo.filename);
+      restorePromises.push(promise);
+    }
+  }
+
+  if (restorePromises.length > 0) {
+    await Promise.all(restorePromises);
+    console.log(`✓ Restored ${restorePromises.length} textures`);
+  } else {
+    console.log("No textures to restore");
+  }
+}
+
+/**
+ * Load texture from data URL and register it
+ */
+async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    
+    img.onload = async () => {
+      try {
+        const bitmap = await createImageBitmap(img);
+        
+        if (this.textureManager && this.textureManager.device) {
+          // Store in textures map
+          const textureInfo = {
+            bitmap: bitmap,
+            width: img.width,
+            height: img.height,
+            filename: filename,
+            dataUrl: dataUrl
+          };
+          this.textureManager.textures.set(nodeId, textureInfo);
+          
+          // Create GPU texture
+          const gpuTexture = this.textureManager.device.createTexture({
+            size: [img.width, img.height, 1],
+            format: 'rgba8unorm',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+          });
+
+          // Upload bitmap to GPU
+          this.textureManager.device.queue.copyExternalImageToTexture(
+            { source: bitmap },
+            { texture: gpuTexture },
+            [img.width, img.height]
+          );
+
+          // Create sampler
+          const sampler = this.textureManager.device.createSampler({
+            magFilter: 'linear',
+            minFilter: 'linear',
+            addressModeU: 'repeat',
+            addressModeV: 'repeat',
+          });
+
+          // Store in gpuTextures map (this is what the renderer checks!)
+          if (!this.textureManager.gpuTextures) {
+            this.textureManager.gpuTextures = new Map();
+          }
+          this.textureManager.gpuTextures.set(nodeId, {
+            texture: gpuTexture,
+            sampler: sampler
+          });
+          
+          console.log(`✓ Restored texture: ${filename} for node ${nodeId}`);
+        }
+        
+        resolve();
+      } catch (err) {
+        console.error(`Failed to restore texture for node ${nodeId}:`, err);
+        reject(err);
+      }
+    };
+    
+    img.onerror = () => reject(new Error('Failed to load texture image'));
+    img.src = dataUrl;
+  });
+}
   // =============================================================================
   // CORE SAVE/LOAD FUNCTIONALITY
   // =============================================================================
-
-  exportProject(options = {}) {
-    try {
-      const {
-        includeMetadata = true,
-        includePreviews = false,
-        includeViewport = true,
-      } = options;
-
-      const projectData = {
-        app: "Rhizomium-Web",
-        version: 2,
-        format: "rhizomium-project",
-        savedAt: new Date().toISOString(),
-
-        // Core graph data
-        nodes: this.exportNodes(),
-        connections: this.exportConnections(),
-
-        // Editor state
-        ...(includeViewport && {
-          viewport: this.exportViewport(),
-        }),
-
-        // Metadata
-        ...(includeMetadata && {
-          metadata: this.exportMetadata(),
-        }),
-
-        // Preview data (optional, can be large)
-        ...(includePreviews && {
-          previews: this.exportPreviews(),
-        }),
-      };
-
-      return projectData;
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'project-export',
-        options
-      });
-      throw new Error(`Failed to export project: ${error.message}`);
-    }
+  setTextureManager(textureManager) {
+    this.textureManager = textureManager;
   }
 
-  async importProject(projectData, options = {}) {
-    try {
-      const {
-        clearExisting = true,
-        validateData = true,
-        restoreViewport = true,
-        restorePreviews = false,
-      } = options;
+// Replace your exportProject() method with this fixed version
 
-      // Validate project data
-      if (validateData) {
-        this.validateProjectData(projectData);
-      }
-
-      // Clear existing graph if requested
-      if (clearExisting) {
-        this.clearGraph();
-      }
-
-      // Import core data
-      this.importNodes(projectData.nodes || []);
-      this.importConnections(projectData.connections || []);
-
-      // Restore viewport
-      if (restoreViewport && projectData.viewport) {
-        this.importViewport(projectData.viewport);
-      }
-
-      // Restore previews if requested
-      if (restorePreviews && projectData.previews) {
-        this.importPreviews(projectData.previews);
-      }
-
-      // CRITICAL: Enhanced shader rebuild sequence after loading
-      console.log("🔄 Starting comprehensive shader rebuild after project load...");
-
-      // Step 1: Wait a frame to ensure DOM is stable
-      await new Promise(resolve => requestAnimationFrame(resolve));
-
-// Step 2: Force WebGPU reinitialization and capture the device
-let gpuDevice = await this.reinitializeWebGPU(); // Change const to let
-if (!gpuDevice) {
-  console.warn("WebGPU reinitialization failed, continuing with shader update...");
-}
-
-      // Step 3: Wait another frame after WebGPU init
-      await new Promise(resolve => requestAnimationFrame(resolve));
-
-      // Step 4: Multiple shader update attempts with different methods
-      await this.forceShaderUpdate();
-
-      // Step 5: Wait for GPU pipeline to stabilize
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Step 6: Force editor redraw
-      if (this.editor && this.editor.draw) {
-        this.editor.draw();
-      }
-
-// Step 7: Enhanced GPU stability and preview fix
-console.log("Ensuring GPU and previews are ready...");
-
-
-// Try multiple ways to get the GPU device
-if (window.textureManager && window.textureManager.device) {
-  gpuDevice = window.textureManager.device;
-  console.log("Got GPU device from textureManager");
-} else if (window.gpuDevice) {
-  gpuDevice = window.gpuDevice;
-  console.log("Got GPU device from window.gpuDevice");
-} else if (window.device) {
-  gpuDevice = window.device;
-  console.log("Got GPU device from window.device");
-}
-
-if (gpuDevice && this.editor && this.editor.previewSystem) {
-  console.log("Reconnecting GPU device to preview system...");
-  
-  // Reconnect GPU device to preview components
-  if (this.editor.previewSystem.canvasManager) {
-    this.editor.previewSystem.canvasManager.device = gpuDevice;
-    console.log("GPU device reconnected to CanvasManager");
-  }
-  
-  if (this.editor.previewSystem.rendererRegistry) {
-    this.editor.previewSystem.rendererRegistry.device = gpuDevice;
-    console.log("GPU device reconnected to RendererRegistry");
-  }
-  
-  // Force reinitialize preview system with new device
-  if (typeof this.editor.previewSystem.reinitialize === 'function') {
-    await this.editor.previewSystem.reinitialize(gpuDevice);
-  }
-  
-  // Clear cache and force preview updates
-  if (this.editor.previewSystem.canvasManager && this.editor.previewSystem.canvasManager.clearCache) {
-    this.editor.previewSystem.canvasManager.clearCache();
-  }
-  
-  // Force preview regeneration with working GPU connection
-  if (typeof this.editor.previewSystem.updateAllPreviews === 'function') {
-    await this.editor.previewSystem.updateAllPreviews();
-  }
-} else {
-  console.warn("GPU device or preview system not available for reconnection");
-}
-
-
-// Force several renders to stabilize GPU
-for (let i = 0; i < 3; i++) {
-  if (typeof window.render === "function") {
-    await window.render();
-  }
-  await new Promise(resolve => setTimeout(resolve, 100));
-}
-
-// Force shader update
-if (typeof window.updateShaderFromGraph === "function") {
-  await window.updateShaderFromGraph();
-}
-
-// Force preview updates
-if (this.editor && this.editor.draw) {
-  this.editor.draw();
-}
-
-// Update preview integrations
-if (this.editor && this.editor.previewSystem) {
-  if (typeof this.editor.previewSystem.refreshAll === "function") {
-    await this.editor.previewSystem.refreshAll();
-  }
-}
-
-// Final delay and redraw
-await new Promise(resolve => setTimeout(resolve, 200));
-if (this.editor && this.editor.draw) {
-  this.editor.draw();
-}
-
-console.log("GPU and preview update completed");
-
-// Generate previews for all nodes that should have them enabled
-console.log("🔄 Generating previews for enabled nodes...");
-await new Promise(resolve => setTimeout(resolve, 300));
-
-if (this.editor && this.editor.previewSystem && this.graph && this.graph.nodes) {
-  for (const node of this.graph.nodes) {
-    // Check if this node should have a preview enabled
-    const previewSettings = this.editor.nodePreviews?.get(node.id);
-    
-    if (previewSettings && previewSettings.enabled) {
-      console.log(`Generating preview for node ${node.kind} (${node.id})`);
-      
-      // Generate the preview using the preview system
-      if (typeof this.editor.previewSystem.generatePreview === 'function') {
-        await this.editor.previewSystem.generatePreview(node.id, node);
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-  }
-}
-
-// Force final editor redraw
-await new Promise(resolve => setTimeout(resolve, 200));
-if (this.editor && this.editor.draw) {
-  this.editor.draw();
-}
-
-this.hasUnsavedChanges = false;
-this.updateStatus("Project loaded successfully");
-await new Promise(resolve => setTimeout(resolve, 300));
-console.log("🔄 Forcing thumbnail regeneration with direct rendering...");
-
-if (this.graph && this.graph.nodes) {
-  // Sort nodes by dependency (leaf nodes first)
-  const sorted = this.topologicalSortNodes(this.graph.nodes);
-  
-for (const node of sorted) {
+exportProject(options = {}) {
   try {
-    if (node.kind?.toLowerCase() === 'outputfinal') {
-      console.log(`Skipping direct render for OutputFinal, will use shader result`);
-      continue;
-    }
-    
-    // Clear existing thumbnail
-    delete node.__thumb;
-    
-    // Create canvas for this node
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    
-    // Get the renderer for this node type
-    let renderer = null;
+    const {
+      includeMetadata = true,
+      includePreviews = false,
+      includeViewport = true,
+    } = options;
 
-    if (this.editor?.previewSystem?.rendererRegistry) {
-      const registry = this.editor.previewSystem.rendererRegistry;
-      const nodeType = node.kind?.toLowerCase();
+    // Collect texture data BEFORE creating projectData
+    const textureData = this.collectTextureData();
+
+    const projectData = {
+      app: "Rhizomium-Web",
+      version: 2,
+      format: "rhizomium-project",
+      savedAt: new Date().toISOString(),
+
+      // Core graph data
+      nodes: this.exportNodes(),
+      connections: this.exportConnections(),
+      textures: textureData, // Now textureData is defined
+
+      // Editor state
+      ...(includeViewport && {
+        viewport: this.exportViewport(),
+      }),
+
+      // Metadata
+      ...(includeMetadata && {
+        metadata: this.exportMetadata(),
+      }),
+
+      // Preview data (optional, can be large)
+      ...(includePreviews && {
+        previews: this.exportPreviews(),
+      }),
+    };
+
+    return projectData;
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'project-export',
+      options
+    });
+    throw new Error(`Failed to export project: ${error.message}`);
+  }
+}
+
+
+// Add this helper method
+collectTextureData() {
+  const textureData = {};
+  
+  if (!this.textureManager) return textureData;
+  
+  for (const node of this.graph.nodes) {
+    if (node.kind === 'Texture2D' || node.kind === 'TextureCube') {
+      const textureInfo = this.textureManager.getTexture(node.id);
+      if (textureInfo) {
+        textureData[node.id] = {
+          filename: textureInfo.filename,
+          dataUrl: textureInfo.dataUrl,
+          width: textureInfo.width,
+          height: textureInfo.height,
+        };
+      }
+    }
+  }
+  
+  return textureData;
+}
+
+
+async importProject(projectData, options = {}) {
+  try {
+    const {
+      clearExisting = true,
+      validateData = true,
+      restoreViewport = true,
+      restorePreviews = false,
+    } = options;
+
+    // Validate project data
+    if (validateData) {
+      this.validateProjectData(projectData);
+    }
+
+    // Clear existing graph if requested
+    if (clearExisting) {
+      this.clearGraph();
+    }
+
+    // Import core data
+    this.importNodes(projectData.nodes || []);
+    this.importConnections(projectData.connections || []);
+
+    // CRITICAL: Restore textures BEFORE any shader compilation
+    if (projectData.textures && this.textureManager) {
+      console.log("🎨 Restoring textures from save file...");
+      console.log("Texture data keys:", Object.keys(projectData.textures));
+      await this.restoreTextures(projectData.textures);
+      console.log("✅ Textures restored");
+// After this line:
+await this.restoreTextures(projectData.textures);
+console.log("✅ Textures restored");
+
+// Add this:
+// Force GPU texture creation for all restored textures
+if (this.textureManager && this.textureManager.device) {
+  console.log("🎨 Creating GPU textures from restored bitmaps...");
+  for (const [nodeId, texInfo] of this.textureManager.textures.entries()) {
+    if (texInfo.bitmap && !texInfo.gpuTexture) {
+      try {
+        // Create the GPU texture from the bitmap
+        const gpuTexture = this.textureManager.device.createTexture({
+          size: [texInfo.width, texInfo.height, 1],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+        });
+
+        // Copy bitmap data to GPU texture
+        this.textureManager.device.queue.copyExternalImageToTexture(
+          { source: texInfo.bitmap },
+          { texture: gpuTexture },
+          [texInfo.width, texInfo.height]
+        );
+
+        // Store the GPU texture
+        texInfo.gpuTexture = gpuTexture;
+        console.log(`✓ Created GPU texture for node ${nodeId}`);
+      } catch (error) {
+        console.error(`Failed to create GPU texture for node ${nodeId}:`, error);
+      }
+    }
+  }
+  console.log("✅ GPU textures created");
+}
+
+
+    } else {
+      console.log("⚠️ No textures in save file or no texture manager");
+      console.log("  textures present:", !!projectData.textures);
+      console.log("  textureManager present:", !!this.textureManager);
+    }
+
+    // Restore viewport
+    if (restoreViewport && projectData.viewport) {
+      this.importViewport(projectData.viewport);
+    }
+
+    // Restore previews if requested
+    if (restorePreviews && projectData.previews) {
+      this.importPreviews(projectData.previews);
+    }
+
+    // CRITICAL: Enhanced shader rebuild sequence after loading
+    console.log("🔄 Starting comprehensive shader rebuild after project load...");
+
+    // Step 1: Wait a frame to ensure DOM is stable
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    // Step 2: Force WebGPU reinitialization and capture the device
+    let gpuDevice = await this.reinitializeWebGPU();
+    if (!gpuDevice) {
+      console.warn("WebGPU reinitialization failed, continuing with shader update...");
+    }
+
+    // Step 3: Wait another frame after WebGPU init
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    // Step 4: Multiple shader update attempts with different methods
+    await this.forceShaderUpdate();
+
+    // Step 5: Wait for GPU pipeline to stabilize
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Step 6: Force editor redraw
+    if (this.editor && this.editor.draw) {
+      this.editor.draw();
+    }
+
+    // Step 7: Enhanced GPU stability and preview fix
+    console.log("Ensuring GPU and previews are ready...");
+
+    // Try multiple ways to get the GPU device
+    if (window.textureManager && window.textureManager.device) {
+      gpuDevice = window.textureManager.device;
+      console.log("Got GPU device from textureManager");
+    } else if (window.gpuDevice) {
+      gpuDevice = window.gpuDevice;
+      console.log("Got GPU device from window.gpuDevice");
+    } else if (window.device) {
+      gpuDevice = window.device;
+      console.log("Got GPU device from window.device");
+    }
+
+    if (gpuDevice && this.editor && this.editor.previewSystem) {
+      console.log("Reconnecting GPU device to preview system...");
       
-      if (registry[nodeType]) {
-        renderer = registry[nodeType];
-      } else if (typeof registry.get === 'function') {
-        renderer = registry.get(nodeType);
-      } else if (typeof registry.getRenderer === 'function') {
-        renderer = registry.getRenderer(nodeType);
-      } else if (registry.renderers && registry.renderers[nodeType]) {
-        renderer = registry.renderers[nodeType];
+      // Reconnect GPU device to preview components
+      if (this.editor.previewSystem.canvasManager) {
+        this.editor.previewSystem.canvasManager.device = gpuDevice;
+        console.log("GPU device reconnected to CanvasManager");
+      }
+      
+      if (this.editor.previewSystem.rendererRegistry) {
+        this.editor.previewSystem.rendererRegistry.device = gpuDevice;
+        console.log("GPU device reconnected to RendererRegistry");
+      }
+      
+      // Force reinitialize preview system with new device
+      if (typeof this.editor.previewSystem.reinitialize === 'function') {
+        await this.editor.previewSystem.reinitialize(gpuDevice);
+      }
+      
+      // Clear cache and force preview updates
+      if (this.editor.previewSystem.canvasManager && this.editor.previewSystem.canvasManager.clearCache) {
+        this.editor.previewSystem.canvasManager.clearCache();
+      }
+      
+      // Force preview regeneration with working GPU connection
+      if (typeof this.editor.previewSystem.updateAllPreviews === 'function') {
+        await this.editor.previewSystem.updateAllPreviews();
+      }
+    } else {
+      console.warn("GPU device or preview system not available for reconnection");
+    }
+
+    // Force several renders to stabilize GPU
+    for (let i = 0; i < 3; i++) {
+      if (typeof window.render === "function") {
+        await window.render();
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Force shader update
+    if (typeof window.updateShaderFromGraph === "function") {
+      await window.updateShaderFromGraph();
+    }
+
+    // Force preview updates
+    if (this.editor && this.editor.draw) {
+      this.editor.draw();
+    }
+
+    // Update preview integrations
+    if (this.editor && this.editor.previewSystem) {
+      if (typeof this.editor.previewSystem.refreshAll === "function") {
+        await this.editor.previewSystem.refreshAll();
       }
     }
 
-    if (renderer && typeof renderer === 'function') {
-      renderer(ctx, node);
-      node.__thumb = canvas;
-      console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
-    } else {
-      console.warn(`No renderer found for ${node.kind}`);
+    // Final delay and redraw
+    await new Promise(resolve => setTimeout(resolve, 200));
+    if (this.editor && this.editor.draw) {
+      this.editor.draw();
     }
+
+    console.log("GPU and preview update completed");
+
+    // Generate previews for all nodes that should have them enabled
+    console.log("🔄 Generating previews for enabled nodes...");
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    if (this.editor && this.editor.previewSystem && this.graph && this.graph.nodes) {
+      for (const node of this.graph.nodes) {
+        const previewSettings = this.editor.nodePreviews?.get(node.id);
+        
+        if (previewSettings && previewSettings.enabled) {
+          console.log(`Generating preview for node ${node.kind} (${node.id})`);
+          
+          if (typeof this.editor.previewSystem.generatePreview === 'function') {
+            await this.editor.previewSystem.generatePreview(node.id, node);
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+    }
+
+    // Final editor redraw
+    await new Promise(resolve => setTimeout(resolve, 200));
+    if (this.editor && this.editor.draw) {
+      this.editor.draw();
+    }
+
+    this.hasUnsavedChanges = false;
+    this.updateStatus("Project loaded successfully");
     
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await new Promise(resolve => setTimeout(resolve, 300));
+    console.log("🔄 Forcing thumbnail regeneration with direct rendering...");
+
+    if (this.graph && this.graph.nodes) {
+      const sorted = this.topologicalSortNodes(this.graph.nodes);
+      
+      for (const node of sorted) {
+        try {
+          if (node.kind?.toLowerCase() === 'outputfinal') {
+            console.log(`Skipping direct render for OutputFinal, will use shader result`);
+            continue;
+          }
+          
+          delete node.__thumb;
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          
+          let renderer = null;
+
+          if (this.editor?.previewSystem?.rendererRegistry) {
+            const registry = this.editor.previewSystem.rendererRegistry;
+            const nodeType = node.kind?.toLowerCase();
+            
+            if (registry[nodeType]) {
+              renderer = registry[nodeType];
+            } else if (typeof registry.get === 'function') {
+              renderer = registry.get(nodeType);
+            } else if (typeof registry.getRenderer === 'function') {
+              renderer = registry.getRenderer(nodeType);
+            } else if (registry.renderers && registry.renderers[nodeType]) {
+              renderer = registry.renderers[nodeType];
+            }
+          }
+
+          if (renderer && typeof renderer === 'function') {
+            renderer(ctx, node);
+            node.__thumb = canvas;
+            console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
+          } else {
+            console.warn(`No renderer found for ${node.kind}`);
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 30));
+        } catch (error) {
+          console.warn(`Failed to render thumbnail for node ${node.id}:`, error);
+        }
+      }
+      
+      console.log("✅ Direct thumbnail rendering complete");
+
+      // Capture OutputFinal thumbnail from the actual rendered shader
+      const outputNode = this.graph.nodes.find(n => n.kind?.toLowerCase() === 'outputfinal');
+      if (outputNode) {
+        console.log("Capturing OutputFinal thumbnail from main canvas...");
+        
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        if (typeof window.render === "function") {
+          await window.render();
+        }
+        
+        const gpuCanvas = document.getElementById("gpu-canvas");
+        if (gpuCanvas) {
+          const thumbCanvas = document.createElement('canvas');
+          thumbCanvas.width = 128;
+          thumbCanvas.height = 128;
+          const thumbCtx = thumbCanvas.getContext('2d');
+          
+          thumbCtx.drawImage(gpuCanvas, 0, 0, 128, 128);
+          outputNode.__thumb = thumbCanvas;
+          
+          console.log("🔄 Forcing editor to display all thumbnails...");
+          await new Promise(resolve => setTimeout(resolve, 200));
+
+          for (let i = 0; i < 5; i++) {
+            if (this.editor && this.editor.draw) {
+              this.editor.draw();
+            }
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+
+          if (this.graph && this.graph.nodes) {
+            for (const node of this.graph.nodes) {
+              if (this.editor && typeof this.editor.onNodeChanged === 'function') {
+                this.editor.onNodeChanged(node);
+              }
+            }
+          }
+
+          if (this.editor && this.editor.draw) {
+            this.editor.draw();
+          }
+
+          this.hasUnsavedChanges = false;    
+        } else {
+          console.warn("Main GPU canvas not found for OutputFinal capture");
+        }
+      }
+    }
+
+    this.hasUnsavedChanges = false;
+    this.updateStatus("Project loaded successfully");
+
+    console.log("✅ Project import completed with full shader update sequence");
+    return true;
+    
   } catch (error) {
-    console.warn(`Failed to render thumbnail for node ${node.id}:`, error);
+    window.errorHandler?.handleError(error, { 
+      component: 'project-import',
+      options,
+      nodeCount: projectData?.nodes?.length || 0
+    });
+    this.updateStatus(`Import failed: ${error.message}`, "error");
+    throw new Error(`Failed to import project: ${error.message}`);
   }
 }
-  
-console.log("✅ Direct thumbnail rendering complete");
-
-// Capture OutputFinal thumbnail from the actual rendered shader
-const outputNode = this.graph.nodes.find(n => n.kind?.toLowerCase() === 'outputfinal');
-if (outputNode) {
-  console.log("Capturing OutputFinal thumbnail from main canvas...");
-  
-  // Wait for any pending renders to complete
-  await new Promise(resolve => setTimeout(resolve, 150));
-  
-  // Force a render to ensure the main canvas is up to date
-  if (typeof window.render === "function") {
-    await window.render();
-  }
-  
-  // Get the main GPU canvas
-  const gpuCanvas = document.getElementById("gpu-canvas");
-  if (gpuCanvas) {
-    // Create a thumbnail-sized canvas
-    const thumbCanvas = document.createElement('canvas');
-    thumbCanvas.width = 128;
-    thumbCanvas.height = 128;
-    const thumbCtx = thumbCanvas.getContext('2d');
-    
-    // Draw the GPU canvas scaled down to thumbnail size
-    thumbCtx.drawImage(gpuCanvas, 0, 0, 128, 128);
-    
-    // Assign this as the OutputFinal thumbnail
-    outputNode.__thumb = thumbCanvas;
-    
-
-// Force the editor to redraw all nodes to display the thumbnails
-console.log("🔄 Forcing editor to display all thumbnails...");
-await new Promise(resolve => setTimeout(resolve, 200));
-
-// Force multiple redraws to ensure thumbnails are displayed
-for (let i = 0; i < 5; i++) {
-  if (this.editor && this.editor.draw) {
-    this.editor.draw();
-  }
-  await new Promise(resolve => setTimeout(resolve, 50));
-}
-
-// Trigger any node update events that might cause thumbnails to render
-if (this.graph && this.graph.nodes) {
-  for (const node of this.graph.nodes) {
-    // Dispatch node changed event
-    if (this.editor && typeof this.editor.onNodeChanged === 'function') {
-      this.editor.onNodeChanged(node);
-    }
-  }
-}
-
-// Final draw
-if (this.editor && this.editor.draw) {
-  this.editor.draw();
-}
-
-this.hasUnsavedChanges = false;    
-  } else {
-    console.warn("Main GPU canvas not found for OutputFinal capture");
-  }
-}}
-
-// Helper method to sort nodes
-
-
-      this.hasUnsavedChanges = false;
-      this.updateStatus("Project loaded successfully");
-
-      console.log("✅ Project import completed with full shader update sequence");
-      return true;
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'project-import',
-        options,
-        nodeCount: projectData?.nodes?.length || 0
-      });
-      this.updateStatus(`Import failed: ${error.message}`, "error");
-      throw new Error(`Failed to import project: ${error.message}`);
-    }
-    
-  }
 
   // =============================================================================
   // ENHANCED WEBGPU AND SHADER UPDATE METHODS
@@ -1285,6 +1445,7 @@ async reinitializeWebGPU() {
 
   exportNodes() {
     try {
+      const textureData = {};
       return (this.graph.nodes || []).map((node) => {
         const exportedNode = {
           id: node.id,
@@ -1292,7 +1453,17 @@ async reinitializeWebGPU() {
           position: { x: node.x || 0, y: node.y || 0 },
           size: { width: node.w || 180, height: node.h || 60 },
         };
-
+      if ((node.kind === 'Texture2D' || node.kind === 'TextureCube') && this.textureManager) {
+        const textureInfo = this.textureManager.getTexture(node.id);
+        if (textureInfo) {
+          textureData[node.id] = {
+            filename: textureInfo.filename,
+            dataUrl: textureInfo.dataUrl,
+            width: textureInfo.width,
+            height: textureInfo.height,
+          };
+        }
+      }
         // Export ALL node properties, not just specific ones
         const excludedKeys = ['inputs', 'outputs', 'x', 'y', 'w', 'h', 'id', 'kind', 'type'];
         

@@ -165,7 +165,8 @@ export class FileInputHandler {
       const oldFileName = oldTextureInfo?.file?.name || null;
       
       // Load the texture
-      await window.textureManager.loadTexture(node.id, file, node);
+await window.textureManager.uploadTexture(node.id, file);
+
       console.log("✅ Texture loaded successfully");
 
       // Update parameter value through the value manager

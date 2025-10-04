@@ -235,16 +235,19 @@ function createPipelineAndBindGroup(wgsl) {
         const dummy = createDummyCubeTexture();
         textureView = dummy.textureView;
         sampler = dummy.sampler;
-      } else if (hasTexture2D) {
-        if (window.textureManager?.textures.size > 0) {
-          const textureInfo = Array.from(window.textureManager.textures.values())[0];
-          textureView = textureInfo.textureView;
-          sampler = textureInfo.sampler;
-        } else {
-          const dummy = createDummyTexture();
-          textureView = dummy.textureView;
-          sampler = dummy.sampler;
-        }
+} else if (hasTexture2D) {
+  // Check gpuTextures instead of textures
+  if (window.textureManager?.gpuTextures?.size > 0) {
+    const gpuTexture = Array.from(window.textureManager.gpuTextures.values())[0];
+    textureView = gpuTexture.texture.createView();
+    sampler = gpuTexture.sampler;
+    console.log('✅ Using uploaded GPU texture');
+  } else {
+    const dummy = createDummyTexture();
+    textureView = dummy.textureView;
+    sampler = dummy.sampler;
+    console.log('⚠️ No textures uploaded, using placeholder');
+  }
       }
 
       entries.push(
@@ -551,4 +554,390 @@ export function forceReset() {
   _loggedForHash.clear();
   
   console.log('✅ GPU state reset complete');
+}// src/gpu/gpuRenderer.js
+
+export class GPURenderer {
+  constructor() {
+    this.device = null;
+    this.context = null;
+    this.renderPipeline = null;
+    this.bindGroup0 = null;
+    this.bindGroup1 = null;
+    this.bindGroup2 = null;
+    this.uniformBuffer = null;
+    this.vertexBuffer = null;
+    this.canvas = null;
+    this.textureBindings = new Map();
+    this.placeholderTexture = null; // Default 1x1 white texture
+    this.placeholderSampler = null;
+  }
+
+  /**
+   * Initialize WebGPU and create placeholder texture
+   */
+  async init(canvas, shaderCode) {
+    if (!navigator.gpu) {
+      throw new Error("WebGPU not supported");
+    }
+
+    this.canvas = canvas;
+    const adapter = await navigator.gpu.requestAdapter();
+    this.device = await adapter.requestDevice();
+    this.context = canvas.getContext("webgpu");
+
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    this.context.configure({
+      device: this.device,
+      format: format,
+      alphaMode: "premultiplied",
+    });
+
+    // Create placeholder 1x1 white texture
+    await this.createPlaceholderTexture();
+
+    // Setup pipeline
+    await this.setupPipeline(shaderCode, format);
+    this.setupGeometry();
+  }
+
+  /**
+   * Create a 1x1 white texture to use as placeholder
+   */
+  async createPlaceholderTexture() {
+    // Create 1x1 white texture
+    this.placeholderTexture = this.device.createTexture({
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+
+    // Write white pixel data
+    const whitePixel = new Uint8Array([255, 255, 255, 255]);
+    this.device.queue.writeTexture(
+      { texture: this.placeholderTexture },
+      whitePixel,
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 }
+    );
+
+    // Create sampler for placeholder
+    this.placeholderSampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'repeat',
+      addressModeV: 'repeat',
+    });
+
+    console.log('✓ Created placeholder texture (1x1 white)');
+  }
+
+  /**
+   * Get texture or placeholder
+   */
+  getTextureOrPlaceholder(textureId) {
+    const textureInfo = this.textureBindings.get(textureId);
+    if (textureInfo && textureInfo.texture) {
+      return {
+        texture: textureInfo.texture,
+        sampler: textureInfo.sampler
+      };
+    }
+    // Return placeholder if texture not found
+    return {
+      texture: this.placeholderTexture,
+      sampler: this.placeholderSampler
+    };
+  }
+
+  /**
+   * Setup render pipeline with shader code
+   */
+  async setupPipeline(shaderCode, format) {
+    const shaderModule = this.device.createShaderModule({
+      code: shaderCode,
+    });
+
+    const pipelineLayout = this.device.createPipelineLayout({
+      bindGroupLayouts: [
+        // Bind Group 0: Uniforms
+        this.device.createBindGroupLayout({
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.FRAGMENT,
+              buffer: { type: "uniform" },
+            },
+          ],
+        }),
+        // Bind Group 1: Parameters
+        this.device.createBindGroupLayout({
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.FRAGMENT,
+              buffer: { type: "uniform" },
+            },
+          ],
+        }),
+        // Bind Group 2: Textures (dynamic, created later)
+        this.createTextureBindGroupLayout(),
+      ],
+    });
+
+    this.renderPipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: shaderModule,
+        entryPoint: "vs_main",
+        buffers: [
+          {
+            arrayStride: 8,
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x2" },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: "fs_main",
+        targets: [{ format: format }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+  }
+
+  /**
+   * Create bind group layout for textures
+   * Returns a layout that supports up to 8 textures
+   */
+  createTextureBindGroupLayout() {
+    const entries = [];
+    
+    // Support up to 8 textures (adjust as needed)
+    for (let i = 0; i < 8; i++) {
+      entries.push(
+        {
+          binding: i * 2,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float" },
+        },
+        {
+          binding: i * 2 + 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: {},
+        }
+      );
+    }
+
+    return this.device.createBindGroupLayout({ entries });
+  }
+
+  /**
+   * Setup geometry (fullscreen quad)
+   */
+  setupGeometry() {
+    const vertices = new Float32Array([
+      -1, -1, 1, -1, -1, 1,
+      -1, 1, 1, -1, 1, 1,
+    ]);
+
+    this.vertexBuffer = this.device.createBuffer({
+      size: vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
+  }
+
+  /**
+   * Update uniform buffer (resolution, time, etc.)
+   */
+  updateUniforms(uniforms) {
+    if (!this.uniformBuffer) {
+      this.uniformBuffer = this.device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      this.bindGroup0 = this.device.createBindGroup({
+        layout: this.renderPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
+      });
+    }
+
+    const data = new Float32Array([
+      uniforms.resolution[0],
+      uniforms.resolution[1],
+      uniforms.time || 0,
+      0,
+    ]);
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+  }
+
+  /**
+   * Update parameter buffer
+   */
+  updateParameters(parameters) {
+    if (!parameters || parameters.length === 0) {
+      parameters = [0, 0, 0, 0]; // Default empty parameters
+    }
+
+    if (!this.parameterBuffer) {
+      this.parameterBuffer = this.device.createBuffer({
+        size: Math.max(parameters.length * 4, 16),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      this.bindGroup1 = this.device.createBindGroup({
+        layout: this.renderPipeline.getBindGroupLayout(1),
+        entries: [{ binding: 0, resource: { buffer: this.parameterBuffer } }],
+      });
+    }
+
+    this.device.queue.writeBuffer(
+      this.parameterBuffer,
+      0,
+      new Float32Array(parameters)
+    );
+  }
+
+  /**
+   * Update texture bindings - always creates bind group even if no textures
+   */
+// In gpuRenderer.js - add this method
+updateTextureBindings(textureIds) {
+  const entries = [];
+  
+  // Get textures from TextureManager
+  for (let i = 0; i < textureIds.length; i++) {
+    const nodeId = textureIds[i];
+    
+    // Get GPU texture from TextureManager
+    const gpuTexture = window.textureManager?.gpuTextures?.get(nodeId);
+    
+    if (gpuTexture && gpuTexture.texture && gpuTexture.sampler) {
+      entries.push(
+        {
+          binding: i * 2,
+          resource: gpuTexture.texture.createView(),
+        },
+        {
+          binding: i * 2 + 1,
+          resource: gpuTexture.sampler,
+        }
+      );
+      console.log(`✅ Added texture binding for node ${nodeId}`);
+    } else {
+      console.warn(`❌ No GPU texture for node ${nodeId}, using placeholder`);
+      // Use placeholder
+      entries.push(
+        {
+          binding: i * 2,
+          resource: this.placeholderTexture.createView(),
+        },
+        {
+          binding: i * 2 + 1,
+          resource: this.placeholderSampler,
+        }
+      );
+    }
+  }
+  
+  // Create bind group with texture entries
+  this.bindGroup2 = this.device.createBindGroup({
+    layout: this.renderPipeline.getBindGroupLayout(2),
+    entries: entries,
+  });
+  
+  console.log(`✅ Created bind group with ${textureIds.length} texture(s)`);
+}
+
+  /**
+   * Upload texture from ImageBitmap or HTMLImageElement
+   */
+  async uploadTexture(textureId, imageSource) {
+    // Create texture
+    const texture = this.device.createTexture({
+      size: { width: imageSource.width, height: imageSource.height },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | 
+             GPUTextureUsage.COPY_DST | 
+             GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    // Copy image data to texture
+    this.device.queue.copyExternalImageToTexture(
+      { source: imageSource },
+      { texture: texture },
+      { width: imageSource.width, height: imageSource.height }
+    );
+
+    // Create sampler
+    const sampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'repeat',
+      addressModeV: 'repeat',
+    });
+
+    // Store in map
+    this.textureBindings.set(textureId, { texture, sampler });
+    
+    console.log(`✓ Uploaded texture: ${textureId} (${imageSource.width}x${imageSource.height})`);
+  }
+
+  /**
+   * Render frame
+   */
+  render() {
+    if (!this.renderPipeline || !this.bindGroup0 || !this.bindGroup1) {
+      console.warn('Pipeline not ready');
+      return;
+    }
+
+    // Ensure bind group 2 exists (create with placeholder if needed)
+    if (!this.bindGroup2) {
+      this.updateTextureBindings([]);
+    }
+
+    const commandEncoder = this.device.createCommandEncoder();
+    const textureView = this.context.getCurrentTexture().createView();
+
+    const renderPass = commandEncoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: textureView,
+          loadOp: "clear",
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          storeOp: "store",
+        },
+      ],
+    });
+
+    renderPass.setPipeline(this.renderPipeline);
+    renderPass.setBindGroup(0, this.bindGroup0);
+    renderPass.setBindGroup(1, this.bindGroup1);
+    renderPass.setBindGroup(2, this.bindGroup2);
+    renderPass.setVertexBuffer(0, this.vertexBuffer);
+    renderPass.draw(6);
+    renderPass.end();
+
+    this.device.queue.submit([commandEncoder.finish()]);
+  }
+
+  /**
+   * Cleanup resources
+   */
+  dispose() {
+    if (this.uniformBuffer) this.uniformBuffer.destroy();
+    if (this.parameterBuffer) this.parameterBuffer.destroy();
+    if (this.vertexBuffer) this.vertexBuffer.destroy();
+    if (this.placeholderTexture) this.placeholderTexture.destroy();
+    
+    // Cleanup all uploaded textures
+    for (const [id, info] of this.textureBindings) {
+      if (info.texture) info.texture.destroy();
+    }
+    this.textureBindings.clear();
+  }
 }

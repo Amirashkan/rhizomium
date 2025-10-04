@@ -95,7 +95,22 @@ analyzeNode(node) {
     
     return false;
   }
-
+/**
+ * Evaluate an expression with optional context
+ */
+evaluateExpression(expr, context = {}) {
+  if (window.expressionSystem) {
+    try {
+      // Add = prefix if not present for expression system
+      const exprValue = expr.startsWith('=') ? expr : `=${expr}`;
+      return window.expressionSystem.evaluateExpression(exprValue, context);
+    } catch (error) {
+      console.warn('Failed to evaluate expression:', error);
+      return 0;
+    }
+  }
+  return 0;
+}
   /**
    * Evaluate a parameter using the expression system
    */

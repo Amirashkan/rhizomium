@@ -158,6 +158,7 @@ async function initialize() {
 
     console.log("Creating SaveLoadManager...");
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
+    saveLoadManager.setTextureManager(window.textureManager);
     console.log("SaveLoadManager created:", saveLoadManager);
 
     console.log("Creating BackupDialog...");
@@ -356,14 +357,6 @@ function setupUIEventHandlers() {
         try {
           await saveLoadManager.loadFromFile(file);
 
-          console.log("REINITIALIZING WEBGPU");
-          const webgpuSuccess = await reinitializeWebGPUAfterLoad();
-
-          if (webgpuSuccess) {
-            console.log("WebGPU reinitialized successfully after load");
-          } else {
-            console.error("Failed to reinitialize WebGPU after load");
-          }
 
           // Clear undo history when loading a new project
           if (undoManager) {

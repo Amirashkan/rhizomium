@@ -5,8 +5,121 @@ export class TextureManager {
     this.device = null;
     this.bindGroupLayout = null;
     this.bindGroup = null;
+      this.textures = new Map(); // nodeId -> textureInfo
+  this.gpuTextures = new Map(); // nodeId -> {texture, sampler}
+  this.device = null;
   }
+/**
+ * Upload texture from file input
+ */
+async uploadTexture(nodeId, file) {
+  try {
+    console.log(`📤 Uploading texture for node ${nodeId}: ${file.name}`);
+    
+    // Read file as data URL for saving
+    const dataUrl = await this.fileToDataUrl(file);
+    
+    // Load image
+    const img = await this.loadImage(dataUrl);
+    
+    // Create bitmap for GPU
+    const bitmap = await createImageBitmap(img);
+    
+    // Store texture info
+    const textureInfo = {
+      filename: file.name,
+      dataUrl: dataUrl,
+      width: img.width,
+      height: img.height,
+      bitmap: bitmap,
+      file: file // Keep reference to original file
+    };
+    
+    this.textures.set(nodeId, textureInfo);
+    console.log(`✅ Stored texture in map for node ${nodeId}`);
+    
+    // Upload to GPU if device exists
+    if (this.device) {
+      await this.uploadToGPU(nodeId, bitmap);
+    } else {
+      console.warn("No GPU device available for texture upload");
+    }
+    
+    console.log(`✅ Uploaded texture: ${file.name} for node ${nodeId}`);
+    return textureInfo;
+    
+  } catch (err) {
+    console.error('Failed to upload texture:', err);
+    throw err;
+  }
+}
 
+/**
+ * Helper: Convert File to data URL
+ */
+fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Helper: Load image from URL or data URL
+ */
+loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+/**
+ * Helper: Upload bitmap to GPU
+ */
+async uploadToGPU(nodeId, bitmap) {
+  if (!this.device) return;
+  
+  // Create GPU texture
+  const texture = this.device.createTexture({
+    size: { width: bitmap.width, height: bitmap.height },
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | 
+           GPUTextureUsage.COPY_DST | 
+           GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+
+  // Copy bitmap to GPU texture
+  this.device.queue.copyExternalImageToTexture(
+    { source: bitmap },
+    { texture: texture },
+    { width: bitmap.width, height: bitmap.height }
+  );
+
+  // Create sampler
+  const sampler = this.device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear',
+    addressModeU: 'repeat',
+    addressModeV: 'repeat',
+  });
+
+  // Store GPU resources
+  this.gpuTextures.set(nodeId, { texture, sampler });
+  
+  console.log(`✅ Uploaded to GPU: ${nodeId} (${bitmap.width}x${bitmap.height})`);
+}
+
+/**
+ * Get texture info for a node
+ */
+getTexture(nodeId) {
+  return this.textures.get(nodeId);
+}
   async initialize(device) {
     try {
       if (!device) {
