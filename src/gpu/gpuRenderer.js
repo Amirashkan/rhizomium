@@ -222,46 +222,53 @@ function createPipelineAndBindGroup(wgsl) {
     const hasParamUniforms = wgsl.includes("struct ParamUniforms") && 
                              _paramUniformBuffer !== null;
 
-    // Build bind group entries
+    // FIXED: Always use consistent binding layout
+    // Binding 0: Time uniforms
+    // Binding 1: Resolution uniforms  
+    // Binding 2: Parameter uniforms (if present)
+    // Binding 3+: Textures (if present)
+    
     const entries = [
       { binding: 0, resource: { buffer: _uniformBuffer } },
       { binding: 1, resource: { buffer: _resolutionBuffer } }
     ];
 
+    // Add parameter uniforms at binding 2 if present
+    if (hasParamUniforms) {
+      entries.push({
+        binding: 2,
+        resource: { buffer: _paramUniformBuffer }
+      });
+    }
+
+    // Add textures starting at binding 3 (or 2 if no params)
     if (needsTextures) {
       let textureView, sampler;
+      const textureBinding = hasParamUniforms ? 3 : 2;
+      const samplerBinding = hasParamUniforms ? 4 : 3;
 
       if (hasTextureCube) {
         const dummy = createDummyCubeTexture();
         textureView = dummy.textureView;
         sampler = dummy.sampler;
-} else if (hasTexture2D) {
-  // Check gpuTextures instead of textures
-  if (window.textureManager?.gpuTextures?.size > 0) {
-    const gpuTexture = Array.from(window.textureManager.gpuTextures.values())[0];
-    textureView = gpuTexture.texture.createView();
-    sampler = gpuTexture.sampler;
-    console.log('✅ Using uploaded GPU texture');
-  } else {
-    const dummy = createDummyTexture();
-    textureView = dummy.textureView;
-    sampler = dummy.sampler;
-    console.log('⚠️ No textures uploaded, using placeholder');
-  }
+      } else if (hasTexture2D) {
+        if (window.textureManager?.gpuTextures?.size > 0) {
+          const gpuTexture = Array.from(window.textureManager.gpuTextures.values())[0];
+          textureView = gpuTexture.texture.createView();
+          sampler = gpuTexture.sampler;
+          console.log('✅ Using uploaded GPU texture');
+        } else {
+          const dummy = createDummyTexture();
+          textureView = dummy.textureView;
+          sampler = dummy.sampler;
+          console.log('⚠️ No textures uploaded, using placeholder');
+        }
       }
 
       entries.push(
-        { binding: 2, resource: textureView },
-        { binding: 3, resource: sampler }
+        { binding: textureBinding, resource: textureView },
+        { binding: samplerBinding, resource: sampler }
       );
-    }
-
-    if (hasParamUniforms) {
-      const paramBinding = needsTextures ? 4 : 2;
-      entries.push({
-        binding: paramBinding,
-        resource: { buffer: _paramUniformBuffer }
-      });
     }
 
     const bindGroup = _device.createBindGroup({

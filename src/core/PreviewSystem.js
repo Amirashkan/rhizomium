@@ -147,6 +147,12 @@ constructor(editor) {
   }
 }
 generateNodePreview(node) {
+    console.log(`Generating preview for: ${node.kind} ${node.kind.toLowerCase()}`);
+  const INPUT_ONLY_NODES = ['time', 'uv', 'constfloat', 'constint', 'constvec2', 'constvec3'];
+  if (INPUT_ONLY_NODES.includes(node.kind.toLowerCase())) {
+    console.log(`⏭️ Skipping preview for input-only node: ${node.kind}`);
+    return; // Don't generate previews for nodes that only provide values
+  }
   try {
     if (!node) {
       console.warn('Null node provided for preview generation');
@@ -164,7 +170,11 @@ generateNodePreview(node) {
     }
 
     console.log("Generating preview for:", node.kind, node.kind.toLowerCase());
-
+  if (node.kind.toLowerCase() === 'time') {
+    // Don't trigger shader recompilation for Time nodes
+    // They're input-only and have no visual output to preview
+    return;
+  }
     if (!this.editor.isPreviewEnabled) {
       node.__thumb = null;
       return;

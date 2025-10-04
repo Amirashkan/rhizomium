@@ -30,29 +30,39 @@ export class FloatingGPUPreview {
     this._setupAnimationLoop();
   }
 
-  _setupParameterListeners() {
-    if (window.editor?.eventSystem) {
-      window.editor.eventSystem.on('EXPRESSION_EVALUATED', () => {
-        if (this.isVisible && window.rebuild) {
-          window.rebuild();
-        }
-      });
-      
-      window.editor.eventSystem.on('PARAMETER_CHANGED', () => {
-        if (this.isVisible && window.rebuild) {
-          window.rebuild();
-        }
-      });
+_setupParameterListeners() {
+  // Debounce shader recompilation to prevent cascading updates
+  let rebuildTimeout = null;
+  
+  const debouncedRebuild = () => {
+    if (rebuildTimeout) {
+      clearTimeout(rebuildTimeout);
     }
     
-    if (window.expressionSystem) {
-      window.expressionSystem.addDependencyListener(() => {
-        if (this.isVisible && window.rebuild) {
+    rebuildTimeout = setTimeout(() => {
+      if (this.isVisible && window.rebuild) {
+        // CRITICAL FIX: Don't rebuild if a shader compilation is already in progress
+        // This prevents the GPU bind group mismatch error
+        if (!window.isCompilingShader) {
           window.rebuild();
         }
-      });
-    }
+      }
+      rebuildTimeout = null;
+    }, 100);
+  };
+  
+  if (window.editor?.eventSystem) {
+    // DISABLED: These were causing double shader compilations
+    // The parameter panel already handles preview updates
+    // window.editor.eventSystem.on('EXPRESSION_EVALUATED', debouncedRebuild);
+    // window.editor.eventSystem.on('PARAMETER_CHANGED', debouncedRebuild);
   }
+  
+  if (window.expressionSystem) {
+    // DISABLED: This was causing the GPU bind group error
+    // window.expressionSystem.addDependencyListener(debouncedRebuild);
+  }
+}
 
   _setupAnimationLoop() {
     const hasTimeExpressions = () => {

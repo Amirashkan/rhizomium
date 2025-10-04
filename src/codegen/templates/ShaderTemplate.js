@@ -198,21 +198,29 @@ fn warpedNoise(st: vec2<f32>, scale: f32, warpScale: f32, warpStrength: f32, oct
 export function generateShader(compiledData, textureBindings) {
   const { lines, uniformStruct, shapeFunctions = '', transformHelpers = '' } = compiledData;
   
-  // Determine binding numbers based on what's present
-  const hasTextures = textureBindings && textureBindings.trim().length > 0;
-  
-  // Adjust parameter uniform binding based on texture presence
+  // FIXED: Parameter uniforms are ALWAYS at binding 2
+  // Textures start at binding 3 (if params present) or binding 2 (if no params)
   let adjustedUniformStruct = uniformStruct || '';
+  
   if (adjustedUniformStruct) {
-    const correctBinding = hasTextures ? 4 : 2;
-        if (adjustedUniformStruct.includes('@binding(')) {
-      adjustedUniformStruct = adjustedUniformStruct.replace(/@binding\(\d+\)/, `@binding(${correctBinding})`);
+    // Always use binding 2 for parameter uniforms
+    if (adjustedUniformStruct.includes('@binding(')) {
+      adjustedUniformStruct = adjustedUniformStruct.replace(/@binding\(\d+\)/, '@binding(2)');
     } else {
       adjustedUniformStruct = adjustedUniformStruct.replace(
-        'var<uniform> params:',
-        `@binding(${correctBinding}) var<uniform> params:`
+        'var<uniform>',
+        '@binding(2) var<uniform>'
       );
     }
+  }
+  
+  // Adjust texture bindings to start at 3 if we have params, or 2 if we don't
+  let adjustedTextureBindings = textureBindings || '';
+  if (adjustedTextureBindings && adjustedUniformStruct) {
+    // Have both params and textures - textures start at binding 3
+    adjustedTextureBindings = adjustedTextureBindings
+      .replace(/@binding\(2\)/g, '@binding(3)')
+      .replace(/@binding\(3\)/g, '@binding(4)');
   }
 
   return `
@@ -227,9 +235,9 @@ struct Resolution {
 
 @group(0) @binding(0) var<uniform> u : Globals;
 @group(0) @binding(1) var<uniform> res : Resolution;
-${textureBindings || ''}
 
 ${adjustedUniformStruct}
+${adjustedTextureBindings}
 
 struct VSOut {
   @builtin(position) pos: vec4<f32>,

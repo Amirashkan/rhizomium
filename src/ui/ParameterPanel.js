@@ -1154,9 +1154,14 @@ getInputHandler(param) {
     this.panel.appendChild(helpSection);
   }
 
-  handleParameterUpdate(action) {
-    console.log('Parameter updated:', action);
-    
+handleParameterUpdate(action) {
+  console.log('Parameter updated:', action);
+  
+  if (this._updateTimeout) {
+    clearTimeout(this._updateTimeout);
+  }
+  
+  this._updateTimeout = setTimeout(() => {
     if (this.eventSystem && this.eventSystem.emit) {
       this.eventSystem.emit('GRAPH_CHANGED', {
         action,
@@ -1166,11 +1171,15 @@ getInputHandler(param) {
 
     if (this.selectedNode) {
       this.updateNodePreview(this.selectedNode);
-      this.updateDependentExpressions(this.selectedNode);
+      // updateDependentExpressions is already disabled - good!
     }
 
-    this.forceEditorUpdate();
-  }
+    // REMOVED: this.forceEditorUpdate();
+    // This was causing a redundant shader compilation
+    // The updateNodePreview already triggers necessary redraws
+    
+  }, 50);
+}
 
 updateNodePreview(node) {
   try {
@@ -1245,12 +1254,15 @@ updateNodePreview(node) {
     }
   }
 
-  updateDependentExpressions(node) {
-    if (this.textInputHandler.updateDependentInputs) {
-      this.textInputHandler.updateDependentInputs(node.id);
-    }
-  }
-
+updateDependentExpressions(node) {
+  // DISABLED: This was causing infinite preview loops
+  // if (this.textInputHandler.updateDependentInputs) {
+  //   this.textInputHandler.updateDependentInputs(node.id);
+  // }
+  
+  // Just refresh the displayed values in the parameter panel
+  this.refreshParameterDisplays();
+}
   refreshParameterDisplays() {
     if (!this.selectedNode) return;
 

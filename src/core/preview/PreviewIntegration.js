@@ -70,25 +70,18 @@ updateTimeNodes() {
   );
 
   if (timeNodes.length > 0) {
-    // ADD THIS CHECK to throttle updates
     const now = performance.now();
     if (!this.lastSignificantUpdate) this.lastSignificantUpdate = 0;
     
-    // Only update every 100ms (10 FPS) instead of every frame (60+ FPS)
+    // Only update every 100ms (10 FPS)
     if (now - this.lastSignificantUpdate < 100) {
       return;
     }
     this.lastSignificantUpdate = now;
 
-    let needsRedraw = false;
-    timeNodes.forEach((node) => {
-      this.previewSystem.generateNodePreview(node);
-      needsRedraw = true;
-    });
-    
-    if (needsRedraw) {
-      this.editor.draw();
-    }
+    // FIXED: Don't generate previews for Time nodes - they're input-only
+    // Just trigger a redraw to update nodes that depend on time
+    this.editor.draw();
   }
 }
 
