@@ -64,42 +64,30 @@ _setupParameterListeners() {
   }
 }
 
-  _setupAnimationLoop() {
-    const hasTimeExpressions = () => {
-      if (!window.editor?.graph?.nodes) return false;
-      
-      return window.editor.graph.nodes.some(node => {
-        if (!node.params) return false;
-        return Object.values(node.params).some(value => 
-          typeof value === 'string' && 
-          value.includes('time') && 
-          value.startsWith('=')
-        );
+_setupAnimationLoop() {
+  // No interval needed - the main GPU renderer already has a render loop
+  // We just need to ensure the preview updates when parameters change
+  
+  const originalShow = this.show.bind(this);
+  this.show = () => {
+    originalShow();
+    
+    // Listen for parameter changes and trigger a single render
+    if (window.editor?.paramPanel) {
+      window.editor.paramPanel.on?.('parameterChanged', () => {
+        if (this.isVisible && window.gpuRenderer?.render) {
+          window.gpuRenderer.render();
+        }
       });
-    };
+    }
+  };
 
-    const originalShow = this.show.bind(this);
-    this.show = () => {
-      originalShow();
-      
-      if (hasTimeExpressions() && !this.animationLoop) {
-        this.animationLoop = setInterval(() => {
-          if (this.isVisible && window.rebuild) {
-            window.rebuild();
-          }
-        }, 16);
-      }
-    };
-
-    const originalHide = this.hide.bind(this);
-    this.hide = () => {
-      if (this.animationLoop) {
-        clearInterval(this.animationLoop);
-        this.animationLoop = null;
-      }
-      originalHide();
-    };
-  }
+  const originalHide = this.hide.bind(this);
+  this.hide = () => {
+    // Cleanup listeners if needed
+    originalHide();
+  };
+}
 
   updateSize() {
     if (!this.container || this.isFullscreen) return;
@@ -152,17 +140,16 @@ _setupParameterListeners() {
       window.rebuild();
     }
   }
+show() {
+  if (this.isVisible) return;
 
-  show() {
-    if (this.isVisible) return;
+  this.container = this._createContainer();
 
-    this.container = this._createContainer();
-
-    if (this.isDocked) {
-      this._dockToWindow();
-    } else {
-      document.body.appendChild(this.container);
-    }
+  if (this.isDocked) {
+    this._dockToWindow();
+  } else {
+    document.body.appendChild(this.container);
+  }
 
     const canvasWrapper = this.container.querySelector(".preview-canvas-wrapper");
     canvasWrapper.appendChild(this.gpuCanvas);
@@ -186,7 +173,6 @@ _setupParameterListeners() {
     }
 
     this.isVisible = true;
-
     if (this.settings.settings.showFPS) {
       this.fpsCounter.start();
     }

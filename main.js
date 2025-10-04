@@ -872,34 +872,23 @@ function updateStatus(message, type = "info") {
 }
 
 function renderLoop() {
-  const start = performance.now();
-  
-  if (editor) {
-    try {
-      editor.draw();
-    } catch (error) {
-      console.error("Editor render failed:", error);
-    }
+  // Only render the GPU canvas - don't redraw the editor canvas every frame
+  if (typeof drawFrame === 'function') {
+    drawFrame();
   }
 
-  // CRITICAL: Always render the GPU canvas when we have dynamic uniforms
-  if (window.nodeCompiler?.uniformManager?.uniformValues?.size > 0) {
-    if (typeof drawFrame === 'function') {
-      drawFrame();
-    }
-  }
-
+  // Update FPS counter if preview is visible
   if (floatingPreview && floatingPreview.fpsCounter) {
     floatingPreview.fpsCounter.frame();
   }
 
+  // Update undo/redo UI state
   if (undoManager) {
     undoManager.updateUI();
   }
 
   requestAnimationFrame(renderLoop);
 }
-
 function showBackupDialog() {
   if (backupDialog) {
     backupDialog.show();

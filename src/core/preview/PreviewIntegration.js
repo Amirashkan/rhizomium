@@ -65,26 +65,27 @@ export class PreviewIntegration {
 updateTimeNodes() {
   if (!this.editor.graph?.nodes || !this.previewSystem) return;
 
-  const timeNodes = this.editor.graph.nodes.filter(
-    (n) => n.kind.toLowerCase() === "time"
-  );
-
-  if (timeNodes.length > 0) {
-    const now = performance.now();
-    if (!this.lastSignificantUpdate) this.lastSignificantUpdate = 0;
-    
-    // Only update every 100ms (10 FPS)
-    if (now - this.lastSignificantUpdate < 100) {
-      return;
-    }
-    this.lastSignificantUpdate = now;
-
-    // FIXED: Don't generate previews for Time nodes - they're input-only
-    // Just trigger a redraw to update nodes that depend on time
-    this.editor.draw();
+  const now = performance.now();
+  if (!this.lastSignificantUpdate) this.lastSignificantUpdate = 0;
+  
+  if (now - this.lastSignificantUpdate < 100) {
+    return;
   }
-}
+  this.lastSignificantUpdate = now;
 
+  // Update nodes that have time-based expressions
+  const expressionSystem = window.editor?.paramPanel?.expressionSystem;
+  if (expressionSystem?.timeAnimatedNodes) {
+    expressionSystem.timeAnimatedNodes.forEach(nodeId => {
+      const node = this.editor.graph.nodes.find(n => n.id === nodeId);
+      if (node) {
+        this.previewSystem.generateNodePreview(node);
+      }
+    });
+  }
+
+  this.editor.draw();
+}
   onParameterChange(node) {
     this.generateNodePreview(node);
     this.updateDependentNodes(node);

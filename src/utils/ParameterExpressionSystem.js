@@ -97,7 +97,13 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       if (!this.isExpression(expression)) {
         return this.parseValue(expression);
       }
-
+  if (expression.includes('time') && node) {
+    // Mark this node as needing continuous updates
+    if (!this.timeAnimatedNodes) {
+      this.timeAnimatedNodes = new Set();
+    }
+    this.timeAnimatedNodes.add(node.id);
+  }
       const cleanExpression = expression.slice(1).trim();
       if (!cleanExpression) {
         return 0; // Empty expression defaults to 0
@@ -851,7 +857,6 @@ updateNodePreview(node) {
           try {
             const result = this.expressionSystem.evaluateExpression(value, {}, node);
             console.log(`✅ Expression ${paramName} evaluated to: ${result}`);
-            // Don't store the result - just ensure it's evaluated and cached
           } catch (error) {
             console.warn(`❌ Expression evaluation failed for ${paramName}:`, error);
           }
@@ -871,19 +876,22 @@ updateNodePreview(node) {
       window.editor.previewIntegration.generateNodePreview(node);
     }
     
-    // Force editor redraw with small delay to ensure canvas is ready
-    setTimeout(() => {
-      if (window.editor?.safeDraw) {
-        window.editor.safeDraw();
+    // DEBOUNCE editor.draw() - prevent spam during drag
+    if (this._drawDebounceTimeout) {
+      clearTimeout(this._drawDebounceTimeout);
+    }
+    
+    this._drawDebounceTimeout = setTimeout(() => {
+      if (window.editor?.draw) {
+        window.editor.draw();
         console.log(`🎨 Editor redrawn after preview update for: ${node.id}`);
       }
-    }, 1);
+    }, 50); // Batch draws that happen within 50ms
     
   } catch (error) {
-    console.error(`❌ Error updating preview for node ${node.id}:`, error);
+    console.warn(`Error updating preview for node ${node.id}:`, error);
   }
 }
-
   handleBoundParameters(node, paramName, value) {
     // Handle specific node type bindings
     if (node.kind === 'CircleField' && paramName === 'radius') {

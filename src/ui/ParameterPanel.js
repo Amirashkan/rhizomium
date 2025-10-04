@@ -1157,10 +1157,12 @@ getInputHandler(param) {
 handleParameterUpdate(action) {
   console.log('Parameter updated:', action);
   
+  // Clear any existing timeout
   if (this._updateTimeout) {
     clearTimeout(this._updateTimeout);
   }
   
+  // Debounce ALL updates, including drags
   this._updateTimeout = setTimeout(() => {
     if (this.eventSystem && this.eventSystem.emit) {
       this.eventSystem.emit('GRAPH_CHANGED', {
@@ -1171,14 +1173,8 @@ handleParameterUpdate(action) {
 
     if (this.selectedNode) {
       this.updateNodePreview(this.selectedNode);
-      // updateDependentExpressions is already disabled - good!
     }
-
-    // REMOVED: this.forceEditorUpdate();
-    // This was causing a redundant shader compilation
-    // The updateNodePreview already triggers necessary redraws
-    
-  }, 50);
+  }, 100); // 100ms debounce - only update after user stops dragging
 }
 
 updateNodePreview(node) {
@@ -1194,7 +1190,7 @@ updateNodePreview(node) {
       window.editor.previewIntegration.generateNodePreview(node);
       console.log('Regenerated preview for node:', node.id);
       
-      // NEW: Also update downstream nodes (nodes that use this node as input)
+      // Update downstream nodes
       if (window.editor?.graph?.nodes) {
         const downstreamNodes = window.editor.graph.nodes.filter(n => 
           n.inputs && Array.isArray(n.inputs) && n.inputs.includes(node.id)
@@ -1202,12 +1198,37 @@ updateNodePreview(node) {
         
         console.log(`Found ${downstreamNodes.length} downstream nodes for ${node.id}`);
         
-        // Regenerate previews for downstream nodes
         downstreamNodes.forEach(downstreamNode => {
           console.log('Updating downstream node:', downstreamNode.id);
           window.editor.previewSystem.canvasManager.canvasCache.delete(downstreamNode.id);
           window.editor.previewIntegration.generateNodePreview(downstreamNode);
         });
+        
+        // CRITICAL: Recursively check ALL downstream nodes for OutputFinal
+        const hasOutputInChain = (nodeId, visited = new Set()) => {
+          if (visited.has(nodeId)) return false;
+          visited.add(nodeId);
+          
+          const currentNode = window.editor.graph.nodes.find(n => n.id === nodeId);
+          if (!currentNode) return false;
+          
+          if (currentNode.kind.toLowerCase() === 'outputfinal') {
+            return true;
+          }
+          
+          const downstream = window.editor.graph.nodes.filter(n => 
+            n.inputs && Array.isArray(n.inputs) && n.inputs.includes(nodeId)
+          );
+          
+          return downstream.some(n => hasOutputInChain(n.id, visited));
+        };
+        
+        if (hasOutputInChain(node.id) && window.editor.onChange) {
+          console.log('OutputFinal found in downstream chain - triggering shader recompilation');
+          setTimeout(() => {
+            window.editor.onChange('Parameter update affecting output');
+          }, 50);
+        }
       }
     }
     

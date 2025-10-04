@@ -874,12 +874,16 @@ export class RadialMenu {
     );
   }
 
-  _createNode(kind) {
-    const node = makeNode(kind, this.canvasPos.x, this.canvasPos.y);
-    this.graph.nodes.push(node);
-    this.graph.selection = new Set([node.id]);
+_createNode(kind) {
+  const node = makeNode(kind, this.canvasPos.x, this.canvasPos.y);
+  this.graph.nodes.push(node);
+  this.graph.selection = new Set([node.id]);
 
+  // Delay onChange to allow GPU state to settle and prevent bind group mismatch
+  setTimeout(() => {
     if (this.onChange) this.onChange();
-    this.hide();
-  }
+  }, 50);
+  
+  this.hide();
+}
 }
