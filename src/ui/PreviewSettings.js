@@ -1,3 +1,7 @@
+/**
+ * PreviewSettings.js - Settings panel with WORKING WebGPU Export
+ */
+
 export class PreviewSettings {
   constructor(floatingPreview) {
     this.floatingPreview = floatingPreview;
@@ -91,11 +95,19 @@ export class PreviewSettings {
       case "debugChannel":
         this._updateDebugChannel(value);
         break;
+      case "quality":
+        this._updateQuality(value);
+        break;
+      case "refreshRate":
+        this._updateRefreshRate(value);
+        break;
+      case "timeScale":
+        this._updateTimeScale(value);
+        break;
+      case "isPaused":
+        this._updatePauseState(value);
+        break;
     }
-  }
-
-  _updateResolution() {
-    this.floatingPreview.updateSize();
   }
 
   _updateFPSDisplay(show) {
@@ -112,11 +124,117 @@ export class PreviewSettings {
   }
 
   _updateDebugChannel(channel) {
-    // Send debug channel to shader
-    if (window.setDebugChannel) {
-      window.setDebugChannel(channel);
+    const debugOverlay = document.querySelector(".debug-overlay");
+    if (debugOverlay) {
+      if (channel === "none") {
+        debugOverlay.style.display = "none";
+      } else {
+        debugOverlay.style.display = "block";
+        debugOverlay.textContent = `DEBUG: ${channel.toUpperCase()}`;
+        
+        const colors = {
+          red: "rgba(255, 0, 0, 0.8)",
+          green: "rgba(0, 255, 0, 0.8)",
+          blue: "rgba(0, 128, 255, 0.8)",
+          alpha: "rgba(128, 128, 128, 0.8)"
+        };
+        debugOverlay.style.background = colors[channel] || "rgba(255, 0, 0, 0.8)";
+      }
     }
-    console.log("Debug channel:", channel);
+    
+    window.debugChannel = channel;
+    
+    if (this.floatingPreview.isVisible && window.rebuild) {
+      window.rebuild();
+    }
+  }
+
+  _updateResolution() {
+    const { width, height } = this.settings.resolution;
+    const canvas = this.floatingPreview.gpuCanvas;
+    
+    if (!canvas) return;
+    
+    canvas.width = width;
+    canvas.height = height;
+    
+    console.log("Resolution updated to:", width, "x", height);
+    
+    this.floatingPreview.updateSize();
+  }
+
+  _updateQuality(quality) {
+    const canvas = this.floatingPreview.gpuCanvas;
+    if (!canvas) return;
+    
+    const pixelRatio = {
+      'low': 0.5,
+      'medium': 1,
+      'high': window.devicePixelRatio || 2
+    }[quality] || 1;
+    
+    const { width, height } = this.settings.resolution;
+    canvas.width = width * pixelRatio;
+    canvas.height = height * pixelRatio;
+    
+    if (window.rebuild) {
+      window.rebuild();
+    }
+  }
+
+  _updateRefreshRate(fps) {
+    if (this.floatingPreview.animationLoop) {
+      clearInterval(this.floatingPreview.animationLoop);
+      
+      this.floatingPreview.animationLoop = setInterval(() => {
+        if (this.floatingPreview.isVisible && window.rebuild) {
+          window.rebuild();
+        }
+      }, 1000 / fps);
+    }
+  }
+
+  _updateTimeScale(scale) {
+    window.timeScale = scale;
+    
+    if (window.expressionSystem) {
+      window.expressionSystem.timeScale = scale;
+    }
+    if (window.editor) {
+      window.editor.timeScale = scale;
+    }
+    
+    if (this.floatingPreview.isVisible && window.rebuild) {
+      window.rebuild();
+    }
+  }
+
+  _updatePauseState(paused) {
+    if (paused) {
+      this._pausedTimeScale = window.timeScale || this.settings.timeScale;
+      window.timeScale = 0;
+      
+      if (window.expressionSystem) {
+        window.expressionSystem.timeScale = 0;
+      }
+      if (window.editor) {
+        window.editor.timeScale = 0;
+      }
+    } else {
+      const restoredScale = this._pausedTimeScale || this.settings.timeScale;
+      window.timeScale = restoredScale;
+      
+      if (window.expressionSystem) {
+        window.expressionSystem.timeScale = restoredScale;
+      }
+      if (window.editor) {
+        window.editor.timeScale = restoredScale;
+      }
+    }
+    
+    if (this.floatingPreview.isVisible && window.rebuild) {
+      window.rebuild();
+    }
   }
 
   _createSettingsPanel() {
@@ -198,12 +316,6 @@ export class PreviewSettings {
           "Hz",
         ),
         this._createCheckbox("Show FPS", "showFPS", this.settings.showFPS),
-        this._createCheckbox("Wireframe", "wireframe", this.settings.wireframe),
-        this._createCheckbox(
-          "Show Normals",
-          "showNormals",
-          this.settings.showNormals,
-        ),
         this._createDropdown(
           "Debug Channel",
           "debugChannel",
@@ -225,6 +337,12 @@ export class PreviewSettings {
           0.01,
         ),
         this._createCheckbox("Pause Time", "isPaused", this.settings.isPaused),
+      ]),
+    );
+
+    content.appendChild(
+      this._createSection("Export", [
+        this._createExportButtons(),
       ]),
     );
 
@@ -260,20 +378,19 @@ export class PreviewSettings {
     container.style.cssText = "margin-bottom: 8px;";
 
     const inputContainer = document.createElement("div");
-    inputContainer.style.cssText =
-      "display: flex; gap: 8px; margin-bottom: 8px;";
+    inputContainer.style.cssText = "display: flex; gap: 8px; margin-bottom: 8px;";
 
     const widthInput = this._createNumberInput(
       "Width",
       this.settings.resolution.width,
       128,
-      2048,
+      4096,
     );
     const heightInput = this._createNumberInput(
       "Height",
       this.settings.resolution.height,
       128,
-      2048,
+      4096,
     );
 
     widthInput.querySelector("input").addEventListener("change", (e) => {
@@ -285,20 +402,23 @@ export class PreviewSettings {
     });
 
     const presets = document.createElement("div");
-    presets.style.cssText = "display: flex; gap: 4px;";
+    presets.style.cssText = "display: flex; gap: 4px; flex-wrap: wrap;";
 
     const presetSizes = [
-      { label: "256", w: 256, h: 256 },
-      { label: "512", w: 512, h: 512 },
-      { label: "1K", w: 1024, h: 1024 },
-      { label: "16:9", w: 640, h: 360 },
+      { label: "256²", w: 256, h: 256 },
+      { label: "512²", w: 512, h: 512 },
+      { label: "1K²", w: 1024, h: 1024 },
+      { label: "2K²", w: 2048, h: 2048 },
+      { label: "HD", w: 1280, h: 720 },
+      { label: "FHD", w: 1920, h: 1080 },
+      { label: "4K", w: 3840, h: 2160 },
     ];
 
     presetSizes.forEach((preset) => {
       const btn = document.createElement("button");
       btn.textContent = preset.label;
       btn.style.cssText = `
-    background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.2);
         color: #fff;
         padding: 2px 6px;
@@ -308,10 +428,8 @@ export class PreviewSettings {
         transition: background 0.15s ease;
       `;
 
-      btn.onmouseenter = () =>
-        (btn.style.background = "rgba(255, 255, 255, 0.2)");
-      btn.onmouseleave = () =>
-        (btn.style.background = "rgba(255, 255, 255, 0.1)");
+      btn.onmouseenter = () => (btn.style.background = "rgba(255, 255, 255, 0.2)");
+      btn.onmouseleave = () => (btn.style.background = "rgba(255, 255, 255, 0.1)");
 
       btn.onclick = () => {
         this.updateSetting("resolution.width", preset.w);
@@ -371,8 +489,7 @@ export class PreviewSettings {
     container.style.cssText = "margin-bottom: 12px;";
 
     const header = document.createElement("div");
-    header.style.cssText =
-      "display: flex; justify-content: space-between; margin-bottom: 6px;";
+    header.style.cssText = "display: flex; justify-content: space-between; margin-bottom: 6px;";
 
     const labelEl = document.createElement("label");
     labelEl.textContent = label;
@@ -398,7 +515,6 @@ export class PreviewSettings {
       cursor: pointer;
     `;
 
-    // Custom slider styling
     const style = document.createElement("style");
     style.textContent = `
       input[type="range"]::-webkit-slider-thumb {
@@ -442,8 +558,7 @@ export class PreviewSettings {
 
   _createCheckbox(label, key, checked) {
     const container = document.createElement("div");
-    container.style.cssText =
-      "margin-bottom: 12px; display: flex; align-items: center; gap: 8px;";
+    container.style.cssText = "margin-bottom: 12px; display: flex; align-items: center; gap: 8px;";
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -527,5 +642,146 @@ export class PreviewSettings {
     container.appendChild(select);
 
     return container;
+  }
+
+  _createExportButtons() {
+    const container = document.createElement("div");
+    container.style.cssText = "display: flex; flex-direction: column; gap: 8px;";
+
+    const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
+
+    container.appendChild(exportPNG);
+
+    return container;
+  }
+
+  _createButton(label, onClick) {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.style.cssText = `
+      width: 100%;
+      background: rgba(0, 122, 255, 0.8);
+      border: 1px solid rgba(0, 122, 255, 1);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    `;
+
+    button.onmouseenter = () => {
+      button.style.background = "rgba(0, 122, 255, 1)";
+      button.style.transform = "translateY(-1px)";
+    };
+    button.onmouseleave = () => {
+      button.style.background = "rgba(0, 122, 255, 0.8)";
+      button.style.transform = "translateY(0)";
+    };
+    button.onmousedown = () => {
+      button.style.transform = "translateY(0)";
+    };
+
+    button.onclick = onClick;
+
+    return button;
+  }
+
+  async _exportPNG() {
+    const canvas = this.floatingPreview.gpuCanvas;
+    const device = window._gpuDevice || (await window.initWebGPU?.(canvas));
+    
+    if (!canvas || !device) {
+      alert("Canvas or GPU device not found. Make sure the preview is visible and rendering.");
+      return;
+    }
+
+    try {
+      console.log("Exporting WebGPU canvas:", canvas.width, "x", canvas.height);
+      
+      // Get the current texture from the WebGPU context
+      const context = canvas.getContext('webgpu');
+      if (!context) {
+        throw new Error("WebGPU context not available");
+      }
+
+      // Create a buffer to read the texture data
+      const width = canvas.width;
+      const height = canvas.height;
+      const bytesPerRow = Math.ceil((width * 4) / 256) * 256; // Must be multiple of 256
+      const bufferSize = bytesPerRow * height;
+      
+      const readBuffer = device.createBuffer({
+        size: bufferSize,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+      });
+
+      // Get the current texture
+      const texture = context.getCurrentTexture();
+      
+      // Copy texture to buffer
+      const encoder = device.createCommandEncoder();
+      encoder.copyTextureToBuffer(
+        { texture },
+        { buffer: readBuffer, bytesPerRow },
+        { width, height }
+      );
+      device.queue.submit([encoder.finish()]);
+
+      // Read the buffer
+      await readBuffer.mapAsync(GPUMapMode.READ);
+      const arrayBuffer = readBuffer.getMappedRange();
+      const pixelData = new Uint8Array(arrayBuffer);
+
+      // Create a 2D canvas with the correct dimensions
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = width;
+      exportCanvas.height = height;
+      const ctx = exportCanvas.getContext('2d');
+      
+      // Create ImageData
+      const imageData = ctx.createImageData(width, height);
+      
+      // Copy pixel data (accounting for bytesPerRow padding)
+      for (let y = 0; y < height; y++) {
+        const srcOffset = y * bytesPerRow;
+        const dstOffset = y * width * 4;
+        for (let x = 0; x < width; x++) {
+          const srcIdx = srcOffset + x * 4;
+          const dstIdx = dstOffset + x * 4;
+          imageData.data[dstIdx] = pixelData[srcIdx];     // R
+          imageData.data[dstIdx + 1] = pixelData[srcIdx + 1]; // G
+          imageData.data[dstIdx + 2] = pixelData[srcIdx + 2]; // B
+          imageData.data[dstIdx + 3] = pixelData[srcIdx + 3]; // A
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+      
+      // Clean up GPU resources
+      readBuffer.unmap();
+      readBuffer.destroy();
+      
+      // Export the 2D canvas
+      exportCanvas.toBlob((blob) => {
+        if (blob) {
+          const link = document.createElement("a");
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+          link.download = `shader-${width}x${height}-${timestamp}.png`;
+          link.href = URL.createObjectURL(blob);
+          link.click();
+          console.log("Exported PNG:", link.download);
+          
+          setTimeout(() => URL.revokeObjectURL(link.href), 100);
+        } else {
+          alert("Failed to create image blob");
+        }
+      }, "image/png");
+      
+    } catch (error) {
+      console.error("Export error:", error);
+      alert("Export failed: " + error.message + "\n\nMake sure the preview is actively rendering.");
+    }
   }
 }

@@ -18,63 +18,38 @@ export class TextureRenderers {
       'rectangle': (ctx, node) => this.renderRectangle(ctx, node),
       'texture2d': (ctx, node) => this.renderTexture2D(ctx, node),
       'texturecube': (ctx, node) => this.renderTextureCube(ctx, node),
-      'circle': (ctx, node) => {
-        // Get raw parameter values
-        let radiusParam = node.params?.radius ?? 0.25;
-        let epsilonParam = node.params?.epsilon ?? 0.02;
-        
-        // Evaluate expressions if they exist
-        let radius, epsilon;
-        if (typeof radiusParam === 'string' && radiusParam.startsWith('=')) {
-          try {
-            radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
-          } catch (error) {
-            console.warn('Expression evaluation failed:', error);
-            radius = 0.25;
-          }
-        } else {
-          radius = parseFloat(radiusParam) || 0.25;
-        }
-        
-        if (typeof epsilonParam === 'string' && epsilonParam.startsWith('=')) {
-          try {
-            epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
-          } catch (error) {
-            console.warn('Expression evaluation failed:', error);
-            epsilon = 0.02;
-          }
-        } else {
-          epsilon = parseFloat(epsilonParam) || 0.02;
-        }
-        
-        console.log('Circle evaluating expression:', { radiusParam, radius, epsilonParam, epsilon });
-        
-        // Get canvas size
-        const size = ctx.canvas.width || 64;
-        
-        // Render black background
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, size, size);
-        
-        // Render circle field
-        for (let y = 0; y < size; y++) {
-          for (let x = 0; x < size; x++) {
-            const u = x / size;
-            const v = y / size;
-            const centerX = 0.5, centerY = 0.5;
-            const dist = Math.sqrt((u - centerX) * (u - centerX) + (v - centerY) * (v - centerY));
-            const safeEpsilon = Math.max(epsilon, 0.0001);
-            const field = 1.0 - smoothstep(radius - safeEpsilon, radius + safeEpsilon, dist);
-            
-            if (field > 0.01) {
-              const intensity = Math.max(0, Math.min(1, field));
-              const color = Math.floor(intensity * 255);
-              ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
-              ctx.fillRect(x, y, 1, 1);
-            }
-          }
-        }
-      },
+'circle': (ctx, node) => {
+  // Use the helper method that reads from uniform manager
+  const radius = this.getParameterValue(node, 'radius', 0.25);
+  const epsilon = this.getParameterValue(node, 'epsilon', 0.02);
+  const centerX = this.getParameterValue(node, 'centerX', 0.5);
+  const centerY = this.getParameterValue(node, 'centerY', 0.5);
+  
+  // Get canvas size
+  const size = ctx.canvas.width || 64;
+  
+  // Render black background
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, size, size);
+  
+  // Render circle field
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      const dist = Math.sqrt((u - centerX) * (u - centerX) + (v - centerY) * (v - centerY));
+      const safeEpsilon = Math.max(epsilon, 0.0001);
+      const field = 1.0 - this._smoothstep(radius - safeEpsilon, radius + safeEpsilon, dist);
+      
+      if (field > 0.01) {
+        const intensity = Math.max(0, Math.min(1, field));
+        const color = Math.floor(intensity * 255);
+        ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+},
       'circlefield': (ctx, node) => {
         // Use the same logic as circle
         registry.renderers.get('circle')(ctx, node);
@@ -87,22 +62,21 @@ export class TextureRenderers {
   }
 
   // Helper method to get parameter values with expression support
-  getParameterValue(node, paramName, defaultValue = 0) {
-    try {
-      const rawValue = node.params?.[paramName] ?? defaultValue;
-      
-      // Check if it's an expression
-      if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
-        return window.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
-      }
-      
-      // Return parsed value or default
-      return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
-    } catch (error) {
-      console.warn(`Error getting parameter ${paramName}:`, error);
-      return defaultValue;
+getParameterValue(node, paramName, defaultValue = 0) {
+  // Use the uniform manager's evaluated values
+  if (window.nodeCompiler?.uniformManager) {
+    const uniformMgr = window.nodeCompiler.uniformManager;
+    const key = `${node.id}.${paramName}`;
+    
+    if (uniformMgr.uniformValues && uniformMgr.uniformValues.has(key)) {
+      return uniformMgr.uniformValues.get(key);
     }
   }
+  
+  // Fall back to node params
+  const rawValue = node.params?.[paramName] ?? defaultValue;
+  return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
+}
 
   // Helper to safely convert values to numbers
   toSafeNumber(value, defaultValue = 0) {

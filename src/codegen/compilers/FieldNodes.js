@@ -1,5 +1,5 @@
 // src/codegen/compilers/FieldNodes.js
-// REFACTORED: Function-based shape compilation for reusability
+// FIXED: Aspect-ratio aware shape functions
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 
@@ -7,13 +7,15 @@ export class FieldNodes {
   constructor() {
     this.uniformManager = null;
     this.paramHandler = new UnifiedParameterHandler();
-    this.functionDefinitions = new Map(); // Track generated functions
+    this.functionDefinitions = new Map();
   }
 
-  setUniformManager(manager) {
-    this.uniformManager = manager;
-  }
-
+setUniformManager(manager) {
+  this.uniformManager = manager;
+  // Clear function cache when uniform manager changes
+  this.functionDefinitions.clear();
+  console.log('✅ Cleared FieldNodes function cache on uniform manager update');
+}
   setExpressionSystem(expressionSystem) {
     this.paramHandler.setExpressionSystem(expressionSystem);
   }
@@ -26,11 +28,6 @@ export class FieldNodes {
     ].includes(kind);
   }
 
-  /**
-   * Main compile method - now returns both inline code AND function definition
-   * Shape nodes return { line, outputType, functionDef, functionCall }
-   * Non-shape nodes return { line, outputType }
-   */
   compile(node, getInput) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
     
@@ -38,14 +35,12 @@ export class FieldNodes {
       this.uniformManager.analyzeNode(node);
     }
     
-    // Determine if this is a shape node (returns distance field)
     const isShapeNode = ['Circle', 'Rectangle', 'Polygon'].includes(node.kind);
     
     if (isShapeNode) {
       return this.compileShapeFunction(node, getInput, nodeId);
     }
     
-    // Gradients and other field nodes compile inline as before
     switch (node.kind) {
       case 'LinearGradient':
         return this.compileLinearGradient(node, getInput, nodeId);
@@ -62,14 +57,10 @@ export class FieldNodes {
     }
   }
 
-  /**
-   * NEW: Compile shape nodes as reusable functions
-   */
   compileShapeFunction(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const functionName = `shape_${node.kind.toLowerCase()}_${nodeId}`;
     
-    // Check if function already generated
     if (!this.functionDefinitions.has(nodeId)) {
       let functionDef;
       
@@ -88,7 +79,6 @@ export class FieldNodes {
       this.functionDefinitions.set(nodeId, functionDef);
     }
     
-    // Return both the function call (for inline use) and the function definition
     const line = `
   let node_${nodeId} = ${functionName}(${uv});`;
     
@@ -101,37 +91,47 @@ export class FieldNodes {
   }
 
   /**
-   * Generate Circle shape function
+   * FIXED: Circle function now aspect-ratio aware
    */
   generateCircleFunction(node, nodeId, functionName) {
     const radius = this.getParam(node, 'radius', 0.25);
+    console.log('Circle radius param for node', nodeId, ':', radius);
     const epsilon = this.getParam(node, 'epsilon', 0.02);
     
     return `fn ${functionName}(uv: vec2<f32>) -> f32 {
-  let dist = length(uv - vec2<f32>(0.5)) - ${radius};
+  // Aspect-corrected UV
+  var aspectUV = uv;
+  aspectUV.x *= res.aspect;
+  let aspectCenter = vec2<f32>(0.5 * res.aspect, 0.5);
+  
+  let dist = length(aspectUV - aspectCenter) - ${radius};
   return 1.0 - smoothstep(-${epsilon}, ${epsilon}, dist);
 }`;
   }
 
   /**
-   * Generate Rectangle shape function
+   * FIXED: Rectangle function now aspect-ratio aware
    */
-  generateRectangleFunction(node, nodeId, functionName) {
-    const centerX = this.getParam(node, 'centerX', 0.5);
-    const centerY = this.getParam(node, 'centerY', 0.5);
-    const width = this.getParam(node, 'width', 0.5);
-    const height = this.getParam(node, 'height', 0.5);
-    const epsilon = this.getParam(node, 'epsilon', 0.02);
-    
-    return `fn ${functionName}(uv: vec2<f32>) -> f32 {
-  let d = abs(uv - vec2<f32>(${centerX}, ${centerY})) - vec2<f32>(${width}, ${height}) * 0.5;
+generateRectangleFunction(node, nodeId, functionName) {
+  const centerX = this.getParam(node, 'centerX', 0.5);
+  const centerY = this.getParam(node, 'centerY', 0.5);
+  const width = this.getParam(node, 'width', 0.5);
+  const height = this.getParam(node, 'height', 0.5);
+  const epsilon = this.getParam(node, 'epsilon', 0.02);
+  
+  return `fn ${functionName}(uv: vec2<f32>) -> f32 {
+  var aspectUV = uv;
+  aspectUV.x *= res.aspect;
+  
+  let center = vec2<f32>(0.5 * res.aspect, 0.5);
+  
+  let d = abs(aspectUV - center) - vec2<f32>(${width}, ${height}) * 0.5;
   let dist = length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
   return 1.0 - smoothstep(-${epsilon}, ${epsilon}, dist);
 }`;
-  }
-
+}
   /**
-   * Generate Polygon shape function
+   * FIXED: Polygon function now aspect-ratio aware
    */
   generatePolygonFunction(node, nodeId, functionName) {
     const sides = this.getParam(node, 'sides', 6);
@@ -139,7 +139,12 @@ export class FieldNodes {
     const epsilon = this.getParam(node, 'epsilon', 0.02);
     
     return `fn ${functionName}(uv: vec2<f32>) -> f32 {
-  let p = uv - vec2<f32>(0.5);
+  // Aspect-corrected UV
+  var aspectUV = uv;
+  aspectUV.x *= res.aspect;
+  let aspectCenter = vec2<f32>(0.5 * res.aspect, 0.5);
+  
+  let p = aspectUV - aspectCenter;
   let a = atan2(p.y, p.x);
   let r = length(p);
   let n = ${sides};
@@ -151,41 +156,49 @@ export class FieldNodes {
 }`;
   }
 
-  /**
-   * Get all function definitions for insertion into shader
-   */
   getAllFunctionDefinitions() {
     return Array.from(this.functionDefinitions.values()).join('\n\n');
   }
 
-  /**
-   * Clear function cache (call between compilations)
-   */
-  clearFunctionCache() {
-    this.functionDefinitions.clear();
-  }
+clearFunctionCache() {
+  this.functionDefinitions.clear();
+  console.log('🧹 FieldNodes function cache cleared');
+}
 
-  getParam(node, paramName, defaultValue) {
-    const rawValue = node.params?.[paramName] ?? defaultValue;
+getParam(node, paramName, defaultValue) {
+  const rawValue = node.params?.[paramName] ?? defaultValue;
+  
+  // Check if this is a dynamic expression containing 'time'
+  if (typeof rawValue === 'string' && /time/.test(rawValue)) {
+    // Convert the expression to shader code using u.time
+    const shaderExpr = rawValue
+      .replace(/\bsin\(/g, 'sin(')
+      .replace(/\bcos\(/g, 'cos(')
+      .replace(/\btime\b/g, 'u.time');
     
-    const uniformName = this.uniformManager?.isDynamicParam(node.id, paramName)
-      ? this.uniformManager.getUniformName(node.id, paramName)
-      : null;
-    
-    if (uniformName) {
-      return `params.${uniformName}`;
-    }
-    
-    const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, uniformName);
-    
-    if (typeof result === 'number') {
-      return result === Math.floor(result) ? `${result}.0` : result.toString();
-    }
-    
-    return result;
+    return shaderExpr;  // Return shader code, not a uniform reference
   }
+  
+  const uniformName = this.uniformManager?.isDynamicParam(node.id, paramName)
+    ? this.uniformManager.getUniformName(node.id, paramName)
+    : null;
+  
+  if (uniformName) {
+    const sanitizedKey = `${node.id}.${paramName}`.replace(/[^a-zA-Z0-9_]/g, '_');
+    const fieldName = sanitizedKey.startsWith('_') ? sanitizedKey : `_${sanitizedKey}`;
+    return `u_params.${fieldName}`;
+  }
+  
+  // For static params, evaluate and return the value
+  const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, uniformName);
+  
+  if (typeof result === 'number') {
+    return result === Math.floor(result) ? `${result}.0` : result.toString();
+  }
+  
+  return result;
+}
 
-  // Gradient compile methods remain unchanged
   compileLinearGradient(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const angle = this.getParam(node, 'angle', 0.0);

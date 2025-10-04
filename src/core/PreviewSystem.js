@@ -16,15 +16,15 @@ import { TransformRenderers } from './preview/renderers/TransformRenderers.js';
 import { GradientRenderers } from './preview/renderers/GradientRenderers.js';
 
 export class PreviewSystem {
-  constructor(editor) {
+constructor(editor) {
+    this.renderingNodes = new Set();
     try {
       if (!editor) {
         throw new Error('Editor is required for PreviewSystem initialization');
       }
 
-      this.editor = editor;
+      this.editor = editor;  // Should be on or near line 26
       this.size = 48;
-      
       // Initialize subsystems with error handling
       this._initializeSubsystems();
       
@@ -38,6 +38,7 @@ export class PreviewSystem {
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'preview-system-constructor'
+        
       });
       throw error;
     }
@@ -201,7 +202,7 @@ generateNodePreview(node) {
       this._renderGeneric(ctx, node);
     }
 
-    node.__thumb = canvas;
+    node.__thumb = canvas;return;
   } catch (error) {
     window.errorHandler?.handleError(error, { 
       component: 'node-preview-generation',

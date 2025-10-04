@@ -12,6 +12,7 @@ export class ShaderTemplate {
     return `
 struct Globals { time: f32, }
 @group(0) @binding(0) var<uniform> u : Globals;
+@group(0) @binding(1) var<uniform> res : Resolution;
 struct VSOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
@@ -47,9 +48,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 struct Globals {
   time: f32,
 }
+struct Resolution {
+  width: f32,
+  height: f32,
+  aspect: f32,
+}
 
-@group(0) @binding(0) var<uniform> u : Globals;${textureBindings}
-
+@group(0) @binding(0) var<uniform> u : Globals;
+@group(0) @binding(1) var<uniform> res : Resolution;
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>
@@ -75,7 +81,7 @@ ${shapeFunctions}
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var finalColor: vec3<f32> = vec3<f32>(0.0);
   ${lines.join("\n  ")}
-  let _keep_uniform = u.time * 0.0;
+  let _keep_uniform = u.time * 0.0 + res.width * 0.0;
   return vec4<f32>(finalColor + vec3<f32>(_keep_uniform), 1.0);
 }
 `;
@@ -198,8 +204,8 @@ export function generateShader(compiledData, textureBindings) {
   // Adjust parameter uniform binding based on texture presence
   let adjustedUniformStruct = uniformStruct || '';
   if (adjustedUniformStruct) {
-    const correctBinding = hasTextures ? 3 : 1;
-    if (adjustedUniformStruct.includes('@binding(')) {
+    const correctBinding = hasTextures ? 4 : 2;
+        if (adjustedUniformStruct.includes('@binding(')) {
       adjustedUniformStruct = adjustedUniformStruct.replace(/@binding\(\d+\)/, `@binding(${correctBinding})`);
     } else {
       adjustedUniformStruct = adjustedUniformStruct.replace(
@@ -213,9 +219,14 @@ export function generateShader(compiledData, textureBindings) {
 struct Globals {
   time: f32,
 }
+struct Resolution {
+  width: f32,
+  height: f32,
+  aspect: f32,
+}
 
 @group(0) @binding(0) var<uniform> u : Globals;
-
+@group(0) @binding(1) var<uniform> res : Resolution;
 ${textureBindings || ''}
 
 ${adjustedUniformStruct}
@@ -258,7 +269,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   
 ${lines.join('\n')}
   
-  let _keep_uniform = u.time * 0.0;
+  let _keep_uniform = u.time * 0.0 + res.width * 0.0;
   return vec4<f32>(finalColor + vec3<f32>(_keep_uniform), 1.0);
 }
 `;

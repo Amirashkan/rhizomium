@@ -5,7 +5,8 @@
 export class ParameterUniformManager {
   constructor() {
     this.uniformParameters = new Map(); // nodeId -> Set of param names
-    this.uniformValues = new Map(); // nodeId.paramName -> current value
+    this.uniformValues = new Map();
+    this.dynamicParams = new Set(); 
     this.uniformBuffer = null;
     this.uniformBindGroup = null;
     this.needsUpdate = true;
@@ -14,25 +15,40 @@ export class ParameterUniformManager {
   /**
    * Analyze a node to determine which parameters need uniforms
    */
-  analyzeNode(node) {
-    if (!node.params) return;
+// In ParameterUniformManager.js
 
-    const dynamicParams = new Set();
-
-    Object.entries(node.params).forEach(([paramName, value]) => {
-      console.log(`Analyzing ${node.id}.${paramName} = ${value}`);
-      if (this.isDynamicParameter(value)) {
-        console.log(`  ✅ Is dynamic!`);
-        dynamicParams.add(paramName);
-        this.uniformValues.set(`${node.id}.${paramName}`, this.evaluateParameter(value, node));
-      }
-    });
-
-    if (dynamicParams.size > 0) {
-      this.uniformParameters.set(node.id, dynamicParams);
-      console.log(`Node ${node.id} has ${dynamicParams.size} dynamic params:`, Array.from(dynamicParams));
+analyzeNode(node) {
+  console.log(`Analyzing node ${node.id}`);
+  
+  for (const [paramName, paramValue] of Object.entries(node.params || {})) {
+    console.log(`Analyzing ${node.id}.${paramName} = ${paramValue}`);
+    
+    // Skip expressions containing 'time' - they'll be embedded as shader code
+    if (typeof paramValue === 'string' && /\btime\b/i.test(paramValue)) {
+      console.log(`  ⏱️ Contains 'time' - will be shader code, not uniform`);
+      continue;  // Skip this parameter
+    }
+    
+    if (this.isDynamicExpression(paramValue)) {
+      console.log(`  ✅ Is dynamic!`);
+      this.dynamicParams.add(`${node.id}.${paramName}`);
+      
+      const value = this.evaluateExpression(paramValue);
+      const key = `${node.id}.${paramName}`;
+      this.uniformValues.set(key, value);
+      console.log(`📊 Evaluated ${node.id} param: ${paramValue} = ${value}`);
     }
   }
+  
+  const nodeKey = `${node.id}`;
+  const dynamicParamsForNode = Array.from(this.dynamicParams)
+    .filter(key => key.startsWith(`${node.id}.`))
+    .map(key => key.split('.')[1]);
+    
+  if (dynamicParamsForNode.length > 0) {
+    console.log(`Node ${node.id} has ${dynamicParamsForNode.length} dynamic params:`, dynamicParamsForNode);
+  }
+}
 
   /**
    * Check if a parameter value is dynamic (needs uniform buffer)
@@ -55,13 +71,14 @@ export class ParameterUniformManager {
    * Check if an expression depends on time (without = prefix)
    */
   isTimeDependentExpression(expr) {
-  if (expr.trim() === 'time') {
-    return true;
+    if (expr.trim() === 'time') {
+      return true;
+    }
+    
+    // Or expressions containing time with operators/functions
+    return /\btime\b/.test(expr) && this.isMathExpression(expr);
   }
-  
-  // Or expressions containing time with operators/functions
-  return /\btime\b/.test(expr) && this.isMathExpression(expr);
-}
+
   /**
    * Check if a string looks like a math expression
    */
@@ -119,58 +136,75 @@ export class ParameterUniformManager {
   getUniformName(nodeId, paramName) {
     return `param_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}_${paramName}`;
   }
-
+isDynamicExpression(value) {
+  if (typeof value !== 'string') return false;
+  
+  // CRITICAL: Expressions containing 'time' are embedded in shader code directly
+  // They don't need CPU-side uniforms because they use the GPU's u.time uniform
+  if (/\btime\b/i.test(value)) {
+    console.log(`⏱️ Expression "${value}" contains 'time' - will be embedded as shader code, NOT a uniform`);
+    return false;  // NOT dynamic in the sense of needing a parameter uniform
+  }
+  
+  // Check for other mathematical expressions that DO need parameter uniforms
+  const dynamicPattern = /sin\(|cos\(|tan\(|abs\(|sqrt\(|pow\(|min\(|max\(|floor\(|ceil\(|round\(|fract\(|[+\-*\/()]/;
+  return dynamicPattern.test(value);
+}
   /**
    * Update all uniform values (call each frame)
    */
-  updateValues(graph) {
-    let hasChanges = false;
-
-    graph.nodes.forEach(node => {
-      if (!node.params) return;
-
-      Object.entries(node.params).forEach(([paramName, value]) => {
-        if (this.isDynamicParameter(value)) {
-          const key = `${node.id}.${paramName}`;
-          const newValue = this.evaluateParameter(value, node);
-          
-          if (this.uniformValues.get(key) !== newValue) {
-            this.uniformValues.set(key, newValue);
-            hasChanges = true;
-          }
+updateValues(graph) {
+  // Get current time
+  const time = performance.now() / 1000;
+  
+  // Iterate through existing uniform values and update dynamic ones
+  for (const [key, currentValue] of this.uniformValues.entries()) {
+    const [nodeId, paramName] = key.split('.');
+    const node = graph.nodes.find(n => n.id == nodeId);
+    
+    if (node && node.params) {
+      const paramValue = node.params[paramName];
+      
+      // Check if it's a dynamic expression
+      if (this.isDynamicExpression(paramValue)) {
+        try {
+          // Re-evaluate with current time
+          const evaluated = this.evaluateExpression(paramValue, { time });
+          this.uniformValues.set(key, evaluated);
+        } catch (error) {
+          // Keep existing value on error
+          console.warn(`Failed to update ${key}:`, error);
         }
-      });
-    });
-
-    if (hasChanges) {
-      this.needsUpdate = true;
+      }
     }
-
-    return hasChanges;
   }
+}
 
   /**
    * Generate WGSL uniform struct declaration
    */
-  generateUniformStruct() {
-    if (this.uniformValues.size === 0) {
-      return '';
-    }
-
-    const entries = Array.from(this.uniformValues.keys()).map(key => {
-      const [nodeId, paramName] = key.split('.');
-      const uniformName = this.getUniformName(nodeId, paramName);
-      return `  ${uniformName}: f32,`;
-    });
-
-    return `
-struct DynamicParams {
-${entries.join('\n')}
-}
-
-@group(0) var<uniform> params: DynamicParams;
-`;
+generateUniformStruct() {
+  if (this.uniformValues.size === 0) {
+    return '';
   }
+
+  let structDef = 'struct ParamUniforms {\n';
+  
+  for (const [key, value] of this.uniformValues.entries()) {
+    // key format is "nodeId.paramName" like "11.radius"
+    // Sanitize and add underscore prefix for valid WGSL
+    const sanitizedName = key.replace(/[^a-zA-Z0-9_]/g, '_');
+    const fieldName = sanitizedName.startsWith('_') ? sanitizedName : `_${sanitizedName}`;
+    
+    structDef += `  ${fieldName}: f32,\n`;
+    console.log('🔧 Generated uniform struct field:', fieldName);  // ✅ Inside the loop
+  }
+  
+  structDef += '}\n\n';
+  structDef += '@group(0) @binding(2) var<uniform> u_params: ParamUniforms;\n';
+  
+  return structDef;
+}
 
   /**
    * Create GPU buffer for uniforms

@@ -15,16 +15,20 @@ export class GradientRenderers {
     });
   }
 
-  getParameterValue(node, paramName, defaultValue = 0) {
-    try {
-      if (this.previewSystem.getParameterValue) {
-        return this.previewSystem.getParameterValue(node, paramName, defaultValue);
-      }
-      return node.params?.[paramName] ?? defaultValue;
-    } catch (error) {
-      return defaultValue;
+getParameterValue(node, paramName, defaultValue = 0) {
+  // Use the uniform manager's evaluated values
+  if (window.nodeCompiler?.uniformManager) {
+    const uniformMgr = window.nodeCompiler.uniformManager;
+    const key = `${node.id}.${paramName}`;
+    
+    if (uniformMgr.uniformValues && uniformMgr.uniformValues.has(key)) {
+      return uniformMgr.uniformValues.get(key);
     }
   }
+  
+  // Fall back to node params
+  return node.params?.[paramName] ?? defaultValue;
+}
 
   renderLinearGradient(ctx, node) {
     const angle = this.getParameterValue(node, 'angle', 0.0);
@@ -58,8 +62,9 @@ export class GradientRenderers {
   }
 
   renderRadialGradient(ctx, node) {
-  const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
-  const centerY = (1 - this.getParameterValue(node, 'centerY', 0.5)) * this.size;
+    // Consistent Y-coordinate flipping across all gradient renderers
+    const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
+    const centerY = (1.0 - this.getParameterValue(node, 'centerY', 0.5)) * this.size;
     const radius = this.getParameterValue(node, 'radius', 0.5) * this.size;
     const falloff = this.getParameterValue(node, 'falloff', 1.0);
     const invert = this.getParameterValue(node, 'invert', false);
@@ -102,8 +107,8 @@ export class GradientRenderers {
   }
 
   renderAngularGradient(ctx, node) {
-  const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
-  const centerY = (1 - this.getParameterValue(node, 'centerY', 0.5)) * this.size;
+    const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
+    const centerY = (1.0 - this.getParameterValue(node, 'centerY', 0.5)) * this.size;
     const rotation = this.getParameterValue(node, 'rotation', 0.0);
     const repeat = this.getParameterValue(node, 'repeat', 1.0);
 
@@ -130,8 +135,8 @@ export class GradientRenderers {
   }
 
   renderConicGradient(ctx, node) {
-  const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
-  const centerY = (1 - this.getParameterValue(node, 'centerY', 0.5)) * this.size;
+    const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
+    const centerY = (1.0 - this.getParameterValue(node, 'centerY', 0.5)) * this.size;
     const startAngle = this.getParameterValue(node, 'startAngle', 0.0);
     const endAngle = this.getParameterValue(node, 'endAngle', Math.PI * 2);
     const smoothness = this.getParameterValue(node, 'smoothness', 0.0);
@@ -162,47 +167,9 @@ export class GradientRenderers {
     ctx.putImageData(imageData, 0, 0);
   }
 
-renderRadialGradient(ctx, node) {
-  const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
-  const centerY = (1.0 - this.getParameterValue(node, 'centerY', 0.5)) * this.size; // FLIP Y
-  const radius = this.getParameterValue(node, 'radius', 0.5) * this.size;
-  const falloff = this.getParameterValue(node, 'falloff', 1.0);
-  const invert = this.getParameterValue(node, 'invert', false);
-
-  const gradient = ctx.createRadialGradient(
-    centerX, centerY, 0,
-    centerX, centerY, radius
-  );
-
-  if (invert) {
-    gradient.addColorStop(0, '#ffffff');
-    gradient.addColorStop(1, '#000000');
-  } else {
-    gradient.addColorStop(0, '#000000');
-    gradient.addColorStop(1, '#ffffff');
+  renderColorRamp(ctx, node) {
+    // Placeholder for color ramp implementation
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(0, 0, this.size, this.size);
   }
-
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, this.size, this.size);
-
-  if (falloff !== 1.0) {
-    const imageData = ctx.getImageData(0, 0, this.size, this.size);
-    const data = imageData.data;
-
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const dx = (x - centerX) / radius;
-        const dy = (y - centerY) / radius;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const value = Math.pow(Math.min(1, dist), falloff);
-        const intensity = invert ? (1 - value) * 255 : value * 255;
-
-        const idx = (y * this.size + x) * 4;
-        data[idx] = data[idx + 1] = data[idx + 2] = intensity;
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }
-}
 }

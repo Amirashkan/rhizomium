@@ -717,7 +717,19 @@ function createNewProject() {
   if (editor && editor.draw) {
     editor.draw();
   }
-
+if (graph && graph.nodes) {
+  graph.nodes.forEach(node => {
+    if (editor.nodePreviews && editor.nodePreviews.has(node.id)) {
+      const preview = editor.nodePreviews.get(node.id);
+      preview.needsUpdate = true;
+    }
+  });
+  
+  // Redraw after marking for update
+  setTimeout(() => {
+    if (editor.draw) editor.draw();
+  }, 50);
+}
   if (saveLoadManager) {
     saveLoadManager.hasUnsavedChanges = false;
     saveLoadManager.updateStatus("New project created");
@@ -755,7 +767,7 @@ function setupPreviewButtons() {
     );
   }
 }
-
+let lastUniformUpdate = 0;
 function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
@@ -763,7 +775,6 @@ function updateShaderFromGraph() {
       return;
     }
     
-    // Check if output node exists
     const outputNode = graph.nodes.find(node => 
       node && /OutputFinal/i.test(node.kind || node.type || node.name || '')
     );
@@ -773,7 +784,6 @@ function updateShaderFromGraph() {
       return;
     }
     
-    // Check if output is connected
     const hasConnection = Array.isArray(outputNode.inputs) && 
                          outputNode.inputs[0] !== null && 
                          outputNode.inputs[0] !== undefined;
@@ -785,35 +795,36 @@ function updateShaderFromGraph() {
     
     console.log('Graph valid - compiling shader');
     
-    // Compile the shader using buildWGSL
-    const result = buildWGSL(graph);
+    // CRITICAL: Clear uniform manager owned by NodeCompiler
+    // NodeCompiler creates it, then passes it to FieldNodes and others
     
+    // Compile the shader
+    console.log('🔧 Starting shader generation...');
+    const result = buildWGSL(window.editor.graph);  // ✅ This line was missing!
+
+
+
+
+
     if (!result || !result.wgsl) {
       console.error('Shader compilation produced no code');
-      if (typeof updateStatus === 'function') {
-        updateStatus('Shader compilation failed', 'error');
-      }
       return;
     }
     
     console.log('Shader code generated, length:', result.wgsl.length);
     
-    // Update the shader using the imported updateShader function
     updateShader(result.wgsl, result.uniformManager).then(success => {
       if (success) {
         console.log('Shader updated successfully');
+        
+        // Mark that we need continuous rendering
+        lastUniformUpdate = performance.now();
+        
         if (typeof updateStatus === 'function') {
           updateStatus('Shader compiled');
         }
-      } else {
-        console.warn('Shader update returned false');
       }
-    }).catch(error => {
-      console.error('Error updating shader:', error);
-      if (typeof updateStatus === 'function') {
-        updateStatus('Shader error', 'error');
-      }
-    });
+    })
     
   } catch (error) {
     console.error('Error in updateShaderFromGraph:', error);
@@ -830,7 +841,6 @@ function updateShaderFromGraph() {
     }
   }
 }
-
 function showShaderError(errorMessage) {
   const errorOverlay = document.getElementById("err-overlay");
   const errorLog = document.getElementById("err-log");
@@ -879,17 +889,19 @@ function renderLoop() {
     }
   }
 
+  // CRITICAL: Always render the GPU canvas when we have dynamic uniforms
+  if (window.nodeCompiler?.uniformManager?.uniformValues?.size > 0) {
+    if (typeof drawFrame === 'function') {
+      drawFrame();
+    }
+  }
+
   if (floatingPreview && floatingPreview.fpsCounter) {
     floatingPreview.fpsCounter.frame();
   }
 
   if (undoManager) {
     undoManager.updateUI();
-  }
-
-  const end = performance.now();
-  if (end - start > 16) {
-    console.log('Slow frame:', end - start, 'ms');
   }
 
   requestAnimationFrame(renderLoop);

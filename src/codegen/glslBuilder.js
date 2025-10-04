@@ -13,19 +13,27 @@ import { generateShader } from './templates/ShaderTemplate.js';
  */
 export function buildWGSL(graph) {
   const processor = new GraphProcessor();
-  const compiler = new NodeCompiler();
-  const template = new ShaderTemplate();
   
-  // Clear function caches before compilation
-  processor.clearFunctionCollection();
-  if (compiler.compilers.field.clearFunctionCache) {
-    compiler.compilers.field.clearFunctionCache();
+  if (!window.nodeCompiler) {
+    window.nodeCompiler = new NodeCompiler();
   }
-  if (compiler.compilers.transform.clearHelperCache) {
+  const compiler = window.nodeCompiler;
+  
+  // IMPORTANT: Clear uniform manager FIRST
+  compiler.uniformManager.clear();
+  console.log('✅ Cleared uniform manager');
+  
+  // THEN clear function caches (which may reference the old uniforms)
+  processor.clearFunctionCollection();
+  if (compiler.compilers.field && compiler.compilers.field.clearFunctionCache) {
+    compiler.compilers.field.clearFunctionCache();
+    console.log('✅ Cleared field function cache');
+  }
+  if (compiler.compilers.transform && compiler.compilers.transform.clearHelperCache) {
     compiler.compilers.transform.clearHelperCache();
   }
   
-  // Process the graph to get ordered, filtered nodes
+  // Process graph and compile
   const result = processor.processGraph(graph);
   const { orderedNodes, outputNode } = result;
   
@@ -36,8 +44,9 @@ export function buildWGSL(graph) {
     };
   }
   
-  // Compile all nodes to shader code
   const compiledData = compiler.compileNodes(orderedNodes);
+  // ... rest
+
   const { lines, types, expressions, uniformStruct, uniformManager } = compiledData;
   
   // Collect function definitions from field and transform nodes

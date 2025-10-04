@@ -144,43 +144,37 @@ export class BasicRenderers {
     ctx.stroke();
   }
 
-  renderTime(ctx, node) {
-    // Use expression-aware time access
-    let time = this.getParameterValue(node, "time", (Date.now() / 1000) % (Math.PI * 2));
-    
-    // If time parameter doesn't exist, use current time
-    if (time === 0 || time === undefined) {
-      time = (Date.now() / 1000) % (Math.PI * 2);
-    }
+renderTime(ctx, node) {
+  // NEVER access dynamic values in preview renderers
+  // Use a simple static time value or visual representation
+  const time = (Date.now() / 1000) % (Math.PI * 2);
 
-    ctx.fillStyle = "#0f172a";
-    ctx.fillRect(0, 0, this.size, this.size);
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(0, 0, this.size, this.size);
 
-    // Sine wave
-    ctx.strokeStyle = "#60a5fa";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
+  // Sine wave
+  ctx.strokeStyle = "#60a5fa";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
 
-    for (let x = 0; x < this.size; x++) {
-      const t = (x / this.size) * Math.PI * 2;
-      const y = this.size / 2 + Math.sin(t + time) * this.size * 0.3;
-      if (x === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-
-    // Time indicator
-    const indicatorX = (time / (Math.PI * 2)) * this.size;
-    ctx.fillStyle = "#fbbf24";
-    ctx.beginPath();
-    ctx.arc(indicatorX, this.size / 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Show expression indicator if time is expression-based
-    if (this.isExpression(node, "time")) {
-      this.drawExpressionIndicator(ctx);
-    }
+  for (let x = 0; x < this.size; x++) {
+    const t = (x / this.size) * Math.PI * 2;
+    const y = this.size / 2 + Math.sin(t + time) * this.size * 0.3;
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
   }
+  ctx.stroke();
+
+  // Time indicator
+  const indicatorX = (time / (Math.PI * 2)) * this.size;
+  ctx.fillStyle = "#fbbf24";
+  ctx.beginPath();
+  ctx.arc(indicatorX, this.size / 2, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // DON'T call isExpression or getParameterValue here
+  // Just render a static preview
+}
 
   renderExpression(ctx, node) {
     const expr = this.getParameterValue(node, "expr", node.expr || "x");

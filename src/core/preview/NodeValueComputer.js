@@ -94,6 +94,11 @@ case "circlefield": {
   
   result = this._getParameter(node, "radius") || 0.25;
   break;
+}case "rectangle":
+case "rectanglefield": {
+  const inputs = this.getConnectedInputs(node, visited);
+  result = this._getParameter(node, "width") || 0.5;
+  break;
 }
         case "saturate": {
           const inputs = this.getConnectedInputs(node, visited);

@@ -9,6 +9,7 @@ import { TransformNodes } from '../compilers/TransformNodes.js';
 import { FieldNodes } from '../compilers/FieldNodes.js';
 import { TypeConverter } from './TypeConverter.js';
 import { BlendNodes } from '../compilers/BlendNodes.js';
+import { GradientNodes } from '../compilers/GradientNodes.js';
 
 export class NodeCompiler {
   constructor() {
@@ -21,6 +22,7 @@ export class NodeCompiler {
       vector: new VectorNodes(),
       noise: new NoiseNodes(),
       texture: new TextureNodes(),
+      gradient: new GradientNodes(),
       utility: new UtilityNodes(),
       transform: new TransformNodes(),
       blend: new BlendNodes(),

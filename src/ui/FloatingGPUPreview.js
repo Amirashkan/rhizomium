@@ -1,130 +1,95 @@
+// src/ui/FloatingGPUPreview.js - Fixed version with proper aspect ratio handling
+
 import { PreviewSettings } from "./PreviewSettings.js";
 
 export class FloatingGPUPreview {
-constructor(gpuCanvas) {
-  this.gpuCanvas = gpuCanvas;
-  this.container = null;
-  this.isVisible = false;
-  this.isFullscreen = false;
-  this.isDragging = false;
-  this.isLocked = false;
-  this.isDocked = false;
-  this.isResizing = false;
-  this.position = { x: 20, y: 60 };
-  this.previewScale = 0.5;
-  this.originalCanvasParent = gpuCanvas.parentNode;
-  this.originalCanvasStyles = {
-    position: gpuCanvas.style.position,
-    width: gpuCanvas.style.width,
-    height: gpuCanvas.style.height,
-    zIndex: gpuCanvas.style.zIndex,
-  };
+  constructor(gpuCanvas) {
+    this.gpuCanvas = gpuCanvas;
+    this.container = null;
+    this.isVisible = false;
+    this.isFullscreen = false;
+    this.isDragging = false;
+    this.isLocked = false;
+    this.isDocked = false;
+    this.isResizing = false;
+    this.position = { x: 20, y: 60 };
+    this.previewScale = 0.5;
+    this.originalCanvasParent = gpuCanvas.parentNode;
+    this.originalCanvasStyles = {
+      position: gpuCanvas.style.position,
+      width: gpuCanvas.style.width,
+      height: gpuCanvas.style.height,
+      zIndex: gpuCanvas.style.zIndex,
+    };
 
-  this.settings = new PreviewSettings(this);
-  this.fpsCounter = new FPSCounter();
-  
-  // Animation loop for time-based expressions
-  this.animationLoop = null;
-  
-  // Listen for parameter changes to trigger GPU preview rebuild
-  this._setupParameterListeners();
-  this._setupAnimationLoop();
-}
-
-_setupParameterListeners() {
-  // Listen for expression evaluation events
-  if (window.editor?.eventSystem) {
-    window.editor.eventSystem.on('EXPRESSION_EVALUATED', () => {
-      if (this.isVisible && window.rebuild) {
-        window.rebuild();
-      }
-    });
+    this.settings = new PreviewSettings(this);
+    this.fpsCounter = new FPSCounter();
     
-    window.editor.eventSystem.on('PARAMETER_CHANGED', () => {
-      if (this.isVisible && window.rebuild) {
-        window.rebuild();
-      }
-    });
+    this.animationLoop = null;
+    this._setupParameterListeners();
+    this._setupAnimationLoop();
   }
-  
-  // Fallback: listen for expression system changes
-  if (window.expressionSystem) {
-    window.expressionSystem.addDependencyListener(() => {
-      if (this.isVisible && window.rebuild) {
-        window.rebuild();
-      }
-    });
-  }
-}
 
-_setupAnimationLoop() {
-  // Check if any nodes have time-dependent expressions
-  const hasTimeExpressions = () => {
-    if (!window.editor?.graph?.nodes) return false;
-    
-    return window.editor.graph.nodes.some(node => {
-      if (!node.params) return false;
-      return Object.values(node.params).some(value => 
-        typeof value === 'string' && 
-        value.includes('time') && 
-        value.startsWith('=')
-      );
-    });
-  };
-
-  // Start animation loop when preview is shown
-  const originalShow = this.show.bind(this);
-  this.show = () => {
-    originalShow();
-    
-    if (hasTimeExpressions() && !this.animationLoop) {
-      this.animationLoop = setInterval(() => {
+  _setupParameterListeners() {
+    if (window.editor?.eventSystem) {
+      window.editor.eventSystem.on('EXPRESSION_EVALUATED', () => {
         if (this.isVisible && window.rebuild) {
           window.rebuild();
         }
-      }, 16); // ~60 FPS
+      });
+      
+      window.editor.eventSystem.on('PARAMETER_CHANGED', () => {
+        if (this.isVisible && window.rebuild) {
+          window.rebuild();
+        }
+      });
     }
-  };
-
-  // Stop animation loop when preview is hidden
-  const originalHide = this.hide.bind(this);
-  this.hide = () => {
-    if (this.animationLoop) {
-      clearInterval(this.animationLoop);
-      this.animationLoop = null;
-    }
-    originalHide();
-  };
-}
-
-_setupParameterListeners() {
-  // Listen for expression evaluation events
-  if (window.editor?.eventSystem) {
-    window.editor.eventSystem.on('EXPRESSION_EVALUATED', () => {
-      if (this.isVisible && window.rebuild) {
-        console.log('Expression updated, rebuilding GPU preview');
-        window.rebuild();
-      }
-    });
     
-    window.editor.eventSystem.on('PARAMETER_CHANGED', () => {
-      if (this.isVisible && window.rebuild) {
-        console.log('Parameter changed, rebuilding GPU preview');
-        window.rebuild();
-      }
-    });
+    if (window.expressionSystem) {
+      window.expressionSystem.addDependencyListener(() => {
+        if (this.isVisible && window.rebuild) {
+          window.rebuild();
+        }
+      });
+    }
   }
-  
-  // Fallback: listen for expression system changes
-  if (window.expressionSystem) {
-    window.expressionSystem.addDependencyListener(() => {
-      if (this.isVisible && window.rebuild) {
-        console.log('Expression dependency changed, rebuilding GPU preview');
-        window.rebuild();
+
+  _setupAnimationLoop() {
+    const hasTimeExpressions = () => {
+      if (!window.editor?.graph?.nodes) return false;
+      
+      return window.editor.graph.nodes.some(node => {
+        if (!node.params) return false;
+        return Object.values(node.params).some(value => 
+          typeof value === 'string' && 
+          value.includes('time') && 
+          value.startsWith('=')
+        );
+      });
+    };
+
+    const originalShow = this.show.bind(this);
+    this.show = () => {
+      originalShow();
+      
+      if (hasTimeExpressions() && !this.animationLoop) {
+        this.animationLoop = setInterval(() => {
+          if (this.isVisible && window.rebuild) {
+            window.rebuild();
+          }
+        }, 16);
       }
-    });
+    };
+
+    const originalHide = this.hide.bind(this);
+    this.hide = () => {
+      if (this.animationLoop) {
+        clearInterval(this.animationLoop);
+        this.animationLoop = null;
+      }
+      originalHide();
+    };
   }
-}
 
   updateSize() {
     if (!this.container || this.isFullscreen) return;
@@ -133,39 +98,50 @@ _setupParameterListeners() {
     const headerHeight = 37;
     const padding = 20;
 
+    // CRITICAL FIX: Set actual canvas rendering size
+    this.gpuCanvas.width = width;
+    this.gpuCanvas.height = height;
+
     if (this.isDocked) {
       const dockedScale = 0.3;
       const dockedWidth = width * dockedScale;
       const dockedHeight = height * dockedScale;
 
       this.container.style.width = dockedWidth + padding + "px";
-      this.container.style.height =
-        dockedHeight + headerHeight + padding + "px";
+      this.container.style.height = dockedHeight + headerHeight + padding + "px";
+      
+      // FIX: Set CSS size to maintain aspect ratio
+      this.gpuCanvas.style.width = dockedWidth + "px";
+      this.gpuCanvas.style.height = dockedHeight + "px";
     } else {
       const displayWidth = width * this.previewScale;
       const displayHeight = height * this.previewScale;
 
       this.container.style.width = displayWidth + padding + "px";
-      this.container.style.height =
-        displayHeight + headerHeight + padding + "px";
+      this.container.style.height = displayHeight + headerHeight + padding + "px";
+      
+      // FIX: Set CSS size to maintain aspect ratio
+      this.gpuCanvas.style.width = displayWidth + "px";
+      this.gpuCanvas.style.height = displayHeight + "px";
     }
-
-    this.gpuCanvas.width = width;
-    this.gpuCanvas.height = height;
 
     this._updateTitle();
 
-    // Move settings panel IMMEDIATELY with NO delay
     if (this.settings.settingsPanel) {
       this.settings._positionSettingsPanel();
     }
 
-    if (window.rebuild) {
+    // Reconfigure WebGPU context with new canvas size
+    if (window.initWebGPU) {
+      window.initWebGPU(this.gpuCanvas, true).then(() => {
+        if (window.rebuild) {
+          window.rebuild();
+        }
+      });
+    } else if (window.rebuild) {
       window.rebuild();
     }
   }
-
-  // Replace your FloatingGPUPreview show() and hide() methods with these original working versions:
 
   show() {
     if (this.isVisible) return;
@@ -178,14 +154,17 @@ _setupParameterListeners() {
       document.body.appendChild(this.container);
     }
 
-    // Move the actual WebGPU canvas to the preview window
-    const canvasWrapper = this.container.querySelector(
-      ".preview-canvas-wrapper",
-    );
+    const canvasWrapper = this.container.querySelector(".preview-canvas-wrapper");
     canvasWrapper.appendChild(this.gpuCanvas);
 
-    this.gpuCanvas.style.width = "100%";
-    this.gpuCanvas.style.height = "100%";
+    // FIX: Don't use 100% - use actual scaled dimensions
+    const { width, height } = this.settings.settings.resolution;
+    const scale = this.isDocked ? 0.3 : this.previewScale;
+    
+    this.gpuCanvas.width = width;
+    this.gpuCanvas.height = height;
+    this.gpuCanvas.style.width = (width * scale) + "px";
+    this.gpuCanvas.style.height = (height * scale) + "px";
     this.gpuCanvas.style.position = "relative";
     this.gpuCanvas.style.zIndex = "auto";
 
@@ -213,12 +192,10 @@ _setupParameterListeners() {
 
     this.fpsCounter.stop();
 
-    // Move the canvas back to its original container
     const originalContainer = document.querySelector(".canvas-wrapper");
     if (originalContainer && this.gpuCanvas) {
       originalContainer.appendChild(this.gpuCanvas);
 
-      // Reset canvas styles
       this.gpuCanvas.style.width = "100%";
       this.gpuCanvas.style.height = "100%";
       this.gpuCanvas.style.position = "";
@@ -262,11 +239,27 @@ _setupParameterListeners() {
         height: this.gpuCanvas.height,
       };
 
-      this.gpuCanvas.width = window.innerWidth;
-      this.gpuCanvas.height = window.innerHeight;
+      // FIX: Maintain aspect ratio in fullscreen
+      const { width, height } = this.settings.settings.resolution;
+      const aspectRatio = width / height;
+      
+      let fsWidth = window.innerWidth;
+      let fsHeight = window.innerHeight;
+      
+      // Fit to window while maintaining aspect ratio
+      if (fsWidth / fsHeight > aspectRatio) {
+        fsWidth = fsHeight * aspectRatio;
+      } else {
+        fsHeight = fsWidth / aspectRatio;
+      }
+
+      this.gpuCanvas.width = width;
+      this.gpuCanvas.height = height;
+      this.gpuCanvas.style.width = fsWidth + "px";
+      this.gpuCanvas.style.height = fsHeight + "px";
 
       this.container.style.cssText +=
-        ";position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;border-radius:0!important;";
+        ";position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;border-radius:0!important;display:flex!important;align-items:center!important;justify-content:center!important;";
       btn.textContent = "Exit FS";
     } else {
       if (this.originalFullscreenSize) {
@@ -275,7 +268,7 @@ _setupParameterListeners() {
       }
 
       this.container.style.cssText = this.container.style.cssText.replace(
-        /;position:fixed!important.*?border-radius:0!important;/,
+        /;position:fixed!important.*?justify-content:center!important;/,
         "",
       );
       btn.textContent = "Fullscreen";
@@ -296,8 +289,7 @@ _setupParameterListeners() {
     if (this.isLocked) {
       lockBtn.textContent = "Locked";
       this.container.style.pointerEvents = "none";
-      this.container.querySelector(".preview-header").style.pointerEvents =
-        "auto";
+      this.container.querySelector(".preview-header").style.pointerEvents = "auto";
       this.container.style.opacity = "0.7";
     } else {
       lockBtn.textContent = "Unlocked";
@@ -445,20 +437,19 @@ _setupParameterListeners() {
     header.appendChild(title);
     header.appendChild(controls);
 
-    const canvasWrapper = document.createElement("div");
-    canvasWrapper.className = "preview-canvas-wrapper";
-    canvasWrapper.style.cssText = `
-      width: 100%; 
-      height: calc(100% - ${headerHeight}px); 
-      background: #000; 
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-    `;
+const canvasWrapper = document.createElement("div");
+canvasWrapper.className = "preview-canvas-wrapper";
+canvasWrapper.style.cssText = `
+  width: 100%; 
+  height: calc(100% - ${headerHeight}px); 
+  background: #000; 
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+`;
 
-    // FPS overlay
     const fpsOverlay = document.createElement("div");
     fpsOverlay.className = "fps-overlay";
     fpsOverlay.style.cssText = `
@@ -479,7 +470,6 @@ _setupParameterListeners() {
     fpsOverlay.textContent = "FPS: --";
     canvasWrapper.appendChild(fpsOverlay);
 
-    // Debug channel overlay
     const debugOverlay = document.createElement("div");
     debugOverlay.className = "debug-overlay";
     debugOverlay.style.cssText = `
@@ -497,11 +487,9 @@ _setupParameterListeners() {
       display: ${this.settings.settings.debugChannel !== "none" ? "block" : "none"};
       pointer-events: none;
     `;
-    debugOverlay.textContent =
-      this.settings.settings.debugChannel.toUpperCase();
+    debugOverlay.textContent = this.settings.settings.debugChannel.toUpperCase();
     canvasWrapper.appendChild(debugOverlay);
 
-    // Proper resize handle for docked mode
     if (this.isDocked) {
       const resizeHandle = document.createElement("div");
       resizeHandle.className = "resize-handle-dock";
@@ -542,10 +530,8 @@ _setupParameterListeners() {
       transition: background 0.15s ease;
     `;
 
-    btn.onmouseenter = () =>
-      (btn.style.background = "rgba(255, 255, 255, 0.2)");
-    btn.onmouseleave = () =>
-      (btn.style.background = "rgba(255, 255, 255, 0.1)");
+    btn.onmouseenter = () => (btn.style.background = "rgba(255, 255, 255, 0.2)");
+    btn.onmouseleave = () => (btn.style.background = "rgba(255, 255, 255, 0.1)");
 
     return btn;
   }
@@ -600,7 +586,6 @@ _setupParameterListeners() {
       this.position.x = newLeft;
       this.position.y = newTop;
 
-      // Move settings panel IMMEDIATELY during drag
       if (this.settings.settingsPanel) {
         this.settings._positionSettingsPanel();
       }
@@ -608,8 +593,7 @@ _setupParameterListeners() {
 
     const onMouseUp = () => {
       this.isDragging = false;
-      this.container.style.transition =
-        "opacity 0.2s ease, transform 0.2s ease";
+      this.container.style.transition = "opacity 0.2s ease, transform 0.2s ease";
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
@@ -647,7 +631,6 @@ _setupParameterListeners() {
       let newWidth = Math.max(200, startWidth + deltaX);
       let newHeight = Math.max(150, startHeight + deltaY);
 
-      // Maintain aspect ratio
       const { width, height } = this.settings.settings.resolution;
       const aspectRatio = width / height;
 

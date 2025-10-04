@@ -627,7 +627,15 @@ case "ConicGradient": {
               result = { type: "circle", radius, epsilon };
               break;
             }
-
+case "Rectangle": {
+  const centerX = node.params?.centerX ?? 0.5;
+  const centerY = node.params?.centerY ?? 0.5;
+  const width = node.params?.width ?? 0.5;
+  const height = node.params?.height ?? 0.5;
+  const epsilon = Math.max(0.0001, node.params?.epsilon ?? 0.02);
+  result = { type: "rectangle", centerX, centerY, width, height, epsilon };
+  break;
+}
             // Output
             case "OutputFinal": {
               const c = node.inputs?.[0] ? values.get(node.inputs[0]) : [0, 0, 0];

@@ -7,7 +7,7 @@ export class TextureBindings {
    */
   static generate(graph) {
     let bindingCode = "";
-    let bindingIndex = 1; // Start after uniforms at binding 0
+    let bindingIndex = 2; // Start after uniforms at binding 0
 
     if (!graph.nodes) {
       return bindingCode;
@@ -16,6 +16,7 @@ export class TextureBindings {
     for (const node of graph.nodes) {
       if (node.kind === "Texture2D") {
         const nodeId = this.sanitize(node.id);
+        
         bindingCode += `
 @group(0) @binding(${bindingIndex}) var texture_${nodeId}: texture_2d<f32>;
 @group(0) @binding(${bindingIndex + 1}) var sampler_${nodeId}: sampler;`;
