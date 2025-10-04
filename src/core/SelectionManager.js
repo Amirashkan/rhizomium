@@ -221,56 +221,73 @@ endDrag() {
     }
   }
 
-  deleteSelected() {
-    try {
-      const ids = new Set(this.graph.selection);
-      if (ids.size === 0) return;
+deleteSelected() {
+  try {
+    const ids = new Set(this.graph.selection);
+    if (ids.size === 0) return;
 
-      // Get nodes to delete before removing them
-      const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
+    // Get nodes to delete before removing them
+    const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
 
-      console.log('SelectionManager.deleteSelected called with', nodesToDelete.length, 'nodes');
+    console.log('SelectionManager.deleteSelected called with', nodesToDelete.length, 'nodes');
 
-      // USE GROUP DELETION for multiple nodes
-      if (nodesToDelete.length > 1 && window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
-        console.log("SelectionManager: Using group deletion for", nodesToDelete.length, "nodes");
-        window.onGroupDeleted(nodesToDelete);
-      } else if (nodesToDelete.length === 1) {
-        // Single node - use individual deletion with connection tracking
-        if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
-          console.log("SelectionManager: Recording single node deletion with connections for undo:", nodesToDelete[0].kind, nodesToDelete[0].id);
-          
-          // Find all connections involving this node BEFORE deletion
-          const nodeConnections = this._findAllNodeConnections(nodesToDelete[0]);
-          console.log("Found connections for node", nodesToDelete[0].id, ":", nodeConnections);
-          
-          // Create enhanced node record with connections
-          const enhancedNode = {
-            ...nodesToDelete[0],
-            _connectionSnapshot: nodeConnections
-          };
-          
-          window.onNodeDeleted(enhancedNode);
+    // USE GROUP DELETION for multiple nodes
+    if (nodesToDelete.length > 1 && window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
+      console.log("SelectionManager: Using group deletion for", nodesToDelete.length, "nodes");
+      window.onGroupDeleted(nodesToDelete);
+    } else if (nodesToDelete.length === 1) {
+      // Single node - use individual deletion with connection tracking
+      if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
+        console.log("SelectionManager: Recording single node deletion with connections for undo:", nodesToDelete[0].kind, nodesToDelete[0].id);
+        
+        // Find all connections involving this node BEFORE deletion
+        const nodeConnections = this._findAllNodeConnections(nodesToDelete[0]);
+        console.log("Found connections for node", nodesToDelete[0].id, ":", nodeConnections);
+        
+        // Create enhanced node record with connections
+        const enhancedNode = {
+          ...nodesToDelete[0],
+          _connectionSnapshot: nodeConnections
+        };
+        
+        window.onNodeDeleted(enhancedNode);
+      }
+    }
+
+    // Find connections to remove BEFORE filtering
+    const connectionsToRemove = this.graph.connections.filter(
+      (c) => ids.has(c.from.nodeId) || ids.has(c.to.nodeId)
+    );
+
+    // Clean up input references for connections being removed
+    for (const conn of connectionsToRemove) {
+      // Find the target node and clear its input
+      const targetNode = this.graph.nodes.find(n => n.id === conn.to.nodeId);
+      if (targetNode && targetNode.inputs) {
+        const inputIndex = conn.to.pin || 0;
+        if (targetNode.inputs[inputIndex] === conn.from.nodeId) {
+          targetNode.inputs[inputIndex] = null; // Set to null, not undefined
         }
       }
-
-      // Remove connections involving selected nodes
-      this.graph.connections = this.graph.connections.filter(
-        (c) => !(ids.has(c.from.nodeId) || ids.has(c.to.nodeId)),
-      );
-
-      // Remove nodes
-      this.graph.nodes = this.graph.nodes.filter((n) => !ids.has(n.id));
-      this.graph.selection.clear();
-
-      if (this.onChange) this.onChange();
-    } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'node-deletion',
-        selectedCount: this.graph.selection?.size || 0
-      });
     }
+
+    // Remove connections involving selected nodes
+    this.graph.connections = this.graph.connections.filter(
+      (c) => !(ids.has(c.from.nodeId) || ids.has(c.to.nodeId))
+    );
+
+    // Remove nodes
+    this.graph.nodes = this.graph.nodes.filter((n) => !ids.has(n.id));
+    this.graph.selection.clear();
+
+    if (this.onChange) this.onChange();
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'node-deletion',
+      selectedCount: this.graph.selection?.size || 0
+    });
   }
+}
 
   // Helper method to find all connections involving a node
   _findAllNodeConnections(node) {
