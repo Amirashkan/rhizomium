@@ -13,7 +13,10 @@ export class TransformRenderers {
       'rotate2d': (ctx, node) => this.renderRotate2D(ctx, node),
       'translate2d': (ctx, node) => this.renderTranslate2D(ctx, node),
       'tileandoffset': (ctx, node) => this.renderTileAndOffset(ctx, node),
-      'flip2d': (ctx, node) => this.renderFlip2D(ctx, node)
+      'flip2d': (ctx, node) => this.renderFlip2D(ctx, node),
+      'spherize': (ctx, node) => this.renderSpherize(ctx, node),
+      'twirl': (ctx, node) => this.renderTwirl(ctx, node),
+
     });
   }
 
@@ -599,4 +602,10 @@ export class TransformRenderers {
       this.drawExpressionIndicator(ctx);
     }
   }
+  renderTwirl(ctx, node) {
+  this.renderGeneric(ctx, node);
+}
+renderSpherize(ctx, node) {
+  this.renderGeneric(ctx, node);
+}
 }

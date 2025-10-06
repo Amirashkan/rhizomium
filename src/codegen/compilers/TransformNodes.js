@@ -7,10 +7,11 @@ export class TransformNodes {
    * @param {string} kind 
    * @returns {boolean}
    */
-  handles(kind) {
-return ['Transform2D', 'Scale2D', 'Rotate2D', 'Translate2D', 'TileAndOffset', 'Flip2D', 'UVToColor'].includes(kind);
+handles(kind) {
+  return ['Transform2D','Scale2D','Rotate2D','Translate2D','TileAndOffset',
+          'Flip2D','Twirl','Spherize','UVToColor'].includes(kind);
+}
 
-  }
 
   /**
    * Compile transform nodes
@@ -39,6 +40,11 @@ return ['Transform2D', 'Scale2D', 'Rotate2D', 'Translate2D', 'TileAndOffset', 'F
         return this.compileFlip2D(node, getInput, nodeId);
       case 'UVToColor':
         return this.compileUVToColor(node, getInput, nodeId);
+        case 'Twirl':
+  return this.compileTwirl(node, getInput, nodeId);
+case 'Spherize':
+  return this.compileSpherize(node, getInput, nodeId);
+
       default:
         return null;
     }
@@ -276,7 +282,10 @@ getShaderParam(node, name, defaultValue) {
       };
     }
 
-    const line = `let node_${nodeId} = ${uv} * vec2<f32>(${tilingX}, ${tilingY}) + vec2<f32>(${offsetX}, ${offsetY});`;
+ const line = `
+let node_${nodeId} = fract(${uv} * vec2<f32>(${tilingX}, ${tilingY}) + vec2<f32>(${offsetX}, ${offsetY}));
+`;
+
 
     return {
       line,
@@ -325,4 +334,45 @@ getShaderParam(node, name, defaultValue) {
       outputType: "vec2"
     };
   }
+compileTwirl(node, getInput, nodeId) {
+  const input = getInput(0, "vec2", "in.uv").code || "in.uv";
+  const centerX = this.getShaderParam(node, "centerX", 0.5);
+  const centerY = this.getShaderParam(node, "centerY", 0.5);
+  const strength = this.getShaderParam(node, "strength", 1.0);
+  const radius = this.getShaderParam(node, "radius", 0.5);
+
+  const line = `
+let p_${nodeId} = ${input} - vec2<f32>(${centerX}, ${centerY});
+let r_${nodeId} = length(p_${nodeId});
+let a_${nodeId} = atan2(p_${nodeId}.y, p_${nodeId}.x);
+let t_${nodeId} = smoothstep(${radius}, 0.0, r_${nodeId}) * ${strength};
+let twirled_${nodeId} = vec2<f32>(
+  cos(a_${nodeId} + t_${nodeId}),
+  sin(a_${nodeId} + t_${nodeId})
+) * r_${nodeId};
+let node_${nodeId} = clamp(twirled_${nodeId} + vec2<f32>(${centerX}, ${centerY}),
+                           vec2<f32>(0.0), vec2<f32>(1.0));`;
+
+  return { line, outputType: "vec2" };
+}
+
+compileSpherize(node, getInput, nodeId) {
+  const input = getInput(0, "vec2", "in.uv").code || "in.uv";
+  const centerX = this.getShaderParam(node, "centerX", 0.5);
+  const centerY = this.getShaderParam(node, "centerY", 0.5);
+  const strength = this.getShaderParam(node, "strength", 0.5);
+  const radius = this.getShaderParam(node, "radius", 0.5);
+
+const line = `
+var p_${nodeId} = ${input} - vec2<f32>(${centerX}, ${centerY});
+let r_${nodeId} = length(p_${nodeId});
+let factor_${nodeId} = clamp(r_${nodeId} / ${radius}, 0.0, 1.0);
+p_${nodeId} *= mix(1.0, 1.0 - ${strength}, factor_${nodeId} * factor_${nodeId});
+let node_${nodeId} = clamp(p_${nodeId} + vec2<f32>(${centerX}, ${centerY}),
+                           vec2<f32>(0.0), vec2<f32>(1.0));`;
+
+  return { line, outputType: "vec2" };
+}
+
+
 }
