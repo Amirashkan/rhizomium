@@ -1156,26 +1156,36 @@ getInputHandler(param) {
 
 handleParameterUpdate(action) {
   console.log('Parameter updated:', action);
-  
+
+  // Extract fields safely from the action object
+  const name = action?.parameterName || action?.name || "";
+  const value = action?.newValue ?? action?.value ?? 0;
+
+  // Warn for negative geometry parameters
+  if (Number(value) < 0 && name === "radius") {
+    StatusManager.warn("Radius cannot be negative – auto-corrected");
+  }
+
   // Clear any existing timeout
   if (this._updateTimeout) {
     clearTimeout(this._updateTimeout);
   }
-  
-  // Debounce ALL updates, including drags
+
+  // Debounce updates
   this._updateTimeout = setTimeout(() => {
-    if (this.eventSystem && this.eventSystem.emit) {
-      this.eventSystem.emit('GRAPH_CHANGED', {
+    if (this.eventSystem?.emit) {
+      this.eventSystem.emit("GRAPH_CHANGED", {
         action,
-        source: 'parameter-panel'
+        source: "parameter-panel",
       });
     }
 
     if (this.selectedNode) {
       this.updateNodePreview(this.selectedNode);
     }
-  }, 100); // 100ms debounce - only update after user stops dragging
+  }, 100);
 }
+
 
 updateNodePreview(node) {
   try {

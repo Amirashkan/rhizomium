@@ -20,26 +20,25 @@ export class ParameterUniformManager {
 analyzeNode(node) {
   console.log(`Analyzing node ${node.id}`);
   
-  for (const [paramName, paramValue] of Object.entries(node.params || {})) {
-    console.log(`Analyzing ${node.id}.${paramName} = ${paramValue}`);
-    
-    // Skip expressions containing 'time' - they'll be embedded as shader code
-    if (typeof paramValue === 'string' && /\btime\b/i.test(paramValue)) {
-      console.log(`  ⏱️ Contains 'time' - will be shader code, not uniform`);
-      continue;  // Skip this parameter
-    }
-    
-    if (this.isDynamicExpression(paramValue)) {
-      console.log(`  ✅ Is dynamic!`);
-      this.dynamicParams.add(`${node.id}.${paramName}`);
-      
-      const value = this.evaluateExpression(paramValue);
-      const key = `${node.id}.${paramName}`;
-      this.uniformValues.set(key, value);
-      console.log(`📊 Evaluated ${node.id} param: ${paramValue} = ${value}`);
-    }
-  }
+// inside analyzeNode(node)
+for (const [paramName, paramValue] of Object.entries(node.params || {})) {
+  let value = paramValue;
+if (typeof value === "number" && !isFinite(value)) value = 0.0;
+
+// prevent negative geometry params only
+const key = paramName.toLowerCase();
+if ((key.includes("radius") || key.includes("width") || key.includes("height")) && value < 0)
+  value = Math.abs(value);
+  if (typeof value === 'number' && Math.abs(value) < 1e-6) value = 0.0;
   
+  // normalize negative radius-like params
+  if (paramName.toLowerCase().includes('radius') && value < 0)
+    value = Math.abs(value);
+
+  node.params[paramName] = value; // write back normalized value
+  // continue classification logic...
+}
+
   const nodeKey = `${node.id}`;
   const dynamicParamsForNode = Array.from(this.dynamicParams)
     .filter(key => key.startsWith(`${node.id}.`))
