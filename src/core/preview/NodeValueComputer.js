@@ -29,6 +29,25 @@ export class NodeValueComputer {
       let result;
 
       switch (node.kind.toLowerCase()) {
+        case "stripe":
+case "stripefield": {
+  const freq = this._getParameter(node, "frequency") || 5.0;
+  const thick = this._getParameter(node, "thickness") || 0.5;
+  const val = Math.sin(Date.now() / 200 + freq) > (1.0 - thick) ? 1.0 : 0.0;
+  result = val;
+  break;
+}
+
+case "checker":
+case "checkerfield": {
+  const sx = this._getParameter(node, "scaleX") || 8.0;
+  const sy = this._getParameter(node, "scaleY") || 8.0;
+  const u = Math.floor((Date.now()/1000) * sx) % 2;
+  const v = Math.floor((Date.now()/1000) * sy) % 2;
+  result = (u + v) % 2 === 0 ? 1.0 : 0.0;
+  break;
+}
+
         case "constvec3":
         case "vec3": {
           const x = this._getParameter(node, "x") || 0;

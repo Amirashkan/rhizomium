@@ -42,6 +42,11 @@ setUniformManager(manager) {
     }
     
     switch (node.kind) {
+            case 'Stripe':
+        return this.compileStripe(node, getInput, nodeId);
+      case 'Checker':
+        return this.compileChecker(node, getInput, nodeId);
+
       case 'LinearGradient':
         return this.compileLinearGradient(node, getInput, nodeId);
       case 'RadialGradient':
@@ -327,4 +332,48 @@ getParam(node, paramName, defaultValue) {
     
     return { line, outputType: "vec3" };
   }
+    compileStripe(node, getInput, nodeId) {
+    const uv = getInput(0, "vec2", "in.uv");
+    const freq = this.getParam(node, "frequency", 5.0);
+    const angle = this.getParam(node, "angle", 0.0);
+    const thickness = this.getParam(node, "thickness", 0.5);
+    const smooth = this.getParam(node, "smoothness", 0.0);
+
+    const fnName = `stripe_${nodeId}`;
+const fn = `
+fn ${fnName}(uv: vec2<f32>, scaleX: f32, scaleY: f32, smoothness: f32) -> f32 {
+  let s = floor(uv.x * scaleX);
+  let t = floor(uv.y * scaleY);
+  let checker = abs(fract((s + t) * 0.5) * 2.0 - 1.0);
+  return smoothstep(0.0, 1.0 - smoothness, checker);
+}`;
+
+    const line = `let node_${nodeId} = ${fnName}(${uv}, ${freq}, ${angle}, ${thickness}, ${smooth});`;
+
+    this.functionDefinitions.set(nodeId, fn);
+    return { line, outputType: "f32", functionDef: fn, functionName: fnName };
+  }
+
+compileChecker(node, getInput, nodeId) {
+  const uv = getInput(0, "vec2", "in.uv");
+  const scaleX = this.getParam(node, "scaleX", 8.0);
+  const scaleY = this.getParam(node, "scaleY", 8.0);
+  const smoothness = this.getParam(node, "smoothness", 0.0);
+
+  const fnName = `checker_${nodeId}`;
+const fn = `
+fn ${fnName}(uv: vec2<f32>, scaleX: f32, scaleY: f32, smoothness: f32) -> f32 {
+  let s = floor(uv.x * scaleX);
+  let t = floor(uv.y * scaleY);
+  let checker = abs(fract((s + t) * 0.5) * 2.0 - 1.0);
+  return smoothstep(0.0, 1.0 - smoothness, checker);
+}`;
+
+  const line = `let node_${nodeId} = ${fnName}(${uv}, ${scaleX}, ${scaleY}, ${smoothness});`;
+
+  this.functionDefinitions.set(nodeId, fn);
+  return { line, outputType: "f32", functionDef: fn, functionName: fnName };
+}
+
+
 }

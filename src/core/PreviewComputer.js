@@ -717,6 +717,13 @@ _createNodeThumbnail(node, values) {
       case "Expr":
   this._renderExpressionThumbnail(ctx, size, node.expr || "a");
   break;
+case "Stripe":
+  this._renderStripeThumbnail(ctx, size, node);
+  break;
+
+case "Checker":
+  this._renderCheckerThumbnail(ctx, size, node);
+  break;
 
 case "Remap":
   this._renderRemapThumbnail(ctx, size, node);
@@ -771,6 +778,30 @@ case "Compare":
     return canvas;
   } catch (error) {
     // ... error handling ...
+  }
+}
+_renderStripeThumbnail(ctx, size, node) {
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fillRect(0, 0, size, size);
+  const freq = node.params?.frequency ?? 5;
+  const thick = node.params?.thickness ?? 0.5;
+  const stripeWidth = size / (freq * 2);
+  ctx.fillStyle = "#fff";
+  for (let i = 0; i < freq * 2; i += 2) {
+    ctx.fillRect(i * stripeWidth, 0, stripeWidth * thick * 2, size);
+  }
+}
+
+_renderCheckerThumbnail(ctx, size, node) {
+  const sx = node.params?.scaleX ?? 8;
+  const sy = node.params?.scaleY ?? 8;
+  const cellW = size / sx;
+  const cellH = size / sy;
+  for (let y = 0; y < sy; y++) {
+    for (let x = 0; x < sx; x++) {
+      ctx.fillStyle = (x + y) % 2 === 0 ? "#fff" : "#000";
+      ctx.fillRect(x * cellW, y * cellH, cellW, cellH);
+    }
   }
 }
 
