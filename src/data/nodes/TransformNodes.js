@@ -145,12 +145,11 @@ export const TransformNodes = {
     cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "vec2" }],
+    pinsOut: ["UV"],
     params: [
-      { name: "segments", type: "int", default: 6, label: "Segments" },
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
-      { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
+      { name: "segments", type: "int",   default: 6,   label: "Segments", min: 1, max: 24 },
+      { name: "angle",    type: "float", default: 0.0, label: "Angle" },
+      { name: "scale",    type: "float", default: 1.0, label: "Scale", min: 0.01, max: 5.0 }
     ],
   },
 };

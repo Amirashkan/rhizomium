@@ -24,7 +24,7 @@ setUniformManager(manager) {
     return [
       'LinearGradient', 'RadialGradient', 'AngularGradient', 'ConicGradient',
       'ColorRamp', 'Checker', 'Stripe', 'Circle', 'Rectangle', 'Polygon',
-      'Worley', 'CellNoise'
+      'Worley', 'CellNoise', 'Kaleidoscope'
     ].includes(kind);
   }
 
@@ -57,10 +57,68 @@ setUniformManager(manager) {
         return this.compileConicGradient(node, getInput, nodeId);
       case 'ColorRamp':
         return this.compileColorRamp(node, getInput, nodeId);
+        case 'Kaleidoscope':
+  return this.compileKaleidoscope(node, getInput, nodeId);
+
       default:
         return null;
     }
   }
+compileKaleidoscope(node, getInput, nodeId) {
+  // upstream UV (defaults to in.uv if nothing is connected)
+  const uv = getInput(0, "vec2", "in.uv");
+
+  // Use FieldNodes.getParam so uniforms/expressions work correctly
+  // segments can be int in UI; we’ll treat it as f32 in WGSL
+  const segments   = this.getParam(node, "segments", 6.0);
+  const rotation   = this.getParam(node, "angle", 0.0);
+  const scale      = this.getParam(node, "scale", 1.0);
+  const mirror     = node.params?.mirror ?? true;
+
+  const fnName = `kaleidoscope_${nodeId}`;
+  const fn = `
+fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: bool) -> vec2<f32> {
+  // normalize to [-1,1]
+  var p = uv * 2.0 - vec2<f32>(1.0, 1.0);
+
+  // optional zoom (scale the radius domain)
+  if (zoom != 1.0) {
+    p /= zoom;
+  }
+
+  let r = length(p);
+  let ang = atan2(p.y, p.x) + rotation;
+
+  // stable segment angle (avoid mod on floats)
+  let segAngle = 6.283185307179586 / segments;
+  let k = floor(ang / segAngle);
+  var a = ang - k * segAngle;   // ang % segAngle
+
+  // mirror every other wedge
+  if (mirror && a > segAngle * 0.5) {
+    a = segAngle - a;
+  }
+
+  let x = r * cos(a);
+  let y = r * sin(a);
+
+  // back to [0,1]
+  return vec2<f32>(x, y) * 0.5 + vec2<f32>(0.5, 0.5);
+}`;
+
+  // register function so it’s emitted once
+  this.functionDefinitions.set(fnName, fn);
+
+  // ensure segments is f32 in shader (FieldNodes.getParam can return a string expression already)
+  const segExpr = typeof segments === 'string' ? `(${segments})` : segments;
+  const rotExpr = typeof rotation === 'string' ? `(${rotation})` : rotation;
+  const sclExpr = typeof scale === 'string' ? `(${scale})` : scale;
+
+  const line = `let node_${nodeId} = ${fnName}(${uv}, f32(${segExpr}), ${rotExpr}, ${sclExpr}, ${mirror});`;
+
+  return { line, outputType: "vec2", functionDef: fn, functionName: fnName };
+}
+
 
   compileShapeFunction(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
@@ -332,48 +390,74 @@ getParam(node, paramName, defaultValue) {
     
     return { line, outputType: "vec3" };
   }
-    compileStripe(node, getInput, nodeId) {
-    const uv = getInput(0, "vec2", "in.uv");
-    const freq = this.getParam(node, "frequency", 5.0);
-    const angle = this.getParam(node, "angle", 0.0);
-    const thickness = this.getParam(node, "thickness", 0.5);
-    const smooth = this.getParam(node, "smoothness", 0.0);
 
-    const fnName = `stripe_${nodeId}`;
-const fn = `
-fn ${fnName}(uv: vec2<f32>, scaleX: f32, scaleY: f32, smoothness: f32) -> f32 {
-  let s = floor(uv.x * scaleX);
-  let t = floor(uv.y * scaleY);
-  let checker = abs(fract((s + t) * 0.5) * 2.0 - 1.0);
-  return smoothstep(0.0, 1.0 - smoothness, checker);
-}`;
-
-    const line = `let node_${nodeId} = ${fnName}(${uv}, ${freq}, ${angle}, ${thickness}, ${smooth});`;
-
-    this.functionDefinitions.set(nodeId, fn);
-    return { line, outputType: "f32", functionDef: fn, functionName: fnName };
-  }
 
 compileChecker(node, getInput, nodeId) {
   const uv = getInput(0, "vec2", "in.uv");
+
+  // Proper parameter extraction via FieldNodes.getParam
   const scaleX = this.getParam(node, "scaleX", 8.0);
   const scaleY = this.getParam(node, "scaleY", 8.0);
-  const smoothness = this.getParam(node, "smoothness", 0.0);
+  const smooth = this.getParam(node, "smoothness", 0.0);
 
   const fnName = `checker_${nodeId}`;
-const fn = `
+  const fn = `
 fn ${fnName}(uv: vec2<f32>, scaleX: f32, scaleY: f32, smoothness: f32) -> f32 {
-  let s = floor(uv.x * scaleX);
-  let t = floor(uv.y * scaleY);
-  let checker = abs(fract((s + t) * 0.5) * 2.0 - 1.0);
-  return smoothstep(0.0, 1.0 - smoothness, checker);
+  // scaled coordinates
+  let uvScaled = uv * vec2<f32>(scaleX, scaleY);
+  // get fractional part
+  let f = fract(uvScaled);
+  // base pattern
+  let base = step(0.5, f.x) + step(0.5, f.y);
+  // checker alternates 0/1
+  var c = abs(base - 1.0);
+  // optional smooth edges
+  if (smoothness > 0.0) {
+    let edgeX = smoothstep(0.5 - smoothness, 0.5 + smoothness, f.x);
+    let edgeY = smoothstep(0.5 - smoothness, 0.5 + smoothness, f.y);
+    let mixXY = mix(edgeX, 1.0 - edgeX, step(0.5, f.y));
+    c = mix(c, mixXY, smoothness);
+  }
+  return c;
 }`;
 
-  const line = `let node_${nodeId} = ${fnName}(${uv}, ${scaleX}, ${scaleY}, ${smoothness});`;
+  this.functionDefinitions.set(fnName, fn);
 
-  this.functionDefinitions.set(nodeId, fn);
+  // ensure params become WGSL-compatible expressions
+  const sX = typeof scaleX === 'string' ? `(${scaleX})` : scaleX;
+  const sY = typeof scaleY === 'string' ? `(${scaleY})` : scaleY;
+  const sm = typeof smooth === 'string' ? `(${smooth})` : smooth;
+
+  const line = `let node_${nodeId} = ${fnName}(${uv}, f32(${sX}), f32(${sY}), f32(${sm}));`;
+
   return { line, outputType: "f32", functionDef: fn, functionName: fnName };
 }
+
+
+
+compileStripe(node, getInput, nodeId) {
+  const uv = getInput(0, "vec2", "in.uv");
+  const freq = this.getParam(node, "frequency", 5.0);
+  const angle = this.getParam(node, "angle", 0.0);
+  const thickness = this.getParam(node, "thickness", 0.5);
+  const smoothness = this.getParam(node, "smoothness", 0.0);
+
+  const fnName = `stripe_${nodeId}`;
+  const fn = `
+fn ${fnName}(uv: vec2<f32>, freq: f32, angle: f32, thickness: f32, smoothness: f32) -> f32 {
+  let dir = vec2<f32>(cos(angle), sin(angle));
+  let t = dot(uv, dir) * freq;
+  let v = abs(fract(t) - 0.5) * 2.0;
+  return 1.0 - smoothstep(thickness - smoothness, thickness + smoothness, v);
+}`;
+
+  const line = `let node_${nodeId} = ${fnName}(${uv}, ${freq}, ${angle}, ${thickness}, ${smoothness});`;
+
+  this.functionDefinitions.set(fnName, fn);
+  return { line, outputType: "f32", functionDef: fn, functionName: fnName };
+}
+
+
 
 
 }

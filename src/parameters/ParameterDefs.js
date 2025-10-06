@@ -146,7 +146,19 @@ export const ParameterDefinitions = {
       default: 1
     }
   },
-  
+Kaleidoscope: {
+  label: "Kaleidoscope",
+  type: "transform",
+  params: {
+    segments: { type: "float", default: 6.0, min: 2.0, max: 32.0 },
+    angle: { type: "float", default: 0.0, min: 0.0, max: 6.283, supportsDrag: true },
+    scale: { type: "float", default: 1.0, min: 0.1, max: 4.0, supportsDrag: true },
+    mirror: { type: "bool", default: true },
+  },
+  outputs: [{ type: "vec2", name: "UV" }],
+},
+
+
   // Shape nodes - support all parameter types
   Circle: {
     radius: {

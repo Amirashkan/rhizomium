@@ -8,7 +8,8 @@ export class TransformNodes {
    * @returns {boolean}
    */
   handles(kind) {
-    return ['Transform2D', 'Scale2D', 'Rotate2D', 'Translate2D', 'TileAndOffset', 'Flip2D', 'UVToColor'].includes(kind);
+return ['Transform2D', 'Scale2D', 'Rotate2D', 'Translate2D', 'TileAndOffset', 'Flip2D', 'UVToColor'].includes(kind);
+
   }
 
   /**
