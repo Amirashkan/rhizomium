@@ -39,6 +39,13 @@ export class TextureNodes {
    * Pin 5: A (f32)
    */
   compileTexture2D(node, getInput, nodeId) {
+      if (this.uniformManager) {
+    this.uniformManager.analyzeNode(node);
+  }
+
+  if (window.editor?.previewIntegration) {
+    window.editor.previewIntegration.onParameterChange(node);
+  }
     const uv = getInput(0, "vec2", "in.uv");
     const textureId = nodeId;
     

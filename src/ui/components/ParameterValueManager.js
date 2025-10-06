@@ -10,6 +10,20 @@ export class ParameterValueManager {
     this.expressionSystem = expressionSystem;
     this.debugMode = window.location.search.includes('debug=params');
   }
+  // Check if node is allowed to update via drag, even if not selected
+  isDragPermitted(node) {
+    const canvas = window.editor?.canvas;
+    if (!canvas) return true;
+
+    const selectedId = canvas.selectedNodeId;
+    if (!selectedId) return true;
+    if (selectedId === node.id) return true;
+
+    // Allow if the selected node uses this node as input
+    const selected = canvas.getNodeById(selectedId);
+    if (!selected?.inputConnections) return true;
+    return selected.inputConnections.some(c => c.sourceNodeId === node.id);
+  }
 
   _debugLog(message, data = {}) {
     if (this.debugMode) {
