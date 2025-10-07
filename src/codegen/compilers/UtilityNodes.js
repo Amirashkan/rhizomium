@@ -1,5 +1,24 @@
 // src/codegen/compilers/UtilityNodes.js
+import { COLOR_FUNCTIONS_WGSL } from './ColorNodes.js';
+
 export class UtilityNodes {
+  constructor() {
+    this.uniformManager = null;
+    this.requiresColorHelpers = false;
+  }
+
+  setUniformManager(manager) {
+    this.uniformManager = manager;
+  }
+
+  resetHelperTracking() {
+    this.requiresColorHelpers = false;
+  }
+
+  getHelperFunctions() {
+    return this.requiresColorHelpers ? COLOR_FUNCTIONS_WGSL : '';
+  }
+
   /**
    * Check if this compiler handles the given node kind
    * @param {string} kind 
@@ -9,7 +28,7 @@ export class UtilityNodes {
     return [
       'OutputFinal', 'Expr', 'Remap', 'Posterize',
       'ColorToGrayscale', 'ColorInvert', 'ColorSaturate', 
-      'ColorContrast', 'ColorBrightness',
+      'ColorContrast', 'ColorBrightness', 'ColorMix',
       'HSVToRGB', 'RGBToHSV', 'Select', 'Compare'
     ].includes(kind);
   }
@@ -42,6 +61,8 @@ export class UtilityNodes {
         return this.compileColorContrast(node, getInput, nodeId);
       case 'ColorBrightness':
         return this.compileColorBrightness(node, getInput, nodeId);
+      case 'ColorMix':
+        return this.compileColorMix(node, getInput, nodeId);
       case 'HSVToRGB':
         return this.compileHSVToRGB(nodeId, getInput);
       case 'RGBToHSV':
@@ -170,6 +191,68 @@ export class UtilityNodes {
     
     return {
       line: `let node_${nodeId} = (${color}) + vec3<f32>(${brightness});`,
+      outputType: "vec3"
+    };
+  }
+  
+  compileColorMix(node, getInput, nodeId) {
+    const base = getInput(0, "vec3", "vec3<f32>(0.0)");
+    const blend = getInput(1, "vec3", "vec3<f32>(0.0)");
+    const factor = getInput(2, "f32", "0.5");
+    const mode = (node.params?.mode || "mix").toString().toLowerCase();
+    const factorExpr = `clamp(${factor}, 0.0, 1.0)`;
+    
+    let blendedExpr;
+    switch (mode) {
+      case "mix":
+        blendedExpr = blend;
+        break;
+      case "multiply":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendMultiply(${base}, ${blend})`;
+        break;
+      case "screen":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendScreen(${base}, ${blend})`;
+        break;
+      case "overlay":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendOverlay(${base}, ${blend})`;
+        break;
+      case "add":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendAdd(${base}, ${blend})`;
+        break;
+      case "subtract":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendSubtract(${base}, ${blend})`;
+        break;
+      case "divide":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendDivide(${base}, ${blend})`;
+        break;
+      case "difference":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendDifference(${base}, ${blend})`;
+        break;
+      case "darken":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendDarken(${base}, ${blend})`;
+        break;
+      case "lighten":
+        this.requiresColorHelpers = true;
+        blendedExpr = `blendLighten(${base}, ${blend})`;
+        break;
+      default:
+        blendedExpr = blend;
+        break;
+    }
+    
+    return {
+      line: `
+  let factor_${nodeId} = ${factorExpr};
+  let blended_${nodeId} = ${blendedExpr};
+  let node_${nodeId} = mix(${base}, blended_${nodeId}, factor_${nodeId});`,
       outputType: "vec3"
     };
   }

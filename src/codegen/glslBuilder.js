@@ -59,6 +59,10 @@ export function buildWGSL(graph) {
     ? compiler.compilers.noise.getHelperFunctions()
     : '';
 
+  const colorHelpers = compiler.compilers.utility?.getHelperFunctions
+    ? compiler.compilers.utility.getHelperFunctions()
+    : '';
+
   const textureBindings = TextureBindings.generate(graph);
 
   // --- Build the final shader using the WGSL template ---
@@ -69,6 +73,7 @@ export function buildWGSL(graph) {
       shapeFunctions,
       transformHelpers,
       noiseHelpers,
+      colorHelpers,
     },
     textureBindings
   );

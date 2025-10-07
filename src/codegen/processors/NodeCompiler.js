@@ -52,6 +52,10 @@ export class NodeCompiler {
   compileNodes(orderedNodes) {
     this.uniformManager.clear();
     
+    if (this.compilers.utility?.resetHelperTracking) {
+      this.compilers.utility.resetHelperTracking();
+    }
+    
     const lines = [];
     let usesNoise = false;
     

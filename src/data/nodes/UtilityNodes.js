@@ -101,6 +101,34 @@ export const UtilityNodes = {
     ],
   },
 
+  ColorMix: {
+    label: "Color Mix",
+    cat: "Utility",
+    inputs: 3,
+    pinsIn: ["Base", "Blend", "Factor"],
+    pinsOut: [{ label: "out", type: "vec3" }],
+    params: [
+      {
+        name: "mode",
+        type: "select",
+        default: "mix",
+        options: [
+          "mix",
+          "multiply",
+          "screen",
+          "overlay",
+          "add",
+          "subtract",
+          "divide",
+          "difference",
+          "darken",
+          "lighten",
+        ],
+        label: "Mode",
+      },
+    ],
+  },
+
   HSVToRGB: {
     label: "HSV to RGB",
     cat: "Utility",
