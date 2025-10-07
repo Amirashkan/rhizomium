@@ -510,6 +510,115 @@ function setupUIEventHandlers() {
     console.log("Export WGSL handler attached");
   }
 
+  // Code console helpers
+  const consoleContainer = document.getElementById("code-console");
+  let consoleVisible = !consoleContainer?.classList?.contains("closed");
+
+  const toggleConsoleBtn = removeExistingHandlers("btn-toggle-console");
+  const closeConsoleBtn = removeExistingHandlers("btn-close-console");
+
+  const setConsoleVisibility = (visible, notify = true) => {
+    if (!consoleContainer) return;
+    consoleVisible = visible;
+    consoleContainer.classList.toggle("closed", !visible);
+    if (toggleConsoleBtn) {
+      toggleConsoleBtn.textContent = visible ? "Hide Console" : "Show Console";
+    }
+    if (notify && typeof updateStatus === "function") {
+      updateStatus(visible ? "Console shown" : "Console hidden");
+    }
+  };
+
+  if (toggleConsoleBtn) {
+    toggleConsoleBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      setConsoleVisibility(!consoleVisible);
+    });
+    console.log("Console toggle handler attached");
+  }
+
+  if (closeConsoleBtn) {
+    closeConsoleBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      setConsoleVisibility(false);
+    });
+    console.log("Console close handler attached");
+  }
+
+  const selectCodeBtn = removeExistingHandlers("btn-select-code");
+  if (selectCodeBtn) {
+    selectCodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const codeEl = document.getElementById("code");
+      if (!codeEl) {
+        console.warn("Code console element not found");
+        return;
+      }
+
+      const selection = window.getSelection();
+      if (!selection) return;
+
+      const range = document.createRange();
+      range.selectNodeContents(codeEl);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      codeEl.focus();
+
+      if (typeof updateStatus === "function") {
+        updateStatus("WGSL selected");
+      }
+    });
+    console.log("Select-all handler attached");
+  }
+
+  const copyCodeBtn = removeExistingHandlers("btn-copy-code");
+  if (copyCodeBtn) {
+    copyCodeBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const codeEl = document.getElementById("code");
+      const text =
+        window.latestGeneratedWGSLClean ||
+        window.latestGeneratedWGSL ||
+        codeEl?.textContent ||
+        "";
+
+      if (!text) {
+        console.warn("No WGSL code available to copy");
+        if (typeof updateStatus === "function") {
+          updateStatus("No WGSL to copy", "error");
+        }
+        return;
+      }
+
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const temp = document.createElement("textarea");
+          temp.value = text;
+          temp.setAttribute("readonly", "");
+          temp.style.position = "absolute";
+          temp.style.left = "-9999px";
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand("copy");
+          document.body.removeChild(temp);
+        }
+
+        if (typeof updateStatus === "function") {
+          updateStatus("WGSL copied to clipboard");
+        }
+      } catch (err) {
+        console.error("Failed to copy WGSL:", err);
+        if (typeof updateStatus === "function") {
+          updateStatus("Copy failed", "error");
+        }
+      }
+    });
+    console.log("Copy handler attached");
+  }
+  setConsoleVisibility(consoleVisible, false);
+
   // Import button
   const importBtn = removeExistingHandlers("btn-import");
   if (importBtn) {
@@ -982,82 +1091,74 @@ let lastUniformUpdate = 0;
 function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
-      console.log('Empty graph - skipping shader update');
+      console.log("Empty graph - skipping shader update");
       return;
     }
-    
-    const outputNode = graph.nodes.find(node => 
-      node && /OutputFinal/i.test(node.kind || node.type || node.name || '')
+
+    const outputNode = graph.nodes.find(
+      (node) => node && /OutputFinal/i.test(node.kind || node.type || node.name || "")
     );
-    
+
     if (!outputNode) {
-      console.log('No output node found - skipping shader update');
+      console.log("No output node found - skipping shader update");
       return;
     }
-    
-    const hasConnection = Array.isArray(outputNode.inputs) && 
-                         outputNode.inputs[0] !== null && 
-                         outputNode.inputs[0] !== undefined;
-    
+
+    const hasConnection =
+      Array.isArray(outputNode.inputs) &&
+      outputNode.inputs[0] !== null &&
+      outputNode.inputs[0] !== undefined;
+
     if (!hasConnection) {
-      console.log('Output node not connected - skipping shader update');
+      console.log("Output node not connected - skipping shader update");
       return;
     }
-    
-    console.log('Graph valid - compiling shader');
-    
-    // CRITICAL: Clear uniform manager owned by NodeCompiler
-    // NodeCompiler creates it, then passes it to FieldNodes and others
-    
-    // Compile the shader
-    console.log('🔧 Starting shader generation...');
-    const result = buildWGSL(window.editor.graph);  // ✅ This line was missing!
 
+    console.log("Graph valid - compiling shader");
 
-
-
-
+    const result = buildWGSL(window.editor.graph);
     if (!result || !result.wgsl) {
-      console.error('Shader compilation produced no code');
+      console.error("Shader compilation produced no code");
       return;
     }
-    
-console.log('Shader code generated, length:', result.wgsl.length);
 
-if (window.gpuRenderer) {
-  window.gpuRenderer.setShaderSource(result.wgsl, {
-    hasTextures: !!result.usesTextures,
-    hasUniforms: !!result.usesUniforms,
-  });
-  console.log('Shader updated successfully');
-  lastUniformUpdate = performance.now();
-  if (typeof updateStatus === 'function') {
-    updateStatus('Shader compiled');
-  }
-} else {
-  console.warn('⚠️ gpuRenderer not initialized');
-}
+    const rawWGSL = typeof result.wgsl === "string" ? result.wgsl : String(result.wgsl ?? "");
+    const sanitizedWGSL = rawWGSL.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
+    const shaderLength = sanitizedWGSL.length;
+    window.latestGeneratedWGSL = rawWGSL;
+    window.latestGeneratedWGSLClean = sanitizedWGSL;
 
+    const codeElement = document.getElementById("code");
+    if (codeElement) {
+      codeElement.textContent = sanitizedWGSL;
+      codeElement.scrollTop = codeElement.scrollHeight;
+    }
 
-    
-console.log('Shader code generated, length:', result.wgsl.length);
-
-
-
-
-    
+    if (window.gpuRenderer) {
+      window.gpuRenderer.setShaderSource(rawWGSL, {
+        hasTextures: !!result.usesTextures,
+        hasUniforms: !!result.usesUniforms,
+      });
+      console.log(`Shader updated successfully (${shaderLength} chars)`);
+      lastUniformUpdate = performance.now();
+      if (typeof updateStatus === "function") {
+        updateStatus("Shader compiled");
+      }
+    } else {
+      console.warn("GPU renderer not initialized");
+    }
   } catch (error) {
-    console.error('Error in updateShaderFromGraph:', error);
-    
-    if (window.errorHandler && typeof window.errorHandler.handleError === 'function') {
+    console.error("Error in updateShaderFromGraph:", error);
+
+    if (window.errorHandler && typeof window.errorHandler.handleError === "function") {
       window.errorHandler.handleError(error, {
-        component: 'shader-update',
-        type: 'compilation-error'
+        component: "shader-update",
+        type: "compilation-error",
       });
     }
-    
-    if (typeof updateStatus === 'function') {
-      updateStatus('Shader compilation failed', 'error');
+
+    if (typeof updateStatus === "function") {
+      updateStatus("Shader compilation failed", "error");
     }
   }
 }

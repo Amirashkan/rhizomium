@@ -353,6 +353,19 @@ export const FieldNodes = {
       { name: "smooth", type: "bool", default: false, label: "Smooth" },
     ],
   },
+
+  Displacement: {
+    label: "Displacement",
+    cat: "Field",
+    inputs: 2,
+    pinsIn: ["UV", "Offset"],
+    pinsOut: [{ label: "out", type: "vec2" }],
+    params: [
+      { name: "strength", type: "float", default: 0.2, label: "Strength" },
+      { name: "centered", type: "boolean", default: true, label: "Center Input" },
+      { name: "wrap", type: "boolean", default: false, label: "Wrap UV" },
+    ],
+  },
   ColorRamp: {
   label: "Color Ramp",
   cat: "Field",

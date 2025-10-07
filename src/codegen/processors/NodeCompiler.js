@@ -50,8 +50,13 @@ export class NodeCompiler {
     this.uniformManager.clear();
     
     const lines = [];
+    let usesNoise = false;
     
     for (const node of orderedNodes) {
+      if (this.compilers.noise.handles(node.kind)) {
+        usesNoise = true;
+      }
+
       const result = this.compileNode(node);
       if (result.line) {
         lines.push(result.line);
@@ -85,7 +90,8 @@ export class NodeCompiler {
       types: this.typeConverter.types,
       expressions: this.typeConverter.expressions,
       uniformStruct: this.uniformManager.generateUniformStruct(),
-      uniformManager: this.uniformManager
+      uniformManager: this.uniformManager,
+      usesNoise,
     };
   }
 

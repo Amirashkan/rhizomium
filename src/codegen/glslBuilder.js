@@ -43,7 +43,7 @@ export function buildWGSL(graph) {
 
   // --- Compile all nodes into WGSL lines ---
   const compiledData = compiler.compileNodes(orderedNodes);
-  const { lines, uniformStruct, uniformManager } = compiledData;
+  const { lines, uniformStruct, uniformManager, usesNoise } = compiledData;
 
   // --- Collect all function definitions and helpers ---
   const shapeFunctions = compiler.compilers.field?.getAllFunctionDefinitions
@@ -55,7 +55,7 @@ export function buildWGSL(graph) {
     ? compiler.compilers.transform.getHelperFunctions()
     : '';
 
-  const noiseHelpers = compiler.compilers.noise?.getHelperFunctions
+  const noiseHelpers = usesNoise && compiler.compilers.noise?.getHelperFunctions
     ? compiler.compilers.noise.getHelperFunctions()
     : '';
 

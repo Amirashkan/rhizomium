@@ -146,6 +146,24 @@ export const ParameterDefinitions = {
       default: 1
     }
   },
+  
+  Displacement: {
+    strength: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.2
+    },
+    centered: {
+      type: ParameterTypes.BOOL,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: true
+    },
+    wrap: {
+      type: ParameterTypes.BOOL,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: false
+    }
+  },
 Kaleidoscope: {
   label: "Kaleidoscope",
   type: "transform",

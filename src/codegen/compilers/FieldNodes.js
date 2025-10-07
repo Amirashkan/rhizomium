@@ -27,7 +27,7 @@ export class FieldNodes {
   handles(kind) {
     return [
       'LinearGradient', 'RadialGradient', 'AngularGradient', 'ConicGradient',
-      'ColorRamp', 'Checker', 'Stripe', 'Circle', 'Rectangle', 'Polygon',
+      'ColorRamp', 'Checker', 'Stripe', 'Displacement', 'Circle', 'Rectangle', 'Polygon',
       'Worley', 'CellNoise', 'Kaleidoscope'
     ].includes(kind);
   }
@@ -61,6 +61,8 @@ export class FieldNodes {
         return this.compileConicGradient(node, getInput, nodeId);
       case 'ColorRamp':
         return this.compileColorRamp(node, getInput, nodeId);
+      case 'Displacement':
+        return this.compileDisplacement(node, getInput, nodeId);
         case 'Kaleidoscope':
   return this.compileKaleidoscope(node, getInput, nodeId);
 
@@ -429,6 +431,31 @@ getParam(node, paramName, defaultValue) {
   }`;
     
     return { line, outputType: "vec3" };
+  }
+
+  compileDisplacement(node, getInput, nodeId) {
+    const uv = getInput(0, "vec2", "in.uv");
+    const offset = getInput(1, "vec2", "vec2<f32>(0.0)");
+    const strengthValue = this.getParam(node, "strength", 0.2);
+    const centered = this.getParam(node, "centered", true);
+    const wrap = this.getParam(node, "wrap", false);
+
+    const strengthExpr = typeof strengthValue === "string"
+      ? `(${strengthValue})`
+      : strengthValue.toString();
+
+    const displacementExpr = centered
+      ? `(${offset} - vec2<f32>(0.5))`
+      : offset;
+
+    const displacedExpr = `${uv} + (${displacementExpr}) * ${strengthExpr}`;
+    const finalExpr = wrap
+      ? `fract(${displacedExpr})`
+      : `clamp(${displacedExpr}, vec2<f32>(0.0), vec2<f32>(1.0))`;
+
+    const line = `let node_${nodeId} = ${finalExpr};`;
+
+    return { line, outputType: "vec2" };
   }
 
 

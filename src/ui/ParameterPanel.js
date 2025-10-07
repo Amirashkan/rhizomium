@@ -638,9 +638,17 @@ case 'flip2d':
         if (node.params && Object.keys(node.params).length > 0) {
           Object.keys(node.params).forEach(key => {
             const value = node.params[key];
+            let inferredType = 'text';
+
+            if (typeof value === 'number') {
+              inferredType = Number.isInteger(value) ? 'int' : 'float';
+            } else if (typeof value === 'boolean') {
+              inferredType = 'boolean';
+            }
+
             definitions.push({
               name: key,
-              type: typeof value === 'number' ? 'float' : 'text',
+              type: inferredType,
               displayName: key.charAt(0).toUpperCase() + key.slice(1),
               default: value,
               description: `${key} parameter`
