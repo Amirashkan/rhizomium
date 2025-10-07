@@ -410,14 +410,24 @@ export class EventHandler {
         return;
       }
 
-      if (!this.menu.contains(e.target)) {
+      if (this.menu && !this.menu.contains(e.target)) {
         this.menu.hide();
       }
 
-      // FIXED: Use this.paramPanel.panel.contains instead of this.paramPanel.contains
-      if (this.paramPanel.panel && !this.paramPanel.panel.contains(e.target)) {
-        this.paramPanel.hide();
+      if (!this.paramPanel?.panel) {
+        return;
       }
+
+      if (this.paramPanel.panel.contains(e.target)) {
+        return;
+      }
+
+      const activeElement = document.activeElement;
+      if (activeElement && this.paramPanel.panel.contains(activeElement)) {
+        return;
+      }
+
+      this.paramPanel.hide();
     });
   }
 

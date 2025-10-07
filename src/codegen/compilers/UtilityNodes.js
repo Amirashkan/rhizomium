@@ -199,11 +199,15 @@ export class UtilityNodes {
     const base = getInput(0, "vec3", "vec3<f32>(0.0)");
     const blend = getInput(1, "vec3", "vec3<f32>(0.0)");
     const factor = getInput(2, "f32", "0.5");
-    const mode = (node.params?.mode || "mix").toString().toLowerCase();
+    const modeRaw = node.params?.mode ?? node.props?.mode ?? "mix";
+    const normalizedMode = (() => {
+      const formatted = modeRaw.toString().trim().toLowerCase();
+      return formatted.length > 0 ? formatted : "mix";
+    })();
     const factorExpr = `clamp(${factor}, 0.0, 1.0)`;
     
     let blendedExpr;
-    switch (mode) {
+    switch (normalizedMode) {
       case "mix":
         blendedExpr = blend;
         break;

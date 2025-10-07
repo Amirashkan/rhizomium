@@ -26,6 +26,9 @@ export class ParameterPanel {
     this.minPanelWidth = 220;
     this.minPanelHeight = 220;
     this.expressionSystem = expressionSystem;
+    this._pendingPreviewUpdates = new Map();
+    this._previewFrame = null;
+    this._outputRebuildTimeout = null;
     
     // Initialize binding system
     this.bindingSystem = new ParameterBindingSystem(graph, eventSystem, undoManager);
@@ -313,11 +316,20 @@ export class ParameterPanel {
 
     // Close panel when clicking outside
     document.addEventListener('click', (e) => {
-      if (this.panel.style.display !== 'none' && 
-          !this.panel.contains(e.target) && 
-          !e.target.closest('.node')) {
-        this.hide();
+      if (this.panel.style.display === 'none') {
+        return;
       }
+
+      if (this.panel.contains(e.target) || e.target.closest('.node')) {
+        return;
+      }
+
+      const activeElement = document.activeElement;
+      if (activeElement && this.panel.contains(activeElement)) {
+        return;
+      }
+
+      this.hide();
     });
 
     // Add keyboard shortcuts for binding
@@ -1411,6 +1423,28 @@ handleParameterUpdate(action) {
 
 
 updateNodePreview(node) {
+  if (!node) {
+    return;
+  }
+
+  this._pendingPreviewUpdates.set(node.id, node);
+
+  if (this._previewFrame) {
+    return;
+  }
+
+  this._previewFrame = requestAnimationFrame(() => {
+    const queuedUpdates = Array.from(this._pendingPreviewUpdates.values());
+    this._pendingPreviewUpdates.clear();
+    this._previewFrame = null;
+
+    queuedUpdates.forEach((queuedNode) => {
+      this._processPreviewUpdate(queuedNode);
+    });
+  });
+}
+
+_processPreviewUpdate(node) {
   try {
     console.log('Updating preview for node:', node.id);
     
@@ -1423,7 +1457,6 @@ updateNodePreview(node) {
       window.editor.previewIntegration.generateNodePreview(node);
       console.log('Regenerated preview for node:', node.id);
       
-      // Update downstream nodes
       if (window.editor?.graph?.nodes) {
         const downstreamNodes = window.editor.graph.nodes.filter(n => 
           n.inputs && Array.isArray(n.inputs) && n.inputs.includes(node.id)
@@ -1432,9 +1465,14 @@ updateNodePreview(node) {
         console.log(`Found ${downstreamNodes.length} downstream nodes for ${node.id}`);
         
         downstreamNodes.forEach(downstreamNode => {
-          console.log('Updating downstream node:', downstreamNode.id);
-          window.editor.previewSystem.canvasManager.canvasCache.delete(downstreamNode.id);
-          window.editor.previewIntegration.generateNodePreview(downstreamNode);
+          if (!downstreamNode || downstreamNode.id === node.id) {
+            return;
+          }
+          console.log('Queuing downstream node update:', downstreamNode.id);
+          if (window.editor?.previewSystem?.canvasManager) {
+            window.editor.previewSystem.canvasManager.canvasCache.delete(downstreamNode.id);
+          }
+          this.updateNodePreview(downstreamNode);
         });
         
         // CRITICAL: Recursively check ALL downstream nodes for OutputFinal
@@ -1457,10 +1495,14 @@ updateNodePreview(node) {
         };
         
         if (hasOutputInChain(node.id) && window.editor.onChange) {
-          console.log('OutputFinal found in downstream chain - triggering shader recompilation');
-          setTimeout(() => {
+          console.log('OutputFinal found in downstream chain - scheduling shader recompilation');
+          if (this._outputRebuildTimeout) {
+            clearTimeout(this._outputRebuildTimeout);
+          }
+          this._outputRebuildTimeout = setTimeout(() => {
+            this._outputRebuildTimeout = null;
             window.editor.onChange('Parameter update affecting output');
-          }, 50);
+          }, 150);
         }
       }
     }
@@ -1676,5 +1718,17 @@ updateDependentExpressions(node) {
       this.eventSystem.off('BINDING_CREATED');
       this.eventSystem.off('BINDING_REMOVED');
     }
+
+    if (this._previewFrame) {
+      cancelAnimationFrame(this._previewFrame);
+      this._previewFrame = null;
+    }
+
+    if (this._outputRebuildTimeout) {
+      clearTimeout(this._outputRebuildTimeout);
+      this._outputRebuildTimeout = null;
+    }
+
+    this._pendingPreviewUpdates.clear();
   }
 }
