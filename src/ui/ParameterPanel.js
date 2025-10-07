@@ -16,6 +16,15 @@ export class ParameterPanel {
     this.graph = graph;
     this.selectedNode = null;
     this.panel = null;
+    this.panelContent = null;
+    this.resizeHandle = null;
+    this._onResizeMouseDown = null;
+    this._onResizeMouseMove = null;
+    this._onResizeMouseUp = null;
+    this._preResizeUserSelect = null;
+    this._onWindowResize = null;
+    this.minPanelWidth = 220;
+    this.minPanelHeight = 220;
     this.expressionSystem = expressionSystem;
     
     // Initialize binding system
@@ -68,8 +77,10 @@ export class ParameterPanel {
       position: fixed;
       top: 10px;
       right: 10px;
-      width: 300px;
-      max-height: 70vh;
+      width: 320px;
+      min-width: 220px;
+      min-height: 220px;
+      max-height: calc(100vh - 20px);
       background: #2b2b2b;
       border: 1px solid #555;
       border-radius: 8px;
@@ -78,12 +89,176 @@ export class ParameterPanel {
       font-family: Arial, sans-serif;
       font-size: 12px;
       color: #fff;
-      overflow-y: auto;
       z-index: 1000;
-      display: none;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      overflow: hidden;
     `;
-    
+    this.panel.style.display = 'none';
+
+    this.panelContent = document.createElement('div');
+    this.panelContent.className = 'parameter-panel__content';
+    this.panelContent.style.cssText = `
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 4px;
+    `;
+
+    this.panel.appendChild(this.panelContent);
+    this.createResizeHandle();
     document.body.appendChild(this.panel);
+    this.restorePanelSize();
+  }
+
+  createResizeHandle() {
+    if (!this.panel) {
+      return;
+    }
+
+    this.resizeHandle = document.createElement('div');
+    this.resizeHandle.className = 'parameter-panel__resize-handle';
+    this.resizeHandle.style.cssText = `
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      right: 6px;
+      bottom: 6px;
+      cursor: nwse-resize;
+      border-radius: 3px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.3) 100%);
+    `;
+
+    this.panel.appendChild(this.resizeHandle);
+
+    let startWidth = 0;
+    let startHeight = 0;
+    let startX = 0;
+    let startY = 0;
+
+    this._onResizeMouseMove = (event) => {
+      if (!this.panel) return;
+
+      const deltaX = event.clientX - startX;
+      const deltaY = event.clientY - startY;
+
+      const maxWidth = Math.max(this.minPanelWidth, window.innerWidth - 20);
+      const maxHeight = Math.max(this.minPanelHeight, window.innerHeight - 20);
+
+      let nextWidth = startWidth - deltaX;
+      let nextHeight = startHeight + deltaY;
+
+      nextWidth = Math.min(Math.max(nextWidth, this.minPanelWidth), maxWidth);
+      nextHeight = Math.min(Math.max(nextHeight, this.minPanelHeight), maxHeight);
+
+      this.panel.style.width = `${Math.round(nextWidth)}px`;
+      this.panel.style.height = `${Math.round(nextHeight)}px`;
+    };
+
+    this._onResizeMouseUp = () => {
+      document.removeEventListener('mousemove', this._onResizeMouseMove);
+      document.removeEventListener('mouseup', this._onResizeMouseUp);
+
+      if (this._preResizeUserSelect !== null) {
+        document.body.style.userSelect = this._preResizeUserSelect;
+        this._preResizeUserSelect = null;
+      }
+
+      this.savePanelSize();
+    };
+
+    this._onResizeMouseDown = (event) => {
+      event.preventDefault();
+
+      if (!this.panel) return;
+
+      startWidth = this.panel.offsetWidth;
+      startHeight = this.panel.offsetHeight;
+      startX = event.clientX;
+      startY = event.clientY;
+
+      this._preResizeUserSelect = document.body.style.userSelect;
+      document.body.style.userSelect = 'none';
+
+      document.addEventListener('mousemove', this._onResizeMouseMove);
+      document.addEventListener('mouseup', this._onResizeMouseUp);
+    };
+
+    this.resizeHandle.addEventListener('mousedown', this._onResizeMouseDown);
+  }
+
+  clampPanelSizeToViewport() {
+    if (!this.panel) {
+      return;
+    }
+
+    const maxWidth = Math.max(this.minPanelWidth, window.innerWidth - 20);
+    const maxHeight = Math.max(this.minPanelHeight, window.innerHeight - 20);
+
+    let currentWidth = this.panel.offsetWidth;
+    let currentHeight = this.panel.offsetHeight;
+
+    if (!currentWidth) {
+      const parsedWidth = parseFloat(this.panel.style.width);
+      currentWidth = Number.isFinite(parsedWidth) ? parsedWidth : this.minPanelWidth;
+    }
+
+    if (!currentHeight) {
+      const parsedHeight = parseFloat(this.panel.style.height);
+      currentHeight = Number.isFinite(parsedHeight) ? parsedHeight : this.minPanelHeight;
+    }
+
+    const clampedWidth = Math.min(Math.max(currentWidth, this.minPanelWidth), maxWidth);
+    const clampedHeight = Math.min(Math.max(currentHeight, this.minPanelHeight), maxHeight);
+
+    this.panel.style.width = `${Math.round(clampedWidth)}px`;
+    this.panel.style.height = `${Math.round(clampedHeight)}px`;
+  }
+
+  savePanelSize() {
+    if (!this.panel) {
+      return;
+    }
+
+    const size = {
+      width: this.panel.offsetWidth,
+      height: this.panel.offsetHeight
+    };
+
+    try {
+      localStorage.setItem('glsl-node-editor.parameter-panel.size', JSON.stringify(size));
+    } catch (error) {
+      console.warn('Unable to persist parameter panel size:', error);
+    }
+  }
+
+  restorePanelSize() {
+    if (!this.panel) {
+      return;
+    }
+
+    try {
+      const stored = localStorage.getItem('glsl-node-editor.parameter-panel.size');
+      if (stored) {
+        const size = JSON.parse(stored);
+        if (size && Number.isFinite(size.width)) {
+          const width = Math.min(Math.max(size.width, this.minPanelWidth), Math.max(this.minPanelWidth, window.innerWidth - 20));
+          this.panel.style.width = `${Math.round(width)}px`;
+        }
+        if (size && Number.isFinite(size.height)) {
+          const height = Math.min(Math.max(size.height, this.minPanelHeight), Math.max(this.minPanelHeight, window.innerHeight - 20));
+          this.panel.style.height = `${Math.round(height)}px`;
+        }
+      } else {
+        this.panel.style.height = '';
+      }
+    } catch (error) {
+      console.warn('Unable to restore parameter panel size:', error);
+    }
+
+    this.clampPanelSizeToViewport();
   }
 
   injectStyles() {
@@ -127,6 +302,14 @@ export class ParameterPanel {
         }
       });
     }
+
+    if (!this._onWindowResize) {
+      this._onWindowResize = () => {
+        this.clampPanelSizeToViewport();
+        this.savePanelSize();
+      };
+    }
+    window.addEventListener('resize', this._onWindowResize);
 
     // Close panel when clicking outside
     document.addEventListener('click', (e) => {
@@ -693,7 +876,7 @@ case 'flip2d':
 
   showNodeParameters(node) {
     this.selectedNode = node;
-    this.panel.style.display = 'block';
+    this.panel.style.display = 'flex';
     this.renderParameters(node);
   }
 
@@ -714,14 +897,14 @@ case 'flip2d':
 
   renderParameters(node) {
     if (!node) {
-      this.panel.innerHTML = '<div class="no-parameters">No node provided</div>';
+      this.panelContent.innerHTML = '<div class="no-parameters">No node provided</div>';
       return;
     }
 
     const parameterDefinitions = this.getParameterDefinitions(node);
 
     if (!parameterDefinitions || parameterDefinitions.length === 0) {
-      this.panel.innerHTML = `
+      this.panelContent.innerHTML = `
         <div class="no-parameters">
           <h3>${node.kind}</h3>
           <p>No parameters available for this node type.</p>
@@ -752,8 +935,8 @@ case 'flip2d':
       color: #4CAF50;
     `;
 
-    this.panel.innerHTML = '';
-    this.panel.appendChild(title);
+    this.panelContent.innerHTML = '';
+    this.panelContent.appendChild(title);
 
     parameterDefinitions.forEach(param => {
       this.renderParameter(param, node);
@@ -865,7 +1048,7 @@ case 'flip2d':
       paramContainer.appendChild(rangeInfo);
     }
 
-    this.panel.appendChild(paramContainer);
+    this.panelContent.appendChild(paramContainer);
   }
 
   createBindingControls(param, node, bindingInfo) {
@@ -1191,7 +1374,7 @@ getInputHandler(param) {
 
     helpSection.appendChild(helpTitle);
     helpSection.appendChild(helpContent);
-    this.panel.appendChild(helpSection);
+    this.panelContent.appendChild(helpSection);
   }
 
 handleParameterUpdate(action) {
@@ -1456,6 +1639,24 @@ updateDependentExpressions(node) {
   }
 
   destroy() {
+    if (this.resizeHandle && this._onResizeMouseDown) {
+      this.resizeHandle.removeEventListener('mousedown', this._onResizeMouseDown);
+    }
+    if (this._onResizeMouseMove) {
+      document.removeEventListener('mousemove', this._onResizeMouseMove);
+    }
+    if (this._onResizeMouseUp) {
+      document.removeEventListener('mouseup', this._onResizeMouseUp);
+    }
+    if (this._onWindowResize) {
+      window.removeEventListener('resize', this._onWindowResize);
+      this._onWindowResize = null;
+    }
+    if (this._preResizeUserSelect !== null) {
+      document.body.style.userSelect = this._preResizeUserSelect;
+      this._preResizeUserSelect = null;
+    }
+
     if (this.panel) {
       this.panel.remove();
     }

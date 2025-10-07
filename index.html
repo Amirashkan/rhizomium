@@ -61,55 +61,65 @@
     <canvas id="ui-canvas"></canvas>
 
     <div id="hud">
-      <button id="btn-toggle-preview">Toggle Preview</button>
-      <button id="btn-dock-preview">Dock Preview</button>
-      <button id="btn-lock-preview">Lock Preview</button>
-      <button id="btn-fullscreen-preview">Fullscreen</button>
-      <div class="snap-controls">
-        <label class="snap-toggle">
-          <input type="checkbox" id="snap-toggle" /> Snap
-        </label>
-        <label class="snap-size">
-          <span>Grid</span>
-          <input
-            type="number"
-            id="snap-size"
-            inputmode="numeric"
-            min="2"
-            max="512"
-            step="1"
-            value="20"
-          />
-        </label>
+      <button
+        id="btn-toggle-hud"
+        class="hud-collapse-toggle"
+        type="button"
+        aria-expanded="true"
+        aria-controls="hud-content"
+      >
+        Hide Menu
+      </button>
+      <div id="hud-content" class="hud-content">
+        <button id="btn-toggle-preview">Toggle Preview</button>
+        <button id="btn-dock-preview">Dock Preview</button>
+        <button id="btn-lock-preview">Lock Preview</button>
+        <button id="btn-fullscreen-preview">Fullscreen</button>
+        <div class="snap-controls">
+          <label class="snap-toggle">
+            <input type="checkbox" id="snap-toggle" /> Snap
+          </label>
+          <label class="snap-size">
+            <span>Grid</span>
+            <input
+              type="number"
+              id="snap-size"
+              inputmode="numeric"
+              min="2"
+              max="512"
+              step="1"
+              value="20"
+            />
+          </label>
+        </div>
+        
+        <!-- History section with proper inline styling -->
+        <span class="history-section">
+          <label>History:</label>
+          <button id="btn-undo" title="Undo last action (Ctrl+Z)" disabled>
+            <span class="icon">&#8634;</span> Undo
+          </button>
+          <button id="btn-redo" title="Redo last action (Ctrl+Y)" disabled>
+            <span class="icon">&#8635;</span> Redo
+          </button>
+        </span>
+        
+        <button id="btn-rebuild">Rebuild</button>
+        <button id="btn-save">Save Project</button>
+        <button id="btn-load">Load Project</button>
+        <button id="btn-backups">Backups</button>
+        <button id="btn-export-json">Export JSON</button>
+        <button id="btn-import">Import</button>
+        <button id="btn-toggle-console">Console</button>
+        <input
+          id="file-import"
+          type="file"
+          accept=".json,.rz,.wgsl,.glsl"
+          style="display: none"
+        />
+        <span id="status">Idle</span>
       </div>
-      
-      <!-- History section with proper inline styling -->
-      <span class="history-section">
-        <label>History:</label>
-        <button id="btn-undo" title="Undo last action (Ctrl+Z)" disabled>
-          <span class="icon">↶</span> Undo
-        </button>
-        <button id="btn-redo" title="Redo last action (Ctrl+Y)" disabled>
-          <span class="icon">↷</span> Redo
-        </button>
-      </span>
-      
-      <button id="btn-rebuild">Rebuild</button>
-      <button id="btn-save">Save Project</button>
-      <button id="btn-load">Load Project</button>
-      <button id="btn-backups">Backups</button>
-      <button id="btn-export-json">Export JSON</button>
-      <button id="btn-import">Import</button>
-      <button id="btn-toggle-console">Console</button>
-      <input
-        id="file-import"
-        type="file"
-        accept=".json,.rz,.wgsl,.glsl"
-        style="display: none"
-      />
-      <span id="status">Idle</span>
     </div>
-
     <div id="param-panel" class="panel hidden"></div>
     <div id="ctx-menu" class="menu hidden"></div>
     <div id="code-console">

@@ -35,33 +35,6 @@ canvas {
 #ui-canvas {
   z-index: 10;
   background-color: #0a0a0a;
-  background-image:
-    linear-gradient(
-      to right,
-      var(--snap-grid-line) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      var(--snap-grid-line) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to right,
-      var(--snap-grid-line-strong) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      var(--snap-grid-line-strong) 1px,
-      transparent 1px
-    );
-  background-size:
-    var(--snap-grid-size) var(--snap-grid-size),
-    var(--snap-grid-size) var(--snap-grid-size),
-    calc(var(--snap-grid-size) * 5) calc(var(--snap-grid-size) * 5),
-    calc(var(--snap-grid-size) * 5) calc(var(--snap-grid-size) * 5);
-  background-position: 0 0, 0 0, 0 0, 0 0;
 }
 
 body {
@@ -118,6 +91,38 @@ body {
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   min-width: 160px;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+#hud.collapsed {
+  gap: 4px;
+  min-width: auto;
+}
+
+.hud-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#hud.collapsed .hud-content {
+  display: none;
+}
+
+.hud-collapse-toggle {
+  width: auto;
+  align-self: flex-end;
+  padding: 6px 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+#hud.collapsed .hud-collapse-toggle {
+  align-self: stretch;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 #hud button {
@@ -637,14 +642,18 @@ body {
 
 /* Enhanced HUD layout */
 #hud {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  align-items: stretch;
 }
 
 #hud button {
   white-space: nowrap;
+}
+
+#hud .hud-content button {
+  min-width: 100%;
+}
+
+.hud-collapse-toggle {
   min-width: fit-content;
 }
 

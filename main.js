@@ -306,6 +306,52 @@ function setupUIEventHandlers() {
     return null;
   };
 
+  // HUD collapse toggle
+  const hud = document.getElementById("hud");
+  const hudToggle = removeExistingHandlers("btn-toggle-hud");
+  const HUD_STORAGE_KEY = "hudCollapsed";
+
+  const setHudCollapsed = (collapsed, notify = false) => {
+    if (!hud) return;
+
+    hud.classList.toggle("collapsed", collapsed);
+
+    if (hudToggle) {
+      hudToggle.setAttribute("aria-expanded", (!collapsed).toString());
+      hudToggle.textContent = collapsed ? "Show Menu" : "Hide Menu";
+    }
+
+    if (notify && typeof updateStatus === "function") {
+      updateStatus(collapsed ? "Menu hidden" : "Menu shown");
+    }
+
+    try {
+      window.localStorage?.setItem(HUD_STORAGE_KEY, collapsed ? "true" : "false");
+    } catch (error) {
+      console.warn("Unable to persist HUD state:", error);
+    }
+  };
+
+  let initialHudState = false;
+  try {
+    const stored = window.localStorage?.getItem(HUD_STORAGE_KEY);
+    initialHudState = stored === "true";
+  } catch (error) {
+    console.warn("Unable to read HUD state:", error);
+  }
+
+  if (hud) {
+    setHudCollapsed(initialHudState);
+  }
+
+  if (hudToggle) {
+    hudToggle.addEventListener("click", () => {
+      if (!hud) return;
+      const nextState = !hud.classList.contains("collapsed");
+      setHudCollapsed(nextState, true);
+    });
+  }
+
   // Undo/Redo button handlers
   console.log("Setting up undo/redo button handlers...");
 
