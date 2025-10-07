@@ -634,7 +634,29 @@ case 'flip2d':
         );
         break;
         
-      default:
+        case 'colormix':
+          definitions.push({
+            name: 'mode',
+            type: 'select',
+            displayName: 'Blend Mode',
+            options: [
+              'mix',
+              'multiply',
+              'screen',
+              'overlay',
+              'add',
+              'subtract',
+              'divide',
+              'difference',
+              'darken',
+              'lighten'
+            ],
+            default: node.params?.mode ?? 'mix',
+            description: 'Choose how the blend color combines with the base color'
+          });
+          break;
+
+        default:
         if (node.params && Object.keys(node.params).length > 0) {
           Object.keys(node.params).forEach(key => {
             const value = node.params[key];

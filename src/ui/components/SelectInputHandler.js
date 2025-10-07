@@ -40,9 +40,20 @@ export class SelectInputHandler {
     // Add options from parameter definition
     if (param.options && Array.isArray(param.options)) {
       for (const option of param.options) {
+        const value = typeof option === 'string' ? option : option?.value;
+        if (value === undefined) {
+          continue;
+        }
+        const rawLabel = typeof option === 'string'
+          ? option
+          : option?.label ?? option?.value ?? '';
+        let displayLabel = rawLabel;
+        if (typeof rawLabel === 'string' && rawLabel === rawLabel.toLowerCase()) {
+          displayLabel = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
+        }
         const optionElement = document.createElement("option");
-        optionElement.value = option;
-        optionElement.textContent = option;
+        optionElement.value = value;
+        optionElement.textContent = displayLabel || value;
         select.appendChild(optionElement);
       }
     }
