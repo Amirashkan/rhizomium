@@ -649,8 +649,10 @@ export class PreviewSettings {
     container.style.cssText = "display: flex; flex-direction: column; gap: 8px;";
 
     const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
+    const exportAnim = this._createButton("Export Animation (WebM)", () => this._exportAnimation());
 
     container.appendChild(exportPNG);
+    container.appendChild(exportAnim);
 
     return container;
   }
@@ -690,98 +692,212 @@ export class PreviewSettings {
 
   async _exportPNG() {
     const canvas = this.floatingPreview.gpuCanvas;
-    const device = window._gpuDevice || (await window.initWebGPU?.(canvas));
-    
-    if (!canvas || !device) {
-      alert("Canvas or GPU device not found. Make sure the preview is visible and rendering.");
+    if (!canvas) {
+      alert("Canvas not available. Make sure the preview window is open.");
       return;
     }
 
-    try {
-      console.log("Exporting WebGPU canvas:", canvas.width, "x", canvas.height);
-      
-      // Get the current texture from the WebGPU context
-      const context = canvas.getContext('webgpu');
-      if (!context) {
-        throw new Error("WebGPU context not available");
+    if (typeof window.initWebGPU === "function" && !window._gpuDevice) {
+      try {
+        await window.initWebGPU(canvas, true);
+      } catch (error) {
+        console.warn("initWebGPU failed during PNG export:", error);
       }
+    }
 
-      // Create a buffer to read the texture data
-      const width = canvas.width;
-      const height = canvas.height;
-      const bytesPerRow = Math.ceil((width * 4) / 256) * 256; // Must be multiple of 256
-      const bufferSize = bytesPerRow * height;
-      
-      const readBuffer = device.createBuffer({
-        size: bufferSize,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-      });
+    const renderer = window.gpuRenderer;
+    if (!renderer || typeof renderer.captureFrame !== "function") {
+      alert("GPU renderer not ready for capture. Render the preview at least once before exporting.");
+      return;
+    }
 
-      // Get the current texture
-      const texture = context.getCurrentTexture();
-      
-      // Copy texture to buffer
-      const encoder = device.createCommandEncoder();
-      encoder.copyTextureToBuffer(
-        { texture },
-        { buffer: readBuffer, bytesPerRow },
-        { width, height }
-      );
-      device.queue.submit([encoder.finish()]);
+    const resolution = this.settings?.settings?.resolution || { width: canvas.width, height: canvas.height };
+    const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
+    const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
 
-      // Read the buffer
-      await readBuffer.mapAsync(GPUMapMode.READ);
-      const arrayBuffer = readBuffer.getMappedRange();
-      const pixelData = new Uint8Array(arrayBuffer);
+    try {
+      const capture = await renderer.captureFrame({ width, height });
+      const { pixels, bytesPerRow } = capture;
 
-      // Create a 2D canvas with the correct dimensions
       const exportCanvas = document.createElement('canvas');
       exportCanvas.width = width;
       exportCanvas.height = height;
       const ctx = exportCanvas.getContext('2d');
-      
-      // Create ImageData
       const imageData = ctx.createImageData(width, height);
-      
-      // Copy pixel data (accounting for bytesPerRow padding)
+
       for (let y = 0; y < height; y++) {
         const srcOffset = y * bytesPerRow;
-        const dstOffset = y * width * 4;
-        for (let x = 0; x < width; x++) {
-          const srcIdx = srcOffset + x * 4;
-          const dstIdx = dstOffset + x * 4;
-          imageData.data[dstIdx] = pixelData[srcIdx];     // R
-          imageData.data[dstIdx + 1] = pixelData[srcIdx + 1]; // G
-          imageData.data[dstIdx + 2] = pixelData[srcIdx + 2]; // B
-          imageData.data[dstIdx + 3] = pixelData[srcIdx + 3]; // A
-        }
+        const row = pixels.subarray(srcOffset, srcOffset + width * 4);
+        imageData.data.set(row, y * width * 4);
       }
-      
+
       ctx.putImageData(imageData, 0, 0);
-      
-      // Clean up GPU resources
-      readBuffer.unmap();
-      readBuffer.destroy();
-      
-      // Export the 2D canvas
-      exportCanvas.toBlob((blob) => {
-        if (blob) {
-          const link = document.createElement("a");
-          const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-          link.download = `shader-${width}x${height}-${timestamp}.png`;
-          link.href = URL.createObjectURL(blob);
-          link.click();
-          console.log("Exported PNG:", link.download);
-          
-          setTimeout(() => URL.revokeObjectURL(link.href), 100);
-        } else {
-          alert("Failed to create image blob");
-        }
-      }, "image/png");
-      
+
+      const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, "image/png"));
+      if (!blob) {
+        alert("Failed to create image blob");
+        return;
+      }
+
+      const link = document.createElement("a");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+      link.download = `shader-${width}x${height}-${timestamp}.png`;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      console.log("Exported PNG:", link.download);
+
+      setTimeout(() => URL.revokeObjectURL(link.href), 100);
     } catch (error) {
       console.error("Export error:", error);
       alert("Export failed: " + error.message + "\n\nMake sure the preview is actively rendering.");
     }
+  }
+
+  async _exportAnimation() {
+    const canvas = this.floatingPreview.gpuCanvas;
+    if (!canvas || typeof canvas.captureStream !== "function") {
+      alert("Canvas streaming is not supported in this browser.");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      alert("MediaRecorder API is not available. Try a Chromium-based browser.");
+      return;
+    }
+
+    if (typeof window.initWebGPU === "function" && !window._gpuDevice) {
+      try {
+        await window.initWebGPU(canvas, true);
+      } catch (error) {
+        console.warn("initWebGPU failed during animation export:", error);
+      }
+    }
+
+    const renderer = window.gpuRenderer;
+    if (!renderer || typeof renderer.render !== "function") {
+      alert("GPU renderer not ready. Render the preview before exporting animation.");
+      return;
+    }
+
+    const defaultFps = Math.max(1, this.settings?.settings?.refreshRate || 30);
+    const fpsInput = prompt("Frames per second for the recording (1-60)?", String(defaultFps));
+    if (fpsInput === null) return;
+
+    const fps = Math.min(60, Math.max(1, Number(fpsInput)));
+    if (!Number.isFinite(fps) || fps <= 0) {
+      alert("Invalid FPS value.");
+      return;
+    }
+
+    const durationInput = prompt("Duration in seconds (1-60)?", "5");
+    if (durationInput === null) return;
+
+    const duration = Math.min(60, Math.max(1, Number(durationInput)));
+    if (!Number.isFinite(duration) || duration <= 0) {
+      alert("Invalid duration value.");
+      return;
+    }
+
+    const mimeCandidates = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+    ];
+    const mimeType = mimeCandidates.find((candidate) => {
+      try {
+        return MediaRecorder.isTypeSupported(candidate);
+      } catch {
+        return false;
+      }
+    });
+
+    if (!mimeType) {
+      alert("No supported WebM encoder found for this browser.");
+      return;
+    }
+
+    this.floatingPreview.updateSize();
+    renderer.render();
+
+    const stream = canvas.captureStream(fps);
+    const chunks = [];
+
+    let renderInterval = null;
+    if (typeof renderer.render === "function") {
+      const frameInterval = Math.max(1, Math.floor(1000 / fps));
+      renderInterval = setInterval(() => {
+        try {
+          renderer.render();
+        } catch (error) {
+          console.warn("Render tick failed during animation export:", error);
+        }
+      }, frameInterval);
+    }
+
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 8_000_000,
+      });
+    } catch (error) {
+      if (renderInterval) {
+        clearInterval(renderInterval);
+      }
+      stream.getTracks().forEach((track) => track.stop());
+      alert("Unable to start recorder: " + error.message);
+      return;
+    }
+
+    const recordingPromise = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size) {
+          chunks.push(event.data);
+        }
+      };
+      recorder.onerror = (event) => {
+        reject(event.error || new Error("Recording error"));
+      };
+      recorder.onstop = () => resolve();
+    });
+
+    recorder.start();
+
+    const stopTimer = setTimeout(() => {
+      if (recorder.state === "recording") {
+        recorder.stop();
+      }
+    }, duration * 1000);
+
+    try {
+      await recordingPromise;
+    } catch (error) {
+      console.error("Animation export failed:", error);
+      alert("Animation export failed: " + error.message);
+      return;
+    } finally {
+      clearTimeout(stopTimer);
+      if (renderInterval) {
+        clearInterval(renderInterval);
+      }
+      stream.getTracks().forEach((track) => track.stop());
+    }
+
+    if (!chunks.length) {
+      alert("Recording produced no data.");
+      return;
+    }
+
+    const blob = new Blob(chunks, { type: mimeType });
+    const resolution = this.settings?.settings?.resolution || { width: canvas.width, height: canvas.height };
+    const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
+    const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+
+    const link = document.createElement("a");
+    link.download = `shader-${width}x${height}-${timestamp}.webm`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
 }

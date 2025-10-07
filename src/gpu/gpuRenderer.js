@@ -40,6 +40,7 @@ export class GPURenderer {
       device,
       format: this.format,
       alphaMode: "premultiplied",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
 
     this.pipeline = null;
@@ -307,12 +308,29 @@ export class GPURenderer {
     console.log(`[GPURenderer] aspect uniform <- ${aspect.toFixed(4)} (${width}x${height})`);
   }
 
+  _writeAspectForSize(width, height) {
+    const target = this._getUniformByVarName("u");
+    if (!target?.buffer) return;
+
+    const aspect = width / height;
+    const data = new Float32Array([aspect, 0, 0, 0]);
+    this.device.queue.writeBuffer(target.buffer, 0, data);
+  }
+
   _updateGlobalsUniform(timeSec) {
     const target = this._getUniformByVarName("g");
     if (!target?.buffer) return;
 
     const width = Math.max(1, this.canvas.width || 1);
     const height = Math.max(1, this.canvas.height || 1);
+    const data = new Float32Array([width, height, timeSec, 0.0]);
+    this.device.queue.writeBuffer(target.buffer, 0, data);
+  }
+
+  _writeGlobalsForSize(width, height, timeSec) {
+    const target = this._getUniformByVarName("g");
+    if (!target?.buffer) return;
+
     const data = new Float32Array([width, height, timeSec, 0.0]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
@@ -391,5 +409,93 @@ export class GPURenderer {
     pass.draw(3, 1, 0, 0);
     pass.end();
     this.device.queue.submit([encoder.finish()]);
+  }
+
+  async captureFrame(options = {}) {
+    if (!this.device) {
+      throw new Error("GPU device not ready for capture");
+    }
+    if (!this.pipeline) {
+      throw new Error("GPU pipeline missing; build shader before capturing");
+    }
+
+    const targetWidth = Math.max(
+      1,
+      Math.floor(options.width ?? this.canvas.width ?? this.canvas.clientWidth ?? 1)
+    );
+    const targetHeight = Math.max(
+      1,
+      Math.floor(options.height ?? this.canvas.height ?? this.canvas.clientHeight ?? 1)
+    );
+
+    const captureTexture = this.device.createTexture({
+      size: [targetWidth, targetHeight, 1],
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      label: "preview-capture-texture",
+    });
+
+    const bytesPerRow = Math.ceil((targetWidth * 4) / 256) * 256;
+    const bufferSize = bytesPerRow * targetHeight;
+
+    const outputBuffer = this.device.createBuffer({
+      size: bufferSize,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      label: "preview-capture-buffer",
+    });
+
+    this._lastAspectWritten = null;
+    const captureTime = options.timeSec ?? performance.now() * 0.001;
+
+    this._writeAspectForSize(targetWidth, targetHeight);
+    this._writeGlobalsForSize(targetWidth, targetHeight, captureTime);
+
+    const encoder = this.device.createCommandEncoder({ label: "preview-capture-encoder" });
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: captureTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: "clear",
+          storeOp: "store",
+        },
+      ],
+    });
+
+    pass.setPipeline(this.pipeline);
+    for (let i = 0; i < this.bindGroups.length; i++) {
+      pass.setBindGroup(i, this.bindGroups[i]);
+    }
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+
+    encoder.copyTextureToBuffer(
+      { texture: captureTexture },
+      { buffer: outputBuffer, bytesPerRow },
+      { width: targetWidth, height: targetHeight, depthOrArrayLayers: 1 }
+    );
+
+    this.device.queue.submit([encoder.finish()]);
+    await this.device.queue.onSubmittedWorkDone?.();
+
+    await outputBuffer.mapAsync(GPUMapMode.READ);
+    const mappedRange = outputBuffer.getMappedRange();
+    const copy = new Uint8Array(mappedRange.byteLength);
+    copy.set(new Uint8Array(mappedRange));
+    outputBuffer.unmap();
+
+    outputBuffer.destroy();
+    captureTexture.destroy();
+
+    this._lastAspectWritten = null;
+    this._updateAspectUniform();
+    this._updateGlobalsUniform(performance.now() * 0.001);
+
+    return {
+      pixels: copy,
+      width: targetWidth,
+      height: targetHeight,
+      bytesPerRow,
+    };
   }
 }
