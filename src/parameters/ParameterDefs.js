@@ -164,6 +164,33 @@ export const ParameterDefinitions = {
       default: false
     }
   },
+  SDFSmoothUnion: {
+    smoothness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.1,
+      min: 0,
+      max: 1
+    }
+  },
+  SDFSmoothIntersection: {
+    smoothness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.1,
+      min: 0,
+      max: 1
+    }
+  },
+  SDFSmoothSubtraction: {
+    smoothness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.1,
+      min: 0,
+      max: 1
+    }
+  },
 Kaleidoscope: {
   label: "Kaleidoscope",
   type: "transform",

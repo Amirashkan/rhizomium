@@ -5,6 +5,7 @@ import { FieldNodes } from './nodes/FieldNodes.js';
 import { MathNodes } from './nodes/MathNodes.js';
 import { UtilityNodes } from './nodes/UtilityNodes.js';
 import { TransformNodes } from './nodes/TransformNodes.js';
+import { BlendNodes } from './nodes/BlendNodes.js';
 
 let _nextId = 1;
 
@@ -17,6 +18,7 @@ let _nextId = 1;
  * - Field: Procedural patterns and noise generation (20 nodes)
  * - Transform: UV coordinate manipulation (11 nodes)
  * - Utility: Data manipulation and component operations (19 nodes)
+ * - Blend: Distance field combination operations (7 nodes)
  * - Output: Final rendering (1 node)
  */
 export const NodeDefs = {
@@ -25,6 +27,7 @@ export const NodeDefs = {
   ...FieldNodes,
   ...MathNodes,
   ...UtilityNodes,
+  ...BlendNodes,
   ...TransformNodes,
 };
 

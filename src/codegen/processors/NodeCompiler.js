@@ -15,7 +15,6 @@ export class NodeCompiler {
   constructor() {
     this.typeConverter = new TypeConverter();
     this.uniformManager = new ParameterUniformManager();
-    this.blendNodes = new BlendNodes();
     this.compilers = {
       input: new InputNodes(),
       math: new MathNodes(),
@@ -36,9 +35,13 @@ export class NodeCompiler {
       }
     });
     
-    // Give FieldNodes access to expression system
-    if (this.compilers.field.setExpressionSystem && window.expressionSystem) {
-      this.compilers.field.setExpressionSystem(window.expressionSystem);
+    // Give compilers access to expression system when available
+    if (window.expressionSystem) {
+      Object.values(this.compilers).forEach(compiler => {
+        if (compiler.setExpressionSystem) {
+          compiler.setExpressionSystem(window.expressionSystem);
+        }
+      });
     }
   }
 
