@@ -216,6 +216,65 @@ export class TransformRenderers {
     }
   }
 
+  // Apply non-linear UV transform by sampling the source canvas
+  applyUVTransform(ctx, inputCanvas, transformFunc) {
+    try {
+      const width = this.size;
+      const height = this.size;
+
+      const sourceCtx = inputCanvas.getContext('2d');
+      if (!sourceCtx) {
+        throw new Error('Input preview has no 2D context');
+      }
+
+      const sourceWidth = inputCanvas.width;
+      const sourceHeight = inputCanvas.height;
+
+      if (!sourceWidth || !sourceHeight) {
+        throw new Error('Input preview has invalid dimensions');
+      }
+
+      const sourceData = sourceCtx.getImageData(0, 0, sourceWidth, sourceHeight);
+      const destData = ctx.createImageData(width, height);
+
+      const srcPixels = sourceData.data;
+      const dstPixels = destData.data;
+
+      const clamp01 = value => Math.max(0, Math.min(1, value));
+
+      // Clear destination background before drawing
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, width, height);
+
+      for (let y = 0; y < height; y++) {
+        const v = height > 1 ? y / (height - 1) : 0;
+        for (let x = 0; x < width; x++) {
+          const u = width > 1 ? x / (width - 1) : 0;
+          const mapped = transformFunc(u, v);
+
+          const sampleU = clamp01(mapped.u);
+          const sampleV = clamp01(mapped.v);
+
+          const sampleX = Math.round(sampleU * (sourceWidth - 1));
+          const sampleY = Math.round(sampleV * (sourceHeight - 1));
+
+          const srcIndex = (sampleY * sourceWidth + sampleX) * 4;
+          const dstIndex = (y * width + x) * 4;
+
+          dstPixels[dstIndex] = srcPixels[srcIndex];
+          dstPixels[dstIndex + 1] = srcPixels[srcIndex + 1];
+          dstPixels[dstIndex + 2] = srcPixels[srcIndex + 2];
+          dstPixels[dstIndex + 3] = srcPixels[srcIndex + 3];
+        }
+      }
+
+      ctx.putImageData(destData, 0, 0);
+    } catch (error) {
+      console.warn('Error applying UV transform:', error);
+      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+    }
+  }
+
   // Draw expression indicator
   drawExpressionIndicator(ctx) {
     ctx.save();
@@ -226,6 +285,19 @@ export class TransformRenderers {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("fx", this.size - 7, 6);
+    ctx.restore();
+  }
+
+  drawEffectBadge(ctx, label) {
+    if (!label) return;
+    ctx.save();
+    ctx.fillStyle = "rgba(74, 144, 226, 0.85)";
+    ctx.fillRect(0, 0, 16, 12);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 7px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, 8, 6);
     ctx.restore();
   }
 
@@ -603,9 +675,112 @@ export class TransformRenderers {
     }
   }
   renderTwirl(ctx, node) {
-  this.renderGeneric(ctx, node);
-}
-renderSpherize(ctx, node) {
-  this.renderGeneric(ctx, node);
-}
+    const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
+    const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
+    const strength = this.toSafeNumber(this.getParameterValue(node, "strength", 1.0), 1.0);
+    const radius = Math.max(0, this.toSafeNumber(this.getParameterValue(node, "radius", 0.5), 0.5));
+
+    const clamp01 = value => Math.max(0, Math.min(1, value));
+    const smoothstep = (edge0, edge1, x) => {
+      const denom = edge1 - edge0;
+      if (denom === 0) {
+        return x < edge0 ? 0 : 1;
+      }
+      const t = clamp01((x - edge0) / denom);
+      return t * t * (3 - 2 * t);
+    };
+
+    const transformFunc = (u, v) => {
+      const dx = u - centerX;
+      const dy = v - centerY;
+      const dist = Math.hypot(dx, dy);
+
+      if (radius > 0 && dist > 0) {
+        const angle = Math.atan2(dy, dx);
+        const twist = smoothstep(radius, 0, dist) * strength;
+        const sinA = Math.sin(angle + twist);
+        const cosA = Math.cos(angle + twist);
+        const nx = cosA * dist;
+        const ny = sinA * dist;
+        return {
+          u: clamp01(centerX + nx),
+          v: clamp01(centerY + ny)
+        };
+      }
+
+      return {
+        u: clamp01(u),
+        v: clamp01(v)
+      };
+    };
+
+    const inputCanvas = this.getInputPreview(node);
+    if (inputCanvas) {
+      this.applyUVTransform(ctx, inputCanvas, transformFunc);
+      this.drawEffectBadge(ctx, "TW");
+
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
+
+    this.renderUVGrid(ctx, transformFunc, "TWIRL", {
+      str: strength,
+      rad: radius
+    });
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
+  }
+
+  renderSpherize(ctx, node) {
+    const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
+    const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
+    const strength = this.toSafeNumber(this.getParameterValue(node, "strength", 0.5), 0.5);
+    const radius = Math.max(0, this.toSafeNumber(this.getParameterValue(node, "radius", 0.5), 0.5));
+
+    const clamp01 = value => Math.max(0, Math.min(1, value));
+
+    const transformFunc = (u, v) => {
+      const dx = u - centerX;
+      const dy = v - centerY;
+      const dist = Math.hypot(dx, dy);
+
+      if (radius > 0 && dist > 0) {
+        const factor = clamp01(dist / radius);
+        const scale = 1 - strength * factor * factor;
+        return {
+          u: clamp01(centerX + dx * scale),
+          v: clamp01(centerY + dy * scale)
+        };
+      }
+
+      return {
+        u: clamp01(u),
+        v: clamp01(v)
+      };
+    };
+
+    const inputCanvas = this.getInputPreview(node);
+    if (inputCanvas) {
+      this.applyUVTransform(ctx, inputCanvas, transformFunc);
+      this.drawEffectBadge(ctx, "SP");
+
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+      return;
+    }
+
+    this.renderUVGrid(ctx, transformFunc, "SPHERE", {
+      str: strength,
+      rad: radius
+    });
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
+  }
 }

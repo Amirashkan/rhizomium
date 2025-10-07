@@ -335,7 +335,8 @@ let node_${nodeId} = fract(${uv} * vec2<f32>(${tilingX}, ${tilingY}) + vec2<f32>
     };
   }
 compileTwirl(node, getInput, nodeId) {
-  const input = getInput(0, "vec2", "in.uv").code || "in.uv";
+  const inputResult = getInput(0, "vec2", "in.uv");
+  const input = (typeof inputResult === 'object' && inputResult !== null ? inputResult.code : inputResult) || "in.uv";
   const centerX = this.getShaderParam(node, "centerX", 0.5);
   const centerY = this.getShaderParam(node, "centerY", 0.5);
   const strength = this.getShaderParam(node, "strength", 1.0);
@@ -357,7 +358,8 @@ let node_${nodeId} = clamp(twirled_${nodeId} + vec2<f32>(${centerX}, ${centerY})
 }
 
 compileSpherize(node, getInput, nodeId) {
-  const input = getInput(0, "vec2", "in.uv").code || "in.uv";
+  const inputResult = getInput(0, "vec2", "in.uv");
+  const input = (typeof inputResult === 'object' && inputResult !== null ? inputResult.code : inputResult) || "in.uv";
   const centerX = this.getShaderParam(node, "centerX", 0.5);
   const centerY = this.getShaderParam(node, "centerY", 0.5);
   const strength = this.getShaderParam(node, "strength", 0.5);
