@@ -10,11 +10,59 @@ export class SelectionManager {
     this.boxSelect = null;
     this.dragging = null;
     this.undoManager = null;
+    this.snapSettings = {
+      enabled: false,
+      gridSize: 20,
+    };
   }
 
   // Setter for undoManager (called from Editor)
   setUndoManager(undoManager) {
     this.undoManager = undoManager;
+  }
+
+  setSnapEnabled(enabled) {
+    this.snapSettings.enabled = !!enabled;
+  }
+
+  setSnapGridSize(size) {
+    if (Number.isFinite(size) && size > 0) {
+      this.snapSettings.gridSize = size;
+    }
+  }
+
+  getSnapSettings() {
+    return {
+      enabled: !!this.snapSettings.enabled,
+      gridSize: this.snapSettings.gridSize,
+    };
+  }
+
+  isSnapEnabled() {
+    return !!this.snapSettings.enabled;
+  }
+
+  applySnap(x, y) {
+    if (!this.snapSettings.enabled) {
+      return { x, y };
+    }
+
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return { x, y };
+    }
+
+    const size = this.snapSettings.gridSize;
+    if (!Number.isFinite(size) || size <= 0) {
+      return { x, y };
+    }
+
+    const snappedX = Math.round(x / size) * size;
+    const snappedY = Math.round(y / size) * size;
+
+    return {
+      x: Number.isFinite(snappedX) ? snappedX : x,
+      y: Number.isFinite(snappedY) ? snappedY : y,
+    };
   }
 
   getSelected() {
@@ -156,8 +204,12 @@ export class SelectionManager {
         const o = this.dragging.orig[id];
         if (!o) continue;
 
-        n.x = o.x + dx;
-        n.y = o.y + dy;
+        const baseX = Number.isFinite(o.x) ? o.x : 0;
+        const baseY = Number.isFinite(o.y) ? o.y : 0;
+        const snapped = this.applySnap(baseX + dx, baseY + dy);
+
+        n.x = snapped.x;
+        n.y = snapped.y;
       }
 
       if (this.onChange) this.onChange();
@@ -406,17 +458,25 @@ deleteSelected() {
 
       for (const n of this.graph.nodes) {
         if (ids.has(n.id)) {
-          const originalPos = { x: n.x || 0, y: n.y || 0 };
-          n.x = originalPos.x + dx;
-          n.y = originalPos.y + dy;
+          const originalPos = { 
+            x: Number.isFinite(n.x) ? n.x : 0, 
+            y: Number.isFinite(n.y) ? n.y : 0 
+          };
 
-          movements.push({
-            nodeId: n.id,
-            oldX: originalPos.x,
-            oldY: originalPos.y,
-            newX: n.x,
-            newY: n.y,
-          });
+          const snapped = this.applySnap(originalPos.x + dx, originalPos.y + dy);
+
+          n.x = snapped.x;
+          n.y = snapped.y;
+
+          if (originalPos.x !== n.x || originalPos.y !== n.y) {
+            movements.push({
+              nodeId: n.id,
+              oldX: originalPos.x,
+              oldY: originalPos.y,
+              newX: n.x,
+              newY: n.y,
+            });
+          }
         }
       }
 
@@ -451,8 +511,12 @@ deleteSelected() {
 
         const c = JSON.parse(JSON.stringify(n));
         c.id = String(++_nextId);
-        c.x = (n.x || 0) + 20;
-        c.y = (n.y || 0) + 20;
+        const snapped = this.applySnap(
+          (Number.isFinite(n.x) ? n.x : 0) + 20,
+          (Number.isFinite(n.y) ? n.y : 0) + 20
+        );
+        c.x = snapped.x;
+        c.y = snapped.y;
         clones.push(c);
         mapOldToNew.set(n.id, c.id);
       }

@@ -32,6 +32,10 @@ export class Editor {
       
       // Initialize event system for expressions
       this.initializeEventSystem();
+
+      // Snap-to-grid defaults
+      this.snapEnabled = false;
+      this.snapGridSize = 20;
       
       // Initialize managers with error handling
       this.initializeManagers(undoManager);
@@ -175,6 +179,20 @@ export class Editor {
       this.connections = new ConnectionManager(this.graph, this.onChange);
       this.renderer = new Renderer(this.ctx, this.viewport);
       this.menu = new MenuManager(this.graph, this.onChange);
+
+      // Ensure snap defaults are synced with selection manager
+      if (!Number.isFinite(this.snapGridSize) || this.snapGridSize <= 0) {
+        this.snapGridSize = 20;
+      }
+      if (typeof this.snapEnabled !== 'boolean') {
+        this.snapEnabled = false;
+      }
+      if (this.selection?.setSnapGridSize) {
+        this.selection.setSnapGridSize(this.snapGridSize);
+      }
+      if (this.selection?.setSnapEnabled) {
+        this.selection.setSnapEnabled(this.snapEnabled);
+      }
       
       // Use the provided UndoManager
       this.undoManager = undoManager;
@@ -874,6 +892,85 @@ connectGPURenderer(renderFunction) {
     }
   }
 
+  // ---- SNAP SETTINGS ----
+  
+  setSnapEnabled(enabled) {
+    const normalized = !!enabled;
+    const previous = this.snapEnabled;
+    this.snapEnabled = normalized;
+
+    if (this.selection?.setSnapEnabled) {
+      this.selection.setSnapEnabled(normalized);
+    }
+
+    if (previous !== normalized) {
+      // Redraw so grid-aligned visuals update immediately
+      this.safeDraw();
+    }
+
+    return this.snapEnabled;
+  }
+
+  isSnapEnabled() {
+    if (typeof this.snapEnabled === 'boolean') {
+      return this.snapEnabled;
+    }
+
+    if (this.selection?.isSnapEnabled) {
+      return !!this.selection.isSnapEnabled();
+    }
+
+    return false;
+  }
+
+  setSnapGridSize(size) {
+    if (!Number.isFinite(size) || size <= 0) {
+      return this.getSnapGridSize();
+    }
+
+    const previous = this.snapGridSize;
+    this.snapGridSize = size;
+
+    if (this.selection?.setSnapGridSize) {
+      this.selection.setSnapGridSize(size);
+    }
+
+    if (previous !== size) {
+      this.safeDraw();
+    }
+
+    return this.snapGridSize;
+  }
+
+  getSnapGridSize() {
+    if (Number.isFinite(this.snapGridSize) && this.snapGridSize > 0) {
+      return this.snapGridSize;
+    }
+
+    const selectionSettings = this.selection?.getSnapSettings?.();
+    if (Number.isFinite(selectionSettings?.gridSize) && selectionSettings.gridSize > 0) {
+      return selectionSettings.gridSize;
+    }
+
+    return 20;
+  }
+
+  applySnapToPoint(x, y) {
+    if (this.selection?.applySnap) {
+      const snapped = this.selection.applySnap(x, y);
+      if (
+        snapped &&
+        typeof snapped === 'object' &&
+        Number.isFinite(snapped.x) &&
+        Number.isFinite(snapped.y)
+      ) {
+        return snapped;
+      }
+    }
+
+    return { x, y };
+  }
+
   moveNodesToPositions(movementData) {
     try {
       if (!movementData || !Array.isArray(movementData)) {
@@ -1230,7 +1327,11 @@ connectGPURenderer(renderFunction) {
         throw new Error('makeNode function not available in NodeDefs');
       }
 
-      const newNode = makeNode(nodeType, x, y);
+      const snappedPosition = this.applySnapToPoint(x, y);
+      const finalX = Number.isFinite(snappedPosition?.x) ? snappedPosition.x : x;
+      const finalY = Number.isFinite(snappedPosition?.y) ? snappedPosition.y : y;
+
+      const newNode = makeNode(nodeType, finalX, finalY);
       
       if (!newNode) {
         throw new Error(`Failed to create node of type: ${nodeType}`);
@@ -1241,7 +1342,7 @@ connectGPURenderer(renderFunction) {
       }
 
       this.graph.nodes.push(newNode);
-      console.log(`Node ${nodeType}(${newNode.id}) created at (${x}, ${y})`);
+      console.log(`Node ${nodeType}(${newNode.id}) created at (${finalX}, ${finalY})`);
 
       if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
         console.log('Editor: Recording node creation for undo:', newNode.kind, newNode.id);

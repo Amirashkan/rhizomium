@@ -15,6 +15,9 @@ export class Renderer {
     // Clear canvas
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
+    // Subtle grid background for alignment
+    this._renderBackgroundGrid();
+
     // Save context and apply viewport transform
     ctx.save();
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
@@ -36,6 +39,67 @@ export class Renderer {
       this._renderSelectionBox(renderState.boxSelect);
     }
 
+    ctx.restore();
+  }
+
+  _renderBackgroundGrid() {
+    const ctx = this.ctx;
+    const editor = window.editor;
+    const gridSize =
+      typeof editor?.getSnapGridSize === "function"
+        ? editor.getSnapGridSize()
+        : 20;
+
+    if (!Number.isFinite(gridSize) || gridSize <= 0) {
+      return;
+    }
+
+    const scale = this.viewport.scale || 1;
+    const offsetX = this.viewport.offsetX || 0;
+    const offsetY = this.viewport.offsetY || 0;
+    const width = ctx.canvas.width;
+    const height = ctx.canvas.height;
+
+    const minorSpacing = gridSize * scale;
+    const majorSpacing = minorSpacing * 5;
+
+    const drawLines = (spacing, alpha) => {
+      if (!Number.isFinite(spacing) || spacing < 4) {
+        return;
+      }
+
+      ctx.beginPath();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+
+      // Vertical lines
+      let x = offsetX + Math.floor(-offsetX / spacing) * spacing;
+      while (x < 0) {
+        x += spacing;
+      }
+      for (; x <= width; x += spacing) {
+        const px = Math.round(x) + 0.5;
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, height);
+      }
+
+      // Horizontal lines
+      let y = offsetY + Math.floor(-offsetY / spacing) * spacing;
+      while (y < 0) {
+        y += spacing;
+      }
+      for (; y <= height; y += spacing) {
+        const py = Math.round(y) + 0.5;
+        ctx.moveTo(0, py);
+        ctx.lineTo(width, py);
+      }
+
+      ctx.stroke();
+    };
+
+    ctx.save();
+    drawLines(minorSpacing, 0.025);
+    drawLines(majorSpacing, 0.07);
     ctx.restore();
   }
 

@@ -65,9 +65,23 @@
       <button id="btn-dock-preview">Dock Preview</button>
       <button id="btn-lock-preview">Lock Preview</button>
       <button id="btn-fullscreen-preview">Fullscreen</button>
-      <label style="margin-right: 8px"
-        ><input type="checkbox" id="snap-toggle" /> Snap</label
-      >
+      <div class="snap-controls">
+        <label class="snap-toggle">
+          <input type="checkbox" id="snap-toggle" /> Snap
+        </label>
+        <label class="snap-size">
+          <span>Grid</span>
+          <input
+            type="number"
+            id="snap-size"
+            inputmode="numeric"
+            min="2"
+            max="512"
+            step="1"
+            value="20"
+          />
+        </label>
+      </div>
       
       <!-- History section with proper inline styling -->
       <span class="history-section">

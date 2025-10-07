@@ -343,6 +343,117 @@ function setupUIEventHandlers() {
     console.error("Redo button not found in DOM");
   }
 
+  const snapToggle = removeExistingHandlers("snap-toggle");
+  const snapSizeInput = removeExistingHandlers("snap-size");
+
+  const ensureSnapCss = (size) => {
+    if (!document?.documentElement?.style) return;
+    const finalSize = Number.isFinite(size) && size > 0 ? size : 20;
+    document.documentElement.style.setProperty(
+      "--snap-grid-size",
+      `${finalSize}px`,
+    );
+  };
+
+  const getEditorSnapSize = () => {
+    if (typeof editor?.getSnapGridSize === "function") {
+      const value = editor.getSnapGridSize();
+      if (Number.isFinite(value) && value > 0) {
+        return value;
+      }
+    }
+    return 20;
+  };
+
+  let currentSnapSize = getEditorSnapSize();
+  ensureSnapCss(currentSnapSize);
+
+  if (snapSizeInput) {
+    snapSizeInput.min = "2";
+    snapSizeInput.max = "512";
+    snapSizeInput.step = "1";
+    snapSizeInput.value = currentSnapSize;
+  }
+
+  const applySnapSize = (rawValue) => {
+    const parsed = Math.round(Number(rawValue));
+    const fallbackSize = Number.isFinite(currentSnapSize) && currentSnapSize > 0
+      ? currentSnapSize
+      : 20;
+
+    const sanitized = Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackSize;
+    const clamped = Math.max(2, Math.min(512, sanitized));
+
+    let appliedSize = clamped;
+    if (typeof editor?.setSnapGridSize === "function") {
+      appliedSize = editor.setSnapGridSize(clamped);
+    }
+
+    currentSnapSize = Number.isFinite(appliedSize) && appliedSize > 0
+      ? appliedSize
+      : clamped;
+
+    ensureSnapCss(currentSnapSize);
+    if (snapSizeInput) {
+      snapSizeInput.value = currentSnapSize;
+    }
+
+    console.log(`Snap grid size set to ${currentSnapSize}px`);
+    return currentSnapSize;
+  };
+
+  const syncSnapInputState = (enabled) => {
+    if (!snapSizeInput) return;
+    snapSizeInput.disabled = !enabled;
+  };
+
+  const initialSnapEnabled =
+    (typeof editor?.isSnapEnabled === "function" && editor.isSnapEnabled()) ||
+    false;
+
+  if (typeof editor?.setSnapEnabled === "function") {
+    editor.setSnapEnabled(initialSnapEnabled);
+  }
+
+  if (snapToggle) {
+    snapToggle.checked = initialSnapEnabled;
+    snapToggle.addEventListener("change", (e) => {
+      const enabled = !!e.target.checked;
+      if (typeof editor?.setSnapEnabled === "function") {
+        editor.setSnapEnabled(enabled);
+      }
+      syncSnapInputState(enabled);
+      if (enabled) {
+        applySnapSize(snapSizeInput?.value ?? currentSnapSize);
+      }
+    });
+
+    console.log(
+      `Snap toggle handler attached (initial state: ${initialSnapEnabled})`,
+    );
+  } else {
+    console.warn("Snap toggle checkbox not found in DOM");
+  }
+
+  if (snapSizeInput) {
+    syncSnapInputState(initialSnapEnabled);
+    snapSizeInput.addEventListener("change", (e) =>
+      applySnapSize(e.target.value),
+    );
+    snapSizeInput.addEventListener("blur", (e) =>
+      applySnapSize(e.target.value),
+    );
+    snapSizeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        applySnapSize(snapSizeInput.value);
+      }
+    });
+    console.log("Snap size input handler attached");
+  } else {
+    console.warn("Snap size input not found in DOM");
+  }
+
   // Save Project button
   const saveBtn = removeExistingHandlers("btn-save");
   if (saveBtn) {
@@ -704,7 +815,19 @@ function setupKeyboardShortcuts() {
     const selected = editor?.selection?.getSelected?.();
     if (e.key.startsWith("Arrow") && selected && selected.size > 0) {
       e.preventDefault();
-      const step = e.shiftKey ? 10 : 1;
+      let step = e.shiftKey ? 10 : 1;
+      if (
+        typeof editor?.isSnapEnabled === "function" &&
+        editor.isSnapEnabled()
+      ) {
+        const gridSize =
+          typeof editor?.getSnapGridSize === "function"
+            ? editor.getSnapGridSize()
+            : 20;
+        if (Number.isFinite(gridSize) && gridSize > 0) {
+          step = gridSize * (e.shiftKey ? 5 : 1);
+        }
+      }
       switch (e.key) {
         case "ArrowLeft":
           editor.selection.moveSelected(-step, 0);
