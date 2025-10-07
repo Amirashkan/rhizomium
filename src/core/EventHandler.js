@@ -186,6 +186,21 @@ export class EventHandler {
       }
     };
 
+    const suppressDefaultContext = (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      if (
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom
+      ) {
+        e.preventDefault();
+      }
+    };
+
+    this.canvas.addEventListener("contextmenu", suppressDefaultContext, true);
+    document.addEventListener("contextmenu", suppressDefaultContext, true);
+
     this.canvas.addEventListener("mousedown", (e) => {
       const pos = this._getCanvasPosition(e);
 

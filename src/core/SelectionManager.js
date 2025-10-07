@@ -29,6 +29,11 @@ export class SelectionManager {
     return this.dragging;
   }
 
+  isSelected(node) {
+    const id = typeof node === "object" ? node.id : node;
+    return this.graph.selection?.has?.(id) || false;
+  }
+
   startBoxSelect(x, y) {
     try {
       this.graph.selection.clear();
@@ -221,6 +226,22 @@ endDrag() {
     }
   }
 
+  clear() {
+    try {
+      if (!this.graph?.selection || this.graph.selection.size === 0) {
+        return;
+      }
+
+      this.graph.selection.clear();
+      if (this.onChange) this.onChange();
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'selection-clear',
+        selectedCount: this.graph?.selection?.size || 0,
+      });
+    }
+  }
+
 deleteSelected() {
   try {
     const ids = new Set(this.graph.selection);
@@ -381,25 +402,28 @@ deleteSelected() {
       }
 
       // Store original positions
-      const nodePositions = {};
+      const movements = [];
 
       for (const n of this.graph.nodes) {
         if (ids.has(n.id)) {
           const originalPos = { x: n.x || 0, y: n.y || 0 };
           n.x = originalPos.x + dx;
           n.y = originalPos.y + dy;
-          
-          nodePositions[n.id] = {
-            oldPos: originalPos,
-            newPos: { x: n.x, y: n.y }
-          };
+
+          movements.push({
+            nodeId: n.id,
+            oldX: originalPos.x,
+            oldY: originalPos.y,
+            newX: n.x,
+            newY: n.y,
+          });
         }
       }
 
       // Record for undo if we have an undoManager and nodes were moved
-      if (this.undoManager && Object.keys(nodePositions).length > 0) {
-        console.log('Recording keyboard movement for undo:', Object.keys(nodePositions).length, 'nodes');
-        this.undoManager.recordNodeMovement(nodePositions);
+      if (this.undoManager && movements.length > 0) {
+        console.log('Recording keyboard movement for undo:', movements.length, 'nodes');
+        this.undoManager.recordNodeMovement(movements);
       }
 
       if (this.onChange) this.onChange();

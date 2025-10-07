@@ -8,6 +8,10 @@ export class NoiseNodes {
     ];
     return noiseTypes.includes(kind);
   }
+
+  getHelperFunctions() {
+    return OPTIMIZED_NOISE_FUNCTIONS_WGSL;
+  }
   
   compile(node, getInput) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -87,31 +91,19 @@ export class NoiseNodes {
     const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
     const ridge = this.getParam(node, 'ridge', false);
     const turbulence = this.getParam(node, 'turbulence', false);
-    
-    // LOD system: choose noise algorithm based on frequency
-    const scaleValue = parseFloat(scale);
-    let noiseCall;
-    
-    if (scaleValue > 10.0) {
-      // High frequency - use fast hash-based noise
-      noiseCall = `fastNoise(${uv} * ${scale})`;
-    } else if (scaleValue > 5.0) {
-      // Medium frequency - use value noise
-      noiseCall = `valueNoise(${uv} * ${scale})`;
-    } else {
-      // Low frequency - use full simplex for quality
-      noiseCall = `simplexNoise(${uv} * ${scale})`;
-    }
-    
+
+    const base = `simplexNoise(${uv} * ${scale})`;
+    let processed = base;
+
     if (ridge) {
-      noiseCall = `(1.0 - abs(${noiseCall}))`;
+      processed = `clamp(1.0 - abs(${base}), 0.0, 1.0)`;
+    } else if (turbulence) {
+      processed = `clamp(abs(${base}), 0.0, 1.0)`;
+    } else {
+      processed = `(${base} * 0.5 + 0.5)`;
     }
-    
-    if (turbulence) {
-      noiseCall = `abs(${noiseCall})`;
-    }
-    
-    const line = `let node_${nodeId} = vec3<f32>(${noiseCall} * ${amplitude} + ${offset});`;
+
+    const line = `let node_${nodeId} = vec3<f32>(${processed} * ${amplitude} + ${offset});`;
     return { line, outputType: "vec3" };
   }
 
@@ -122,7 +114,8 @@ export class NoiseNodes {
     const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
     const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
     
-    const line = `let node_${nodeId} = vec3<f32>(perlinNoise(${uv} * ${scale}) * ${amplitude} + ${offset});`;
+    const baseNoise = `simplexNoise(${uv} * ${scale})`;
+    const line = `let node_${nodeId} = vec3<f32>((${baseNoise} * 0.5 + 0.5) * ${amplitude} + ${offset});`;
     return { line, outputType: "vec3" };
   }
   
@@ -159,9 +152,9 @@ export class NoiseNodes {
     
     let line;
     if (parseFloat(warp) > 0.001) {
-      line = `let node_${nodeId} = vec3<f32>((fbmNoise(${uv} * ${scale} + vec2<f32>(fbmNoise(${uv} * ${scale} * 2.0, ${octaves}, ${persistence}, ${lacunarity}) * ${warp}), ${octaves}, ${persistence}, ${lacunarity}) * ${amplitude} + ${offset}) * ${gain});`;
+      line = `let node_${nodeId} = vec3<f32>(((fbmNoise(${uv} * ${scale} + vec2<f32>(fbmNoise(${uv} * ${scale} * 2.0, ${octaves}, ${persistence}, ${lacunarity}) * ${warp}), ${octaves}, ${persistence}, ${lacunarity}) * 0.5 + 0.5) * ${amplitude} + ${offset}) * ${gain});`;
     } else {
-      line = `let node_${nodeId} = vec3<f32>((fbmNoise(${uv} * ${scale}, ${octaves}, ${persistence}, ${lacunarity}) * ${amplitude} + ${offset}) * ${gain});`;
+      line = `let node_${nodeId} = vec3<f32>(((fbmNoise(${uv} * ${scale}, ${octaves}, ${persistence}, ${lacunarity}) * 0.5 + 0.5) * ${amplitude} + ${offset}) * ${gain});`;
     }
     
     return { line, outputType: "vec3" };
@@ -177,16 +170,17 @@ export class NoiseNodes {
     const cellType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'cellType', 0))));
     const outputType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'outputType', 0))));
     
-    // Generate multiple outputs for Voronoi
-    const lines = [
-      `let voronoi_result_${nodeId} = voronoiNoise(${uv} * ${scale}, ${randomness}, ${minkowskiP}, ${smoothness}, ${cellType}, ${outputType});`,
-      `let node_${nodeId}_F1 = vec3<f32>(voronoi_result_${nodeId}.x);`,
-      `let node_${nodeId}_F2 = vec3<f32>(voronoi_result_${nodeId}.y);`,
-      `let node_${nodeId}_cells = vec3<f32>(voronoi_result_${nodeId}.z, voronoi_result_${nodeId}.w, 0.0);`,
-      `let node_${nodeId} = node_${nodeId}_F1;` // Default output
+    const line = `
+  let voronoi_result_${nodeId} = voronoiNoise(${uv} * ${scale}, ${randomness}, ${minkowskiP}, ${smoothness}, ${cellType}, ${outputType});
+  let node_${nodeId} = voronoi_result_${nodeId}.x;`;
+
+    const outputPins = [
+      { expression: `voronoi_result_${nodeId}.x`, type: "f32" },
+      { expression: `voronoi_result_${nodeId}.y`, type: "f32" },
+      { expression: `voronoi_result_${nodeId}.zw`, type: "vec2" },
     ];
-    
-    return { line: lines.join('\n  '), outputType: "vec3" };
+
+    return { line, outputType: "f32", outputPins };
   }
   
   compileRidgedNoise(node, getInput, nodeId) {

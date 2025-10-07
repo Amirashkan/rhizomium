@@ -1,296 +1,395 @@
 // src/gpu/gpuRenderer.js
-// ✅ Stable single-instance WebGPU renderer for Rhizomium
+// WebGPU renderer with explicit aspect uniform management and safe fallbacks.
 
-let _paramUniformBuffer = null;
-let _uniformManager = null;
-let _paramUniformData = null;
+const STAGES = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
 
-let _device = null;
-let _context = null;
-let _format = null;
-let _canvas = null;
-let _pipeline = null;
-let _uniformBuffer = null;
-let _resolutionBuffer = null;
-let _bindGroup = null;
+// Parse WGSL for @group/@binding declarations so we can allocate resources dynamically.
+function analyzeBindings(wgsl) {
+  const groups = {};
+  const re = /@group\((\d+)\)\s*@binding\((\d+)\)\s*var(?:<(\w+)>)?\s+([\w_]+)\s*:\s*([^;]+);/g;
 
-let _lastUserSrcHash = null;
-let _lastCompileOK = false;
-let _loggedForHash = new Set();
+  let match;
+  while ((match = re.exec(wgsl)) !== null) {
+    const groupIndex = parseInt(match[1], 10);
+    const bindingIndex = parseInt(match[2], 10);
+    const addressSpace = (match[3] || "").trim();
+    const varName = match[4];
+    const typeStr = match[5].trim();
 
-let _uniformData = new Float32Array(4);      // [time, pad1, pad2, pad3]
-let _resolutionData = new Float32Array(4);   // [width, height, aspect, pad]
-let _lastTimeUpdate = 0;
-let _frameCount = 0;
-const UNIFORM_UPDATE_INTERVAL = 16; // ~60fps
+    let kind = "uniform-buffer";
+    if (/^sampler/.test(typeStr)) kind = "sampler";
+    else if (/^texture_2d/.test(typeStr)) kind = "texture-2d";
+    else if (/^texture_cube/.test(typeStr)) kind = "texture-cube";
+    else if (/storage/.test(addressSpace)) kind = "storage-buffer";
 
-// Hash utility
-function hash(s) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+    if (!groups[groupIndex]) groups[groupIndex] = {};
+    groups[groupIndex][bindingIndex] = { kind, varDecl: `${varName}:${typeStr}` };
   }
-  return (h >>> 0).toString(36);
+
+  return { groups };
 }
 
-export async function initWebGPU(canvas, forceReconfigure = false) {
-  console.log("🔧 initWebGPU called, _device exists:", !!_device, "force:", forceReconfigure);
+export class GPURenderer {
+  constructor(device, canvas) {
+    this.device = device;
+    this.canvas = canvas;
+    this.context = canvas.getContext("webgpu");
+    this.format = navigator.gpu.getPreferredCanvasFormat();
 
-  if (_device && !forceReconfigure) {
-    console.log("✅ Returning existing device");
-    return _device;
-  }
-
-  try {
-    if (!navigator.gpu) throw new Error("WebGPU not available in this browser");
-
-    _canvas = canvas || document.getElementById("gpu-canvas");
-    if (!_canvas) throw new Error("Canvas element not found");
-
-    _context = _canvas.getContext("webgpu");
-    if (!_context) throw new Error("Failed to get WebGPU context");
-
-    const adapter = await navigator.gpu.requestAdapter();
-    _device = await adapter.requestDevice();
-    window._gpuDevice = _device;
-
-    _format = navigator.gpu.getPreferredCanvasFormat();
-    _context.configure({
-      device: _device,
-      format: _format,
+    this.context.configure({
+      device,
+      format: this.format,
       alphaMode: "premultiplied",
     });
 
-    _uniformBuffer = _device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    this.pipeline = null;
+    this.bindGroups = [];
+    this.resources = {};
+    this.shaderModule = null;
+    this._lastAspectWritten = null;
+  }
+
+  clear() {
+    this.pipeline = null;
+    this.bindGroups = [];
+    this.resources = {};
+    this.shaderModule = null;
+    this._lastAspectWritten = null;
+  }
+
+  // Create placeholder texture for optional bindings.
+  createDummyTexture() {
+    const texture = this.device.createTexture({
+      size: [1, 1, 1],
+      format: "rgba8unorm",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    const color = new Uint8Array([255, 255, 255, 255]);
+    this.device.queue.writeTexture({ texture }, color, { bytesPerRow: 4 }, [1, 1]);
+    return texture.createView();
+  }
+
+  _entryFromKind(kind, binding) {
+    switch (kind) {
+      case "uniform-buffer":
+        return { binding, visibility: STAGES, buffer: { type: "uniform" } };
+      case "storage-buffer":
+        return { binding, visibility: STAGES, buffer: { type: "read-only-storage" } };
+      case "sampler":
+        return { binding, visibility: STAGES, sampler: {} };
+      case "texture-2d":
+        return { binding, visibility: STAGES, texture: {} };
+      case "texture-cube":
+        return { binding, visibility: STAGES, texture: { viewDimension: "cube" } };
+      default:
+        return { binding, visibility: STAGES, buffer: { type: "uniform" } };
+    }
+  }
+
+  _createResourceForBinding(meta) {
+    const { kind, varDecl } = meta;
+    const varName = varDecl.split(":")[0];
+
+    switch (kind) {
+      case "uniform-buffer": {
+        let size = 64;
+        if (varName === "u") {
+          // Aspect is a single float; allocate one vec4 (16 bytes) for alignment.
+          size = 16;
+        } else if (varName === "g") {
+          // Globals store resolution.xy and time/padding.
+          size = 16;
+        }
+        return {
+          buffer: this.device.createBuffer({
+            size,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            label: `ubuf:${varName}`,
+          }),
+          kind,
+          varDecl,
+          varName,
+        };
+      }
+      case "storage-buffer":
+        return {
+          buffer: this.device.createBuffer({
+            size: 256,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            label: `sbuf:${varName}`,
+          }),
+          kind,
+          varDecl,
+          varName,
+        };
+      case "sampler": {
+        const resource = {
+          sampler: this.device.createSampler({ magFilter: "linear", minFilter: "linear" }),
+          kind,
+          varDecl,
+          varName,
+        };
+        this._applyExternalTextureResource(resource);
+        return resource;
+      }
+      case "texture-2d":
+      case "texture-cube": {
+        const resource = {
+          textureView: this.createDummyTexture(),
+          kind,
+          varDecl,
+          varName,
+        };
+        this._applyExternalTextureResource(resource);
+        return resource;
+      }
+      default:
+        return {
+          buffer: this.device.createBuffer({
+            size: 64,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            label: `ubuf:${varName}`,
+          }),
+          kind: "uniform-buffer",
+          varDecl,
+          varName,
+        };
+    }
+  }
+
+  _applyExternalTextureResource(resource) {
+    const texManager = typeof window !== "undefined" ? window.textureManager : null;
+    if (!texManager || !resource || !resource.varName) return;
+
+    const info = this._lookupTextureBinding(texManager, resource.varName);
+    if (!info) return;
+
+    if (resource.textureView && info.textureView) {
+      resource.textureView = info.textureView;
+    }
+    if (resource.sampler && info.sampler) {
+      resource.sampler = info.sampler;
+    }
+  }
+
+  _lookupTextureBinding(texManager, varName) {
+    const match = /^(textureCube_|texture_|samplerCube_|sampler_)(.+)$/.exec(varName);
+    if (!match) return null;
+    const sanitizedId = match[2];
+
+    if (texManager.gpuTextures?.get) {
+      const gpuInfo = texManager.gpuTextures.get(sanitizedId);
+      if (gpuInfo) {
+        this._ensureTextureView(texManager, sanitizedId, gpuInfo);
+        return gpuInfo;
+      }
+    }
+
+    if (typeof texManager.getTexture === "function") {
+      const direct = texManager.getTexture(sanitizedId);
+      if (direct && (direct.textureView || direct.sampler)) {
+        this._ensureTextureView(texManager, sanitizedId, direct);
+        return direct;
+      }
+    }
+
+    if (texManager.textures) {
+      for (const [nodeId, info] of texManager.textures.entries()) {
+        if (this._sanitizeId(nodeId) === sanitizedId) {
+          this._ensureTextureView(texManager, nodeId, info);
+          return info;
+        }
+      }
+    }
+
+    if (texManager.gpuTextures) {
+      for (const [nodeId, info] of texManager.gpuTextures.entries()) {
+        if (this._sanitizeId(nodeId) === sanitizedId) {
+          this._ensureTextureView(texManager, nodeId, info);
+          return info;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  _ensureTextureView(texManager, nodeId, info) {
+    if (!info) return;
+
+    if (!info.textureView && info.texture?.createView) {
+      info.textureView = info.texture.createView();
+      if (texManager.gpuTextures?.set) {
+        texManager.gpuTextures.set(nodeId, info);
+      }
+    }
+  }
+
+  _sanitizeId(id) {
+    return String(id).replace(/[^a-zA-Z0-9_]/g, "_");
+  }
+
+  _buildLayoutsAndBindGroups(bindingMap) {
+    const groupIndices = Object.keys(bindingMap.groups)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    const layouts = groupIndices.map((groupIndex) => {
+      const bindings = bindingMap.groups[groupIndex];
+      const entries = Object.keys(bindings).map((binding) =>
+        this._entryFromKind(bindings[binding].kind, parseInt(binding, 10))
+      );
+      return this.device.createBindGroupLayout({ entries });
     });
 
-    _resolutionBuffer = _device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    const pipelineLayout = this.device.createPipelineLayout({ bindGroupLayouts: layouts });
+
+    this.pipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module: this.shaderModule, entryPoint: "vs_main" },
+      fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.format }] },
+      primitive: { topology: "triangle-list" },
     });
 
-    _resolutionData[0] = _canvas.width;
-    _resolutionData[1] = _canvas.height;
-    _resolutionData[2] = _canvas.width / _canvas.height;
-    _device.queue.writeBuffer(_resolutionBuffer, 0, _resolutionData);
+    this.bindGroups = groupIndices.map((groupIndex, layoutIndex) => {
+      const bindings = bindingMap.groups[groupIndex];
+      const entries = Object.keys(bindings).map((bindingKey) => {
+        const binding = parseInt(bindingKey, 10);
+        const meta = bindings[binding];
+        const resourceKey = `${groupIndex}:${binding}`;
 
-    console.log("✅ WebGPU initialized successfully");
-    return _device;
-  } catch (error) {
-    window.errorHandler?.handleError(error, { component: "webgpu-init" });
-    throw error;
+        if (!this.resources[resourceKey]) {
+          this.resources[resourceKey] = this._createResourceForBinding(meta);
+        }
+
+        const resource = this.resources[resourceKey];
+        if (resource.buffer) {
+          return { binding, resource: { buffer: resource.buffer } };
+        }
+        if (resource.sampler) {
+          return { binding, resource: resource.sampler };
+        }
+        if (resource.textureView) {
+          return { binding, resource: resource.textureView };
+        }
+        throw new Error(`Unsupported resource for binding ${resourceKey}`);
+      });
+
+      return this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(layoutIndex),
+        entries,
+      });
+    });
   }
-}
 
-function createDummyTexture() {
-  const texture = _device.createTexture({
-    size: [1, 1, 1],
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
-
-  const whitePixel = new Uint8Array([255, 255, 255, 255]);
-  _device.queue.writeTexture(
-    { texture },
-    whitePixel,
-    { bytesPerRow: 4 },
-    { width: 1, height: 1 }
-  );
-
-  const textureView = texture.createView();
-  const sampler = _device.createSampler({
-    magFilter: "linear",
-    minFilter: "linear",
-  });
-
-  return { textureView, sampler };
-}
-
-function createDummyCubeTexture() {
-  const texture = _device.createTexture({
-    size: [1, 1, 6],
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    dimension: "2d",
-  });
-
-  const whitePixel = new Uint8Array([255, 255, 255, 255]);
-  for (let face = 0; face < 6; face++) {
-    _device.queue.writeTexture(
-      { texture, origin: [0, 0, face] },
-      whitePixel,
-      { bytesPerRow: 4 },
-      { width: 1, height: 1 }
+  _getUniformByVarName(name) {
+    const entry = Object.values(this.resources).find(
+      (res) => res && res.kind === "uniform-buffer" && res.varName === name
     );
+    return entry || null;
   }
 
-  const textureView = texture.createView({ dimension: "cube" });
-  const sampler = _device.createSampler({
-    magFilter: "linear",
-    minFilter: "linear",
-  });
+  _updateAspectUniform() {
+    const target = this._getUniformByVarName("u");
+    if (!target?.buffer) return;
 
-  return { textureView, sampler };
-}
+    const width = Math.max(1, this.canvas.width || 1);
+    const height = Math.max(1, this.canvas.height || 1);
+    const aspect = width / height;
 
-function createPipelineAndBindGroup(wgsl) {
-  const module = _device.createShaderModule({ code: wgsl });
-  const pipeline = _device.createRenderPipeline({
-    layout: "auto",
-    vertex: { module, entryPoint: "vs_main" },
-    fragment: { module, entryPoint: "fs_main", targets: [{ format: _format }] },
-    primitive: { topology: "triangle-list" },
-  });
-
-  const bindGroupLayout = pipeline.getBindGroupLayout(0);
-  const hasParamUniforms = wgsl.includes("struct ParamUniforms") && _paramUniformBuffer !== null;
-
-  const entries = [
-    { binding: 0, resource: { buffer: _uniformBuffer } },
-    { binding: 1, resource: { buffer: _resolutionBuffer } },
-  ];
-
-  if (hasParamUniforms) {
-    entries.push({ binding: 2, resource: { buffer: _paramUniformBuffer } });
-  }
-
-  const hasTextureSample = wgsl.includes("textureSample(");
-  if (hasTextureSample) {
-    const isCube = wgsl.includes("texture_cube<f32>");
-    const dummy = isCube ? createDummyCubeTexture() : createDummyTexture();
-    entries.push(
-      { binding: 3, resource: dummy.textureView },
-      { binding: 4, resource: dummy.sampler }
-    );
-  }
-
-  const bindGroup = _device.createBindGroup({
-    layout: bindGroupLayout,
-    entries,
-  });
-
-  return { pipeline, bindGroup };
-}
-
-// ✅ Fixed version – no "this.device"
-export async function setShaderSource(wgsl, uniformManager = null) {
-  try {
-    if (!_device) {
-      console.error("❌ GPU device not initialized");
+    if (this._lastAspectWritten !== null && Math.abs(this._lastAspectWritten - aspect) < 1e-5) {
       return;
     }
 
-    const { pipeline, bindGroup } = createPipelineAndBindGroup(wgsl);
-    _pipeline = pipeline;
-    _bindGroup = bindGroup;
+    const data = new Float32Array([aspect, 0, 0, 0]);
+    this.device.queue.writeBuffer(target.buffer, 0, data);
+    this._lastAspectWritten = aspect;
+    console.log(`[GPURenderer] aspect uniform <- ${aspect.toFixed(4)} (${width}x${height})`);
+  }
 
-    console.log("✅ Shader compiled successfully");
+  _updateGlobalsUniform(timeSec) {
+    const target = this._getUniformByVarName("g");
+    if (!target?.buffer) return;
 
-    if (uniformManager && typeof uniformManager.updateUniformBuffer === "function") {
-      _uniformManager = uniformManager;
-      uniformManager.updateUniformBuffer(_device);
+    const width = Math.max(1, this.canvas.width || 1);
+    const height = Math.max(1, this.canvas.height || 1);
+    const data = new Float32Array([width, height, timeSec, 0.0]);
+    this.device.queue.writeBuffer(target.buffer, 0, data);
+  }
+
+  presentFallbackColor(color = { r: 0.5, g: 0.5, b: 0.5, a: 1.0 }) {
+    if (!this.device || !this.context) return;
+
+    const encoder = this.device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: this.context.getCurrentTexture().createView(),
+        loadOp: "clear",
+        storeOp: "store",
+        clearValue: color,
+      }],
+    });
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
+  }
+
+  setShaderSource(wgslCode) {
+    try {
+      this.shaderModule = this.device.createShaderModule({ code: wgslCode });
+      this.resources = {};
+      this._lastAspectWritten = null;
+      const bindingMap = analyzeBindings(wgslCode);
+      this._buildLayoutsAndBindGroups(bindingMap);
+      this._updateAspectUniform();
+      this.canvas.style.backgroundColor = "";
+      console.log("[GPURenderer] Shader compiled & pipeline created");
+    } catch (err) {
+      console.error("[GPURenderer] Shader compile/pipeline error:", err);
+      this.clear();
+      this.presentFallbackColor();
+      this.canvas.style.backgroundColor = "#7f7f7f";
+      window.previewSystem?.showNeutralFallback?.();
     }
-  } catch (err) {
-    console.error("❌ Error in setShaderSource:", err);
-    window.ErrorHandler?.handleError(err);
-  }
-}
-
-export function render() {
-  if (!_device || !_context || !_pipeline || !_bindGroup) return;
-
-  const now = performance.now();
-
-  if (now - _lastTimeUpdate >= UNIFORM_UPDATE_INTERVAL) {
-    _uniformData[0] = now / 1000;
-    _device.queue.writeBuffer(_uniformBuffer, 0, _uniformData);
-    _lastTimeUpdate = now;
   }
 
-  if (_canvas && _resolutionBuffer) {
-    if (_resolutionData[0] !== _canvas.width || _resolutionData[1] !== _canvas.height) {
-      _resolutionData[0] = _canvas.width;
-      _resolutionData[1] = _canvas.height;
-      _resolutionData[2] = _canvas.width / _canvas.height;
-      _device.queue.writeBuffer(_resolutionBuffer, 0, _resolutionData);
-    }
-  }
+  render() {
+    const dpr = window.devicePixelRatio || 1;
+    const targetWidth = Math.max(1, Math.floor((this.canvas.clientWidth || this.canvas.width || 1) * dpr));
+    const targetHeight = Math.max(1, Math.floor((this.canvas.clientHeight || this.canvas.height || 1) * dpr));
 
-  if (_uniformManager && _paramUniformBuffer && _paramUniformData) {
-    const values = Array.from(_uniformManager.uniformValues.values());
-    if (values.length > 0 && values.length === _paramUniformData.length) {
-      _paramUniformData.set(values);
-      _device.queue.writeBuffer(_paramUniformBuffer, 0, _paramUniformData);
-    }
-  }
-
-  const encoder = _device.createCommandEncoder();
-  const view = _context.getCurrentTexture().createView();
-
-  const pass = encoder.beginRenderPass({
-    colorAttachments: [{
-      view,
-      clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
-      loadOp: "clear",
-      storeOp: "store",
-    }],
-  });
-
-  pass.setPipeline(_pipeline);
-  pass.setBindGroup(0, _bindGroup);
-  pass.draw(3, 1, 0, 0);
-  pass.end();
-
-  _device.queue.submit([encoder.finish()]);
-  _frameCount++;
-}
-
-export function clearPipeline() {
-  console.log("🧹 Clearing GPU pipeline and resources");
-  try {
-    if (_paramUniformBuffer) {
-      _paramUniformBuffer.destroy();
-      _paramUniformBuffer = null;
-      _paramUniformData = null;
+    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+      this.canvas.width = targetWidth;
+      this.canvas.height = targetHeight;
+      this._lastAspectWritten = null; // force update after resize
     }
 
-    _uniformManager = null;
-    _pipeline = null;
-    _bindGroup = null;
-    _lastCompileOK = false;
-    _lastUserSrcHash = null;
+    this._updateAspectUniform();
 
-    console.log("✅ Pipeline cleared");
-  } catch (error) {
-    console.error("Error clearing pipeline:", error);
-    window.errorHandler?.handleError(error);
+    if (!this.pipeline) {
+      this.presentFallbackColor();
+      return;
+    }
+
+    const timeSec = performance.now() * 0.001;
+    this._updateGlobalsUniform(timeSec);
+
+    const encoder = this.device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: this.context.getCurrentTexture().createView(),
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: "clear",
+        storeOp: "store",
+      }],
+    });
+
+    pass.setPipeline(this.pipeline);
+    for (let i = 0; i < this.bindGroups.length; i++) {
+      pass.setBindGroup(i, this.bindGroups[i]);
+    }
+
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
   }
-}
-
-export function getPerformanceStats() {
-  return {
-    frameCount: _frameCount,
-    avgUniformUpdateInterval: UNIFORM_UPDATE_INTERVAL,
-    lastTimeUpdate: _lastTimeUpdate,
-  };
-}
-
-export const updateShader = setShaderSource;
-export const drawFrame = render;
-
-export function forceReset() {
-  console.log("🔥 FORCE RESETTING GPU STATE");
-  if (_paramUniformBuffer) _paramUniformBuffer.destroy();
-  _paramUniformBuffer = null;
-  _uniformManager = null;
-  _paramUniformData = null;
-  _pipeline = null;
-  _bindGroup = null;
-  _lastUserSrcHash = null;
-  _lastCompileOK = false;
-  _loggedForHash.clear();
-  console.log("✅ GPU state reset complete");
 }

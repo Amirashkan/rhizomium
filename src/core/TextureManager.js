@@ -108,8 +108,10 @@ async uploadToGPU(nodeId, bitmap) {
     addressModeV: 'repeat',
   });
 
+  const textureView = texture.createView();
+
   // Store GPU resources
-  this.gpuTextures.set(nodeId, { texture, sampler });
+  this.gpuTextures.set(nodeId, { texture, textureView, sampler });
   
   console.log(`✅ Uploaded to GPU: ${nodeId} (${bitmap.width}x${bitmap.height})`);
 }

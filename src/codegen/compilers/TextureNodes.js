@@ -2,13 +2,11 @@
 // Texture nodes that *register global WGSL bindings* (group 0) and only emit sampling code in-line.
 
 export class TextureNodes {
-  constructor(builder, uniformManager) {
-    // `builder` is your glslBuilder / wgslBuilder instance (see patch below).
-    // It exposes `addGlobalDecl(str)` so we can push global-scope declarations.
-    this.builder = builder;
-    this.uniformManager = uniformManager;
-  }
-
+  /**
+   * Check if this compiler handles the given node kind
+   * @param {string} kind 
+   * @returns {boolean}
+   */
   handles(kind) {
     return ["Texture2D", "TextureCube"].includes(kind);
   }
@@ -34,19 +32,18 @@ export class TextureNodes {
     window.editor?.previewIntegration?.onParameterChange?.(node);
 
     const uv = getInput(0, "vec2", "in.uv");
-
-    // 1) Ensure GLOBAL declarations (NOT inline!)
-    this.builder.addGlobalDecl(`@group(0) @binding(2) var sampler_${nodeId}: sampler;`);
-    this.builder.addGlobalDecl(`@group(0) @binding(3) var texture_${nodeId}: texture_2d<f32>;`);
-
-    // 2) Inline sampling (NO aspect on texture sampling to prevent double-correction/stretches).
-    // Shapes are aspect-correct; textures sample in UV space unless a fit mode is added.
-    const line = `
-let uv_${nodeId} = vec2<f32>(${uv}.x, 1.0 - ${uv}.y);
-let node_${nodeId}_rgba = textureSample(texture_${nodeId}, sampler_${nodeId}, uv_${nodeId});
-let node_${nodeId} = node_${nodeId}_rgba;
-`;
-
+    const textureId = nodeId;
+    
+    // Flip Y coordinate to fix upside-down texture
+    // Sample once and store in a variable for channel extraction
+    const line = `let uv_${nodeId} = vec2<f32>(${uv}.x, 1.0 - ${uv}.y);
+    let node_${nodeId}_rgba = textureSample(texture_${textureId}, sampler_${textureId}, uv_${nodeId});
+    let node_${nodeId} = node_${nodeId}_rgba;`;
+    
+    console.log(`Texture2D line: ${line}`);
+    
+    // Define all output pins with proper channel extraction
+    // Options: Return vec3 colored channels or f32 grayscale
     const outputPins = [
       { expression: `node_${nodeId}_rgba`, type: "vec4" },     // RGBA
       { expression: `node_${nodeId}_rgba.xyz`, type: "vec3" }, // RGB
@@ -60,24 +57,16 @@ let node_${nodeId} = node_${nodeId}_rgba;
   }
 
   compileTextureCube(node, getInput, nodeId) {
-    const dir = getInput(
-      0,
-      "vec3",
-      "normalize(vec3<f32>(in.uv.x * 2.0 - 1.0, in.uv.y * 2.0 - 1.0, 1.0))"
-    );
-    if (!this.builder && typeof window !== 'undefined' && window.wgslBuilder) {
-      this.builder = window.wgslBuilder;
-    }
-
-    // Global scope declarations
-    this.builder.addGlobalDecl(`@group(0) @binding(2) var samplerCube_${nodeId}: sampler;`);
-    this.builder.addGlobalDecl(`@group(0) @binding(3) var textureCube_${nodeId}: texture_cube<f32>;`);
-
-    const line = `
-let node_${nodeId}_rgba = textureSample(textureCube_${nodeId}, samplerCube_${nodeId}, ${dir});
-let node_${nodeId} = node_${nodeId}_rgba;
-`;
-
+    const dir = getInput(0, "vec3", 
+      "normalize(vec3<f32>(in.uv.x * 2.0 - 1.0, in.uv.y * 2.0 - 1.0, 1.0))");
+    const textureId = nodeId;
+    
+    const line = `let node_${nodeId}_rgba = textureSample(textureCube_${textureId}, samplerCube_${textureId}, ${dir});
+    let node_${nodeId} = node_${nodeId}_rgba;`;
+    
+    console.log(`TextureCube line: ${line}`);
+    
+    // Define output pins for cube texture
     const outputPins = [
       { expression: `node_${nodeId}_rgba`, type: "vec4" },
       { expression: `node_${nodeId}_rgba.xyz`, type: "vec3" },

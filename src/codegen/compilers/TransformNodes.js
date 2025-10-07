@@ -78,7 +78,7 @@ getShaderParam(node, name, defaultValue) {
   
   if (typeof value === 'string' && value.startsWith('=')) {
     let expr = value.substring(1);
-    expr = expr.replace(/time/g, 'u.time');
+    expr = expr.replace(/time/g, 'g.time');
     expr = expr.replace(/sin\(/g, 'sin(');
     expr = expr.replace(/cos\(/g, 'cos(');
     expr = expr.replace(/\*/g, ' * ');
@@ -87,7 +87,7 @@ getShaderParam(node, name, defaultValue) {
   
   // Handle expressions without = prefix (like "time" or "time*10")
   if (typeof value === 'string' && /\btime\b/.test(value)) {
-    let expr = value.replace(/time/g, 'u.time');
+    let expr = value.replace(/time/g, 'g.time');
     return expr;
   }
   

@@ -91,6 +91,10 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
   // 2. Handle expressions starting with =
   if (typeof value === 'string' && value.trim().startsWith('=')) {
     if (this.supportsExpressions(capabilities)) {
+      const rawExpr = value.trim().slice(1);
+      if (/[a-zA-Z_]/.test(rawExpr)) {
+        return this.toShaderExpression(rawExpr);
+      }
       return this.evaluateExpression(value);
     }
   }
@@ -200,5 +204,20 @@ isMathExpression(value) {
    */
   hasCapability(nodeKind, paramName, capability) {
     return hasCapability(nodeKind, paramName, capability);
+  }
+
+  toShaderExpression(expr) {
+    if (typeof expr !== 'string') {
+      return '(0.0)';
+    }
+
+    let result = expr.replace(/\btime\b/g, 'g.time');
+    result = result.replace(/\baspect\b/g, (match, offset, input) => {
+      const prev = offset > 0 ? input[offset - 1] : '';
+      return prev === '.' ? match : 'u.aspect';
+    });
+    result = result.replace(/\buv\b/g, 'in.uv');
+    result = result.replace(/\bresolution\b/g, 'g.resolution');
+    return `(${result})`;
   }
 }

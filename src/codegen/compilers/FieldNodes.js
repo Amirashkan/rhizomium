@@ -10,12 +10,16 @@ export class FieldNodes {
     this.functionDefinitions = new Map();
   }
 
-setUniformManager(manager) {
-  this.uniformManager = manager;
-  // Clear function cache when uniform manager changes
-  this.functionDefinitions.clear();
-  console.log('✅ Cleared FieldNodes function cache on uniform manager update');
-}
+  makeSafeIdentifier(id) {
+    return /^[A-Za-z_]/.test(id) ? id : `n_${id}`;
+  }
+
+  setUniformManager(manager) {
+    this.uniformManager = manager;
+    // Clear function cache when uniform manager changes
+    this.functionDefinitions.clear();
+    console.log('Cleared FieldNodes function cache on uniform manager update');
+  }
   setExpressionSystem(expressionSystem) {
     this.paramHandler.setExpressionSystem(expressionSystem);
   }
@@ -124,23 +128,21 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
     const uv = getInput(0, "vec2", "in.uv");
     const functionName = `shape_${node.kind.toLowerCase()}_${nodeId}`;
     
-    if (!this.functionDefinitions.has(nodeId)) {
-      let functionDef;
-      
-      switch (node.kind) {
-        case 'Circle':
-          functionDef = this.generateCircleFunction(node, nodeId, functionName);
-          break;
-        case 'Rectangle':
-          functionDef = this.generateRectangleFunction(node, nodeId, functionName);
-          break;
-        case 'Polygon':
-          functionDef = this.generatePolygonFunction(node, nodeId, functionName);
-          break;
-      }
-      
-      this.functionDefinitions.set(nodeId, functionDef);
+    let functionDef;
+    
+    switch (node.kind) {
+      case 'Circle':
+        functionDef = this.generateCircleFunction(node, nodeId, functionName);
+        break;
+      case 'Rectangle':
+        functionDef = this.generateRectangleFunction(node, nodeId, functionName);
+        break;
+      case 'Polygon':
+        functionDef = this.generatePolygonFunction(node, nodeId, functionName);
+        break;
     }
+    
+    this.functionDefinitions.set(nodeId, functionDef);
     
     const line = `
   let node_${nodeId} = ${functionName}(${uv});`;
@@ -162,20 +164,21 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
     const epsilon = this.getParam(node, 'epsilon', 0.02);
     
     const scale = this.getParam(node, 'scale', 1.0);
+    const safeId = this.makeSafeIdentifier(nodeId);
 
     return `fn ${functionName}(uv: vec2<f32>) -> f32 {
   // Domain + aspect: measure distances in aspect space (x in [0, u.aspect], y in [0, 1])
-  let ${nodeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  var ${nodeId}_uvA = ${nodeId}_uv01;
-  ${nodeId}_uvA.x *= u.aspect;
+  let ${safeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  var ${safeId}_uvA = ${safeId}_uv01;
+  ${safeId}_uvA.x *= u.aspect;
 
-  let ${nodeId}_ctr = vec2<f32>(0.5 * u.aspect, 0.5);
+  let ${safeId}_ctr = vec2<f32>(0.5 * u.aspect, 0.5);
   // Zoom semantics: larger 'scale' => larger circle (scale radius, do NOT invert coords)
-  let ${nodeId}_r = clamp(${radius}, 0.0, 2.0) * max(${scale}, 0.0);
-  let ${nodeId}_eps = max(${epsilon}, 1e-4);
+  let ${safeId}_r = clamp(${radius}, 0.0, 2.0) * max(${scale}, 0.0);
+  let ${safeId}_eps = max(${epsilon}, 1e-4);
 
-  let ${nodeId}_dist = length(${nodeId}_uvA - ${nodeId}_ctr) - ${nodeId}_r;
-  return 1.0 - smoothstep(-${nodeId}_eps, ${nodeId}_eps, ${nodeId}_dist);
+  let ${safeId}_dist = length(${safeId}_uvA - ${safeId}_ctr) - ${safeId}_r;
+  return 1.0 - smoothstep(-${safeId}_eps, ${safeId}_eps, ${safeId}_dist);
 }`;
   }
 
@@ -190,43 +193,44 @@ generateRectangleFunction(node, nodeId, functionName) {
   const scale = this.getParam(node, 'scale', 1.0);
   const rotation = this.getParam(node, 'rotation', 0.0);
   const epsilon = this.getParam(node, 'epsilon', 0.02);
+  const safeId = this.makeSafeIdentifier(nodeId);
   
   return `fn ${functionName}(uv: vec2<f32>) -> f32 {
   // Distances in aspect space
-  let ${nodeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  var ${nodeId}_uvA = ${nodeId}_uv01;
-  ${nodeId}_uvA.x *= u.aspect;
+  let ${safeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  var ${safeId}_uvA = ${safeId}_uv01;
+  ${safeId}_uvA.x *= u.aspect;
 
   // center in aspect space
-  let ${nodeId}_ctr = vec2<f32>(
+  let ${safeId}_ctr = vec2<f32>(
     clamp(${centerX}, 0.0, 1.0) * u.aspect,
     clamp(${centerY}, 0.0, 1.0)
   );
   // size in aspect space (x scaled by aspect)
-  let ${nodeId}_half = clamp(
+  var ${safeId}_half = clamp(
     vec2<f32>(${width}, ${height}),
     vec2<f32>(0.0),
     vec2<f32>(1.0)
   ) * 0.5;
-  ${nodeId}_half.x *= u.aspect;
+  ${safeId}_half.x *= u.aspect;
   // Zoom semantics: larger 'scale' => larger rect (scale half-size)
-  let ${nodeId}_s = max(${scale}, 0.0);
-  ${nodeId}_half *= ${nodeId}_s;
+  let ${safeId}_s = max(${scale}, 0.0);
+  ${safeId}_half *= ${safeId}_s;
 
   // rotate delta in aspect space (unique names; avoids clashes)
-  var ${nodeId}_dp = ${nodeId}_uvA - ${nodeId}_ctr;
-  let ${nodeId}_cr = cos(${rotation});
-  let ${nodeId}_sr = sin(${rotation});
-  ${nodeId}_dp = vec2<f32>(
-    ${nodeId}_cr * ${nodeId}_dp.x - ${nodeId}_sr * ${nodeId}_dp.y,
-    ${nodeId}_sr * ${nodeId}_dp.x + ${nodeId}_cr * ${nodeId}_dp.y
+  var ${safeId}_dp = ${safeId}_uvA - ${safeId}_ctr;
+  let ${safeId}_cr = cos(${rotation});
+  let ${safeId}_sr = sin(${rotation});
+  ${safeId}_dp = vec2<f32>(
+    ${safeId}_cr * ${safeId}_dp.x - ${safeId}_sr * ${safeId}_dp.y,
+    ${safeId}_sr * ${safeId}_dp.x + ${safeId}_cr * ${safeId}_dp.y
   );
 
-  let ${nodeId}_d = abs(${nodeId}_dp) - ${nodeId}_half;
-  let ${nodeId}_dist = length(max(${nodeId}_d, vec2<f32>(0.0)))
-                     + min(max(${nodeId}_d.x, ${nodeId}_d.y), 0.0);
-  let ${nodeId}_eps = max(${epsilon}, 1e-4);
-  return 1.0 - smoothstep(-${nodeId}_eps, ${nodeId}_eps, ${nodeId}_dist);
+  let ${safeId}_d = abs(${safeId}_dp) - ${safeId}_half;
+  let ${safeId}_dist = length(max(${safeId}_d, vec2<f32>(0.0)))
+                     + min(max(${safeId}_d.x, ${safeId}_d.y), 0.0);
+  let ${safeId}_eps = max(${epsilon}, 1e-4);
+  return 1.0 - smoothstep(-${safeId}_eps, ${safeId}_eps, ${safeId}_dist);
 }`;
 }
   /**
@@ -497,3 +501,5 @@ fn ${fnName}(uv: vec2<f32>, freq: f32, angle: f32, thickness: f32, smoothness: f
 
 
 }
+
+

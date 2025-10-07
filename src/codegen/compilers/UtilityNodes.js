@@ -70,7 +70,7 @@ export class UtilityNodes {
     
     expr = expr.replace(/\ba\b/g, `(${a})`);
     expr = expr.replace(/\bb\b/g, `(${b})`);
-    expr = expr.replace(/\bu_time\b/g, "u.time");
+    expr = expr.replace(/\bu_time\b/g, "g.time");
     expr = expr.replace(/\buv\b/g, "in.uv");
     expr = expr.replace(/\bpi\b/g, "3.14159265359");
     expr = expr.replace(/\bPI\b/g, "3.14159265359");

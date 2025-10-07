@@ -7,7 +7,7 @@ export class TextureBindings {
    */
   static generate(graph) {
     let bindingCode = "";
-    let bindingIndex = 2; // Start after uniforms at binding 0
+    let bindingIndex = 3; // 0:u, 1:g, 2:ParamUniforms (if present)
 
     if (!graph.nodes) {
       return bindingCode;

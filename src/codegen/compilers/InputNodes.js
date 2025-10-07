@@ -30,7 +30,7 @@ export class InputNodes {
         
       case 'Time':
         return {
-          line: `let node_${nodeId} = u.time;`,
+          line: `let node_${nodeId} = g.time;`,
           outputType: "f32"
         };
         
@@ -70,13 +70,13 @@ export class InputNodes {
         
       case 'Mouse':
         return {
-          line: `let node_${nodeId} = u.mouse;`,
+          line: `let node_${nodeId} = vec2<f32>(0.0, 0.0);`,
           outputType: "vec2"
         };
         
       case 'Resolution':
         return {
-          line: `let node_${nodeId} = u.resolution;`,
+          line: `let node_${nodeId} = g.resolution;`,
           outputType: "vec2"
         };
         

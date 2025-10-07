@@ -65,7 +65,8 @@ getParameterValue(node, paramName, defaultValue = 0) {
     // Consistent Y-coordinate flipping across all gradient renderers
     const centerX = this.getParameterValue(node, 'centerX', 0.5) * this.size;
     const centerY = (1.0 - this.getParameterValue(node, 'centerY', 0.5)) * this.size;
-    const radius = this.getParameterValue(node, 'radius', 0.5) * this.size;
+    const rawRadius = this.getParameterValue(node, 'radius', 0.5);
+    const radius = Math.max(1.0, Math.abs(rawRadius) * this.size);
     const falloff = this.getParameterValue(node, 'falloff', 1.0);
     const invert = this.getParameterValue(node, 'invert', false);
 

@@ -67,6 +67,42 @@ export class ConnectionManager {
         }
 
         // Remove any existing connection to this input
+        const existingConnection = this.graph.connections.find(
+          (c) =>
+            c.to.nodeId === hitInputPin.nodeId && c.to.pin === hitInputPin.pin,
+        );
+
+        if (existingConnection) {
+          const existingSource = this.graph.nodes.find(
+            (n) => n.id == existingConnection.from.nodeId,
+          );
+
+          if (
+            existingSource &&
+            window.onConnectionDeleted &&
+            typeof window.onConnectionDeleted === "function"
+          ) {
+            const connectionData = {
+              sourceNode: existingSource,
+              targetNode,
+              targetInput: hitInputPin.pin,
+              sourceOutput:
+                typeof existingConnection.from.pin === "number"
+                  ? existingConnection.from.pin
+                  : 0,
+            };
+            console.log(
+              "ConnectionManager: Recording replaced connection for undo",
+              connectionData,
+            );
+            window.onConnectionDeleted(connectionData);
+          }
+
+          if (targetNode.inputs) {
+            targetNode.inputs[hitInputPin.pin] = null;
+          }
+        }
+
         this.graph.connections = this.graph.connections.filter(
           (c) =>
             !(c.to.nodeId === hitInputPin.nodeId && c.to.pin === hitInputPin.pin),

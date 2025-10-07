@@ -163,7 +163,12 @@ window.gpuRenderer = new GPURenderer(device, canvas);
     editor = new Editor(graph, updateShaderFromGraph, undoManager);
     
     // Now set the editor reference in undo manager
-    undoManager.editor = editor;
+    if (typeof undoManager.setEditor === "function") {
+      undoManager.setEditor(editor);
+    } else {
+      undoManager.editor = editor;
+      undoManager.onChange = editor?.onChange;
+    }
 
     console.log("Creating SaveLoadManager...");
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);

@@ -31,15 +31,20 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
     return out;
 }
 
-struct Uniforms {
+struct U {
+    aspect: f32,
+};
+@group(0) @binding(0) var<uniform> u: U;
+
+struct Globals {
     time: f32,
     pad1: vec3<f32>,
 };
-@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(0) @binding(1) var<uniform> g: Globals;
 
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let c = vec3<f32>(uv, 0.5 + 0.5 * sin(u.time));
+    let c = vec3<f32>(uv, 0.5 + 0.5 * sin(g.time));
     return vec4<f32>(c, 1.0);
 }
 // Add to shaderlib.wgsl

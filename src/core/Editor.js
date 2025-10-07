@@ -756,6 +756,7 @@ connectGPURenderer(renderFunction) {
       }
 
       this.previewSystem = PreviewSystem.create(this);
+      window.previewSystem = this.previewSystem;
       this.previewIntegration = this.previewSystem.integration;
       
     } catch (error) {
@@ -764,6 +765,7 @@ connectGPURenderer(renderFunction) {
       });
       this.previewSystem = null;
       this.previewIntegration = null;
+      window.previewSystem = null;
     }
   }
 

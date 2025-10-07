@@ -154,7 +154,7 @@ isDynamicExpression(value) {
   if (typeof value !== 'string') return false;
   
   // CRITICAL: Expressions containing 'time' are embedded in shader code directly
-  // They don't need CPU-side uniforms because they use the GPU's u.time uniform
+  // They don't need CPU-side uniforms because they use the GPU's g.time uniform
   if (/\btime\b/i.test(value)) {
     console.log(`⏱️ Expression "${value}" contains 'time' - will be embedded as shader code, NOT a uniform`);
     return false;  // NOT dynamic in the sense of needing a parameter uniform

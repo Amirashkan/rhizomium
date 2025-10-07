@@ -12,6 +12,11 @@ export class UndoManager {
     console.log('UndoManager initialized with graph:', !!graph, 'editor:', !!editor);
   }
 
+  setEditor(editor) {
+    this.editor = editor;
+    this.onChange = editor ? editor.onChange : null;
+  }
+
   // Record a connection deletion for undo
   recordConnectionDeletion(connectionData) {
     console.log('Recording connection deletion:', connectionData);

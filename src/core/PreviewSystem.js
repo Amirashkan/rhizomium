@@ -146,6 +146,19 @@ constructor(editor) {
     });
   }
 }
+  showNeutralFallback() {
+    try {
+      const canvas = document.getElementById('gpu-canvas');
+      if (canvas) {
+        canvas.style.backgroundColor = '#7f7f7f';
+      }
+      console.warn('PreviewSystem: presenting neutral fallback preview');
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'preview-fallback'
+      });
+    }
+  }
 generateNodePreview(node) {
     console.log(`Generating preview for: ${node.kind} ${node.kind.toLowerCase()}`);
   const INPUT_ONLY_NODES = ['time', 'uv', 'constfloat', 'constint', 'constvec2', 'constvec3'];

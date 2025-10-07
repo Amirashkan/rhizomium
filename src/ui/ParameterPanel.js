@@ -667,6 +667,16 @@ case 'flip2d':
     this.renderParameters(node);
   }
 
+  updateParameterDisplay(node, paramName, value) {
+    if (!node) return;
+    if (!node.params) node.params = {};
+    node.params[paramName] = value;
+
+    if (this.selectedNode && this.selectedNode.id === node.id) {
+      this.renderParameters(node);
+    }
+  }
+
   hide() {
     this.panel.style.display = 'none';
     this.selectedNode = null;

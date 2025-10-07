@@ -468,17 +468,40 @@ create(param, node, div, label, valueManager, onChange) {
     // const helperButton = this.createExpressionHelper(input, param, node, valueManager, onChange);
     const resultDisplay = this.createResultDisplay();
 
+    const key = `${node.id}_${param.name}`;
+    const tabState = this._ensureTabState(node, param.name, input.value);
+    input.dataset.expressionTab = tabState.active;
+    if (tabState.active !== 'main') {
+      input.value = tabState.values[tabState.active] ?? '';
+      this._autoResizeTextArea(input);
+    }
+
+    const entry = {
+      input,
+      resultDisplay,
+      param,
+      node,
+      valueManager,
+      onChange,
+      lastValue: String(input.value).trim(),
+      tabState,
+    };
+    this.activeInputs.set(key, entry);
+
     // Setup event handlers
-    this.setupEventHandlers(input, param, node, valueManager, onChange, resultDisplay);
-    this.setupNumericDragSupport(input, param, node, valueManager, onChange);
+    this.setupEventHandlers(
+      input,
+      param,
+      node,
+      valueManager,
+      onChange,
+      resultDisplay,
+      entry,
+    );
+    this.setupNumericDragSupport(input, param, node, valueManager, onChange, entry);
 
     // Initial validation and display update
     this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
-
-    // Track this input for updates
-    this.activeInputs.set(`${node.id}_${param.name}`, {
-      input, resultDisplay, param, node, valueManager, onChange
-    });
 
     container.appendChild(input);
     // REMOVE THIS LINE:
@@ -521,31 +544,46 @@ isIncomplete(value) {
   }
 
   createInput(param, node, valueManager) {
-    const input = document.createElement('input');
-    input.type = 'text';
+    const input = document.createElement('textarea');
     input.className = 'param-input expression-capable';
     input.setAttribute('data-param', param.name);
     input.setAttribute('data-param-type', param.type);
+    input.setAttribute('rows', '1');
+    input.autocomplete = 'off';
+    input.autocapitalize = 'off';
+    input.spellcheck = false;
     
     const currentValue = node.params?.[param.name] ?? param.default ?? '';
     input.value = String(currentValue);
 
-input.style.cssText = `
-  width: 100%;  /* Change from calc(100% - 25px) */
-  padding: 6px;
-  background: #333;
-  color: #fff;
-  border: 1px solid #555;
-  border-radius: 4px;  /* Change from 4px 0 0 4px */
-  font-size: 11px;
-  box-sizing: border-box;
-  font-family: ${this.expressionSystem.isExpression(currentValue) ? 'monospace' : 'inherit'};
-`;
-    // Set placeholder based on parameter type
-    input.placeholder = param.type === 'float' ? 'Number or =expression' : 
-                      param.type === 'int' ? 'Integer or =expression' :
-                      'Value or =expression';
+    input.style.cssText = `
+      width: 100%;
+      min-height: 28px;
+      max-height: 200px;
+      padding: 6px;
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      box-sizing: border-box;
+      resize: vertical;
+      overflow-y: auto;
+    `;
 
+    input.style.fontFamily = this.expressionSystem.isExpression(currentValue)
+      ? 'monospace'
+      : 'inherit';
+
+    input.placeholder =
+      param.type === 'float'
+        ? 'Number or =expression'
+        : param.type === 'int'
+        ? 'Integer or =expression'
+        : 'Value or =expression';
+
+    this._autoResizeTextArea(input);
     return input;
   }
 
@@ -565,69 +603,210 @@ input.style.cssText = `
     return display;
   }
 
-  setupEventHandlers(input, param, node, valueManager, onChange, resultDisplay) {
+  _autoResizeTextArea(input) {
+    if (!input) return;
+
+    input.style.height = 'auto';
+    const minHeight = 28;
+    const maxHeight = 200;
+    const newHeight = Math.min(maxHeight, Math.max(minHeight, input.scrollHeight || minHeight));
+    input.style.height = `${newHeight}px`;
+  }
+
+  _ensureTabState(node, paramName, initialValue = '') {
+    if (!node) {
+      return {
+        active: 'main',
+        values: { main: initialValue ?? '', custom: '' },
+      };
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(node, '_expressionTabs')) {
+      Object.defineProperty(node, '_expressionTabs', {
+        value: {},
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    const store = node._expressionTabs;
+    if (!store[paramName]) {
+      store[paramName] = {
+        active: 'main',
+        values: {
+          main: typeof initialValue === 'string' ? initialValue : String(initialValue ?? ''),
+          custom: '',
+        },
+      };
+    } else if (typeof initialValue === 'string') {
+      const tabState = store[paramName];
+      if (!tabState.values) {
+        tabState.values = { main: '', custom: '' };
+      }
+      const activeTab = tabState.active || 'main';
+      tabState.values[activeTab] = initialValue;
+    }
+
+    return store[paramName];
+  }
+
+  _storeTabValue(entry, tab, value) {
+    if (!entry?.tabState?.values) return;
+    entry.tabState.values[tab] = value;
+  }
+
+  _commitValue(entry, rawValue, param, node, valueManager, onChange) {
+    if (!entry) return false;
+
+    const activeTab = entry.tabState?.active || 'main';
+    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+
+    if (this.isIncomplete(value)) {
+      return false;
+    }
+
+    if (entry.lastValue === value) {
+      return false;
+    }
+
+    valueManager.setValue(node, param.name, value);
+    this.expressionSystem.updateDependencies(node.id, param.name, value);
+    this._storeTabValue(entry, activeTab, value);
+    entry.lastValue = value;
+
+    if (typeof onChange === 'function') {
+      onChange(`Parameter Change: ${param.name}`);
+    }
+
+    return true;
+  }
+
+  _toggleExpressionTab(entry, input, param, node, valueManager, onChange, resultDisplay) {
+    if (!entry) return;
+
+    if (!entry.tabState) {
+      entry.tabState = this._ensureTabState(node, param.name, input.value);
+    }
+
+    const currentTab = entry.tabState.active || 'main';
+    const nextTab = currentTab === 'main' ? 'custom' : 'main';
+
+    this._storeTabValue(entry, currentTab, input.value);
+    entry.tabState.active = nextTab;
+    input.dataset.expressionTab = nextTab;
+
+    const nextValue = entry.tabState.values?.[nextTab] ?? '';
+    if (input.value !== nextValue) {
+      input.value = nextValue;
+      this._autoResizeTextArea(input);
+    }
+
+    if (this._commitValue(entry, input.value, param, node, valueManager, onChange)) {
+      this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+    } else {
+      this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+    }
+  }
+
+  _insertNewLine(input) {
+    if (!input) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const value = input.value;
+    input.value = `${value.slice(0, start)}\n${value.slice(end)}`;
+    const caret = start + 1;
+    if (typeof input.setSelectionRange === 'function') {
+      input.setSelectionRange(caret, caret);
+    }
+    this._autoResizeTextArea(input);
+  }
+
+  setupEventHandlers(input, param, node, valueManager, onChange, resultDisplay, entry) {
     let inputTimer = null;
-    let lastValue = input.value;
+    const state =
+      entry ||
+      {
+        lastValue: String(input.value),
+        tabState: this._ensureTabState(node, param.name, input.value),
+      };
+
+    if (!state.tabState) {
+      state.tabState = this._ensureTabState(node, param.name, input.value);
+    }
 
     // Prevent keyboard events from bubbling to editor
     input.addEventListener('keydown', (e) => {
       if (['Delete', 'Backspace', 'Enter', 'Tab'].includes(e.key)) {
         e.stopPropagation();
       }
-      
+
       if (e.key === 'Enter') {
-        input.blur();
+        e.preventDefault();
+        if (e.shiftKey) {
+          this._insertNewLine(input);
+          this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+        } else {
+          if (inputTimer) {
+            clearTimeout(inputTimer);
+            inputTimer = null;
+          }
+
+          if (this._commitValue(state, input.value, param, node, valueManager, onChange)) {
+            this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+          }
+        }
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        if (inputTimer) {
+          clearTimeout(inputTimer);
+          inputTimer = null;
+        }
+        this._toggleExpressionTab(state, input, param, node, valueManager, onChange, resultDisplay);
       }
     });
 
     // Focus handling
     input.addEventListener('focus', () => {
-      lastValue = input.value;
+      state.lastValue = String(input.value);
+      this._autoResizeTextArea(input);
     });
 
     // Real-time input handling with debouncing
-// Real-time input handling with debouncing
-input.addEventListener('input', (e) => {
-  e.stopPropagation();
-  
-  // Clear previous timer
-  if (inputTimer) {
-    clearTimeout(inputTimer);
-  }
+    input.addEventListener('input', (e) => {
+      e.stopPropagation();
+      this._autoResizeTextArea(input);
 
-  // Update display immediately
-  this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+      this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
 
-  // Debounce actual parameter updates
-  inputTimer = setTimeout(() => {
-    const newValue = input.value.trim();
-    
-    // ADD THIS: Don't update if incomplete
-    if (this.isIncomplete(newValue)) {
-      return; // Wait for complete expression
-    }
-    
-    if (newValue !== lastValue) {
-      valueManager.setValue(node, param.name, newValue);
-      this.expressionSystem.updateDependencies(node.id, param.name, newValue);
-      onChange(`Parameter Change: ${param.name}`);
-      lastValue = newValue;
-    }
-    inputTimer = null;
-  }, 300);
-});
+      if (inputTimer) {
+        clearTimeout(inputTimer);
+        inputTimer = null;
+      }
+
+      inputTimer = setTimeout(() => {
+        if (
+          !this.isIncomplete(input.value) &&
+          this._commitValue(state, input.value, param, node, valueManager, onChange)
+        ) {
+          this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+        }
+        inputTimer = null;
+      }, 300);
+    });
+
     // Final update on blur
     input.addEventListener('blur', () => {
       if (inputTimer) {
         clearTimeout(inputTimer);
         inputTimer = null;
       }
-      
-      const newValue = input.value.trim();
-      if (newValue !== lastValue) {
-        valueManager.setValue(node, param.name, newValue);
-        this.expressionSystem.updateDependencies(node.id, param.name, newValue);
-        onChange(`Parameter Change: ${param.name}`);
+
+      if (
+        !this.isIncomplete(input.value) &&
+        this._commitValue(state, input.value, param, node, valueManager, onChange)
+      ) {
+        this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
       }
     });
 
@@ -637,13 +816,14 @@ input.addEventListener('input', (e) => {
     });
   }
 
-  setupNumericDragSupport(input, param, node, valueManager, onChange) {
+  setupNumericDragSupport(input, param, node, valueManager, onChange, entry) {
     if (param.type !== 'float' && param.type !== 'int') return;
 
     let isDragging = false;
     let startValue = 0;
     let startY = 0;
     let dragStartValue = null;
+    const resultDisplay = entry?.resultDisplay;
 
     input.addEventListener('mousedown', (e) => {
       if (e.button === 0 && e.shiftKey && !this.expressionSystem.isExpression(input.value)) {
@@ -663,13 +843,27 @@ input.addEventListener('input', (e) => {
           const newValue = startValue + deltaY * sensitivity;
           
           input.value = param.type === 'int' ? Math.round(newValue).toString() : newValue.toFixed(3);
+          this._autoResizeTextArea(input);
           
           // Update immediately without undo recording
           const oldUndoManager = valueManager.undoManager;
           valueManager.undoManager = null;
-          valueManager.setValue(node, param.name, input.value);
-          onChange(`Drag Parameter: ${param.name}`);
+          if (typeof valueManager.updateNodeParameter === 'function') {
+            valueManager.updateNodeParameter(node, param.name, input.value, onChange);
+          } else {
+            valueManager.setValue(node, param.name, input.value);
+            onChange(`Drag Parameter: ${param.name}`);
+          }
           valueManager.undoManager = oldUndoManager;
+
+          const trimmedValue = String(input.value).trim();
+          if (entry) {
+            entry.lastValue = trimmedValue;
+            this._storeTabValue(entry, entry.tabState?.active || 'main', trimmedValue);
+          }
+          if (resultDisplay) {
+            this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+          }
           
           e.preventDefault();
         };
@@ -688,6 +882,13 @@ input.addEventListener('input', (e) => {
           
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
+
+          if (entry) {
+            this._commitValue(entry, input.value, param, node, valueManager, onChange);
+            if (resultDisplay) {
+              this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+            }
+          }
         };
 
         document.body.style.cursor = 'ns-resize';
