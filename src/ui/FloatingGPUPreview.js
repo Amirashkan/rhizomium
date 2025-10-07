@@ -75,8 +75,8 @@ _setupAnimationLoop() {
     // Listen for parameter changes and trigger a single render
     if (window.editor?.paramPanel) {
       window.editor.paramPanel.on?.('parameterChanged', () => {
-        if (this.isVisible && window.gpuRenderer?.render) {
-          window.gpuRenderer.render();
+        if (this.isVisible && typeof window.render === "function") {
+          window.render();
         }
       });
     }

@@ -8,6 +8,7 @@ export class PreviewSettings {
     this.settings = {
       resolution: { width: 512, height: 512 },
       refreshRate: 60,
+      timingMode: "vsync",
       wireframe: false,
       showNormals: false,
       debugChannel: "none",
@@ -17,6 +18,7 @@ export class PreviewSettings {
       showFPS: false,
     };
     this.settingsPanel = null;
+    this._refreshRateControls = null;
   }
 
   showSettings() {
@@ -101,6 +103,9 @@ export class PreviewSettings {
       case "refreshRate":
         this._updateRefreshRate(value);
         break;
+      case "timingMode":
+        this._updateTimingMode(value);
+        break;
       case "timeScale":
         this._updateTimeScale(value);
         break;
@@ -183,14 +188,51 @@ export class PreviewSettings {
   }
 
   _updateRefreshRate(fps) {
+    const clamped = Math.max(1, Math.min(120, fps));
+    this.settings.refreshRate = clamped;
+
     if (this.floatingPreview.animationLoop) {
       clearInterval(this.floatingPreview.animationLoop);
-      
-      this.floatingPreview.animationLoop = setInterval(() => {
-        if (this.floatingPreview.isVisible && window.rebuild) {
-          window.rebuild();
-        }
-      }, 1000 / fps);
+      this.floatingPreview.animationLoop = null;
+    }
+
+    if (window.renderLoop) {
+      window.renderLoop.setFixedFps(clamped);
+      if (this.settings.timingMode === "fixed") {
+        window.renderLoop.renderNow({ advance: false });
+      }
+    }
+  }
+
+  _updateTimingMode(mode) {
+    const normalized = mode === "fixed" ? "fixed" : "vsync";
+    this.settings.timingMode = normalized;
+    this._syncRefreshRateAvailability();
+
+    if (window.renderLoop) {
+      window.renderLoop.setMode(normalized);
+      if (normalized === "fixed") {
+        window.renderLoop.setFixedFps(this.settings.refreshRate);
+      }
+      window.renderLoop.renderNow({ advance: false });
+    }
+  }
+
+  _syncRefreshRateAvailability() {
+    if (!this._refreshRateControls) return;
+
+    const disabled = this.settings.timingMode !== "fixed";
+    const { slider, valueEl, label, container } = this._refreshRateControls;
+
+    slider.disabled = disabled;
+    slider.style.opacity = disabled ? "0.35" : "1";
+    slider.style.pointerEvents = disabled ? "none" : "auto";
+    valueEl.style.opacity = disabled ? "0.6" : "1";
+    if (label) {
+      label.style.opacity = disabled ? "0.6" : "1";
+    }
+    if (container) {
+      container.style.opacity = disabled ? "0.75" : "1";
     }
   }
 
@@ -202,6 +244,11 @@ export class PreviewSettings {
     }
     if (window.editor) {
       window.editor.timeScale = scale;
+    }
+
+    if (window.renderLoop) {
+      window.renderLoop.setTimeScale(scale);
+      window.renderLoop.renderNow({ advance: false });
     }
     
     if (this.floatingPreview.isVisible && window.rebuild) {
@@ -230,6 +277,11 @@ export class PreviewSettings {
       if (window.editor) {
         window.editor.timeScale = restoredScale;
       }
+    }
+    
+    if (window.renderLoop) {
+      window.renderLoop.setPaused(paused);
+      window.renderLoop.renderNow({ advance: false });
     }
     
     if (this.floatingPreview.isVisible && window.rebuild) {
@@ -307,6 +359,12 @@ export class PreviewSettings {
 
     content.appendChild(
       this._createSection("Display", [
+        this._createDropdown(
+          "Timing Mode",
+          "timingMode",
+          ["vsync", "fixed"],
+          this.settings.timingMode,
+        ),
         this._createSlider(
           "Refresh Rate",
           "refreshRate",
@@ -553,6 +611,16 @@ export class PreviewSettings {
     container.appendChild(header);
     container.appendChild(slider);
 
+    if (key === "refreshRate") {
+      this._refreshRateControls = {
+        container,
+        slider,
+        valueEl,
+        label: labelEl,
+      };
+      this._syncRefreshRateAvailability();
+    }
+
     return container;
   }
 
@@ -594,6 +662,17 @@ export class PreviewSettings {
     return container;
   }
 
+  _formatDropdownLabel(option) {
+    if (typeof option !== "string" || option.length === 0) {
+      return "";
+    }
+
+    const normalized = option.toLowerCase();
+    if (normalized === "vsync") return "V-Sync";
+    if (normalized === "fixed") return "Fixed Step";
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  }
+
   _createDropdown(label, key, options, selected) {
     const container = document.createElement("div");
     container.style.cssText = "margin-bottom: 12px;";
@@ -628,7 +707,7 @@ export class PreviewSettings {
     options.forEach((option) => {
       const optionEl = document.createElement("option");
       optionEl.value = option;
-      optionEl.textContent = option.charAt(0).toUpperCase() + option.slice(1);
+      optionEl.textContent = this._formatDropdownLabel(option);
       optionEl.selected = option === selected;
       optionEl.style.cssText = "background: #1c1c1e; color: #fff;";
       select.appendChild(optionEl);
@@ -816,17 +895,25 @@ export class PreviewSettings {
     }
 
     this.floatingPreview.updateSize();
-    renderer.render();
+    if (typeof window.render === "function") {
+      window.render();
+    } else {
+      renderer.render();
+    }
 
     const stream = canvas.captureStream(fps);
     const chunks = [];
 
     let renderInterval = null;
-    if (typeof renderer.render === "function") {
+    if (typeof renderer.render === "function" || typeof window.render === "function") {
       const frameInterval = Math.max(1, Math.floor(1000 / fps));
       renderInterval = setInterval(() => {
         try {
-          renderer.render();
+          if (typeof window.render === "function") {
+            window.render();
+          } else {
+            renderer.render();
+          }
         } catch (error) {
           console.warn("Render tick failed during animation export:", error);
         }

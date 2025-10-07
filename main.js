@@ -1,5 +1,6 @@
 // main.js - Complete version with Undo System and Event System
 import { GPURenderer } from "./src/gpu/gpuRenderer.js";
+import { RenderLoop } from "./src/core/RenderLoop.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
@@ -109,6 +110,11 @@ let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
 let floatingPreview = null;
+let renderLoopController = null;
+
+if (typeof window.render !== "function") {
+  window.render = () => {};
+}
 
 async function initialize() {
   const errorHandler = new ErrorHandler();
@@ -196,12 +202,11 @@ window.gpuRenderer = new GPURenderer(device, canvas);
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
-window.render = () => window.gpuRenderer?.render();
-    
+
+    initializeRenderLoopFromSettings();
+
     await checkAutosaveRecovery();
     await updateShaderFromGraph();
-
-    renderLoop();
 
     setInterval(() => {
       const pill = document.getElementById("rz-fallback-pill");
@@ -1093,21 +1098,58 @@ function updateStatus(message, type = "info") {
   console.log(`[${type.toUpperCase()}] ${message}`);
 }
 
-function renderLoop() {
-  // draw the WebGPU frame
-  window.gpuRenderer?.render([window.innerWidth, window.innerHeight]);
+function handleRenderFrame(frameState) {
+  if (window.gpuRenderer) {
+    window.gpuRenderer.render({ timeSec: frameState.simTime });
+  }
 
-  // Update FPS counter if preview is visible
-  if (floatingPreview && floatingPreview.fpsCounter) {
+  if (!frameState.manual && floatingPreview?.fpsCounter) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Update undo/redo UI state
   if (undoManager) {
     undoManager.updateUI();
   }
+}
 
-  requestAnimationFrame(renderLoop);
+function initializeRenderLoopFromSettings() {
+  if (!window.gpuRenderer) {
+    if (renderLoopController) {
+      renderLoopController.stop();
+      renderLoopController = null;
+    }
+    window.renderLoop = null;
+    window.render = () => {};
+    return;
+  }
+
+  const previewConfig = floatingPreview?.settings?.settings || {};
+  const mode = previewConfig.timingMode === "fixed" ? "fixed" : "vsync";
+  const fixedFps = Number.isFinite(previewConfig.refreshRate)
+    ? previewConfig.refreshRate
+    : 60;
+  const timeScale = Number.isFinite(previewConfig.timeScale)
+    ? previewConfig.timeScale
+    : 1;
+  const paused = !!previewConfig.isPaused;
+
+  if (renderLoopController) {
+    renderLoopController.stop();
+  }
+
+  renderLoopController = new RenderLoop({
+    onFrame: handleRenderFrame,
+    mode,
+    fixedFps,
+    timeScale,
+    paused,
+  });
+
+  window.renderLoop = renderLoopController;
+  window.render = () => renderLoopController?.renderNow({ advance: false });
+
+  renderLoopController.start();
+  renderLoopController.renderNow({ advance: false });
 }
 
 

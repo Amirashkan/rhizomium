@@ -370,10 +370,35 @@ export class GPURenderer {
     }
   }
 
-  render() {
-    const dpr = window.devicePixelRatio || 1;
-    const targetWidth = Math.max(1, Math.floor((this.canvas.clientWidth || this.canvas.width || 1) * dpr));
-    const targetHeight = Math.max(1, Math.floor((this.canvas.clientHeight || this.canvas.height || 1) * dpr));
+  render(config) {
+    let options = {};
+    if (Array.isArray(config)) {
+      options.size = config;
+    } else if (config && typeof config === "object") {
+      options = config;
+    }
+
+    const {
+      size,
+      timeSec,
+      devicePixelRatio: devicePixelRatioOverride,
+    } = options;
+
+    const resolvedDpr = Number.isFinite(devicePixelRatioOverride)
+      ? Math.max(0.5, devicePixelRatioOverride)
+      : window.devicePixelRatio || 1;
+
+    const [sizeWidth, sizeHeight] = Array.isArray(size) ? size : [undefined, undefined];
+
+    const baseWidth = Number.isFinite(sizeWidth)
+      ? sizeWidth
+      : this.canvas.clientWidth || this.canvas.width || 1;
+    const baseHeight = Number.isFinite(sizeHeight)
+      ? sizeHeight
+      : this.canvas.clientHeight || this.canvas.height || 1;
+
+    const targetWidth = Math.max(1, Math.floor(baseWidth * resolvedDpr));
+    const targetHeight = Math.max(1, Math.floor(baseHeight * resolvedDpr));
 
     if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
       this.canvas.width = targetWidth;
@@ -388,8 +413,8 @@ export class GPURenderer {
       return;
     }
 
-    const timeSec = performance.now() * 0.001;
-    this._updateGlobalsUniform(timeSec);
+    const timeValue = Number.isFinite(timeSec) ? timeSec : performance.now() * 0.001;
+    this._updateGlobalsUniform(timeValue);
 
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
