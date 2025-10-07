@@ -100,8 +100,13 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
     if (/[+\-*/]$/.test(value)) {
       return def?.default ?? 0;
     }
-    // Return as-is for shader code (don't evaluate!)
-    return value.replace(/\btime\b/g, 'u.time');
+    // Return as-is for shader code (don't evaluate!) but remap known uniforms safely.
+    let expr = value.replace(/\btime\b/g, 'g.time');
+    expr = expr.replace(/\baspect\b/g, (match, offset, input) => {
+      const prev = offset > 0 ? input[offset - 1] : '';
+      return prev === '.' ? match : 'u.aspect';
+    });
+    return expr;
   }
 
   // 4. Handle shader variables - BUT SKIP if it's JUST "time" without context
@@ -151,7 +156,7 @@ isMathExpression(value) {
     
     switch (val) {
       case 'time':
-        return 'u.time';
+        return 'g.time';
       case 'uv':
         return 'in.uv';
       default:

@@ -90,7 +90,12 @@ export class ConnectionManager {
         // Record for undo AFTER successful creation
         if (window.onConnectionCreated && typeof window.onConnectionCreated === 'function') {
           console.log("ConnectionManager: Recording connection creation for undo");
-          window.onConnectionCreated(this.dragWire.from.nodeId, hitInputPin.nodeId, hitInputPin.pin);
+          window.onConnectionCreated(
+            this.dragWire.from.nodeId,
+            hitInputPin.nodeId,
+            hitInputPin.pin,
+            this.dragWire.from.pin,
+          );
         }
 
         if (this.onChange) this.onChange();
@@ -165,12 +170,24 @@ if (window.editor?.previewIntegration) {
       if (targetNode.inputs && targetNode.inputs[inputPin]) {
         const sourceNodeId = targetNode.inputs[inputPin];
         const sourceNode = this.graph.nodes.find(n => n.id == sourceNodeId);
-        
-        if (sourceNode && window.onConnectionDeleted && typeof window.onConnectionDeleted === 'function') {
+        const existingConnection = this.graph.connections.find(
+          (c) => c.to.nodeId === nodeId && c.to.pin === inputPin,
+        );
+        const sourceOutput =
+          existingConnection && typeof existingConnection.from?.pin === 'number'
+            ? existingConnection.from.pin
+            : 0;
+
+        if (
+          sourceNode &&
+          window.onConnectionDeleted &&
+          typeof window.onConnectionDeleted === "function"
+        ) {
           const connectionData = {
             sourceNode: sourceNode,
             targetNode: targetNode,
-            targetInput: inputPin
+            targetInput: inputPin,
+            sourceOutput,
           };
           console.log("ConnectionManager: Recording connection deletion for undo");
           window.onConnectionDeleted(connectionData);

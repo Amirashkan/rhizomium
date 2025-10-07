@@ -161,14 +161,21 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
     console.log('Circle radius param for node', nodeId, ':', radius);
     const epsilon = this.getParam(node, 'epsilon', 0.02);
     
+    const scale = this.getParam(node, 'scale', 1.0);
+
     return `fn ${functionName}(uv: vec2<f32>) -> f32 {
-  // Aspect-corrected UV
-  var aspectUV = uv;
-  aspectUV.x *= res.aspect;
-  let aspectCenter = vec2<f32>(0.5 * res.aspect, 0.5);
-  
-  let dist = length(aspectUV - aspectCenter) - ${radius};
-  return 1.0 - smoothstep(-${epsilon}, ${epsilon}, dist);
+  // Domain + aspect: measure distances in aspect space (x in [0, u.aspect], y in [0, 1])
+  let ${nodeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  var ${nodeId}_uvA = ${nodeId}_uv01;
+  ${nodeId}_uvA.x *= u.aspect;
+
+  let ${nodeId}_ctr = vec2<f32>(0.5 * u.aspect, 0.5);
+  // Zoom semantics: larger 'scale' => larger circle (scale radius, do NOT invert coords)
+  let ${nodeId}_r = clamp(${radius}, 0.0, 2.0) * max(${scale}, 0.0);
+  let ${nodeId}_eps = max(${epsilon}, 1e-4);
+
+  let ${nodeId}_dist = length(${nodeId}_uvA - ${nodeId}_ctr) - ${nodeId}_r;
+  return 1.0 - smoothstep(-${nodeId}_eps, ${nodeId}_eps, ${nodeId}_dist);
 }`;
   }
 
@@ -176,21 +183,50 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
    * FIXED: Rectangle function now aspect-ratio aware
    */
 generateRectangleFunction(node, nodeId, functionName) {
-  const centerX = this.getParam(node, 'centerX', 0.5);
-  const centerY = this.getParam(node, 'centerY', 0.5);
   const width = this.getParam(node, 'width', 0.5);
   const height = this.getParam(node, 'height', 0.5);
+  const centerX = this.getParam(node, 'centerX', 0.5);
+  const centerY = this.getParam(node, 'centerY', 0.5);
+  const scale = this.getParam(node, 'scale', 1.0);
+  const rotation = this.getParam(node, 'rotation', 0.0);
   const epsilon = this.getParam(node, 'epsilon', 0.02);
   
   return `fn ${functionName}(uv: vec2<f32>) -> f32 {
-  var aspectUV = uv;
-  aspectUV.x *= res.aspect;
-  
-  let center = vec2<f32>(0.5 * res.aspect, 0.5);
-  
-  let d = abs(aspectUV - center) - vec2<f32>(${width}, ${height}) * 0.5;
-  let dist = length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
-  return 1.0 - smoothstep(-${epsilon}, ${epsilon}, dist);
+  // Distances in aspect space
+  let ${nodeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  var ${nodeId}_uvA = ${nodeId}_uv01;
+  ${nodeId}_uvA.x *= u.aspect;
+
+  // center in aspect space
+  let ${nodeId}_ctr = vec2<f32>(
+    clamp(${centerX}, 0.0, 1.0) * u.aspect,
+    clamp(${centerY}, 0.0, 1.0)
+  );
+  // size in aspect space (x scaled by aspect)
+  let ${nodeId}_half = clamp(
+    vec2<f32>(${width}, ${height}),
+    vec2<f32>(0.0),
+    vec2<f32>(1.0)
+  ) * 0.5;
+  ${nodeId}_half.x *= u.aspect;
+  // Zoom semantics: larger 'scale' => larger rect (scale half-size)
+  let ${nodeId}_s = max(${scale}, 0.0);
+  ${nodeId}_half *= ${nodeId}_s;
+
+  // rotate delta in aspect space (unique names; avoids clashes)
+  var ${nodeId}_dp = ${nodeId}_uvA - ${nodeId}_ctr;
+  let ${nodeId}_cr = cos(${rotation});
+  let ${nodeId}_sr = sin(${rotation});
+  ${nodeId}_dp = vec2<f32>(
+    ${nodeId}_cr * ${nodeId}_dp.x - ${nodeId}_sr * ${nodeId}_dp.y,
+    ${nodeId}_sr * ${nodeId}_dp.x + ${nodeId}_cr * ${nodeId}_dp.y
+  );
+
+  let ${nodeId}_d = abs(${nodeId}_dp) - ${nodeId}_half;
+  let ${nodeId}_dist = length(max(${nodeId}_d, vec2<f32>(0.0)))
+                     + min(max(${nodeId}_d.x, ${nodeId}_d.y), 0.0);
+  let ${nodeId}_eps = max(${epsilon}, 1e-4);
+  return 1.0 - smoothstep(-${nodeId}_eps, ${nodeId}_eps, ${nodeId}_dist);
 }`;
 }
   /**
@@ -204,8 +240,8 @@ generateRectangleFunction(node, nodeId, functionName) {
     return `fn ${functionName}(uv: vec2<f32>) -> f32 {
   // Aspect-corrected UV
   var aspectUV = uv;
-  aspectUV.x *= res.aspect;
-  let aspectCenter = vec2<f32>(0.5 * res.aspect, 0.5);
+  aspectUV.x *= u.aspect;
+  let aspectCenter = vec2<f32>(0.5 * u.aspect, 0.5);
   
   let p = aspectUV - aspectCenter;
   let a = atan2(p.y, p.x);
@@ -233,11 +269,11 @@ getParam(node, paramName, defaultValue) {
   
   // Check if this is a dynamic expression containing 'time'
   if (typeof rawValue === 'string' && /time/.test(rawValue)) {
-    // Convert the expression to shader code using u.time
+  // Convert the expression to shader code using g.time
     const shaderExpr = rawValue
       .replace(/\bsin\(/g, 'sin(')
       .replace(/\bcos\(/g, 'cos(')
-      .replace(/\btime\b/g, 'u.time');
+      .replace(/\btime\b/g, 'g.time');
     
     return shaderExpr;  // Return shader code, not a uniform reference
   }

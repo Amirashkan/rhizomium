@@ -12,16 +12,26 @@ export class EventHandler {
     this.editor = options.editor;
     // Track when we open the parameter panel to prevent immediate closure
     this.paramPanelJustOpened = false;
+    // Track CTRL-drag zoom interactions
+    this._zoomDragState = null;
+    // Track canvas pan and box-select gestures
+    this._panCandidate = null;
+    this._boxSelectCandidate = null;
+    this._pendingContextMenu = null;
+
 
     this._setupEvents();
   }
 
   _setupEvents() {
-    // Pan handling (Alt + Left Mouse)
+    // Pan handling (canvas drag)
     this._setupPanEvents();
 
     // Zoom handling (Mouse Wheel)
     this._setupZoomEvents();
+
+    // Zoom handling (Ctrl + Drag)
+    this._setupDragZoomEvents();
 
     // Main interaction events
     this._setupMouseEvents();
@@ -34,22 +44,27 @@ export class EventHandler {
   }
 
   _setupPanEvents() {
-    this.canvas.addEventListener(
-      "mousedown",
-      (e) => {
-        if (e.button === 0 && e.altKey) {
-          this.viewport.startPan(e.clientX, e.clientY);
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      },
-      true,
-    );
-
     window.addEventListener(
       "mouseup",
-      () => {
+      (e) => {
         this.viewport.stopPan();
+        if (this._panCandidate && e.button === 0) {
+          if (!this._panCandidate.moved) {
+            const currentSelection = this.selection?.graph?.selection;
+            if (currentSelection && currentSelection.size > 0) {
+              if (typeof this.selection?.clear === "function") {
+                this.selection.clear();
+              } else {
+                currentSelection.clear();
+                if (typeof this.onChange === "function") {
+                  this.onChange();
+                }
+              }
+              this.onDraw();
+            }
+          }
+          this._panCandidate = null;
+        }
       },
       true,
     );
@@ -58,6 +73,13 @@ export class EventHandler {
       "mousemove",
       (e) => {
         if (this.viewport.updatePan(e.clientX, e.clientY)) {
+          if (this._panCandidate) {
+            const dx = Math.abs(e.clientX - this._panCandidate.startClientX);
+            const dy = Math.abs(e.clientY - this._panCandidate.startClientY);
+            if (dx > 1 || dy > 1) {
+              this._panCandidate.moved = true;
+            }
+          }
           this.onDraw();
           e.preventDefault();
           e.stopPropagation();
@@ -84,22 +106,116 @@ export class EventHandler {
     );
   }
 
-  _setupMouseEvents() {
-    this.canvas.addEventListener("mousedown", (e) => {
-      if (this.viewport.isPanning()) {
+  _setupDragZoomEvents() {
+    const clearZoomDrag = () => {
+      this._zoomDragState = null;
+    };
+
+    this.canvas.addEventListener(
+      "mousedown",
+      (e) => {
+        if (
+          e.button !== 0 ||
+          e.shiftKey ||
+          e.altKey ||
+          !(e.ctrlKey || e.metaKey)
+        ) {
+          return;
+        }
+
+        const rect = this.canvas.getBoundingClientRect();
+        this._zoomDragState = {
+          anchorX: e.clientX - rect.left,
+          anchorY: e.clientY - rect.top,
+          lastY: e.clientY,
+        };
+
         e.preventDefault();
-        return;
+        e.stopPropagation();
+      },
+      true,
+    );
+
+    window.addEventListener(
+      "mousemove",
+      (e) => {
+        if (!this._zoomDragState) return;
+
+        if (!(e.ctrlKey || e.metaKey) || e.buttons === 0) {
+          clearZoomDrag();
+          return;
+        }
+
+        const deltaY = e.clientY - this._zoomDragState.lastY;
+        if (deltaY !== 0) {
+          const zoomDelta = deltaY * 5;
+          if (
+            this.viewport.zoom(
+              this._zoomDragState.anchorX,
+              this._zoomDragState.anchorY,
+              zoomDelta,
+            )
+          ) {
+            this.onDraw();
+          }
+          this._zoomDragState.lastY = e.clientY;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true,
+    );
+
+    window.addEventListener("mouseup", clearZoomDrag, true);
+    window.addEventListener("keyup", (e) => {
+      if (e.key === "Control" || e.key === "Meta" || e.key === "AltGraph") {
+        clearZoomDrag();
       }
+    });
+    window.addEventListener("blur", clearZoomDrag);
+  }
 
-      if (e.button === 2) return; // Let context menu handle right-click
+  _setupMouseEvents() {
+    const showContextMenuAt = (canvasX, canvasY, clientX, clientY) => {
+      const nodeHit = this._hitNode(canvasX, canvasY);
+      if (nodeHit) {
+        this.menu.showNodeMenu(nodeHit, clientX, clientY);
+      } else {
+        this.menu.showRadialMenu(canvasX, canvasY, clientX, clientY);
+      }
+    };
 
-      this.menu.hide();
+    this.canvas.addEventListener("mousedown", (e) => {
       const pos = this._getCanvasPosition(e);
 
       if (this.checkPreviewControlClick(pos)) {
         return;
       }
-      
+
+      if (e.button === 2) {
+        e.preventDefault();
+        this.menu.hide();
+        this._boxSelectCandidate = {
+          startCanvas: { x: pos.x, y: pos.y },
+          startClient: { x: e.clientX, y: e.clientY },
+          started: false,
+        };
+        this._pendingContextMenu = {
+          canvasX: pos.x,
+          canvasY: pos.y,
+          clientX: e.clientX,
+          clientY: e.clientY,
+        };
+        return;
+      }
+
+      if (e.button !== 0) {
+        return;
+      }
+
+      this.menu.hide();
+
       // Check for output pin drag (wire creation)
       const hitOut = this.connections.hitOutputPin(
         pos.x,
@@ -111,7 +227,7 @@ export class EventHandler {
         return;
       }
 
-      // Check for input pin click (connection removal) - MINIMAL CHANGE
+      // Check for input pin click (connection removal)
       const hitIn = this.connections.hitInputPin(
         pos.x,
         pos.y,
@@ -126,18 +242,18 @@ export class EventHandler {
       // Check for node click
       const clicked = this._hitNode(pos.x, pos.y);
       if (!clicked) {
-        // Start box selection
-        this.selection.startBoxSelect(pos.x, pos.y);
-        this.onDraw();
+        this._panCandidate = {
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          moved: false,
+        };
+        this.viewport.startPan(e.clientX, e.clientY);
         return;
       }
 
       // Handle double-click for parameter panel
       if (e.detail === 2) {
-        // Set flag to prevent immediate closure
         this.paramPanelJustOpened = true;
-
-        // Clear the flag after a short delay
         setTimeout(() => {
           this.paramPanelJustOpened = false;
         }, 100);
@@ -165,21 +281,30 @@ export class EventHandler {
       }
     });
 
-    // Context menu - RESTORED ORIGINAL
-    this.canvas.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      const pos = this._getCanvasPosition(e);
-      const nodeHit = this._hitNode(pos.x, pos.y);
-
-      if (nodeHit) {
-        this.menu.showNodeMenu(nodeHit, e.clientX, e.clientY);
-      } else {
-        this.menu.showRadialMenu(pos.x, pos.y, e.clientX, e.clientY);
-      }
-    });
-
     // Mouse move - handle dragging
     window.addEventListener("mousemove", (e) => {
+      if (this._zoomDragState) {
+        return;
+      }
+
+      if (
+        this._boxSelectCandidate &&
+        !this._boxSelectCandidate.started &&
+        (e.buttons & 2) === 2
+      ) {
+        const dx =
+          Math.abs(e.clientX - this._boxSelectCandidate.startClient.x);
+        const dy =
+          Math.abs(e.clientY - this._boxSelectCandidate.startClient.y);
+        if (dx > 2 || dy > 2) {
+          const { x, y } = this._boxSelectCandidate.startCanvas;
+          this.selection.startBoxSelect(x, y);
+          this._boxSelectCandidate.started = true;
+          this._pendingContextMenu = null;
+          this.onDraw();
+        }
+      }
+
       const pos = this._getCanvasPosition(e);
 
       // Handle wire dragging
@@ -205,6 +330,7 @@ export class EventHandler {
 
     // Mouse up - end interactions 
     window.addEventListener("mouseup", (e) => {
+      this._zoomDragState = null;
       const pos = this._getCanvasPosition(e);
 
       // End wire drag - PRESERVE ORIGINAL LOGIC
@@ -224,10 +350,21 @@ export class EventHandler {
       if (this.selection.getBoxSelect()) {
         this.selection.endBoxSelect();
         this.onDraw();
+      } else if (
+        this._boxSelectCandidate &&
+        !this._boxSelectCandidate.started &&
+        e.button === 2 &&
+        this._pendingContextMenu
+      ) {
+        const ctx = this._pendingContextMenu;
+        showContextMenuAt(ctx.canvasX, ctx.canvasY, ctx.clientX, ctx.clientY);
       }
 
       // End node dragging
       this.selection.endDrag();
+
+      this._boxSelectCandidate = null;
+      this._pendingContextMenu = null;
     });
   }
 

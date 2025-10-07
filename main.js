@@ -1,5 +1,5 @@
 // main.js - Complete version with Undo System and Event System
-import { initWebGPU, updateShader, drawFrame, clearPipeline } from "./src/gpu/gpuRenderer.js";
+import { GPURenderer } from "./src/gpu/gpuRenderer.js";
 import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
@@ -56,7 +56,12 @@ async function reinitializeWebGPUAfterLoad() {
   }
 
   const canvas = document.getElementById("gpu-canvas");
-  if (!canvas) {
+  
+const dpr = window.devicePixelRatio || 1;
+canvas.width  = Math.max(1, Math.floor((canvas.clientWidth || window.innerWidth)  * dpr));
+canvas.height = Math.max(1, Math.floor((canvas.clientHeight || window.innerHeight) * dpr));
+  canvas.width  = canvas.clientWidth  || window.innerWidth;
+canvas.height = canvas.clientHeight || window.innerHeight;if (!canvas) {
     console.error("No GPU canvas found after cleanup");
     return false;
   }
@@ -65,7 +70,9 @@ async function reinitializeWebGPUAfterLoad() {
     console.log("Reinitializing WebGPU...");
     __deviceReady = false;
     
-    const device = await initWebGPU(canvas, true);
+const adapter = await navigator.gpu.requestAdapter();
+const device = await adapter.requestDevice();
+window.gpuRenderer = new GPURenderer(device, canvas);
     
     if (device) {
       window.textureManager = new TextureManager();
@@ -110,7 +117,9 @@ async function initialize() {
   const canvas =
     document.getElementById("gpu-canvas") || document.querySelector("canvas");
   if (canvas) {
-    const device = await initWebGPU(canvas);
+const adapter = await navigator.gpu.requestAdapter();
+const device = await adapter.requestDevice();
+window.gpuRenderer = new GPURenderer(device, canvas);
 
     if (device) {
       const { TextureManager } = await import("./src/core/TextureManager.js");
@@ -182,7 +191,7 @@ async function initialize() {
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
-    window.render = drawFrame;
+window.render = () => window.gpuRenderer?.render();
     
     await checkAutosaveRecovery();
     await updateShaderFromGraph();
@@ -237,10 +246,10 @@ function onNodeDeleted(node) {
   }
 }
 
-function onConnectionCreated(sourceNodeId, targetNodeId, targetInput) {
+function onConnectionCreated(sourceNodeId, targetNodeId, targetInput, sourceOutput = 0) {
   console.log("Connection created callback:", { sourceNodeId, targetNodeId, targetInput });
   if (undoManager) {
-    undoManager.recordConnectionCreation(sourceNodeId, targetNodeId, targetInput);
+    undoManager.recordConnectionCreation(sourceNodeId, targetNodeId, targetInput, sourceOutput);
   }
 }
 
@@ -528,79 +537,90 @@ function setupUIEventHandlers() {
 }
 
 function setupKeyboardShortcuts() {
+  const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+  const isCommandKey = (event) => (isMac ? event.metaKey : event.ctrlKey);
+
   window.addEventListener("keydown", (e) => {
-    // Don't trigger shortcuts when typing in inputs
-    if (
-      e.target.tagName === "INPUT" ||
-      e.target.tagName === "TEXTAREA" ||
-      e.target.isContentEditable
-    ) {
+    if (shouldIgnoreShortcutTarget(e)) {
       return;
     }
 
-    // UNDO/REDO SHORTCUTS - Handle these first
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    const cmdKey = isCommandKey(e);
+
+    if (
+      cmdKey &&
+      !e.shiftKey &&
+      !e.altKey &&
+      (e.key === " " || e.code === "Space" || e.key === "Spacebar")
+    ) {
       e.preventDefault();
-      console.log("Ctrl+Z pressed - UNDO");
+      if (!openQuickNodeSearch()) {
+        updateStatus("Quick node search unavailable", "warning");
+      }
+      return;
+    }
+
+    if (cmdKey && e.key.toLowerCase() === "z" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
       if (undoManager) {
         const result = undoManager.undo();
-        console.log("Undo result:", result);
         updateStatus(result ? "Undo successful" : "Nothing to undo");
       }
       return;
     }
 
-    // Redo: Ctrl+Shift+Z or Ctrl+Y
-    if (((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) ||
-        ((e.ctrlKey || e.metaKey) && e.key === 'y')) {
+    if (
+      cmdKey &&
+      ((e.key.toLowerCase() === "z" && e.shiftKey) ||
+        e.key.toLowerCase() === "y")
+    ) {
       e.preventDefault();
-      console.log("Redo shortcut pressed");
       if (undoManager) {
         const result = undoManager.redo();
-        console.log("Redo result:", result);
         updateStatus(result ? "Redo successful" : "Nothing to redo");
       }
       return;
     }
-    
-    // ARROW KEY MOVEMENT - Handle these next
-    if (e.key.startsWith('Arrow') && editor && editor.selection.getSelected().size > 0) {
+
+    const selected = editor?.selection?.getSelected?.();
+    if (e.key.startsWith("Arrow") && selected && selected.size > 0) {
       e.preventDefault();
       const step = e.shiftKey ? 10 : 1;
-      
       switch (e.key) {
-        case 'ArrowLeft':
+        case "ArrowLeft":
           editor.selection.moveSelected(-step, 0);
           break;
-        case 'ArrowRight':
+        case "ArrowRight":
           editor.selection.moveSelected(step, 0);
           break;
-        case 'ArrowUp':
+        case "ArrowUp":
           editor.selection.moveSelected(0, -step);
           break;
-        case 'ArrowDown':
+        case "ArrowDown":
           editor.selection.moveSelected(0, step);
           break;
       }
-      if (editor.draw) {
-        editor.draw();
-      }
+      editor?.draw?.();
       return;
     }
 
-    // OTHER CTRL SHORTCUTS
-    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-    const cmdKey = isMac ? e.metaKey : e.ctrlKey;
-
-    if (!cmdKey) return;
+    if (!cmdKey) {
+      if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        if (!frameSelection()) {
+          updateStatus("Select nodes to frame", "warning");
+        }
+      }
+      return;
+    }
 
     switch (e.key.toLowerCase()) {
       case "s":
         e.preventDefault();
         if (e.shiftKey) {
-          saveLoadManager.saveToLocal();
+          saveLoadManager?.saveToLocal?.();
         } else {
-          saveLoadManager.saveToFile();
+          saveLoadManager?.saveToFile?.();
         }
         break;
 
@@ -615,15 +635,24 @@ function setupKeyboardShortcuts() {
 
       case "l":
         e.preventDefault();
-        saveLoadManager.loadFromLocal();
+        if (e.shiftKey) {
+          saveLoadManager?.loadFromLocal?.();
+        } else if (!toggleDebugOverlay()) {
+          updateStatus("Debug overlay unavailable", "warning");
+        }
         break;
 
-      case "e":
+      case "d":
         e.preventDefault();
-        if (e.shiftKey) {
-          saveLoadManager.saveToFile(null, "wgsl");
-        } else {
-          saveLoadManager.saveToFile(null, "json");
+        if (!duplicateSelection()) {
+          updateStatus("Select nodes to duplicate", "warning");
+        }
+        break;
+
+      case "p":
+        e.preventDefault();
+        if (!togglePreviewVisibility()) {
+          updateStatus("Preview unavailable", "warning");
         }
         break;
 
@@ -641,23 +670,202 @@ function setupKeyboardShortcuts() {
         }
         break;
 
+      case "e":
+        e.preventDefault();
+        if (e.shiftKey) {
+          saveLoadManager?.saveToFile?.(null, "wgsl");
+        } else if (!focusExpressionEditor()) {
+          updateStatus("Open a node parameter to edit expressions", "warning");
+        }
+        break;
+
       case "r":
-        if (!e.shiftKey) {
-          return;
-        } else {
+        if (e.shiftKey) {
           e.preventDefault();
           updateShaderFromGraph();
         }
         break;
+
+      default:
+        break;
     }
   });
 
-  // Add keyboard handler for Delete key
   window.addEventListener("keydown", (e) => {
     if (editor && editor.handleKeyDown) {
       editor.handleKeyDown(e);
     }
   });
+}
+
+function shouldIgnoreShortcutTarget(event) {
+  const target = event.target;
+  if (!target || !target.tagName) {
+    return false;
+  }
+
+  const tag = target.tagName.toUpperCase();
+  if (tag === "INPUT" || tag === "TEXTAREA") {
+    return true;
+  }
+
+  return Boolean(target.isContentEditable);
+}
+
+function duplicateSelection() {
+  const selection = editor?.selection;
+  const selected = selection?.getSelected?.();
+  if (!selection || !selected || selected.size === 0) {
+    return false;
+  }
+
+  selection.duplicateSelected();
+  editor?.draw?.();
+  updateStatus("Duplicated selection");
+  return true;
+}
+
+function frameSelection() {
+  if (!editor?.viewport || !editor?.graph) {
+    return false;
+  }
+
+  const selected = editor.selection?.getSelected?.();
+  if (!selected || selected.size === 0) {
+    return false;
+  }
+
+  const nodes = editor.graph.nodes.filter((node) => selected.has(node.id));
+  if (!nodes.length) {
+    return false;
+  }
+
+  const bounds = nodes.reduce(
+    (acc, node) => {
+      const width = typeof node.w === "number" ? node.w : 150;
+      const height = typeof node.h === "number" ? node.h : 80;
+      acc.minX = Math.min(acc.minX, node.x);
+      acc.minY = Math.min(acc.minY, node.y);
+      acc.maxX = Math.max(acc.maxX, node.x + width);
+      acc.maxY = Math.max(acc.maxY, node.y + height);
+      return acc;
+    },
+    {
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    },
+  );
+
+  if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY)) {
+    return false;
+  }
+
+  const fitted = editor.viewport.fitToContent(bounds, 80);
+  if (fitted) {
+    editor?.draw?.();
+    updateStatus("Framed selection");
+  }
+  return fitted;
+}
+
+function togglePreviewVisibility() {
+  if (!floatingPreview || typeof floatingPreview.toggle !== "function") {
+    return false;
+  }
+
+  floatingPreview.toggle();
+  updateStatus(floatingPreview.isVisible ? "Preview shown" : "Preview hidden");
+  return true;
+}
+
+function toggleDebugOverlay() {
+  if (!floatingPreview?.settings) {
+    return false;
+  }
+
+  const settings = floatingPreview.settings;
+  const current = settings.settings?.debugChannel || "none";
+  const next = current === "none" ? "alpha" : "none";
+
+  settings.updateSetting("debugChannel", next);
+  updateStatus(
+    next === "none"
+      ? "Debug overlay hidden"
+      : `Debug overlay: ${next.toUpperCase()}`,
+  );
+  return true;
+}
+
+function openQuickNodeSearch() {
+  if (!editor?.menu?.showCreateMenu || !editor?.viewport || !editor?.canvas) {
+    return false;
+  }
+
+  const rect = editor.canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return false;
+  }
+
+  const localX = rect.width / 2;
+  const localY = rect.height / 2;
+  const canvasPos = editor.viewport.screenToCanvas(localX, localY);
+
+  editor.menu.showCreateMenu(
+    canvasPos.x,
+    canvasPos.y,
+    rect.left + localX,
+    rect.top + localY,
+  );
+  return true;
+}
+
+function focusExpressionEditor() {
+  if (!editor?.paramPanel) {
+    return false;
+  }
+
+  const panel = editor.paramPanel.panel;
+  if (!panel) {
+    return false;
+  }
+
+  const isHidden =
+    panel.style?.display === "none" || panel.offsetParent === null;
+
+  if (isHidden) {
+    const selected = editor.selection?.getSelected?.();
+    if (!selected || selected.size !== 1) {
+      return false;
+    }
+
+    const nodeId = selected.values().next().value;
+    const node = editor.graph?.nodes?.find((n) => n.id === nodeId);
+    if (!node || !editor.paramPanel.showNodeParameters) {
+      return false;
+    }
+    editor.paramPanel.showNodeParameters(node);
+  }
+
+  const input =
+    panel.querySelector?.(
+      ".expression-input-container .param-input.expression-capable",
+    ) || panel.querySelector?.(".param-input.expression-capable");
+
+  if (!input) {
+    return false;
+  }
+
+  setTimeout(() => {
+    input.focus();
+    if (typeof input.select === "function") {
+      input.select();
+    }
+  }, 0);
+
+  updateStatus("Expression editor focused");
+  return true;
 }
 
 async function checkAutosaveRecovery() {
@@ -804,20 +1012,29 @@ function updateShaderFromGraph() {
       return;
     }
     
-    console.log('Shader code generated, length:', result.wgsl.length);
+console.log('Shader code generated, length:', result.wgsl.length);
+
+if (window.gpuRenderer) {
+  window.gpuRenderer.setShaderSource(result.wgsl, {
+    hasTextures: !!result.usesTextures,
+    hasUniforms: !!result.usesUniforms,
+  });
+  console.log('Shader updated successfully');
+  lastUniformUpdate = performance.now();
+  if (typeof updateStatus === 'function') {
+    updateStatus('Shader compiled');
+  }
+} else {
+  console.warn('⚠️ gpuRenderer not initialized');
+}
+
+
     
-    updateShader(result.wgsl, result.uniformManager).then(success => {
-      if (success) {
-        console.log('Shader updated successfully');
-        
-        // Mark that we need continuous rendering
-        lastUniformUpdate = performance.now();
-        
-        if (typeof updateStatus === 'function') {
-          updateStatus('Shader compiled');
-        }
-      }
-    })
+console.log('Shader code generated, length:', result.wgsl.length);
+
+
+
+
     
   } catch (error) {
     console.error('Error in updateShaderFromGraph:', error);
@@ -872,10 +1089,8 @@ function updateStatus(message, type = "info") {
 }
 
 function renderLoop() {
-  // Only render the GPU canvas - don't redraw the editor canvas every frame
-  if (typeof drawFrame === 'function') {
-    drawFrame();
-  }
+  // draw the WebGPU frame
+  window.gpuRenderer?.render([window.innerWidth, window.innerHeight]);
 
   // Update FPS counter if preview is visible
   if (floatingPreview && floatingPreview.fpsCounter) {
@@ -889,6 +1104,8 @@ function renderLoop() {
 
   requestAnimationFrame(renderLoop);
 }
+
+
 function showBackupDialog() {
   if (backupDialog) {
     backupDialog.show();

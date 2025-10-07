@@ -312,13 +312,14 @@ export class UndoManager {
   }
 
   // Record connection creation (for when user creates a connection)
-  recordConnectionCreation(sourceNodeId, targetNodeId, targetInput) {
+  recordConnectionCreation(sourceNodeId, targetNodeId, targetInput, sourceOutput = 0) {
     const action = {
       type: 'CREATE_CONNECTION',
       timestamp: Date.now(),
       sourceNodeId: sourceNodeId,
       targetNodeId: targetNodeId,
-      targetInput: targetInput
+      targetInput: targetInput,
+      sourceOutput: typeof sourceOutput === 'number' ? sourceOutput : 0,
     };
 
     this.pushAction(action);
@@ -327,10 +328,20 @@ export class UndoManager {
 
   // Record node creation (for when user creates a node)
   recordNodeCreation(node) {
+    if (!node || typeof node.id === 'undefined') {
+      console.warn('Cannot record node creation: invalid node');
+      return;
+    }
+
+    const nodeIndex = this.graph.nodes.indexOf(node);
+    const snapshot = JSON.parse(JSON.stringify(node));
+
     const action = {
       type: 'CREATE_NODE',
       timestamp: Date.now(),
-      nodeId: node.id
+      nodeId: node.id,
+      nodeIndex: nodeIndex >= 0 ? nodeIndex : this.graph.nodes.length - 1,
+      nodeData: snapshot,
     };
 
     this.pushAction(action);
@@ -482,56 +493,62 @@ export class UndoManager {
           break;
           
         case 'CREATE_BINDING': {
-          // Undo parameter binding creation
-          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
-          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
-          
-          if (targetNode && sourceNode) {
-            // Remove the binding by restoring the old value
-            if (!targetNode.params) targetNode.params = {};
-            targetNode.params[action.targetParameter] = action.oldValue;
-            
-            // Update parameter panel if this node is selected
-            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
-              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.oldValue);
+          const bindingSystem =
+            this.editor?.bindingSystem || window.editor?.bindingSystem;
+          if (bindingSystem) {
+            bindingSystem.removeBinding(
+              action.sourceNodeId,
+              action.sourceParamName,
+              action.targetNodeId,
+              action.targetParamName,
+              { recordUndo: false },
+            );
+
+            if (action.previousBinding) {
+              bindingSystem.createBinding(
+                action.previousBinding.sourceNodeId,
+                action.previousBinding.sourceParamName,
+                action.targetNodeId,
+                action.targetParamName,
+                { recordUndo: false },
+              );
+            } else {
+              const targetNode = this.graph.nodes.find(
+                (n) => n.id === action.targetNodeId,
+              );
+              if (targetNode) {
+                bindingSystem.setParameterValueDirect(
+                  targetNode,
+                  action.targetParamName,
+                  action.oldValue,
+                );
+                bindingSystem.updateNodePreview(targetNode);
+              }
             }
-            
-            // Trigger preview update
-            if (window.editor && window.editor.previewIntegration) {
-              window.editor.previewIntegration.generateNodePreview(targetNode);
-            }
-            
-            if (this.onChange) {
-              this.onChange(`Undo parameter binding: ${action.targetParameter}`);
-            }
+          }
+
+          if (this.onChange) {
+            this.onChange(`Undo parameter binding: ${action.targetParamName}`);
           }
           success = true;
           break;
         }
 
         case 'REMOVE_BINDING': {
-          // Undo parameter binding removal
-          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
-          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
-          
-          if (targetNode && sourceNode) {
-            // Restore the binding reference
-            if (!targetNode.params) targetNode.params = {};
-            targetNode.params[action.targetParameter] = action.bindingReference;
-            
-            // Update parameter panel if this node is selected
-            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
-              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.bindingReference);
-            }
-            
-            // Trigger preview update
-            if (window.editor && window.editor.previewIntegration) {
-              window.editor.previewIntegration.generateNodePreview(targetNode);
-            }
-            
-            if (this.onChange) {
-              this.onChange(`Restore parameter binding: ${action.targetParameter}`);
-            }
+          const bindingSystem =
+            this.editor?.bindingSystem || window.editor?.bindingSystem;
+          if (bindingSystem) {
+            bindingSystem.createBinding(
+              action.sourceNodeId,
+              action.sourceParamName,
+              action.targetNodeId,
+              action.targetParamName,
+              { recordUndo: false },
+            );
+          }
+
+          if (this.onChange) {
+            this.onChange(`Restore parameter binding: ${action.targetParamName}`);
           }
           success = true;
           break;
@@ -676,56 +693,52 @@ export class UndoManager {
           break;
           
         case 'CREATE_BINDING': {
-          // Redo parameter binding creation
-          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
-          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
-          
-          if (targetNode && sourceNode) {
-            // Restore the binding reference
-            if (!targetNode.params) targetNode.params = {};
-            targetNode.params[action.targetParameter] = action.bindingReference;
-            
-            // Update parameter panel if this node is selected
-            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
-              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.bindingReference);
-            }
-            
-            // Trigger preview update
-            if (window.editor && window.editor.previewIntegration) {
-              window.editor.previewIntegration.generateNodePreview(targetNode);
-            }
-            
-            if (this.onChange) {
-              this.onChange(`Redo parameter binding: ${action.targetParameter}`);
-            }
+          const bindingSystem =
+            this.editor?.bindingSystem || window.editor?.bindingSystem;
+          if (bindingSystem) {
+            bindingSystem.createBinding(
+              action.sourceNodeId,
+              action.sourceParamName,
+              action.targetNodeId,
+              action.targetParamName,
+              { recordUndo: false },
+            );
+          }
+
+          if (this.onChange) {
+            this.onChange(`Redo parameter binding: ${action.targetParamName}`);
           }
           success = true;
           break;
         }
 
         case 'REMOVE_BINDING': {
-          // Redo parameter binding removal
-          const targetNode = this.graph.nodes.find(n => n.id === action.targetNodeId);
-          const sourceNode = this.graph.nodes.find(n => n.id === action.sourceNodeId);
-          
-          if (targetNode && sourceNode) {
-            // Remove the binding by restoring the old value
-            if (!targetNode.params) targetNode.params = {};
-            targetNode.params[action.targetParameter] = action.oldValue;
-            
-            // Update parameter panel if this node is selected
-            if (window.editor && window.editor.paramPanel && window.editor.selection.isSelected(targetNode)) {
-              window.editor.paramPanel.updateParameterDisplay(targetNode, action.targetParameter, action.oldValue);
+          const bindingSystem =
+            this.editor?.bindingSystem || window.editor?.bindingSystem;
+          if (bindingSystem) {
+            bindingSystem.removeBinding(
+              action.sourceNodeId,
+              action.sourceParamName,
+              action.targetNodeId,
+              action.targetParamName,
+              { recordUndo: false },
+            );
+
+            const targetNode = this.graph.nodes.find(
+              (n) => n.id === action.targetNodeId,
+            );
+            if (targetNode) {
+              bindingSystem.setParameterValueDirect(
+                targetNode,
+                action.targetParamName,
+                action.detachedValue,
+              );
+              bindingSystem.updateNodePreview(targetNode);
             }
-            
-            // Trigger preview update
-            if (window.editor && window.editor.previewIntegration) {
-              window.editor.previewIntegration.generateNodePreview(targetNode);
-            }
-            
-            if (this.onChange) {
-              this.onChange(`Remove parameter binding: ${action.targetParameter}`);
-            }
+          }
+
+          if (this.onChange) {
+            this.onChange(`Remove parameter binding: ${action.targetParamName}`);
           }
           success = true;
           break;
@@ -979,6 +992,11 @@ export class UndoManager {
       return false;
     }
 
+    const node = this.graph.nodes[nodeIndex];
+    const snapshot = JSON.parse(JSON.stringify(node));
+    action.nodeData = snapshot;
+    action.nodeIndex = nodeIndex;
+
     // Remove all connections to this node first
     this.graph.nodes.forEach(node => {
       if (node.inputs) {
@@ -1078,8 +1096,27 @@ export class UndoManager {
 
   // Redo node creation (create node again)
   redoNodeCreation(action) {
-    console.warn('Node creation redo not implemented');
-    return false;
+    if (!action || !action.nodeData) {
+      console.error('Cannot redo node creation: missing node data');
+      return false;
+    }
+
+    if (this.graph.nodes.find(n => n.id === action.nodeId)) {
+      console.warn('Node already exists, skipping recreate');
+      return false;
+    }
+
+    const restoredNode = JSON.parse(JSON.stringify(action.nodeData));
+    restoredNode.id = action.nodeId;
+
+    const insertIndex =
+      Number.isInteger(action.nodeIndex) && action.nodeIndex >= 0
+        ? Math.min(action.nodeIndex, this.graph.nodes.length)
+        : this.graph.nodes.length;
+
+    this.graph.nodes.splice(insertIndex, 0, restoredNode);
+    console.log('Node creation redone:', restoredNode.id);
+    return true;
   }
 
   // Force editor refresh

@@ -95,7 +95,15 @@ export class ParameterBindingSystem {
   }
 
   // Create a binding between source and target parameters
-  createBinding(sourceNodeId, sourceParamName, targetNodeId, targetParamName) {
+  createBinding(
+    sourceNodeId,
+    sourceParamName,
+    targetNodeId,
+    targetParamName,
+    options = {},
+  ) {
+    const recordUndo = options.recordUndo !== false;
+
     const sourceNode = this.graph.nodes.find(n => n.id === sourceNodeId);
     const targetNode = this.graph.nodes.find(n => n.id === targetNodeId);
 
@@ -112,9 +120,30 @@ export class ParameterBindingSystem {
 
     const sourceKey = `${sourceNodeId}.${sourceParamName}`;
     const targetKey = `${targetNodeId}.${targetParamName}`;
+    const previousBinding = this.boundToSource.get(targetKey);
+
+    if (
+      previousBinding &&
+      previousBinding.nodeId === sourceNodeId &&
+      previousBinding.parameterName === sourceParamName
+    ) {
+      console.warn('Binding already exists between parameters');
+      return false;
+    }
+
+    const previousBindingSnapshot = previousBinding
+      ? {
+          sourceNodeId: previousBinding.nodeId,
+          sourceParamName: previousBinding.parameterName,
+        }
+      : null;
+
+    const previousValue = this.getParameterValue(targetNode, targetParamName);
 
     // Remove existing binding if target is already bound
-    this.removeBindingForTarget(targetNodeId, targetParamName);
+    this.removeBindingForTarget(targetNodeId, targetParamName, {
+      recordUndo: false,
+    });
 
     // Add to bindings map
     if (!this.bindings.has(sourceKey)) {
@@ -137,15 +166,15 @@ export class ParameterBindingSystem {
     this.setParameterValue(targetNode, targetParamName, sourceValue);
 
     // Record for undo
-    if (this.undoManager) {
+    if (recordUndo && this.undoManager) {
       this.undoManager.recordAction({
         type: 'CREATE_BINDING',
         sourceNodeId,
         sourceParamName,
         targetNodeId,
         targetParamName,
-        undo: () => this.removeBinding(sourceNodeId, sourceParamName, targetNodeId, targetParamName),
-        redo: () => this.createBinding(sourceNodeId, sourceParamName, targetNodeId, targetParamName)
+        oldValue: previousValue,
+        previousBinding: previousBindingSnapshot,
       });
     }
 
@@ -165,9 +194,21 @@ export class ParameterBindingSystem {
   }
 
   // Remove a specific binding
-  removeBinding(sourceNodeId, sourceParamName, targetNodeId, targetParamName) {
+  removeBinding(
+    sourceNodeId,
+    sourceParamName,
+    targetNodeId,
+    targetParamName,
+    options = {},
+  ) {
+    const recordUndo = options.recordUndo !== false;
+
     const sourceKey = `${sourceNodeId}.${sourceParamName}`;
     const targetKey = `${targetNodeId}.${targetParamName}`;
+    const targetNode = this.graph.nodes.find(n => n.id === targetNodeId);
+    const currentValue = targetNode
+      ? this.getParameterValue(targetNode, targetParamName)
+      : undefined;
 
     // Remove from bindings map
     if (this.bindings.has(sourceKey)) {
@@ -194,29 +235,52 @@ export class ParameterBindingSystem {
       targetParamName
     });
 
+    if (recordUndo && this.undoManager) {
+      this.undoManager.recordAction({
+        type: 'REMOVE_BINDING',
+        sourceNodeId,
+        sourceParamName,
+        targetNodeId,
+        targetParamName,
+        detachedValue: currentValue,
+      });
+    }
+
     console.log(`Removed binding: ${sourceKey} → ${targetKey}`);
     return true;
   }
 
   // Remove all bindings for a target parameter
-  removeBindingForTarget(targetNodeId, targetParamName) {
+  removeBindingForTarget(targetNodeId, targetParamName, options = {}) {
     const targetKey = `${targetNodeId}.${targetParamName}`;
     const source = this.boundToSource.get(targetKey);
     
     if (source) {
-      this.removeBinding(source.nodeId, source.parameterName, targetNodeId, targetParamName);
+      this.removeBinding(
+        source.nodeId,
+        source.parameterName,
+        targetNodeId,
+        targetParamName,
+        { recordUndo: options.recordUndo !== false ? options.recordUndo : false },
+      );
     }
   }
 
   // Remove all bindings for a source parameter
-  removeBindingsForSource(sourceNodeId, sourceParamName) {
+  removeBindingsForSource(sourceNodeId, sourceParamName, options = {}) {
     const sourceKey = `${sourceNodeId}.${sourceParamName}`;
     const boundParams = this.bindings.get(sourceKey);
     
     if (boundParams) {
       const toRemove = Array.from(boundParams);
       toRemove.forEach(bound => {
-        this.removeBinding(sourceNodeId, sourceParamName, bound.nodeId, bound.parameterName);
+        this.removeBinding(
+          sourceNodeId,
+          sourceParamName,
+          bound.nodeId,
+          bound.parameterName,
+          { recordUndo: options.recordUndo !== false ? options.recordUndo : false },
+        );
       });
     }
   }
