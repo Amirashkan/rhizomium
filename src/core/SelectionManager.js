@@ -211,8 +211,6 @@ export class SelectionManager {
         n.x = snapped.x;
         n.y = snapped.y;
       }
-
-      if (this.onChange) this.onChange();
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'drag-update',
@@ -485,8 +483,6 @@ deleteSelected() {
         console.log('Recording keyboard movement for undo:', movements.length, 'nodes');
         this.undoManager.recordNodeMovement(movements);
       }
-
-      if (this.onChange) this.onChange();
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'move-selected',

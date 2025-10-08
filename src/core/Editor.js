@@ -1745,7 +1745,6 @@ connectGPURenderer(renderFunction) {
 
       if (this.selection && this.selection.moveSelected) {
         this.selection.moveSelected(dx, dy);
-        this.onChange('Move Selection');
         this.safeDraw();
       } else {
         console.warn('Selection manager not available for moveSelection');
