@@ -1,146 +1,24 @@
-<!doctype html>
-<html lang="En">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>GLSL Node Editor</title>
-    <link rel="stylesheet" href="./style.css" />
-    <link rel="stylesheet" href="src/styles/texture.css" />
-    <style>
-      /* Undo/Redo button styling */
-      #btn-undo, #btn-redo {
-        background: var(--bg-secondary, #2a2a2a);
-        border: 1px solid var(--border-color, #444);
-        color: var(--text-color, #ffffff);
-        padding: 8px 12px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        margin: 0 2px;
-      }
-
-      #btn-undo:hover:not(:disabled), 
-      #btn-redo:hover:not(:disabled) {
-        background: var(--bg-hover, #3a3a3a);
-        border-color: var(--accent-color, #0078d4);
-      }
-
-      #btn-undo:disabled, 
-      #btn-redo:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-
-      .icon {
-        font-size: 14px;
-        font-weight: bold;
-      }
-
-      /* History section styling */
-      .history-section {
-        display: inline-block;
-        margin: 0 8px;
-        padding: 0 8px;
-        border-left: 1px solid #444;
-        border-right: 1px solid #444;
-      }
-
-      .history-section label {
-        font-size: 11px;
-        color: #aaa;
-        margin-right: 4px;
-      }
-    </style>
-  </head>
-  <body>
-    <canvas id="gpu-canvas"></canvas>
-    <canvas id="ui-canvas"></canvas>
-
-    <div id="hud">
-      <button
-        id="btn-toggle-hud"
-        class="hud-collapse-toggle"
-        type="button"
-        aria-expanded="true"
-        aria-controls="hud-content"
-      >
-        Hide Menu
-      </button>
-      <div id="hud-content" class="hud-content">
-        <button id="btn-toggle-preview">Toggle Preview</button>
-        <button id="btn-dock-preview">Dock Preview</button>
-        <button id="btn-lock-preview">Lock Preview</button>
-        <button id="btn-fullscreen-preview">Fullscreen</button>
-        <div class="snap-controls">
-          <label class="snap-toggle">
-            <input type="checkbox" id="snap-toggle" /> Snap
-          </label>
-          <label class="snap-size">
-            <span>Grid</span>
-            <input
-              type="number"
-              id="snap-size"
-              inputmode="numeric"
-              min="2"
-              max="512"
-              step="1"
-              value="20"
-            />
-          </label>
-        </div>
-        
-        <!-- History section with proper inline styling -->
-        <span class="history-section">
-          <label>History:</label>
-          <button id="btn-undo" title="Undo last action (Ctrl+Z)" disabled>
-            <span class="icon">&#8634;</span> Undo
-          </button>
-          <button id="btn-redo" title="Redo last action (Ctrl+Y)" disabled>
-            <span class="icon">&#8635;</span> Redo
-          </button>
-        </span>
-        
-        <button id="btn-rebuild">Rebuild</button>
-        <button id="btn-save">Save Project</button>
-        <button id="btn-load">Load Project</button>
-        <button id="btn-backups">Backups</button>
-        <button id="btn-export-json">Export JSON</button>
-        <button id="btn-import">Import</button>
-        <button id="btn-toggle-console">Console</button>
-        <input
-          id="file-import"
-          type="file"
-          accept=".json,.rz,.wgsl,.glsl"
-          style="display: none"
-        />
-        <span id="status">Idle</span>
-      </div>
-    </div>
-    <div id="param-panel" class="panel hidden"></div>
-    <div id="ctx-menu" class="menu hidden"></div>
-    <div id="code-console">
-      <div class="code-toolbar">
-        <span class="code-title">Generated WGSL</span>
-        <div class="code-actions">
-          <button id="btn-select-code">Select All</button>
-          <button id="btn-copy-code">Copy</button>
-          <button id="btn-export-wgsl">Export WGSL</button>
-          <button id="btn-close-console" aria-label="Hide console">Close</button>
-        </div>
-      </div>
-      <pre id="code" tabindex="0"></pre>
-    </div>
-
-    <script type="module" src="./main.js"></script>
-    <script type="module" src="./src/utils/RhizomiumLoader.js"></script>
-    <script type="module" src="./src/utils/DebugUtils.js"></script>
-    <div id="err-overlay" class="hidden">
-      <div class="err-title">Shader Error</div>
-      <pre id="err-log"></pre>
-    </div>
-  </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Rhizomium</title>
+  <style>
+    html,body{
+      margin:0;height:100%;
+      background:#000;color:#fff;
+      display:flex;flex-direction:column;
+      justify-content:center;align-items:center;
+      font-family:system-ui,sans-serif
+    }
+    a{color:#fff;border:1px solid #fff;padding:.6rem 1.4rem;text-decoration:none}
+    a:hover{background:#fff;color:#000}
+  </style>
+</head>
+<body>
+  <h1>Rhizomium</h1>
+  <p>Generative Visual Editor</p>
+  <a href="/editor/">Enter Editor</a>
+</body>
 </html>
