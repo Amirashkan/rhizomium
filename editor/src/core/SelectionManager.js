@@ -1,0 +1,547 @@
+// src/core/SelectionManager.js - Updated with permanent undo integration and error handling
+import { NodeDefs, makeNode } from "../data/NodeDefs.js";
+
+let _nextId = 1; // TODO: Move this to a proper ID generator utility
+
+export class SelectionManager {
+  constructor(graph, onChange) {
+    this.graph = graph;
+    this.onChange = onChange;
+    this.boxSelect = null;
+    this.dragging = null;
+    this.undoManager = null;
+    this.snapSettings = {
+      enabled: false,
+      gridSize: 20,
+    };
+  }
+
+  // Setter for undoManager (called from Editor)
+  setUndoManager(undoManager) {
+    this.undoManager = undoManager;
+  }
+
+  setSnapEnabled(enabled) {
+    this.snapSettings.enabled = !!enabled;
+  }
+
+  setSnapGridSize(size) {
+    if (Number.isFinite(size) && size > 0) {
+      this.snapSettings.gridSize = size;
+    }
+  }
+
+  getSnapSettings() {
+    return {
+      enabled: !!this.snapSettings.enabled,
+      gridSize: this.snapSettings.gridSize,
+    };
+  }
+
+  isSnapEnabled() {
+    return !!this.snapSettings.enabled;
+  }
+
+  applySnap(x, y) {
+    if (!this.snapSettings.enabled) {
+      return { x, y };
+    }
+
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return { x, y };
+    }
+
+    const size = this.snapSettings.gridSize;
+    if (!Number.isFinite(size) || size <= 0) {
+      return { x, y };
+    }
+
+    const snappedX = Math.round(x / size) * size;
+    const snappedY = Math.round(y / size) * size;
+
+    return {
+      x: Number.isFinite(snappedX) ? snappedX : x,
+      y: Number.isFinite(snappedY) ? snappedY : y,
+    };
+  }
+
+  getSelected() {
+    return this.graph.selection;
+  }
+
+  getBoxSelect() {
+    return this.boxSelect;
+  }
+
+  getDragging() {
+    return this.dragging;
+  }
+
+  isSelected(node) {
+    const id = typeof node === "object" ? node.id : node;
+    return this.graph.selection?.has?.(id) || false;
+  }
+
+  startBoxSelect(x, y) {
+    try {
+      this.graph.selection.clear();
+      this.boxSelect = { x0: x, y0: y, x1: x, y1: y };
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'box-selection-start',
+        position: { x, y }
+      });
+    }
+  }
+
+  updateBoxSelect(x, y) {
+    try {
+      if (!this.boxSelect) return;
+
+      this.boxSelect.x1 = x;
+      this.boxSelect.y1 = y;
+      this._updateBoxSelection();
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'box-selection-update',
+        position: { x, y }
+      });
+    }
+  }
+
+  endBoxSelect() {
+    try {
+      if (this.boxSelect) {
+        this._updateBoxSelection();
+        this.boxSelect = null;
+      }
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'box-selection-end' 
+      });
+    }
+  }
+
+  _updateBoxSelection() {
+    try {
+      if (!this.boxSelect) return;
+
+      const x0 = Math.min(this.boxSelect.x0, this.boxSelect.x1);
+      const y0 = Math.min(this.boxSelect.y0, this.boxSelect.y1);
+      const x1 = Math.max(this.boxSelect.x0, this.boxSelect.x1);
+      const y1 = Math.max(this.boxSelect.y0, this.boxSelect.y1);
+
+      this.graph.selection.clear();
+      for (const n of this.graph.nodes) {
+        const overlap =
+          n.x + n.w >= x0 && n.x <= x1 && n.y + n.h >= y0 && n.y <= y1;
+        if (overlap) {
+          this.graph.selection.add(n.id);
+        }
+      }
+
+      if (this.onChange) this.onChange();
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'box-selection-calculation' 
+      });
+    }
+  }
+
+  startDrag(nodeId, startX, startY) {
+    try {
+      if (!nodeId) {
+        throw new Error('Invalid node ID for drag operation');
+      }
+
+      let dragIds;
+
+      if (this.graph.selection.has(nodeId)) {
+        dragIds = new Set(this.graph.selection);
+      } else {
+        dragIds = new Set([nodeId]);
+        this.graph.selection = new Set([nodeId]);
+        if (this.onChange) this.onChange();
+      }
+
+      const orig = {};
+      for (const id of dragIds) {
+        const n = this.graph.nodes.find((m) => m.id === id);
+        if (n) orig[id] = { x: n.x, y: n.y };
+      }
+
+      this.dragging = {
+        ids: dragIds,
+        start: { x: startX, y: startY },
+        orig,
+        hasMoved: false // Track if any movement has occurred
+      };
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'drag-start',
+        nodeId,
+        position: { x: startX, y: startY }
+      });
+    }
+  }
+
+  updateDrag(currentX, currentY) {
+    try {
+      if (!this.dragging) return;
+
+      const dx = currentX - this.dragging.start.x;
+      const dy = currentY - this.dragging.start.y;
+
+      // Track if there's been any movement
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        this.dragging.hasMoved = true;
+      }
+
+      for (const id of this.dragging.ids) {
+        const n = this.graph.nodes.find((m) => m.id === id);
+        if (!n) continue;
+
+        const o = this.dragging.orig[id];
+        if (!o) continue;
+
+        const baseX = Number.isFinite(o.x) ? o.x : 0;
+        const baseY = Number.isFinite(o.y) ? o.y : 0;
+        const snapped = this.applySnap(baseX + dx, baseY + dy);
+
+        n.x = snapped.x;
+        n.y = snapped.y;
+      }
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'drag-update',
+        position: { x: currentX, y: currentY }
+      });
+    }
+  }
+
+// Replace the endDrag() method in your SelectionManager with this fixed version:
+
+endDrag() {
+  try {
+    if (!this.dragging) return;
+
+    // Only record for undo if there was actual movement
+    if (this.dragging.hasMoved && this.undoManager) {
+      const nodeMovements = []; // Array format expected by UndoManager
+      
+      for (const id of this.dragging.ids) {
+        const node = this.graph.nodes.find(m => m.id === id);
+        if (node) {
+          const originalPos = this.dragging.orig[id];
+          const currentPos = { x: node.x, y: node.y };
+          
+          // Only record if position actually changed
+          if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
+            nodeMovements.push({
+              nodeId: id,
+              oldX: originalPos.x,
+              oldY: originalPos.y,
+              newX: currentPos.x,
+              newY: currentPos.y
+            });
+          }
+        }
+      }
+
+      // Record for undo if any nodes actually moved
+      if (nodeMovements.length > 0) {
+        console.log('Recording node movement for undo:', nodeMovements.length, 'nodes');
+        this.undoManager.recordNodeMovement(nodeMovements);
+      }
+    }
+
+    this.dragging = null;
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'drag-end' 
+    });
+    // Reset dragging state even if error occurs
+    this.dragging = null;
+  }
+}
+
+  selectAll() {
+    try {
+      this.graph.selection = new Set(this.graph.nodes.map((n) => n.id));
+      if (this.onChange) this.onChange();
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'select-all' 
+      });
+    }
+  }
+
+  clear() {
+    try {
+      if (!this.graph?.selection || this.graph.selection.size === 0) {
+        return;
+      }
+
+      this.graph.selection.clear();
+      if (this.onChange) this.onChange();
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'selection-clear',
+        selectedCount: this.graph?.selection?.size || 0,
+      });
+    }
+  }
+
+deleteSelected() {
+  try {
+    const ids = new Set(this.graph.selection);
+    if (ids.size === 0) return;
+
+    // Get nodes to delete before removing them
+    const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
+
+    console.log('SelectionManager.deleteSelected called with', nodesToDelete.length, 'nodes');
+
+    // USE GROUP DELETION for multiple nodes
+    if (nodesToDelete.length > 1 && window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
+      console.log("SelectionManager: Using group deletion for", nodesToDelete.length, "nodes");
+      window.onGroupDeleted(nodesToDelete);
+    } else if (nodesToDelete.length === 1) {
+      // Single node - use individual deletion with connection tracking
+      if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
+        console.log("SelectionManager: Recording single node deletion with connections for undo:", nodesToDelete[0].kind, nodesToDelete[0].id);
+        
+        // Find all connections involving this node BEFORE deletion
+        const nodeConnections = this._findAllNodeConnections(nodesToDelete[0]);
+        console.log("Found connections for node", nodesToDelete[0].id, ":", nodeConnections);
+        
+        // Create enhanced node record with connections
+        const enhancedNode = {
+          ...nodesToDelete[0],
+          _connectionSnapshot: nodeConnections
+        };
+        
+        window.onNodeDeleted(enhancedNode);
+      }
+    }
+
+    // Find connections to remove BEFORE filtering
+    const connectionsToRemove = this.graph.connections.filter(
+      (c) => ids.has(c.from.nodeId) || ids.has(c.to.nodeId)
+    );
+
+    // Clean up input references for connections being removed
+    for (const conn of connectionsToRemove) {
+      // Find the target node and clear its input
+      const targetNode = this.graph.nodes.find(n => n.id === conn.to.nodeId);
+      if (targetNode && targetNode.inputs) {
+        const inputIndex = conn.to.pin || 0;
+        if (targetNode.inputs[inputIndex] === conn.from.nodeId) {
+          targetNode.inputs[inputIndex] = null; // Set to null, not undefined
+        }
+      }
+    }
+
+    // Remove connections involving selected nodes
+    this.graph.connections = this.graph.connections.filter(
+      (c) => !(ids.has(c.from.nodeId) || ids.has(c.to.nodeId))
+    );
+
+    // Remove nodes
+    this.graph.nodes = this.graph.nodes.filter((n) => !ids.has(n.id));
+    this.graph.selection.clear();
+
+    if (this.onChange) this.onChange();
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'node-deletion',
+      selectedCount: this.graph.selection?.size || 0
+    });
+  }
+}
+
+  // Helper method to find all connections involving a node
+  _findAllNodeConnections(node) {
+    try {
+      const connections = {
+        incoming: [], // Connections TO this node
+        outgoing: [], // Connections FROM this node
+        nodeInputs: node.inputs ? [...node.inputs] : [] // Copy of node's input array
+      };
+
+      // Find incoming connections (this node as target)
+      this.graph.nodes.forEach(otherNode => {
+        if (otherNode.inputs && Array.isArray(otherNode.inputs)) {
+          otherNode.inputs.forEach((input, inputIndex) => {
+            if (input === node.id || input == node.id) {
+              connections.incoming.push({
+                sourceNodeId: node.id,
+                targetNodeId: otherNode.id,
+                targetInput: inputIndex
+              });
+            }
+          });
+        }
+      });
+
+      // Find outgoing connections (this node as source) - from node.inputs
+      if (node.inputs && Array.isArray(node.inputs)) {
+        node.inputs.forEach((input, inputIndex) => {
+          if (input !== null && input !== undefined) {
+            connections.outgoing.push({
+              sourceNodeId: input,
+              targetNodeId: node.id,
+              targetInput: inputIndex
+            });
+          }
+        });
+      }
+
+      // Also check graph.connections array for completeness
+      this.graph.connections.forEach(conn => {
+        if (conn.from.nodeId == node.id) {
+          // This node is source - add to outgoing if not already there
+          const exists = connections.outgoing.some(c => 
+            c.sourceNodeId == conn.from.nodeId && 
+            c.targetNodeId == conn.to.nodeId && 
+            c.targetInput == conn.to.pin
+          );
+          if (!exists) {
+            connections.outgoing.push({
+              sourceNodeId: conn.from.nodeId,
+              targetNodeId: conn.to.nodeId,
+              targetInput: conn.to.pin
+            });
+          }
+        }
+        if (conn.to.nodeId == node.id) {
+          // This node is target - add to incoming if not already there
+          const exists = connections.incoming.some(c => 
+            c.sourceNodeId == conn.from.nodeId && 
+            c.targetNodeId == conn.to.nodeId && 
+            c.targetInput == conn.to.pin
+          );
+          if (!exists) {
+            connections.incoming.push({
+              sourceNodeId: conn.from.nodeId,
+              targetNodeId: conn.to.nodeId,
+              targetInput: conn.to.pin
+            });
+          }
+        }
+      });
+
+      return connections;
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'connection-tracking',
+        nodeId: node?.id
+      });
+      return { incoming: [], outgoing: [], nodeInputs: [] };
+    }
+  }
+
+  moveSelected(dx, dy) {
+    try {
+      const ids = this.graph.selection || new Set();
+      if (!ids.size) return;
+
+      // Validate movement values
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+        throw new Error('Invalid movement values');
+      }
+
+      // Store original positions
+      const movements = [];
+
+      for (const n of this.graph.nodes) {
+        if (ids.has(n.id)) {
+          const originalPos = { 
+            x: Number.isFinite(n.x) ? n.x : 0, 
+            y: Number.isFinite(n.y) ? n.y : 0 
+          };
+
+          const snapped = this.applySnap(originalPos.x + dx, originalPos.y + dy);
+
+          n.x = snapped.x;
+          n.y = snapped.y;
+
+          if (originalPos.x !== n.x || originalPos.y !== n.y) {
+            movements.push({
+              nodeId: n.id,
+              oldX: originalPos.x,
+              oldY: originalPos.y,
+              newX: n.x,
+              newY: n.y,
+            });
+          }
+        }
+      }
+
+      // Record for undo if we have an undoManager and nodes were moved
+      if (this.undoManager && movements.length > 0) {
+        console.log('Recording keyboard movement for undo:', movements.length, 'nodes');
+        this.undoManager.recordNodeMovement(movements);
+      }
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'move-selected',
+        delta: { dx, dy },
+        selectedCount: this.graph.selection?.size || 0
+      });
+    }
+  }
+
+  duplicateSelected() {
+    try {
+      const ids = Array.from(this.graph.selection || []);
+      if (!ids.length) return;
+
+      const idSet = new Set(ids);
+      const mapOldToNew = new Map();
+      const clones = [];
+
+      // Clone nodes
+      for (const n of this.graph.nodes) {
+        if (!idSet.has(n.id)) continue;
+
+        const c = JSON.parse(JSON.stringify(n));
+        c.id = String(++_nextId);
+        const snapped = this.applySnap(
+          (Number.isFinite(n.x) ? n.x : 0) + 20,
+          (Number.isFinite(n.y) ? n.y : 0) + 20
+        );
+        c.x = snapped.x;
+        c.y = snapped.y;
+        clones.push(c);
+        mapOldToNew.set(n.id, c.id);
+      }
+
+      // Add clones to graph
+      this.graph.nodes.push(...clones);
+
+      // Clone connections between selected nodes
+      const newConns = [];
+      for (const c of this.graph.connections) {
+        const fromNew = mapOldToNew.get(c.from.nodeId);
+        const toNew = mapOldToNew.get(c.to.nodeId);
+        if (fromNew && toNew) {
+          newConns.push({
+            from: { nodeId: fromNew, pin: c.from.pin },
+            to: { nodeId: toNew, pin: c.to.pin },
+          });
+        }
+      }
+
+      this.graph.connections.push(...newConns);
+      this.graph.selection = new Set(clones.map((n) => n.id));
+
+      if (this.onChange) this.onChange();
+    } catch (error) {
+      window.errorHandler?.handleError(error, { 
+        component: 'node-duplication',
+        selectedCount: this.graph.selection?.size || 0
+      });
+    }
+  }
+}
