@@ -47,6 +47,32 @@
         <a href="https://github.com/yourrepo" target="_blank">GitHub</a>
       </p>
     </section>
+    <!-- === Rhizomium Docsify Loader === -->
+<div id="rhizomium-docs" style="display:none;">
+  <div id="app">Loading Rhizomium Documentation...</div>
+  <script>
+    window.$docsify = {
+      name: 'Rhizomium',
+      loadSidebar: true,
+      subMaxLevel: 2,
+      repo: 'https://github.com/yourrepo',
+      homepage: 'docs/index.md',
+      search: 'auto'
+    };
+  </script>
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/docsify.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
+</div>
+
+<script>
+  // Example trigger: open docs when hash starts with #/docs
+  if (location.hash.startsWith('#/docs')) {
+    document.body.innerHTML = document.getElementById('rhizomium-docs').innerHTML;
+    document.getElementById('rhizomium-docs').style.display = 'block';
+  }
+</script>
+<!-- === END Docsify Loader === -->
+
   </main>
   <script>
   // Fade-in as sections enter viewport
