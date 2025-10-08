@@ -1,25 +1,29 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "cleanUrls": true,
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/studio",
+      "destination": "/editor/index.html"
+    }
+  ],
   "headers": [
     {
-  "rewrites": [
-    { "source": "/studio", "destination": "/editor/index.html" }
-  ]
-}
-,
-    {
-      "source": "/(.*)\\.wgsl",
+      "source": "/(.*)\\.(js|css|png|jpg|jpeg|gif|webp|svg|wasm)",
       "headers": [
-        { "key": "Content-Type", "value": "text/plain; charset=utf-8" }
-      ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
-        { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     }
-  ]
+  ],
+  "redirects": [
+    {
+      "source": "/editor",
+      "destination": "/studio",
+      "permanent": true
+    }
+  ],
+  "cleanUrls": true,
+  "trailingSlash": false
 }
