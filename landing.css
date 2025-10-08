@@ -120,3 +120,18 @@ section {
 #footer a:hover {
   color: var(--accent-hover);
 }
+/* --- smooth scroll and fade effects --- */
+html {
+  scroll-behavior: smooth;
+}
+
+section {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+}
+
+section.visible {
+  opacity: 1;
+  transform: none;
+}
