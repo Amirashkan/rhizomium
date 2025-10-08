@@ -1,0 +1,122 @@
+/* landing.css — Rhizomium Landing Page */
+
+:root {
+  --bg: #0E0E0E;
+  --fg: #EAE7E4;
+  --accent: #A3532E; /* نارنجی از لوگو */
+  --accent-hover: #C5643A;
+  --font-main: "Inter", "Helvetica Neue", Arial, sans-serif;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-main);
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+}
+
+main {
+  height: 100%;
+}
+
+section {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  scroll-snap-align: start;
+  padding: 4vh 2vw;
+}
+
+#hero {
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.logo {
+  width: clamp(140px, 22vw, 260px);
+  height: auto;
+  filter: brightness(0.92) saturate(1.1);
+  user-select: none;
+}
+
+.tagline {
+  font-size: clamp(1.3rem, 2.5vw, 2.8rem);
+  letter-spacing: 0.02em;
+  margin: 0.5rem 0 1.8rem;
+  font-weight: 400;
+}
+
+.buttons {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn {
+  text-decoration: none;
+  padding: 0.9rem 1.4rem;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.25s ease;
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn.ghost {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.btn.ghost:hover {
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+}
+
+#about h2, #features h2 {
+  margin-bottom: 1.2rem;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+#about p {
+  max-width: 600px;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+#features {
+  display: grid;
+  place-items: center;
+}
+
+.feature {
+  font-size: 1.2rem;
+  margin: 0.8rem 0;
+  opacity: 0.85;
+}
+
+#footer {
+  font-size: 0.9rem;
+  opacity: 0.6;
+}
+
+#footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+#footer a:hover {
+  color: var(--accent-hover);
+}
