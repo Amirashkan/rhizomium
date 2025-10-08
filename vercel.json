@@ -3,6 +3,12 @@
   "cleanUrls": true,
   "headers": [
     {
+  "rewrites": [
+    { "source": "/studio", "destination": "/editor/index.html" }
+  ]
+}
+,
+    {
       "source": "/(.*)\\.wgsl",
       "headers": [
         { "key": "Content-Type", "value": "text/plain; charset=utf-8" }
