@@ -48,5 +48,16 @@
       </p>
     </section>
   </main>
+  <script>
+  // Fade-in as sections enter viewport
+  const observer = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (e.isIntersecting) e.target.classList.add("visible");
+    }
+  }, { threshold: 0.2 });
+
+  document.querySelectorAll("section").forEach(s => observer.observe(s));
+</script>
+
 </body>
 </html>
