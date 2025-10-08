@@ -1,24 +1,36 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rhizomium</title>
-  <style>
-    html,body{
-      margin:0;height:100%;
-      background:#000;color:#fff;
-      display:flex;flex-direction:column;
-      justify-content:center;align-items:center;
-      font-family:system-ui,sans-serif
-    }
-    a{color:#fff;border:1px solid #fff;padding:.6rem 1.4rem;text-decoration:none}
-    a:hover{background:#fff;color:#000}
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Rhizomium — Compose. Evolve. Perform.</title>
+  <link rel="stylesheet" href="landing.css">
 </head>
 <body>
-  <h1>Rhizomium</h1>
-  <p>Generative Visual Editor</p>
-  <a href="/editor/">Enter Editor</a>
+  <main>
+    <section id="hero">
+      <img src="assets/logo.png" alt="Rhizomium logo" class="logo" />
+      <h1 class="tagline">Compose. Evolve. Perform.</h1>
+      <div class="buttons">
+        <a href="/studio" class="btn primary">Launch Studio</a>
+        <a href="/docs" class="btn ghost">Documentation</a>
+      </div>
+    </section>
+
+    <section id="about">
+      <h2>About</h2>
+      <p>Rhizomium is a modular GPU node environment built for real-time generative visuals and evolving fields.</p>
+    </section>
+
+    <section id="features">
+      <div class="feature">WebGPU Core</div>
+      <div class="feature">Modular Nodes</div>
+      <div class="feature">Real-time Fields</div>
+    </section>
+
+    <section id="footer">
+      <p>© 2025 Rhizomium — <a href="/docs">Docs</a> | <a href="https://github.com/...">GitHub</a></p>
+    </section>
+  </main>
 </body>
 </html>
