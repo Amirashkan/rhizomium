@@ -20,6 +20,201 @@ export class PreviewSettings {
     this.settingsPanel = null;
     this._refreshRateControls = null;
   }
+  async _uploadBlobToGallery(blob, filename) {
+    const form = new FormData();
+    form.append('file', blob, filename);
+
+    const res = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
+      method: 'POST',
+      body: form,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `Upload failed (${res.status})`);
+    }
+    const { url } = await res.json();
+    if (!url) throw new Error('No URL returned from upload');
+
+    // Redirect to publish page (only fileUrl needed)
+    window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(url)}`;
+  }
+
+  async _publishImage() {
+    const canvas = this.floatingPreview.gpuCanvas;
+    if (!canvas) {
+      alert('Canvas not available. Open preview first.');
+      return;
+    }
+
+    // اطمینان از init GPU مانند _exportPNG
+    if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
+      try { await window.initWebGPU(canvas, true); } catch (_) {}
+    }
+    const renderer = window.gpuRenderer;
+    if (!renderer || typeof renderer.captureFrame !== 'function') {
+      alert('Renderer not ready. Render preview at least once.');
+      return;
+    }
+
+    // از منطق captureFrame همان _exportPNG استفاده می‌کنیم
+    const resolution = this.settings?.settings?.resolution || { width: canvas.width, height: canvas.height };
+    const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
+    const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
+
+    try {
+      const capture = await renderer.captureFrame({ width, height });
+      const { pixels, bytesPerRow } = capture;
+
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = width;
+      exportCanvas.height = height;
+      const ctx = exportCanvas.getContext('2d');
+      const imageData = ctx.createImageData(width, height);
+
+      for (let y = 0; y < height; y++) {
+        const srcOffset = y * bytesPerRow;
+        const row = pixels.subarray(srcOffset, srcOffset + width * 4);
+        imageData.data.set(row, y * width * 4);
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/png'));
+      if (!blob) {
+        alert('Failed to create PNG blob');
+        return;
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const filename = `shader-${width}x${height}-${timestamp}.png`;
+
+      await this._uploadBlobToGallery(blob, filename);
+    } catch (err) {
+      console.error(err);
+      alert(`Publish failed: ${err?.message || err}`);
+    }
+  }
+  async _publishAnimation() {
+    const canvas = this.floatingPreview.gpuCanvas;
+    if (!canvas || typeof canvas.captureStream !== 'function') {
+      alert('Canvas streaming not supported in this browser.');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      alert('MediaRecorder is not available. Try Chromium-based browser.');
+      return;
+    }
+
+    // init GPU مشابه _exportAnimation
+    if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
+      try { await window.initWebGPU(canvas, true); } catch (_) {}
+    }
+
+    const renderer = window.gpuRenderer;
+    if (!renderer || typeof renderer.render !== 'function') {
+      alert('Renderer not ready. Render preview before exporting animation.');
+      return;
+    }
+
+    // همان promptهای موجود در _exportAnimation
+    const defaultFps = Math.max(1, this.settings?.settings?.refreshRate || 30);
+    const fpsInput = prompt('Frames per second for the recording (1-60)?', String(defaultFps));
+    if (fpsInput === null) return;
+    const fps = Math.min(60, Math.max(1, Number(fpsInput)));
+    if (!Number.isFinite(fps) || fps <= 0) {
+      alert('Invalid FPS value.');
+      return;
+    }
+
+    const durationInput = prompt('Duration in seconds (1-60)?', '5');
+    if (durationInput === null) return;
+    const duration = Math.min(60, Math.max(1, Number(durationInput)));
+    if (!Number.isFinite(duration) || duration <= 0) {
+      alert('Invalid duration value.');
+      return;
+    }
+
+    const mimeCandidates = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+    const mimeType = mimeCandidates.find((c) => {
+      try { return MediaRecorder.isTypeSupported(c); } catch { return false; }
+    });
+    if (!mimeType) {
+      alert('No supported WebM encoder found.');
+      return;
+    }
+
+    // ensure frame advance while recording (like _exportAnimation)
+    this.floatingPreview.updateSize();
+    if (typeof window.render === 'function') window.render();
+    else renderer.render();
+
+    const stream = canvas.captureStream(fps);
+    const chunks = [];
+    const frameInterval = Math.max(1, Math.floor(1000 / fps));
+    let renderInterval = null;
+
+    if (typeof window.render === 'function' || typeof renderer.render === 'function') {
+      renderInterval = setInterval(() => {
+        try {
+          if (typeof window.render === 'function') window.render();
+          else renderer.render();
+        } catch (e) { console.warn('Render tick failed during animation export:', e); }
+      }, frameInterval);
+    }
+
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+    } catch (e) {
+      if (renderInterval) clearInterval(renderInterval);
+      stream.getTracks().forEach((t) => t.stop());
+      alert('Unable to start recorder: ' + (e?.message || e));
+      return;
+    }
+
+    const done = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+      recorder.onerror = (ev) => reject(ev.error || new Error('Recording error'));
+      recorder.onstop = () => resolve(null);
+    });
+
+    recorder.start();
+
+    const stopTimer = setTimeout(() => {
+      if (recorder.state === 'recording') recorder.stop();
+    }, duration * 1000);
+
+    try {
+      await done;
+    } catch (e) {
+      console.error('Animation publish failed:', e);
+      alert('Animation publish failed: ' + (e?.message || e));
+      return;
+    } finally {
+      clearTimeout(stopTimer);
+      if (renderInterval) clearInterval(renderInterval);
+      stream.getTracks().forEach((t) => t.stop());
+    }
+
+    if (!chunks.length) {
+      alert('Recording produced no data.');
+      return;
+    }
+
+    const blob = new Blob(chunks, { type: mimeType });
+    const { width, height } = this.settings?.settings?.resolution || { width: canvas.width, height: canvas.height };
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `shader-${Math.max(1, width)}x${Math.max(1, height)}-${timestamp}.webm`;
+
+    try {
+      await this._uploadBlobToGallery(blob, filename);
+    } catch (err) {
+      console.error(err);
+      alert(`Publish failed: ${err?.message || err}`);
+    }
+  }
+
+
 
   showSettings() {
     if (this.settingsPanel) {
@@ -730,11 +925,18 @@ export class PreviewSettings {
     const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
     const exportAnim = this._createButton("Export Animation (WebM)", () => this._exportAnimation());
 
+    // NEW: Publish buttons
+    const publishImage = this._createButton("Publish Image to TenderWorld", () => this._publishImage());
+    const publishVideo = this._createButton("Publish Animation to TenderWorld", () => this._publishAnimation());
+
     container.appendChild(exportPNG);
     container.appendChild(exportAnim);
+    container.appendChild(publishImage);
+    container.appendChild(publishVideo);
 
     return container;
   }
+
 
   _createButton(label, onClick) {
     const button = document.createElement("button");
