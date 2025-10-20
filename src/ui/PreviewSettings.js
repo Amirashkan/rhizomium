@@ -27,6 +27,7 @@ export class PreviewSettings {
     const res = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
       method: 'POST',
       body: form,
+      credentials: 'include',
     });
 
     if (!res.ok) {
