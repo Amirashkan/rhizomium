@@ -21,6 +21,98 @@ export class PreviewSettings {
     this._refreshRateControls = null;
   }
 
+
+async _publishImage() {
+  const canvas = this.floatingPreview.gpuCanvas;
+  if (!canvas) {
+    alert('Canvas not available. Open preview first.');
+    return;
+  }
+
+  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
+    try { await window.initWebGPU(canvas, true); } catch (_) {}
+  }
+  
+  const renderer = window.gpuRenderer;
+  if (!renderer || typeof renderer.captureFrame !== 'function') {
+    alert('Renderer not ready. Render preview at least once.');
+    return;
+  }
+
+  const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
+  const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
+  const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
+
+  try {
+    const capture = await renderer.captureFrame({ width, height });
+    const { pixels, bytesPerRow } = capture;
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = width;
+    exportCanvas.height = height;
+    const ctx = exportCanvas.getContext('2d');
+    const imageData = ctx.createImageData(width, height);
+
+    for (let y = 0; y < height; y++) {
+      const srcOffset = y * bytesPerRow;
+      const row = pixels.subarray(srcOffset, srcOffset + width * 4);
+      imageData.data.set(row, y * width * 4);
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
+    if (!blob) {
+      alert('Failed to create image blob');
+      return;
+    }
+
+    // Upload to gallery
+    const timestamp = Date.now();
+    const filename = `shader-${timestamp}.webp`;
+    
+    const formData = new FormData();
+    formData.append('file', blob, filename);
+
+    const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error?.error || `Upload failed (${response.status})`);
+    }
+
+    const data = await response.json();
+    
+    if (!data.url) {
+      throw new Error('No URL returned from upload');
+    }
+
+    // Redirect to publish page
+    window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+
+  } catch (err) {
+    console.error(err);
+    
+    if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+      const shouldSignIn = confirm(
+        'You need to sign in to share your work.\n\n' +
+        'Click OK to go to the gallery and sign in.'
+      );
+      if (shouldSignIn) {
+        window.open('https://art.tenderworld.org', '_blank');
+      }
+    } else {
+      alert(`Publish failed: ${err?.message || err}`);
+    }
+  }
+}
+
+
+
+
   showSettings() {
     if (this.settingsPanel) {
       this.hideSettings();
@@ -730,11 +822,18 @@ export class PreviewSettings {
     const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
     const exportAnim = this._createButton("Export Animation (WebM)", () => this._exportAnimation());
 
+    // NEW: Publish buttons
+    const publishImage = this._createButton("Publish Image to TenderWorld", () => this._publishImage());
+    const publishVideo = this._createButton("Publish Animation to TenderWorld", () => this._publishAnimation());
+
     container.appendChild(exportPNG);
     container.appendChild(exportAnim);
+    container.appendChild(publishImage);
+    container.appendChild(publishVideo);
 
     return container;
   }
+
 
   _createButton(label, onClick) {
     const button = document.createElement("button");
