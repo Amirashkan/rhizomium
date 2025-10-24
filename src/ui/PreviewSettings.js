@@ -1,5 +1,5 @@
 /**
- * PreviewSettings.js - Settings panel with WORKING WebGPU Export
+ * PreviewSettings.js - Settings panel with Share to Gallery
  */
 
 export class PreviewSettings {
@@ -21,98 +21,99 @@ export class PreviewSettings {
     this._refreshRateControls = null;
   }
 
-
-async _publishImage() {
-  const canvas = this.floatingPreview.gpuCanvas;
-  if (!canvas) {
-    alert('Canvas not available. Open preview first.');
-    return;
-  }
-
-  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
-    try { await window.initWebGPU(canvas, true); } catch (_) {}
-  }
-  
-  const renderer = window.gpuRenderer;
-  if (!renderer || typeof renderer.captureFrame !== 'function') {
-    alert('Renderer not ready. Render preview at least once.');
-    return;
-  }
-
-  const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
-  const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
-  const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
-
-  try {
-    const capture = await renderer.captureFrame({ width, height });
-    const { pixels, bytesPerRow } = capture;
-
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = width;
-    exportCanvas.height = height;
-    const ctx = exportCanvas.getContext('2d');
-    const imageData = ctx.createImageData(width, height);
-
-    for (let y = 0; y < height; y++) {
-      const srcOffset = y * bytesPerRow;
-      const row = pixels.subarray(srcOffset, srcOffset + width * 4);
-      imageData.data.set(row, y * width * 4);
-    }
-    ctx.putImageData(imageData, 0, 0);
-
-    const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
-    if (!blob) {
-      alert('Failed to create image blob');
+  async _publishImage() {
+    const canvas = this.floatingPreview.gpuCanvas;
+    if (!canvas) {
+      alert('Canvas not available. Open preview first.');
       return;
     }
 
-    // Upload to gallery
-    const timestamp = Date.now();
-    const filename = `shader-${timestamp}.webp`;
+    if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
+      try { 
+        await window.initWebGPU(canvas, true); 
+      } catch (_) {}
+    }
     
-    const formData = new FormData();
-    formData.append('file', blob, filename);
-
-    const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error?.error || `Upload failed (${response.status})`);
+    const renderer = window.gpuRenderer;
+    if (!renderer || typeof renderer.captureFrame !== 'function') {
+      alert('Renderer not ready. Render preview at least once.');
+      return;
     }
 
-    const data = await response.json();
-    
-    if (!data.url) {
-      throw new Error('No URL returned from upload');
-    }
+    const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
+    const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
+    const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
 
-    // Redirect to publish page
-    window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+    try {
+      // Capture frame
+      const capture = await renderer.captureFrame({ width, height });
+      const { pixels, bytesPerRow } = capture;
 
-  } catch (err) {
-    console.error(err);
-    
-    if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-      const shouldSignIn = confirm(
-        'You need to sign in to share your work.\n\n' +
-        'Click OK to go to the gallery and sign in.'
-      );
-      if (shouldSignIn) {
-        window.open('https://art.tenderworld.org/gallery', '_blank');
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = width;
+      exportCanvas.height = height;
+      const ctx = exportCanvas.getContext('2d');
+      const imageData = ctx.createImageData(width, height);
+
+      for (let y = 0; y < height; y++) {
+        const srcOffset = y * bytesPerRow;
+        const row = pixels.subarray(srcOffset, srcOffset + width * 4);
+        imageData.data.set(row, y * width * 4);
       }
-    } else {
-      alert(`Publish failed: ${err?.message || err}`);
+      ctx.putImageData(imageData, 0, 0);
+
+      const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
+      if (!blob) {
+        alert('Failed to create image blob');
+        return;
+      }
+
+      // Upload to gallery
+      const timestamp = Date.now();
+      const filename = `shader-${timestamp}.webp`;
+      
+      const formData = new FormData();
+      formData.append('file', blob, filename);
+
+      const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error?.error || `Upload failed (${response.status})`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.url) {
+        throw new Error('No URL returned from upload');
+      }
+
+      // Redirect to publish page with the file URL
+      window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+
+    } catch (err) {
+      console.error(err);
+      
+      if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+        const shouldSignIn = confirm(
+          'You need to sign in to share your work.\n\n' +
+          'Click OK to go to the gallery and sign in.'
+        );
+        if (shouldSignIn) {
+          window.open('https://art.tenderworld.org', '_blank');
+        }
+      } else {
+        alert(`Publish failed: ${err?.message || err}`);
+      }
     }
   }
-}
 
-
-
-
+  // Rest of your existing methods stay the same...
+  
   showSettings() {
     if (this.settingsPanel) {
       this.hideSettings();
@@ -819,29 +820,69 @@ async _publishImage() {
     const container = document.createElement("div");
     container.style.cssText = "display: flex; flex-direction: column; gap: 8px;";
 
+    // Primary share button
+    const publishBtn = this._createPrimaryButton("🎨 Share to Gallery", () => this._publishImage());
+    
+    // Divider
+    const divider = document.createElement("div");
+    divider.style.cssText = `
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 4px 0;
+    `;
+
+    // Local export buttons
     const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
     const exportAnim = this._createButton("Export Animation (WebM)", () => this._exportAnimation());
 
-    // NEW: Publish buttons
-    const publishImage = this._createButton("Publish Image to TenderWorld", () => this._publishImage());
-    const publishVideo = this._createButton("Publish Animation to TenderWorld", () => this._publishAnimation());
-
+    container.appendChild(publishBtn);
+    container.appendChild(divider);
     container.appendChild(exportPNG);
     container.appendChild(exportAnim);
-    container.appendChild(publishImage);
-    container.appendChild(publishVideo);
 
     return container;
   }
 
+  _createPrimaryButton(label, onClick) {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.style.cssText = `
+      width: 100%;
+      background: rgba(0, 122, 255, 1);
+      border: 1px solid rgba(0, 122, 255, 1);
+      color: #fff;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    `;
+
+    button.onmouseenter = () => {
+      button.style.background = "rgba(0, 150, 255, 1)";
+      button.style.transform = "translateY(-1px)";
+    };
+    button.onmouseleave = () => {
+      button.style.background = "rgba(0, 122, 255, 1)";
+      button.style.transform = "translateY(0)";
+    };
+    button.onmousedown = () => {
+      button.style.transform = "translateY(0)";
+    };
+
+    button.onclick = onClick;
+
+    return button;
+  }
 
   _createButton(label, onClick) {
     const button = document.createElement("button");
     button.textContent = label;
     button.style.cssText = `
       width: 100%;
-      background: rgba(0, 122, 255, 0.8);
-      border: 1px solid rgba(0, 122, 255, 1);
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
       color: #fff;
       padding: 8px 12px;
       border-radius: 6px;
@@ -852,11 +893,11 @@ async _publishImage() {
     `;
 
     button.onmouseenter = () => {
-      button.style.background = "rgba(0, 122, 255, 1)";
+      button.style.background = "rgba(255, 255, 255, 0.15)";
       button.style.transform = "translateY(-1px)";
     };
     button.onmouseleave = () => {
-      button.style.background = "rgba(0, 122, 255, 0.8)";
+      button.style.background = "rgba(255, 255, 255, 0.1)";
       button.style.transform = "translateY(0)";
     };
     button.onmousedown = () => {
@@ -889,7 +930,7 @@ async _publishImage() {
       return;
     }
 
-    const resolution = this.settings?.settings?.resolution || { width: canvas.width, height: canvas.height };
+    const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
     const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
     const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
 
@@ -956,7 +997,7 @@ async _publishImage() {
       return;
     }
 
-    const defaultFps = Math.max(1, this.settings?.settings?.refreshRate || 30);
+    const defaultFps = Math.max(1, this.settings.refreshRate || 30);
     const fpsInput = prompt("Frames per second for the recording (1-60)?", String(defaultFps));
     if (fpsInput === null) return;
 
@@ -1074,7 +1115,7 @@ async _publishImage() {
     }
 
     const blob = new Blob(chunks, { type: mimeType });
-    const resolution = this.settings?.settings?.resolution || { width: canvas.width, height: canvas.height };
+    const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
     const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
     const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
