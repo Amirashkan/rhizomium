@@ -102,7 +102,7 @@ async _publishImage() {
         'Click OK to go to the gallery and sign in.'
       );
       if (shouldSignIn) {
-        window.open('https://art.tenderworld.org', '_blank');
+        window.open('https://art.tenderworld.org/gallery', '_blank');
       }
     } else {
       alert(`Publish failed: ${err?.message || err}`);
