@@ -11,18 +11,9 @@ export class ParameterValueManager {
     this.debugMode = window.location.search.includes('debug=params');
   }
   // Check if node is allowed to update via drag, even if not selected
+  // Always allow drag on any node regardless of selection state
   isDragPermitted(node) {
-    const canvas = window.editor?.canvas;
-    if (!canvas) return true;
-
-    const selectedId = canvas.selectedNodeId;
-    if (!selectedId) return true;
-    if (selectedId === node.id) return true;
-
-    // Allow if the selected node uses this node as input
-    const selected = canvas.getNodeById(selectedId);
-    if (!selected?.inputConnections) return true;
-    return selected.inputConnections.some(c => c.sourceNodeId === node.id);
+    return true;
   }
 
   _debugLog(message, data = {}) {
