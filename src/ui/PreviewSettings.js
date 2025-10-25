@@ -1,5 +1,5 @@
 /**
- * PreviewSettings.js - Settings panel with Share to Gallery
+ * PreviewSettings.js - Settings panel with Share to Gallery2
  */
 
 export class PreviewSettings {
