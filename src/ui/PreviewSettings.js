@@ -121,7 +121,35 @@ for (let y = 0; y < height; y++) {
       }
     }
   }
+async _publishAnimation() {
+  // Reuse the existing _exportAnimation code but upload instead of download
+  const canvas = this.floatingPreview.gpuCanvas;
+  if (!canvas || typeof canvas.captureStream !== 'function') {
+    alert("Canvas streaming is not supported in this browser.");
+    return;
+  }
+  
+  // ... copy all the recording code from _exportAnimation ...
+  // But at the end, instead of downloading:
+  
+  const blob = new Blob(chunks, { type: mimeType });
+  const timestamp = Date.now();
+  const filename = `shader-${timestamp}.webm`;
+  
+  const formData = new FormData();
+  formData.append('file', blob, filename);
 
+  const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
+    method: 'POST',
+    body: formData,
+    credentials: 'include',
+  });
+
+  if (!response.ok) throw new Error('Upload failed');
+  
+  const data = await response.json();
+  window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+}
   // Rest of your existing methods stay the same...
   
   showSettings() {
