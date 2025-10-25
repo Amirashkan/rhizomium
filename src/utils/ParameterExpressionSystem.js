@@ -1,5 +1,7 @@
 // src/utils/ParameterExpressionSystem.js - Complete implementation with preview updates
 
+import { getAudioEnvelope } from '../audio/AudioEnvelopeClient.js';
+
 console.log('=== TRACING PARAMETER CHANGES ===');
 
 // Override ALL possible setValue methods
@@ -97,7 +99,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       if (!this.isExpression(expression)) {
         return this.parseValue(expression);
       }
-  if (expression.includes('time') && node) {
+  if ((expression.includes('time') || expression.includes('audioEnvelope')) && node) {
     // Mark this node as needing continuous updates
     if (!this.timeAnimatedNodes) {
       this.timeAnimatedNodes = new Set();
@@ -183,18 +185,18 @@ startAnimationLoop() {
 }
 
 isTimeDependentExpression(cacheKey) {
-  return cacheKey.includes('time') || cacheKey.includes('frame');
+  return cacheKey.includes('time') || cacheKey.includes('frame') || cacheKey.includes('audioEnvelope');
 }
 
 updateTimeBasedPreviews() {
   if (!window.editor?.graph?.nodes) return;
-  
+
   window.editor.graph.nodes.forEach(node => {
     if (node.params) {
-      const hasTimeExpression = Object.values(node.params).some(value => 
-        typeof value === 'string' && value.includes('time')
+      const hasTimeExpression = Object.values(node.params).some(value =>
+        typeof value === 'string' && (value.includes('time') || value.includes('audioEnvelope'))
       );
-      
+
       if (hasTimeExpression && window.editor.previewIntegration) {
         window.editor.previewIntegration.generateNodePreview(node);
       }
@@ -216,22 +218,24 @@ buildEvaluationContext(context, node) {
     // Math constants
     PI: Math.PI,
     E: Math.E,
-    
+
     // Real-time computed values
-get time() { return performance.now() / 1000; },    get frame() { return 0; }, // Can be updated by animation system
-    
+    get time() { return performance.now() / 1000; },
+    get frame() { return 0; }, // Can be updated by animation system
+    get audioEnvelope() { return getAudioEnvelope(); }, // Real-time audio envelope value
+
     // Math functions
     sin: Math.sin,
     cos: Math.cos,
     sqrt: Math.sqrt,
     // ... other math functions
-    
+
     // Node context
     nodeId: node?.id,
     nodeType: node?.kind,
     nodeX: node?.x || 0,
     nodeY: node?.y || 0,
-    
+
     // Custom context variables
     ...context
   };
@@ -355,9 +359,9 @@ isIncompleteExpression(expression) {
   extractVariables(expression) {
     const varPattern = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
     const matches = expression.match(varPattern) || [];
-    return [...new Set(matches)].filter(match => 
-      !this.builtInFunctions.hasOwnProperty(match) && 
-      !['PI', 'E', 'true', 'false'].includes(match)
+    return [...new Set(matches)].filter(match =>
+      !this.builtInFunctions.hasOwnProperty(match) &&
+      !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope'].includes(match)
     );
   }
 
@@ -578,7 +582,7 @@ isIncomplete(value) {
 
     input.placeholder =
       param.type === 'float'
-        ? 'Number or =expression'
+        ? 'Number or =expression (e.g., =audioEnvelope)'
         : param.type === 'int'
         ? 'Integer or =expression'
         : 'Value or =expression';

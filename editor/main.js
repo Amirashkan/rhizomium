@@ -13,6 +13,7 @@ import { TextureManager } from "./src/core/TextureManager.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
+import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -700,6 +701,20 @@ function setupUIEventHandlers() {
       setConsoleVisibility(false);
     });
     console.log("Console close handler attached");
+  }
+
+  // Audio Settings Panel
+  const audioSettingsBtn = removeExistingHandlers("btn-audio-settings");
+  if (audioSettingsBtn) {
+    const audioPanel = getAudioSettingsPanel();
+    audioSettingsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      audioPanel.toggle();
+      if (typeof updateStatus === "function") {
+        updateStatus(audioPanel.visible ? "Audio settings opened" : "Audio settings closed");
+      }
+    });
+    console.log("Audio settings handler attached");
   }
 
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
