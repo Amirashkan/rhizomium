@@ -196,7 +196,7 @@ generateRectangleFunction(node, nodeId, functionName) {
   const rotation = this.getParam(node, 'rotation', 0.0);
   const epsilon = this.getParam(node, 'epsilon', 0.02);
   const safeId = this.makeSafeIdentifier(nodeId);
-  
+
   return `fn ${functionName}(uv: vec2<f32>) -> f32 {
   // Distances in aspect space
   let ${safeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
@@ -208,13 +208,12 @@ generateRectangleFunction(node, nodeId, functionName) {
     clamp(${centerX}, 0.0, 1.0) * u.aspect,
     clamp(${centerY}, 0.0, 1.0)
   );
-  // size in aspect space (x scaled by aspect)
+  // size in aspect space (no additional aspect scaling needed)
   var ${safeId}_half = clamp(
     vec2<f32>(${width}, ${height}),
     vec2<f32>(0.0),
     vec2<f32>(1.0)
   ) * 0.5;
-  ${safeId}_half.x *= u.aspect;
   // Zoom semantics: larger 'scale' => larger rect (scale half-size)
   let ${safeId}_s = max(${scale}, 0.0);
   ${safeId}_half *= ${safeId}_s;
@@ -310,12 +309,14 @@ getParam(node, paramName, defaultValue) {
     const offset = this.getParam(node, 'offset', 0.0);
     const scale = this.getParam(node, 'scale', 1.0);
     const repeat = this.getParam(node, 'repeat', false);
-    
+
     const line = `
+  var uvAspect_${nodeId} = ${uv};
+  uvAspect_${nodeId}.x *= u.aspect;
   let dir_${nodeId} = vec2<f32>(cos(${angle}), sin(${angle}));
-  let proj_${nodeId} = dot(${uv} - vec2<f32>(0.5), dir_${nodeId}) * ${scale} + ${offset};
+  let proj_${nodeId} = dot(uvAspect_${nodeId} - vec2<f32>(0.5 * u.aspect, 0.5), dir_${nodeId}) * ${scale} + ${offset};
   let node_${nodeId} = ${repeat ? `fract(proj_${nodeId})` : `proj_${nodeId}`};`;
-    
+
     return { line, outputType: "f32" };
   }
 
@@ -325,16 +326,18 @@ getParam(node, paramName, defaultValue) {
     const centerY = this.getParam(node, 'centerY', 0.5);
     const radius = this.getParam(node, 'radius', 0.5);
     const repeat = this.getParam(node, 'repeat', false);
-    
-    const radiusStr = typeof radius === 'string' && /[+\-*/]/.test(radius) 
-      ? `(${radius})` 
+
+    const radiusStr = typeof radius === 'string' && /[+\-*/]/.test(radius)
+      ? `(${radius})`
       : radius;
-    
+
     const line = `
-  let center_${nodeId} = vec2<f32>(${centerX}, ${centerY});
-  let dist_${nodeId} = length(${uv} - center_${nodeId}) / ${radiusStr};
+  var uvAspect_${nodeId} = ${uv};
+  uvAspect_${nodeId}.x *= u.aspect;
+  let center_${nodeId} = vec2<f32>(${centerX} * u.aspect, ${centerY});
+  let dist_${nodeId} = length(uvAspect_${nodeId} - center_${nodeId}) / ${radiusStr};
   let node_${nodeId} = ${repeat ? `fract(dist_${nodeId})` : `dist_${nodeId}`};`;
-    
+
     return { line, outputType: "f32" };
   }
 
@@ -344,12 +347,14 @@ getParam(node, paramName, defaultValue) {
     const centerY = this.getParam(node, 'centerY', 0.5);
     const rotation = this.getParam(node, 'rotation', 0.0);
     const repeat = this.getParam(node, 'repeat', 1.0);
-    
+
     const line = `
-  let dir_${nodeId} = ${uv} - vec2<f32>(${centerX}, ${centerY});
+  var uvAspect_${nodeId} = ${uv};
+  uvAspect_${nodeId}.x *= u.aspect;
+  let dir_${nodeId} = uvAspect_${nodeId} - vec2<f32>(${centerX} * u.aspect, ${centerY});
   let angle_${nodeId} = atan2(dir_${nodeId}.y, dir_${nodeId}.x) + ${rotation};
   let node_${nodeId} = fract((angle_${nodeId} / 6.28318530718) * ${repeat});`;
-    
+
     return { line, outputType: "f32" };
   }
 
@@ -359,13 +364,15 @@ getParam(node, paramName, defaultValue) {
     const centerY = this.getParam(node, 'centerY', 0.5);
     const rotation = this.getParam(node, 'rotation', 0.0);
     const repeat = this.getParam(node, 'repeat', 1.0);
-    
+
     const line = `
-  let dir_${nodeId} = ${uv} - vec2<f32>(${centerX}, ${centerY});
+  var uvAspect_${nodeId} = ${uv};
+  uvAspect_${nodeId}.x *= u.aspect;
+  let dir_${nodeId} = uvAspect_${nodeId} - vec2<f32>(${centerX} * u.aspect, ${centerY});
   let angle_${nodeId} = atan2(dir_${nodeId}.y, dir_${nodeId}.x) + ${rotation};
   let normalized_${nodeId} = (angle_${nodeId} + 3.14159265359) / 6.28318530718;
   let node_${nodeId} = fract(normalized_${nodeId} * ${repeat});`;
-    
+
     return { line, outputType: "f32" };
   }
 
@@ -470,8 +477,11 @@ compileChecker(node, getInput, nodeId) {
   const fnName = `checker_${nodeId}`;
   const fn = `
 fn ${fnName}(uv: vec2<f32>, scaleX: f32, scaleY: f32, smoothness: f32) -> f32 {
+  // Apply aspect correction for square checkers
+  var uvAspect = uv;
+  uvAspect.x *= u.aspect;
   // scaled coordinates
-  let uvScaled = uv * vec2<f32>(scaleX, scaleY);
+  let uvScaled = uvAspect * vec2<f32>(scaleX, scaleY);
   // get fractional part
   let f = fract(uvScaled);
   // base pattern
@@ -512,8 +522,11 @@ compileStripe(node, getInput, nodeId) {
   const fnName = `stripe_${nodeId}`;
   const fn = `
 fn ${fnName}(uv: vec2<f32>, freq: f32, angle: f32, thickness: f32, smoothness: f32) -> f32 {
+  // Apply aspect correction for consistent stripe width
+  var uvAspect = uv;
+  uvAspect.x *= u.aspect;
   let dir = vec2<f32>(cos(angle), sin(angle));
-  let t = dot(uv, dir) * freq;
+  let t = dot(uvAspect, dir) * freq;
   let v = abs(fract(t) - 0.5) * 2.0;
   return 1.0 - smoothstep(thickness - smoothness, thickness + smoothness, v);
 }`;
