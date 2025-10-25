@@ -1,6 +1,6 @@
 // src/utils/ParameterExpressionSystem.js - Complete implementation with preview updates
 
-import { getAudioEnvelope } from '../audio/AudioEnvelopeClient.js';
+import { getAudioEnvelope } from '../audio/BrowserAudioCapture.js';
 
 console.log('=== TRACING PARAMETER CHANGES ===');
 

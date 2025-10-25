@@ -4,13 +4,13 @@
  * UI panel for configuring audio envelope parameters
  */
 
-import { getAudioEnvelopeClient } from '../audio/AudioEnvelopeClient.js';
+import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 
 export class AudioSettingsPanel {
     constructor() {
         this.panel = null;
         this.visible = false;
-        this.audioClient = getAudioEnvelopeClient();
+        this.audioClient = getBrowserAudioCapture();
 
         // Default configuration
         this.config = {
@@ -73,12 +73,59 @@ export class AudioSettingsPanel {
             </div>
 
             <div style="margin-bottom: 12px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-weight: 500;">Status:</span>
-                    <span id="audio-status" style="color: #f44336;">Disconnected</span>
+                <div style="margin-bottom: 8px;">
+                    <label style="display: block; margin-bottom: 4px; font-size: 11px; color: #888;">
+                        Load Audio File (MP3, WAV, OGG)
+                    </label>
+                    <input type="file" id="audio-file-input" accept="audio/*" style="
+                        width: 100%;
+                        padding: 4px;
+                        background: #444;
+                        color: #fff;
+                        border: 1px solid #666;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        cursor: pointer;
+                    ">
                 </div>
-                <div style="margin-top: 8px; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-weight: 500;">Value:</span>
+                <div style="display: flex; gap: 4px; margin-bottom: 8px;">
+                    <button id="audio-play-btn" style="
+                        flex: 1;
+                        padding: 6px;
+                        background: #4CAF50;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    " disabled>▶ Play</button>
+                    <button id="audio-pause-btn" style="
+                        flex: 1;
+                        padding: 6px;
+                        background: #FF9800;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    " disabled>⏸ Pause</button>
+                    <button id="audio-stop-btn" style="
+                        flex: 1;
+                        padding: 6px;
+                        background: #f44336;
+                        color: white;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    " disabled>⏹ Stop</button>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-weight: 500; font-size: 11px;">File:</span>
+                    <span id="audio-filename" style="font-size: 10px; color: #888; font-style: italic;">No file loaded</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 500;">Envelope:</span>
                     <span id="audio-value" style="font-family: monospace; color: #4CAF50;">0.000</span>
                 </div>
                 <div style="margin-top: 8px;">
@@ -178,6 +225,50 @@ export class AudioSettingsPanel {
         const closeBtn = this.panel.querySelector('#audio-close-btn');
         closeBtn.addEventListener('click', () => this.hide());
 
+        // File input
+        const fileInput = this.panel.querySelector('#audio-file-input');
+        const playBtn = this.panel.querySelector('#audio-play-btn');
+        const pauseBtn = this.panel.querySelector('#audio-pause-btn');
+        const stopBtn = this.panel.querySelector('#audio-stop-btn');
+        const filenameEl = this.panel.querySelector('#audio-filename');
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    await this.audioClient.loadFile(file);
+                    filenameEl.textContent = file.name;
+                    filenameEl.style.color = '#4CAF50';
+                    playBtn.disabled = false;
+                    pauseBtn.disabled = false;
+                    stopBtn.disabled = false;
+                } catch (error) {
+                    console.error('Failed to load audio file:', error);
+                    filenameEl.textContent = 'Error loading file';
+                    filenameEl.style.color = '#f44336';
+                }
+            }
+        });
+
+        // Play button
+        playBtn.addEventListener('click', async () => {
+            try {
+                await this.audioClient.play();
+            } catch (error) {
+                console.error('Failed to play audio:', error);
+            }
+        });
+
+        // Pause button
+        pauseBtn.addEventListener('click', () => {
+            this.audioClient.pause();
+        });
+
+        // Stop button
+        stopBtn.addEventListener('click', () => {
+            this.audioClient.stop();
+        });
+
         // Follower controls
         this.setupSlider('follower-attack', 'follower.attack_ms', (val) => val);
         this.setupSlider('follower-release', 'follower.release_ms', (val) => val);
@@ -193,33 +284,13 @@ export class AudioSettingsPanel {
         const curveSelect = this.panel.querySelector('#shaping-curve');
         curveSelect.addEventListener('change', (e) => {
             this.config.shaping.curve = e.target.value;
-            this.updateServerConfig();
+            this.audioClient.updateConfig(this.config);
         });
 
         const normalizeCheckbox = this.panel.querySelector('#shaping-normalize');
         normalizeCheckbox.addEventListener('change', (e) => {
             this.config.shaping.normalize = e.target.checked;
-            this.updateServerConfig();
-        });
-
-        // Audio client event listeners
-        this.audioClient.on('connected', () => {
-            const statusEl = this.panel.querySelector('#audio-status');
-            statusEl.textContent = 'Connected';
-            statusEl.style.color = '#4CAF50';
-        });
-
-        this.audioClient.on('disconnected', () => {
-            const statusEl = this.panel.querySelector('#audio-status');
-            statusEl.textContent = 'Disconnected';
-            statusEl.style.color = '#f44336';
-        });
-
-        this.audioClient.on('value', (value) => {
-            const valueEl = this.panel.querySelector('#audio-value');
-            const valueBar = this.panel.querySelector('#audio-value-bar');
-            valueEl.textContent = value.toFixed(3);
-            valueBar.style.width = `${value * 100}%`;
+            this.audioClient.updateConfig(this.config);
         });
 
         // Update display periodically
@@ -251,17 +322,9 @@ export class AudioSettingsPanel {
         });
 
         slider.addEventListener('change', () => {
-            this.updateServerConfig();
-        });
-    }
-
-    async updateServerConfig() {
-        try {
-            await this.audioClient.updateConfig(this.config);
+            this.audioClient.updateConfig(this.config);
             console.log('[AudioSettings] Configuration updated');
-        } catch (error) {
-            console.error('[AudioSettings] Failed to update configuration:', error);
-        }
+        });
     }
 
     show() {
