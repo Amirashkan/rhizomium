@@ -55,11 +55,21 @@ export class PreviewSettings {
       const ctx = exportCanvas.getContext('2d');
       const imageData = ctx.createImageData(width, height);
 
-      for (let y = 0; y < height; y++) {
-        const srcOffset = y * bytesPerRow;
-        const row = pixels.subarray(srcOffset, srcOffset + width * 4);
-        imageData.data.set(row, y * width * 4);
-      }
+for (let y = 0; y < height; y++) {
+  const srcOffset = y * bytesPerRow;
+  const dstOffset = y * width * 4;
+  
+  for (let x = 0; x < width; x++) {
+    const si = srcOffset + x * 4;
+    const di = dstOffset + x * 4;
+    
+    // Swap B and R channels (BGRA -> RGBA)
+    imageData.data[di + 0] = pixels[si + 2]; // R from B
+    imageData.data[di + 1] = pixels[si + 1]; // G stays
+    imageData.data[di + 2] = pixels[si + 0]; // B from R
+    imageData.data[di + 3] = pixels[si + 3]; // A stays
+  }
+}
       ctx.putImageData(imageData, 0, 0);
 
       const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
@@ -944,11 +954,21 @@ export class PreviewSettings {
       const ctx = exportCanvas.getContext('2d');
       const imageData = ctx.createImageData(width, height);
 
-      for (let y = 0; y < height; y++) {
-        const srcOffset = y * bytesPerRow;
-        const row = pixels.subarray(srcOffset, srcOffset + width * 4);
-        imageData.data.set(row, y * width * 4);
-      }
+ for (let y = 0; y < height; y++) {
+  const srcOffset = y * bytesPerRow;
+  const dstOffset = y * width * 4;
+  
+  for (let x = 0; x < width; x++) {
+    const si = srcOffset + x * 4;
+    const di = dstOffset + x * 4;
+    
+    // Swap B and R channels (BGRA -> RGBA)
+    imageData.data[di + 0] = pixels[si + 2]; // R from B
+    imageData.data[di + 1] = pixels[si + 1]; // G stays
+    imageData.data[di + 2] = pixels[si + 0]; // B from R
+    imageData.data[di + 3] = pixels[si + 3]; // A stays
+  }
+}
 
       ctx.putImageData(imageData, 0, 0);
 
