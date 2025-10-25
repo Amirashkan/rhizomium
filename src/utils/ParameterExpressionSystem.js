@@ -869,9 +869,16 @@ isIncomplete(value) {
             onChange(`Drag Parameter: ${param.name}`);
           }
 
-          // CRITICAL: Force immediate preview update (bypass debounce)
-          if (valueManager.updateNodePreview) {
-            valueManager.updateNodePreview(node);
+          // CRITICAL: Force immediate preview update (bypass requestAnimationFrame batching)
+          if (window.editor?.paramPanel?._processPreviewUpdate) {
+            // Call _processPreviewUpdate directly to bypass the batching in updateNodePreview
+            window.editor.paramPanel._processPreviewUpdate(node);
+          } else if (window.editor?.previewIntegration) {
+            // Fallback: call preview system directly
+            if (window.editor.previewSystem?.canvasManager) {
+              window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
+            }
+            window.editor.previewIntegration.generateNodePreview(node);
           }
 
           // CRITICAL: Force immediate editor redraw
