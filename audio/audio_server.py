@@ -23,7 +23,8 @@ class AudioServer:
                  host: str = "localhost",
                  port: int = 8765,
                  mode: str = "mic",
-                 update_rate: int = 60):
+                 update_rate: int = 60,
+                 device_name_hint: Optional[str] = None):
         self.host = host
         self.port = port
         self.update_rate = update_rate
@@ -34,6 +35,7 @@ class AudioServer:
         # Initialize audio engine
         self.audio_engine = AudioEngine(
             mode=mode,
+            device_name_hint=device_name_hint,
             follower=FollowerParams(
                 attack_ms=50.0,
                 release_ms=200.0,
@@ -240,14 +242,31 @@ def main():
                         help='Audio input mode: mic or loopback (default: mic)')
     parser.add_argument('--rate', type=int, default=60,
                         help='Update rate in Hz (default: 60)')
+    parser.add_argument('--device', type=str, default=None,
+                        help='Audio device name hint (e.g., "Komplete Audio")')
+    parser.add_argument('--list-devices', action='store_true',
+                        help='List available audio devices and exit')
 
     args = parser.parse_args()
+
+    # List devices if requested
+    if args.list_devices:
+        import sounddevice as sd
+        print("\nAvailable audio input devices:\n")
+        devices = sd.query_devices()
+        for i, d in enumerate(devices):
+            if d['max_input_channels'] > 0:
+                default_mark = '> ' if i == sd.default.device[0] else '  '
+                print(f"{default_mark}{i:2d} {d['name']}")
+        print("\nUse --device \"device name\" to select a specific device")
+        return
 
     server = AudioServer(
         host=args.host,
         port=args.port,
         mode=args.mode,
-        update_rate=args.rate
+        update_rate=args.rate,
+        device_name_hint=args.device
     )
 
     # Setup signal handlers (cross-platform)
