@@ -394,8 +394,35 @@ export class BrowserAudioCapture {
      * Start processing loop
      */
     _startProcessingLoop() {
+        let lastShaderRebuildValue = 0;
+        const REBUILD_THRESHOLD = 0.05; // Rebuild if value changes by more than 5%
+        let lastRebuildTime = 0;
+        const MIN_REBUILD_INTERVAL = 50; // Min 50ms between rebuilds (~20fps max)
+
         const processFrame = () => {
             this._processAudio();
+
+            // Auto-rebuild shader if audioEnvelope changed significantly and nodes use it
+            if (this.isPlaying && typeof window.rebuild === 'function') {
+                const now = performance.now();
+                const valueDelta = Math.abs(this._envelopeValue - lastShaderRebuildValue);
+
+                if (valueDelta > REBUILD_THRESHOLD && now - lastRebuildTime >= MIN_REBUILD_INTERVAL) {
+                    // Only rebuild if there are nodes using audioEnvelope expressions
+                    const hasAudioExpressions = window.editor?.graph?.nodes?.some(node =>
+                        node.params && Object.values(node.params).some(val =>
+                            typeof val === 'string' && val.includes('audioEnvelope')
+                        )
+                    );
+
+                    if (hasAudioExpressions) {
+                        window.rebuild();
+                        lastShaderRebuildValue = this._envelopeValue;
+                        lastRebuildTime = now;
+                    }
+                }
+            }
+
             requestAnimationFrame(processFrame);
         };
         processFrame();
