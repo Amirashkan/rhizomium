@@ -402,26 +402,27 @@ export class BrowserAudioCapture {
         const processFrame = () => {
             this._processAudio();
 
-            // Auto-rebuild shader if audioEnvelope changed significantly and nodes use it
-            if (this.isPlaying && typeof window.rebuild === 'function') {
-                const now = performance.now();
-                const valueDelta = Math.abs(this._envelopeValue - lastShaderRebuildValue);
+            // TEMPORARILY DISABLED: Auto-rebuild causing infinite loop
+            // TODO: Need to fix rebuild triggering preview which triggers rebuild
+            // if (this.isPlaying && typeof window.rebuild === 'function') {
+            //     const now = performance.now();
+            //     const valueDelta = Math.abs(this._envelopeValue - lastShaderRebuildValue);
 
-                if (valueDelta > REBUILD_THRESHOLD && now - lastRebuildTime >= MIN_REBUILD_INTERVAL) {
-                    // Only rebuild if there are nodes using audioEnvelope expressions
-                    const hasAudioExpressions = window.editor?.graph?.nodes?.some(node =>
-                        node.params && Object.values(node.params).some(val =>
-                            typeof val === 'string' && val.includes('audioEnvelope')
-                        )
-                    );
+            //     if (valueDelta > REBUILD_THRESHOLD && now - lastRebuildTime >= MIN_REBUILD_INTERVAL) {
+            //         // Only rebuild if there are nodes using audioEnvelope expressions
+            //         const hasAudioExpressions = window.editor?.graph?.nodes?.some(node =>
+            //             node.params && Object.values(node.params).some(val =>
+            //                 typeof val === 'string' && val.includes('audioEnvelope')
+            //             )
+            //         );
 
-                    if (hasAudioExpressions) {
-                        window.rebuild();
-                        lastShaderRebuildValue = this._envelopeValue;
-                        lastRebuildTime = now;
-                    }
-                }
-            }
+            //         if (hasAudioExpressions) {
+            //             window.rebuild();
+            //             lastShaderRebuildValue = this._envelopeValue;
+            //             lastRebuildTime = now;
+            //         }
+            //     }
+            // }
 
             requestAnimationFrame(processFrame);
         };
@@ -483,9 +484,12 @@ export function getBrowserAudioCapture() {
  */
 export function getAudioEnvelope() {
     if (!instance) {
+        console.log('[getAudioEnvelope] No instance, creating new one');
         instance = new BrowserAudioCapture();
     }
-    return instance.getValue();
+    const value = instance.getValue();
+    console.log('[getAudioEnvelope] Returning value:', value, 'isPlaying:', instance.isPlaying);
+    return value;
 }
 
 export default BrowserAudioCapture;

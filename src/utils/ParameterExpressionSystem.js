@@ -230,7 +230,11 @@ buildEvaluationContext(context, node) {
     // Real-time computed values
     get time() { return performance.now() / 1000; },
     get frame() { return 0; }, // Can be updated by animation system
-    get audioEnvelope() { return getAudioEnvelope(); }, // Real-time audio envelope value
+    get audioEnvelope() {
+      const value = getAudioEnvelope();
+      console.log('[ExpressionSystem] audioEnvelope getter called, value:', value);
+      return value;
+    }, // Real-time audio envelope value
 
     // Math functions
     sin: Math.sin,
@@ -257,6 +261,7 @@ buildEvaluationContext(context, node) {
     });
   }
 
+  console.log('[ExpressionSystem] Built evalContext, audioEnvelope available:', 'audioEnvelope' in evalContext);
   return evalContext;
 }
   /**
