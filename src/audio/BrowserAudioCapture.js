@@ -220,6 +220,10 @@ export class BrowserAudioCapture {
             }
             raw = this._applyShaping(raw);
             this._envelopeValue = Math.max(0, Math.min(1, raw));
+
+            // Expose globally for GPU shader access
+            window._audioEnvelopeValue = this._envelopeValue;
+
             return;
         }
 
@@ -265,6 +269,9 @@ export class BrowserAudioCapture {
 
         // Clamp
         this._envelopeValue = Math.max(0, Math.min(1, raw));
+
+        // Expose globally for GPU shader access
+        window._audioEnvelopeValue = this._envelopeValue;
 
         // Emit value update
         this._emit('value', this._envelopeValue);

@@ -323,7 +323,19 @@ export class GPURenderer {
 
     const width = Math.max(1, this.canvas.width || 1);
     const height = Math.max(1, this.canvas.height || 1);
-    const data = new Float32Array([width, height, timeSec, 0.0]);
+
+    // Get audio envelope value
+    let audioEnvelope = 0.0;
+    try {
+      // Import and get audio envelope value
+      if (window._audioEnvelopeValue !== undefined) {
+        audioEnvelope = window._audioEnvelopeValue;
+      }
+    } catch (e) {
+      // Fallback to 0 if audio not available
+    }
+
+    const data = new Float32Array([width, height, timeSec, audioEnvelope]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 
@@ -331,7 +343,17 @@ export class GPURenderer {
     const target = this._getUniformByVarName("g");
     if (!target?.buffer) return;
 
-    const data = new Float32Array([width, height, timeSec, 0.0]);
+    // Get audio envelope value
+    let audioEnvelope = 0.0;
+    try {
+      if (window._audioEnvelopeValue !== undefined) {
+        audioEnvelope = window._audioEnvelopeValue;
+      }
+    } catch (e) {
+      // Fallback to 0 if audio not available
+    }
+
+    const data = new Float32Array([width, height, timeSec, audioEnvelope]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 

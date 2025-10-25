@@ -12,7 +12,7 @@ struct U {
 struct Globals {
   resolution : vec2<f32>,
   time       : f32,
-  _pad       : f32,
+  audioEnvelope : f32,
 };
 @group(0) @binding(1) var<uniform> g : Globals;
 
@@ -54,7 +54,7 @@ struct U {
 struct Globals {
   resolution : vec2<f32>,
   time       : f32,
-  _pad       : f32,
+  audioEnvelope : f32,
 };
 @group(0) @binding(1) var<uniform> g : Globals;
 
