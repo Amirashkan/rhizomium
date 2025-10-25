@@ -225,18 +225,22 @@ show() {
     const btn = this.container.querySelector(".btn-fullscreen");
 
     if (this.isFullscreen) {
-      this.originalFullscreenSize = {
-        width: this.gpuCanvas.width,
-        height: this.gpuCanvas.height,
+      // Save original container styles before entering fullscreen
+      this.originalFullscreenStyles = {
+        cssText: this.container.style.cssText,
+        canvasWidth: this.gpuCanvas.width,
+        canvasHeight: this.gpuCanvas.height,
+        canvasStyleWidth: this.gpuCanvas.style.width,
+        canvasStyleHeight: this.gpuCanvas.style.height,
       };
 
       // FIX: Maintain aspect ratio in fullscreen
       const { width, height } = this.settings.settings.resolution;
       const aspectRatio = width / height;
-      
+
       let fsWidth = window.innerWidth;
       let fsHeight = window.innerHeight;
-      
+
       // Fit to window while maintaining aspect ratio
       if (fsWidth / fsHeight > aspectRatio) {
         fsWidth = fsHeight * aspectRatio;
@@ -253,15 +257,15 @@ show() {
         ";position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;border-radius:0!important;display:flex!important;align-items:center!important;justify-content:center!important;";
       btn.textContent = "Exit FS";
     } else {
-      if (this.originalFullscreenSize) {
-        this.gpuCanvas.width = this.originalFullscreenSize.width;
-        this.gpuCanvas.height = this.originalFullscreenSize.height;
+      // Restore original container and canvas styles
+      if (this.originalFullscreenStyles) {
+        this.container.style.cssText = this.originalFullscreenStyles.cssText;
+        this.gpuCanvas.width = this.originalFullscreenStyles.canvasWidth;
+        this.gpuCanvas.height = this.originalFullscreenStyles.canvasHeight;
+        this.gpuCanvas.style.width = this.originalFullscreenStyles.canvasStyleWidth;
+        this.gpuCanvas.style.height = this.originalFullscreenStyles.canvasStyleHeight;
       }
 
-      this.container.style.cssText = this.container.style.cssText.replace(
-        /;position:fixed!important.*?justify-content:center!important;/,
-        "",
-      );
       btn.textContent = "Fullscreen";
       this.updateSize();
     }
