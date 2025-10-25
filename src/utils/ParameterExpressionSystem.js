@@ -847,6 +847,10 @@ isIncomplete(value) {
         e.preventDefault();
         e.stopPropagation();
 
+        // Throttle shader rebuilds during drag to avoid performance issues
+        let lastRebuildTime = 0;
+        const REBUILD_THROTTLE_MS = 33; // ~30fps max rebuild rate
+
         const onMouseMove = (e) => {
           if (!isDragging) return;
 
@@ -886,9 +890,17 @@ isIncomplete(value) {
             window.editor.draw();
           }
 
-          // CRITICAL: Force immediate GPU render (floating preview canvas)
-          if (typeof window.render === 'function') {
-            window.render();
+          // CRITICAL: Rebuild shader with new parameter values (throttled)
+          const now = performance.now();
+          if (now - lastRebuildTime >= REBUILD_THROTTLE_MS) {
+            lastRebuildTime = now;
+            if (typeof window.rebuild === 'function') {
+              window.rebuild();
+            }
+            // CRITICAL: Force immediate GPU render (floating preview canvas)
+            if (typeof window.render === 'function') {
+              window.render();
+            }
           }
 
           valueManager.undoManager = oldUndoManager;
@@ -912,11 +924,11 @@ isIncomplete(value) {
               this.undoManager.recordParameterChange(node.id, param.name, dragStartValue, finalValue);
             }
           }
-          
+
           isDragging = false;
           dragStartValue = null;
           document.body.style.cursor = '';
-          
+
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
 
@@ -925,6 +937,14 @@ isIncomplete(value) {
             if (resultDisplay) {
               this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
             }
+          }
+
+          // Final shader rebuild after drag ends to ensure final value is compiled
+          if (typeof window.rebuild === 'function') {
+            window.rebuild();
+          }
+          if (typeof window.render === 'function') {
+            window.render();
           }
         };
 
