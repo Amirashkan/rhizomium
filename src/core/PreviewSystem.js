@@ -182,7 +182,7 @@ generateNodePreview(node) {
       return;
     }
 
-    console.log("Generating preview for:", node.kind, node.kind.toLowerCase());
+    // Duplicate log removed - already logged at line 163
   if (node.kind.toLowerCase() === 'time') {
     // Don't trigger shader recompilation for Time nodes
     // They're input-only and have no visual output to preview

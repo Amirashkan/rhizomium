@@ -197,19 +197,23 @@ isTimeDependentExpression(cacheKey) {
 }
 
 updateTimeBasedPreviews() {
-  if (!window.editor?.graph?.nodes) return;
+  // DISABLED: This was causing infinite preview generation spam
+  // TODO: Implement proper time-based preview updates without spam
+  return;
 
-  window.editor.graph.nodes.forEach(node => {
-    if (node.params) {
-      const hasTimeExpression = Object.values(node.params).some(value =>
-        typeof value === 'string' && (value.includes('time') || value.includes('audioEnvelope'))
-      );
+  // if (!window.editor?.graph?.nodes) return;
 
-      if (hasTimeExpression && window.editor.previewIntegration) {
-        window.editor.previewIntegration.generateNodePreview(node);
-      }
-    }
-  });
+  // window.editor.graph.nodes.forEach(node => {
+  //   if (node.params) {
+  //     const hasTimeExpression = Object.values(node.params).some(value =>
+  //       typeof value === 'string' && (value.includes('time') || value.includes('audioEnvelope'))
+  //     );
+
+  //     if (hasTimeExpression && window.editor.previewIntegration) {
+  //       window.editor.previewIntegration.generateNodePreview(node);
+  //     }
+  //   }
+  // });
 }
 
 stopAnimationLoop() {
