@@ -223,6 +223,7 @@ show() {
 
     this.isFullscreen = !this.isFullscreen;
     const btn = this.container.querySelector(".btn-fullscreen");
+    const hud = document.getElementById("hud");
 
     if (this.isFullscreen) {
       // Save original container styles before entering fullscreen
@@ -232,7 +233,13 @@ show() {
         canvasHeight: this.gpuCanvas.height,
         canvasStyleWidth: this.gpuCanvas.style.width,
         canvasStyleHeight: this.gpuCanvas.style.height,
+        hudDisplay: hud ? hud.style.display : null,
       };
+
+      // Hide the HUD menu for true fullscreen experience
+      if (hud) {
+        hud.style.display = "none";
+      }
 
       // FIX: Maintain aspect ratio in fullscreen
       const { width, height } = this.settings.settings.resolution;
@@ -264,6 +271,11 @@ show() {
         this.gpuCanvas.height = this.originalFullscreenStyles.canvasHeight;
         this.gpuCanvas.style.width = this.originalFullscreenStyles.canvasStyleWidth;
         this.gpuCanvas.style.height = this.originalFullscreenStyles.canvasStyleHeight;
+
+        // Restore HUD visibility
+        if (hud && this.originalFullscreenStyles.hudDisplay !== null) {
+          hud.style.display = this.originalFullscreenStyles.hudDisplay;
+        }
       }
 
       btn.textContent = "Fullscreen";
