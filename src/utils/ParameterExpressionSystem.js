@@ -111,27 +111,35 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         return 0; // Empty expression defaults to 0
       }
 
-      // Check cache first
-      const cacheKey = this.getCacheKey(cleanExpression, context, node);
-      if (this.expressionCache.has(cacheKey)) {
-        const cached = this.expressionCache.get(cacheKey);
-        if (this.isContextValid(cached.context, context)) {
-          return cached.result;
+      // Skip caching for time-dependent expressions (they change every frame)
+      const isTimeDep = cleanExpression.includes('time') || cleanExpression.includes('audioEnvelope') || cleanExpression.includes('frame');
+
+      // Check cache first (only for non-time-dependent expressions)
+      if (!isTimeDep) {
+        const cacheKey = this.getCacheKey(cleanExpression, context, node);
+        if (this.expressionCache.has(cacheKey)) {
+          const cached = this.expressionCache.get(cacheKey);
+          if (this.isContextValid(cached.context, context)) {
+            return cached.result;
+          }
         }
       }
 
       // Build evaluation context
       const evalContext = this.buildEvaluationContext(context, node);
-      
+
       // Evaluate the expression
       const result = this.safeEvaluate(cleanExpression, evalContext);
-      
-      // Cache the result
-      this.expressionCache.set(cacheKey, {
-        result,
-        context: { ...context },
-        timestamp: Date.now()
-      });
+
+      // Cache the result (only for non-time-dependent expressions)
+      if (!isTimeDep) {
+        const cacheKey = this.getCacheKey(cleanExpression, context, node);
+        this.expressionCache.set(cacheKey, {
+          result,
+          context: { ...context },
+          timestamp: Date.now()
+        });
+      }
 
       // Update dependencies
       this.updateDependencyGraph(node?.id, cleanExpression, evalContext);
@@ -841,23 +849,36 @@ isIncomplete(value) {
 
         const onMouseMove = (e) => {
           if (!isDragging) return;
-          
+
           const deltaY = startY - e.clientY;
           const sensitivity = e.ctrlKey ? 0.001 : e.altKey ? 0.1 : 0.01;
           const newValue = startValue + deltaY * sensitivity;
-          
+
           input.value = param.type === 'int' ? Math.round(newValue).toString() : newValue.toFixed(3);
           this._autoResizeTextArea(input);
-          
+
           // Update immediately without undo recording
           const oldUndoManager = valueManager.undoManager;
           valueManager.undoManager = null;
+
+          // Force immediate preview update during drag
           if (typeof valueManager.updateNodeParameter === 'function') {
             valueManager.updateNodeParameter(node, param.name, input.value, onChange);
           } else {
             valueManager.setValue(node, param.name, input.value);
             onChange(`Drag Parameter: ${param.name}`);
           }
+
+          // CRITICAL: Force immediate preview update (bypass debounce)
+          if (valueManager.updateNodePreview) {
+            valueManager.updateNodePreview(node);
+          }
+
+          // CRITICAL: Force immediate editor redraw
+          if (window.editor?.draw) {
+            window.editor.draw();
+          }
+
           valueManager.undoManager = oldUndoManager;
 
           const trimmedValue = String(input.value).trim();
@@ -868,7 +889,7 @@ isIncomplete(value) {
           if (resultDisplay) {
             this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
           }
-          
+
           e.preventDefault();
         };
 
