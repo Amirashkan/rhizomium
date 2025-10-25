@@ -881,9 +881,14 @@ isIncomplete(value) {
             window.editor.previewIntegration.generateNodePreview(node);
           }
 
-          // CRITICAL: Force immediate editor redraw
+          // CRITICAL: Force immediate editor canvas redraw (node graph)
           if (window.editor?.draw) {
             window.editor.draw();
+          }
+
+          // CRITICAL: Force immediate GPU render (floating preview canvas)
+          if (typeof window.render === 'function') {
+            window.render();
           }
 
           valueManager.undoManager = oldUndoManager;
