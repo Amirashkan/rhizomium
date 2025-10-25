@@ -19,7 +19,9 @@ body {
     sans-serif;
 }
 
-canvas {
+/* Only apply full viewport sizing to canvas in main view, not in floating preview */
+.canvas-wrapper canvas,
+body > canvas {
   position: fixed;
   top: 0;
   left: 0;
@@ -35,6 +37,14 @@ canvas {
 #ui-canvas {
   z-index: 10;
   background-color: #0a0a0a;
+}
+
+/* Ensure canvas in floating preview maintains aspect ratio */
+.floating-gpu-preview canvas,
+.preview-canvas-wrapper canvas {
+  position: relative !important;
+  width: auto !important;
+  height: auto !important;
 }
 
 body {
