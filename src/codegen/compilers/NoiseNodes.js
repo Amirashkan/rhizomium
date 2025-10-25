@@ -92,7 +92,13 @@ export class NoiseNodes {
     const ridge = this.getParam(node, 'ridge', false);
     const turbulence = this.getParam(node, 'turbulence', false);
 
-    const base = `simplexNoise(${uv} * ${scale})`;
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
+    const aspectCorrection = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;`;
+
+    const base = `simplexNoise(${uvAspect} * ${scale})`;
     let processed = base;
 
     if (ridge) {
@@ -103,7 +109,8 @@ export class NoiseNodes {
       processed = `(${base} * 0.5 + 0.5)`;
     }
 
-    const line = `let node_${nodeId} = vec3<f32>(${processed} * ${amplitude} + ${offset});`;
+    const line = `${aspectCorrection}
+  let node_${nodeId} = vec3<f32>(${processed} * ${amplitude} + ${offset});`;
     return { line, outputType: "vec3" };
   }
 
@@ -113,9 +120,14 @@ export class NoiseNodes {
     const scale = this.formatParam(this.getParam(node, 'scale', 5.0));
     const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
     const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
-    
-    const baseNoise = `simplexNoise(${uv} * ${scale})`;
-    const line = `let node_${nodeId} = vec3<f32>((${baseNoise} * 0.5 + 0.5) * ${amplitude} + ${offset});`;
+
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
+    const baseNoise = `simplexNoise(${uvAspect} * ${scale})`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>((${baseNoise} * 0.5 + 0.5) * ${amplitude} + ${offset});`;
     return { line, outputType: "vec3" };
   }
   
@@ -123,8 +135,13 @@ export class NoiseNodes {
     const uv = getInput(0, "vec2", "in.uv");
     const seed = this.formatParam(this.getParam(node, 'seed', 1.0));
     const scale = this.formatParam(this.getParam(node, 'scale', 1.0));
-    
-    const line = `let node_${nodeId} = vec3<f32>(hash12(${uv} * ${scale} + vec2<f32>(${seed})));`;
+
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>(hash12(${uvAspect} * ${scale} + vec2<f32>(${seed})));`;
     return { line, outputType: "vec3" };
   }
   
@@ -134,8 +151,13 @@ export class NoiseNodes {
     const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
     const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
     const power = this.formatParam(this.getParam(node, 'power', 1.0));
-    
-    const line = `let node_${nodeId} = vec3<f32>(pow(valueNoise(${uv} * ${scale}) * ${amplitude} + ${offset}, ${power}));`;
+
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>(pow(valueNoise(${uvAspect} * ${scale}) * ${amplitude} + ${offset}, ${power}));`;
     return { line, outputType: "vec3" };
   }
   
@@ -149,14 +171,22 @@ export class NoiseNodes {
     const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
     const gain = this.formatParam(this.getParam(node, 'gain', 0.5));
     const warp = this.formatParam(this.getParam(node, 'warp', 0.0));
-    
+
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
     let line;
     if (parseFloat(warp) > 0.001) {
-      line = `let node_${nodeId} = vec3<f32>(((fbmNoise(${uv} * ${scale} + vec2<f32>(fbmNoise(${uv} * ${scale} * 2.0, ${octaves}, ${persistence}, ${lacunarity}) * ${warp}), ${octaves}, ${persistence}, ${lacunarity}) * 0.5 + 0.5) * ${amplitude} + ${offset}) * ${gain});`;
+      line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>(((fbmNoise(${uvAspect} * ${scale} + vec2<f32>(fbmNoise(${uvAspect} * ${scale} * 2.0, ${octaves}, ${persistence}, ${lacunarity}) * ${warp}), ${octaves}, ${persistence}, ${lacunarity}) * 0.5 + 0.5) * ${amplitude} + ${offset}) * ${gain});`;
     } else {
-      line = `let node_${nodeId} = vec3<f32>(((fbmNoise(${uv} * ${scale}, ${octaves}, ${persistence}, ${lacunarity}) * 0.5 + 0.5) * ${amplitude} + ${offset}) * ${gain});`;
+      line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>(((fbmNoise(${uvAspect} * ${scale}, ${octaves}, ${persistence}, ${lacunarity}) * 0.5 + 0.5) * ${amplitude} + ${offset}) * ${gain});`;
     }
-    
+
     return { line, outputType: "vec3" };
   }
   
@@ -169,9 +199,13 @@ export class NoiseNodes {
     const smoothness = this.formatParam(this.getParam(node, 'smoothness', 0.0));
     const cellType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'cellType', 0))));
     const outputType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'outputType', 0))));
-    
+
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
     const line = `
-  let voronoi_result_${nodeId} = voronoiNoise(${uv} * ${scale}, ${randomness}, ${minkowskiP}, ${smoothness}, ${cellType}, ${outputType});
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let voronoi_result_${nodeId} = voronoiNoise(${uvAspect} * ${scale}, ${randomness}, ${minkowskiP}, ${smoothness}, ${cellType}, ${outputType});
   let node_${nodeId} = voronoi_result_${nodeId}.x;`;
 
     const outputPins = [
@@ -192,8 +226,13 @@ export class NoiseNodes {
     const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
     const offset = this.formatParam(this.getParam(node, 'offset', 1.0));
     const threshold = this.formatParam(this.getParam(node, 'threshold', 0.0));
-    
-    const line = `let node_${nodeId} = vec3<f32>(ridgedNoise(${uv} * ${scale}, ${octaves}, ${lacunarity}, ${gain}, ${amplitude}, ${offset}, ${threshold}));`;
+
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>(ridgedNoise(${uvAspect} * ${scale}, ${octaves}, ${lacunarity}, ${gain}, ${amplitude}, ${offset}, ${threshold}));`;
     return { line, outputType: "vec3" };
   }
   
@@ -204,17 +243,27 @@ export class NoiseNodes {
     const warpStrength = this.formatParam(this.getParam(node, 'warpStrength', 0.1));
     const octaves = Math.max(1, Math.min(8, parseInt(this.getParam(node, 'octaves', 3))));
     const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
-    
-    const line = `let node_${nodeId} = vec3<f32>(warpNoise(${uv} * ${scale}, ${warpScale}, ${warpStrength}, ${octaves}) * ${amplitude});`;
+
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>(warpNoise(${uvAspect} * ${scale}, ${warpScale}, ${warpStrength}, ${octaves}) * ${amplitude});`;
     return { line, outputType: "vec3" };
   }
   
   compileGenericNoise(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const scale = this.formatParam(this.getParam(node, 'scale', 5.0));
-    
+
     console.warn(`Unknown noise type: ${node.kind}, using generic noise`);
-    const line = `let node_${nodeId} = vec3<f32>(fastNoise(${uv} * ${scale}));`;
+    // Apply aspect ratio correction
+    const uvAspect = `uvAspect_${nodeId}`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let node_${nodeId} = vec3<f32>(fastNoise(${uvAspect} * ${scale}));`;
     return { line, outputType: "vec3" };
   }
 }
