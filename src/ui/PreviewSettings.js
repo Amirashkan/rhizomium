@@ -122,34 +122,193 @@ for (let y = 0; y < height; y++) {
     }
   }
 async _publishAnimation() {
-  // Reuse the existing _exportAnimation code but upload instead of download
   const canvas = this.floatingPreview.gpuCanvas;
   if (!canvas || typeof canvas.captureStream !== 'function') {
     alert("Canvas streaming is not supported in this browser.");
     return;
   }
-  
-  // ... copy all the recording code from _exportAnimation ...
-  // But at the end, instead of downloading:
-  
+  if (typeof MediaRecorder === 'undefined') {
+    alert("MediaRecorder API is not available. Try a Chromium-based browser.");
+    return;
+  }
+
+  if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
+    try {
+      await window.initWebGPU(canvas, true);
+    } catch (error) {
+      console.warn("initWebGPU failed during animation export:", error);
+    }
+  }
+
+  const renderer = window.gpuRenderer;
+  if (!renderer || typeof renderer.render !== 'function') {
+    alert("GPU renderer not ready. Render the preview before exporting animation.");
+    return;
+  }
+
+  const defaultFps = Math.max(1, this.settings.refreshRate || 30);
+  const fpsInput = prompt("Frames per second for the recording (1-60)?", String(defaultFps));
+  if (fpsInput === null) return;
+
+  const fps = Math.min(60, Math.max(1, Number(fpsInput)));
+  if (!Number.isFinite(fps) || fps <= 0) {
+    alert("Invalid FPS value.");
+    return;
+  }
+
+  const durationInput = prompt("Duration in seconds (1-60)?", "5");
+  if (durationInput === null) return;
+
+  const duration = Math.min(60, Math.max(1, Number(durationInput)));
+  if (!Number.isFinite(duration) || duration <= 0) {
+    alert("Invalid duration value.");
+    return;
+  }
+
+  const mimeCandidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+  const mimeType = mimeCandidates.find((candidate) => {
+    try {
+      return MediaRecorder.isTypeSupported(candidate);
+    } catch {
+      return false;
+    }
+  });
+
+  if (!mimeType) {
+    alert("No supported WebM encoder found for this browser.");
+    return;
+  }
+
+  this.floatingPreview.updateSize();
+  if (typeof window.render === "function") {
+    window.render();
+  } else {
+    renderer.render();
+  }
+
+  const stream = canvas.captureStream(fps);
+  const chunks = [];
+
+  let renderInterval = null;
+  if (typeof renderer.render === "function" || typeof window.render === "function") {
+    const frameInterval = Math.max(1, Math.floor(1000 / fps));
+    renderInterval = setInterval(() => {
+      try {
+        if (typeof window.render === "function") {
+          window.render();
+        } else {
+          renderer.render();
+        }
+      } catch (error) {
+        console.warn("Render tick failed during animation export:", error);
+      }
+    }, frameInterval);
+  }
+
+  let recorder;
+  try {
+    recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 8_000_000,
+    });
+  } catch (error) {
+    if (renderInterval) {
+      clearInterval(renderInterval);
+    }
+    stream.getTracks().forEach((track) => track.stop());
+    alert("Unable to start recorder: " + error.message);
+    return;
+  }
+
+  const recordingPromise = new Promise((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size) {
+        chunks.push(event.data);
+      }
+    };
+    recorder.onerror = (event) => {
+      reject(event.error || new Error("Recording error"));
+    };
+    recorder.onstop = () => resolve();
+  });
+
+  recorder.start();
+
+  const stopTimer = setTimeout(() => {
+    if (recorder.state === "recording") {
+      recorder.stop();
+    }
+  }, duration * 1000);
+
+  try {
+    await recordingPromise;
+  } catch (error) {
+    console.error("Animation recording failed:", error);
+    alert("Animation recording failed: " + error.message);
+    return;
+  } finally {
+    clearTimeout(stopTimer);
+    if (renderInterval) {
+      clearInterval(renderInterval);
+    }
+    stream.getTracks().forEach((track) => track.stop());
+  }
+
+  if (!chunks.length) {
+    alert("Recording produced no data.");
+    return;
+  }
+
+  // Create blob and upload
   const blob = new Blob(chunks, { type: mimeType });
   const timestamp = Date.now();
   const filename = `shader-${timestamp}.webm`;
-  
-  const formData = new FormData();
-  formData.append('file', blob, filename);
 
-  const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
-    method: 'POST',
-    body: formData,
-    credentials: 'include',
-  });
+  try {
+    const formData = new FormData();
+    formData.append('file', blob, filename);
 
-  if (!response.ok) throw new Error('Upload failed');
-  
-  const data = await response.json();
-  window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+    const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error?.error || `Upload failed (${response.status})`);
+    }
+
+    const data = await response.json();
+    
+    if (!data.url) {
+      throw new Error('No URL returned from upload');
+    }
+
+    // Redirect to publish page
+    window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+
+  } catch (err) {
+    console.error(err);
+    
+    if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+      const shouldSignIn = confirm(
+        'You need to sign in to share your work.\n\n' +
+        'Click OK to go to the gallery and sign in.'
+      );
+      if (shouldSignIn) {
+        window.open('https://art.tenderworld.org', '_blank');
+      }
+    } else {
+      alert(`Upload failed: ${err?.message || err}`);
+    }
+  }
 }
+
   // Rest of your existing methods stay the same...
   
   showSettings() {
@@ -854,32 +1013,30 @@ async _publishAnimation() {
     return container;
   }
 
-  _createExportButtons() {
-    const container = document.createElement("div");
-    container.style.cssText = "display: flex; flex-direction: column; gap: 8px;";
+_createExportButtons() {
+  const container = document.createElement("div");
+  container.style.cssText = "display: flex; flex-direction: column; gap: 8px;";
 
-    // Primary share button
-    const publishBtn = this._createPrimaryButton("🎨 Share to Gallery", () => this._publishImage());
-    
-    // Divider
-    const divider = document.createElement("div");
-    divider.style.cssText = `
-      height: 1px;
-      background: rgba(255, 255, 255, 0.1);
-      margin: 4px 0;
-    `;
+  // Share buttons
+  const shareImage = this._createPrimaryButton("🎨 Share Image", () => this._publishImage());
+  const shareAnim = this._createPrimaryButton("🎬 Share Animation", () => this._publishAnimation());
+  
+  // Divider
+  const divider = document.createElement("div");
+  divider.style.cssText = "height: 1px; background: rgba(255, 255, 255, 0.1); margin: 4px 0;";
 
-    // Local export buttons
-    const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
-    const exportAnim = this._createButton("Export Animation (WebM)", () => this._exportAnimation());
+  // Local export
+  const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
+  const exportAnim = this._createButton("Export Animation (WebM)", () => this._exportAnimation());
 
-    container.appendChild(publishBtn);
-    container.appendChild(divider);
-    container.appendChild(exportPNG);
-    container.appendChild(exportAnim);
+  container.appendChild(shareImage);
+  container.appendChild(shareAnim);
+  container.appendChild(divider);
+  container.appendChild(exportPNG);
+  container.appendChild(exportAnim);
 
-    return container;
-  }
+  return container;
+}
 
   _createPrimaryButton(label, onClick) {
     const button = document.createElement("button");
