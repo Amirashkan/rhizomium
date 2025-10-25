@@ -39,12 +39,12 @@ body > canvas {
   background-color: #0a0a0a;
 }
 
-/* Ensure canvas in floating preview maintains aspect ratio */
+/* Ensure canvas in floating preview maintains proper positioning and sizing */
 .floating-gpu-preview canvas,
 .preview-canvas-wrapper canvas {
   position: relative !important;
-  width: auto !important;
-  height: auto !important;
+  /* Width and height are controlled by JavaScript based on resolution settings */
+  /* Do not use auto or !important here as it would override resolution changes */
 }
 
 body {

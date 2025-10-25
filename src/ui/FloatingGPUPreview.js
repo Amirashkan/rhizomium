@@ -129,14 +129,9 @@ _setupAnimationLoop() {
       this.settings._positionSettingsPanel();
     }
 
-    // Reconfigure WebGPU context with new canvas size
-    if (window.initWebGPU) {
-      window.initWebGPU(this.gpuCanvas, true).then(() => {
-        if (window.rebuild) {
-          window.rebuild();
-        }
-      });
-    } else if (window.rebuild) {
+    // Trigger shader rebuild with new resolution
+    // The GPURenderer will automatically adapt to the new canvas size during render
+    if (window.rebuild) {
       window.rebuild();
     }
   }
