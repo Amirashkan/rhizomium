@@ -231,6 +231,7 @@ class AudioServer:
 def main():
     """Main entry point"""
     import argparse
+    import platform
 
     parser = argparse.ArgumentParser(description='Audio Envelope WebSocket Server')
     parser.add_argument('--host', default='localhost', help='Server host (default: localhost)')
@@ -249,23 +250,23 @@ def main():
         update_rate=args.rate
     )
 
-    # Setup signal handlers
-    loop = asyncio.get_event_loop()
+    # Setup signal handlers (cross-platform)
+    async def run_with_shutdown():
+        """Run server with proper shutdown handling"""
+        try:
+            await server.start_server()
+        except KeyboardInterrupt:
+            print("\nShutdown complete")
 
-    def signal_handler():
-        print("\nShutting down...")
-        for task in asyncio.all_tasks(loop):
-            task.cancel()
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, signal_handler)
-
+    # Use asyncio.run() for Python 3.7+ compatibility
     try:
-        loop.run_until_complete(server.start_server())
+        if platform.system() == 'Windows':
+            # Windows-specific event loop policy for better compatibility
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+        asyncio.run(run_with_shutdown())
     except KeyboardInterrupt:
         print("\nShutdown complete")
-    finally:
-        loop.close()
 
 if __name__ == '__main__':
     main()
