@@ -13,6 +13,7 @@ import { TextureManager } from "./src/core/TextureManager.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
+import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -700,6 +701,43 @@ function setupUIEventHandlers() {
       setConsoleVisibility(false);
     });
     console.log("Console close handler attached");
+  }
+
+  // Audio Settings Panel - with robust error handling
+  const audioSettingsBtn = removeExistingHandlers("btn-audio-settings");
+  console.log('[main.js] Setting up audio settings button, element found:', !!audioSettingsBtn);
+
+  if (audioSettingsBtn) {
+    audioSettingsBtn.addEventListener("click", (e) => {
+      console.log('[main.js] Audio settings button clicked!');
+      e.preventDefault();
+
+      try {
+        const audioPanel = getAudioSettingsPanel();
+        console.log('[main.js] Audio panel instance:', audioPanel);
+
+        if (audioPanel && typeof audioPanel.toggle === 'function') {
+          audioPanel.toggle();
+          if (typeof updateStatus === "function") {
+            updateStatus(audioPanel.visible ? "Audio settings opened" : "Audio settings closed");
+          }
+        } else {
+          console.error('[main.js] Audio panel is invalid:', audioPanel);
+          if (typeof updateStatus === "function") {
+            updateStatus("Audio settings panel failed to load", "error");
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error opening audio settings:', error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Error opening audio settings: " + error.message, "error");
+        }
+      }
+    });
+    console.log("Audio settings handler attached");
+  } else {
+    console.error('[main.js] Audio settings button NOT found in DOM! Available buttons:',
+      Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
   }
 
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
