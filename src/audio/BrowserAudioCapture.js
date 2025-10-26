@@ -16,6 +16,7 @@ export class BrowserAudioCapture {
         this.analyser = null;
         this.audioElement = null;
         this.source = null;
+        this.filter = null;
         this.isPlaying = false;
 
         // Current envelope value
@@ -44,6 +45,11 @@ export class BrowserAudioCapture {
                 curve: 'exp', // 'linear', 'exp', 'sigmoid'
                 normalize: true,
                 normDecay: 0.999
+            },
+            frequency: {
+                mode: 'fullband', // 'fullband', 'bass', 'mids', 'highs', 'custom'
+                customMin: 60,    // Hz
+                customMax: 250    // Hz
             }
         };
 
@@ -198,6 +204,80 @@ export class BrowserAudioCapture {
         if (config.shaping) {
             Object.assign(this.config.shaping, config.shaping);
         }
+        if (config.frequency) {
+            Object.assign(this.config.frequency, config.frequency);
+        }
+    }
+
+    /**
+     * Get RMS for a specific frequency band from FFT data
+     */
+    _getFrequencyBandRMS() {
+        if (!this.analyser) return 0;
+
+        const mode = this.config.frequency.mode;
+
+        // For fullband, use time-domain RMS (faster, no FFT needed)
+        if (mode === 'fullband') {
+            const bufferLength = this.analyser.frequencyBinCount;
+            const dataArray = new Float32Array(bufferLength);
+            this.analyser.getFloatTimeDomainData(dataArray);
+
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i] * dataArray[i];
+            }
+            return Math.sqrt(sum / bufferLength);
+        }
+
+        // For frequency-specific bands, use FFT
+        const bufferLength = this.analyser.frequencyBinCount;
+        const frequencyData = new Uint8Array(bufferLength);
+        this.analyser.getByteFrequencyData(frequencyData);
+
+        // Sample rate and nyquist frequency
+        const sampleRate = this.audioContext.sampleRate;
+        const nyquist = sampleRate / 2;
+        const binWidth = nyquist / bufferLength;
+
+        // Determine frequency range based on mode
+        let minFreq, maxFreq;
+        switch (mode) {
+            case 'bass':
+                minFreq = 20;
+                maxFreq = 250;
+                break;
+            case 'mids':
+                minFreq = 250;
+                maxFreq = 2000;
+                break;
+            case 'highs':
+                minFreq = 2000;
+                maxFreq = 20000;
+                break;
+            case 'custom':
+                minFreq = this.config.frequency.customMin;
+                maxFreq = this.config.frequency.customMax;
+                break;
+            default:
+                minFreq = 0;
+                maxFreq = nyquist;
+        }
+
+        // Convert frequency range to bin indices
+        const startBin = Math.floor(minFreq / binWidth);
+        const endBin = Math.ceil(maxFreq / binWidth);
+
+        // Calculate RMS for the frequency band
+        let sum = 0;
+        let count = 0;
+        for (let i = startBin; i < endBin && i < bufferLength; i++) {
+            const normalized = frequencyData[i] / 255.0; // Normalize to 0-1
+            sum += normalized * normalized;
+            count++;
+        }
+
+        return count > 0 ? Math.sqrt(sum / count) : 0;
     }
 
     /**
@@ -227,17 +307,8 @@ export class BrowserAudioCapture {
             return;
         }
 
-        // Get RMS level from analyser
-        const bufferLength = this.analyser.frequencyBinCount;
-        const dataArray = new Float32Array(bufferLength);
-        this.analyser.getFloatTimeDomainData(dataArray);
-
-        // Calculate RMS
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-            sum += dataArray[i] * dataArray[i];
-        }
-        const rms = Math.sqrt(sum / bufferLength);
+        // Get RMS level from analyser (frequency-band aware)
+        const rms = this._getFrequencyBandRMS();
 
         // Time delta
         const now = performance.now();

@@ -28,6 +28,11 @@ export class AudioSettingsPanel {
             shaping: {
                 curve: 'exp',
                 normalize: true
+            },
+            frequency: {
+                mode: 'fullband',
+                customMin: 60,
+                customMax: 250
             }
         };
 
@@ -205,6 +210,36 @@ export class AudioSettingsPanel {
                 </div>
             </div>
 
+            <div style="margin-bottom: 16px;">
+                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">Frequency Range</h4>
+                <div style="margin-bottom: 8px;">
+                    <label style="display: block; margin-bottom: 4px; font-size: 11px; color: #888;">
+                        Band:
+                    </label>
+                    <select id="frequency-mode" style="width: 100%; padding: 4px; background: #444; color: #fff; border: 1px solid #666; border-radius: 4px;">
+                        <option value="fullband" selected>Full Band (All Frequencies)</option>
+                        <option value="bass">Bass (20-250 Hz)</option>
+                        <option value="mids">Mids (250-2000 Hz)</option>
+                        <option value="highs">Highs (2000-20000 Hz)</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div id="custom-frequency-controls" style="display: none; margin-top: 8px;">
+                    <div style="margin-bottom: 8px;">
+                        <label style="display: block; margin-bottom: 4px; font-size: 11px; color: #888;">
+                            Min Freq (Hz): <span id="frequency-min-value">60</span>
+                        </label>
+                        <input type="range" id="frequency-min" min="20" max="10000" step="10" value="60" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 8px;">
+                        <label style="display: block; margin-bottom: 4px; font-size: 11px; color: #888;">
+                            Max Freq (Hz): <span id="frequency-max-value">250</span>
+                        </label>
+                        <input type="range" id="frequency-max" min="20" max="20000" step="10" value="250" style="width: 100%;">
+                    </div>
+                </div>
+            </div>
+
             <div style="font-size: 11px; color: #666; border-top: 1px solid #444; padding-top: 12px;">
                 <p style="margin: 0 0 8px 0;">
                     Use <code style="background: rgba(0, 0, 0, 0.3); padding: 2px 4px; border-radius: 2px; color: #4CAF50;">=audioEnvelope</code> in parameter expressions
@@ -212,7 +247,7 @@ export class AudioSettingsPanel {
                 <p style="margin: 0;">
                     Examples:<br>
                     <code style="background: rgba(0, 0, 0, 0.3); padding: 2px 4px; border-radius: 2px; font-size: 10px;">=audioEnvelope * 2</code><br>
-                    <code style="background: rgba(0, 0, 0, 0.3); padding: 2px 4px; border-radius: 2px; font-size: 10px;">=lerp(0.5, 2.0, audioEnvelope)</code>
+                    <code style="background: rgba(0, 0, 0, 0.3); padding: 2px 4px; border-radius: 2px; font-size: 10px;">=sin(audioEnvelope * 3.14)</code>
                 </p>
             </div>
         `;
@@ -292,6 +327,26 @@ export class AudioSettingsPanel {
             this.config.shaping.normalize = e.target.checked;
             this.audioClient.updateConfig(this.config);
         });
+
+        // Frequency controls
+        const frequencyModeSelect = this.panel.querySelector('#frequency-mode');
+        const customFrequencyControls = this.panel.querySelector('#custom-frequency-controls');
+
+        frequencyModeSelect.addEventListener('change', (e) => {
+            this.config.frequency.mode = e.target.value;
+
+            // Show/hide custom controls
+            if (e.target.value === 'custom') {
+                customFrequencyControls.style.display = 'block';
+            } else {
+                customFrequencyControls.style.display = 'none';
+            }
+
+            this.audioClient.updateConfig(this.config);
+        });
+
+        this.setupSlider('frequency-min', 'frequency.customMin', (val) => val);
+        this.setupSlider('frequency-max', 'frequency.customMax', (val) => val);
 
         // Update display periodically
         setInterval(() => {
