@@ -15,7 +15,16 @@
   ],
   "headers": [
     {
-      "source": "/(.*)\\.(js|css|png|jpg|jpeg|gif|webp|svg|wasm)",
+      "source": "/(.*)\\.(js|css)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.(png|jpg|jpeg|gif|webp|svg|wasm)",
       "headers": [
         {
           "key": "Cache-Control",
