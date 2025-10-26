@@ -335,6 +335,18 @@ export class GPURenderer {
       width, height, timeSec, audioEnvelope,
       audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull
     ]);
+
+    // Debug logging (every 2 seconds)
+    if (!this._lastGPUDebugLog || Date.now() - this._lastGPUDebugLog > 2000) {
+      console.log('[GPU] Writing envelope uniforms:', {
+        bass: audioEnvelopeBass.toFixed(3),
+        mids: audioEnvelopeMids.toFixed(3),
+        highs: audioEnvelopeHighs.toFixed(3),
+        full: audioEnvelopeFull.toFixed(3)
+      });
+      this._lastGPUDebugLog = Date.now();
+    }
+
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 
