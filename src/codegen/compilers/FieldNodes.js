@@ -271,15 +271,16 @@ clearFunctionCache() {
 
 getParam(node, paramName, defaultValue) {
   const rawValue = node.params?.[paramName] ?? defaultValue;
-  
-  // Check if this is a dynamic expression containing 'time'
-  if (typeof rawValue === 'string' && /time/.test(rawValue)) {
-  // Convert the expression to shader code using g.time
+
+  // Check if this is a dynamic expression containing 'time' or 'audioEnvelope'
+  if (typeof rawValue === 'string' && (/time/.test(rawValue) || /audioEnvelope/.test(rawValue))) {
+  // Convert the expression to shader code using g.time and g.audioEnvelope
     const shaderExpr = rawValue
       .replace(/\bsin\(/g, 'sin(')
       .replace(/\bcos\(/g, 'cos(')
-      .replace(/\btime\b/g, 'g.time');
-    
+      .replace(/\btime\b/g, 'g.time')
+      .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
+
     return shaderExpr;  // Return shader code, not a uniform reference
   }
   
