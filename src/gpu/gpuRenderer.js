@@ -98,8 +98,8 @@ export class GPURenderer {
           // Aspect is a single float; allocate one vec4 (16 bytes) for alignment.
           size = 16;
         } else if (varName === "g") {
-          // Globals store resolution.xy and time/padding.
-          size = 16;
+          // Globals store resolution.xy, time, and 5 audio envelope values (8 floats total)
+          size = 32;
         }
         return {
           buffer: this.device.createBuffer({
