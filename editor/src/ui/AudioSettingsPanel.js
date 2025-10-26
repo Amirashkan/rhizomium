@@ -8,9 +8,17 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 
 export class AudioSettingsPanel {
     constructor() {
+        console.log('[AudioSettingsPanel] Constructor called');
         this.panel = null;
         this.visible = false;
-        this.audioClient = getBrowserAudioCapture();
+
+        try {
+            this.audioClient = getBrowserAudioCapture();
+            console.log('[AudioSettingsPanel] audioClient created:', this.audioClient);
+        } catch (error) {
+            console.error('[AudioSettingsPanel] Error creating audioClient:', error);
+            this.audioClient = null;
+        }
 
         // Default configuration
         this.config = {
@@ -38,6 +46,7 @@ export class AudioSettingsPanel {
 
         this.createPanel();
         this.setupEventListeners();
+        console.log('[AudioSettingsPanel] Panel created and attached to DOM');
     }
 
     createPanel() {
@@ -277,6 +286,8 @@ export class AudioSettingsPanel {
         `;
 
         document.body.appendChild(this.panel);
+        console.log('[AudioSettingsPanel] Panel appended to document.body, element:', this.panel);
+        console.log('[AudioSettingsPanel] Panel initial styles - display:', this.panel.style.display, 'z-index:', this.panel.style.zIndex);
     }
 
     setupEventListeners() {
@@ -451,16 +462,26 @@ export class AudioSettingsPanel {
     }
 
     show() {
-        this.panel.style.display = 'block';
-        this.visible = true;
+        console.log('[AudioSettingsPanel] show() called');
+        if (this.panel) {
+            this.panel.style.display = 'block';
+            this.visible = true;
+            console.log('[AudioSettingsPanel] Panel shown, display:', this.panel.style.display);
+        } else {
+            console.error('[AudioSettingsPanel] show() called but panel is null!');
+        }
     }
 
     hide() {
-        this.panel.style.display = 'none';
-        this.visible = false;
+        console.log('[AudioSettingsPanel] hide() called');
+        if (this.panel) {
+            this.panel.style.display = 'none';
+            this.visible = false;
+        }
     }
 
     toggle() {
+        console.log('[AudioSettingsPanel] toggle() called, current visible:', this.visible);
         if (this.visible) {
             this.hide();
         } else {
@@ -474,7 +495,14 @@ let instance = null;
 
 export function getAudioSettingsPanel() {
     if (!instance) {
-        instance = new AudioSettingsPanel();
+        try {
+            console.log('[getAudioSettingsPanel] Creating new AudioSettingsPanel instance');
+            instance = new AudioSettingsPanel();
+            console.log('[getAudioSettingsPanel] Instance created successfully:', instance);
+        } catch (error) {
+            console.error('[getAudioSettingsPanel] Failed to create AudioSettingsPanel:', error);
+            throw error; // Re-throw so caller knows it failed
+        }
     }
     return instance;
 }
