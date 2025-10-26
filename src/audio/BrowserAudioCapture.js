@@ -336,34 +336,34 @@ export class BrowserAudioCapture {
         // ADSR
         this._updateADSR(gate, dt);
 
-        // Process envelope shaping helper function
+        // Process envelope for each band (using simpler approach without gating)
         const processEnvelope = (rmsValue) => {
-            // Apply ADSR and shaping
-            let raw = this._adsrValue * rmsValue * 2.0; // Scale up for better range
+            // Scale up RMS for better range
+            let raw = rmsValue * 3.0;
 
-            // Normalize
-            if (this.config.shaping.normalize) {
-                const peak = Math.max(raw, this._peak * this.config.shaping.normDecay);
-                if (peak > 0.000001) {
-                    raw = raw / peak;
-                }
-            }
-
-            // Shape
+            // Apply exponential shaping for better response
             raw = this._applyShaping(raw);
 
-            // Clamp
+            // Clamp to 0-1
             return Math.max(0, Math.min(1, raw));
         };
 
-        // Update all band envelopes
+        // Update all band envelopes with smooth values
         this._envelopeBass = processEnvelope(rmsBass);
         this._envelopeMids = processEnvelope(rmsMids);
         this._envelopeHighs = processEnvelope(rmsHighs);
         this._envelopeFull = processEnvelope(rmsFull);
 
-        // Current envelope (backwards compatibility)
-        this._envelopeValue = processEnvelope(rms);
+        // Current envelope uses full follower+ADSR processing (backwards compatibility)
+        let raw = this._adsrValue * this._followerValue;
+        if (this.config.shaping.normalize) {
+            this._peak = Math.max(raw, this._peak * this.config.shaping.normDecay);
+            if (this._peak > 0.000001) {
+                raw = raw / this._peak;
+            }
+        }
+        raw = this._applyShaping(raw);
+        this._envelopeValue = Math.max(0, Math.min(1, raw));
 
         // Expose all globally for GPU shader access
         window._audioEnvelopeValue = this._envelopeValue;
