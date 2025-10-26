@@ -13,6 +13,10 @@ struct Globals {
   resolution : vec2<f32>,
   time       : f32,
   audioEnvelope : f32,
+  audioEnvelopeBass : f32,
+  audioEnvelopeMids : f32,
+  audioEnvelopeHighs : f32,
+  audioEnvelopeFull : f32,
 };
 @group(0) @binding(1) var<uniform> g : Globals;
 
@@ -55,6 +59,10 @@ struct Globals {
   resolution : vec2<f32>,
   time       : f32,
   audioEnvelope : f32,
+  audioEnvelopeBass : f32,
+  audioEnvelopeMids : f32,
+  audioEnvelopeHighs : f32,
+  audioEnvelopeFull : f32,
 };
 @group(0) @binding(1) var<uniform> g : Globals;
 

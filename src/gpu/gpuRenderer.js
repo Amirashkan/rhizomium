@@ -324,18 +324,17 @@ export class GPURenderer {
     const width = Math.max(1, this.canvas.width || 1);
     const height = Math.max(1, this.canvas.height || 1);
 
-    // Get audio envelope value
-    let audioEnvelope = 0.0;
-    try {
-      // Import and get audio envelope value
-      if (window._audioEnvelopeValue !== undefined) {
-        audioEnvelope = window._audioEnvelopeValue;
-      }
-    } catch (e) {
-      // Fallback to 0 if audio not available
-    }
+    // Get all audio envelope values
+    const audioEnvelope = window._audioEnvelopeValue || 0.0;
+    const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
+    const audioEnvelopeMids = window._audioEnvelopeMids || 0.0;
+    const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
+    const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-    const data = new Float32Array([width, height, timeSec, audioEnvelope]);
+    const data = new Float32Array([
+      width, height, timeSec, audioEnvelope,
+      audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull
+    ]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 
@@ -343,17 +342,17 @@ export class GPURenderer {
     const target = this._getUniformByVarName("g");
     if (!target?.buffer) return;
 
-    // Get audio envelope value
-    let audioEnvelope = 0.0;
-    try {
-      if (window._audioEnvelopeValue !== undefined) {
-        audioEnvelope = window._audioEnvelopeValue;
-      }
-    } catch (e) {
-      // Fallback to 0 if audio not available
-    }
+    // Get all audio envelope values
+    const audioEnvelope = window._audioEnvelopeValue || 0.0;
+    const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
+    const audioEnvelopeMids = window._audioEnvelopeMids || 0.0;
+    const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
+    const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-    const data = new Float32Array([width, height, timeSec, audioEnvelope]);
+    const data = new Float32Array([
+      width, height, timeSec, audioEnvelope,
+      audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull
+    ]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 

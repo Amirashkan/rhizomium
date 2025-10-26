@@ -41,13 +41,17 @@ export class NoiseNodes {
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
 
-    // Check if this is a dynamic expression containing 'time' or 'audioEnvelope'
-    if (typeof rawValue === 'string' && (/time/.test(rawValue) || /audioEnvelope/.test(rawValue))) {
-      // Convert the expression to shader code using g.time and g.audioEnvelope
+    // Check if this is a dynamic expression containing 'time' or 'audioEnvelope' variants
+    if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
+      // Convert the expression to shader code using g.time and g.audioEnvelope variants
       const shaderExpr = rawValue
         .replace(/\bsin\(/g, 'sin(')
         .replace(/\bcos\(/g, 'cos(')
         .replace(/\btime\b/g, 'g.time')
+        .replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass')
+        .replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids')
+        .replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs')
+        .replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull')
         .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
 
       return shaderExpr;  // Return shader code, not a uniform reference

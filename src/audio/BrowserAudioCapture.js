@@ -19,12 +19,17 @@ export class BrowserAudioCapture {
         this.filter = null;
         this.isPlaying = false;
 
-        // Current envelope value
-        this._envelopeValue = 0.0;
+        // Multi-band envelope values
+        this._envelopeValue = 0.0;      // Current (based on config.frequency.mode)
+        this._envelopeBass = 0.0;       // Bass (20-250 Hz)
+        this._envelopeMids = 0.0;       // Mids (250-2000 Hz)
+        this._envelopeHighs = 0.0;      // Highs (2000-20000 Hz)
+        this._envelopeFull = 0.0;       // Full spectrum
+
         this._followerValue = 0.0;
         this._lastUpdateTime = performance.now();
 
-        // ADSR state
+        // ADSR state (shared for now, could be per-band if needed)
         this._adsrPhase = 'idle'; // idle, attack, decay, sustain, release
         this._adsrValue = 0.0;
 
@@ -212,13 +217,14 @@ export class BrowserAudioCapture {
     /**
      * Get RMS for a specific frequency band from FFT data
      */
-    _getFrequencyBandRMS() {
+    _getFrequencyBandRMS(mode = null) {
         if (!this.analyser) return 0;
 
-        const mode = this.config.frequency.mode;
+        // Use provided mode or fall back to config
+        const bandMode = mode || this.config.frequency.mode;
 
         // For fullband, use time-domain RMS (faster, no FFT needed)
-        if (mode === 'fullband') {
+        if (bandMode === 'fullband') {
             const bufferLength = this.analyser.frequencyBinCount;
             const dataArray = new Float32Array(bufferLength);
             this.analyser.getFloatTimeDomainData(dataArray);
@@ -242,7 +248,7 @@ export class BrowserAudioCapture {
 
         // Determine frequency range based on mode
         let minFreq, maxFreq;
-        switch (mode) {
+        switch (bandMode) {
             case 'bass':
                 minFreq = 20;
                 maxFreq = 250;
@@ -307,7 +313,13 @@ export class BrowserAudioCapture {
             return;
         }
 
-        // Get RMS level from analyser (frequency-band aware)
+        // Calculate RMS for all frequency bands
+        const rmsBass = this._getFrequencyBandRMS('bass');
+        const rmsMids = this._getFrequencyBandRMS('mids');
+        const rmsHighs = this._getFrequencyBandRMS('highs');
+        const rmsFull = this._getFrequencyBandRMS('fullband');
+
+        // Current RMS based on config (for backwards compatibility)
         const rms = this._getFrequencyBandRMS();
 
         // Time delta
@@ -315,7 +327,7 @@ export class BrowserAudioCapture {
         const dt = (now - this._lastUpdateTime) / 1000; // Convert to seconds
         this._lastUpdateTime = now;
 
-        // Follower (AR envelope)
+        // Follower (AR envelope) - using current config band
         this._updateFollower(rms, dt);
 
         // Gate via threshold
@@ -324,25 +336,41 @@ export class BrowserAudioCapture {
         // ADSR
         this._updateADSR(gate, dt);
 
-        // Combine follower energy with ADSR shape
-        let raw = this._adsrValue * this._followerValue;
+        // Process envelope shaping helper function
+        const processEnvelope = (rmsValue) => {
+            // Apply ADSR and shaping
+            let raw = this._adsrValue * rmsValue * 2.0; // Scale up for better range
 
-        // Normalize
-        if (this.config.shaping.normalize) {
-            this._peak = Math.max(raw, this._peak * this.config.shaping.normDecay);
-            if (this._peak > 0.000001) {
-                raw = raw / this._peak;
+            // Normalize
+            if (this.config.shaping.normalize) {
+                const peak = Math.max(raw, this._peak * this.config.shaping.normDecay);
+                if (peak > 0.000001) {
+                    raw = raw / peak;
+                }
             }
-        }
 
-        // Shape
-        raw = this._applyShaping(raw);
+            // Shape
+            raw = this._applyShaping(raw);
 
-        // Clamp
-        this._envelopeValue = Math.max(0, Math.min(1, raw));
+            // Clamp
+            return Math.max(0, Math.min(1, raw));
+        };
 
-        // Expose globally for GPU shader access
+        // Update all band envelopes
+        this._envelopeBass = processEnvelope(rmsBass);
+        this._envelopeMids = processEnvelope(rmsMids);
+        this._envelopeHighs = processEnvelope(rmsHighs);
+        this._envelopeFull = processEnvelope(rmsFull);
+
+        // Current envelope (backwards compatibility)
+        this._envelopeValue = processEnvelope(rms);
+
+        // Expose all globally for GPU shader access
         window._audioEnvelopeValue = this._envelopeValue;
+        window._audioEnvelopeBass = this._envelopeBass;
+        window._audioEnvelopeMids = this._envelopeMids;
+        window._audioEnvelopeHighs = this._envelopeHighs;
+        window._audioEnvelopeFull = this._envelopeFull;
 
         // Emit value update
         this._emit('value', this._envelopeValue);

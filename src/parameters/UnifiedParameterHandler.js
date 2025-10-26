@@ -106,6 +106,10 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
     }
     // Return as-is for shader code (don't evaluate!) but remap known uniforms safely.
     let expr = value.replace(/\btime\b/g, 'g.time');
+    expr = expr.replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass');
+    expr = expr.replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids');
+    expr = expr.replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs');
+    expr = expr.replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull');
     expr = expr.replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
     expr = expr.replace(/\baspect\b/g, (match, offset, input) => {
       const prev = offset > 0 ? input[offset - 1] : '';
