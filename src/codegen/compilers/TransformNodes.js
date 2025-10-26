@@ -61,11 +61,11 @@ case 'Spherize':
   }
 
   /**
-   * OPTIMIZED: Check if a parameter is a time-based expression
+   * OPTIMIZED: Check if a parameter is a time-based or audio expression
    */
   isTimeExpression(value) {
     if (typeof value === 'string') {
-      return value.includes('time') || value.startsWith('=');
+      return value.includes('time') || value.includes('audioEnvelope') || value.startsWith('=');
     }
     return false;
   }
@@ -75,26 +75,37 @@ case 'Spherize':
    */
 getShaderParam(node, name, defaultValue) {
   const value = this.getParam(node, name, defaultValue);
-  
+
   if (typeof value === 'string' && value.startsWith('=')) {
     let expr = value.substring(1);
-    expr = expr.replace(/time/g, 'g.time');
-    expr = expr.replace(/sin\(/g, 'sin(');
-    expr = expr.replace(/cos\(/g, 'cos(');
+    expr = expr.replace(/\bsin\(/g, 'sin(');
+    expr = expr.replace(/\bcos\(/g, 'cos(');
+    expr = expr.replace(/\btime\b/g, 'g.time');
+    expr = expr.replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass');
+    expr = expr.replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids');
+    expr = expr.replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs');
+    expr = expr.replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull');
+    expr = expr.replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
     expr = expr.replace(/\*/g, ' * ');
     return expr;
   }
-  
-  // Handle expressions without = prefix (like "time" or "time*10")
-  if (typeof value === 'string' && /\btime\b/.test(value)) {
-    let expr = value.replace(/time/g, 'g.time');
+
+  // Handle expressions without = prefix (like "time" or "audioEnvelope*2")
+  if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
+    let expr = value
+      .replace(/\btime\b/g, 'g.time')
+      .replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass')
+      .replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids')
+      .replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs')
+      .replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull')
+      .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
     return expr;
   }
-  
+
   if (typeof value === 'number') {
     return value.toString();
   }
-  
+
   const parsed = parseFloat(value);
   return isNaN(parsed) ? defaultValue.toString() : parsed.toString();
 }

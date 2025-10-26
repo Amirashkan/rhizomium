@@ -88,14 +88,20 @@ export class UtilityNodes {
     const a = getInput(0, "f32", "0.0");
     const b = getInput(1, "f32", "0.0");
     let expr = (node.expr || "a").toString();
-    
+
     expr = expr.replace(/\ba\b/g, `(${a})`);
     expr = expr.replace(/\bb\b/g, `(${b})`);
     expr = expr.replace(/\bu_time\b/g, "g.time");
+    expr = expr.replace(/\btime\b/g, "g.time");
+    expr = expr.replace(/\baudioEnvelopeBass\b/g, "g.audioEnvelopeBass");
+    expr = expr.replace(/\baudioEnvelopeMids\b/g, "g.audioEnvelopeMids");
+    expr = expr.replace(/\baudioEnvelopeHighs\b/g, "g.audioEnvelopeHighs");
+    expr = expr.replace(/\baudioEnvelopeFull\b/g, "g.audioEnvelopeFull");
+    expr = expr.replace(/\baudioEnvelope\b/g, "g.audioEnvelope");
     expr = expr.replace(/\buv\b/g, "in.uv");
     expr = expr.replace(/\bpi\b/g, "3.14159265359");
     expr = expr.replace(/\bPI\b/g, "3.14159265359");
-    
+
     return {
       line: `let node_${nodeId} = ${expr};`,
       outputType: "f32"
