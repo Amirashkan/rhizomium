@@ -125,6 +125,30 @@ export class AudioSettingsPanel {
                         font-size: 11px;
                     " disabled>⏹ Stop</button>
                 </div>
+
+                <!-- Time Bar -->
+                <div style="margin-bottom: 12px; margin-top: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <span id="audio-current-time" style="font-family: monospace; font-size: 10px; color: #888;">0:00</span>
+                        <span id="audio-duration" style="font-family: monospace; font-size: 10px; color: #888;">0:00</span>
+                    </div>
+                    <div id="audio-progress-container" style="
+                        height: 6px;
+                        background: rgba(255, 255, 255, 0.15);
+                        border-radius: 3px;
+                        overflow: hidden;
+                        cursor: pointer;
+                        position: relative;
+                    ">
+                        <div id="audio-progress-bar" style="
+                            height: 100%;
+                            width: 0%;
+                            background: linear-gradient(90deg, #2196F3, #4CAF50);
+                            transition: width 0.1s;
+                        "></div>
+                    </div>
+                </div>
+
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span style="font-weight: 500; font-size: 11px;">File:</span>
                     <span id="audio-filename" style="font-size: 10px; color: #888; font-style: italic;">No file loaded</span>
@@ -348,9 +372,24 @@ export class AudioSettingsPanel {
         this.setupSlider('frequency-min', 'frequency.customMin', (val) => val);
         this.setupSlider('frequency-max', 'frequency.customMax', (val) => val);
 
+        // Time bar seeking
+        const progressContainer = this.panel.querySelector('#audio-progress-container');
+        progressContainer.addEventListener('click', (e) => {
+            const audioElement = this.audioClient.audioElement;
+            if (!audioElement || !audioElement.duration) return;
+
+            const rect = progressContainer.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const percentage = clickX / rect.width;
+            const seekTime = percentage * audioElement.duration;
+
+            audioElement.currentTime = seekTime;
+        });
+
         // Update display periodically
         setInterval(() => {
             if (this.visible) {
+                // Update envelope value
                 const value = this.audioClient.getValue();
                 const valueEl = this.panel.querySelector('#audio-value');
                 const valueBar = this.panel.querySelector('#audio-value-bar');
@@ -358,8 +397,37 @@ export class AudioSettingsPanel {
                     valueEl.textContent = value.toFixed(3);
                     valueBar.style.width = `${value * 100}%`;
                 }
+
+                // Update time bar
+                const audioElement = this.audioClient.audioElement;
+                if (audioElement) {
+                    const currentTime = audioElement.currentTime || 0;
+                    const duration = audioElement.duration || 0;
+
+                    const currentTimeEl = this.panel.querySelector('#audio-current-time');
+                    const durationEl = this.panel.querySelector('#audio-duration');
+                    const progressBar = this.panel.querySelector('#audio-progress-bar');
+
+                    if (currentTimeEl) {
+                        currentTimeEl.textContent = this.formatTime(currentTime);
+                    }
+                    if (durationEl && isFinite(duration)) {
+                        durationEl.textContent = this.formatTime(duration);
+                    }
+                    if (progressBar && isFinite(duration) && duration > 0) {
+                        const percentage = (currentTime / duration) * 100;
+                        progressBar.style.width = `${percentage}%`;
+                    }
+                }
             }
         }, 50);
+    }
+
+    formatTime(seconds) {
+        if (!isFinite(seconds) || seconds < 0) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
     setupSlider(sliderId, configPath, formatFn) {
