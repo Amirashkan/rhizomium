@@ -586,7 +586,14 @@ let instance = null;
  */
 export function getBrowserAudioCapture() {
     if (!instance) {
-        instance = new BrowserAudioCapture();
+        try {
+            console.log('[getBrowserAudioCapture] Creating new BrowserAudioCapture instance');
+            instance = new BrowserAudioCapture();
+            console.log('[getBrowserAudioCapture] Instance created successfully');
+        } catch (error) {
+            console.error('[getBrowserAudioCapture] Failed to create instance:', error);
+            throw error;
+        }
     }
     return instance;
 }

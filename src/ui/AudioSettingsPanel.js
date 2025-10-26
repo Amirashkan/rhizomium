@@ -495,7 +495,14 @@ let instance = null;
 
 export function getAudioSettingsPanel() {
     if (!instance) {
-        instance = new AudioSettingsPanel();
+        try {
+            console.log('[getAudioSettingsPanel] Creating new AudioSettingsPanel instance');
+            instance = new AudioSettingsPanel();
+            console.log('[getAudioSettingsPanel] Instance created successfully:', instance);
+        } catch (error) {
+            console.error('[getAudioSettingsPanel] Failed to create AudioSettingsPanel:', error);
+            throw error; // Re-throw so caller knows it failed
+        }
     }
     return instance;
 }
