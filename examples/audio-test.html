@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio File Upload Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #1a1a1a;
+      font-family: Arial, sans-serif;
+      color: white;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+
+    .info {
+      background: rgba(74, 144, 226, 0.1);
+      border: 1px solid #4a90e2;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .info code {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+
+    #audio-panel-container {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Audio File Upload Test</h1>
+
+    <div class="info">
+      <strong>Fixed Issue:</strong> HTMLMediaElement can only be connected to one MediaElementSourceNode.<br><br>
+
+      <strong>Solution:</strong> Create a new <code>&lt;audio&gt;</code> element each time a file is loaded, and properly clean up the previous one.<br><br>
+
+      <strong>Test:</strong> Try uploading multiple audio files one after another. You should no longer see the "already connected" error in the console.
+    </div>
+
+    <div id="audio-panel-container"></div>
+  </div>
+
+  <script type="module">
+    import { AudioSettingsPanel } from '../src/audio/AudioSettingsPanel.js';
+
+    // Create the audio settings panel
+    const container = document.getElementById('audio-panel-container');
+    const audioPanel = new AudioSettingsPanel(container);
+
+    console.log('Audio panel initialized. Upload audio files to test!');
+  </script>
+</body>
+</html>
