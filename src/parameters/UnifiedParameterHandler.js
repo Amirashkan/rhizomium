@@ -99,13 +99,14 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
     }
   }
 
-  // 3. Check if it's a math expression (contains functions/operators with time)
+  // 3. Check if it's a math expression (contains functions/operators with time/audioEnvelope)
   if (typeof value === 'string' && this.isMathExpression(value)) {
     if (/[+\-*/]$/.test(value)) {
       return def?.default ?? 0;
     }
     // Return as-is for shader code (don't evaluate!) but remap known uniforms safely.
     let expr = value.replace(/\btime\b/g, 'g.time');
+    expr = expr.replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
     expr = expr.replace(/\baspect\b/g, (match, offset, input) => {
       const prev = offset > 0 ? input[offset - 1] : '';
       return prev === '.' ? match : 'u.aspect';
@@ -129,8 +130,8 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
 
 // Add helper method
 isMathExpression(value) {
-  return /\b(sin|cos|tan|sqrt|abs|pow|min|max|floor|ceil|round|time)\s*\(/.test(value) ||
-         (value.includes('time') && /[+\-*/]/.test(value));
+  return /\b(sin|cos|tan|sqrt|abs|pow|min|max|floor|ceil|round|time|audioEnvelope)\s*\(/.test(value) ||
+         ((value.includes('time') || value.includes('audioEnvelope')) && /[+\-*/]/.test(value));
 }
 
   /**

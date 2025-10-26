@@ -39,34 +39,43 @@ export class NoiseNodes {
   }
   
   getParam(node, paramName, defaultValue) {
-    if (node.params && node.params.hasOwnProperty(paramName)) {
-      const value = node.params[paramName];
-      
-      if (typeof value === 'string' && value.trim().startsWith('=')) {
-        try {
-          const expressionSystem = window.expressionSystem;
-          if (expressionSystem) {
-            const result = expressionSystem.evaluateExpression(value, {}, node);
-            return result !== null && result !== undefined ? result : defaultValue;
-          }
-        } catch (error) {
-          console.warn(`Expression evaluation failed for ${paramName}:`, error);
-        }
-        
-        const numericValue = parseFloat(value.substring(1));
-        return isNaN(numericValue) ? defaultValue : numericValue;
-      }
-      
-      if (typeof value === 'number') return value;
-      if (typeof value === 'string') {
-        const parsed = parseFloat(value);
-        return isNaN(parsed) ? defaultValue : parsed;
-      }
-      
-      return value;
+    const rawValue = node.params?.[paramName] ?? defaultValue;
+
+    // Check if this is a dynamic expression containing 'time' or 'audioEnvelope'
+    if (typeof rawValue === 'string' && (/time/.test(rawValue) || /audioEnvelope/.test(rawValue))) {
+      // Convert the expression to shader code using g.time and g.audioEnvelope
+      const shaderExpr = rawValue
+        .replace(/\bsin\(/g, 'sin(')
+        .replace(/\bcos\(/g, 'cos(')
+        .replace(/\btime\b/g, 'g.time')
+        .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
+
+      return shaderExpr;  // Return shader code, not a uniform reference
     }
-    
-    return defaultValue;
+
+    // Handle regular expressions starting with =
+    if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
+      try {
+        const expressionSystem = window.expressionSystem;
+        if (expressionSystem) {
+          const result = expressionSystem.evaluateExpression(rawValue, {}, node);
+          return result !== null && result !== undefined ? result : defaultValue;
+        }
+      } catch (error) {
+        console.warn(`Expression evaluation failed for ${paramName}:`, error);
+      }
+
+      const numericValue = parseFloat(rawValue.substring(1));
+      return isNaN(numericValue) ? defaultValue : numericValue;
+    }
+
+    if (typeof rawValue === 'number') return rawValue;
+    if (typeof rawValue === 'string') {
+      const parsed = parseFloat(rawValue);
+      return isNaN(parsed) ? defaultValue : parsed;
+    }
+
+    return rawValue ?? defaultValue;
   }
   
   formatParam(value) {
