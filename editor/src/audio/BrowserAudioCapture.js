@@ -1,5 +1,4 @@
 /**
-<<<<<<< HEAD
  * BrowserAudioCapture.js
  *
  * Captures audio from uploaded files and extracts envelope

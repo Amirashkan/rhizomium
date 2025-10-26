@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Settings Test</title>
+</head>
+<body>
+    <h1>Audio Settings Test</h1>
+    <button id="btn-audio-settings">Audio Settings</button>
+    <div id="output"></div>
+
+    <script type="module">
+        console.log('Test page loaded');
+
+        const output = document.getElementById('output');
+        const btn = document.getElementById('btn-audio-settings');
+
+        output.innerHTML += '<p>✓ Test page loaded</p>';
+        output.innerHTML += '<p>✓ Button found: ' + !!btn + '</p>';
+
+        try {
+            console.log('Attempting to import AudioSettingsPanel...');
+            const { getAudioSettingsPanel } = await import('./src/ui/AudioSettingsPanel.js');
+            output.innerHTML += '<p>✓ AudioSettingsPanel imported successfully</p>';
+            console.log('AudioSettingsPanel imported:', getAudioSettingsPanel);
+
+            btn.addEventListener('click', () => {
+                console.log('Button clicked!');
+                output.innerHTML += '<p>🖱️ Button clicked!</p>';
+
+                try {
+                    const panel = getAudioSettingsPanel();
+                    console.log('Panel instance:', panel);
+                    output.innerHTML += '<p>✓ Panel created: ' + !!panel + '</p>';
+
+                    if (panel && typeof panel.toggle === 'function') {
+                        panel.toggle();
+                        output.innerHTML += '<p>✓ Panel toggled</p>';
+                    } else {
+                        output.innerHTML += '<p>❌ Panel invalid or missing toggle()</p>';
+                    }
+                } catch (err) {
+                    console.error('Error creating panel:', err);
+                    output.innerHTML += '<p>❌ Error: ' + err.message + '</p>';
+                }
+            });
+
+            output.innerHTML += '<p>✓ Event listener attached</p>';
+
+        } catch (err) {
+            console.error('Failed to import:', err);
+            output.innerHTML += '<p>❌ Import failed: ' + err.message + '</p>';
+            output.innerHTML += '<p>Stack: ' + err.stack + '</p>';
+        }
+    </script>
+</body>
+</html>

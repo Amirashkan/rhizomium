@@ -161,8 +161,9 @@ export class ParameterBindingSystem {
       parameterName: sourceParamName
     });
 
-    // Set initial value
+    // Set initial value (this will evaluate expressions like =audioEnvelope)
     const sourceValue = this.getParameterValue(sourceNode, sourceParamName);
+    console.log(`[ParameterBinding] Initial binding value: ${sourceValue} for ${targetKey}`);
     this.setParameterValue(targetNode, targetParamName, sourceValue);
 
     // Record for undo
@@ -289,15 +290,23 @@ export class ParameterBindingSystem {
   updateBoundParameters(sourceNode, sourceParamName, newValue) {
     const sourceKey = `${sourceNode.id}.${sourceParamName}`;
     const boundParams = this.bindings.get(sourceKey);
-    
+
     if (!boundParams) return;
+
+    // Get the EVALUATED value if source is an expression
+    let valueToPropagate = newValue;
+    if (window.editor?.paramPanel?.valueManager) {
+      // This will evaluate expressions like "=audioEnvelope" to their numeric value
+      valueToPropagate = window.editor.paramPanel.valueManager.getValue(sourceNode, sourceParamName);
+      console.log(`[ParameterBinding] Propagating evaluated value: ${valueToPropagate} (from ${newValue})`);
+    }
 
     boundParams.forEach(bound => {
       const targetNode = this.graph.nodes.find(n => n.id === bound.nodeId);
       if (targetNode) {
-        // Don't trigger cascading updates by using direct assignment
-        this.setParameterValueDirect(targetNode, bound.parameterName, newValue);
-        
+        // Set the EVALUATED value, not the expression string
+        this.setParameterValueDirect(targetNode, bound.parameterName, valueToPropagate);
+
         // Update preview for target node
         this.updateNodePreview(targetNode);
       }

@@ -20,6 +20,52 @@ export class UtilityNodes {
   }
 
   /**
+   * Get parameter value with default fallback
+   */
+  getParam(node, name, defaultValue) {
+    const value = node.params?.[name] ?? defaultValue;
+    if (typeof value === 'boolean') return value;
+    return value;
+  }
+
+  /**
+   * Generate shader expression for parameter (handles =audioEnvelope, =time, etc.)
+   */
+  getShaderParam(node, name, defaultValue) {
+    const value = this.getParam(node, name, defaultValue);
+
+    // Handle expressions with = prefix (like "=audioEnvelope*5")
+    if (typeof value === 'string' && value.startsWith('=')) {
+      let expr = value.substring(1);
+      expr = expr.replace(/\bsin\(/g, 'sin(');
+      expr = expr.replace(/\bcos\(/g, 'cos(');
+      expr = expr.replace(/\btime\b/g, 'g.time');
+      expr = expr.replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass');
+      expr = expr.replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids');
+      expr = expr.replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs');
+      expr = expr.replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull');
+      expr = expr.replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
+      expr = expr.replace(/\*/g, ' * ');
+      return expr;
+    }
+
+    // Handle expressions without = prefix (like "time" or "audioEnvelope*2")
+    if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
+      let expr = value
+        .replace(/\btime\b/g, 'g.time')
+        .replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass')
+        .replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids')
+        .replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs')
+        .replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull')
+        .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
+      return expr;
+    }
+
+    // Return numeric value as string
+    return String(value);
+  }
+
+  /**
    * Check if this compiler handles the given node kind
    * @param {string} kind 
    * @returns {boolean}
@@ -193,8 +239,8 @@ export class UtilityNodes {
   
   compileColorBrightness(node, getInput, nodeId) {
     const color = getInput(0, "vec3", "vec3<f32>(0.0)");
-    const brightness = node.params?.brightness ?? 0.0;
-    
+    const brightness = this.getShaderParam(node, 'brightness', 0.0);
+
     return {
       line: `let node_${nodeId} = (${color}) + vec3<f32>(${brightness});`,
       outputType: "vec3"
