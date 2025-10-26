@@ -705,9 +705,12 @@ function setupUIEventHandlers() {
 
   // Audio Settings Panel
   const audioSettingsBtn = removeExistingHandlers("btn-audio-settings");
+  console.log('[main.js] Audio settings button element:', audioSettingsBtn);
   if (audioSettingsBtn) {
     const audioPanel = getAudioSettingsPanel();
+    console.log('[main.js] Audio panel instance:', audioPanel);
     audioSettingsBtn.addEventListener("click", (e) => {
+      console.log('[main.js] Audio settings button clicked!');
       e.preventDefault();
       audioPanel.toggle();
       if (typeof updateStatus === "function") {
@@ -715,6 +718,8 @@ function setupUIEventHandlers() {
       }
     });
     console.log("Audio settings handler attached");
+  } else {
+    console.error('[main.js] Audio settings button NOT found!');
   }
 
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
