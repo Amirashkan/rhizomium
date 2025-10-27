@@ -856,6 +856,16 @@ isIncomplete(value) {
     // Real-time input handling with debouncing
     input.addEventListener('input', (e) => {
       e.stopPropagation();
+
+      // Auto-complete: if user types "node_", add "=" prefix
+      const value = input.value;
+      if (value && !value.startsWith('=') && value.trim().startsWith('node_')) {
+        const cursorPos = input.selectionStart;
+        input.value = '=' + value;
+        // Adjust cursor position
+        input.setSelectionRange(cursorPos + 1, cursorPos + 1);
+      }
+
       this._autoResizeTextArea(input);
 
       this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);

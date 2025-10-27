@@ -470,14 +470,28 @@ export class Renderer {
 
     let labelText = pinType;
 
-    // First, try to get the computed preview value
-    let previewValue = node.__preview;
+    // For simple input nodes (ConstFloat, ConstVec*), read directly from params instead of cached preview
+    // This ensures the display is always up-to-date with user input
+    let previewValue = undefined;
 
-    // Try to get from PreviewComputer if available
-    if (editor.previewComputer && editor.previewComputer.lastComputedValues) {
-      const computedValue = editor.previewComputer.lastComputedValues.get(node.id);
-      if (computedValue !== undefined) {
-        previewValue = computedValue;
+    if (node.kind === "ConstFloat") {
+      previewValue = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
+    } else if (node.kind === "ConstVec2") {
+      previewValue = [node.params?.x ?? 0, node.params?.y ?? 0];
+    } else if (node.kind === "ConstVec3") {
+      previewValue = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0];
+    } else if (node.kind === "ConstVec4") {
+      previewValue = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0, node.params?.w ?? 1];
+    } else {
+      // For computed nodes, use the cached preview value
+      previewValue = node.__preview;
+
+      // Try to get from PreviewComputer if available
+      if (editor.previewComputer && editor.previewComputer.lastComputedValues) {
+        const computedValue = editor.previewComputer.lastComputedValues.get(node.id);
+        if (computedValue !== undefined) {
+          previewValue = computedValue;
+        }
       }
     }
 
