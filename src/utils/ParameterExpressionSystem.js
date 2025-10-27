@@ -1139,13 +1139,16 @@ getValue(node, paramName) {
 // Replace the existing setValue method with this corrected version:
 
 setValue(node, paramName, value) {
+  console.log("[ParameterExpressionSystem.setValue] CALLED:", node.kind, node.id, paramName, "value:", value, "type:", typeof value);
   try {
     if (!node.params) node.params = {};
-    
+
     const oldValue = node.params[paramName];
-    
+    console.log("[ParameterExpressionSystem.setValue] oldValue:", oldValue, "newValue:", value);
+
     // STORE THE ORIGINAL VALUE/EXPRESSION (don't evaluate here)
     node.params[paramName] = value;  // Store "=sin(time)", not 0.123
+    console.log("[ParameterExpressionSystem.setValue] STORED on node.params[" + paramName + "]:", node.params[paramName]);
     
     // Record for undo
     if (this.undoManager && oldValue !== value) {
@@ -1185,7 +1188,8 @@ setValue(node, paramName, value) {
 updateNodePreview(node) {
   try {
     console.log(`🎯 Updating preview for node: ${node.id} (${node.kind})`);
-    
+    console.log(`📊 Current node.params.value:`, node.params?.value, `node.value:`, node.value);
+
     // CRITICAL: Force evaluation of all expressions in this node BEFORE preview
     if (node.params) {
       Object.entries(node.params).forEach(([paramName, value]) => {
