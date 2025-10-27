@@ -99,6 +99,8 @@ updateTimeNodes() {
   onParameterChange(node) {
     this.generateNodePreview(node);
     this.updateDependentNodes(node);
+    // Always redraw to show updated output values
+    this.editor.draw();
   }
 
   updateDependentNodes(changedNode) {
