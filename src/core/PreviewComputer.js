@@ -144,7 +144,8 @@ case "ConicGradient": {
               break;
 
             case "ConstFloat": {
-              let value = typeof node.value === "number" ? node.value : node.params?.value;
+              // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
+              let value = node.params?.value ?? node.value;
               console.log(`[PreviewComputer] ConstFloat node ${node.id}: raw value =`, value, `(type: ${typeof value})`);
 
               // Check if value is an expression
