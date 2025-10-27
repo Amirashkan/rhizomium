@@ -51,13 +51,23 @@ export class PreviewIntegration {
       console.warn("PreviewSystem not available for updateAllPreviews");
       return;
     }
-    this.previewSystem.updateAllPreviews();
+    // Pass the nodes array to updateAllPreviews
+    if (this.editor?.graph?.nodes) {
+      this.previewSystem.updateAllPreviews(this.editor.graph.nodes);
+    } else {
+      console.warn("Cannot update previews - no nodes available");
+    }
   }
 
   generateNodePreview(node) {
     if (!this.previewSystem) {
       console.warn("PreviewSystem not available for generateNodePreview");
       return;
+    }
+    // IMPORTANT: When updating a single node (e.g. parameter change),
+    // we still need to compute ALL node values first so expressions work
+    if (this.editor?.previewComputer && this.editor?.graph) {
+      this.editor.previewComputer.computePreviews(this.editor.graph);
     }
     this.previewSystem.generateNodePreview(node);
   }
