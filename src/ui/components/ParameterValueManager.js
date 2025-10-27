@@ -409,4 +409,13 @@ export class ParameterValueManager {
       window.editor.previewIntegration.onParameterChange(node);
     }
   }
+
+  // Convenience methods for ParameterPanel compatibility
+  setValue(node, paramName, value) {
+    this.updateNodeParameter(node, paramName, value, window.editor?.onChange);
+  }
+
+  getValue(node, paramName, defaultValue) {
+    return this.getRawParameterValue(node, paramName, defaultValue);
+  }
 }
