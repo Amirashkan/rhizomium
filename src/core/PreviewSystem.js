@@ -164,9 +164,14 @@ generateNodePreview(node) {
 
   // ALWAYS compute values for ALL nodes (including input nodes)
   // This ensures their output values are available for display and node references
-  if (this.previewComputer && this.graph) {
+  if (this.editor?.previewComputer && this.editor?.graph) {
     console.log(`🔢 Computing preview values for all nodes in graph`);
-    this.previewComputer.computePreviews(this.graph);
+    this.editor.previewComputer.computePreviews(this.editor.graph);
+  } else {
+    console.warn(`⚠️ Cannot compute preview values - previewComputer or graph not available`, {
+      hasPreviewComputer: !!this.editor?.previewComputer,
+      hasGraph: !!this.editor?.graph
+    });
   }
 
   // THEN skip visual thumbnail generation for input-only nodes
