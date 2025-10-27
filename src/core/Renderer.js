@@ -205,6 +205,11 @@ export class Renderer {
     const label = NodeDefs[node.kind]?.label || node.kind;
     ctx.fillText(label, node.x + 10, node.y + 18);
 
+    // Draw node ID (for referencing in expressions)
+    ctx.fillStyle = "#888";
+    ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px monospace`;
+    ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + 16);
+
     // Render enhanced thumbnail
     this._renderNodeThumbnail(node);
 
@@ -501,16 +506,20 @@ export class Renderer {
       }
     } else {
       // Fallback to old behavior for specific node types
-      if (node.kind === "ConstFloat" && typeof node.value === "number") {
-        labelText = `${node.value.toFixed(2)}`;
-      } else if (
-        node.kind === "ConstVec2" &&
-        node.x !== undefined &&
-        node.y !== undefined
-      ) {
-        labelText = `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})`;
-      } else if (node.kind === "ConstVec3" && node.x !== undefined) {
-        labelText = `(${(node.x || 0).toFixed(1)}, ${(node.y || 0).toFixed(1)}, ${(node.z || 0).toFixed(1)})`;
+      if (node.kind === "ConstFloat") {
+        const value = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
+        if (typeof value === 'number') {
+          labelText = `${value.toFixed(2)}`;
+        }
+      } else if (node.kind === "ConstVec2") {
+        const x = node.params?.x ?? node.x ?? 0;
+        const y = node.params?.y ?? node.y ?? 0;
+        labelText = `(${x.toFixed(1)}, ${y.toFixed(1)})`;
+      } else if (node.kind === "ConstVec3") {
+        const x = node.params?.x ?? node.x ?? 0;
+        const y = node.params?.y ?? node.y ?? 0;
+        const z = node.params?.z ?? node.z ?? 0;
+        labelText = `(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`;
       } else if (node.kind === "Expr" && node.expr) {
         labelText =
           node.expr.length > 8 ? node.expr.substring(0, 8) + "..." : node.expr;
