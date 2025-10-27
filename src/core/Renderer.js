@@ -482,8 +482,6 @@ export class Renderer {
       }
     }
 
-    console.log(`[Renderer] Node ${node.id} (${node.kind}) pin ${pinIndex}: previewValue =`, previewValue);
-
     // Format the preview value
     if (previewValue !== undefined && previewValue !== null) {
       if (typeof previewValue === 'number') {
