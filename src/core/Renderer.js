@@ -475,13 +475,14 @@ export class Renderer {
     let previewValue = undefined;
 
     if (node.kind === "ConstFloat") {
-      previewValue = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
+      const value = typeof node.value === "number" ? node.value : node.params?.value;
+      previewValue = typeof value === 'string' ? (parseFloat(value) || 0) : (value ?? 0);
     } else if (node.kind === "ConstVec2") {
-      previewValue = [node.params?.x ?? 0, node.params?.y ?? 0];
+      previewValue = [parseFloat(node.params?.x) || 0, parseFloat(node.params?.y) || 0];
     } else if (node.kind === "ConstVec3") {
-      previewValue = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0];
+      previewValue = [parseFloat(node.params?.x) || 0, parseFloat(node.params?.y) || 0, parseFloat(node.params?.z) || 0];
     } else if (node.kind === "ConstVec4") {
-      previewValue = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0, node.params?.w ?? 1];
+      previewValue = [parseFloat(node.params?.x) || 0, parseFloat(node.params?.y) || 0, parseFloat(node.params?.z) || 0, parseFloat(node.params?.w) || 1];
     } else {
       // For computed nodes, use the cached preview value
       previewValue = node.__preview;

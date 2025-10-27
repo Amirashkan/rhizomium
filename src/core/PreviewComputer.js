@@ -143,21 +143,41 @@ case "ConicGradient": {
               result = this.animationTime;
               break;
 
-            case "ConstFloat":
-              result = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
+            case "ConstFloat": {
+              const value = typeof node.value === "number" ? node.value : node.params?.value;
+              // Parse string values to numbers
+              if (typeof value === 'string') {
+                const parsed = parseFloat(value);
+                result = isNaN(parsed) ? 0 : parsed;
+              } else {
+                result = value ?? 0;
+              }
               break;
+            }
 
-            case "ConstVec2":
-              result = [node.params?.x ?? 0, node.params?.y ?? 0];
+            case "ConstVec2": {
+              const x = parseFloat(node.params?.x) || 0;
+              const y = parseFloat(node.params?.y) || 0;
+              result = [x, y];
               break;
+            }
 
-            case "ConstVec3":
-              result = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0];
+            case "ConstVec3": {
+              const x = parseFloat(node.params?.x) || 0;
+              const y = parseFloat(node.params?.y) || 0;
+              const z = parseFloat(node.params?.z) || 0;
+              result = [x, y, z];
               break;
+            }
 
-            case "ConstVec4":
-              result = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0, node.params?.w ?? 1];
+            case "ConstVec4": {
+              const x = parseFloat(node.params?.x) || 0;
+              const y = parseFloat(node.params?.y) || 0;
+              const z = parseFloat(node.params?.z) || 0;
+              const w = parseFloat(node.params?.w) || 1;
+              result = [x, y, z, w];
               break;
+            }
 
             case "Mouse":
               result = [0.5, 0.5]; // Default mouse position
