@@ -161,10 +161,19 @@ constructor(editor) {
   }
 generateNodePreview(node) {
     console.log(`Generating preview for: ${node.kind} ${node.kind.toLowerCase()}`);
+
+  // ALWAYS compute values for ALL nodes (including input nodes)
+  // This ensures their output values are available for display and node references
+  if (this.previewComputer && this.graph) {
+    console.log(`🔢 Computing preview values for all nodes in graph`);
+    this.previewComputer.computePreviews(this.graph);
+  }
+
+  // THEN skip visual thumbnail generation for input-only nodes
   const INPUT_ONLY_NODES = ['time', 'uv', 'constfloat', 'constint', 'constvec2', 'constvec3'];
   if (INPUT_ONLY_NODES.includes(node.kind.toLowerCase())) {
-    console.log(`⏭️ Skipping preview for input-only node: ${node.kind}`);
-    return; // Don't generate previews for nodes that only provide values
+    console.log(`⏭️ Skipping visual thumbnail for input-only node: ${node.kind} (but values computed)`);
+    return; // Don't generate visual thumbnails for nodes that only provide values
   }
   try {
     if (!node) {
