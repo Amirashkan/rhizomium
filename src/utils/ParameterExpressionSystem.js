@@ -266,9 +266,68 @@ buildEvaluationContext(context, node) {
     });
   }
 
+  // Add node output values from the graph
+  this._addNodeOutputReferences(evalContext, node);
+
   console.log('[ExpressionSystem] Built evalContext, audioEnvelope available:', 'audioEnvelope' in evalContext);
   return evalContext;
 }
+
+  /**
+   * Adds node output values to the evaluation context
+   * Supports syntax like: =node_1, =node_1_x, =node_1_y, etc.
+   */
+  _addNodeOutputReferences(evalContext, currentNode) {
+    // Get the graph from the editor
+    const graph = window.editor?.graph;
+    if (!graph || !graph.nodes) return;
+
+    // Get computed values from PreviewComputer if available
+    const previewComputer = window.editor?.previewComputer;
+
+    // For each node in the graph, add its output value
+    graph.nodes.forEach(node => {
+      // Don't reference the current node to avoid circular dependencies
+      if (node.id === currentNode?.id) return;
+
+      // Get the node's computed value
+      let nodeValue = node.__preview;
+
+      // Try to get from PreviewComputer if available
+      if (previewComputer && previewComputer.lastComputedValues) {
+        const computedValue = previewComputer.lastComputedValues.get(node.id);
+        if (computedValue !== undefined) {
+          nodeValue = computedValue;
+        }
+      }
+
+      if (nodeValue === undefined || nodeValue === null) return;
+
+      // Add the full node output value as node_X
+      const nodeVarName = `node_${node.id}`;
+
+      // If it's a number or array, add it directly
+      if (typeof nodeValue === 'number') {
+        evalContext[nodeVarName] = nodeValue;
+      } else if (Array.isArray(nodeValue)) {
+        // Add the full array
+        evalContext[nodeVarName] = nodeValue;
+
+        // Also add component accessors for vectors
+        if (nodeValue.length >= 1) evalContext[`${nodeVarName}_x`] = nodeValue[0];
+        if (nodeValue.length >= 2) evalContext[`${nodeVarName}_y`] = nodeValue[1];
+        if (nodeValue.length >= 3) evalContext[`${nodeVarName}_z`] = nodeValue[2];
+        if (nodeValue.length >= 4) evalContext[`${nodeVarName}_w`] = nodeValue[3];
+      } else if (typeof nodeValue === 'object' && nodeValue.type === 'split') {
+        // Handle split node outputs
+        evalContext[nodeVarName] = nodeValue.values;
+        nodeValue.values.forEach((val, idx) => {
+          const component = ['x', 'y', 'z', 'w'][idx];
+          if (component) evalContext[`${nodeVarName}_${component}`] = val;
+        });
+      }
+    });
+  }
   /**
    * Safely evaluates an expression using Function constructor with sandboxing
    */
@@ -373,10 +432,14 @@ isIncompleteExpression(expression) {
   extractVariables(expression) {
     const varPattern = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
     const matches = expression.match(varPattern) || [];
-    return [...new Set(matches)].filter(match =>
-      !this.builtInFunctions.hasOwnProperty(match) &&
-      !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope'].includes(match)
-    );
+    return [...new Set(matches)].filter(match => {
+      // Allow node references (node_X pattern)
+      if (match.startsWith('node_')) return true;
+
+      // Filter out built-in functions and constants
+      return !this.builtInFunctions.hasOwnProperty(match) &&
+        !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope'].includes(match);
+    });
   }
 
   /**

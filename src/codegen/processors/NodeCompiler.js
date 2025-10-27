@@ -49,6 +49,57 @@ export class NodeCompiler {
     return String(id).replace(/[^a-zA-Z0-9_]/g, "_");
   }
 
+  /**
+   * Resolves a parameter value that might be a node reference
+   * Supports: =node_X, =node_X_x, =node_X_y, etc.
+   * @param {*} paramValue - The parameter value (could be a number, string, or expression)
+   * @param {string} defaultValue - Default value if not a node reference
+   * @returns {string} - WGSL code to use for this parameter
+   */
+  resolveParameterValue(paramValue, defaultValue = '0.0') {
+    // If it's a number, return it as-is
+    if (typeof paramValue === 'number') {
+      return paramValue.toFixed(6);
+    }
+
+    // If it's not a string, return default
+    if (typeof paramValue !== 'string') {
+      return defaultValue;
+    }
+
+    // Check if it's an expression (starts with =)
+    if (!paramValue.trim().startsWith('=')) {
+      // Try to parse as number
+      const parsed = parseFloat(paramValue);
+      return isNaN(parsed) ? defaultValue : parsed.toFixed(6);
+    }
+
+    // It's an expression - extract the part after =
+    const expression = paramValue.trim().slice(1).trim();
+
+    // Check if it's a simple node reference pattern: node_X or node_X_component
+    const nodeRefPattern = /^node_(\w+)(?:_(x|y|z|w))?$/;
+    const match = expression.match(nodeRefPattern);
+
+    if (match) {
+      const nodeId = match[1];
+      const component = match[2];
+
+      if (component) {
+        // Component access: node_1_x → node_1.x
+        return `node_${this.sanitize(nodeId)}.${component}`;
+      } else {
+        // Direct reference: node_1 → node_1
+        return `node_${this.sanitize(nodeId)}`;
+      }
+    }
+
+    // TODO: For more complex expressions, we could evaluate them at runtime
+    // For now, just return the default value for unsupported expressions
+    console.warn(`Unsupported expression in WGSL compilation: ${paramValue}`);
+    return defaultValue;
+  }
+
   compileNodes(orderedNodes) {
     this.uniformManager.clear();
     
@@ -160,28 +211,34 @@ export class NodeCompiler {
         return result;
       }
     };
-    
+
+    // Helper to resolve parameter values (including node references)
+    const getParam = (paramName, defaultValue = '0.0') => {
+      const paramValue = node.params?.[paramName];
+      return this.resolveParameterValue(paramValue, defaultValue);
+    };
+
     // Delegate to appropriate compiler
     let result = null;
-    
+
     if (this.compilers.input.handles(kind)) {
-      result = this.compilers.input.compile(node, getInput);
+      result = this.compilers.input.compile(node, getInput, getParam);
     } else if (this.compilers.math.handles(kind)) {
-      result = this.compilers.math.compile(node, getInput);
+      result = this.compilers.math.compile(node, getInput, getParam);
     } else if (this.compilers.vector.handles(kind)) {
-      result = this.compilers.vector.compile(node, getInput);
+      result = this.compilers.vector.compile(node, getInput, getParam);
     } else if (this.compilers.noise.handles(kind)) {
-      result = this.compilers.noise.compile(node, getInput);
+      result = this.compilers.noise.compile(node, getInput, getParam);
     } else if (this.compilers.texture.handles(kind)) {
-      result = this.compilers.texture.compile(node, getInput);
+      result = this.compilers.texture.compile(node, getInput, getParam);
     } else if (this.compilers.utility.handles(kind)) {
-      result = this.compilers.utility.compile(node, getInput);
+      result = this.compilers.utility.compile(node, getInput, getParam);
     } else if (this.compilers.transform.handles(kind)) {
-      result = this.compilers.transform.compile(node, getInput);
+      result = this.compilers.transform.compile(node, getInput, getParam);
     } else if (this.compilers.field.handles(kind)) {
-      result = this.compilers.field.compile(node, getInput);
+      result = this.compilers.field.compile(node, getInput, getParam);
     } else if (this.compilers.blend.handles(kind)) {
-      result = this.compilers.blend.compile(node, getInput);
+      result = this.compilers.blend.compile(node, getInput, getParam);
     } else {
       console.log(`UNKNOWN NODE TYPE: "${kind}"`);
       result = {

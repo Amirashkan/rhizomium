@@ -465,22 +465,58 @@ export class Renderer {
 
     let labelText = pinType;
 
-    // Enhanced labels with more context
-    if (node.kind === "ConstFloat" && typeof node.value === "number") {
-      labelText = `${node.value.toFixed(2)}`;
-    } else if (
-      node.kind === "ConstVec2" &&
-      node.x !== undefined &&
-      node.y !== undefined
-    ) {
-      labelText = `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})`;
-    } else if (node.kind === "ConstVec3" && node.x !== undefined) {
-      labelText = `(${(node.x || 0).toFixed(1)}, ${(node.y || 0).toFixed(1)}, ${(node.z || 0).toFixed(1)})`;
-    } else if (node.kind === "Expr" && node.expr) {
-      labelText =
-        node.expr.length > 8 ? node.expr.substring(0, 8) + "..." : node.expr;
-    } else if (pinDef?.label) {
-      labelText = pinDef.label;
+    // First, try to get the computed preview value
+    let previewValue = node.__preview;
+
+    // Try to get from PreviewComputer if available
+    if (editor.previewComputer && editor.previewComputer.lastComputedValues) {
+      const computedValue = editor.previewComputer.lastComputedValues.get(node.id);
+      if (computedValue !== undefined) {
+        previewValue = computedValue;
+      }
+    }
+
+    // Format the preview value
+    if (previewValue !== undefined && previewValue !== null) {
+      if (typeof previewValue === 'number') {
+        // Single number output
+        labelText = previewValue.toFixed(2);
+      } else if (Array.isArray(previewValue)) {
+        // Vector output
+        if (pinIndex > 0 && previewValue.length > pinIndex) {
+          // Multi-output node - show specific component
+          labelText = previewValue[pinIndex].toFixed(2);
+        } else if (previewValue.length === 2) {
+          labelText = `(${previewValue[0].toFixed(1)}, ${previewValue[1].toFixed(1)})`;
+        } else if (previewValue.length === 3) {
+          labelText = `(${previewValue[0].toFixed(1)}, ${previewValue[1].toFixed(1)}, ${previewValue[2].toFixed(1)})`;
+        } else if (previewValue.length === 4) {
+          labelText = `(${previewValue[0].toFixed(1)}, ${previewValue[1].toFixed(1)}, ${previewValue[2].toFixed(1)}, ${previewValue[3].toFixed(1)})`;
+        }
+      } else if (typeof previewValue === 'object' && previewValue.type === 'split') {
+        // Split node - show component value
+        if (previewValue.values && previewValue.values[pinIndex] !== undefined) {
+          labelText = previewValue.values[pinIndex].toFixed(2);
+        }
+      }
+    } else {
+      // Fallback to old behavior for specific node types
+      if (node.kind === "ConstFloat" && typeof node.value === "number") {
+        labelText = `${node.value.toFixed(2)}`;
+      } else if (
+        node.kind === "ConstVec2" &&
+        node.x !== undefined &&
+        node.y !== undefined
+      ) {
+        labelText = `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})`;
+      } else if (node.kind === "ConstVec3" && node.x !== undefined) {
+        labelText = `(${(node.x || 0).toFixed(1)}, ${(node.y || 0).toFixed(1)}, ${(node.z || 0).toFixed(1)})`;
+      } else if (node.kind === "Expr" && node.expr) {
+        labelText =
+          node.expr.length > 8 ? node.expr.substring(0, 8) + "..." : node.expr;
+      } else if (pinDef?.label) {
+        labelText = pinDef.label;
+      }
     }
 
     // Skip label if it would be too cramped

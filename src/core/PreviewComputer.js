@@ -4,6 +4,7 @@ export class PreviewComputer {
     this.previewSize = 32;
     this.animationTime = 0;
     this.lastFrameTime = 0;
+    this.lastComputedValues = new Map(); // Store computed values for expression system
   }
 
   computePreviews(graph) {
@@ -658,6 +659,9 @@ case "Rectangle": {
         values.set(node.id, result);
         node.__preview = result;
       }
+
+      // Store computed values for expression system access
+      this.lastComputedValues = values;
 
       this._generateEnhancedThumbnails(graph.nodes, values);
     } catch (error) {
