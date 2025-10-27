@@ -2,6 +2,7 @@
 // FIXED: Aspect-ratio aware shape functions
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
+import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 
 export class FieldNodes {
   constructor() {
@@ -272,20 +273,15 @@ clearFunctionCache() {
 getParam(node, paramName, defaultValue) {
   const rawValue = node.params?.[paramName] ?? defaultValue;
 
-  // Check if this is a dynamic expression containing 'time' or 'audioEnvelope' variants
+  // USE UNIFIED AST SYSTEM for dynamic expressions
+  // This ensures shader code matches CPU evaluation exactly
   if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
-  // Convert the expression to shader code using g.time and g.audioEnvelope variants
-    const shaderExpr = rawValue
-      .replace(/\bsin\(/g, 'sin(')
-      .replace(/\bcos\(/g, 'cos(')
-      .replace(/\btime\b/g, 'g.time')
-      .replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass')
-      .replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids')
-      .replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs')
-      .replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull')
-      .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
-
-    return shaderExpr;  // Return shader code, not a uniform reference
+    try {
+      return unifiedExpressionSystem.generateShader(rawValue);
+    } catch (error) {
+      console.warn('Failed to generate shader for expression:', rawValue, error);
+      return String(defaultValue);
+    }
   }
   
   const uniformName = this.uniformManager?.isDynamicParam(node.id, paramName)

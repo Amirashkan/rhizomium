@@ -1,6 +1,8 @@
 // src/codegen/compilers/TransformNodes.js - OPTIMIZED VERSION
 // Key optimizations: GPU-side trigonometry, reduced calculations, batched transforms
 
+import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+
 export class TransformNodes {
   /**
    * Check if this compiler handles the given node kind
@@ -72,34 +74,29 @@ case 'Spherize':
 
   /**
    * OPTIMIZED: Generate shader expression for parameter
+   * USE UNIFIED AST SYSTEM - ensures shader matches CPU evaluation exactly
    */
 getShaderParam(node, name, defaultValue) {
   const value = this.getParam(node, name, defaultValue);
 
+  // Handle expressions with = prefix (like "=audioEnvelope*5")
   if (typeof value === 'string' && value.startsWith('=')) {
-    let expr = value.substring(1);
-    expr = expr.replace(/\bsin\(/g, 'sin(');
-    expr = expr.replace(/\bcos\(/g, 'cos(');
-    expr = expr.replace(/\btime\b/g, 'g.time');
-    expr = expr.replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass');
-    expr = expr.replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids');
-    expr = expr.replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs');
-    expr = expr.replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull');
-    expr = expr.replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
-    expr = expr.replace(/\*/g, ' * ');
-    return expr;
+    try {
+      return unifiedExpressionSystem.generateShader(value);
+    } catch (error) {
+      console.warn('Failed to generate shader for expression:', value, error);
+      return String(defaultValue);
+    }
   }
 
   // Handle expressions without = prefix (like "time" or "audioEnvelope*2")
   if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
-    let expr = value
-      .replace(/\btime\b/g, 'g.time')
-      .replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass')
-      .replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids')
-      .replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs')
-      .replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull')
-      .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
-    return expr;
+    try {
+      return unifiedExpressionSystem.generateShader(value);
+    } catch (error) {
+      console.warn('Failed to generate shader for expression:', value, error);
+      return String(defaultValue);
+    }
   }
 
   if (typeof value === 'number') {

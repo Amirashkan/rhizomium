@@ -1,10 +1,11 @@
 // src/parameters/UnifiedParameterHandler.js
-import { 
-  ParameterCapabilities, 
-  getParameterDefinition, 
+import {
+  ParameterCapabilities,
+  getParameterDefinition,
   hasCapability,
-  getDefaultCapabilities 
+  getDefaultCapabilities
 } from './ParameterDefs.js';
+import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 
 /**
  * Unified parameter handler - converts parameter values to shader code
@@ -104,18 +105,14 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
     if (/[+\-*/]$/.test(value)) {
       return def?.default ?? 0;
     }
-    // Return as-is for shader code (don't evaluate!) but remap known uniforms safely.
-    let expr = value.replace(/\btime\b/g, 'g.time');
-    expr = expr.replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass');
-    expr = expr.replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids');
-    expr = expr.replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs');
-    expr = expr.replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull');
-    expr = expr.replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
-    expr = expr.replace(/\baspect\b/g, (match, offset, input) => {
-      const prev = offset > 0 ? input[offset - 1] : '';
-      return prev === '.' ? match : 'u.aspect';
-    });
-    return expr;
+    // USE UNIFIED AST SYSTEM - Generate shader code from same AST as CPU evaluation
+    // This guarantees shader behavior matches preview behavior exactly
+    try {
+      return unifiedExpressionSystem.generateShader(value);
+    } catch (error) {
+      console.warn('Failed to generate shader code for expression:', value, error);
+      return def?.default ?? 0;
+    }
   }
 
   // 4. Handle shader variables - BUT SKIP if it's JUST "time" without context
@@ -216,13 +213,18 @@ isMathExpression(value) {
       return '(0.0)';
     }
 
-    let result = expr.replace(/\btime\b/g, 'g.time');
-    result = result.replace(/\baspect\b/g, (match, offset, input) => {
-      const prev = offset > 0 ? input[offset - 1] : '';
-      return prev === '.' ? match : 'u.aspect';
-    });
-    result = result.replace(/\buv\b/g, 'in.uv');
-    result = result.replace(/\bresolution\b/g, 'g.resolution');
-    return `(${result})`;
+    // USE UNIFIED AST SYSTEM - Generate shader code from same AST as CPU evaluation
+    // This guarantees shader behavior matches preview behavior exactly
+    try {
+      // Add support for shader-specific variables like uv, resolution
+      const variableMapping = {
+        uv: 'in.uv',
+        resolution: 'g.resolution'
+      };
+      return unifiedExpressionSystem.generateShader(expr, variableMapping);
+    } catch (error) {
+      console.warn('Failed to generate shader expression:', expr, error);
+      return '(0.0)';
+    }
   }
 }

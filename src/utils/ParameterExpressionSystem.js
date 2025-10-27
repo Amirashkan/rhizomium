@@ -1,6 +1,7 @@
 // src/utils/ParameterExpressionSystem.js - Complete implementation with preview updates
 
 import { getAudioEnvelope } from '../audio/BrowserAudioCapture.js';
+import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
 
 console.log('=== TRACING PARAMETER CHANGES ===');
 
@@ -277,25 +278,21 @@ safeEvaluate(expression, context) {
     if (this.isIncompleteExpression(expression)) {
       throw new Error('Incomplete expression');
     }
-    
-    // Create parameter list and values from context
-    const params = Object.keys(context);
-    const values = Object.values(context);
-    
+
     // Validate expression for basic safety
     if (this.containsUnsafeCode(expression)) {
       throw new Error('Unsafe code detected in expression');
     }
-    
-    // Create and execute function
-    const func = new Function(...params, `return (${expression})`);
-    const result = func(...values);
-    
+
+    // USE UNIFIED AST SYSTEM - Single source of truth for expression evaluation
+    // This ensures CPU evaluation matches shader generation exactly
+    const result = unifiedExpressionSystem.evaluateCPU(expression, context);
+
     // Validate result
     if (typeof result === 'number' && (isNaN(result) || !isFinite(result))) {
       throw new Error('Expression resulted in invalid number');
     }
-    
+
     return result;
   } catch (error) {
     throw new Error(`Expression evaluation failed: ${error.message}`);

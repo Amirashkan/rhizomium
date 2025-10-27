@@ -1,5 +1,7 @@
 // src/codegen/compilers/NoiseNodes.js - FIXED & OPTIMIZED VERSION
 
+import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+
 export class NoiseNodes {
   handles(kind) {
     const noiseTypes = [
@@ -41,36 +43,26 @@ export class NoiseNodes {
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
 
-    // Check if this is a dynamic expression containing 'time' or 'audioEnvelope' variants
+    // USE UNIFIED AST SYSTEM for dynamic expressions
+    // This ensures shader code matches CPU evaluation exactly
     if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
-      // Convert the expression to shader code using g.time and g.audioEnvelope variants
-      const shaderExpr = rawValue
-        .replace(/\bsin\(/g, 'sin(')
-        .replace(/\bcos\(/g, 'cos(')
-        .replace(/\btime\b/g, 'g.time')
-        .replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass')
-        .replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids')
-        .replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs')
-        .replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull')
-        .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
-
-      return shaderExpr;  // Return shader code, not a uniform reference
+      try {
+        return unifiedExpressionSystem.generateShader(rawValue);
+      } catch (error) {
+        console.warn('Failed to generate shader for expression:', rawValue, error);
+        return String(defaultValue);
+      }
     }
 
     // Handle regular expressions starting with =
     if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
       try {
-        const expressionSystem = window.expressionSystem;
-        if (expressionSystem) {
-          const result = expressionSystem.evaluateExpression(rawValue, {}, node);
-          return result !== null && result !== undefined ? result : defaultValue;
-        }
+        return unifiedExpressionSystem.generateShader(rawValue);
       } catch (error) {
         console.warn(`Expression evaluation failed for ${paramName}:`, error);
+        const numericValue = parseFloat(rawValue.substring(1));
+        return isNaN(numericValue) ? defaultValue : numericValue;
       }
-
-      const numericValue = parseFloat(rawValue.substring(1));
-      return isNaN(numericValue) ? defaultValue : numericValue;
     }
 
     if (typeof rawValue === 'number') return rawValue;
