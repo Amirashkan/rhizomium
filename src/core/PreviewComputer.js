@@ -144,7 +144,34 @@ case "ConicGradient": {
               break;
 
             case "ConstFloat": {
-              const value = typeof node.value === "number" ? node.value : node.params?.value;
+              let value = typeof node.value === "number" ? node.value : node.params?.value;
+
+              // Check if value is an expression
+              if (typeof value === 'string' && value.trim().startsWith('=')) {
+                // Evaluate the expression with access to other node values
+                try {
+                  const expression = value.trim().slice(1).trim();
+                  // Build context with other node values
+                  const context = {};
+                  values.forEach((val, id) => {
+                    context[`node_${id}`] = val;
+                    if (Array.isArray(val)) {
+                      context[`node_${id}_x`] = val[0];
+                      context[`node_${id}_y`] = val[1];
+                      if (val.length > 2) context[`node_${id}_z`] = val[2];
+                      if (val.length > 3) context[`node_${id}_w`] = val[3];
+                    }
+                  });
+
+                  // Evaluate expression
+                  const func = new Function(...Object.keys(context), `return (${expression})`);
+                  value = func(...Object.values(context));
+                } catch (error) {
+                  console.warn(`Error evaluating expression in ConstFloat: ${value}`, error);
+                  value = 0;
+                }
+              }
+
               // Parse string values to numbers
               if (typeof value === 'string') {
                 const parsed = parseFloat(value);
