@@ -145,6 +145,7 @@ case "ConicGradient": {
 
             case "ConstFloat": {
               let value = typeof node.value === "number" ? node.value : node.params?.value;
+              console.log(`[PreviewComputer] ConstFloat node ${node.id}: raw value =`, value, `(type: ${typeof value})`);
 
               // Check if value is an expression
               if (typeof value === 'string' && value.trim().startsWith('=')) {
@@ -179,6 +180,7 @@ case "ConicGradient": {
               } else {
                 result = value ?? 0;
               }
+              console.log(`[PreviewComputer] ConstFloat node ${node.id}: computed result =`, result);
               break;
             }
 
