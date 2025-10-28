@@ -373,7 +373,11 @@ processGraph(graph) {
       });
 
       console.log(`Filtered to ${filteredNodes.length} upstream nodes from ${orderedNodes.length} total (including expression references)`);
-      return filteredNodes;
+
+      // Re-sort to ensure expression-referenced nodes come before nodes that reference them
+      const resortedNodes = this.resortWithExpressionDependencies(filteredNodes, byId);
+
+      return resortedNodes;
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'filter-upstream-nodes',
@@ -589,6 +593,120 @@ processGraph(graph) {
         currentSetSize: currentSet?.size
       });
       return currentSet;
+    }
+  }
+
+  /**
+   * Re-sort nodes to respect expression dependencies
+   *
+   * This method performs a topological sort on the filtered nodes,
+   * taking into account both graph edge dependencies AND expression
+   * dependencies (e.g., node A referencing node B in a parameter).
+   *
+   * @param {Array} nodes - Filtered nodes to re-sort
+   * @param {Map} byId - Map of node ID to node object
+   * @returns {Array} Nodes sorted in dependency order
+   */
+  resortWithExpressionDependencies(nodes, byId) {
+    try {
+      if (!nodes || nodes.length === 0) {
+        return nodes;
+      }
+
+      const nodeIds = new Set(nodes.map(n => n.id));
+
+      // Build dependency map: node -> Set of nodes it depends on
+      const dependencies = new Map();
+
+      for (const node of nodes) {
+        const deps = new Set();
+
+        // Add edge-based dependencies (from inputs)
+        if (node.inputs && Array.isArray(node.inputs)) {
+          for (const inputId of node.inputs) {
+            if (inputId && nodeIds.has(inputId)) {
+              deps.add(inputId);
+            }
+          }
+        }
+
+        // Add expression-based dependencies
+        if (node.params && typeof node.params === 'object') {
+          for (const paramValue of Object.values(node.params)) {
+            const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
+            for (const refId of referencedIds) {
+              if (nodeIds.has(refId)) {
+                deps.add(refId);
+              }
+            }
+          }
+        }
+
+        dependencies.set(node.id, deps);
+      }
+
+      // Topological sort using Kahn's algorithm
+      const sorted = [];
+      const inDegree = new Map();
+
+      // Calculate in-degrees
+      for (const node of nodes) {
+        inDegree.set(node.id, 0);
+      }
+
+      for (const [nodeId, deps] of dependencies.entries()) {
+        for (const depId of deps) {
+          inDegree.set(depId, (inDegree.get(depId) || 0));
+          inDegree.set(nodeId, (inDegree.get(nodeId) || 0) + 1);
+        }
+      }
+
+      // Queue nodes with no dependencies
+      const queue = [];
+      for (const node of nodes) {
+        if (inDegree.get(node.id) === 0) {
+          queue.push(node);
+        }
+      }
+
+      // Process queue
+      while (queue.length > 0) {
+        const node = queue.shift();
+        sorted.push(node);
+
+        // Reduce in-degree for dependent nodes
+        for (const otherNode of nodes) {
+          const deps = dependencies.get(otherNode.id);
+          if (deps && deps.has(node.id)) {
+            const newDegree = inDegree.get(otherNode.id) - 1;
+            inDegree.set(otherNode.id, newDegree);
+            if (newDegree === 0) {
+              queue.push(otherNode);
+            }
+          }
+        }
+      }
+
+      // Check for cycles
+      if (sorted.length !== nodes.length) {
+        console.warn('Circular dependency detected in expression references, using partial sort');
+        // Add remaining nodes in original order
+        for (const node of nodes) {
+          if (!sorted.includes(node)) {
+            sorted.push(node);
+          }
+        }
+      }
+
+      console.log(`Re-sorted ${sorted.length} nodes to respect expression dependencies`);
+      return sorted;
+
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'resort-with-expression-dependencies',
+        nodeCount: nodes?.length
+      });
+      return nodes;
     }
   }
 
