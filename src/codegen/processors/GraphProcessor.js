@@ -495,7 +495,11 @@ processGraph(graph) {
 
       const nodeIds = [];
       for (const match of matches) {
-        const nodeId = match[1]; // Extract the captured group (the ID)
+        const nodeIdStr = match[1]; // Extract the captured group (the ID as string)
+
+        // Try to parse as number first (many graphs use numeric IDs)
+        // If it's not a number, keep it as a string
+        const nodeId = /^\d+$/.test(nodeIdStr) ? parseInt(nodeIdStr, 10) : nodeIdStr;
         nodeIds.push(nodeId);
       }
 
@@ -560,9 +564,15 @@ processGraph(graph) {
 
             for (const refId of referencedIds) {
               if (!expanded.has(refId)) {
-                expanded.add(refId);
-                toProcess.push(refId);
-                console.log(`Added expression-referenced node ${refId} from ${nodeId}.${paramName}`);
+                // Verify the node exists before adding
+                const referencedNode = byId.get(refId);
+                if (referencedNode) {
+                  expanded.add(refId);
+                  toProcess.push(refId);
+                  console.log(`✓ Added expression-referenced node ${refId} (${referencedNode.kind || 'unknown'}) from node ${nodeId}.${paramName} = "${paramValue}"`);
+                } else {
+                  console.warn(`✗ Node ${refId} referenced in expression "${paramValue}" not found in graph (from node ${nodeId}.${paramName})`);
+                }
               }
             }
           }
