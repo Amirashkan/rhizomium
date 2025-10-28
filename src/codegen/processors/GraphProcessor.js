@@ -711,6 +711,51 @@ processGraph(graph) {
   }
 
   /**
+   * Find all downstream nodes that depend on a given node
+   * Includes both edge-based dependencies (inputs) and expression-based dependencies
+   *
+   * @param {string} nodeId - The node ID to find downstream nodes for
+   * @param {Array} allNodes - All nodes in the graph
+   * @returns {Array} Downstream nodes
+   */
+  findDownstreamNodes(nodeId, allNodes) {
+    try {
+      if (!nodeId || !allNodes || !Array.isArray(allNodes)) {
+        return [];
+      }
+
+      return allNodes.filter(node => {
+        if (!node || node.id === nodeId) {
+          return false;
+        }
+
+        // Check edge-based dependency (inputs)
+        if (node.inputs && Array.isArray(node.inputs) && node.inputs.includes(nodeId)) {
+          return true;
+        }
+
+        // Check expression-based dependency (parameters)
+        if (node.params && typeof node.params === 'object') {
+          for (const paramValue of Object.values(node.params)) {
+            const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
+            if (referencedIds.includes(nodeId)) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      });
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'find-downstream-nodes',
+        nodeId: nodeId
+      });
+      return [];
+    }
+  }
+
+  /**
    * Log debug information about the graph processing
    * @param {Object} graph
    * @param {Array} orderedNodes
