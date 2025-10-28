@@ -6,7 +6,7 @@ import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { Graph } from "./src/data/Graph.js";
-import { makeNode, NodeDefs } from "./src/data/NodeDefs.js";
+import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
 import { TextureManager } from "./src/core/TextureManager.js";
@@ -17,6 +17,7 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
+window.updateNodeIdCounter = updateNodeIdCounter;
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {

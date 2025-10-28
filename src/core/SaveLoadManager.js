@@ -268,6 +268,11 @@ async importProject(projectData, options = {}) {
     this.importNodes(projectData.nodes || []);
     this.importConnections(projectData.connections || []);
 
+    // Update node ID counter to avoid conflicts with existing nodes
+    if (typeof window.updateNodeIdCounter === 'function') {
+      window.updateNodeIdCounter(this.graph.nodes);
+    }
+
     // CRITICAL: Restore textures BEFORE any shader compilation
     if (projectData.textures && this.textureManager) {
       console.log("🎨 Restoring textures from save file...");
@@ -1599,15 +1604,15 @@ async importNodes(nodeData) {
   try {
     // Create an ID mapping to preserve connections
     const idMap = new Map();
-    
+
     this.graph.nodes = (nodeData || []).map((data) => {
-      // Generate a NEW unique ID to avoid any collisions
-      const oldId = String(data.id);
-      const newId = this.generateId();
-      idMap.set(oldId, newId);
-      
+      // PRESERVE ORIGINAL IDs - don't regenerate them!
+      // This ensures node references like "=node_14" keep working
+      const nodeId = String(data.id);
+      idMap.set(nodeId, nodeId);  // Map to itself since we're not changing IDs
+
       const node = {
-        id: newId,  // Use the new ID
+        id: nodeId,  // Use the ORIGINAL ID
         type: data.kind || "Unknown",
         kind: data.kind || "Unknown",
         x: data.position?.x || data.x || 0,
