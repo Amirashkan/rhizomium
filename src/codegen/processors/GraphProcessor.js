@@ -497,10 +497,9 @@ processGraph(graph) {
       for (const match of matches) {
         const nodeIdStr = match[1]; // Extract the captured group (the ID as string)
 
-        // Try to parse as number first (many graphs use numeric IDs)
-        // If it's not a number, keep it as a string
-        const nodeId = /^\d+$/.test(nodeIdStr) ? parseInt(nodeIdStr, 10) : nodeIdStr;
-        nodeIds.push(nodeId);
+        // Keep IDs as strings to match how they're stored in the graph
+        // Node IDs are always strings in the graph (e.g., "15", not 15)
+        nodeIds.push(nodeIdStr);
       }
 
       return nodeIds;
