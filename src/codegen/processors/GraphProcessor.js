@@ -340,12 +340,12 @@ processGraph(graph) {
         console.warn('Invalid ordered nodes array for filtering');
         return [];
       }
-      
+
       if (!outputNode || !outputNode.id) {
         console.warn('Invalid output node for filtering');
         return orderedNodes;
       }
-      
+
       if (!graph || !graph.nodes) {
         console.warn('Invalid graph for upstream filtering');
         return orderedNodes;
@@ -357,21 +357,25 @@ processGraph(graph) {
           byId.set(node.id, node);
         }
       }
-      
+
+      // Get initial upstream nodes from connections
       const upstreamIds = this.getUpstreamSet(outputNode.id, byId);
-      
+
+      // Expand the set to include nodes referenced in parameter expressions
+      const expandedIds = this.collectExpressionReferencedNodes(upstreamIds, byId);
+
       const filteredNodes = orderedNodes.filter((n) => {
         if (!n || !n.id) {
           console.warn('Invalid node in ordered nodes list');
           return false;
         }
-        return upstreamIds.has(n.id);
+        return expandedIds.has(n.id);
       });
-      
-      console.log(`Filtered to ${filteredNodes.length} upstream nodes from ${orderedNodes.length} total`);
+
+      console.log(`Filtered to ${filteredNodes.length} upstream nodes from ${orderedNodes.length} total (including expression references)`);
       return filteredNodes;
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'filter-upstream-nodes',
         orderedCount: orderedNodes?.length || 0,
         outputNodeId: outputNode?.id
@@ -453,9 +457,136 @@ processGraph(graph) {
   }
   
   /**
+   * Extract node IDs referenced in a parameter expression
+   *
+   * This method analyzes parameter values that contain expressions (starting with =)
+   * and extracts all node references in the format "node_<id>".
+   *
+   * Examples:
+   *   "=node_5" -> ["5"]
+   *   "=sin(node_3) * 2" -> ["3"]
+   *   "=node_10_x + node_20_y" -> ["10", "20"]
+   *   "0.5" -> [] (not an expression)
+   *
+   * This enables automatic inclusion of nodes referenced in expressions during
+   * shader compilation, even if they're not directly connected via node.inputs.
+   *
+   * @param {string} paramValue - Parameter value (e.g., "=node_5" or "=sin(node_3)")
+   * @returns {Array<string>} Array of node IDs found in the expression
+   */
+  extractNodeReferencesFromExpression(paramValue) {
+    try {
+      if (!paramValue || typeof paramValue !== 'string') {
+        return [];
+      }
+
+      // Check if it's an expression (starts with =)
+      if (!paramValue.trim().startsWith('=')) {
+        return [];
+      }
+
+      // Extract the expression part after =
+      const expression = paramValue.trim().slice(1);
+
+      // Match all node references in the format: node_<id>
+      // This regex captures node_123, node_5, etc.
+      const nodeRefPattern = /node_(\w+)/g;
+      const matches = expression.matchAll(nodeRefPattern);
+
+      const nodeIds = [];
+      for (const match of matches) {
+        const nodeId = match[1]; // Extract the captured group (the ID)
+        nodeIds.push(nodeId);
+      }
+
+      return nodeIds;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'extract-node-references',
+        paramValue: paramValue
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Recursively collect all nodes referenced in parameter expressions
+   *
+   * This method expands a set of node IDs by scanning their parameters for
+   * expression references to other nodes. It recursively processes newly
+   * discovered nodes to ensure transitive dependencies are included.
+   *
+   * Algorithm:
+   * 1. Start with the initial set of connected nodes
+   * 2. For each node, scan all parameters for expressions
+   * 3. Extract node references from those expressions
+   * 4. Add newly discovered nodes to the set and queue for processing
+   * 5. Repeat until no new nodes are discovered
+   *
+   * Example scenario:
+   *   Node A (output) -> Node B (has param "strength" = "=node_C")
+   *   Node C (isolated, not connected)
+   *
+   *   Without this method: Only A and B would be compiled
+   *   With this method: A, B, and C are all compiled
+   *
+   * @param {Set} currentSet - Current set of node IDs to expand
+   * @param {Map} byId - Map of node ID to node object
+   * @returns {Set} Expanded set including expression-referenced nodes
+   */
+  collectExpressionReferencedNodes(currentSet, byId) {
+    try {
+      const expanded = new Set(currentSet);
+      const toProcess = Array.from(currentSet);
+      const processed = new Set();
+
+      while (toProcess.length > 0) {
+        const nodeId = toProcess.shift();
+
+        if (processed.has(nodeId)) {
+          continue;
+        }
+        processed.add(nodeId);
+
+        const node = byId.get(nodeId);
+        if (!node) {
+          continue;
+        }
+
+        // Scan all parameters for expression references
+        if (node.params && typeof node.params === 'object') {
+          for (const [paramName, paramValue] of Object.entries(node.params)) {
+            const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
+
+            for (const refId of referencedIds) {
+              if (!expanded.has(refId)) {
+                expanded.add(refId);
+                toProcess.push(refId);
+                console.log(`Added expression-referenced node ${refId} from ${nodeId}.${paramName}`);
+              }
+            }
+          }
+        }
+      }
+
+      if (expanded.size > currentSet.size) {
+        console.log(`Expression analysis expanded node set from ${currentSet.size} to ${expanded.size} nodes`);
+      }
+
+      return expanded;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'collect-expression-referenced-nodes',
+        currentSetSize: currentSet?.size
+      });
+      return currentSet;
+    }
+  }
+
+  /**
    * Log debug information about the graph processing
-   * @param {Object} graph 
-   * @param {Array} orderedNodes 
+   * @param {Object} graph
+   * @param {Array} orderedNodes
    */
   logDebugInfo(graph, orderedNodes) {
     try {
