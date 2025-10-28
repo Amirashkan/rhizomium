@@ -273,6 +273,16 @@ clearFunctionCache() {
 getParam(node, paramName, defaultValue) {
   const rawValue = node.params?.[paramName] ?? defaultValue;
 
+  // Handle expressions with = prefix (like "=node_14" or "=time*2")
+  if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
+    try {
+      return unifiedExpressionSystem.generateShader(rawValue);
+    } catch (error) {
+      console.warn('Failed to generate shader for expression:', rawValue, error);
+      return String(defaultValue);
+    }
+  }
+
   // USE UNIFIED AST SYSTEM for dynamic expressions
   // This ensures shader code matches CPU evaluation exactly
   if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
@@ -283,20 +293,20 @@ getParam(node, paramName, defaultValue) {
       return String(defaultValue);
     }
   }
-  
+
   const uniformName = this.uniformManager?.isDynamicParam(node.id, paramName)
     ? this.uniformManager.getUniformName(node.id, paramName)
     : null;
-  
+
   if (uniformName) {
     const sanitizedKey = `${node.id}.${paramName}`.replace(/[^a-zA-Z0-9_]/g, '_');
     const fieldName = sanitizedKey.startsWith('_') ? sanitizedKey : `_${sanitizedKey}`;
     return `u_params.${fieldName}`;
   }
-  
+
   // For static params, evaluate and return the value
   const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, uniformName);
-  
+
   if (typeof result === 'number') {
     return result === Math.floor(result) ? `${result}.0` : result.toString();
   }
