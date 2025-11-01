@@ -10,6 +10,68 @@ export class PreviewComputer {
     this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
   }
 
+  /**
+   * Evaluate a parameter value, handling expressions
+   * @param {*} value - The parameter value (could be number, string, or expression)
+   * @param {Map} values - Map of computed node values
+   * @param {*} defaultValue - Default value if evaluation fails
+   * @returns {number} - Evaluated number value
+   */
+  _evaluateParam(value, values, defaultValue = 0) {
+    // Already a number
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    // Not a string, return default
+    if (typeof value !== 'string') {
+      return defaultValue;
+    }
+
+    const trimmed = value.trim();
+
+    // Check if it looks like an expression
+    const isExpression = trimmed.startsWith('=') ||
+                        /[a-zA-Z_]/.test(trimmed) ||
+                        trimmed.includes('(');
+
+    if (isExpression) {
+      try {
+        // Build context with time and node values
+        const context = {
+          time: this.animationTime,
+          frame: Math.floor(this.animationTime * 60),
+          audioEnvelope: 0, // TODO: Get from audio system if available
+        };
+
+        // Add other node values to context
+        values.forEach((val, id) => {
+          context[`node_${id}`] = val;
+          if (Array.isArray(val)) {
+            context[`node_${id}_x`] = val[0];
+            context[`node_${id}_y`] = val[1];
+            if (val.length > 2) context[`node_${id}_z`] = val[2];
+            if (val.length > 3) context[`node_${id}_w`] = val[3];
+          }
+        });
+
+        // Remove = prefix if present
+        const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
+
+        // Evaluate using expression system
+        const result = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
+        return typeof result === 'number' ? result : defaultValue;
+      } catch (error) {
+        console.error(`[PreviewComputer] Error evaluating param expression "${value}":`, error);
+        return defaultValue;
+      }
+    }
+
+    // Try to parse as number
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? defaultValue : parsed;
+  }
+
   computePreviews(graph) {
     try {
       this.animationTime = performance.now() / 1000;
@@ -26,9 +88,9 @@ export class PreviewComputer {
 
             
             case "LinearGradient": {
-  const angle = node.params?.angle ?? 0.0;
-  const offset = node.params?.offset ?? 0.0;
-  const scale = node.params?.scale ?? 1.0;
+  const angle = this._evaluateParam(node.params?.angle, values, 0.0);
+  const offset = this._evaluateParam(node.params?.offset, values, 0.0);
+  const scale = this._evaluateParam(node.params?.scale, values, 1.0);
   const repeat = node.params?.repeat ?? false;
   
   // Simple UV evaluation at center
@@ -41,10 +103,10 @@ export class PreviewComputer {
 }
 
 case "RadialGradient": {
-  const centerX = node.params?.centerX ?? 0.5;
-  const centerY = node.params?.centerY ?? 0.5;
-  const radius = node.params?.radius ?? 0.5;
-  const falloff = node.params?.falloff ?? 1.0;
+  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
+  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
+  const radius = this._evaluateParam(node.params?.radius, values, 0.5);
+  const falloff = this._evaluateParam(node.params?.falloff, values, 1.0);
   const invert = node.params?.invert ?? false;
   
   const uv = [0.5, 0.5];
@@ -58,10 +120,10 @@ case "RadialGradient": {
 }
 
 case "AngularGradient": {
-  const centerX = node.params?.centerX ?? 0.5;
-  const centerY = node.params?.centerY ?? 0.5;
-  const rotation = node.params?.rotation ?? 0.0;
-  const repeat = node.params?.repeat ?? 1.0;
+  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
+  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
+  const rotation = this._evaluateParam(node.params?.rotation, values, 0.0);
+  const repeat = this._evaluateParam(node.params?.repeat, values, 1.0);
   
   const uv = [0.5, 0.5];
   const dx = uv[0] - centerX;
@@ -210,25 +272,25 @@ case "ConicGradient": {
             }
 
             case "ConstVec2": {
-              const x = parseFloat(node.params?.x) || 0;
-              const y = parseFloat(node.params?.y) || 0;
+              const x = this._evaluateParam(node.params?.x, values, 0);
+              const y = this._evaluateParam(node.params?.y, values, 0);
               result = [x, y];
               break;
             }
 
             case "ConstVec3": {
-              const x = parseFloat(node.params?.x) || 0;
-              const y = parseFloat(node.params?.y) || 0;
-              const z = parseFloat(node.params?.z) || 0;
+              const x = this._evaluateParam(node.params?.x, values, 0);
+              const y = this._evaluateParam(node.params?.y, values, 0);
+              const z = this._evaluateParam(node.params?.z, values, 0);
               result = [x, y, z];
               break;
             }
 
             case "ConstVec4": {
-              const x = parseFloat(node.params?.x) || 0;
-              const y = parseFloat(node.params?.y) || 0;
-              const z = parseFloat(node.params?.z) || 0;
-              const w = parseFloat(node.params?.w) || 1;
+              const x = this._evaluateParam(node.params?.x, values, 0);
+              const y = this._evaluateParam(node.params?.y, values, 0);
+              const z = this._evaluateParam(node.params?.z, values, 0);
+              const w = this._evaluateParam(node.params?.w, values, 1);
               result = [x, y, z, w];
               break;
             }
@@ -697,17 +759,17 @@ case "ConicGradient": {
 
             // Field Nodes
             case "Circle": {
-              const radius = node.params?.radius ?? 0.25;
-              const epsilon = Math.max(0.0001, node.params?.epsilon ?? 0.02);
+              const radius = this._evaluateParam(node.params?.radius, values, 0.25);
+              const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
               result = { type: "circle", radius, epsilon };
               break;
             }
 case "Rectangle": {
-  const centerX = node.params?.centerX ?? 0.5;
-  const centerY = node.params?.centerY ?? 0.5;
-  const width = node.params?.width ?? 0.5;
-  const height = node.params?.height ?? 0.5;
-  const epsilon = Math.max(0.0001, node.params?.epsilon ?? 0.02);
+  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
+  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
+  const width = this._evaluateParam(node.params?.width, values, 0.5);
+  const height = this._evaluateParam(node.params?.height, values, 0.5);
+  const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
   result = { type: "rectangle", centerX, centerY, width, height, epsilon };
   break;
 }
