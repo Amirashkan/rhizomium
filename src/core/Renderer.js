@@ -205,13 +205,13 @@ export class Renderer {
     const label = NodeDefs[node.kind]?.label || node.kind;
     ctx.fillText(label, node.x + 10, node.y + 18);
 
-    // Draw node ID (for referencing in expressions)
+    // Render enhanced thumbnail (before ID so ID is on top)
+    this._renderNodeThumbnail(node);
+
+    // Draw node ID (for referencing in expressions) - AFTER thumbnail so it's visible
     ctx.fillStyle = "#888";
     ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px monospace`;
     ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + 16);
-
-    // Render enhanced thumbnail
-    this._renderNodeThumbnail(node);
 
     // Render preview controls
     this._renderPreviewControls(node);
