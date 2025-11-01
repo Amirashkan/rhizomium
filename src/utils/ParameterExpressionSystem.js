@@ -737,14 +737,27 @@ isIncomplete(value) {
     entry.tabState.values[tab] = value;
   }
 
-  _commitValue(entry, rawValue, param, node, valueManager, onChange) {
+  _commitValue(entry, rawValue, param, node, valueManager, onChange, inputElement = null) {
     if (!entry) return false;
 
     const activeTab = entry.tabState?.active || 'main';
-    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+    let value = typeof rawValue === 'string' ? rawValue.trim() : '';
 
     if (this.isIncomplete(value)) {
       return false;
+    }
+
+    // Auto-add = prefix for expressions
+    let wasModified = false;
+    if (value && !value.startsWith('=') && this._looksLikeExpression(value)) {
+      value = '=' + value;
+      wasModified = true;
+      console.log(`[ExpressionInput] Auto-added = prefix: "${rawValue.trim()}" → "${value}"`);
+
+      // Update the input element to show the = prefix
+      if (inputElement) {
+        inputElement.value = value;
+      }
     }
 
     if (entry.lastValue === value) {
@@ -761,6 +774,26 @@ isIncomplete(value) {
     }
 
     return true;
+  }
+
+  _looksLikeExpression(value) {
+    if (!value || typeof value !== 'string') return false;
+    const trimmed = value.trim();
+
+    // Already has = prefix
+    if (trimmed.startsWith('=')) return false;
+
+    // Contains function calls like sin(, cos(, etc.
+    if (/[a-zA-Z_]\w*\s*\(/.test(trimmed)) return true;
+
+    // Contains common expression keywords
+    const keywords = ['time', 'frame', 'node_', 'audioEnvelope', 'PI', 'E'];
+    if (keywords.some(kw => trimmed.includes(kw))) return true;
+
+    // Contains operators (but not just a negative number)
+    if (/[+\-*/]/.test(trimmed) && !/^-?\d+\.?\d*$/.test(trimmed)) return true;
+
+    return false;
   }
 
   _toggleExpressionTab(entry, input, param, node, valueManager, onChange, resultDisplay) {
@@ -783,7 +816,7 @@ isIncomplete(value) {
       this._autoResizeTextArea(input);
     }
 
-    if (this._commitValue(entry, input.value, param, node, valueManager, onChange)) {
+    if (this._commitValue(entry, input.value, param, node, valueManager, onChange, input)) {
       this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
     } else {
       this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
@@ -833,7 +866,7 @@ isIncomplete(value) {
             inputTimer = null;
           }
 
-          if (this._commitValue(state, input.value, param, node, valueManager, onChange)) {
+          if (this._commitValue(state, input.value, param, node, valueManager, onChange, input)) {
             this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
           }
         }
@@ -878,7 +911,7 @@ isIncomplete(value) {
       inputTimer = setTimeout(() => {
         if (
           !this.isIncomplete(input.value) &&
-          this._commitValue(state, input.value, param, node, valueManager, onChange)
+          this._commitValue(state, input.value, param, node, valueManager, onChange, input)
         ) {
           this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
         }
@@ -895,7 +928,7 @@ isIncomplete(value) {
 
       if (
         !this.isIncomplete(input.value) &&
-        this._commitValue(state, input.value, param, node, valueManager, onChange)
+        this._commitValue(state, input.value, param, node, valueManager, onChange, input)
       ) {
         this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
       }
@@ -1012,7 +1045,7 @@ isIncomplete(value) {
           window.removeEventListener('mouseup', onMouseUp);
 
           if (entry) {
-            this._commitValue(entry, input.value, param, node, valueManager, onChange);
+            this._commitValue(entry, input.value, param, node, valueManager, onChange, input);
             if (resultDisplay) {
               this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
             }
