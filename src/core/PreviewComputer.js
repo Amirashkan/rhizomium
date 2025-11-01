@@ -150,26 +150,36 @@ case "ConicGradient": {
 
               // Check if value is an expression
               if (typeof value === 'string' && value.trim().startsWith('=')) {
-                // Evaluate the expression with access to other node values
-                try {
-                  const expression = value.trim().slice(1).trim();
-                  // Build context with other node values
-                  const context = {};
-                  values.forEach((val, id) => {
-                    context[`node_${id}`] = val;
-                    if (Array.isArray(val)) {
-                      context[`node_${id}_x`] = val[0];
-                      context[`node_${id}_y`] = val[1];
-                      if (val.length > 2) context[`node_${id}_z`] = val[2];
-                      if (val.length > 3) context[`node_${id}_w`] = val[3];
-                    }
-                  });
+                // Use the expression system for proper evaluation
+                if (window.expressionSystem) {
+                  try {
+                    // Build context with time, node values, and other variables
+                    const context = {
+                      time: this.animationTime,
+                      frame: Math.floor(this.animationTime * 60), // Assuming 60 FPS
+                    };
 
-                  // Evaluate expression
-                  const func = new Function(...Object.keys(context), `return (${expression})`);
-                  value = func(...Object.values(context));
-                } catch (error) {
-                  console.warn(`Error evaluating expression in ConstFloat: ${value}`, error);
+                    // Add other node values to context
+                    values.forEach((val, id) => {
+                      context[`node_${id}`] = val;
+                      if (Array.isArray(val)) {
+                        context[`node_${id}_x`] = val[0];
+                        context[`node_${id}_y`] = val[1];
+                        if (val.length > 2) context[`node_${id}_z`] = val[2];
+                        if (val.length > 3) context[`node_${id}_w`] = val[3];
+                      }
+                    });
+
+                    // Evaluate using expression system with full context
+                    const originalExpr = value;
+                    value = window.expressionSystem.evaluateExpression(value, context, node);
+                    console.log(`[PreviewComputer] Evaluated expression "${originalExpr}" to:`, value);
+                  } catch (error) {
+                    console.warn(`Error evaluating expression in ConstFloat: ${value}`, error);
+                    value = 0;
+                  }
+                } else {
+                  console.warn('Expression system not available for ConstFloat evaluation');
                   value = 0;
                 }
               }
