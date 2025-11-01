@@ -1,10 +1,13 @@
 // src/core/PreviewComputer.js
+import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
+
 export class PreviewComputer {
   constructor() {
     this.previewSize = 32;
     this.animationTime = 0;
     this.lastFrameTime = 0;
     this.lastComputedValues = new Map(); // Store computed values for expression system
+    this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
   }
 
   computePreviews(graph) {
@@ -150,36 +153,30 @@ case "ConicGradient": {
 
               // Check if value is an expression
               if (typeof value === 'string' && value.trim().startsWith('=')) {
-                // Use the expression system for proper evaluation
-                if (window.expressionSystem) {
-                  try {
-                    // Build context with time, node values, and other variables
-                    const context = {
-                      time: this.animationTime,
-                      frame: Math.floor(this.animationTime * 60), // Assuming 60 FPS
-                    };
+                try {
+                  // Build context with time and node values
+                  const context = {
+                    time: this.animationTime,
+                    frame: Math.floor(this.animationTime * 60), // Assuming 60 FPS
+                  };
 
-                    // Add other node values to context
-                    values.forEach((val, id) => {
-                      context[`node_${id}`] = val;
-                      if (Array.isArray(val)) {
-                        context[`node_${id}_x`] = val[0];
-                        context[`node_${id}_y`] = val[1];
-                        if (val.length > 2) context[`node_${id}_z`] = val[2];
-                        if (val.length > 3) context[`node_${id}_w`] = val[3];
-                      }
-                    });
+                  // Add other node values to context
+                  values.forEach((val, id) => {
+                    context[`node_${id}`] = val;
+                    if (Array.isArray(val)) {
+                      context[`node_${id}_x`] = val[0];
+                      context[`node_${id}_y`] = val[1];
+                      if (val.length > 2) context[`node_${id}_z`] = val[2];
+                      if (val.length > 3) context[`node_${id}_w`] = val[3];
+                    }
+                  });
 
-                    // Evaluate using expression system with full context
-                    const originalExpr = value;
-                    value = window.expressionSystem.evaluateExpression(value, context, node);
-                    console.log(`[PreviewComputer] Evaluated expression "${originalExpr}" to:`, value);
-                  } catch (error) {
-                    console.warn(`Error evaluating expression in ConstFloat: ${value}`, error);
-                    value = 0;
-                  }
-                } else {
-                  console.warn('Expression system not available for ConstFloat evaluation');
+                  // Evaluate using UnifiedExpressionSystem (has proper math function support)
+                  const originalExpr = value;
+                  value = this.expressionSystem.evaluateCPU(value, context);
+                  console.log(`[PreviewComputer] Evaluated expression "${originalExpr}" to:`, value);
+                } catch (error) {
+                  console.warn(`Error evaluating expression in ConstFloat: ${value}`, error);
                   value = 0;
                 }
               }
