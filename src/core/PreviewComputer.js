@@ -149,7 +149,7 @@ case "ConicGradient": {
             case "ConstFloat": {
               // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
               let value = node.params?.value ?? node.value;
-              console.log(`[PreviewComputer] ConstFloat node ${node.id}: raw value =`, value, `(type: ${typeof value})`);
+              console.log(`[PreviewComputer] ConstFloat node ${node.id}: raw value =`, value, `(type: ${typeof value}), time=${this.animationTime}`);
 
               // Check if value is an expression
               if (typeof value === 'string' && value.trim().startsWith('=')) {
@@ -171,12 +171,16 @@ case "ConicGradient": {
                     }
                   });
 
+                  console.log(`[PreviewComputer] Evaluating expression with context:`, context);
+                  console.log(`[PreviewComputer] Expression system:`, this.expressionSystem);
+
                   // Evaluate using UnifiedExpressionSystem (has proper math function support)
                   const originalExpr = value;
                   value = this.expressionSystem.evaluateCPU(value, context);
-                  console.log(`[PreviewComputer] Evaluated expression "${originalExpr}" to:`, value);
+                  console.log(`[PreviewComputer] Evaluated expression "${originalExpr}" to:`, value, `(type: ${typeof value})`);
                 } catch (error) {
-                  console.warn(`Error evaluating expression in ConstFloat: ${value}`, error);
+                  console.error(`[PreviewComputer] Error evaluating expression in ConstFloat:`, error);
+                  console.error(`[PreviewComputer] Expression was:`, value);
                   value = 0;
                 }
               }
@@ -188,7 +192,7 @@ case "ConicGradient": {
               } else {
                 result = value ?? 0;
               }
-              console.log(`[PreviewComputer] ConstFloat node ${node.id}: computed result =`, result);
+              console.log(`[PreviewComputer] ConstFloat node ${node.id}: final result =`, result);
               break;
             }
 
