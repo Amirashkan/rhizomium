@@ -1,9 +1,92 @@
 // src/core/PreviewComputer.js
+import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
+import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
+
 export class PreviewComputer {
   constructor() {
     this.previewSize = 32;
     this.animationTime = 0;
     this.lastFrameTime = 0;
+    this.lastComputedValues = new Map(); // Store computed values for expression system
+    this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
+  }
+
+  /**
+   * Evaluate a parameter value, handling expressions
+   * @param {*} value - The parameter value (could be number, string, or expression)
+   * @param {Map} values - Map of computed node values
+   * @param {*} defaultValue - Default value if evaluation fails
+   * @returns {number} - Evaluated number value
+   */
+  _evaluateParam(value, values, defaultValue = 0) {
+    // Already a number
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    // Not a string, return default
+    if (typeof value !== 'string') {
+      return defaultValue;
+    }
+
+    const trimmed = value.trim();
+
+    // Check if it looks like an expression
+    const isExpression = trimmed.startsWith('=') ||
+                        /[a-zA-Z_]/.test(trimmed) ||
+                        trimmed.includes('(');
+
+    if (isExpression) {
+      try {
+        // Get audio capture instance
+        let audioCapture = null;
+        try {
+          audioCapture = getBrowserAudioCapture();
+        } catch (e) {
+          // Audio system not available
+        }
+
+        // Build context with time, frame, and audio envelope values
+        const context = {
+          time: this.animationTime,
+          frame: Math.floor(this.animationTime * 60),
+          // Get audio envelope values from audio system if available
+          audioEnvelope: audioCapture?.getValue?.() ?? 0,
+          audioEnvelopeBass: audioCapture?.getAudioEnvelopeBass?.() ?? 0,
+          audioEnvelopeMids: audioCapture?.getAudioEnvelopeMids?.() ?? 0,
+          audioEnvelopeHighs: audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
+          audioEnvelopeFull: audioCapture?.getAudioEnvelopeFull?.() ?? 0,
+          // Constants
+          PI: Math.PI,
+          E: Math.E,
+        };
+
+        // Add other node values to context
+        values.forEach((val, id) => {
+          context[`node_${id}`] = val;
+          if (Array.isArray(val)) {
+            context[`node_${id}_x`] = val[0];
+            context[`node_${id}_y`] = val[1];
+            if (val.length > 2) context[`node_${id}_z`] = val[2];
+            if (val.length > 3) context[`node_${id}_w`] = val[3];
+          }
+        });
+
+        // Remove = prefix if present
+        const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
+
+        // Evaluate using expression system
+        const result = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
+        return typeof result === 'number' ? result : defaultValue;
+      } catch (error) {
+        console.error(`[PreviewComputer] Error evaluating param expression "${value}":`, error);
+        return defaultValue;
+      }
+    }
+
+    // Try to parse as number
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? defaultValue : parsed;
   }
 
   computePreviews(graph) {
@@ -22,9 +105,9 @@ export class PreviewComputer {
 
             
             case "LinearGradient": {
-  const angle = node.params?.angle ?? 0.0;
-  const offset = node.params?.offset ?? 0.0;
-  const scale = node.params?.scale ?? 1.0;
+  const angle = this._evaluateParam(node.params?.angle, values, 0.0);
+  const offset = this._evaluateParam(node.params?.offset, values, 0.0);
+  const scale = this._evaluateParam(node.params?.scale, values, 1.0);
   const repeat = node.params?.repeat ?? false;
   
   // Simple UV evaluation at center
@@ -37,10 +120,10 @@ export class PreviewComputer {
 }
 
 case "RadialGradient": {
-  const centerX = node.params?.centerX ?? 0.5;
-  const centerY = node.params?.centerY ?? 0.5;
-  const radius = node.params?.radius ?? 0.5;
-  const falloff = node.params?.falloff ?? 1.0;
+  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
+  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
+  const radius = this._evaluateParam(node.params?.radius, values, 0.5);
+  const falloff = this._evaluateParam(node.params?.falloff, values, 1.0);
   const invert = node.params?.invert ?? false;
   
   const uv = [0.5, 0.5];
@@ -54,10 +137,10 @@ case "RadialGradient": {
 }
 
 case "AngularGradient": {
-  const centerX = node.params?.centerX ?? 0.5;
-  const centerY = node.params?.centerY ?? 0.5;
-  const rotation = node.params?.rotation ?? 0.0;
-  const repeat = node.params?.repeat ?? 1.0;
+  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
+  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
+  const rotation = this._evaluateParam(node.params?.rotation, values, 0.0);
+  const repeat = this._evaluateParam(node.params?.repeat, values, 1.0);
   
   const uv = [0.5, 0.5];
   const dx = uv[0] - centerX;
@@ -142,21 +225,109 @@ case "ConicGradient": {
               result = this.animationTime;
               break;
 
-            case "ConstFloat":
-              result = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
-              break;
+            case "ConstFloat": {
+              // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
+              let value = node.params?.value ?? node.value;
+              console.log(`[PreviewComputer] ConstFloat node ${node.id}: raw value =`, value, `(type: ${typeof value}), time=${this.animationTime}`);
 
-            case "ConstVec2":
-              result = [node.params?.x ?? 0, node.params?.y ?? 0];
-              break;
+              // Check if value is an expression (with or without = prefix)
+              // The = prefix may have been stripped by ParameterExpressionSystem
+              if (typeof value === 'string') {
+                const trimmed = value.trim();
+                const isExpression = trimmed.startsWith('=') ||
+                                    /[a-zA-Z_]/.test(trimmed) || // Contains letters (functions, variables)
+                                    trimmed.includes('(');        // Contains function calls
 
-            case "ConstVec3":
-              result = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0];
-              break;
+                if (isExpression) {
+                  try {
+                    // Get audio capture instance
+                    let audioCapture = null;
+                    try {
+                      audioCapture = getBrowserAudioCapture();
+                    } catch (e) {
+                      // Audio system not available
+                    }
 
-            case "ConstVec4":
-              result = [node.params?.x ?? 0, node.params?.y ?? 0, node.params?.z ?? 0, node.params?.w ?? 1];
+                    // Build context with time, frame, and audio envelope values
+                    const context = {
+                      time: this.animationTime,
+                      frame: Math.floor(this.animationTime * 60),
+                      // Get audio envelope values from audio system if available
+                      audioEnvelope: audioCapture?.getValue?.() ?? 0,
+                      audioEnvelopeBass: audioCapture?.getAudioEnvelopeBass?.() ?? 0,
+                      audioEnvelopeMids: audioCapture?.getAudioEnvelopeMids?.() ?? 0,
+                      audioEnvelopeHighs: audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
+                      audioEnvelopeFull: audioCapture?.getAudioEnvelopeFull?.() ?? 0,
+                      // Constants
+                      PI: Math.PI,
+                      E: Math.E,
+                    };
+
+                    // Add other node values to context
+                    values.forEach((val, id) => {
+                      context[`node_${id}`] = val;
+                      if (Array.isArray(val)) {
+                        context[`node_${id}_x`] = val[0];
+                        context[`node_${id}_y`] = val[1];
+                        if (val.length > 2) context[`node_${id}_z`] = val[2];
+                        if (val.length > 3) context[`node_${id}_w`] = val[3];
+                      }
+                    });
+
+                    console.log(`[PreviewComputer] Detected expression, evaluating with context:`, context);
+
+                    // Remove = prefix if present before evaluation
+                    const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
+
+                    // Evaluate using UnifiedExpressionSystem (has proper math function support)
+                    value = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
+                    console.log(`[PreviewComputer] Evaluated expression "${expressionWithoutPrefix}" to:`, value, `(type: ${typeof value})`);
+                  } catch (error) {
+                    console.error(`[PreviewComputer] Error evaluating expression in ConstFloat:`, error);
+                    console.error(`[PreviewComputer] Expression was:`, value);
+                    value = 0;
+                  }
+                } else {
+                  // Not an expression, parse as number
+                  const parsed = parseFloat(value);
+                  value = isNaN(parsed) ? 0 : parsed;
+                }
+              }
+
+              // Ensure result is a number
+              if (typeof value === 'string') {
+                const parsed = parseFloat(value);
+                result = isNaN(parsed) ? 0 : parsed;
+              } else {
+                result = value ?? 0;
+              }
+              console.log(`[PreviewComputer] ConstFloat node ${node.id}: final result =`, result);
               break;
+            }
+
+            case "ConstVec2": {
+              const x = this._evaluateParam(node.params?.x, values, 0);
+              const y = this._evaluateParam(node.params?.y, values, 0);
+              result = [x, y];
+              break;
+            }
+
+            case "ConstVec3": {
+              const x = this._evaluateParam(node.params?.x, values, 0);
+              const y = this._evaluateParam(node.params?.y, values, 0);
+              const z = this._evaluateParam(node.params?.z, values, 0);
+              result = [x, y, z];
+              break;
+            }
+
+            case "ConstVec4": {
+              const x = this._evaluateParam(node.params?.x, values, 0);
+              const y = this._evaluateParam(node.params?.y, values, 0);
+              const z = this._evaluateParam(node.params?.z, values, 0);
+              const w = this._evaluateParam(node.params?.w, values, 1);
+              result = [x, y, z, w];
+              break;
+            }
 
             case "Mouse":
               result = [0.5, 0.5]; // Default mouse position
@@ -172,36 +343,36 @@ case "ConicGradient": {
 
             // Math Nodes - Arithmetic
             case "Add": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 0);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 0);
               result = a + b;
               break;
             }
 
             case "Subtract": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 0);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 0);
               result = a - b;
               break;
             }
 
             case "Multiply": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 1);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 1);
               result = a * b;
               break;
             }
 
             case "Divide": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 1);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 1);
               result = b !== 0 ? a / b : 0;
               break;
             }
 
             case "Power": {
-              const base = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
-              const exp = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 2;
+              const base = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.base, values, 1);
+              const exp = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.exp, values, 2);
               result = Math.pow(base, exp);
               break;
             }
@@ -620,19 +791,36 @@ case "ConicGradient": {
               break;
             }
 
+            case "Remap": {
+              const input = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0.5;
+              const inMin = this._evaluateParam(node.params?.inMin, values, 0.0);
+              const inMax = this._evaluateParam(node.params?.inMax, values, 1.0);
+              const outMin = this._evaluateParam(node.params?.outMin, values, 0.0);
+              const outMax = this._evaluateParam(node.params?.outMax, values, 1.0);
+              const shouldClamp = node.params?.clamp ?? false;
+
+              // Remap formula: ((input - inMin) / (inMax - inMin)) * (outMax - outMin) + outMin
+              const inRange = Math.max(0.0001, inMax - inMin);
+              const normalized = (input - inMin) / inRange;
+              const remapped = normalized * (outMax - outMin) + outMin;
+
+              result = shouldClamp ? Math.max(outMin, Math.min(outMax, remapped)) : remapped;
+              break;
+            }
+
             // Field Nodes
             case "Circle": {
-              const radius = node.params?.radius ?? 0.25;
-              const epsilon = Math.max(0.0001, node.params?.epsilon ?? 0.02);
+              const radius = this._evaluateParam(node.params?.radius, values, 0.25);
+              const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
               result = { type: "circle", radius, epsilon };
               break;
             }
 case "Rectangle": {
-  const centerX = node.params?.centerX ?? 0.5;
-  const centerY = node.params?.centerY ?? 0.5;
-  const width = node.params?.width ?? 0.5;
-  const height = node.params?.height ?? 0.5;
-  const epsilon = Math.max(0.0001, node.params?.epsilon ?? 0.02);
+  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
+  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
+  const width = this._evaluateParam(node.params?.width, values, 0.5);
+  const height = this._evaluateParam(node.params?.height, values, 0.5);
+  const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
   result = { type: "rectangle", centerX, centerY, width, height, epsilon };
   break;
 }
@@ -658,6 +846,9 @@ case "Rectangle": {
         values.set(node.id, result);
         node.__preview = result;
       }
+
+      // Store computed values for expression system access
+      this.lastComputedValues = values;
 
       this._generateEnhancedThumbnails(graph.nodes, values);
     } catch (error) {
@@ -1340,8 +1531,21 @@ _renderOutputThumbnail(ctx, size, color) {
       const node = byId.get(nodeId);
       if (!node) return;
 
+      // Visit edge-based dependencies (inputs)
       for (const input of node.inputs || []) {
         if (input) visit(input);
+      }
+
+      // Visit expression-based dependencies (parameter references)
+      if (node.params && typeof node.params === 'object') {
+        for (const paramValue of Object.values(node.params)) {
+          const referencedIds = this._extractNodeReferences(paramValue);
+          for (const refId of referencedIds) {
+            if (byId.has(refId)) {
+              visit(refId);
+            }
+          }
+        }
       }
 
       result.push(node);
@@ -1352,6 +1556,35 @@ _renderOutputThumbnail(ctx, size, color) {
     }
 
     return result;
+  }
+
+  /**
+   * Extract node IDs referenced in a parameter expression
+   * Examples: "=node_5" -> ["5"], "=sin(node_3)*2" -> ["3"], "=node_10_x+node_20_y" -> ["10", "20"]
+   * @param {*} paramValue - Parameter value
+   * @returns {Array<string>} Array of referenced node IDs
+   */
+  _extractNodeReferences(paramValue) {
+    if (!paramValue || typeof paramValue !== 'string') {
+      return [];
+    }
+
+    // Check if it's an expression (starts with =) or contains node references
+    const trimmed = paramValue.trim();
+    if (!trimmed.startsWith('=') && !trimmed.includes('node_')) {
+      return [];
+    }
+
+    // Extract all node references in the format: node_<id>
+    const nodeRefPattern = /node_(\w+)/g;
+    const matches = trimmed.matchAll(nodeRefPattern);
+
+    const nodeIds = [];
+    for (const match of matches) {
+      nodeIds.push(match[1]); // Extract the ID
+    }
+
+    return nodeIds;
   }
 
   _toVec2(v) {

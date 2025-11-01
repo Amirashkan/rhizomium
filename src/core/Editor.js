@@ -7,6 +7,7 @@ import { SelectionManager } from "./SelectionManager.js";
 import { ConnectionManager } from "./ConnectionManager.js";
 import { ViewportManager } from "./ViewportManager.js";
 import { PreviewSystem } from "./PreviewSystem.js";
+import { PreviewComputer } from "./PreviewComputer.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
@@ -773,6 +774,9 @@ connectGPURenderer(renderFunction) {
         throw new Error("No graph or nodes available for preview system");
       }
 
+      // Create PreviewComputer for computing node output values
+      this.previewComputer = new PreviewComputer();
+
       this.previewSystem = PreviewSystem.create(this);
       window.previewSystem = this.previewSystem;
       this.previewIntegration = this.previewSystem.integration;
@@ -781,6 +785,7 @@ connectGPURenderer(renderFunction) {
       window.errorHandler?.handleError(error, {
         component: 'preview-system-initialization'
       });
+      this.previewComputer = null;
       this.previewSystem = null;
       this.previewIntegration = null;
       window.previewSystem = null;
@@ -1822,6 +1827,7 @@ connectGPURenderer(renderFunction) {
       this.renderer = null;
       this.menu = null;
       this.paramPanel = null;
+      this.previewComputer = null;
       this.previewSystem = null;
       this.previewIntegration = null;
       this.undoManager = null;

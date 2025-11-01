@@ -6,6 +6,7 @@ import { FileInputHandler } from './components/FileInputHandler.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
+import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
@@ -29,7 +30,10 @@ export class ParameterPanel {
     this._pendingPreviewUpdates = new Map();
     this._previewFrame = null;
     this._outputRebuildTimeout = null;
-    
+
+    // Initialize GraphProcessor for expression-aware downstream tracking
+    this.graphProcessor = new GraphProcessor();
+
     // Initialize binding system
     this.bindingSystem = new ParameterBindingSystem(graph, eventSystem, undoManager);
     
@@ -1458,12 +1462,11 @@ _processPreviewUpdate(node) {
       console.log('Regenerated preview for node:', node.id);
       
       if (window.editor?.graph?.nodes) {
-        const downstreamNodes = window.editor.graph.nodes.filter(n => 
-          n.inputs && Array.isArray(n.inputs) && n.inputs.includes(node.id)
-        );
-        
-        console.log(`Found ${downstreamNodes.length} downstream nodes for ${node.id}`);
-        
+        // Use expression-aware downstream tracking
+        const downstreamNodes = this.graphProcessor.findDownstreamNodes(node.id, window.editor.graph.nodes);
+
+        console.log(`Found ${downstreamNodes.length} downstream nodes for ${node.id} (including expression dependencies)`);
+
         downstreamNodes.forEach(downstreamNode => {
           if (!downstreamNode || downstreamNode.id === node.id) {
             return;
@@ -1474,23 +1477,22 @@ _processPreviewUpdate(node) {
           }
           this.updateNodePreview(downstreamNode);
         });
-        
+
         // CRITICAL: Recursively check ALL downstream nodes for OutputFinal
         const hasOutputInChain = (nodeId, visited = new Set()) => {
           if (visited.has(nodeId)) return false;
           visited.add(nodeId);
-          
+
           const currentNode = window.editor.graph.nodes.find(n => n.id === nodeId);
           if (!currentNode) return false;
-          
+
           if (currentNode.kind.toLowerCase() === 'outputfinal') {
             return true;
           }
-          
-          const downstream = window.editor.graph.nodes.filter(n => 
-            n.inputs && Array.isArray(n.inputs) && n.inputs.includes(nodeId)
-          );
-          
+
+          // Use expression-aware downstream tracking
+          const downstream = this.graphProcessor.findDownstreamNodes(nodeId, window.editor.graph.nodes);
+
           return downstream.some(n => hasOutputInChain(n.id, visited));
         };
         
@@ -1506,7 +1508,14 @@ _processPreviewUpdate(node) {
         }
       }
     }
-    
+
+    // Trigger canvas redraw to update node labels with new preview values
+    if (window.editor?.draw) {
+      window.editor.draw();
+    } else if (typeof window.render === 'function') {
+      window.render();
+    }
+
   } catch (error) {
     console.warn(`Error updating preview for node ${node.id}:`, error);
   }

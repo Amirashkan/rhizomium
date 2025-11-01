@@ -10,6 +10,39 @@ import { BlendNodes } from './nodes/BlendNodes.js';
 let _nextId = 1;
 
 /**
+ * Reset the node ID counter (used when loading graphs)
+ */
+export function resetNodeIdCounter(startFrom = 1) {
+  _nextId = startFrom;
+  console.log(`Node ID counter reset to ${_nextId}`);
+}
+
+/**
+ * Update the node ID counter to be higher than all existing node IDs
+ */
+export function updateNodeIdCounter(existingNodes) {
+  if (!existingNodes || !Array.isArray(existingNodes)) {
+    return;
+  }
+
+  let maxId = 0;
+  for (const node of existingNodes) {
+    if (node && node.id) {
+      // Try to parse the ID as a number
+      const numId = parseInt(node.id, 10);
+      if (!isNaN(numId) && numId > maxId) {
+        maxId = numId;
+      }
+    }
+  }
+
+  if (maxId > 0) {
+    _nextId = maxId + 1;
+    console.log(`Node ID counter updated to ${_nextId} based on existing nodes`);
+  }
+}
+
+/**
  * Central registry of all node definitions organized by category
  * 
  * Categories:

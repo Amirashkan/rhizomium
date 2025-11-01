@@ -150,8 +150,8 @@ class Tokenizer {
 
       const char = this.peek();
 
-      // Numbers
-      if (this.isDigit(char)) {
+      // Numbers (including .5 notation)
+      if (this.isDigit(char) || (char === '.' && this.isDigit(this.input[this.position + 1]))) {
         this.tokens.push(this.readNumber());
         continue;
       }

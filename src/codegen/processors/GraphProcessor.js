@@ -340,12 +340,12 @@ processGraph(graph) {
         console.warn('Invalid ordered nodes array for filtering');
         return [];
       }
-      
+
       if (!outputNode || !outputNode.id) {
         console.warn('Invalid output node for filtering');
         return orderedNodes;
       }
-      
+
       if (!graph || !graph.nodes) {
         console.warn('Invalid graph for upstream filtering');
         return orderedNodes;
@@ -357,21 +357,29 @@ processGraph(graph) {
           byId.set(node.id, node);
         }
       }
-      
+
+      // Get initial upstream nodes from connections
       const upstreamIds = this.getUpstreamSet(outputNode.id, byId);
-      
+
+      // Expand the set to include nodes referenced in parameter expressions
+      const expandedIds = this.collectExpressionReferencedNodes(upstreamIds, byId);
+
       const filteredNodes = orderedNodes.filter((n) => {
         if (!n || !n.id) {
           console.warn('Invalid node in ordered nodes list');
           return false;
         }
-        return upstreamIds.has(n.id);
+        return expandedIds.has(n.id);
       });
-      
-      console.log(`Filtered to ${filteredNodes.length} upstream nodes from ${orderedNodes.length} total`);
-      return filteredNodes;
+
+      console.log(`Filtered to ${filteredNodes.length} upstream nodes from ${orderedNodes.length} total (including expression references)`);
+
+      // Re-sort to ensure expression-referenced nodes come before nodes that reference them
+      const resortedNodes = this.resortWithExpressionDependencies(filteredNodes, byId);
+
+      return resortedNodes;
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'filter-upstream-nodes',
         orderedCount: orderedNodes?.length || 0,
         outputNodeId: outputNode?.id
@@ -453,9 +461,315 @@ processGraph(graph) {
   }
   
   /**
+   * Extract node IDs referenced in a parameter expression
+   *
+   * This method analyzes parameter values that contain expressions (starting with =)
+   * and extracts all node references in the format "node_<id>".
+   *
+   * Examples:
+   *   "=node_5" -> ["5"]
+   *   "=sin(node_3) * 2" -> ["3"]
+   *   "=node_10_x + node_20_y" -> ["10", "20"]
+   *   "0.5" -> [] (not an expression)
+   *
+   * This enables automatic inclusion of nodes referenced in expressions during
+   * shader compilation, even if they're not directly connected via node.inputs.
+   *
+   * @param {string} paramValue - Parameter value (e.g., "=node_5" or "=sin(node_3)")
+   * @returns {Array<string>} Array of node IDs found in the expression
+   */
+  extractNodeReferencesFromExpression(paramValue) {
+    try {
+      if (!paramValue || typeof paramValue !== 'string') {
+        return [];
+      }
+
+      // Check if it's an expression (starts with =)
+      if (!paramValue.trim().startsWith('=')) {
+        return [];
+      }
+
+      // Extract the expression part after =
+      const expression = paramValue.trim().slice(1);
+
+      // Match all node references in the format: node_<id>
+      // This regex captures node_123, node_5, etc.
+      const nodeRefPattern = /node_(\w+)/g;
+      const matches = expression.matchAll(nodeRefPattern);
+
+      const nodeIds = [];
+      for (const match of matches) {
+        const nodeIdStr = match[1]; // Extract the captured group (the ID as string)
+
+        // Keep IDs as strings to match how they're stored in the graph
+        // Node IDs are always strings in the graph (e.g., "15", not 15)
+        nodeIds.push(nodeIdStr);
+      }
+
+      return nodeIds;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'extract-node-references',
+        paramValue: paramValue
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Recursively collect all nodes referenced in parameter expressions
+   *
+   * This method expands a set of node IDs by scanning their parameters for
+   * expression references to other nodes. It recursively processes newly
+   * discovered nodes to ensure transitive dependencies are included.
+   *
+   * Algorithm:
+   * 1. Start with the initial set of connected nodes
+   * 2. For each node, scan all parameters for expressions
+   * 3. Extract node references from those expressions
+   * 4. Add newly discovered nodes to the set and queue for processing
+   * 5. Repeat until no new nodes are discovered
+   *
+   * Example scenario:
+   *   Node A (output) -> Node B (has param "strength" = "=node_C")
+   *   Node C (isolated, not connected)
+   *
+   *   Without this method: Only A and B would be compiled
+   *   With this method: A, B, and C are all compiled
+   *
+   * @param {Set} currentSet - Current set of node IDs to expand
+   * @param {Map} byId - Map of node ID to node object
+   * @returns {Set} Expanded set including expression-referenced nodes
+   */
+  collectExpressionReferencedNodes(currentSet, byId) {
+    try {
+      const expanded = new Set(currentSet);
+      const toProcess = Array.from(currentSet);
+      const processed = new Set();
+
+      while (toProcess.length > 0) {
+        const nodeId = toProcess.shift();
+
+        if (processed.has(nodeId)) {
+          continue;
+        }
+        processed.add(nodeId);
+
+        const node = byId.get(nodeId);
+        if (!node) {
+          continue;
+        }
+
+        // Scan all parameters for expression references
+        if (node.params && typeof node.params === 'object') {
+          for (const [paramName, paramValue] of Object.entries(node.params)) {
+            const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
+
+            for (const refId of referencedIds) {
+              if (!expanded.has(refId)) {
+                // Verify the node exists before adding
+                const referencedNode = byId.get(refId);
+                if (referencedNode) {
+                  expanded.add(refId);
+                  toProcess.push(refId);
+                  console.log(`✓ Added expression-referenced node ${refId} (${referencedNode.kind || 'unknown'}) from node ${nodeId}.${paramName} = "${paramValue}"`);
+
+                  // CRITICAL: Also add all upstream dependencies of this referenced node
+                  // When node A references node B in an expression, we need node B AND all of B's inputs
+                  const upstreamOfReferenced = this.getUpstreamSet(refId, byId);
+                  for (const upstreamId of upstreamOfReferenced) {
+                    if (!expanded.has(upstreamId)) {
+                      expanded.add(upstreamId);
+                      toProcess.push(upstreamId);
+                      console.log(`  ↳ Added upstream dependency ${upstreamId} (${byId.get(upstreamId)?.kind || 'unknown'}) of expression-referenced node ${refId}`);
+                    }
+                  }
+                } else {
+                  console.warn(`✗ Node ${refId} referenced in expression "${paramValue}" not found in graph (from node ${nodeId}.${paramName})`);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (expanded.size > currentSet.size) {
+        console.log(`Expression analysis expanded node set from ${currentSet.size} to ${expanded.size} nodes`);
+      }
+
+      return expanded;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'collect-expression-referenced-nodes',
+        currentSetSize: currentSet?.size
+      });
+      return currentSet;
+    }
+  }
+
+  /**
+   * Re-sort nodes to respect expression dependencies
+   *
+   * This method performs a topological sort on the filtered nodes,
+   * taking into account both graph edge dependencies AND expression
+   * dependencies (e.g., node A referencing node B in a parameter).
+   *
+   * @param {Array} nodes - Filtered nodes to re-sort
+   * @param {Map} byId - Map of node ID to node object
+   * @returns {Array} Nodes sorted in dependency order
+   */
+  resortWithExpressionDependencies(nodes, byId) {
+    try {
+      if (!nodes || nodes.length === 0) {
+        return nodes;
+      }
+
+      const nodeIds = new Set(nodes.map(n => n.id));
+
+      // Build dependency map: node -> Set of nodes it depends on
+      const dependencies = new Map();
+
+      for (const node of nodes) {
+        const deps = new Set();
+
+        // Add edge-based dependencies (from inputs)
+        if (node.inputs && Array.isArray(node.inputs)) {
+          for (const inputId of node.inputs) {
+            if (inputId && nodeIds.has(inputId)) {
+              deps.add(inputId);
+            }
+          }
+        }
+
+        // Add expression-based dependencies
+        if (node.params && typeof node.params === 'object') {
+          for (const paramValue of Object.values(node.params)) {
+            const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
+            for (const refId of referencedIds) {
+              if (nodeIds.has(refId)) {
+                deps.add(refId);
+              }
+            }
+          }
+        }
+
+        dependencies.set(node.id, deps);
+      }
+
+      // Topological sort using Kahn's algorithm
+      const sorted = [];
+      const inDegree = new Map();
+
+      // Calculate in-degrees
+      for (const node of nodes) {
+        inDegree.set(node.id, 0);
+      }
+
+      for (const [nodeId, deps] of dependencies.entries()) {
+        for (const depId of deps) {
+          inDegree.set(depId, (inDegree.get(depId) || 0));
+          inDegree.set(nodeId, (inDegree.get(nodeId) || 0) + 1);
+        }
+      }
+
+      // Queue nodes with no dependencies
+      const queue = [];
+      for (const node of nodes) {
+        if (inDegree.get(node.id) === 0) {
+          queue.push(node);
+        }
+      }
+
+      // Process queue
+      while (queue.length > 0) {
+        const node = queue.shift();
+        sorted.push(node);
+
+        // Reduce in-degree for dependent nodes
+        for (const otherNode of nodes) {
+          const deps = dependencies.get(otherNode.id);
+          if (deps && deps.has(node.id)) {
+            const newDegree = inDegree.get(otherNode.id) - 1;
+            inDegree.set(otherNode.id, newDegree);
+            if (newDegree === 0) {
+              queue.push(otherNode);
+            }
+          }
+        }
+      }
+
+      // Check for cycles
+      if (sorted.length !== nodes.length) {
+        console.warn('Circular dependency detected in expression references, using partial sort');
+        // Add remaining nodes in original order
+        for (const node of nodes) {
+          if (!sorted.includes(node)) {
+            sorted.push(node);
+          }
+        }
+      }
+
+      console.log(`Re-sorted ${sorted.length} nodes to respect expression dependencies`);
+      return sorted;
+
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'resort-with-expression-dependencies',
+        nodeCount: nodes?.length
+      });
+      return nodes;
+    }
+  }
+
+  /**
+   * Find all downstream nodes that depend on a given node
+   * Includes both edge-based dependencies (inputs) and expression-based dependencies
+   *
+   * @param {string} nodeId - The node ID to find downstream nodes for
+   * @param {Array} allNodes - All nodes in the graph
+   * @returns {Array} Downstream nodes
+   */
+  findDownstreamNodes(nodeId, allNodes) {
+    try {
+      if (!nodeId || !allNodes || !Array.isArray(allNodes)) {
+        return [];
+      }
+
+      return allNodes.filter(node => {
+        if (!node || node.id === nodeId) {
+          return false;
+        }
+
+        // Check edge-based dependency (inputs)
+        if (node.inputs && Array.isArray(node.inputs) && node.inputs.includes(nodeId)) {
+          return true;
+        }
+
+        // Check expression-based dependency (parameters)
+        if (node.params && typeof node.params === 'object') {
+          for (const paramValue of Object.values(node.params)) {
+            const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
+            if (referencedIds.includes(nodeId)) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      });
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'find-downstream-nodes',
+        nodeId: nodeId
+      });
+      return [];
+    }
+  }
+
+  /**
    * Log debug information about the graph processing
-   * @param {Object} graph 
-   * @param {Array} orderedNodes 
+   * @param {Object} graph
+   * @param {Array} orderedNodes
    */
   logDebugInfo(graph, orderedNodes) {
     try {

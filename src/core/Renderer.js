@@ -205,8 +205,13 @@ export class Renderer {
     const label = NodeDefs[node.kind]?.label || node.kind;
     ctx.fillText(label, node.x + 10, node.y + 18);
 
-    // Render enhanced thumbnail
+    // Render enhanced thumbnail (before ID so ID is on top)
     this._renderNodeThumbnail(node);
+
+    // Draw node ID (for referencing in expressions) - AFTER thumbnail so it's visible
+    ctx.fillStyle = "#888";
+    ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px monospace`;
+    ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + 16);
 
     // Render preview controls
     this._renderPreviewControls(node);
@@ -465,22 +470,63 @@ export class Renderer {
 
     let labelText = pinType;
 
-    // Enhanced labels with more context
-    if (node.kind === "ConstFloat" && typeof node.value === "number") {
-      labelText = `${node.value.toFixed(2)}`;
-    } else if (
-      node.kind === "ConstVec2" &&
-      node.x !== undefined &&
-      node.y !== undefined
-    ) {
-      labelText = `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})`;
-    } else if (node.kind === "ConstVec3" && node.x !== undefined) {
-      labelText = `(${(node.x || 0).toFixed(1)}, ${(node.y || 0).toFixed(1)}, ${(node.z || 0).toFixed(1)})`;
-    } else if (node.kind === "Expr" && node.expr) {
-      labelText =
-        node.expr.length > 8 ? node.expr.substring(0, 8) + "..." : node.expr;
-    } else if (pinDef?.label) {
-      labelText = pinDef.label;
+    // Use computed preview values from PreviewComputer
+    // This correctly handles expressions like =node_1
+    let previewValue = node.__preview;
+
+    // Try to get from PreviewComputer if available (most up-to-date)
+    if (editor.previewComputer && editor.previewComputer.lastComputedValues) {
+      const computedValue = editor.previewComputer.lastComputedValues.get(node.id);
+      if (computedValue !== undefined) {
+        previewValue = computedValue;
+      }
+    }
+
+    // Format the preview value
+    if (previewValue !== undefined && previewValue !== null) {
+      if (typeof previewValue === 'number') {
+        // Single number output
+        labelText = previewValue.toFixed(2);
+      } else if (Array.isArray(previewValue)) {
+        // Vector output
+        if (pinIndex > 0 && previewValue.length > pinIndex) {
+          // Multi-output node - show specific component
+          labelText = previewValue[pinIndex].toFixed(2);
+        } else if (previewValue.length === 2) {
+          labelText = `(${previewValue[0].toFixed(1)}, ${previewValue[1].toFixed(1)})`;
+        } else if (previewValue.length === 3) {
+          labelText = `(${previewValue[0].toFixed(1)}, ${previewValue[1].toFixed(1)}, ${previewValue[2].toFixed(1)})`;
+        } else if (previewValue.length === 4) {
+          labelText = `(${previewValue[0].toFixed(1)}, ${previewValue[1].toFixed(1)}, ${previewValue[2].toFixed(1)}, ${previewValue[3].toFixed(1)})`;
+        }
+      } else if (typeof previewValue === 'object' && previewValue.type === 'split') {
+        // Split node - show component value
+        if (previewValue.values && previewValue.values[pinIndex] !== undefined) {
+          labelText = previewValue.values[pinIndex].toFixed(2);
+        }
+      }
+    } else {
+      // Fallback to old behavior for specific node types
+      if (node.kind === "ConstFloat") {
+        const value = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
+        if (typeof value === 'number') {
+          labelText = `${value.toFixed(2)}`;
+        }
+      } else if (node.kind === "ConstVec2") {
+        const x = node.params?.x ?? node.x ?? 0;
+        const y = node.params?.y ?? node.y ?? 0;
+        labelText = `(${x.toFixed(1)}, ${y.toFixed(1)})`;
+      } else if (node.kind === "ConstVec3") {
+        const x = node.params?.x ?? node.x ?? 0;
+        const y = node.params?.y ?? node.y ?? 0;
+        const z = node.params?.z ?? node.z ?? 0;
+        labelText = `(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`;
+      } else if (node.kind === "Expr" && node.expr) {
+        labelText =
+          node.expr.length > 8 ? node.expr.substring(0, 8) + "..." : node.expr;
+      } else if (pinDef?.label) {
+        labelText = pinDef.label;
+      }
     }
 
     // Skip label if it would be too cramped

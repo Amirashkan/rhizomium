@@ -28,21 +28,24 @@ export class MathNodes {
   /**
    * Compile math nodes with type awareness
    */
-  compile(node, getInput) {
+  compile(node, getInput, getParam = null) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
-    
+
+    // Fallback for when getParam is not provided
+    const resolveParam = getParam || ((paramName, defaultValue) => defaultValue);
+
     switch (node.kind) {
       // Arithmetic Operations
       case 'Add':
-        return this.compileBinaryOp(nodeId, getInput, '+');
+        return this.compileBinaryOp(nodeId, node, getInput, resolveParam, '+', '0.0', '0.0');
       case 'Subtract':
-        return this.compileBinaryOp(nodeId, getInput, '-');
+        return this.compileBinaryOp(nodeId, node, getInput, resolveParam, '-', '0.0', '0.0');
       case 'Multiply':
-        return this.compileBinaryOp(nodeId, getInput, '*');
+        return this.compileBinaryOp(nodeId, node, getInput, resolveParam, '*', '1.0', '1.0');
       case 'Divide':
-        return this.compileDivide(nodeId, getInput);
+        return this.compileDivide(nodeId, node, getInput, resolveParam);
       case 'Power':
-        return this.compileBinaryMath(nodeId, getInput, 'pow');
+        return this.compileBinaryMath(nodeId, node, getInput, resolveParam, 'pow', '1.0', '2.0');
         
       // Trigonometric Functions
       case 'Sin':
@@ -176,29 +179,30 @@ export class MathNodes {
   }
   
   /**
-   * Compile binary operations (type-aware)
+   * Compile binary operations (type-aware) with parameter fallback support
    */
-compileBinaryOp(nodeId, getInput, operator) {
+compileBinaryOp(nodeId, node, getInput, getParam, operator, defaultA = '0.0', defaultB = '0.0') {
   const aInfo = getInput(0, null, null);
   const bInfo = getInput(1, null, null);
-  
+
   const aType = aInfo.type || 'f32';
   const bType = bInfo.type || 'f32';
-  
+
   // If types don't match, convert both to the larger type
   let targetType = aType;
   if (aType !== bType) {
     const typeRank = { 'f32': 1, 'vec2': 2, 'vec3': 3, 'vec4': 4 };
     targetType = typeRank[aType] > typeRank[bType] ? aType : bType;
   }
-  
-  const a = aInfo.code || this.getDefaultForType(targetType);
-  const b = bInfo.code || this.getDefaultForType(targetType);
-  
+
+  // Use parameter values as fallback if input not connected
+  const a = aInfo.code || getParam('a', defaultA);
+  const b = bInfo.code || getParam('b', defaultB);
+
   // Convert if needed
   const aConverted = aType === targetType ? a : this.convertToType(a, aType, targetType);
   const bConverted = bType === targetType ? b : this.convertToType(b, bType, targetType);
-  
+
   return {
     line: `let node_${nodeId} = (${aConverted}) ${operator} (${bConverted});`,
     outputType: targetType
@@ -222,18 +226,18 @@ convertToType(expr, fromType, toType) {
 }
   
   /**
-   * Compile divide with safety check (type-aware)
+   * Compile divide with safety check (type-aware) and parameter fallback
    */
-  compileDivide(nodeId, getInput) {
+  compileDivide(nodeId, node, getInput, getParam) {
     const aInfo = getInput(0, null, null);
     const bInfo = getInput(1, null, null);
-    
-    const a = aInfo.code || this.getOneForType(aInfo.type || 'f32');
-    const b = bInfo.code || this.getOneForType(bInfo.type || 'f32');
-    
+
+    const a = aInfo.code || getParam('a', '1.0');
+    const b = bInfo.code || getParam('b', '1.0');
+
     const outputType = aInfo.type || bInfo.type || 'f32';
     const epsilon = this.getEpsilonForType(outputType);
-    
+
     return {
       line: `let node_${nodeId} = (${a}) / max((${b}), ${epsilon});`,
       outputType: outputType
@@ -270,17 +274,21 @@ convertToType(expr, fromType, toType) {
   }
   
   /**
-   * Compile binary math functions (type-aware)
+   * Compile binary math functions (type-aware) with parameter fallback
    */
-  compileBinaryMath(nodeId, getInput, funcName) {
+  compileBinaryMath(nodeId, node, getInput, getParam, funcName, defaultA = '0.0', defaultB = '0.0') {
     const aInfo = getInput(0, null, null);
     const bInfo = getInput(1, null, null);
-    
-    const a = aInfo.code || this.getDefaultForType(aInfo.type || 'f32');
-    const b = bInfo.code || this.getDefaultForType(bInfo.type || 'f32');
-    
+
+    // Use parameters as fallback: for Power, it's base/exp; for others, it's a/b
+    const paramNameA = node.kind === 'Power' ? 'base' : 'a';
+    const paramNameB = node.kind === 'Power' ? 'exp' : 'b';
+
+    const a = aInfo.code || getParam(paramNameA, defaultA);
+    const b = bInfo.code || getParam(paramNameB, defaultB);
+
     const outputType = aInfo.type || bInfo.type || 'f32';
-    
+
     return {
       line: `let node_${nodeId} = ${funcName}(${a}, ${b});`,
       outputType: outputType

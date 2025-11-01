@@ -160,11 +160,11 @@ constructor(editor) {
     }
   }
 generateNodePreview(node) {
-    console.log(`Generating preview for: ${node.kind} ${node.kind.toLowerCase()}`);
+  // Skip visual thumbnail generation for input-only nodes
+  // (Their values are computed in updateAllPreviews before this is called)
   const INPUT_ONLY_NODES = ['time', 'uv', 'constfloat', 'constint', 'constvec2', 'constvec3'];
   if (INPUT_ONLY_NODES.includes(node.kind.toLowerCase())) {
-    console.log(`⏭️ Skipping preview for input-only node: ${node.kind}`);
-    return; // Don't generate previews for nodes that only provide values
+    return; // Don't generate visual thumbnails for nodes that only provide values
   }
   try {
     if (!node) {
@@ -255,9 +255,18 @@ updateAllPreviews(nodes) {
       console.warn('updateAllPreviews called with invalid nodes:', nodes);
       return;
     }
-    
+
     console.log('Updating all previews for', nodes.length, 'nodes');
-    
+
+    // CRITICAL: Compute all node output values FIRST before generating visual previews
+    // This ensures values are available for display on output pins
+    if (this.editor?.previewComputer && this.editor?.graph) {
+      console.log('🔢 Computing values for all nodes');
+      this.editor.previewComputer.computePreviews(this.editor.graph);
+    } else {
+      console.warn('⚠️ PreviewComputer or graph not available');
+    }
+
     // Sort nodes in topological order so dependencies are rendered first
     const sortedNodes = this.topologicalSort(nodes);
     

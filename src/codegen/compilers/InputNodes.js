@@ -14,59 +14,72 @@ export class InputNodes {
   
   /**
    * Compile input nodes
-   * @param {Object} node 
-   * @param {Function} getInput 
+   * @param {Object} node
+   * @param {Function} getInput
+   * @param {Function} getParam - Resolves parameter values (including node references)
    * @returns {Object} { line, outputType }
    */
-  compile(node, getInput) {
+  compile(node, getInput, getParam = null) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
-    
+
+    // Fallback for when getParam is not provided (backwards compatibility)
+    const resolveParam = getParam || ((paramName, defaultValue) => {
+      const value = node.params?.[paramName];
+      if (typeof value === 'number') return value.toFixed(6);
+      const parsed = parseFloat(value);
+      return isNaN(parsed) ? defaultValue : parsed.toFixed(6);
+    });
+
     switch (node.kind) {
       case 'UV':
         return {
           line: `let node_${nodeId} = in.uv;`,
           outputType: "vec2"
         };
-        
+
       case 'Time':
         return {
           line: `let node_${nodeId} = g.time;`,
           outputType: "f32"
         };
-        
-      case 'ConstFloat':
-        const floatValue = typeof node.value === "number" ? node.value : (node.params?.value ?? 0.0);
+
+      case 'ConstFloat': {
+        const value = resolveParam('value', '0.0');
         return {
-          line: `let node_${nodeId} = ${floatValue.toFixed(6)};`,
+          line: `let node_${nodeId} = ${value};`,
           outputType: "f32"
         };
-        
-      case 'ConstVec2':
-        const x2 = parseFloat(node.params?.x) || 0;
-        const y2 = parseFloat(node.params?.y) || 0;
+      }
+
+      case 'ConstVec2': {
+        const x = resolveParam('x', '0.0');
+        const y = resolveParam('y', '0.0');
         return {
-          line: `let node_${nodeId} = vec2<f32>(${x2.toFixed(6)}, ${y2.toFixed(6)});`,
+          line: `let node_${nodeId} = vec2<f32>(${x}, ${y});`,
           outputType: "vec2"
         };
-        
-      case 'ConstVec3':
-        const x3 = parseFloat(node.params?.x) || 0;
-        const y3 = parseFloat(node.params?.y) || 0;
-        const z3 = parseFloat(node.params?.z) || 0;
+      }
+
+      case 'ConstVec3': {
+        const x = resolveParam('x', '0.0');
+        const y = resolveParam('y', '0.0');
+        const z = resolveParam('z', '0.0');
         return {
-          line: `let node_${nodeId} = vec3<f32>(${x3.toFixed(6)}, ${y3.toFixed(6)}, ${z3.toFixed(6)});`,
+          line: `let node_${nodeId} = vec3<f32>(${x}, ${y}, ${z});`,
           outputType: "vec3"
         };
-        
-      case 'ConstVec4':
-        const x4 = parseFloat(node.params?.x) || 0;
-        const y4 = parseFloat(node.params?.y) || 0;
-        const z4 = parseFloat(node.params?.z) || 0;
-        const w4 = parseFloat(node.params?.w) || 1;
+      }
+
+      case 'ConstVec4': {
+        const x = resolveParam('x', '0.0');
+        const y = resolveParam('y', '0.0');
+        const z = resolveParam('z', '0.0');
+        const w = resolveParam('w', '1.0');
         return {
-          line: `let node_${nodeId} = vec4<f32>(${x4.toFixed(6)}, ${y4.toFixed(6)}, ${z4.toFixed(6)}, ${w4.toFixed(6)});`,
+          line: `let node_${nodeId} = vec4<f32>(${x}, ${y}, ${z}, ${w});`,
           outputType: "vec4"
         };
+      }
         
       case 'Mouse':
         return {

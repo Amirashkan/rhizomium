@@ -120,15 +120,19 @@ export class ParameterValueManager {
 
   // Update node parameter with connected input support, undo tracking, and expression support
   updateNodeParameter(node, paramName, value, onChange) {
-    console.log("Parameter update:", node.kind, paramName, value);
+    console.log("[updateNodeParameter] CALLED:", node.kind, paramName, "newValue:", value, "type:", typeof value);
 
     // Get the old raw value for undo tracking
     const oldValue = this.getRawParameterValue(node, paramName, null);
-    
+    console.log("[updateNodeParameter] oldValue:", oldValue, "type:", typeof oldValue);
+
     // Don't record undo if value hasn't actually changed
     if (oldValue === value) {
+      console.log("[updateNodeParameter] SKIPPING - values are equal");
       return;
     }
+
+    console.log("[updateNodeParameter] PROCEEDING with update");
 
     const connectedSourceNode = this._findConnectedSourceNode(node, paramName);
 
@@ -408,5 +412,14 @@ export class ParameterValueManager {
       console.log("Calling onParameterChange for:", node.kind);
       window.editor.previewIntegration.onParameterChange(node);
     }
+  }
+
+  // Convenience methods for ParameterPanel compatibility
+  setValue(node, paramName, value) {
+    this.updateNodeParameter(node, paramName, value, window.editor?.onChange);
+  }
+
+  getValue(node, paramName, defaultValue) {
+    return this.getRawParameterValue(node, paramName, defaultValue);
   }
 }

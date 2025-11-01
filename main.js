@@ -6,7 +6,7 @@ import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { Graph } from "./src/data/Graph.js";
-import { makeNode, NodeDefs } from "./src/data/NodeDefs.js";
+import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
 import { TextureManager } from "./src/core/TextureManager.js";
@@ -17,6 +17,7 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
+window.updateNodeIdCounter = updateNodeIdCounter;
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -1417,6 +1418,21 @@ function handleRenderFrame(frameState) {
 
   if (undoManager) {
     undoManager.updateUI();
+  }
+
+  // Update preview values and canvas for time/audio-based expressions
+  // Only when actually animating (not manual updates)
+  if (!frameState.manual) {
+    // Update preview values for time/audio-based expressions
+    // This ensures node labels show current values
+    if (editor?.previewComputer && editor?.graph) {
+      editor.previewComputer.computePreviews(editor.graph);
+    }
+
+    // Redraw canvas to update labels
+    if (editor?.draw) {
+      editor.draw();
+    }
   }
 }
 

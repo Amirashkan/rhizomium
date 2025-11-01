@@ -266,9 +266,68 @@ buildEvaluationContext(context, node) {
     });
   }
 
+  // Add node output values from the graph
+  this._addNodeOutputReferences(evalContext, node);
+
   console.log('[ExpressionSystem] Built evalContext, audioEnvelope available:', 'audioEnvelope' in evalContext);
   return evalContext;
 }
+
+  /**
+   * Adds node output values to the evaluation context
+   * Supports syntax like: =node_1, =node_1_x, =node_1_y, etc.
+   */
+  _addNodeOutputReferences(evalContext, currentNode) {
+    // Get the graph from the editor
+    const graph = window.editor?.graph;
+    if (!graph || !graph.nodes) return;
+
+    // Get computed values from PreviewComputer if available
+    const previewComputer = window.editor?.previewComputer;
+
+    // For each node in the graph, add its output value
+    graph.nodes.forEach(node => {
+      // Don't reference the current node to avoid circular dependencies
+      if (node.id === currentNode?.id) return;
+
+      // Get the node's computed value
+      let nodeValue = node.__preview;
+
+      // Try to get from PreviewComputer if available
+      if (previewComputer && previewComputer.lastComputedValues) {
+        const computedValue = previewComputer.lastComputedValues.get(node.id);
+        if (computedValue !== undefined) {
+          nodeValue = computedValue;
+        }
+      }
+
+      if (nodeValue === undefined || nodeValue === null) return;
+
+      // Add the full node output value as node_X
+      const nodeVarName = `node_${node.id}`;
+
+      // If it's a number or array, add it directly
+      if (typeof nodeValue === 'number') {
+        evalContext[nodeVarName] = nodeValue;
+      } else if (Array.isArray(nodeValue)) {
+        // Add the full array
+        evalContext[nodeVarName] = nodeValue;
+
+        // Also add component accessors for vectors
+        if (nodeValue.length >= 1) evalContext[`${nodeVarName}_x`] = nodeValue[0];
+        if (nodeValue.length >= 2) evalContext[`${nodeVarName}_y`] = nodeValue[1];
+        if (nodeValue.length >= 3) evalContext[`${nodeVarName}_z`] = nodeValue[2];
+        if (nodeValue.length >= 4) evalContext[`${nodeVarName}_w`] = nodeValue[3];
+      } else if (typeof nodeValue === 'object' && nodeValue.type === 'split') {
+        // Handle split node outputs
+        evalContext[nodeVarName] = nodeValue.values;
+        nodeValue.values.forEach((val, idx) => {
+          const component = ['x', 'y', 'z', 'w'][idx];
+          if (component) evalContext[`${nodeVarName}_${component}`] = val;
+        });
+      }
+    });
+  }
   /**
    * Safely evaluates an expression using Function constructor with sandboxing
    */
@@ -373,10 +432,14 @@ isIncompleteExpression(expression) {
   extractVariables(expression) {
     const varPattern = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
     const matches = expression.match(varPattern) || [];
-    return [...new Set(matches)].filter(match =>
-      !this.builtInFunctions.hasOwnProperty(match) &&
-      !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope'].includes(match)
-    );
+    return [...new Set(matches)].filter(match => {
+      // Allow node references (node_X pattern)
+      if (match.startsWith('node_')) return true;
+
+      // Filter out built-in functions and constants
+      return !this.builtInFunctions.hasOwnProperty(match) &&
+        !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope'].includes(match);
+    });
   }
 
   /**
@@ -674,14 +737,27 @@ isIncomplete(value) {
     entry.tabState.values[tab] = value;
   }
 
-  _commitValue(entry, rawValue, param, node, valueManager, onChange) {
+  _commitValue(entry, rawValue, param, node, valueManager, onChange, inputElement = null) {
     if (!entry) return false;
 
     const activeTab = entry.tabState?.active || 'main';
-    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+    let value = typeof rawValue === 'string' ? rawValue.trim() : '';
 
     if (this.isIncomplete(value)) {
       return false;
+    }
+
+    // Auto-add = prefix for expressions
+    let wasModified = false;
+    if (value && !value.startsWith('=') && this._looksLikeExpression(value)) {
+      value = '=' + value;
+      wasModified = true;
+      console.log(`[ExpressionInput] Auto-added = prefix: "${rawValue.trim()}" → "${value}"`);
+
+      // Update the input element to show the = prefix
+      if (inputElement) {
+        inputElement.value = value;
+      }
     }
 
     if (entry.lastValue === value) {
@@ -698,6 +774,26 @@ isIncomplete(value) {
     }
 
     return true;
+  }
+
+  _looksLikeExpression(value) {
+    if (!value || typeof value !== 'string') return false;
+    const trimmed = value.trim();
+
+    // Already has = prefix
+    if (trimmed.startsWith('=')) return false;
+
+    // Contains function calls like sin(, cos(, etc.
+    if (/[a-zA-Z_]\w*\s*\(/.test(trimmed)) return true;
+
+    // Contains common expression keywords
+    const keywords = ['time', 'frame', 'node_', 'audioEnvelope', 'PI', 'E'];
+    if (keywords.some(kw => trimmed.includes(kw))) return true;
+
+    // Contains operators (but not just a negative number)
+    if (/[+\-*/]/.test(trimmed) && !/^-?\d+\.?\d*$/.test(trimmed)) return true;
+
+    return false;
   }
 
   _toggleExpressionTab(entry, input, param, node, valueManager, onChange, resultDisplay) {
@@ -720,7 +816,7 @@ isIncomplete(value) {
       this._autoResizeTextArea(input);
     }
 
-    if (this._commitValue(entry, input.value, param, node, valueManager, onChange)) {
+    if (this._commitValue(entry, input.value, param, node, valueManager, onChange, input)) {
       this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
     } else {
       this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
@@ -770,7 +866,7 @@ isIncomplete(value) {
             inputTimer = null;
           }
 
-          if (this._commitValue(state, input.value, param, node, valueManager, onChange)) {
+          if (this._commitValue(state, input.value, param, node, valueManager, onChange, input)) {
             this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
           }
         }
@@ -793,6 +889,16 @@ isIncomplete(value) {
     // Real-time input handling with debouncing
     input.addEventListener('input', (e) => {
       e.stopPropagation();
+
+      // Auto-complete: if user types "node_", add "=" prefix
+      const value = input.value;
+      if (value && !value.startsWith('=') && value.trim().startsWith('node_')) {
+        const cursorPos = input.selectionStart;
+        input.value = '=' + value;
+        // Adjust cursor position
+        input.setSelectionRange(cursorPos + 1, cursorPos + 1);
+      }
+
       this._autoResizeTextArea(input);
 
       this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
@@ -805,7 +911,7 @@ isIncomplete(value) {
       inputTimer = setTimeout(() => {
         if (
           !this.isIncomplete(input.value) &&
-          this._commitValue(state, input.value, param, node, valueManager, onChange)
+          this._commitValue(state, input.value, param, node, valueManager, onChange, input)
         ) {
           this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
         }
@@ -822,7 +928,7 @@ isIncomplete(value) {
 
       if (
         !this.isIncomplete(input.value) &&
-        this._commitValue(state, input.value, param, node, valueManager, onChange)
+        this._commitValue(state, input.value, param, node, valueManager, onChange, input)
       ) {
         this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
       }
@@ -939,7 +1045,7 @@ isIncomplete(value) {
           window.removeEventListener('mouseup', onMouseUp);
 
           if (entry) {
-            this._commitValue(entry, input.value, param, node, valueManager, onChange);
+            this._commitValue(entry, input.value, param, node, valueManager, onChange, input);
             if (resultDisplay) {
               this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
             }
@@ -1066,13 +1172,16 @@ getValue(node, paramName) {
 // Replace the existing setValue method with this corrected version:
 
 setValue(node, paramName, value) {
+  console.log("[ParameterExpressionSystem.setValue] CALLED:", node.kind, node.id, paramName, "value:", value, "type:", typeof value);
   try {
     if (!node.params) node.params = {};
-    
+
     const oldValue = node.params[paramName];
-    
+    console.log("[ParameterExpressionSystem.setValue] oldValue:", oldValue, "newValue:", value);
+
     // STORE THE ORIGINAL VALUE/EXPRESSION (don't evaluate here)
     node.params[paramName] = value;  // Store "=sin(time)", not 0.123
+    console.log("[ParameterExpressionSystem.setValue] STORED on node.params[" + paramName + "]:", node.params[paramName]);
     
     // Record for undo
     if (this.undoManager && oldValue !== value) {
@@ -1112,7 +1221,8 @@ setValue(node, paramName, value) {
 updateNodePreview(node) {
   try {
     console.log(`🎯 Updating preview for node: ${node.id} (${node.kind})`);
-    
+    console.log(`📊 Current node.params.value:`, node.params?.value, `node.value:`, node.value);
+
     // CRITICAL: Force evaluation of all expressions in this node BEFORE preview
     if (node.params) {
       Object.entries(node.params).forEach(([paramName, value]) => {

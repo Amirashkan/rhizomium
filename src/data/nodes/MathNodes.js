@@ -12,7 +12,10 @@ export const MathNodes = {
     inputs: 2,
     pinsIn: ["A", "B"],
     pinsOut: [{ label: "out", type: "dynamic" }], // Type matches inputs
-    params: [],
+    params: [
+      { name: "a", type: "float", default: 0.0, label: "A", inputSlot: 0 },
+      { name: "b", type: "float", default: 0.0, label: "B", inputSlot: 1 }
+    ],
   },
 
   Subtract: {
@@ -21,7 +24,10 @@ export const MathNodes = {
     inputs: 2,
     pinsIn: ["A", "B"],
     pinsOut: [{ label: "out", type: "dynamic" }],
-    params: [],
+    params: [
+      { name: "a", type: "float", default: 0.0, label: "A", inputSlot: 0 },
+      { name: "b", type: "float", default: 0.0, label: "B", inputSlot: 1 }
+    ],
   },
 
   Multiply: {
@@ -30,7 +36,10 @@ export const MathNodes = {
     inputs: 2,
     pinsIn: ["A", "B"],
     pinsOut: [{ label: "out", type: "dynamic" }],
-    params: [],
+    params: [
+      { name: "a", type: "float", default: 1.0, label: "A", inputSlot: 0 },
+      { name: "b", type: "float", default: 1.0, label: "B", inputSlot: 1 }
+    ],
   },
 
   Divide: {
@@ -39,7 +48,10 @@ export const MathNodes = {
     inputs: 2,
     pinsIn: ["A", "B"],
     pinsOut: [{ label: "out", type: "dynamic" }],
-    params: [],
+    params: [
+      { name: "a", type: "float", default: 1.0, label: "A", inputSlot: 0 },
+      { name: "b", type: "float", default: 1.0, label: "B", inputSlot: 1 }
+    ],
   },
 
   Power: {
@@ -48,7 +60,10 @@ export const MathNodes = {
     inputs: 2,
     pinsIn: ["Base", "Exp"],
     pinsOut: [{ label: "out", type: "dynamic" }],
-    params: [],
+    params: [
+      { name: "base", type: "float", default: 1.0, label: "Base", inputSlot: 0 },
+      { name: "exp", type: "float", default: 2.0, label: "Exp", inputSlot: 1 }
+    ],
   },
 
   // === TRIGONOMETRIC FUNCTIONS ===
