@@ -10,11 +10,13 @@ import { FieldNodes } from '../compilers/FieldNodes.js';
 import { TypeConverter } from './TypeConverter.js';
 import { BlendNodes } from '../compilers/BlendNodes.js';
 import { GradientNodes } from '../compilers/GradientNodes.js';
+import { UnifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 
 export class NodeCompiler {
   constructor() {
     this.typeConverter = new TypeConverter();
     this.uniformManager = new ParameterUniformManager();
+    this.shaderExpressionSystem = new UnifiedExpressionSystem();
     this.compilers = {
       input: new InputNodes(),
       math: new MathNodes(),
@@ -50,8 +52,8 @@ export class NodeCompiler {
   }
 
   /**
-   * Resolves a parameter value that might be a node reference
-   * Supports: =node_X, =node_X_x, =node_X_y, etc.
+   * Resolves a parameter value that might be a node reference or expression
+   * Supports: =node_X, =node_X_x, =node_X_y, =sin(time), etc.
    * @param {*} paramValue - The parameter value (could be a number, string, or expression)
    * @param {string} defaultValue - Default value if not a node reference
    * @returns {string} - WGSL code to use for this parameter
@@ -94,10 +96,15 @@ export class NodeCompiler {
       }
     }
 
-    // TODO: For more complex expressions, we could evaluate them at runtime
-    // For now, just return the default value for unsupported expressions
-    console.warn(`Unsupported expression in WGSL compilation: ${paramValue}`);
-    return defaultValue;
+    // For complex expressions (e.g., sin(time), 2 * PI, etc.), use the expression system
+    try {
+      const shaderCode = this.shaderExpressionSystem.generateShader(expression);
+      console.log(`Generated shader code for expression "${expression}": ${shaderCode}`);
+      return shaderCode;
+    } catch (error) {
+      console.error(`Failed to generate shader code for expression "${expression}":`, error);
+      return defaultValue;
+    }
   }
 
   compileNodes(orderedNodes) {
