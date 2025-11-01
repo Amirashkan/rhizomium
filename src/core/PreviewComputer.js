@@ -309,36 +309,36 @@ case "ConicGradient": {
 
             // Math Nodes - Arithmetic
             case "Add": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 0);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 0);
               result = a + b;
               break;
             }
 
             case "Subtract": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 0);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 0);
               result = a - b;
               break;
             }
 
             case "Multiply": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 1);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 1);
               result = a * b;
               break;
             }
 
             case "Divide": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
+              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 1);
+              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 1);
               result = b !== 0 ? a / b : 0;
               break;
             }
 
             case "Power": {
-              const base = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
-              const exp = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 2;
+              const base = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.base, values, 1);
+              const exp = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.exp, values, 2);
               result = Math.pow(base, exp);
               break;
             }
