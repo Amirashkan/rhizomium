@@ -1419,6 +1419,21 @@ function handleRenderFrame(frameState) {
   if (undoManager) {
     undoManager.updateUI();
   }
+
+  // Update preview values and canvas for time/audio-based expressions
+  // Only when actually animating (not manual updates)
+  if (!frameState.manual) {
+    // Update preview values for time/audio-based expressions
+    // This ensures node labels show current values
+    if (editor?.previewComputer && editor?.graph) {
+      editor.previewComputer.computePreviews(editor.graph);
+    }
+
+    // Redraw canvas to update labels
+    if (editor?.draw) {
+      editor.draw();
+    }
+  }
 }
 
 function initializeRenderLoopFromSettings() {

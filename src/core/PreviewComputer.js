@@ -791,6 +791,23 @@ case "ConicGradient": {
               break;
             }
 
+            case "Remap": {
+              const input = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0.5;
+              const inMin = this._evaluateParam(node.params?.inMin, values, 0.0);
+              const inMax = this._evaluateParam(node.params?.inMax, values, 1.0);
+              const outMin = this._evaluateParam(node.params?.outMin, values, 0.0);
+              const outMax = this._evaluateParam(node.params?.outMax, values, 1.0);
+              const shouldClamp = node.params?.clamp ?? false;
+
+              // Remap formula: ((input - inMin) / (inMax - inMin)) * (outMax - outMin) + outMin
+              const inRange = Math.max(0.0001, inMax - inMin);
+              const normalized = (input - inMin) / inRange;
+              const remapped = normalized * (outMax - outMin) + outMin;
+
+              result = shouldClamp ? Math.max(outMin, Math.min(outMax, remapped)) : remapped;
+              break;
+            }
+
             // Field Nodes
             case "Circle": {
               const radius = this._evaluateParam(node.params?.radius, values, 0.25);

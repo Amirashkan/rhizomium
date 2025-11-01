@@ -1508,7 +1508,14 @@ _processPreviewUpdate(node) {
         }
       }
     }
-    
+
+    // Trigger canvas redraw to update node labels with new preview values
+    if (window.editor?.draw) {
+      window.editor.draw();
+    } else if (typeof window.render === 'function') {
+      window.render();
+    }
+
   } catch (error) {
     console.warn(`Error updating preview for node ${node.id}:`, error);
   }
