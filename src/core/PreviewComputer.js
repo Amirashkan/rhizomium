@@ -37,11 +37,19 @@ export class PreviewComputer {
 
     if (isExpression) {
       try {
-        // Build context with time and node values
+        // Build context with time, frame, and audio envelope values
         const context = {
           time: this.animationTime,
           frame: Math.floor(this.animationTime * 60),
-          audioEnvelope: 0, // TODO: Get from audio system if available
+          // Get audio envelope values from audio system if available
+          audioEnvelope: window.audioCapture?.getAudioEnvelope?.() ?? 0,
+          audioEnvelopeBass: window.audioCapture?.getAudioEnvelopeBass?.() ?? 0,
+          audioEnvelopeMids: window.audioCapture?.getAudioEnvelopeMids?.() ?? 0,
+          audioEnvelopeHighs: window.audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
+          audioEnvelopeFull: window.audioCapture?.getAudioEnvelopeFull?.() ?? 0,
+          // Constants
+          PI: Math.PI,
+          E: Math.E,
         };
 
         // Add other node values to context
@@ -223,10 +231,19 @@ case "ConicGradient": {
 
                 if (isExpression) {
                   try {
-                    // Build context with time and node values
+                    // Build context with time, frame, and audio envelope values
                     const context = {
                       time: this.animationTime,
-                      frame: Math.floor(this.animationTime * 60), // Assuming 60 FPS
+                      frame: Math.floor(this.animationTime * 60),
+                      // Get audio envelope values from audio system if available
+                      audioEnvelope: window.audioCapture?.getAudioEnvelope?.() ?? 0,
+                      audioEnvelopeBass: window.audioCapture?.getAudioEnvelopeBass?.() ?? 0,
+                      audioEnvelopeMids: window.audioCapture?.getAudioEnvelopeMids?.() ?? 0,
+                      audioEnvelopeHighs: window.audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
+                      audioEnvelopeFull: window.audioCapture?.getAudioEnvelopeFull?.() ?? 0,
+                      // Constants
+                      PI: Math.PI,
+                      E: Math.E,
                     };
 
                     // Add other node values to context
