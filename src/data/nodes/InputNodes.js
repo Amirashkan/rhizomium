@@ -6,7 +6,7 @@
 export const InputNodes = {
   // === CONSTANT VALUES ===
   ConstFloat: {
-    label: "Float",
+    label: "ConstFloat",
     cat: "Input",
     inputs: 0,
     pinsIn: [],
@@ -17,7 +17,7 @@ export const InputNodes = {
   },
 
   ConstVec2: {
-    label: "Vec2",
+    label: "ConstVec2",
     cat: "Input",
     inputs: 0,
     pinsIn: [],
@@ -29,7 +29,7 @@ export const InputNodes = {
   },
 
   ConstVec3: {
-    label: "Vec3",
+    label: "ConstVec3",
     cat: "Input",
     inputs: 0,
     pinsIn: [],
@@ -42,7 +42,7 @@ export const InputNodes = {
   },
 
   ConstVec4: {
-    label: "Vec4",
+    label: "ConstVec4",
     cat: "Input",
     inputs: 0,
     pinsIn: [],
