@@ -1,5 +1,6 @@
 // src/core/PreviewComputer.js
 import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
+import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 
 export class PreviewComputer {
   constructor() {
@@ -37,16 +38,24 @@ export class PreviewComputer {
 
     if (isExpression) {
       try {
+        // Get audio capture instance
+        let audioCapture = null;
+        try {
+          audioCapture = getBrowserAudioCapture();
+        } catch (e) {
+          // Audio system not available
+        }
+
         // Build context with time, frame, and audio envelope values
         const context = {
           time: this.animationTime,
           frame: Math.floor(this.animationTime * 60),
           // Get audio envelope values from audio system if available
-          audioEnvelope: window.audioCapture?.getAudioEnvelope?.() ?? 0,
-          audioEnvelopeBass: window.audioCapture?.getAudioEnvelopeBass?.() ?? 0,
-          audioEnvelopeMids: window.audioCapture?.getAudioEnvelopeMids?.() ?? 0,
-          audioEnvelopeHighs: window.audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
-          audioEnvelopeFull: window.audioCapture?.getAudioEnvelopeFull?.() ?? 0,
+          audioEnvelope: audioCapture?.getValue?.() ?? 0,
+          audioEnvelopeBass: audioCapture?.getAudioEnvelopeBass?.() ?? 0,
+          audioEnvelopeMids: audioCapture?.getAudioEnvelopeMids?.() ?? 0,
+          audioEnvelopeHighs: audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
+          audioEnvelopeFull: audioCapture?.getAudioEnvelopeFull?.() ?? 0,
           // Constants
           PI: Math.PI,
           E: Math.E,
@@ -231,16 +240,24 @@ case "ConicGradient": {
 
                 if (isExpression) {
                   try {
+                    // Get audio capture instance
+                    let audioCapture = null;
+                    try {
+                      audioCapture = getBrowserAudioCapture();
+                    } catch (e) {
+                      // Audio system not available
+                    }
+
                     // Build context with time, frame, and audio envelope values
                     const context = {
                       time: this.animationTime,
                       frame: Math.floor(this.animationTime * 60),
                       // Get audio envelope values from audio system if available
-                      audioEnvelope: window.audioCapture?.getAudioEnvelope?.() ?? 0,
-                      audioEnvelopeBass: window.audioCapture?.getAudioEnvelopeBass?.() ?? 0,
-                      audioEnvelopeMids: window.audioCapture?.getAudioEnvelopeMids?.() ?? 0,
-                      audioEnvelopeHighs: window.audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
-                      audioEnvelopeFull: window.audioCapture?.getAudioEnvelopeFull?.() ?? 0,
+                      audioEnvelope: audioCapture?.getValue?.() ?? 0,
+                      audioEnvelopeBass: audioCapture?.getAudioEnvelopeBass?.() ?? 0,
+                      audioEnvelopeMids: audioCapture?.getAudioEnvelopeMids?.() ?? 0,
+                      audioEnvelopeHighs: audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
+                      audioEnvelopeFull: audioCapture?.getAudioEnvelopeFull?.() ?? 0,
                       // Constants
                       PI: Math.PI,
                       E: Math.E,
