@@ -1514,8 +1514,21 @@ _renderOutputThumbnail(ctx, size, color) {
       const node = byId.get(nodeId);
       if (!node) return;
 
+      // Visit edge-based dependencies (inputs)
       for (const input of node.inputs || []) {
         if (input) visit(input);
+      }
+
+      // Visit expression-based dependencies (parameter references)
+      if (node.params && typeof node.params === 'object') {
+        for (const paramValue of Object.values(node.params)) {
+          const referencedIds = this._extractNodeReferences(paramValue);
+          for (const refId of referencedIds) {
+            if (byId.has(refId)) {
+              visit(refId);
+            }
+          }
+        }
       }
 
       result.push(node);
@@ -1526,6 +1539,35 @@ _renderOutputThumbnail(ctx, size, color) {
     }
 
     return result;
+  }
+
+  /**
+   * Extract node IDs referenced in a parameter expression
+   * Examples: "=node_5" -> ["5"], "=sin(node_3)*2" -> ["3"], "=node_10_x+node_20_y" -> ["10", "20"]
+   * @param {*} paramValue - Parameter value
+   * @returns {Array<string>} Array of referenced node IDs
+   */
+  _extractNodeReferences(paramValue) {
+    if (!paramValue || typeof paramValue !== 'string') {
+      return [];
+    }
+
+    // Check if it's an expression (starts with =) or contains node references
+    const trimmed = paramValue.trim();
+    if (!trimmed.startsWith('=') && !trimmed.includes('node_')) {
+      return [];
+    }
+
+    // Extract all node references in the format: node_<id>
+    const nodeRefPattern = /node_(\w+)/g;
+    const matches = trimmed.matchAll(nodeRefPattern);
+
+    const nodeIds = [];
+    for (const match of matches) {
+      nodeIds.push(match[1]); // Extract the ID
+    }
+
+    return nodeIds;
   }
 
   _toVec2(v) {
