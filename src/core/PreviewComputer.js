@@ -151,41 +151,54 @@ case "ConicGradient": {
               let value = node.params?.value ?? node.value;
               console.log(`[PreviewComputer] ConstFloat node ${node.id}: raw value =`, value, `(type: ${typeof value}), time=${this.animationTime}`);
 
-              // Check if value is an expression
-              if (typeof value === 'string' && value.trim().startsWith('=')) {
-                try {
-                  // Build context with time and node values
-                  const context = {
-                    time: this.animationTime,
-                    frame: Math.floor(this.animationTime * 60), // Assuming 60 FPS
-                  };
+              // Check if value is an expression (with or without = prefix)
+              // The = prefix may have been stripped by ParameterExpressionSystem
+              if (typeof value === 'string') {
+                const trimmed = value.trim();
+                const isExpression = trimmed.startsWith('=') ||
+                                    /[a-zA-Z_]/.test(trimmed) || // Contains letters (functions, variables)
+                                    trimmed.includes('(');        // Contains function calls
 
-                  // Add other node values to context
-                  values.forEach((val, id) => {
-                    context[`node_${id}`] = val;
-                    if (Array.isArray(val)) {
-                      context[`node_${id}_x`] = val[0];
-                      context[`node_${id}_y`] = val[1];
-                      if (val.length > 2) context[`node_${id}_z`] = val[2];
-                      if (val.length > 3) context[`node_${id}_w`] = val[3];
-                    }
-                  });
+                if (isExpression) {
+                  try {
+                    // Build context with time and node values
+                    const context = {
+                      time: this.animationTime,
+                      frame: Math.floor(this.animationTime * 60), // Assuming 60 FPS
+                    };
 
-                  console.log(`[PreviewComputer] Evaluating expression with context:`, context);
-                  console.log(`[PreviewComputer] Expression system:`, this.expressionSystem);
+                    // Add other node values to context
+                    values.forEach((val, id) => {
+                      context[`node_${id}`] = val;
+                      if (Array.isArray(val)) {
+                        context[`node_${id}_x`] = val[0];
+                        context[`node_${id}_y`] = val[1];
+                        if (val.length > 2) context[`node_${id}_z`] = val[2];
+                        if (val.length > 3) context[`node_${id}_w`] = val[3];
+                      }
+                    });
 
-                  // Evaluate using UnifiedExpressionSystem (has proper math function support)
-                  const originalExpr = value;
-                  value = this.expressionSystem.evaluateCPU(value, context);
-                  console.log(`[PreviewComputer] Evaluated expression "${originalExpr}" to:`, value, `(type: ${typeof value})`);
-                } catch (error) {
-                  console.error(`[PreviewComputer] Error evaluating expression in ConstFloat:`, error);
-                  console.error(`[PreviewComputer] Expression was:`, value);
-                  value = 0;
+                    console.log(`[PreviewComputer] Detected expression, evaluating with context:`, context);
+
+                    // Remove = prefix if present before evaluation
+                    const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
+
+                    // Evaluate using UnifiedExpressionSystem (has proper math function support)
+                    value = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
+                    console.log(`[PreviewComputer] Evaluated expression "${expressionWithoutPrefix}" to:`, value, `(type: ${typeof value})`);
+                  } catch (error) {
+                    console.error(`[PreviewComputer] Error evaluating expression in ConstFloat:`, error);
+                    console.error(`[PreviewComputer] Expression was:`, value);
+                    value = 0;
+                  }
+                } else {
+                  // Not an expression, parse as number
+                  const parsed = parseFloat(value);
+                  value = isNaN(parsed) ? 0 : parsed;
                 }
               }
 
-              // Parse string values to numbers
+              // Ensure result is a number
               if (typeof value === 'string') {
                 const parsed = parseFloat(value);
                 result = isNaN(parsed) ? 0 : parsed;
