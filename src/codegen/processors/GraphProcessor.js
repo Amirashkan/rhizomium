@@ -573,6 +573,17 @@ processGraph(graph) {
                   expanded.add(refId);
                   toProcess.push(refId);
                   console.log(`✓ Added expression-referenced node ${refId} (${referencedNode.kind || 'unknown'}) from node ${nodeId}.${paramName} = "${paramValue}"`);
+
+                  // CRITICAL: Also add all upstream dependencies of this referenced node
+                  // When node A references node B in an expression, we need node B AND all of B's inputs
+                  const upstreamOfReferenced = this.getUpstreamSet(refId, byId);
+                  for (const upstreamId of upstreamOfReferenced) {
+                    if (!expanded.has(upstreamId)) {
+                      expanded.add(upstreamId);
+                      toProcess.push(upstreamId);
+                      console.log(`  ↳ Added upstream dependency ${upstreamId} (${byId.get(upstreamId)?.kind || 'unknown'}) of expression-referenced node ${refId}`);
+                    }
+                  }
                 } else {
                   console.warn(`✗ Node ${refId} referenced in expression "${paramValue}" not found in graph (from node ${nodeId}.${paramName})`);
                 }
