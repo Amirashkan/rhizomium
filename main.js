@@ -862,6 +862,26 @@ function setupKeyboardShortcuts() {
 
     const cmdKey = isCommandKey(e);
 
+    // Handle copy/paste EARLY to prevent browser default behavior
+    if (cmdKey && !e.shiftKey && !e.altKey) {
+      if (e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!copySelection()) {
+          updateStatus("Select nodes to copy", "warning");
+        }
+        return;
+      }
+      if (e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!pasteSelection()) {
+          updateStatus("Nothing to paste", "warning");
+        }
+        return;
+      }
+    }
+
     if (
       cmdKey &&
       !e.shiftKey &&
@@ -969,24 +989,6 @@ function setupKeyboardShortcuts() {
         }
         break;
 
-      case "c":
-        if (!e.shiftKey) {
-          e.preventDefault();
-          if (!copySelection()) {
-            updateStatus("Select nodes to copy", "warning");
-          }
-        }
-        break;
-
-      case "v":
-        if (!e.shiftKey) {
-          e.preventDefault();
-          if (!pasteSelection()) {
-            updateStatus("Nothing to paste", "warning");
-          }
-        }
-        break;
-
       case "d":
         e.preventDefault();
         if (!duplicateSelection()) {
@@ -1075,6 +1077,11 @@ function copySelection() {
   const selected = selection?.getSelected?.();
   if (!selection || !selected || selected.size === 0) {
     return false;
+  }
+
+  // Clear any browser text selection to prevent interference
+  if (window.getSelection) {
+    window.getSelection().removeAllRanges();
   }
 
   const success = selection.copySelected();
