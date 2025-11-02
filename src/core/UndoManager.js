@@ -353,6 +353,40 @@ export class UndoManager {
     console.log('Node creation recorded:', action);
   }
 
+  // Record group creation (multiple nodes at once, like paste/duplicate)
+  recordGroupCreation(nodes, connections = []) {
+    if (!nodes || nodes.length === 0) {
+      console.warn('No nodes provided for group creation recording');
+      return;
+    }
+
+    console.log('Recording group creation:', nodes.length, 'nodes');
+
+    const nodeSnapshots = nodes.map(node => {
+      const nodeIndex = this.graph.nodes.indexOf(node);
+      return {
+        id: node.id,
+        nodeIndex: nodeIndex >= 0 ? nodeIndex : this.graph.nodes.length - 1,
+        nodeData: JSON.parse(JSON.stringify(node))
+      };
+    });
+
+    const connectionSnapshots = connections.map(conn =>
+      JSON.parse(JSON.stringify(conn))
+    );
+
+    const action = {
+      type: 'CREATE_GROUP',
+      timestamp: Date.now(),
+      nodes: nodeSnapshots,
+      connections: connectionSnapshots,
+      nodeCount: nodes.length
+    };
+
+    this.pushAction(action);
+    console.log('Group creation recorded:', action);
+  }
+
   // Push action to undo stack
   pushAction(action) {
     this.undoStack.push(action);
@@ -496,7 +530,45 @@ export class UndoManager {
         case 'CREATE_NODE':
           success = this.undoNodeCreation(action);
           break;
-          
+
+        case 'CREATE_GROUP': {
+          // Undo group creation (delete all created nodes)
+          let deletedCount = 0;
+          const nodeIds = action.nodes.map(n => n.id);
+
+          // Remove all created nodes
+          action.nodes.forEach(nodeSnapshot => {
+            const index = this.graph.nodes.findIndex(n => n.id === nodeSnapshot.id);
+            if (index >= 0) {
+              this.graph.nodes.splice(index, 1);
+              deletedCount++;
+            }
+          });
+
+          // Remove connections involving these nodes
+          if (this.graph.connections) {
+            this.graph.connections = this.graph.connections.filter(conn => {
+              const fromInvolved = nodeIds.includes(conn.from?.nodeId);
+              const toInvolved = nodeIds.includes(conn.to?.nodeId);
+              return !fromInvolved && !toInvolved;
+            });
+          }
+
+          // Clear selection
+          if (this.graph.selection) {
+            this.graph.selection = new Set(
+              Array.from(this.graph.selection).filter(id => !nodeIds.includes(id))
+            );
+          }
+
+          console.log(`Deleted ${deletedCount} nodes from group creation`);
+          if (this.onChange) {
+            this.onChange(`Undo create ${deletedCount} nodes`);
+          }
+          success = deletedCount > 0;
+          break;
+        }
+
         case 'CREATE_BINDING': {
           const bindingSystem =
             this.editor?.bindingSystem || window.editor?.bindingSystem;
@@ -696,7 +768,54 @@ export class UndoManager {
         case 'CREATE_NODE':
           success = this.redoNodeCreation(action);
           break;
-          
+
+        case 'CREATE_GROUP': {
+          // Redo group creation (recreate all nodes)
+          let recreatedCount = 0;
+          const recreatedNodes = [];
+
+          // Sort by original index to restore in correct order
+          const sortedNodes = action.nodes.sort((a, b) => a.nodeIndex - b.nodeIndex);
+
+          sortedNodes.forEach(nodeSnapshot => {
+            // Check if node already exists
+            if (!this.graph.nodes.find(n => n.id === nodeSnapshot.id)) {
+              const recreatedNode = JSON.parse(JSON.stringify(nodeSnapshot.nodeData));
+              this.graph.nodes.push(recreatedNode);
+              recreatedNodes.push(recreatedNode);
+              recreatedCount++;
+            }
+          });
+
+          // Recreate connections
+          if (action.connections && action.connections.length > 0) {
+            action.connections.forEach(conn => {
+              // Check if connection doesn't already exist
+              const exists = this.graph.connections?.some(c =>
+                c.from?.nodeId === conn.from?.nodeId &&
+                c.from?.pin === conn.from?.pin &&
+                c.to?.nodeId === conn.to?.nodeId &&
+                c.to?.pin === conn.to?.pin
+              );
+
+              if (!exists) {
+                if (!this.graph.connections) this.graph.connections = [];
+                this.graph.connections.push(JSON.parse(JSON.stringify(conn)));
+              }
+            });
+          }
+
+          // Select recreated nodes
+          this.graph.selection = new Set(recreatedNodes.map(n => n.id));
+
+          console.log(`Recreated ${recreatedCount} nodes from group creation`);
+          if (this.onChange) {
+            this.onChange(`Redo create ${recreatedCount} nodes`);
+          }
+          success = recreatedCount > 0;
+          break;
+        }
+
         case 'CREATE_BINDING': {
           const bindingSystem =
             this.editor?.bindingSystem || window.editor?.bindingSystem;

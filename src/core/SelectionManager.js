@@ -609,13 +609,6 @@ deleteSelected() {
       // Add clones to graph
       this.graph.nodes.push(...clones);
 
-      // Record undo for each created node
-      if (this.undoManager && this.undoManager.recordNodeCreation) {
-        for (const clone of clones) {
-          this.undoManager.recordNodeCreation(clone);
-        }
-      }
-
       // Clone connections between selected nodes
       const newConns = [];
       for (const c of this.graph.connections) {
@@ -631,6 +624,11 @@ deleteSelected() {
 
       this.graph.connections.push(...newConns);
       this.graph.selection = new Set(clones.map((n) => n.id));
+
+      // Record undo for all created nodes and connections as a single operation
+      if (this.undoManager && this.undoManager.recordGroupCreation) {
+        this.undoManager.recordGroupCreation(clones, newConns);
+      }
 
       // Synchronize ID counter
       updateNodeIdCounter(this.graph.nodes);
@@ -714,13 +712,6 @@ deleteSelected() {
       // Add clones to graph
       this.graph.nodes.push(...clones);
 
-      // Record undo for each created node
-      if (this.undoManager && this.undoManager.recordNodeCreation) {
-        for (const clone of clones) {
-          this.undoManager.recordNodeCreation(clone);
-        }
-      }
-
       // Clone connections from clipboard
       const newConns = [];
       for (const c of this.clipboard.connections) {
@@ -736,6 +727,11 @@ deleteSelected() {
 
       this.graph.connections.push(...newConns);
       this.graph.selection = new Set(clones.map((n) => n.id));
+
+      // Record undo for all created nodes and connections as a single operation
+      if (this.undoManager && this.undoManager.recordGroupCreation) {
+        this.undoManager.recordGroupCreation(clones, newConns);
+      }
 
       // Synchronize ID counter
       updateNodeIdCounter(this.graph.nodes);
