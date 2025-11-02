@@ -866,17 +866,23 @@ function setupKeyboardShortcuts() {
     // Handle copy/paste EARLY to prevent browser default behavior
     if (cmdKey && !e.shiftKey && !e.altKey) {
       if (e.key.toLowerCase() === "c") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        if (!copySelection()) {
+        // Only prevent default if we actually have something to copy
+        if (copySelection()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        } else {
+          // No nodes selected, let browser/Vercel handle it
           updateStatus("Select nodes to copy", "warning");
         }
         return;
       }
       if (e.key.toLowerCase() === "v") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        if (!pasteSelection()) {
+        // Only prevent default if we actually have something to paste
+        if (pasteSelection()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        } else {
+          // Nothing in clipboard, let browser handle it
           updateStatus("Nothing to paste", "warning");
         }
         return;
@@ -1065,7 +1071,11 @@ function shouldIgnoreShortcutTarget(event) {
     return true;
   }
 
-  return Boolean(target.isContentEditable);
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  return false;
 }
 
 function duplicateSelection() {
