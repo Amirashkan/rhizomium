@@ -674,6 +674,11 @@ connectGPURenderer(renderFunction) {
         onDraw: () => this.safeDraw(),
         editor: this,
       });
+
+      // Set event handler on selection manager for cursor position access
+      if (this.selection.setEventHandler) {
+        this.selection.setEventHandler(this.eventHandler);
+      }
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'event-handler-initialization'

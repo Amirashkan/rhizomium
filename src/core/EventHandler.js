@@ -18,6 +18,8 @@ export class EventHandler {
     this._panCandidate = null;
     this._boxSelectCandidate = null;
     this._pendingContextMenu = null;
+    // Track last cursor position for paste/duplicate
+    this.lastCanvasPos = { x: 0, y: 0 };
 
 
     this._setupEvents();
@@ -321,6 +323,9 @@ export class EventHandler {
       }
 
       const pos = this._getCanvasPosition(e);
+
+      // Track cursor position for paste/duplicate operations
+      this.lastCanvasPos = { x: pos.x, y: pos.y };
 
       // Handle wire dragging
       if (this.connections.getDragWire()) {

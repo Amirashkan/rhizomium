@@ -9,6 +9,7 @@ export class SelectionManager {
     this.dragging = null;
     this.undoManager = null;
     this.clipboard = null; // For copy-paste functionality
+    this.eventHandler = null; // Set by Editor to access cursor position
     this.snapSettings = {
       enabled: false,
       gridSize: 20,
@@ -18,6 +19,11 @@ export class SelectionManager {
   // Setter for undoManager (called from Editor)
   setUndoManager(undoManager) {
     this.undoManager = undoManager;
+  }
+
+  // Setter for eventHandler (called from Editor)
+  setEventHandler(eventHandler) {
+    this.eventHandler = eventHandler;
   }
 
   setSnapEnabled(enabled) {
@@ -538,13 +544,24 @@ deleteSelected() {
       const mapOldToNew = new Map();
       const clones = [];
 
+      // Calculate center of selected nodes
+      const selectedNodes = this.graph.nodes.filter(n => idSet.has(n.id));
+      const bounds = this._getSelectionBounds(selectedNodes);
+      const centerX = bounds.x + bounds.w / 2;
+      const centerY = bounds.y + bounds.h / 2;
+
+      // Get cursor position (fallback to +20 offset if no cursor position)
+      const cursorPos = this.eventHandler?.lastCanvasPos;
+      const offsetX = cursorPos ? cursorPos.x - centerX : 20;
+      const offsetY = cursorPos ? cursorPos.y - centerY : 20;
+
       // Clone nodes using proper cloning
       for (const n of this.graph.nodes) {
         if (!idSet.has(n.id)) continue;
 
         const snapped = this.applySnap(
-          (Number.isFinite(n.x) ? n.x : 0) + 20,
-          (Number.isFinite(n.y) ? n.y : 0) + 20
+          (Number.isFinite(n.x) ? n.x : 0) + offsetX,
+          (Number.isFinite(n.y) ? n.y : 0) + offsetY
         );
 
         // Use proper cloning method
@@ -558,6 +575,13 @@ deleteSelected() {
 
       // Add clones to graph
       this.graph.nodes.push(...clones);
+
+      // Record undo for each created node
+      if (this.undoManager && this.undoManager.recordNodeCreation) {
+        for (const clone of clones) {
+          this.undoManager.recordNodeCreation(clone);
+        }
+      }
 
       // Clone connections between selected nodes
       const newConns = [];
@@ -628,11 +652,21 @@ deleteSelected() {
       const mapOldToNew = new Map();
       const clones = [];
 
+      // Calculate center of clipboard nodes
+      const bounds = this._getSelectionBounds(this.clipboard.nodes);
+      const centerX = bounds.x + bounds.w / 2;
+      const centerY = bounds.y + bounds.h / 2;
+
+      // Get cursor position (fallback to +20 offset if no cursor position)
+      const cursorPos = this.eventHandler?.lastCanvasPos;
+      const offsetX = cursorPos ? cursorPos.x - centerX : 20;
+      const offsetY = cursorPos ? cursorPos.y - centerY : 20;
+
       // Clone nodes from clipboard using proper cloning
       for (const n of this.clipboard.nodes) {
         const snapped = this.applySnap(
-          (Number.isFinite(n.x) ? n.x : 0) + 20,
-          (Number.isFinite(n.y) ? n.y : 0) + 20
+          (Number.isFinite(n.x) ? n.x : 0) + offsetX,
+          (Number.isFinite(n.y) ? n.y : 0) + offsetY
         );
 
         // Use proper cloning method
@@ -646,6 +680,13 @@ deleteSelected() {
 
       // Add clones to graph
       this.graph.nodes.push(...clones);
+
+      // Record undo for each created node
+      if (this.undoManager && this.undoManager.recordNodeCreation) {
+        for (const clone of clones) {
+          this.undoManager.recordNodeCreation(clone);
+        }
+      }
 
       // Clone connections from clipboard
       const newConns = [];
