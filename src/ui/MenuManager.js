@@ -10,6 +10,12 @@ export class MenuManager {
     this.menuFilter = "";
     this.menuPos = { x: 0, y: 0 };
     this.radialMenu = null;
+    this.undoManager = null; // Set by Editor
+  }
+
+  // Setter for undoManager (called from Editor)
+  setUndoManager(undoManager) {
+    this.undoManager = undoManager;
   }
 
   hide() {
@@ -405,6 +411,11 @@ export class MenuManager {
 
       this.graph.connections.push(...newConns);
       this.graph.selection = new Set(clones.map((n) => n.id));
+
+      // Record undo for all created nodes and connections as a single operation
+      if (this.undoManager && this.undoManager.recordGroupCreation) {
+        this.undoManager.recordGroupCreation(clones, newConns);
+      }
 
       // Synchronize ID counter
       updateNodeIdCounter(this.graph.nodes);
