@@ -855,6 +855,41 @@ function setupKeyboardShortcuts() {
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
   const isCommandKey = (event) => (isMac ? event.metaKey : event.ctrlKey);
 
+  // Add copy/paste handler with capture phase to intercept before browser
+  window.addEventListener("keydown", (e) => {
+    if (shouldIgnoreShortcutTarget(e)) {
+      return;
+    }
+
+    const cmdKey = isCommandKey(e);
+
+    // Handle copy/paste EARLY to prevent browser default behavior
+    if (cmdKey && !e.shiftKey && !e.altKey) {
+      if (e.key.toLowerCase() === "c") {
+        // Only prevent default if we actually have something to copy
+        if (copySelection()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        } else {
+          // No nodes selected, let browser/Vercel handle it
+          updateStatus("Select nodes to copy", "warning");
+        }
+        return;
+      }
+      if (e.key.toLowerCase() === "v") {
+        // Only prevent default if we actually have something to paste
+        if (pasteSelection()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        } else {
+          // Nothing in clipboard, let browser handle it
+          updateStatus("Nothing to paste", "warning");
+        }
+        return;
+      }
+    }
+  }, { capture: true }); // Use capture phase to run before other handlers
+
   window.addEventListener("keydown", (e) => {
     if (shouldIgnoreShortcutTarget(e)) {
       return;
@@ -1036,7 +1071,11 @@ function shouldIgnoreShortcutTarget(event) {
     return true;
   }
 
-  return Boolean(target.isContentEditable);
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  return false;
 }
 
 function duplicateSelection() {
@@ -1050,6 +1089,39 @@ function duplicateSelection() {
   editor?.draw?.();
   updateStatus("Duplicated selection");
   return true;
+}
+
+function copySelection() {
+  const selection = editor?.selection;
+  const selected = selection?.getSelected?.();
+  if (!selection || !selected || selected.size === 0) {
+    return false;
+  }
+
+  // Clear any browser text selection to prevent interference
+  if (window.getSelection) {
+    window.getSelection().removeAllRanges();
+  }
+
+  const success = selection.copySelected();
+  if (success) {
+    updateStatus(`Copied ${selected.size} node${selected.size > 1 ? 's' : ''}`);
+  }
+  return success;
+}
+
+function pasteSelection() {
+  const selection = editor?.selection;
+  if (!selection) {
+    return false;
+  }
+
+  const success = selection.pasteFromClipboard();
+  if (success) {
+    editor?.draw?.();
+    updateStatus("Pasted from clipboard");
+  }
+  return success;
 }
 
 function frameSelection() {

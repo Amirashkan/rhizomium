@@ -197,10 +197,15 @@ export class Editor {
       
       // Use the provided UndoManager
       this.undoManager = undoManager;
-      
+
       // Set undo manager on selection manager for movement tracking
       if (this.undoManager && this.selection.setUndoManager) {
         this.selection.setUndoManager(this.undoManager);
+      }
+
+      // Set undo manager on menu manager for duplication tracking
+      if (this.undoManager && this.menu.setUndoManager) {
+        this.menu.setUndoManager(this.undoManager);
       }
 
       // Preview system settings
@@ -674,6 +679,11 @@ connectGPURenderer(renderFunction) {
         onDraw: () => this.safeDraw(),
         editor: this,
       });
+
+      // Set event handler on selection manager for cursor position access
+      if (this.selection.setEventHandler) {
+        this.selection.setEventHandler(this.eventHandler);
+      }
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'event-handler-initialization'
