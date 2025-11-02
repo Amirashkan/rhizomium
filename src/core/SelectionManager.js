@@ -108,6 +108,39 @@ export class SelectionManager {
     };
   }
 
+  /**
+   * Calculate bounding box for a set of nodes
+   */
+  _getSelectionBounds(nodes) {
+    if (!nodes || nodes.length === 0) {
+      return { x: 0, y: 0, w: 0, h: 0 };
+    }
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const node of nodes) {
+      const x = Number.isFinite(node.x) ? node.x : 0;
+      const y = Number.isFinite(node.y) ? node.y : 0;
+      const w = Number.isFinite(node.w) ? node.w : 180;
+      const h = Number.isFinite(node.h) ? node.h : 60;
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+    }
+
+    return {
+      x: minX,
+      y: minY,
+      w: maxX - minX,
+      h: maxY - minY
+    };
+  }
+
   getSelected() {
     return this.graph.selection;
   }
