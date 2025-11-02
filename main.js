@@ -969,6 +969,24 @@ function setupKeyboardShortcuts() {
         }
         break;
 
+      case "c":
+        if (!e.shiftKey) {
+          e.preventDefault();
+          if (!copySelection()) {
+            updateStatus("Select nodes to copy", "warning");
+          }
+        }
+        break;
+
+      case "v":
+        if (!e.shiftKey) {
+          e.preventDefault();
+          if (!pasteSelection()) {
+            updateStatus("Nothing to paste", "warning");
+          }
+        }
+        break;
+
       case "d":
         e.preventDefault();
         if (!duplicateSelection()) {
@@ -1050,6 +1068,34 @@ function duplicateSelection() {
   editor?.draw?.();
   updateStatus("Duplicated selection");
   return true;
+}
+
+function copySelection() {
+  const selection = editor?.selection;
+  const selected = selection?.getSelected?.();
+  if (!selection || !selected || selected.size === 0) {
+    return false;
+  }
+
+  const success = selection.copySelected();
+  if (success) {
+    updateStatus(`Copied ${selected.size} node${selected.size > 1 ? 's' : ''}`);
+  }
+  return success;
+}
+
+function pasteSelection() {
+  const selection = editor?.selection;
+  if (!selection) {
+    return false;
+  }
+
+  const success = selection.pasteFromClipboard();
+  if (success) {
+    editor?.draw?.();
+    updateStatus("Pasted from clipboard");
+  }
+  return success;
 }
 
 function frameSelection() {

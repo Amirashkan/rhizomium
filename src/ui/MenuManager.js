@@ -1,8 +1,6 @@
 // src/ui/MenuManager.js
-import { NodeDefs, makeNode } from "../data/NodeDefs.js";
+import { NodeDefs, makeNode, updateNodeIdCounter } from "../data/NodeDefs.js";
 import { RadialMenu } from "./RadialMenu.js";
-
-let _nextId = 1000;
 
 export class MenuManager {
   constructor(graph, onChange) {
@@ -350,45 +348,74 @@ export class MenuManager {
   }
 
   _duplicateSelected() {
-    const ids = Array.from(this.graph.selection || []);
-    if (!ids.length) return;
+    try {
+      const ids = Array.from(this.graph.selection || []);
+      if (!ids.length) return;
 
-    const idSet = new Set(ids);
-    const mapOldToNew = new Map();
-    const clones = [];
+      const idSet = new Set(ids);
+      const mapOldToNew = new Map();
+      const clones = [];
 
-    // Clone nodes
-    for (const n of this.graph.nodes) {
-      if (!idSet.has(n.id)) continue;
+      // Clone nodes using proper cloning
+      for (const n of this.graph.nodes) {
+        if (!idSet.has(n.id)) continue;
 
-      const c = JSON.parse(JSON.stringify(n));
-      c.id = String(++_nextId);
-      c.x = (n.x || 0) + 20;
-      c.y = (n.y || 0) + 20;
-      clones.push(c);
-      mapOldToNew.set(n.id, c.id);
-    }
+        // Use makeNode for proper initialization
+        const clone = makeNode(
+          n.kind,
+          (n.x || 0) + 20,
+          (n.y || 0) + 20
+        );
 
-    // Add clones to graph
-    this.graph.nodes.push(...clones);
+        // Deep copy params to avoid shared references
+        if (n.params) {
+          clone.params = JSON.parse(JSON.stringify(n.params));
+        }
 
-    // Clone connections between selected nodes
-    const newConns = [];
-    for (const c of this.graph.connections) {
-      const fromNew = mapOldToNew.get(c.from.nodeId);
-      const toNew = mapOldToNew.get(c.to.nodeId);
-      if (fromNew && toNew) {
-        newConns.push({
-          from: { nodeId: fromNew, pin: c.from.pin },
-          to: { nodeId: toNew, pin: c.to.pin },
-        });
+        // Copy special properties
+        if (n.value !== undefined) {
+          clone.value = n.value;
+        }
+        if (n.expr !== undefined) {
+          clone.expr = n.expr;
+        }
+        if (n.props) {
+          clone.props = JSON.parse(JSON.stringify(n.props));
+        }
+
+        clones.push(clone);
+        mapOldToNew.set(n.id, clone.id);
       }
+
+      // Add clones to graph
+      this.graph.nodes.push(...clones);
+
+      // Clone connections between selected nodes
+      const newConns = [];
+      for (const c of this.graph.connections) {
+        const fromNew = mapOldToNew.get(c.from.nodeId);
+        const toNew = mapOldToNew.get(c.to.nodeId);
+        if (fromNew && toNew) {
+          newConns.push({
+            from: { nodeId: fromNew, pin: c.from.pin },
+            to: { nodeId: toNew, pin: c.to.pin },
+          });
+        }
+      }
+
+      this.graph.connections.push(...newConns);
+      this.graph.selection = new Set(clones.map((n) => n.id));
+
+      // Synchronize ID counter
+      updateNodeIdCounter(this.graph.nodes);
+
+      if (this.onChange) this.onChange();
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'menu-node-duplication',
+        selectedCount: this.graph.selection?.size || 0
+      });
     }
-
-    this.graph.connections.push(...newConns);
-    this.graph.selection = new Set(clones.map((n) => n.id));
-
-    if (this.onChange) this.onChange();
   }
 // Replace the _deleteSelected method in MenuManager.js with this:
 

@@ -1,7 +1,5 @@
 // src/core/SelectionManager.js - Updated with permanent undo integration and error handling
-import { NodeDefs, makeNode } from "../data/NodeDefs.js";
-
-let _nextId = 1; // TODO: Move this to a proper ID generator utility
+import { NodeDefs, makeNode, updateNodeIdCounter } from "../data/NodeDefs.js";
 
 export class SelectionManager {
   constructor(graph, onChange) {
@@ -10,6 +8,7 @@ export class SelectionManager {
     this.boxSelect = null;
     this.dragging = null;
     this.undoManager = null;
+    this.clipboard = null; // For copy-paste functionality
     this.snapSettings = {
       enabled: false,
       gridSize: 20,
@@ -40,6 +39,44 @@ export class SelectionManager {
 
   isSnapEnabled() {
     return !!this.snapSettings.enabled;
+  }
+
+  /**
+   * Properly clone a node with all its parameters
+   */
+  cloneNodeProperly(sourceNode, offsetX = 20, offsetY = 20) {
+    try {
+      // Create a new node of the same kind using makeNode for proper initialization
+      const newNode = makeNode(
+        sourceNode.kind,
+        (Number.isFinite(sourceNode.x) ? sourceNode.x : 0) + offsetX,
+        (Number.isFinite(sourceNode.y) ? sourceNode.y : 0) + offsetY
+      );
+
+      // Deep copy params to avoid shared references
+      if (sourceNode.params) {
+        newNode.params = JSON.parse(JSON.stringify(sourceNode.params));
+      }
+
+      // Copy special properties
+      if (sourceNode.value !== undefined) {
+        newNode.value = sourceNode.value;
+      }
+      if (sourceNode.expr !== undefined) {
+        newNode.expr = sourceNode.expr;
+      }
+      if (sourceNode.props) {
+        newNode.props = JSON.parse(JSON.stringify(sourceNode.props));
+      }
+
+      return newNode;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'node-cloning',
+        sourceNodeKind: sourceNode?.kind
+      });
+      throw error;
+    }
   }
 
   applySnap(x, y) {
@@ -501,20 +538,22 @@ deleteSelected() {
       const mapOldToNew = new Map();
       const clones = [];
 
-      // Clone nodes
+      // Clone nodes using proper cloning
       for (const n of this.graph.nodes) {
         if (!idSet.has(n.id)) continue;
 
-        const c = JSON.parse(JSON.stringify(n));
-        c.id = String(++_nextId);
         const snapped = this.applySnap(
           (Number.isFinite(n.x) ? n.x : 0) + 20,
           (Number.isFinite(n.y) ? n.y : 0) + 20
         );
-        c.x = snapped.x;
-        c.y = snapped.y;
-        clones.push(c);
-        mapOldToNew.set(n.id, c.id);
+
+        // Use proper cloning method
+        const clone = this.cloneNodeProperly(n, 0, 0); // Offset already calculated
+        clone.x = snapped.x;
+        clone.y = snapped.y;
+
+        clones.push(clone);
+        mapOldToNew.set(n.id, clone.id);
       }
 
       // Add clones to graph
@@ -536,12 +575,105 @@ deleteSelected() {
       this.graph.connections.push(...newConns);
       this.graph.selection = new Set(clones.map((n) => n.id));
 
+      // Synchronize ID counter
+      updateNodeIdCounter(this.graph.nodes);
+
       if (this.onChange) this.onChange();
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'node-duplication',
         selectedCount: this.graph.selection?.size || 0
       });
+    }
+  }
+
+  copySelected() {
+    try {
+      const ids = Array.from(this.graph.selection || []);
+      if (!ids.length) return false;
+
+      const idSet = new Set(ids);
+      const nodes = [];
+      const connections = [];
+
+      // Copy selected nodes
+      for (const n of this.graph.nodes) {
+        if (idSet.has(n.id)) {
+          nodes.push(JSON.parse(JSON.stringify(n)));
+        }
+      }
+
+      // Copy connections between selected nodes
+      for (const c of this.graph.connections) {
+        if (idSet.has(c.from.nodeId) && idSet.has(c.to.nodeId)) {
+          connections.push(JSON.parse(JSON.stringify(c)));
+        }
+      }
+
+      this.clipboard = { nodes, connections };
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'node-copy',
+        selectedCount: this.graph.selection?.size || 0
+      });
+      return false;
+    }
+  }
+
+  pasteFromClipboard() {
+    try {
+      if (!this.clipboard || !this.clipboard.nodes.length) return false;
+
+      const mapOldToNew = new Map();
+      const clones = [];
+
+      // Clone nodes from clipboard using proper cloning
+      for (const n of this.clipboard.nodes) {
+        const snapped = this.applySnap(
+          (Number.isFinite(n.x) ? n.x : 0) + 20,
+          (Number.isFinite(n.y) ? n.y : 0) + 20
+        );
+
+        // Use proper cloning method
+        const clone = this.cloneNodeProperly(n, 0, 0); // Offset already calculated
+        clone.x = snapped.x;
+        clone.y = snapped.y;
+
+        clones.push(clone);
+        mapOldToNew.set(n.id, clone.id);
+      }
+
+      // Add clones to graph
+      this.graph.nodes.push(...clones);
+
+      // Clone connections from clipboard
+      const newConns = [];
+      for (const c of this.clipboard.connections) {
+        const fromNew = mapOldToNew.get(c.from.nodeId);
+        const toNew = mapOldToNew.get(c.to.nodeId);
+        if (fromNew && toNew) {
+          newConns.push({
+            from: { nodeId: fromNew, pin: c.from.pin },
+            to: { nodeId: toNew, pin: c.to.pin },
+          });
+        }
+      }
+
+      this.graph.connections.push(...newConns);
+      this.graph.selection = new Set(clones.map((n) => n.id));
+
+      // Synchronize ID counter
+      updateNodeIdCounter(this.graph.nodes);
+
+      if (this.onChange) this.onChange();
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'node-paste',
+        clipboardNodeCount: this.clipboard?.nodes?.length || 0
+      });
+      return false;
     }
   }
 }
