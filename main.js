@@ -855,6 +855,7 @@ function setupKeyboardShortcuts() {
   const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
   const isCommandKey = (event) => (isMac ? event.metaKey : event.ctrlKey);
 
+  // Add copy/paste handler with capture phase to intercept before browser
   window.addEventListener("keydown", (e) => {
     if (shouldIgnoreShortcutTarget(e)) {
       return;
@@ -866,7 +867,7 @@ function setupKeyboardShortcuts() {
     if (cmdKey && !e.shiftKey && !e.altKey) {
       if (e.key.toLowerCase() === "c") {
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         if (!copySelection()) {
           updateStatus("Select nodes to copy", "warning");
         }
@@ -874,13 +875,21 @@ function setupKeyboardShortcuts() {
       }
       if (e.key.toLowerCase() === "v") {
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         if (!pasteSelection()) {
           updateStatus("Nothing to paste", "warning");
         }
         return;
       }
     }
+  }, { capture: true }); // Use capture phase to run before other handlers
+
+  window.addEventListener("keydown", (e) => {
+    if (shouldIgnoreShortcutTarget(e)) {
+      return;
+    }
+
+    const cmdKey = isCommandKey(e);
 
     if (
       cmdKey &&
