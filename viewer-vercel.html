@@ -143,6 +143,40 @@
         .pulse {
             animation: pulse 2s ease-in-out infinite;
         }
+
+        /* UI hiding styles */
+        .ui-hidden .banner,
+        .ui-hidden #controls {
+            display: none !important;
+        }
+
+        .ui-hidden #canvas-container {
+            height: 100vh !important;
+        }
+
+        #ui-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .ui-hidden #ui-hint {
+            opacity: 0.6;
+        }
+
+        .ui-hidden #ui-hint:hover {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -166,13 +200,16 @@
             <div class="control-group">
                 <div class="stat">Frames: <strong id="frame-count">0</strong></div>
                 <div class="stat">FPS: <strong id="fps-value">0.0</strong></div>
-                <div class="stat">Resolution: <strong id="resolution">-</strong></div>
+                <div class="stat">Frame: <strong id="resolution">-</strong></div>
+                <div class="stat">Display: <strong id="display-size">-</strong></div>
             </div>
             <div class="control-group">
-                <button id="btn-fullscreen">Fullscreen</button>
+                <button id="btn-hide-ui">Hide UI (H)</button>
+                <button id="btn-fullscreen">Fullscreen (F)</button>
                 <button id="btn-refresh">Refresh</button>
             </div>
         </div>
+        <div id="ui-hint">Press H to show/hide UI • Press F for fullscreen • Press ESC to exit fullscreen</div>
     </div>
 
     <script type="module">
@@ -206,8 +243,18 @@
                     this.handleMessage(event.data);
                 };
 
+                document.getElementById('btn-hide-ui').addEventListener('click', () => this.toggleUI());
                 document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
                 document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'h' || e.key === 'H') {
+                        this.toggleUI();
+                    } else if (e.key === 'f' || e.key === 'F') {
+                        this.toggleFullscreen();
+                    }
+                });
 
                 // Auto-resize canvas
                 window.addEventListener('resize', () => this.resizeCanvas());
@@ -320,6 +367,10 @@
                 this.canvas.style.width = `${displayWidth}px`;
                 this.canvas.style.height = `${displayHeight}px`;
 
+                // Update display size stat
+                document.getElementById('display-size').textContent =
+                    `${Math.round(displayWidth)}x${Math.round(displayHeight)}`;
+
                 console.log(`[Viewer] Display size: ${displayWidth}x${displayHeight} (${frameAspect.toFixed(2)} aspect)`);
             }
 
@@ -328,6 +379,20 @@
                 if (this.canvas.width > 0 && this.canvas.height > 0) {
                     this.updateCanvasDisplaySize();
                 }
+            }
+
+            toggleUI() {
+                const container = document.getElementById('container');
+                container.classList.toggle('ui-hidden');
+
+                // Update canvas display size after UI toggle (viewport size changes)
+                setTimeout(() => {
+                    if (this.canvas.width > 0 && this.canvas.height > 0) {
+                        this.updateCanvasDisplaySize();
+                    }
+                }, 100);
+
+                console.log('[Viewer] UI toggled:', container.classList.contains('ui-hidden') ? 'hidden' : 'visible');
             }
 
             toggleFullscreen() {
