@@ -177,6 +177,25 @@
         .ui-hidden #ui-hint:hover {
             opacity: 1;
         }
+
+        /* Stats overlay - always visible */
+        #stats-overlay {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 6px;
+            z-index: 50;
+            display: flex;
+            gap: 15px;
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+        }
+
+        .ui-hidden #stats-overlay {
+            background: rgba(0, 0, 0, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -198,17 +217,20 @@
 
         <div id="controls">
             <div class="control-group">
-                <div class="stat">Frames: <strong id="frame-count">0</strong></div>
-                <div class="stat">FPS: <strong id="fps-value">0.0</strong></div>
-                <div class="stat">Frame: <strong id="resolution">-</strong></div>
-                <div class="stat">Display: <strong id="display-size">-</strong></div>
-            </div>
-            <div class="control-group">
                 <button id="btn-hide-ui">Hide UI (H)</button>
                 <button id="btn-fullscreen">Fullscreen (F)</button>
                 <button id="btn-refresh">Refresh</button>
             </div>
         </div>
+
+        <!-- Stats overlay - stays visible when UI hidden -->
+        <div id="stats-overlay">
+            <div class="stat">Frames: <strong id="frame-count">0</strong></div>
+            <div class="stat">FPS: <strong id="fps-value">0.0</strong></div>
+            <div class="stat">Frame: <strong id="resolution">-</strong></div>
+            <div class="stat">Display: <strong id="display-size">-</strong></div>
+        </div>
+
         <div id="ui-hint">Press H to show/hide UI • Press F for fullscreen • Press ESC to exit fullscreen</div>
     </div>
 

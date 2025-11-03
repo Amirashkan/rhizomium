@@ -34,7 +34,7 @@ export class BroadcastFrameStream {
         this.onMetadataCallback = null;
 
         // Throttling
-        this.targetFps = 30;
+        this.targetFps = 60;
         this.minFrameInterval = 1000 / this.targetFps;
 
         // Check browser support

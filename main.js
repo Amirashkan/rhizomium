@@ -898,6 +898,45 @@ function setupUIEventHandlers() {
     console.error('[main.js] External viewer button NOT found in DOM!');
   }
 
+  // Resolution selector for canvas/streaming
+  const resolutionSelect = document.getElementById('resolution-select');
+  if (resolutionSelect) {
+    resolutionSelect.addEventListener('change', (e) => {
+      const resolution = e.target.value;
+      const [width, height] = resolution.split('x').map(Number);
+
+      const canvas = document.getElementById('gpu-canvas');
+      if (canvas) {
+        console.log(`[main.js] Changing canvas resolution to ${width}x${height}`);
+
+        // Update canvas size
+        canvas.width = width;
+        canvas.height = height;
+
+        // WebGPU renderer will automatically handle the resize on next render
+        // The context will be recreated with new dimensions
+
+        if (typeof updateStatus === "function") {
+          updateStatus(`Resolution changed to ${width}x${height}`);
+        }
+      }
+    });
+
+    // Set initial resolution on startup
+    const initialResolution = resolutionSelect.value;
+    const [initWidth, initHeight] = initialResolution.split('x').map(Number);
+    const canvas = document.getElementById('gpu-canvas');
+    if (canvas) {
+      canvas.width = initWidth;
+      canvas.height = initHeight;
+      console.log(`[main.js] Initial canvas resolution set to ${initWidth}x${initHeight}`);
+    }
+
+    console.log("Resolution selector handler attached");
+  } else {
+    console.error('[main.js] Resolution selector NOT found in DOM!');
+  }
+
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
   if (selectCodeBtn) {
     selectCodeBtn.addEventListener("click", (e) => {
