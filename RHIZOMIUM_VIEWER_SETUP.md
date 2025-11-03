@@ -19,8 +19,13 @@ This guide explains how to set up and use the Rhizomium external viewer with IPC
   - Displays frames in fullscreen window
   - Supports multi-monitor setup
 
-### 4. Backend API
-- **viewer_api.py** - Flask API server for launching viewer
+### 4. Backend Server
+- **rhizo_server.py** - Integrated Flask server (RECOMMENDED)
+  - Serves static files (editor UI)
+  - Provides API endpoints
+  - Single server for everything
+- **viewer_api.py** - Standalone API server (optional)
+  - Use if you have your own web server
   - Endpoint: `POST /api/launch-viewer`
   - Auto-detects and launches Python or executable viewer
 
@@ -40,7 +45,26 @@ Required packages:
 
 ## Usage
 
-### Option 1: Manual Launch
+### Option 1: Integrated Server (RECOMMENDED)
+
+1. Start the integrated server:
+```bash
+python rhizo_server.py
+# OR use the startup scripts:
+# ./START_SERVER.sh (Linux/Mac)
+# START_SERVER.bat (Windows)
+```
+
+2. Open your browser to:
+```
+http://127.0.0.1:5000/studio
+```
+
+3. Click the **"Open External Viewer"** button in the toolbar
+
+The viewer will launch automatically!
+
+### Option 2: Manual Launch (for testing)
 
 1. Start the GPUCanvas renderer:
 ```bash
@@ -52,16 +76,18 @@ python GPUCanvas.py
 python rhizo_viewer.py
 ```
 
-### Option 2: Via Web UI
+### Option 3: Standalone API Server
+
+If you already have a web server:
 
 1. Start the API server:
 ```bash
 python viewer_api.py
 ```
 
-2. Open the Rhizomium editor (`editor/index.html`)
+2. Open the Rhizomium editor in your browser
 
-3. Click the **"Open External Viewer"** button in the HUD toolbar
+3. Click the **"Open External Viewer"** button
 
 The viewer will automatically connect to the shared memory channel and display frames.
 
