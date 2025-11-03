@@ -146,14 +146,14 @@
         }
 
         /* UI hiding styles - hide EVERYTHING when H is pressed */
-        #container.ui-hidden .banner,
-        #container.ui-hidden #controls,
-        #container.ui-hidden #stats-overlay,
-        #container.ui-hidden #ui-hint {
+        body.ui-hidden .banner,
+        body.ui-hidden #controls,
+        body.ui-hidden #stats-overlay,
+        body.ui-hidden #ui-hint {
             display: none !important;
         }
 
-        #container.ui-hidden #canvas-container {
+        body.ui-hidden #canvas-container {
             height: 100vh !important;
         }
 
@@ -423,16 +423,15 @@
             }
 
             toggleUI() {
-                const container = document.getElementById('container');
-                const isHidden = container.classList.contains('ui-hidden');
+                const isHidden = document.body.classList.contains('ui-hidden');
 
                 if (isHidden) {
                     // Show UI
-                    container.classList.remove('ui-hidden');
+                    document.body.classList.remove('ui-hidden');
                     console.log('[Viewer] UI shown');
                 } else {
                     // Hide UI
-                    container.classList.add('ui-hidden');
+                    document.body.classList.add('ui-hidden');
                     console.log('[Viewer] UI hidden');
                 }
 
@@ -469,6 +468,30 @@
         console.log('🌿 Rhizomium Viewer (Vercel Edition) initialized');
         console.log('Waiting for frames from the editor...');
         console.log('Make sure the editor tab is open and streaming is active!');
+
+        // Check for auto-fullscreen URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoFullscreen = urlParams.get('fullscreen') === 'true';
+        const autoHideUI = urlParams.get('hideui') === 'true';
+
+        if (autoFullscreen || autoHideUI) {
+            // Wait a moment for the window to fully load
+            setTimeout(() => {
+                if (autoHideUI) {
+                    document.body.classList.add('ui-hidden');
+                    console.log('[Viewer] Auto-hiding UI (from URL parameter)');
+                }
+
+                if (autoFullscreen) {
+                    document.documentElement.requestFullscreen().then(() => {
+                        console.log('[Viewer] Auto-entered fullscreen (from URL parameter)');
+                    }).catch(err => {
+                        console.warn(`[Viewer] Auto-fullscreen failed: ${err.message}`);
+                        console.log('[Viewer] Press F to enter fullscreen manually');
+                    });
+                }
+            }, 500);
+        }
     </script>
 </body>
 </html>

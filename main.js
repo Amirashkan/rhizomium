@@ -887,9 +887,10 @@ function setupUIEventHandlers() {
             }
           }
 
-          // Open viewer in new window
-          const viewerUrl = window.location.origin + '/viewer-vercel.html';
+          // Open viewer in new window with auto-fullscreen
+          const viewerUrl = window.location.origin + '/viewer-vercel.html?fullscreen=true&hideui=true';
           window.open(viewerUrl, 'RhizomiumViewer', windowFeatures);
+          console.log('[main.js] Opening viewer with auto-fullscreen and hidden UI');
 
           if (typeof updateStatus === "function") {
             updateStatus("Streaming to new tab (BroadcastChannel)");

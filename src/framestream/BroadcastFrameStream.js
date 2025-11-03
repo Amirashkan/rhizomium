@@ -195,9 +195,19 @@ export class BroadcastFrameStream {
 
         // Throttle to 60 FPS to prevent overwhelming the viewer
         const now = performance.now();
-        if (now - this.lastFrameTime < this.minFrameInterval) {
-            return; // Skip this frame
+        const timeSinceLastFrame = now - this.lastFrameTime;
+
+        if (timeSinceLastFrame < this.minFrameInterval) {
+            // Skip this frame - too soon
+            return;
         }
+
+        // Log throttling info every 60 frames
+        if (this.framesSent % 60 === 0 && this.framesSent > 0) {
+            const actualFps = 1000 / timeSinceLastFrame;
+            console.log(`[BroadcastFrameStream] Throttling: ${actualFps.toFixed(1)} FPS (target: ${this.targetFps}, interval: ${this.minFrameInterval}ms, delta: ${timeSinceLastFrame.toFixed(1)}ms)`);
+        }
+
         this.lastFrameTime = now;
 
         try {
