@@ -57,6 +57,16 @@ export class BroadcastFrameStream {
         this.channel = new BroadcastChannel(this.channelName);
         console.log(`[BroadcastFrameStream] Channel "${this.channelName}" initialized`);
 
+        // Add listener to debug messages from other tabs
+        this.channel.onmessage = (event) => {
+            const data = event.data;
+            if (data.type === 'viewer_ping') {
+                console.log('[BroadcastFrameStream] Received viewer ping from viewer tab');
+            } else if (data.type === 'request_frame') {
+                console.log('[BroadcastFrameStream] Viewer requested a frame');
+            }
+        };
+
         return this;
     }
 
@@ -70,13 +80,15 @@ export class BroadcastFrameStream {
 
         this.isStreaming = true;
         this.framesSent = 0;
-        console.log('[BroadcastFrameStream] Started streaming');
+        console.log('[BroadcastFrameStream] Started streaming on channel:', this.channel.name);
 
         // Announce streaming start
-        this.channel.postMessage({
+        const startMsg = {
             type: 'stream_started',
             timestamp: Date.now()
-        });
+        };
+        console.log('[BroadcastFrameStream] Broadcasting stream_started:', startMsg);
+        this.channel.postMessage(startMsg);
     }
 
     /**
@@ -234,6 +246,11 @@ export class BroadcastFrameStream {
             });
 
             this.framesSent++;
+
+            // Log every 30 frames to avoid spam
+            if (this.framesSent % 30 === 0) {
+                console.log(`[BroadcastFrameStream] Sent ${this.framesSent} frames (${metadata.width}x${metadata.height})`);
+            }
 
         } catch (error) {
             console.error('[BroadcastFrameStream] Error sending frame:', error);

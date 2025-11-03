@@ -203,7 +203,10 @@
                 this.hasReceivedFrame = false;
 
                 // Bind events
-                this.channel.onmessage = (event) => this.handleMessage(event.data);
+                this.channel.onmessage = (event) => {
+                    console.log('[Viewer] Received message:', event.data?.type || 'unknown');
+                    this.handleMessage(event.data);
+                };
 
                 document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
                 document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
@@ -212,9 +215,16 @@
                 window.addEventListener('resize', () => this.resizeCanvas());
 
                 console.log('[Viewer] Initialized and listening for frames...');
+                console.log('[Viewer] BroadcastChannel name:', this.channel.name);
 
                 // Request a frame
                 this.requestFrame();
+
+                // Send a test ping every 2 seconds to verify channel works
+                setInterval(() => {
+                    console.log('[Viewer] Sending keepalive ping...');
+                    this.channel.postMessage({ type: 'viewer_ping', timestamp: Date.now() });
+                }, 2000);
             }
 
             requestFrame() {
