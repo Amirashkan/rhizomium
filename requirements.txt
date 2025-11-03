@@ -10,5 +10,9 @@ pygame>=2.5.0
 flask>=2.3.0
 flask-cors>=4.0.0
 
+# WebSocket Frame Streaming (Dual-Screen System)
+aiohttp>=3.8.0
+websockets>=11.0
+
 # Audio Engine (existing)
 sounddevice>=0.4.6

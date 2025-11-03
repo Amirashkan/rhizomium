@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhizomium Remote Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #canvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            image-rendering: auto;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #status {
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+        }
+
+        #status.connecting {
+            color: #ffa500;
+        }
+
+        #status.connected {
+            color: #00ff00;
+        }
+
+        #status.disconnected {
+            color: #ff4444;
+        }
+
+        #status.error {
+            color: #ff0000;
+        }
+
+        #controls {
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid #333;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .stat strong {
+            color: #fff;
+        }
+
+        button {
+            background: #444;
+            border: 1px solid #666;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        button:active {
+            background: #333;
+        }
+
+        button.primary {
+            background: #007acc;
+            border-color: #005a9e;
+        }
+
+        button.primary:hover {
+            background: #005a9e;
+        }
+
+        input[type="text"] {
+            background: #222;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 250px;
+        }
+
+        label {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #fps-graph {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 5;
+        }
+
+        @media (max-width: 768px) {
+            #controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .control-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            input[type="text"] {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div id="overlay">
+                <div id="status" class="disconnected">Disconnected</div>
+                <div id="spinner" class="spinner hidden"></div>
+            </div>
+            <div id="fps-graph" class="hidden">
+                <div>FPS: <strong id="fps-value">0.0</strong></div>
+                <div>Resolution: <strong id="resolution">-</strong></div>
+                <div>Latency: <strong id="latency">-</strong></div>
+            </div>
+        </div>
+        <div id="controls">
+            <div class="control-group">
+                <label>Server URL:</label>
+                <input type="text" id="ws-url" value="ws://localhost:8766/ws" placeholder="ws://host:port/ws">
+                <button id="btn-connect" class="primary">Connect</button>
+                <button id="btn-disconnect" class="hidden">Disconnect</button>
+            </div>
+            <div class="control-group">
+                <div class="stat">Frames: <strong id="frame-count">0</strong></div>
+                <div class="stat">Format: <strong id="format">-</strong></div>
+                <button id="btn-fullscreen">Fullscreen</button>
+                <button id="btn-stats">Toggle Stats</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        class FrameStreamViewer {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.ws = null;
+                this.connected = false;
+
+                // Elements
+                this.statusEl = document.getElementById('status');
+                this.spinnerEl = document.getElementById('spinner');
+                this.btnConnect = document.getElementById('btn-connect');
+                this.btnDisconnect = document.getElementById('btn-disconnect');
+                this.urlInput = document.getElementById('ws-url');
+                this.fpsGraph = document.getElementById('fps-graph');
+
+                // Stats
+                this.frameCount = 0;
+                this.lastFrameTime = 0;
+                this.fps = 0;
+                this.fpsValues = [];
+                this.currentMetadata = null;
+
+                // Bind events
+                this.btnConnect.addEventListener('click', () => this.connect());
+                this.btnDisconnect.addEventListener('click', () => this.disconnect());
+                document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
+                document.getElementById('btn-stats').addEventListener('click', () => this.toggleStats());
+
+                // Auto-resize canvas
+                window.addEventListener('resize', () => this.resizeCanvas());
+                this.resizeCanvas();
+
+                // Load saved URL
+                const savedUrl = localStorage.getItem('ws_url');
+                if (savedUrl) {
+                    this.urlInput.value = savedUrl;
+                }
+            }
+
+            resizeCanvas() {
+                const container = document.getElementById('canvas-container');
+                const rect = container.getBoundingClientRect();
+
+                // Canvas will be sized by CSS to fit container
+                // We'll let the drawImage scale the content
+            }
+
+            setStatus(message, type = 'disconnected') {
+                this.statusEl.textContent = message;
+                this.statusEl.className = type;
+            }
+
+            async connect() {
+                if (this.ws) {
+                    this.disconnect();
+                }
+
+                const url = this.urlInput.value;
+                if (!url) {
+                    alert('Please enter a WebSocket URL');
+                    return;
+                }
+
+                // Save URL
+                localStorage.setItem('ws_url', url);
+
+                this.setStatus('Connecting...', 'connecting');
+                this.spinnerEl.classList.remove('hidden');
+                this.btnConnect.classList.add('hidden');
+                this.urlInput.disabled = true;
+
+                try {
+                    this.ws = new WebSocket(url);
+                    this.ws.binaryType = 'arraybuffer';
+
+                    this.ws.onopen = () => this.onOpen();
+                    this.ws.onmessage = (event) => this.onMessage(event);
+                    this.ws.onerror = (error) => this.onError(error);
+                    this.ws.onclose = () => this.onClose();
+
+                } catch (error) {
+                    console.error('Connection error:', error);
+                    this.setStatus('Connection failed', 'error');
+                    this.resetUI();
+                }
+            }
+
+            disconnect() {
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+                this.resetUI();
+            }
+
+            resetUI() {
+                this.spinnerEl.classList.add('hidden');
+                this.btnConnect.classList.remove('hidden');
+                this.btnDisconnect.classList.add('hidden');
+                this.urlInput.disabled = false;
+                this.connected = false;
+            }
+
+            onOpen() {
+                console.log('WebSocket connected');
+                this.setStatus('Connected', 'connected');
+                this.connected = true;
+                this.btnConnect.classList.add('hidden');
+                this.btnDisconnect.classList.remove('hidden');
+                this.spinnerEl.classList.add('hidden');
+            }
+
+            async onMessage(event) {
+                if (typeof event.data === 'string') {
+                    // JSON metadata
+                    try {
+                        const metadata = JSON.parse(event.data);
+                        this.handleMetadata(metadata);
+                    } catch (error) {
+                        console.error('Error parsing metadata:', error);
+                    }
+                } else if (event.data instanceof ArrayBuffer) {
+                    // Binary frame data
+                    this.handleFrame(event.data);
+                }
+            }
+
+            handleMetadata(metadata) {
+                const type = metadata.type;
+
+                if (type === 'welcome') {
+                    console.log('Server version:', metadata.server_version);
+                    this.setStatus('Receiving stream...', 'connected');
+                } else if (type === 'frame_meta') {
+                    this.currentMetadata = metadata;
+                }
+            }
+
+            handleFrame(arrayBuffer) {
+                if (!this.currentMetadata) {
+                    console.warn('Received frame without metadata');
+                    return;
+                }
+
+                const { width, height, format } = this.currentMetadata;
+
+                // Update canvas size if needed
+                if (this.canvas.width !== width || this.canvas.height !== height) {
+                    this.canvas.width = width;
+                    this.canvas.height = height;
+                    console.log(`Canvas resized to ${width}x${height}`);
+                }
+
+                // Create ImageData from the frame
+                const data = new Uint8ClampedArray(arrayBuffer);
+                const imageData = this.ctx.createImageData(width, height);
+
+                if (format === 'rgb') {
+                    // Convert RGB to RGBA
+                    for (let i = 0, j = 0; i < data.length; i += 3, j += 4) {
+                        imageData.data[j] = data[i];       // R
+                        imageData.data[j + 1] = data[i + 1]; // G
+                        imageData.data[j + 2] = data[i + 2]; // B
+                        imageData.data[j + 3] = 255;         // A
+                    }
+                } else if (format === 'rgba') {
+                    imageData.data.set(data);
+                } else {
+                    console.error('Unknown format:', format);
+                    return;
+                }
+
+                // Draw to canvas
+                this.ctx.putImageData(imageData, 0, 0);
+
+                // Update stats
+                this.frameCount++;
+                document.getElementById('frame-count').textContent = this.frameCount;
+                document.getElementById('format').textContent = `${width}x${height} ${format.toUpperCase()}`;
+                document.getElementById('resolution').textContent = `${width}x${height}`;
+
+                // Calculate FPS
+                const now = performance.now();
+                if (this.lastFrameTime > 0) {
+                    const delta = (now - this.lastFrameTime) / 1000;
+                    if (delta > 0) {
+                        const instantFps = 1 / delta;
+                        this.fpsValues.push(instantFps);
+                        if (this.fpsValues.length > 30) {
+                            this.fpsValues.shift();
+                        }
+                        const avgFps = this.fpsValues.reduce((a, b) => a + b, 0) / this.fpsValues.length;
+                        this.fps = avgFps;
+                        document.getElementById('fps-value').textContent = avgFps.toFixed(1);
+                    }
+                }
+                this.lastFrameTime = now;
+
+                // Calculate latency
+                if (this.currentMetadata.timestamp) {
+                    const latency = Date.now() - this.currentMetadata.timestamp;
+                    document.getElementById('latency').textContent = `${latency}ms`;
+                }
+            }
+
+            onError(error) {
+                console.error('WebSocket error:', error);
+                this.setStatus('Connection error', 'error');
+            }
+
+            onClose() {
+                console.log('WebSocket closed');
+                this.setStatus('Disconnected', 'disconnected');
+                this.resetUI();
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+
+            toggleStats() {
+                this.fpsGraph.classList.toggle('hidden');
+            }
+        }
+
+        // Initialize viewer
+        const viewer = new FrameStreamViewer();
+
+        // Auto-connect if URL is in query params
+        const params = new URLSearchParams(window.location.search);
+        const autoConnect = params.get('autoconnect');
+        const url = params.get('url');
+
+        if (url) {
+            viewer.urlInput.value = url;
+        }
+
+        if (autoConnect === 'true') {
+            viewer.connect();
+        }
+
+        console.log('Rhizomium Remote Viewer initialized');
+        console.log('Usage: Enter WebSocket URL (e.g., ws://localhost:8766/ws) and click Connect');
+    </script>
+</body>
+</html>

@@ -2,14 +2,20 @@
 """
 Rhizomium Integrated Server
 Serves static files (editor UI) and provides API endpoints for viewer management.
+Includes WebSocket frame streaming for dual-screen support.
 """
 
 import subprocess
 import time
 import sys
 import os
+import asyncio
+import threading
 from flask import Flask, jsonify, request, send_from_directory, send_file
 from flask_cors import CORS
+
+# Import frame streaming server
+from frame_stream_server import FrameStreamServer, get_server
 
 # Get the directory where this script is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -88,8 +94,13 @@ def launch_viewer():
 
         # Launch the viewer process
         if viewer_path.endswith('.py'):
-            # Launch Python script
-            process = subprocess.Popen([sys.executable, viewer_path])
+            # Launch Python script with WebSocket mode by default
+            process = subprocess.Popen([
+                sys.executable,
+                viewer_path,
+                '--ws',  # Enable WebSocket mode
+                '--url', 'ws://localhost:8766/ws'  # Frame streaming URL
+            ])
         else:
             # Launch executable
             process = subprocess.Popen([viewer_path])
@@ -136,15 +147,128 @@ def health():
 @app.route('/api/status', methods=['GET'])
 def status():
     """Get server status and configuration."""
+    global frame_stream_server
     return jsonify({
         'status': 'running',
         'base_dir': BASE_DIR,
         'viewer_available': os.path.exists(os.path.join(BASE_DIR, 'rhizo_viewer.py')),
+        'frame_streaming': {
+            'enabled': frame_stream_server is not None,
+            'viewers': len(frame_stream_server.viewers) if frame_stream_server else 0,
+            'fps': round(frame_stream_server.fps, 2) if frame_stream_server else 0,
+            'url': 'ws://localhost:8766/ws'
+        },
         'endpoints': {
-            'static': ['/', '/studio', '/editor'],
-            'api': ['/api/health', '/api/status', '/api/launch-viewer']
+            'static': ['/', '/studio', '/editor', '/viewer.html'],
+            'api': ['/api/health', '/api/status', '/api/launch-viewer', '/api/stream-frame']
         }
     }), 200
+
+
+@app.route('/api/stream-frame', methods=['POST'])
+def stream_frame():
+    """
+    Receive a frame from the editor and broadcast to viewers.
+
+    Expected JSON body:
+    {
+        "width": 1920,
+        "height": 1080,
+        "format": "rgb",
+        "data": "base64_encoded_frame_data"
+    }
+    """
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+        # Extract frame parameters
+        width = data.get('width')
+        height = data.get('height')
+        format_type = data.get('format', 'rgb')
+        frame_data_b64 = data.get('data')
+
+        if not all([width, height, frame_data_b64]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: width, height, data'
+            }), 400
+
+        # Decode base64 frame data
+        import base64
+        frame_data = base64.b64decode(frame_data_b64)
+
+        # Broadcast frame to all connected viewers
+        if frame_stream_server:
+            # Schedule the broadcast in the event loop
+            asyncio.run_coroutine_threadsafe(
+                frame_stream_server.broadcast_frame(frame_data, width, height, format_type),
+                frame_stream_loop
+            )
+
+            return jsonify({'success': True}), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Frame streaming server not initialized'
+            }), 503
+
+    except Exception as e:
+        print(f"[rhizo_server] Error streaming frame: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# Frame Streaming Server Management
+# ============================================================================
+
+# Global variables for frame streaming
+frame_stream_server = None
+frame_stream_loop = None
+frame_stream_thread = None
+
+
+def start_frame_stream_server():
+    """Start the WebSocket frame streaming server in a separate thread"""
+    global frame_stream_server, frame_stream_loop
+
+    def run_server():
+        global frame_stream_server, frame_stream_loop
+
+        # Create new event loop for this thread
+        frame_stream_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(frame_stream_loop)
+
+        # Create and start server
+        frame_stream_server = FrameStreamServer(host='0.0.0.0', port=8766)
+
+        try:
+            frame_stream_loop.run_until_complete(frame_stream_server.start())
+            print("[rhizo_server] Frame streaming server started")
+
+            # Keep the loop running
+            frame_stream_loop.run_forever()
+        except Exception as e:
+            print(f"[rhizo_server] Frame streaming server error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if frame_stream_server:
+                frame_stream_loop.run_until_complete(frame_stream_server.stop())
+            frame_stream_loop.close()
+
+    # Start in daemon thread
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+
+    # Wait a moment for server to start
+    time.sleep(1)
+
+    return thread
 
 
 # ============================================================================
@@ -153,18 +277,31 @@ def status():
 
 def main():
     """Start the Rhizomium integrated server."""
+    global frame_stream_thread
+
     print("=" * 70)
-    print("🌿 Rhizomium Integrated Server")
+    print("🌿 Rhizomium Integrated Server with Frame Streaming")
     print("=" * 70)
     print(f"Base directory: {BASE_DIR}")
+    print()
+
+    # Start frame streaming server
+    print("Starting WebSocket frame streaming server...")
+    frame_stream_thread = start_frame_stream_server()
+
     print()
     print("Available URLs:")
     print("  Landing Page:  http://127.0.0.1:5000/")
     print("  Editor:        http://127.0.0.1:5000/studio")
     print("  Editor (alt):  http://127.0.0.1:5000/editor")
+    print("  Remote Viewer: http://127.0.0.1:5000/viewer.html")
+    print()
+    print("WebSocket:")
+    print("  Frame Stream:  ws://127.0.0.1:8766/ws")
     print()
     print("API Endpoints:")
     print("  POST /api/launch-viewer - Launch external viewer")
+    print("  POST /api/stream-frame  - Send frame to viewers")
     print("  GET  /api/health        - Health check")
     print("  GET  /api/status        - Server status")
     print()
@@ -173,12 +310,18 @@ def main():
     print("=" * 70)
 
     # Run the Flask app
-    app.run(
-        host='127.0.0.1',
-        port=5000,
-        debug=True,
-        use_reloader=True
-    )
+    try:
+        app.run(
+            host='127.0.0.1',
+            port=5000,
+            debug=False,  # Disable debug mode to prevent reloader conflicts
+            use_reloader=False,
+            threaded=True
+        )
+    finally:
+        print("\n[rhizo_server] Shutting down frame streaming server...")
+        if frame_stream_loop:
+            frame_stream_loop.call_soon_threadsafe(frame_stream_loop.stop)
 
 
 if __name__ == '__main__':

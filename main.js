@@ -14,6 +14,8 @@ import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
+import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -114,6 +116,16 @@ let __deviceReady = false;
 let floatingPreview = null;
 let renderLoopController = null;
 
+// Frame streaming client for dual-screen support
+let frameStreamClient = null;
+let broadcastFrameStream = null;
+let frameStreamingEnabled = false;
+
+// Detect deployment environment
+const isVercelOrCloud = window.location.hostname.includes('vercel.app') ||
+                        window.location.hostname.includes('netlify.app') ||
+                        window.location.hostname.includes('github.io');
+
 if (typeof window.render !== "function") {
   window.render = () => {};
 }
@@ -125,9 +137,9 @@ async function initialize() {
   const canvas =
     document.getElementById("gpu-canvas") || document.querySelector("canvas");
   if (canvas) {
-const adapter = await navigator.gpu.requestAdapter();
-const device = await adapter.requestDevice();
-window.gpuRenderer = new GPURenderer(device, canvas);
+    const adapter = await navigator.gpu.requestAdapter();
+    const device = await adapter.requestDevice();
+    window.gpuRenderer = new GPURenderer(device, canvas);
 
     if (device) {
       const { TextureManager } = await import("./src/core/TextureManager.js");
@@ -741,6 +753,72 @@ function setupUIEventHandlers() {
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
   }
 
+  // Display selector for multi-monitor support
+  const displaySelect = document.getElementById('display-select');
+  let availableScreens = [];
+  let permissionGranted = false;
+
+  // Try to detect available displays using Window Management API
+  async function detectDisplays() {
+    if (!displaySelect) {
+      console.warn('[main.js] Display selector not found');
+      return;
+    }
+
+    if (!('getScreenDetails' in window)) {
+      console.log('[main.js] Window Management API not supported in this browser');
+      displaySelect.title = 'Window Management API not supported in your browser';
+      displaySelect.disabled = false;
+      return;
+    }
+
+    try {
+      // Request permission if needed
+      const permission = await navigator.permissions.query({ name: 'window-management' });
+      console.log('[main.js] Window Management permission state:', permission.state);
+
+      if (permission.state === 'granted' || permission.state === 'prompt') {
+        const screenDetails = await window.getScreenDetails();
+        availableScreens = screenDetails.screens;
+        permissionGranted = true;
+
+        // Clear and populate display selector
+        displaySelect.innerHTML = '<option value="auto">Auto</option>';
+
+        availableScreens.forEach((screen, index) => {
+          const isPrimary = screen.isPrimary ? ' (Primary)' : '';
+          const label = `Display ${index + 1}: ${screen.width}x${screen.height}${isPrimary}`;
+          const option = document.createElement('option');
+          option.value = index;
+          option.textContent = label;
+          displaySelect.appendChild(option);
+        });
+
+        displaySelect.title = `Select which monitor to open viewer on (${availableScreens.length} displays detected)`;
+        console.log(`[main.js] Detected ${availableScreens.length} displays:`, availableScreens.map(s => `${s.width}x${s.height}`));
+      } else if (permission.state === 'denied') {
+        console.log('[main.js] Window Management permission denied');
+        displaySelect.title = 'Permission denied. Enable Window Management in browser settings.';
+      }
+    } catch (error) {
+      console.log('[main.js] Error detecting displays:', error.message);
+      displaySelect.title = 'Click to request multi-monitor permission';
+    }
+  }
+
+  // Detect displays on startup
+  if (displaySelect) {
+    detectDisplays();
+
+    // Also try to detect when user clicks the dropdown (for permission prompt)
+    displaySelect.addEventListener('focus', async () => {
+      if (!permissionGranted && 'getScreenDetails' in window) {
+        console.log('[main.js] User focused display selector, attempting to detect displays...');
+        await detectDisplays();
+      }
+    }, { once: true });
+  }
+
   // Open External Viewer button
   const openViewerBtn = removeExistingHandlers("btn-open-viewer");
   console.log('[main.js] Setting up external viewer button, element found:', !!openViewerBtn);
@@ -755,48 +833,118 @@ function setupUIEventHandlers() {
                            !window.location.hostname.match(/^192\.168\./));
 
     if (isCloudHosted) {
-      // Update button to show it's local-only
-      openViewerBtn.title = "External viewer requires local Python server (see QUICKSTART.md)";
-      openViewerBtn.style.opacity = "0.6";
+      // Update button to show it works on Vercel
+      openViewerBtn.title = "Open viewer in new tab (works on Vercel!)";
+      openViewerBtn.style.opacity = "1.0";
+    } else {
+      openViewerBtn.title = "Launch external viewer (requires Python server)";
     }
 
     openViewerBtn.addEventListener("click", async (e) => {
       console.log('[main.js] Open External Viewer button clicked!');
       e.preventDefault();
 
-      // Check if running remotely
+      // Check if running on Vercel/cloud
       if (isCloudHosted) {
-        const message =
-          "⚠️ External Viewer is a local-only feature.\n\n" +
-          "To use the external viewer:\n" +
-          "1. Clone the repository to your computer\n" +
-          "2. Run: pip install -r requirements.txt\n" +
-          "3. Run: python rhizo_server.py\n" +
-          "4. Open: http://127.0.0.1:5000/studio\n\n" +
-          "See QUICKSTART.md for details.";
+        // Use BroadcastChannel for same-origin communication
+        console.log('[main.js] Cloud deployment detected, using BroadcastChannel');
 
-        alert(message);
-
-        if (typeof updateStatus === "function") {
-          updateStatus("External viewer requires local Python server", "warning");
+        if (!BroadcastFrameStream.isSupported()) {
+          alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
+          return;
         }
-        console.log('[main.js] External viewer not available on cloud hosting');
+
+        try {
+          // Initialize BroadcastChannel streaming
+          if (!broadcastFrameStream) {
+            broadcastFrameStream = new BroadcastFrameStream();
+            broadcastFrameStream.init();
+            console.log('[main.js] BroadcastChannel initialized');
+          }
+
+          // Start streaming
+          broadcastFrameStream.startStreaming();
+          frameStreamingEnabled = true;
+
+          // Update button
+          openViewerBtn.textContent = "Streaming Active";
+          openViewerBtn.style.backgroundColor = "#00aa00";
+
+          // Get selected display
+          const selectedDisplayIndex = displaySelect ? displaySelect.value : 'auto';
+          let windowFeatures = 'width=1920,height=1080';
+
+          // Position on selected display if available
+          if (selectedDisplayIndex !== 'auto' && availableScreens.length > 0) {
+            const screen = availableScreens[parseInt(selectedDisplayIndex)];
+            if (screen) {
+              const left = screen.availLeft;
+              const top = screen.availTop;
+              const width = Math.min(1920, screen.availWidth);
+              const height = Math.min(1080, screen.availHeight);
+              windowFeatures = `left=${left},top=${top},width=${width},height=${height}`;
+              console.log(`[main.js] Opening viewer on Display ${parseInt(selectedDisplayIndex) + 1} at ${left},${top}`);
+            }
+          }
+
+          // Open viewer in new window with auto-fullscreen
+          const viewerUrl = window.location.origin + '/viewer-vercel.html?fullscreen=true&hideui=true';
+          window.open(viewerUrl, 'RhizomiumViewer', windowFeatures);
+          console.log('[main.js] Opening viewer with auto-fullscreen and hidden UI');
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming to new tab (BroadcastChannel)");
+          }
+
+          console.log('[main.js] BroadcastChannel streaming started');
+        } catch (error) {
+          console.error('[main.js] Error starting BroadcastChannel:', error);
+          alert('❌ Failed to start streaming: ' + error.message);
+        }
+
         return;
       }
 
+      // Local development - use HTTP/WebSocket streaming
       try {
+        // Initialize frame streaming client if not already done
+        if (!frameStreamClient) {
+          frameStreamClient = new FrameStreamClient('http://localhost:5000');
+          console.log('[main.js] Frame streaming client initialized');
+        }
+
+        // Start frame streaming
+        try {
+          await frameStreamClient.startStreaming();
+          frameStreamingEnabled = true;
+          console.log('[main.js] Frame streaming started');
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Frame streaming started");
+          }
+        } catch (streamError) {
+          console.warn('[main.js] Frame streaming not available:', streamError);
+        }
+
         // Try to launch rhizo_viewer via backend API
         const response = await fetch('/api/launch-viewer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ viewer: 'rhizo_viewer.exe' })
+          body: JSON.stringify({ viewer: 'rhizo_viewer.py' })
         });
 
         if (response.ok) {
-          console.log('[main.js] External viewer launched successfully');
+          const result = await response.json();
+          console.log('[main.js] External viewer launched successfully:', result);
+
           if (typeof updateStatus === "function") {
-            updateStatus("External viewer opened");
+            updateStatus("External viewer opened (WebSocket mode)");
           }
+
+          // Update button text to show streaming is active
+          openViewerBtn.textContent = "Streaming Active";
+          openViewerBtn.style.backgroundColor = "#00aa00";
+
         } else {
           console.error('[main.js] Failed to launch external viewer:', response.status);
           if (typeof updateStatus === "function") {
@@ -818,7 +966,8 @@ function setupUIEventHandlers() {
             "1. Open a terminal in the project directory\n" +
             "2. Run: python rhizo_server.py\n" +
             "3. Refresh this page\n" +
-            "4. Click 'Open External Viewer' again";
+            "4. Click 'Open External Viewer' again\n\n" +
+            "The viewer will connect via WebSocket for remote streaming.";
 
           alert(message);
         }
@@ -831,6 +980,45 @@ function setupUIEventHandlers() {
     console.log("External viewer button handler attached");
   } else {
     console.error('[main.js] External viewer button NOT found in DOM!');
+  }
+
+  // Resolution selector for canvas/streaming
+  const resolutionSelect = document.getElementById('resolution-select');
+  if (resolutionSelect) {
+    resolutionSelect.addEventListener('change', (e) => {
+      const resolution = e.target.value;
+      const [width, height] = resolution.split('x').map(Number);
+
+      const canvas = document.getElementById('gpu-canvas');
+      if (canvas) {
+        console.log(`[main.js] Changing canvas resolution to ${width}x${height}`);
+
+        // Update canvas size
+        canvas.width = width;
+        canvas.height = height;
+
+        // WebGPU renderer will automatically handle the resize on next render
+        // The context will be recreated with new dimensions
+
+        if (typeof updateStatus === "function") {
+          updateStatus(`Resolution changed to ${width}x${height}`);
+        }
+      }
+    });
+
+    // Set initial resolution on startup
+    const initialResolution = resolutionSelect.value;
+    const [initWidth, initHeight] = initialResolution.split('x').map(Number);
+    const canvas = document.getElementById('gpu-canvas');
+    if (canvas) {
+      canvas.width = initWidth;
+      canvas.height = initHeight;
+      console.log(`[main.js] Initial canvas resolution set to ${initWidth}x${initHeight}`);
+    }
+
+    console.log("Resolution selector handler attached");
+  } else {
+    console.error('[main.js] Resolution selector NOT found in DOM!');
   }
 
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
@@ -1574,6 +1762,21 @@ function updateStatus(message, type = "info") {
 function handleRenderFrame(frameState) {
   if (window.gpuRenderer) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
+
+    // Stream frames to external viewers if enabled
+    if (frameStreamingEnabled) {
+      const canvas = document.getElementById('gpu-canvas');
+      if (canvas) {
+        // Use BroadcastChannel for Vercel/cloud deployments
+        if (broadcastFrameStream) {
+          broadcastFrameStream.sendFrameFromCanvas(canvas);
+        }
+        // Use HTTP streaming for local development
+        else if (frameStreamClient) {
+          frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+        }
+      }
+    }
   }
 
   if (!frameState.manual && floatingPreview?.fpsCounter) {

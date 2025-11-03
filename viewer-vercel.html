@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhizomium Viewer - Vercel Edition</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #canvas {
+            display: block;
+            image-rendering: auto;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #status {
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+            color: #ffa500;
+        }
+
+        #status.connected {
+            color: #00ff00;
+        }
+
+        #status.error {
+            color: #ff0000;
+        }
+
+        #info {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 20px;
+        }
+
+        #controls {
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
+            display: flex !important;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid #333;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .stat strong {
+            color: #fff;
+        }
+
+        button {
+            background: #444;
+            border: 1px solid #666;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        button.primary {
+            background: #007acc;
+            border-color: #005a9e;
+        }
+
+        button.primary:hover {
+            background: #005a9e;
+        }
+
+        .banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 10px 20px;
+            text-align: center;
+            font-size: 13px;
+            display: block !important;
+        }
+
+        .banner strong {
+            color: #fff;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* UI hiding styles - hide EVERYTHING when H is pressed */
+        body.ui-hidden .banner,
+        body.ui-hidden #controls,
+        body.ui-hidden #stats-overlay,
+        body.ui-hidden #ui-hint {
+            display: none !important;
+        }
+
+        body.ui-hidden #canvas-container {
+            height: 100vh !important;
+        }
+
+        #ui-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+            opacity: 0.6;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 100;
+            display: block !important;
+        }
+
+        #ui-hint:hover {
+            opacity: 1;
+        }
+
+        /* Stats overlay */
+        #stats-overlay {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 6px;
+            z-index: 50;
+            display: flex !important;
+            gap: 15px;
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div class="banner">
+            <strong>🌿 Vercel Edition</strong> - Using BroadcastChannel (same-computer tabs only)
+        </div>
+
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div id="overlay">
+                <div id="status" class="pulse">Waiting for stream...</div>
+                <div id="info">
+                    Open the <strong>Editor</strong> and click<br>
+                    <strong>"Open External Viewer"</strong> to start streaming
+                </div>
+            </div>
+        </div>
+
+        <div id="controls">
+            <div class="control-group">
+                <button id="btn-hide-ui">Hide UI (H)</button>
+                <button id="btn-fullscreen">Fullscreen (F)</button>
+                <button id="btn-popout">Pop Out (P)</button>
+                <button id="btn-refresh">Refresh</button>
+            </div>
+        </div>
+
+        <!-- Stats overlay - stays visible when UI hidden -->
+        <div id="stats-overlay">
+            <div class="stat">Frames: <strong id="frame-count">0</strong></div>
+            <div class="stat">FPS: <strong id="fps-value">...</strong></div>
+            <div class="stat">Frame: <strong id="resolution">...</strong></div>
+            <div class="stat">Display: <strong id="display-size">...</strong></div>
+        </div>
+
+        <div id="ui-hint">Press H to hide UI • Press F for fullscreen • Press P to pop out</div>
+    </div>
+
+    <script type="module">
+        // Check if BroadcastChannel is supported
+        if (!('BroadcastChannel' in window)) {
+            document.getElementById('status').textContent = 'BroadcastChannel not supported';
+            document.getElementById('status').classList.add('error');
+            document.getElementById('status').classList.remove('pulse');
+            document.getElementById('info').innerHTML =
+                'Your browser doesn\'t support BroadcastChannel API.<br>' +
+                'Please use Chrome, Edge, Firefox, or Safari.';
+            throw new Error('BroadcastChannel not supported');
+        }
+
+        class ViewerApp {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.channel = new BroadcastChannel('rhizo-frame-stream');
+
+                // Statistics
+                this.frameCount = 0;
+                this.lastFrameTime = 0;
+                this.fps = 0;
+                this.fpsValues = [];
+                this.hasReceivedFrame = false;
+
+                // Bind events
+                this.channel.onmessage = (event) => {
+                    console.log('[Viewer] Received message:', event.data?.type || 'unknown');
+                    this.handleMessage(event.data);
+                };
+
+                document.getElementById('btn-hide-ui').addEventListener('click', () => {
+                    console.log('[Viewer] Hide UI button clicked');
+                    this.toggleUI();
+                });
+                document.getElementById('btn-fullscreen').addEventListener('click', () => {
+                    console.log('[Viewer] Fullscreen button clicked');
+                    this.toggleFullscreen();
+                });
+                document.getElementById('btn-popout').addEventListener('click', () => {
+                    console.log('[Viewer] Pop out button clicked');
+                    this.popOutWindow();
+                });
+                document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    console.log('[Viewer] Key pressed:', e.key);
+                    if (e.key === 'h' || e.key === 'H') {
+                        e.preventDefault();
+                        console.log('[Viewer] H key detected, calling toggleUI()');
+                        this.toggleUI();
+                    } else if (e.key === 'f' || e.key === 'F') {
+                        e.preventDefault();
+                        console.log('[Viewer] F key detected, calling toggleFullscreen()');
+                        this.toggleFullscreen();
+                    } else if (e.key === 'p' || e.key === 'P') {
+                        e.preventDefault();
+                        console.log('[Viewer] P key detected, calling popOutWindow()');
+                        this.popOutWindow();
+                    }
+                });
+
+                // Auto-resize canvas
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                console.log('[Viewer] Initialized and listening for frames...');
+                console.log('[Viewer] BroadcastChannel name:', this.channel.name);
+
+                // Request a frame
+                this.requestFrame();
+
+                // Send a test ping every 2 seconds to verify channel works
+                setInterval(() => {
+                    console.log('[Viewer] Sending keepalive ping...');
+                    this.channel.postMessage({ type: 'viewer_ping', timestamp: Date.now() });
+                }, 2000);
+            }
+
+            requestFrame() {
+                this.channel.postMessage({
+                    type: 'request_frame',
+                    timestamp: Date.now()
+                });
+            }
+
+            handleMessage(data) {
+                const { type } = data;
+
+                if (type === 'frame') {
+                    this.handleFrame(data);
+                } else if (type === 'stream_started') {
+                    console.log('[Viewer] Stream started');
+                    document.getElementById('status').textContent = 'Connected';
+                    document.getElementById('status').classList.add('connected');
+                    document.getElementById('status').classList.remove('pulse');
+                } else if (type === 'stream_stopped') {
+                    console.log('[Viewer] Stream stopped');
+                    document.getElementById('status').textContent = 'Stream stopped';
+                    document.getElementById('status').classList.remove('connected');
+                }
+            }
+
+            handleFrame(data) {
+                if (!this.hasReceivedFrame) {
+                    this.hasReceivedFrame = true;
+                    document.getElementById('overlay').classList.add('hidden');
+                    console.log('[Viewer] First frame received!');
+                }
+
+                const { imageData, metadata } = data;
+
+                if (!imageData || !metadata) {
+                    console.error('[Viewer] Invalid frame data:', data);
+                    return;
+                }
+
+                // Update canvas internal resolution to match frame
+                if (this.canvas.width !== metadata.width || this.canvas.height !== metadata.height) {
+                    this.canvas.width = metadata.width;
+                    this.canvas.height = metadata.height;
+                    console.log(`[Viewer] Canvas resolution changed to: ${metadata.width}x${metadata.height}`);
+
+                    // Update canvas display size to scale properly
+                    this.updateCanvasDisplaySize();
+                }
+
+                // Draw frame at native resolution
+                this.ctx.putImageData(imageData, 0, 0);
+
+                // Update frame count
+                this.frameCount++;
+                document.getElementById('frame-count').textContent = this.frameCount;
+
+                // Update frame resolution (from metadata)
+                document.getElementById('resolution').textContent =
+                    `${metadata.width}x${metadata.height}`;
+
+                // Calculate FPS based on frame arrival times
+                const now = performance.now();
+                if (this.lastFrameTime > 0) {
+                    const delta = (now - this.lastFrameTime) / 1000;
+                    if (delta > 0) {
+                        const instantFps = 1 / delta;
+                        this.fpsValues.push(instantFps);
+                        if (this.fpsValues.length > 30) {
+                            this.fpsValues.shift();
+                        }
+                        const avgFps = this.fpsValues.reduce((a, b) => a + b, 0) / this.fpsValues.length;
+                        this.fps = avgFps;
+                        document.getElementById('fps-value').textContent = avgFps.toFixed(0);
+                    }
+                }
+                this.lastFrameTime = now;
+            }
+
+            updateCanvasDisplaySize() {
+                const container = document.getElementById('canvas-container');
+                const containerWidth = container.clientWidth;
+                const containerHeight = container.clientHeight;
+
+                console.log(`[Viewer] Container size: ${containerWidth}x${containerHeight}`);
+                console.log(`[Viewer] Canvas internal size: ${this.canvas.width}x${this.canvas.height}`);
+
+                if (this.canvas.width === 0 || this.canvas.height === 0) {
+                    console.warn('[Viewer] Canvas has zero dimensions, skipping resize');
+                    return;
+                }
+
+                // Calculate aspect ratio of the frame
+                const frameAspect = this.canvas.width / this.canvas.height;
+                const containerAspect = containerWidth / containerHeight;
+
+                // Scale to fit container while maintaining aspect ratio
+                let displayWidth, displayHeight;
+
+                if (frameAspect > containerAspect) {
+                    // Frame is wider - fit to width
+                    displayWidth = containerWidth;
+                    displayHeight = containerWidth / frameAspect;
+                } else {
+                    // Frame is taller - fit to height
+                    displayHeight = containerHeight;
+                    displayWidth = containerHeight * frameAspect;
+                }
+
+                // Apply display size via CSS
+                this.canvas.style.width = `${displayWidth}px`;
+                this.canvas.style.height = `${displayHeight}px`;
+
+                // Update display size stat
+                document.getElementById('display-size').textContent =
+                    `${Math.round(displayWidth)}x${Math.round(displayHeight)}`;
+
+                console.log(`[Viewer] Set display size to: ${Math.round(displayWidth)}x${Math.round(displayHeight)} (aspect: ${frameAspect.toFixed(2)})`);
+            }
+
+            resizeCanvas() {
+                // Update canvas display size when window resizes
+                if (this.canvas.width > 0 && this.canvas.height > 0) {
+                    this.updateCanvasDisplaySize();
+                }
+            }
+
+            toggleUI() {
+                console.log('[Viewer] toggleUI() called');
+                const isHidden = document.body.classList.contains('ui-hidden');
+                console.log('[Viewer] Current UI state - isHidden:', isHidden);
+                console.log('[Viewer] Body classes before:', document.body.className);
+
+                if (isHidden) {
+                    // Show UI
+                    document.body.classList.remove('ui-hidden');
+                    console.log('[Viewer] Removed ui-hidden class from body');
+                } else {
+                    // Hide UI
+                    document.body.classList.add('ui-hidden');
+                    console.log('[Viewer] Added ui-hidden class to body');
+                }
+
+                console.log('[Viewer] Body classes after:', document.body.className);
+
+                // Update canvas display size after UI toggle (viewport size changes)
+                setTimeout(() => {
+                    if (this.canvas.width > 0 && this.canvas.height > 0) {
+                        this.updateCanvasDisplaySize();
+                    }
+                }, 100);
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.error(`[Viewer] Error attempting to enable fullscreen: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+
+            popOutWindow() {
+                // Open current viewer URL in a new window
+                const url = window.location.href;
+                const features = 'width=1920,height=1080,menubar=no,toolbar=no,location=no,status=no';
+                window.open(url, 'RhizomiumViewer', features);
+                console.log('[Viewer] Opened pop-out window');
+            }
+        }
+
+        // Initialize viewer
+        const viewer = new ViewerApp();
+
+        console.log('🌿 Rhizomium Viewer (Vercel Edition) initialized');
+        console.log('Waiting for frames from the editor...');
+        console.log('Make sure the editor tab is open and streaming is active!');
+
+        // Check for auto-fullscreen URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoFullscreen = urlParams.get('fullscreen') === 'true';
+        const autoHideUI = urlParams.get('hideui') === 'true';
+
+        console.log('[Viewer] URL params - fullscreen:', autoFullscreen, 'hideui:', autoHideUI);
+
+        if (autoHideUI) {
+            // Hide UI immediately
+            setTimeout(() => {
+                document.body.classList.add('ui-hidden');
+                console.log('[Viewer] Auto-hiding UI (from URL parameter)');
+                console.log('[Viewer] Body classes:', document.body.className);
+            }, 100);
+        }
+
+        if (autoFullscreen) {
+            // Show fullscreen prompt
+            setTimeout(() => {
+                // Try automatic fullscreen first
+                document.documentElement.requestFullscreen().then(() => {
+                    console.log('[Viewer] Auto-entered fullscreen');
+                }).catch(err => {
+                    console.warn(`[Viewer] Auto-fullscreen blocked: ${err.message}`);
+
+                    // Show prominent message to user
+                    const overlay = document.getElementById('overlay');
+                    if (overlay && !viewer.hasReceivedFrame) {
+                        const fullscreenHint = document.createElement('div');
+                        fullscreenHint.style.cssText = 'margin-top: 20px; padding: 15px 25px; background: rgba(255,165,0,0.2); border: 2px solid orange; border-radius: 8px; font-size: 16px;';
+                        fullscreenHint.innerHTML = '<strong>Press F</strong> to enter fullscreen mode';
+                        overlay.appendChild(fullscreenHint);
+                    }
+                });
+            }, 800);
+        }
+    </script>
+</body>
+</html>
