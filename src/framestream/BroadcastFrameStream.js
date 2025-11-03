@@ -189,14 +189,34 @@ export class BroadcastFrameStream {
         this.lastFrameTime = now;
 
         try {
-            // Get ImageData from canvas
-            const ctx = canvas.getContext('2d', { willReadFrequently: false });
-            if (!ctx) {
-                console.warn('[BroadcastFrameStream] No 2D context available');
-                return;
+            // For WebGPU canvases, we need to use an offscreen 2D canvas
+            // to read the pixels (WebGPU canvases don't have getContext('2d'))
+
+            // Create or reuse offscreen canvas
+            if (!this._offscreenCanvas) {
+                this._offscreenCanvas = document.createElement('canvas');
+                this._offscreenCtx = this._offscreenCanvas.getContext('2d', {
+                    willReadFrequently: true
+                });
             }
 
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            // Resize offscreen canvas if needed
+            if (this._offscreenCanvas.width !== canvas.width ||
+                this._offscreenCanvas.height !== canvas.height) {
+                this._offscreenCanvas.width = canvas.width;
+                this._offscreenCanvas.height = canvas.height;
+            }
+
+            // Copy WebGPU canvas to 2D canvas using drawImage
+            // This works for both WebGPU and regular canvases
+            this._offscreenCtx.drawImage(canvas, 0, 0);
+
+            // Read pixels from 2D canvas
+            const imageData = this._offscreenCtx.getImageData(
+                0, 0,
+                canvas.width,
+                canvas.height
+            );
 
             // Prepare metadata
             const metadata = {
