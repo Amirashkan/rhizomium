@@ -756,13 +756,31 @@ function setupUIEventHandlers() {
   // Display selector for multi-monitor support
   const displaySelect = document.getElementById('display-select');
   let availableScreens = [];
+  let permissionGranted = false;
 
   // Try to detect available displays using Window Management API
   async function detectDisplays() {
-    if (displaySelect && 'getScreenDetails' in window) {
-      try {
+    if (!displaySelect) {
+      console.warn('[main.js] Display selector not found');
+      return;
+    }
+
+    if (!('getScreenDetails' in window)) {
+      console.log('[main.js] Window Management API not supported in this browser');
+      displaySelect.title = 'Window Management API not supported in your browser';
+      displaySelect.disabled = false;
+      return;
+    }
+
+    try {
+      // Request permission if needed
+      const permission = await navigator.permissions.query({ name: 'window-management' });
+      console.log('[main.js] Window Management permission state:', permission.state);
+
+      if (permission.state === 'granted' || permission.state === 'prompt') {
         const screenDetails = await window.getScreenDetails();
         availableScreens = screenDetails.screens;
+        permissionGranted = true;
 
         // Clear and populate display selector
         displaySelect.innerHTML = '<option value="auto">Auto</option>';
@@ -776,15 +794,30 @@ function setupUIEventHandlers() {
           displaySelect.appendChild(option);
         });
 
-        console.log(`[main.js] Detected ${availableScreens.length} displays`);
-      } catch (error) {
-        console.log('[main.js] Window Management API not available or permission denied:', error.message);
+        displaySelect.title = `Select which monitor to open viewer on (${availableScreens.length} displays detected)`;
+        console.log(`[main.js] Detected ${availableScreens.length} displays:`, availableScreens.map(s => `${s.width}x${s.height}`));
+      } else if (permission.state === 'denied') {
+        console.log('[main.js] Window Management permission denied');
+        displaySelect.title = 'Permission denied. Enable Window Management in browser settings.';
       }
+    } catch (error) {
+      console.log('[main.js] Error detecting displays:', error.message);
+      displaySelect.title = 'Click to request multi-monitor permission';
     }
   }
 
   // Detect displays on startup
-  detectDisplays();
+  if (displaySelect) {
+    detectDisplays();
+
+    // Also try to detect when user clicks the dropdown (for permission prompt)
+    displaySelect.addEventListener('focus', async () => {
+      if (!permissionGranted && 'getScreenDetails' in window) {
+        console.log('[main.js] User focused display selector, attempting to detect displays...');
+        await detectDisplays();
+      }
+    }, { once: true });
+  }
 
   // Open External Viewer button
   const openViewerBtn = removeExistingHandlers("btn-open-viewer");

@@ -73,7 +73,7 @@
         #controls {
             background: rgba(0, 0, 0, 0.9);
             padding: 15px 20px;
-            display: flex;
+            display: flex !important;
             align-items: center;
             justify-content: space-between;
             border-top: 1px solid #333;
@@ -125,6 +125,7 @@
             padding: 10px 20px;
             text-align: center;
             font-size: 13px;
+            display: block !important;
         }
 
         .banner strong {
@@ -145,14 +146,14 @@
         }
 
         /* UI hiding styles - hide EVERYTHING when H is pressed */
-        .ui-hidden .banner,
-        .ui-hidden #controls,
-        .ui-hidden #stats-overlay,
-        .ui-hidden #ui-hint {
+        #container.ui-hidden .banner,
+        #container.ui-hidden #controls,
+        #container.ui-hidden #stats-overlay,
+        #container.ui-hidden #ui-hint {
             display: none !important;
         }
 
-        .ui-hidden #canvas-container {
+        #container.ui-hidden #canvas-container {
             height: 100vh !important;
         }
 
@@ -170,6 +171,7 @@
             transition: opacity 0.3s;
             pointer-events: none;
             z-index: 100;
+            display: block !important;
         }
 
         #ui-hint:hover {
@@ -185,7 +187,7 @@
             padding: 10px 15px;
             border-radius: 6px;
             z-index: 50;
-            display: flex;
+            display: flex !important;
             gap: 15px;
             pointer-events: none;
             backdrop-filter: blur(10px);
@@ -212,6 +214,7 @@
         <div id="controls">
             <div class="control-group">
                 <button id="btn-hide-ui">Hide UI (H)</button>
+                <button id="btn-fullscreen">Fullscreen (F)</button>
                 <button id="btn-popout">Pop Out (P)</button>
                 <button id="btn-refresh">Refresh</button>
             </div>
@@ -225,7 +228,7 @@
             <div class="stat">Display: <strong id="display-size">...</strong></div>
         </div>
 
-        <div id="ui-hint">Press H to show/hide UI • Press P to pop out window</div>
+        <div id="ui-hint">Press H to hide UI • Press F for fullscreen • Press P to pop out</div>
     </div>
 
     <script type="module">
@@ -260,6 +263,7 @@
                 };
 
                 document.getElementById('btn-hide-ui').addEventListener('click', () => this.toggleUI());
+                document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
                 document.getElementById('btn-popout').addEventListener('click', () => this.popOutWindow());
                 document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
 
@@ -268,6 +272,9 @@
                     if (e.key === 'h' || e.key === 'H') {
                         e.preventDefault();
                         this.toggleUI();
+                    } else if (e.key === 'f' || e.key === 'F') {
+                        e.preventDefault();
+                        this.toggleFullscreen();
                     } else if (e.key === 'p' || e.key === 'P') {
                         e.preventDefault();
                         this.popOutWindow();
@@ -372,6 +379,14 @@
                 const containerWidth = container.clientWidth;
                 const containerHeight = container.clientHeight;
 
+                console.log(`[Viewer] Container size: ${containerWidth}x${containerHeight}`);
+                console.log(`[Viewer] Canvas internal size: ${this.canvas.width}x${this.canvas.height}`);
+
+                if (this.canvas.width === 0 || this.canvas.height === 0) {
+                    console.warn('[Viewer] Canvas has zero dimensions, skipping resize');
+                    return;
+                }
+
                 // Calculate aspect ratio of the frame
                 const frameAspect = this.canvas.width / this.canvas.height;
                 const containerAspect = containerWidth / containerHeight;
@@ -397,7 +412,7 @@
                 document.getElementById('display-size').textContent =
                     `${Math.round(displayWidth)}x${Math.round(displayHeight)}`;
 
-                console.log(`[Viewer] Display size: ${displayWidth}x${displayHeight} (${frameAspect.toFixed(2)} aspect)`);
+                console.log(`[Viewer] Set display size to: ${Math.round(displayWidth)}x${Math.round(displayHeight)} (aspect: ${frameAspect.toFixed(2)})`);
             }
 
             resizeCanvas() {
@@ -427,6 +442,16 @@
                         this.updateCanvasDisplaySize();
                     }
                 }, 100);
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.error(`[Viewer] Error attempting to enable fullscreen: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
             }
 
             popOutWindow() {
