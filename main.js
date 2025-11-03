@@ -15,6 +15,7 @@ import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
+import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -117,7 +118,16 @@ let renderLoopController = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
+let broadcastFrameStream = null;
 let frameStreamingEnabled = false;
+
+// Detect deployment environment
+const isVercelOrCloud = window.location.hostname.includes('vercel.app') ||
+                        window.location.hostname.includes('netlify.app') ||
+                        window.location.hostname.includes('github.io');
+
+// Use BroadcastChannel on Vercel/cloud, HTTP streaming on local
+const usebroadcastChannel = isVercelOrCloud || BroadcastFrameStream.isSupported();
 
 if (typeof window.render !== "function") {
   window.render = () => {};
@@ -760,35 +770,61 @@ function setupUIEventHandlers() {
                            !window.location.hostname.match(/^192\.168\./));
 
     if (isCloudHosted) {
-      // Update button to show it's local-only
-      openViewerBtn.title = "External viewer requires local Python server (see QUICKSTART.md)";
-      openViewerBtn.style.opacity = "0.6";
+      // Update button to show it works on Vercel
+      openViewerBtn.title = "Open viewer in new tab (works on Vercel!)";
+      openViewerBtn.style.opacity = "1.0";
+    } else {
+      openViewerBtn.title = "Launch external viewer (requires Python server)";
     }
 
     openViewerBtn.addEventListener("click", async (e) => {
       console.log('[main.js] Open External Viewer button clicked!');
       e.preventDefault();
 
-      // Check if running remotely
+      // Check if running on Vercel/cloud
       if (isCloudHosted) {
-        const message =
-          "⚠️ External Viewer is a local-only feature.\n\n" +
-          "To use the external viewer:\n" +
-          "1. Clone the repository to your computer\n" +
-          "2. Run: pip install -r requirements.txt\n" +
-          "3. Run: python rhizo_server.py\n" +
-          "4. Open: http://127.0.0.1:5000/studio\n\n" +
-          "See QUICKSTART.md for details.";
+        // Use BroadcastChannel for same-origin communication
+        console.log('[main.js] Cloud deployment detected, using BroadcastChannel');
 
-        alert(message);
-
-        if (typeof updateStatus === "function") {
-          updateStatus("External viewer requires local Python server", "warning");
+        if (!BroadcastFrameStream.isSupported()) {
+          alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
+          return;
         }
-        console.log('[main.js] External viewer not available on cloud hosting');
+
+        try {
+          // Initialize BroadcastChannel streaming
+          if (!broadcastFrameStream) {
+            broadcastFrameStream = new BroadcastFrameStream();
+            broadcastFrameStream.init();
+            console.log('[main.js] BroadcastChannel initialized');
+          }
+
+          // Start streaming
+          broadcastFrameStream.startStreaming();
+          frameStreamingEnabled = true;
+
+          // Update button
+          openViewerBtn.textContent = "Streaming Active";
+          openViewerBtn.style.backgroundColor = "#00aa00";
+
+          // Open viewer in new tab
+          const viewerUrl = window.location.origin + '/viewer-vercel.html';
+          window.open(viewerUrl, '_blank');
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming to new tab (BroadcastChannel)");
+          }
+
+          console.log('[main.js] BroadcastChannel streaming started');
+        } catch (error) {
+          console.error('[main.js] Error starting BroadcastChannel:', error);
+          alert('❌ Failed to start streaming: ' + error.message);
+        }
+
         return;
       }
 
+      // Local development - use HTTP/WebSocket streaming
       try {
         // Initialize frame streaming client if not already done
         if (!frameStreamClient) {
@@ -1608,10 +1644,17 @@ function handleRenderFrame(frameState) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
 
     // Stream frames to external viewers if enabled
-    if (frameStreamingEnabled && frameStreamClient) {
+    if (frameStreamingEnabled) {
       const canvas = document.getElementById('gpu-canvas');
       if (canvas) {
-        frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+        // Use BroadcastChannel for Vercel/cloud deployments
+        if (broadcastFrameStream) {
+          broadcastFrameStream.sendFrameFromCanvas(canvas);
+        }
+        // Use HTTP streaming for local development
+        else if (frameStreamClient) {
+          frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+        }
       }
     }
   }
