@@ -753,6 +753,39 @@ function setupUIEventHandlers() {
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
   }
 
+  // Display selector for multi-monitor support
+  const displaySelect = document.getElementById('display-select');
+  let availableScreens = [];
+
+  // Try to detect available displays using Window Management API
+  async function detectDisplays() {
+    if (displaySelect && 'getScreenDetails' in window) {
+      try {
+        const screenDetails = await window.getScreenDetails();
+        availableScreens = screenDetails.screens;
+
+        // Clear and populate display selector
+        displaySelect.innerHTML = '<option value="auto">Auto</option>';
+
+        availableScreens.forEach((screen, index) => {
+          const isPrimary = screen.isPrimary ? ' (Primary)' : '';
+          const label = `Display ${index + 1}: ${screen.width}x${screen.height}${isPrimary}`;
+          const option = document.createElement('option');
+          option.value = index;
+          option.textContent = label;
+          displaySelect.appendChild(option);
+        });
+
+        console.log(`[main.js] Detected ${availableScreens.length} displays`);
+      } catch (error) {
+        console.log('[main.js] Window Management API not available or permission denied:', error.message);
+      }
+    }
+  }
+
+  // Detect displays on startup
+  detectDisplays();
+
   // Open External Viewer button
   const openViewerBtn = removeExistingHandlers("btn-open-viewer");
   console.log('[main.js] Setting up external viewer button, element found:', !!openViewerBtn);
@@ -804,9 +837,26 @@ function setupUIEventHandlers() {
           openViewerBtn.textContent = "Streaming Active";
           openViewerBtn.style.backgroundColor = "#00aa00";
 
-          // Open viewer in new tab
+          // Get selected display
+          const selectedDisplayIndex = displaySelect ? displaySelect.value : 'auto';
+          let windowFeatures = 'width=1920,height=1080';
+
+          // Position on selected display if available
+          if (selectedDisplayIndex !== 'auto' && availableScreens.length > 0) {
+            const screen = availableScreens[parseInt(selectedDisplayIndex)];
+            if (screen) {
+              const left = screen.availLeft;
+              const top = screen.availTop;
+              const width = Math.min(1920, screen.availWidth);
+              const height = Math.min(1080, screen.availHeight);
+              windowFeatures = `left=${left},top=${top},width=${width},height=${height}`;
+              console.log(`[main.js] Opening viewer on Display ${parseInt(selectedDisplayIndex) + 1} at ${left},${top}`);
+            }
+          }
+
+          // Open viewer in new window
           const viewerUrl = window.location.origin + '/viewer-vercel.html';
-          window.open(viewerUrl, '_blank');
+          window.open(viewerUrl, 'RhizomiumViewer', windowFeatures);
 
           if (typeof updateStatus === "function") {
             updateStatus("Streaming to new tab (BroadcastChannel)");

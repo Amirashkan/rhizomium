@@ -212,7 +212,7 @@
         <div id="controls">
             <div class="control-group">
                 <button id="btn-hide-ui">Hide UI (H)</button>
-                <button id="btn-fullscreen">Fullscreen (F)</button>
+                <button id="btn-popout">Pop Out (P)</button>
                 <button id="btn-refresh">Refresh</button>
             </div>
         </div>
@@ -225,7 +225,7 @@
             <div class="stat">Display: <strong id="display-size">...</strong></div>
         </div>
 
-        <div id="ui-hint">Press H to show/hide UI • Press F for fullscreen • Press ESC to exit fullscreen</div>
+        <div id="ui-hint">Press H to show/hide UI • Press P to pop out window</div>
     </div>
 
     <script type="module">
@@ -260,15 +260,17 @@
                 };
 
                 document.getElementById('btn-hide-ui').addEventListener('click', () => this.toggleUI());
-                document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
+                document.getElementById('btn-popout').addEventListener('click', () => this.popOutWindow());
                 document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
 
                 // Keyboard shortcuts
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'h' || e.key === 'H') {
+                        e.preventDefault();
                         this.toggleUI();
-                    } else if (e.key === 'f' || e.key === 'F') {
-                        this.toggleFullscreen();
+                    } else if (e.key === 'p' || e.key === 'P') {
+                        e.preventDefault();
+                        this.popOutWindow();
                     }
                 });
 
@@ -316,15 +318,21 @@
                 if (!this.hasReceivedFrame) {
                     this.hasReceivedFrame = true;
                     document.getElementById('overlay').classList.add('hidden');
+                    console.log('[Viewer] First frame received!');
                 }
 
                 const { imageData, metadata } = data;
+
+                if (!imageData || !metadata) {
+                    console.error('[Viewer] Invalid frame data:', data);
+                    return;
+                }
 
                 // Update canvas internal resolution to match frame
                 if (this.canvas.width !== metadata.width || this.canvas.height !== metadata.height) {
                     this.canvas.width = metadata.width;
                     this.canvas.height = metadata.height;
-                    console.log(`[Viewer] Canvas internal resolution: ${metadata.width}x${metadata.height}`);
+                    console.log(`[Viewer] Canvas resolution changed to: ${metadata.width}x${metadata.height}`);
 
                     // Update canvas display size to scale properly
                     this.updateCanvasDisplaySize();
@@ -333,13 +341,15 @@
                 // Draw frame at native resolution
                 this.ctx.putImageData(imageData, 0, 0);
 
-                // Update stats
+                // Update frame count
                 this.frameCount++;
                 document.getElementById('frame-count').textContent = this.frameCount;
+
+                // Update frame resolution (from metadata)
                 document.getElementById('resolution').textContent =
                     `${metadata.width}x${metadata.height}`;
 
-                // Calculate FPS
+                // Calculate FPS based on frame arrival times
                 const now = performance.now();
                 if (this.lastFrameTime > 0) {
                     const delta = (now - this.lastFrameTime) / 1000;
@@ -351,7 +361,7 @@
                         }
                         const avgFps = this.fpsValues.reduce((a, b) => a + b, 0) / this.fpsValues.length;
                         this.fps = avgFps;
-                        document.getElementById('fps-value').textContent = avgFps.toFixed(1);
+                        document.getElementById('fps-value').textContent = avgFps.toFixed(0);
                     }
                 }
                 this.lastFrameTime = now;
@@ -399,7 +409,17 @@
 
             toggleUI() {
                 const container = document.getElementById('container');
-                container.classList.toggle('ui-hidden');
+                const isHidden = container.classList.contains('ui-hidden');
+
+                if (isHidden) {
+                    // Show UI
+                    container.classList.remove('ui-hidden');
+                    console.log('[Viewer] UI shown');
+                } else {
+                    // Hide UI
+                    container.classList.add('ui-hidden');
+                    console.log('[Viewer] UI hidden');
+                }
 
                 // Update canvas display size after UI toggle (viewport size changes)
                 setTimeout(() => {
@@ -407,16 +427,14 @@
                         this.updateCanvasDisplaySize();
                     }
                 }, 100);
-
-                console.log('[Viewer] UI toggled:', container.classList.contains('ui-hidden') ? 'hidden' : 'visible');
             }
 
-            toggleFullscreen() {
-                if (!document.fullscreenElement) {
-                    document.documentElement.requestFullscreen();
-                } else {
-                    document.exitFullscreen();
-                }
+            popOutWindow() {
+                // Open current viewer URL in a new window
+                const url = window.location.href;
+                const features = 'width=1920,height=1080,menubar=no,toolbar=no,location=no,status=no';
+                window.open(url, 'RhizomiumViewer', features);
+                console.log('[Viewer] Opened pop-out window');
             }
         }
 
