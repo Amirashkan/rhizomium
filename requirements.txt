@@ -1,0 +1,14 @@
+# Rhizomium Python Dependencies
+
+# IPC and Rendering
+numpy>=1.24.0
+moderngl>=5.8.0
+moderngl-window>=2.4.0
+pygame>=2.5.0
+
+# Viewer API Server
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# Audio Engine (existing)
+sounddevice>=0.4.6
