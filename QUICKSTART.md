@@ -36,13 +36,30 @@ http://127.0.0.1:5000/studio
 
 ## 🎨 Using the External Viewer
 
-Once the editor is open:
+**⚠️ Note:** External viewer is a **local-only feature** - it requires running the Python server on your computer. It will NOT work on Vercel, Netlify, or other cloud hosting platforms.
+
+Once the editor is open locally:
 
 1. Click **"Open External Viewer"** button in the toolbar
 2. The viewer window will open automatically
 3. Start rendering in the editor to see frames in the viewer
 
+**Using the cloud-hosted version?** The external viewer button will show a helpful message with setup instructions.
+
 ## 📋 Common Issues
+
+### ❌ "External viewer is a local-only feature" (on Vercel/Cloud)
+
+**Problem:** You're accessing the editor from a cloud-hosted URL (e.g., vercel.app).
+
+**Solution:** The external viewer requires a local Python backend. To use it:
+1. Clone the repository to your computer
+2. Install dependencies: `pip install -r requirements.txt`
+3. Run the server: `python rhizo_server.py`
+4. Open: `http://127.0.0.1:5000/studio`
+
+See [DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md) for details.
+
 
 ### ❌ "Failed to launch external viewer: 404"
 

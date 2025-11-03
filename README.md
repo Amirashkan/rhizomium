@@ -35,6 +35,7 @@ Navigate to: **http://127.0.0.1:5000/studio**
 
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps
 - **[RHIZOMIUM_VIEWER_SETUP.md](RHIZOMIUM_VIEWER_SETUP.md)** - External viewer setup
+- **[DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md)** - Cloud vs local deployment
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## ✨ Features
@@ -47,6 +48,9 @@ Navigate to: **http://127.0.0.1:5000/studio**
 
 ## 🎨 Using the External Viewer
 
+**⚠️ Local-Only Feature:** The external viewer requires running the Python server locally. It will NOT work on cloud-hosted deployments (Vercel, Netlify, etc.). See [DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md).
+
+**On local server:**
 1. Click **"Open External Viewer"** in the editor toolbar
 2. The viewer window opens automatically
 3. Frames render in real-time via shared memory

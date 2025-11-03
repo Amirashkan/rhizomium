@@ -746,9 +746,43 @@ function setupUIEventHandlers() {
   console.log('[main.js] Setting up external viewer button, element found:', !!openViewerBtn);
 
   if (openViewerBtn) {
+    // Check if running on Vercel or other cloud hosting
+    const isCloudHosted = window.location.hostname.includes('vercel.app') ||
+                          window.location.hostname.includes('netlify.app') ||
+                          window.location.hostname.includes('github.io') ||
+                          (!window.location.hostname.includes('localhost') &&
+                           !window.location.hostname.includes('127.0.0.1') &&
+                           !window.location.hostname.match(/^192\.168\./));
+
+    if (isCloudHosted) {
+      // Update button to show it's local-only
+      openViewerBtn.title = "External viewer requires local Python server (see QUICKSTART.md)";
+      openViewerBtn.style.opacity = "0.6";
+    }
+
     openViewerBtn.addEventListener("click", async (e) => {
       console.log('[main.js] Open External Viewer button clicked!');
       e.preventDefault();
+
+      // Check if running remotely
+      if (isCloudHosted) {
+        const message =
+          "⚠️ External Viewer is a local-only feature.\n\n" +
+          "To use the external viewer:\n" +
+          "1. Clone the repository to your computer\n" +
+          "2. Run: pip install -r requirements.txt\n" +
+          "3. Run: python rhizo_server.py\n" +
+          "4. Open: http://127.0.0.1:5000/studio\n\n" +
+          "See QUICKSTART.md for details.";
+
+        alert(message);
+
+        if (typeof updateStatus === "function") {
+          updateStatus("External viewer requires local Python server", "warning");
+        }
+        console.log('[main.js] External viewer not available on cloud hosting');
+        return;
+      }
 
       try {
         // Try to launch rhizo_viewer via backend API
@@ -772,8 +806,25 @@ function setupUIEventHandlers() {
       } catch (error) {
         console.error('[main.js] Error launching external viewer:', error);
         console.log('[main.js] External viewer requires backend API at /api/launch-viewer');
+
+        // Show helpful message for local setup
+        const isLocal = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+
+        if (isLocal) {
+          const message =
+            "⚠️ Python backend not running.\n\n" +
+            "To use the external viewer:\n" +
+            "1. Open a terminal in the project directory\n" +
+            "2. Run: python rhizo_server.py\n" +
+            "3. Refresh this page\n" +
+            "4. Click 'Open External Viewer' again";
+
+          alert(message);
+        }
+
         if (typeof updateStatus === "function") {
-          updateStatus("External viewer requires backend setup", "warning");
+          updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
         }
       }
     });
