@@ -262,21 +262,34 @@
                     this.handleMessage(event.data);
                 };
 
-                document.getElementById('btn-hide-ui').addEventListener('click', () => this.toggleUI());
-                document.getElementById('btn-fullscreen').addEventListener('click', () => this.toggleFullscreen());
-                document.getElementById('btn-popout').addEventListener('click', () => this.popOutWindow());
+                document.getElementById('btn-hide-ui').addEventListener('click', () => {
+                    console.log('[Viewer] Hide UI button clicked');
+                    this.toggleUI();
+                });
+                document.getElementById('btn-fullscreen').addEventListener('click', () => {
+                    console.log('[Viewer] Fullscreen button clicked');
+                    this.toggleFullscreen();
+                });
+                document.getElementById('btn-popout').addEventListener('click', () => {
+                    console.log('[Viewer] Pop out button clicked');
+                    this.popOutWindow();
+                });
                 document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
 
                 // Keyboard shortcuts
                 document.addEventListener('keydown', (e) => {
+                    console.log('[Viewer] Key pressed:', e.key);
                     if (e.key === 'h' || e.key === 'H') {
                         e.preventDefault();
+                        console.log('[Viewer] H key detected, calling toggleUI()');
                         this.toggleUI();
                     } else if (e.key === 'f' || e.key === 'F') {
                         e.preventDefault();
+                        console.log('[Viewer] F key detected, calling toggleFullscreen()');
                         this.toggleFullscreen();
                     } else if (e.key === 'p' || e.key === 'P') {
                         e.preventDefault();
+                        console.log('[Viewer] P key detected, calling popOutWindow()');
                         this.popOutWindow();
                     }
                 });
@@ -423,17 +436,22 @@
             }
 
             toggleUI() {
+                console.log('[Viewer] toggleUI() called');
                 const isHidden = document.body.classList.contains('ui-hidden');
+                console.log('[Viewer] Current UI state - isHidden:', isHidden);
+                console.log('[Viewer] Body classes before:', document.body.className);
 
                 if (isHidden) {
                     // Show UI
                     document.body.classList.remove('ui-hidden');
-                    console.log('[Viewer] UI shown');
+                    console.log('[Viewer] Removed ui-hidden class from body');
                 } else {
                     // Hide UI
                     document.body.classList.add('ui-hidden');
-                    console.log('[Viewer] UI hidden');
+                    console.log('[Viewer] Added ui-hidden class to body');
                 }
+
+                console.log('[Viewer] Body classes after:', document.body.className);
 
                 // Update canvas display size after UI toggle (viewport size changes)
                 setTimeout(() => {
@@ -474,23 +492,36 @@
         const autoFullscreen = urlParams.get('fullscreen') === 'true';
         const autoHideUI = urlParams.get('hideui') === 'true';
 
-        if (autoFullscreen || autoHideUI) {
-            // Wait a moment for the window to fully load
-            setTimeout(() => {
-                if (autoHideUI) {
-                    document.body.classList.add('ui-hidden');
-                    console.log('[Viewer] Auto-hiding UI (from URL parameter)');
-                }
+        console.log('[Viewer] URL params - fullscreen:', autoFullscreen, 'hideui:', autoHideUI);
 
-                if (autoFullscreen) {
-                    document.documentElement.requestFullscreen().then(() => {
-                        console.log('[Viewer] Auto-entered fullscreen (from URL parameter)');
-                    }).catch(err => {
-                        console.warn(`[Viewer] Auto-fullscreen failed: ${err.message}`);
-                        console.log('[Viewer] Press F to enter fullscreen manually');
-                    });
-                }
-            }, 500);
+        if (autoHideUI) {
+            // Hide UI immediately
+            setTimeout(() => {
+                document.body.classList.add('ui-hidden');
+                console.log('[Viewer] Auto-hiding UI (from URL parameter)');
+                console.log('[Viewer] Body classes:', document.body.className);
+            }, 100);
+        }
+
+        if (autoFullscreen) {
+            // Show fullscreen prompt
+            setTimeout(() => {
+                // Try automatic fullscreen first
+                document.documentElement.requestFullscreen().then(() => {
+                    console.log('[Viewer] Auto-entered fullscreen');
+                }).catch(err => {
+                    console.warn(`[Viewer] Auto-fullscreen blocked: ${err.message}`);
+
+                    // Show prominent message to user
+                    const overlay = document.getElementById('overlay');
+                    if (overlay && !viewer.hasReceivedFrame) {
+                        const fullscreenHint = document.createElement('div');
+                        fullscreenHint.style.cssText = 'margin-top: 20px; padding: 15px 25px; background: rgba(255,165,0,0.2); border: 2px solid orange; border-radius: 8px; font-size: 16px;';
+                        fullscreenHint.innerHTML = '<strong>Press F</strong> to enter fullscreen mode';
+                        overlay.appendChild(fullscreenHint);
+                    }
+                });
+            }, 800);
         }
     </script>
 </body>
