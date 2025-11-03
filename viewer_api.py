@@ -6,6 +6,8 @@ Provides the /api/launch-viewer endpoint for the web UI.
 
 import subprocess
 import time
+import sys
+import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -18,12 +20,29 @@ def launch_viewer():
     """Launch the external Rhizomium viewer application."""
     try:
         data = request.get_json() or {}
-        viewer_exe = data.get('viewer', 'rhizo_viewer.exe')
+        viewer_path = data.get('viewer', 'rhizo_viewer.exe')
 
-        print(f"[viewer_api] Launching viewer: {viewer_exe}")
+        # Auto-detect viewer: try .py first, then .exe
+        if not os.path.exists(viewer_path):
+            # Try rhizo_viewer.py
+            py_viewer = 'rhizo_viewer.py'
+            if os.path.exists(py_viewer):
+                viewer_path = py_viewer
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Viewer not found: {viewer_path} or {py_viewer}'
+                }), 404
+
+        print(f"[viewer_api] Launching viewer: {viewer_path}")
 
         # Launch the viewer process
-        process = subprocess.Popen([viewer_exe])
+        if viewer_path.endswith('.py'):
+            # Launch Python script
+            process = subprocess.Popen([sys.executable, viewer_path])
+        else:
+            # Launch executable
+            process = subprocess.Popen([viewer_path])
 
         # Wait briefly to ensure process starts
         time.sleep(1)
@@ -45,7 +64,7 @@ def launch_viewer():
     except FileNotFoundError:
         return jsonify({
             'success': False,
-            'error': f'Viewer executable not found: {viewer_exe}'
+            'error': f'Viewer executable not found: {viewer_path}'
         }), 404
     except Exception as e:
         return jsonify({
