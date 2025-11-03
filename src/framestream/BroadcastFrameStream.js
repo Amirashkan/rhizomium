@@ -193,13 +193,6 @@ export class BroadcastFrameStream {
     sendFrameFromCanvas(canvas) {
         if (!this.isStreaming || !this.channel) return;
 
-        // Throttle frame rate
-        const now = performance.now();
-        if (now - this.lastFrameTime < this.minFrameInterval) {
-            return; // Skip this frame
-        }
-        this.lastFrameTime = now;
-
         try {
             // For WebGPU canvases, we need to use an offscreen 2D canvas
             // to read the pixels (WebGPU canvases don't have getContext('2d'))
@@ -265,13 +258,6 @@ export class BroadcastFrameStream {
      */
     sendFrame(imageData, width, height) {
         if (!this.isStreaming || !this.channel) return;
-
-        // Throttle frame rate
-        const now = performance.now();
-        if (now - this.lastFrameTime < this.minFrameInterval) {
-            return;
-        }
-        this.lastFrameTime = now;
 
         try {
             const metadata = {

@@ -144,9 +144,11 @@
             animation: pulse 2s ease-in-out infinite;
         }
 
-        /* UI hiding styles */
+        /* UI hiding styles - hide EVERYTHING when H is pressed */
         .ui-hidden .banner,
-        .ui-hidden #controls {
+        .ui-hidden #controls,
+        .ui-hidden #stats-overlay,
+        .ui-hidden #ui-hint {
             display: none !important;
         }
 
@@ -164,21 +166,17 @@
             padding: 8px 16px;
             border-radius: 4px;
             font-size: 12px;
-            opacity: 0;
+            opacity: 0.6;
             transition: opacity 0.3s;
             pointer-events: none;
             z-index: 100;
         }
 
-        .ui-hidden #ui-hint {
-            opacity: 0.6;
-        }
-
-        .ui-hidden #ui-hint:hover {
+        #ui-hint:hover {
             opacity: 1;
         }
 
-        /* Stats overlay - always visible */
+        /* Stats overlay */
         #stats-overlay {
             position: fixed;
             top: 10px;
@@ -191,10 +189,6 @@
             gap: 15px;
             pointer-events: none;
             backdrop-filter: blur(10px);
-        }
-
-        .ui-hidden #stats-overlay {
-            background: rgba(0, 0, 0, 0.5);
         }
     </style>
 </head>
@@ -226,9 +220,9 @@
         <!-- Stats overlay - stays visible when UI hidden -->
         <div id="stats-overlay">
             <div class="stat">Frames: <strong id="frame-count">0</strong></div>
-            <div class="stat">FPS: <strong id="fps-value">0.0</strong></div>
-            <div class="stat">Frame: <strong id="resolution">-</strong></div>
-            <div class="stat">Display: <strong id="display-size">-</strong></div>
+            <div class="stat">FPS: <strong id="fps-value">...</strong></div>
+            <div class="stat">Frame: <strong id="resolution">...</strong></div>
+            <div class="stat">Display: <strong id="display-size">...</strong></div>
         </div>
 
         <div id="ui-hint">Press H to show/hide UI • Press F for fullscreen • Press ESC to exit fullscreen</div>
