@@ -741,6 +741,47 @@ function setupUIEventHandlers() {
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
   }
 
+  // Open External Viewer button
+  const openViewerBtn = removeExistingHandlers("btn-open-viewer");
+  console.log('[main.js] Setting up external viewer button, element found:', !!openViewerBtn);
+
+  if (openViewerBtn) {
+    openViewerBtn.addEventListener("click", async (e) => {
+      console.log('[main.js] Open External Viewer button clicked!');
+      e.preventDefault();
+
+      try {
+        // Try to launch rhizo_viewer via backend API
+        const response = await fetch('/api/launch-viewer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ viewer: 'rhizo_viewer.exe' })
+        });
+
+        if (response.ok) {
+          console.log('[main.js] External viewer launched successfully');
+          if (typeof updateStatus === "function") {
+            updateStatus("External viewer opened");
+          }
+        } else {
+          console.error('[main.js] Failed to launch external viewer:', response.status);
+          if (typeof updateStatus === "function") {
+            updateStatus("Failed to launch external viewer", "error");
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error launching external viewer:', error);
+        console.log('[main.js] External viewer requires backend API at /api/launch-viewer');
+        if (typeof updateStatus === "function") {
+          updateStatus("External viewer requires backend setup", "warning");
+        }
+      }
+    });
+    console.log("External viewer button handler attached");
+  } else {
+    console.error('[main.js] External viewer button NOT found in DOM!');
+  }
+
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
   if (selectCodeBtn) {
     selectCodeBtn.addEventListener("click", (e) => {
