@@ -14,6 +14,7 @@ import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -113,6 +114,10 @@ let parameterEventSystem = null;
 let __deviceReady = false;
 let floatingPreview = null;
 let renderLoopController = null;
+
+// Frame streaming client for dual-screen support
+let frameStreamClient = null;
+let frameStreamingEnabled = false;
 
 if (typeof window.render !== "function") {
   window.render = () => {};
@@ -785,18 +790,44 @@ function setupUIEventHandlers() {
       }
 
       try {
+        // Initialize frame streaming client if not already done
+        if (!frameStreamClient) {
+          frameStreamClient = new FrameStreamClient('http://localhost:5000');
+          console.log('[main.js] Frame streaming client initialized');
+        }
+
+        // Start frame streaming
+        try {
+          await frameStreamClient.startStreaming();
+          frameStreamingEnabled = true;
+          console.log('[main.js] Frame streaming started');
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Frame streaming started");
+          }
+        } catch (streamError) {
+          console.warn('[main.js] Frame streaming not available:', streamError);
+        }
+
         // Try to launch rhizo_viewer via backend API
         const response = await fetch('/api/launch-viewer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ viewer: 'rhizo_viewer.exe' })
+          body: JSON.stringify({ viewer: 'rhizo_viewer.py' })
         });
 
         if (response.ok) {
-          console.log('[main.js] External viewer launched successfully');
+          const result = await response.json();
+          console.log('[main.js] External viewer launched successfully:', result);
+
           if (typeof updateStatus === "function") {
-            updateStatus("External viewer opened");
+            updateStatus("External viewer opened (WebSocket mode)");
           }
+
+          // Update button text to show streaming is active
+          openViewerBtn.textContent = "Streaming Active";
+          openViewerBtn.style.backgroundColor = "#00aa00";
+
         } else {
           console.error('[main.js] Failed to launch external viewer:', response.status);
           if (typeof updateStatus === "function") {
@@ -818,7 +849,8 @@ function setupUIEventHandlers() {
             "1. Open a terminal in the project directory\n" +
             "2. Run: python rhizo_server.py\n" +
             "3. Refresh this page\n" +
-            "4. Click 'Open External Viewer' again";
+            "4. Click 'Open External Viewer' again\n\n" +
+            "The viewer will connect via WebSocket for remote streaming.";
 
           alert(message);
         }
@@ -1574,6 +1606,14 @@ function updateStatus(message, type = "info") {
 function handleRenderFrame(frameState) {
   if (window.gpuRenderer) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
+
+    // Stream frames to external viewers if enabled
+    if (frameStreamingEnabled && frameStreamClient) {
+      const canvas = document.getElementById('gpu-canvas');
+      if (canvas) {
+        frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+      }
+    }
   }
 
   if (!frameState.manual && floatingPreview?.fpsCounter) {
