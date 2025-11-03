@@ -126,9 +126,6 @@ const isVercelOrCloud = window.location.hostname.includes('vercel.app') ||
                         window.location.hostname.includes('netlify.app') ||
                         window.location.hostname.includes('github.io');
 
-// Use BroadcastChannel on Vercel/cloud, HTTP streaming on local
-const usebroadcastChannel = isVercelOrCloud || BroadcastFrameStream.isSupported();
-
 if (typeof window.render !== "function") {
   window.render = () => {};
 }
@@ -140,9 +137,9 @@ async function initialize() {
   const canvas =
     document.getElementById("gpu-canvas") || document.querySelector("canvas");
   if (canvas) {
-const adapter = await navigator.gpu.requestAdapter();
-const device = await adapter.requestDevice();
-window.gpuRenderer = new GPURenderer(device, canvas);
+    const adapter = await navigator.gpu.requestAdapter();
+    const device = await adapter.requestDevice();
+    window.gpuRenderer = new GPURenderer(device, canvas);
 
     if (device) {
       const { TextureManager } = await import("./src/core/TextureManager.js");
