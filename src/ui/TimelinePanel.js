@@ -38,6 +38,7 @@ export class TimelinePanel {
     this.viewStart = 0;     // Start time of visible range
     this.viewEnd = 10;      // End time of visible range
     this.pixelsPerSecond = 100;
+    this.displayMode = 'seconds'; // 'seconds' or 'frames'
 
     // Layout
     this.trackHeight = 30;
@@ -145,6 +146,62 @@ export class TimelinePanel {
     });
     this.controls.appendChild(this.enableToggle);
 
+    // Display mode toggle (seconds/frames)
+    this.displayModeToggle = document.createElement('button');
+    this.displayModeToggle.className = 'timeline-display-mode-toggle';
+    this.displayModeToggle.textContent = 'Seconds';
+    this.displayModeToggle.title = 'Toggle between seconds and frames';
+    this.displayModeToggle.style.marginLeft = '10px';
+    this.displayModeToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      this.toggleDisplayMode();
+    });
+    this.controls.appendChild(this.displayModeToggle);
+
+    // Loop region controls
+    const loopLabel = document.createElement('label');
+    loopLabel.textContent = 'Loop:';
+    loopLabel.style.marginLeft = '10px';
+    this.controls.appendChild(loopLabel);
+
+    // Loop start input
+    this.loopStartInput = document.createElement('input');
+    this.loopStartInput.type = 'number';
+    this.loopStartInput.min = '0';
+    this.loopStartInput.step = '0.01';
+    this.loopStartInput.value = '0';
+    this.loopStartInput.className = 'timeline-loop-input';
+    this.loopStartInput.style.width = '60px';
+    this.loopStartInput.title = 'Loop start';
+    this.loopStartInput.addEventListener('click', (e) => e.stopPropagation());
+    this.loopStartInput.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.onLoopStartInputChange(e.target.value);
+    });
+    this.controls.appendChild(this.loopStartInput);
+
+    const loopSeparator = document.createElement('span');
+    loopSeparator.textContent = ' - ';
+    loopSeparator.style.margin = '0 2px';
+    this.controls.appendChild(loopSeparator);
+
+    // Loop end input
+    this.loopEndInput = document.createElement('input');
+    this.loopEndInput.type = 'number';
+    this.loopEndInput.min = '0';
+    this.loopEndInput.step = '0.01';
+    this.loopEndInput.value = '10';
+    this.loopEndInput.className = 'timeline-loop-input';
+    this.loopEndInput.style.width = '60px';
+    this.loopEndInput.title = 'Loop end';
+    this.loopEndInput.addEventListener('click', (e) => e.stopPropagation());
+    this.loopEndInput.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.onLoopEndInputChange(e.target.value);
+    });
+    this.controls.appendChild(this.loopEndInput);
+
     this.header.appendChild(this.controls);
     this.container.appendChild(this.header);
 
@@ -225,7 +282,7 @@ export class TimelinePanel {
 
     // Timeline manager callbacks
     this.timelineManager.onTimeChange = (time) => {
-      this.timeDisplay.textContent = `${time.toFixed(2)}s`;
+      this.timeDisplay.textContent = this.formatTime(time);
       this.render();
     };
 
@@ -491,6 +548,108 @@ export class TimelinePanel {
   }
 
   /**
+   * Toggle display mode between seconds and frames
+   */
+  toggleDisplayMode() {
+    this.displayMode = this.displayMode === 'seconds' ? 'frames' : 'seconds';
+    this.displayModeToggle.textContent = this.displayMode === 'seconds' ? 'Seconds' : 'Frames';
+
+    // Update input fields to show current values in new mode
+    this.updateLoopInputs();
+
+    // Update time display
+    const currentTime = this.timelineManager.getCurrentTime();
+    this.timeDisplay.textContent = this.formatTime(currentTime);
+
+    // Re-render timeline
+    this.render();
+  }
+
+  /**
+   * Format time based on display mode
+   */
+  formatTime(time) {
+    if (this.displayMode === 'frames') {
+      const fps = this.timelineManager.getFPS();
+      const frame = Math.round(time * fps);
+      return `f${frame}`;
+    } else {
+      return `${time.toFixed(2)}s`;
+    }
+  }
+
+  /**
+   * Parse time input (handles both seconds and frames)
+   */
+  parseTimeInput(value) {
+    if (this.displayMode === 'frames') {
+      // Parse as frame number
+      const frame = parseFloat(value);
+      if (isNaN(frame)) return null;
+      const fps = this.timelineManager.getFPS();
+      return frame / fps;
+    } else {
+      // Parse as seconds
+      const time = parseFloat(value);
+      return isNaN(time) ? null : time;
+    }
+  }
+
+  /**
+   * Convert time to input value based on display mode
+   */
+  timeToInputValue(time) {
+    if (this.displayMode === 'frames') {
+      const fps = this.timelineManager.getFPS();
+      return Math.round(time * fps);
+    } else {
+      return time.toFixed(2);
+    }
+  }
+
+  /**
+   * Update loop input fields with current values
+   */
+  updateLoopInputs() {
+    const loopStart = this.timelineManager.getLoopStart();
+    const loopEnd = this.timelineManager.getLoopEnd();
+
+    this.loopStartInput.value = this.timeToInputValue(loopStart);
+    this.loopEndInput.value = this.timeToInputValue(loopEnd);
+
+    // Update step based on display mode
+    if (this.displayMode === 'frames') {
+      this.loopStartInput.step = '1';
+      this.loopEndInput.step = '1';
+    } else {
+      this.loopStartInput.step = '0.01';
+      this.loopEndInput.step = '0.01';
+    }
+  }
+
+  /**
+   * Handle loop start input change
+   */
+  onLoopStartInputChange(value) {
+    const time = this.parseTimeInput(value);
+    if (time !== null) {
+      this.timelineManager.setLoopStart(time);
+      this.render();
+    }
+  }
+
+  /**
+   * Handle loop end input change
+   */
+  onLoopEndInputChange(value) {
+    const time = this.parseTimeInput(value);
+    if (time !== null) {
+      this.timelineManager.setLoopEnd(time);
+      this.render();
+    }
+  }
+
+  /**
    * Show the timeline panel
    */
   show() {
@@ -637,7 +796,10 @@ export class TimelinePanel {
       this.ctx.stroke();
 
       // Time label
-      this.ctx.fillText(`${t.toFixed(1)}s`, x + 2, this.rulerHeight - 15);
+      const label = this.displayMode === 'frames'
+        ? `f${Math.round(t * this.timelineManager.getFPS())}`
+        : `${t.toFixed(1)}s`;
+      this.ctx.fillText(label, x + 2, this.rulerHeight - 15);
     }
   }
 
