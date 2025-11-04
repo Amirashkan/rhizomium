@@ -325,6 +325,8 @@ export class ParameterValueManager {
         return this._toSafeNumber(rawValue, 'sourceNode.value', 0);
       case "time":
         return (Date.now() / 1000) % 1;
+      case "randomtime":
+        return Math.random();
       case "uv":
         return 0.5;
       default:
