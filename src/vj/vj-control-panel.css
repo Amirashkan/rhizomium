@@ -1,0 +1,511 @@
+/* VJ Control Panel Styles */
+
+.vj-control-panel {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  width: 420px;
+  max-height: calc(100vh - 32px);
+  background: rgba(28, 28, 30, 0.95);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: #ffffff;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
+.vj-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(58, 58, 62, 0.3);
+}
+
+.vj-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.vj-close-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vj-close-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Tab Navigation */
+.vj-tab-nav {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.vj-tab-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(58, 58, 62, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vj-tab-btn:hover {
+  background: rgba(74, 74, 78, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.vj-tab-btn.active {
+  background: rgba(0, 122, 255, 0.8);
+  border-color: rgba(0, 122, 255, 1);
+  color: #ffffff;
+}
+
+/* Content Area */
+.vj-content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.vj-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Scenes Area */
+.vj-scenes-area {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vj-scene-card {
+  flex: 1 1 calc(50% - 4px);
+  min-width: 180px;
+  padding: 12px;
+  background: rgba(58, 58, 62, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.vj-scene-card:hover {
+  background: rgba(74, 74, 78, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.vj-scene-card.active {
+  background: rgba(0, 122, 255, 0.3);
+  border-color: rgba(0, 122, 255, 1);
+  box-shadow: 0 0 12px rgba(0, 122, 255, 0.4);
+}
+
+.vj-scene-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vj-scene-info {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 8px;
+}
+
+.vj-scene-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+/* Presets Area */
+.vj-presets-area {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.vj-preset-card {
+  padding: 12px;
+  background: rgba(58, 58, 62, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vj-preset-card:hover {
+  background: rgba(74, 74, 78, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.vj-preset-card.active {
+  background: rgba(52, 199, 89, 0.3);
+  border-color: rgba(52, 199, 89, 1);
+  box-shadow: 0 0 12px rgba(52, 199, 89, 0.4);
+}
+
+.vj-preset-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vj-preset-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Playlist */
+.vj-playlist-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  background: rgba(58, 58, 62, 0.3);
+  border-radius: 8px;
+}
+
+.vj-playlist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.vj-playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(58, 58, 62, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vj-playlist-item:hover {
+  background: rgba(74, 74, 78, 0.6);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.vj-playlist-item.current {
+  background: rgba(0, 122, 255, 0.3);
+  border-color: rgba(0, 122, 255, 1);
+}
+
+.vj-playlist-number {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+  min-width: 24px;
+}
+
+.vj-playlist-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.vj-playlist-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vj-playlist-details {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 2px;
+}
+
+.vj-playlist-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Control Groups */
+.vj-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.vj-control-group label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.vj-control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vj-control-group-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vj-control-group-inline label {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  min-width: 60px;
+}
+
+/* Inputs */
+.vj-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(58, 58, 62, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.vj-input:focus {
+  outline: none;
+  border-color: rgba(0, 122, 255, 0.8);
+  background: rgba(58, 58, 62, 0.7);
+}
+
+.vj-input-small {
+  width: 70px;
+  padding: 6px 8px;
+  background: rgba(58, 58, 62, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.vj-input-small:focus {
+  outline: none;
+  border-color: rgba(0, 122, 255, 0.8);
+}
+
+.vj-select {
+  flex: 1;
+  padding: 6px 8px;
+  background: rgba(58, 58, 62, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.vj-select:focus {
+  outline: none;
+  border-color: rgba(0, 122, 255, 0.8);
+}
+
+.vj-slider {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.vj-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.vj-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.vj-value {
+  min-width: 50px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: right;
+}
+
+/* Buttons */
+.vj-btn {
+  padding: 8px 14px;
+  background: rgba(58, 58, 62, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.vj-btn:hover {
+  background: rgba(74, 74, 78, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.vj-btn:active {
+  transform: scale(0.97);
+}
+
+.vj-btn-small {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.vj-btn-tiny {
+  padding: 4px 8px;
+  font-size: 10px;
+  min-width: 28px;
+}
+
+.vj-btn-danger {
+  background: rgba(255, 59, 48, 0.3);
+  border-color: rgba(255, 59, 48, 0.5);
+}
+
+.vj-btn-danger:hover {
+  background: rgba(255, 59, 48, 0.5);
+  border-color: rgba(255, 59, 48, 0.8);
+}
+
+.vj-button-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Footer */
+.vj-footer {
+  padding: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Beat Indicator */
+.vj-beat-indicator {
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  min-width: 60px;
+  color: rgba(0, 255, 128, 0.9);
+}
+
+/* Empty Message */
+.vj-empty-message {
+  padding: 32px 16px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Scrollbar Styling */
+.vj-content-area::-webkit-scrollbar,
+.vj-playlist-items::-webkit-scrollbar {
+  width: 8px;
+}
+
+.vj-content-area::-webkit-scrollbar-track,
+.vj-playlist-items::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.vj-content-area::-webkit-scrollbar-thumb,
+.vj-playlist-items::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.vj-content-area::-webkit-scrollbar-thumb:hover,
+.vj-playlist-items::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive adjustments */
+@media (max-height: 768px) {
+  .vj-control-panel {
+    max-height: calc(100vh - 16px);
+    bottom: 8px;
+  }
+
+  .vj-content-area {
+    max-height: 350px;
+  }
+}
