@@ -17,6 +17,7 @@ export class TimelineManager {
     this.timeline = new Timeline();
     this.enabled = false;              // Whether timeline is active
     this.evaluatedValues = new Map();   // Cache of evaluated values: "nodeId.paramName" -> value
+    this.originalValues = new Map();    // Store original parameter values before timeline affects them
     this.onTimeChange = null;           // Callback when current time changes
     this.onKeyframeChange = null;       // Callback when keyframes are added/removed/modified
     this.onPlayStateChange = null;      // Callback when play state changes
@@ -28,6 +29,8 @@ export class TimelineManager {
    * Enable timeline (activates keyframe evaluation)
    */
   enable() {
+    // Store original parameter values before timeline takes control
+    this.storeOriginalValues();
     this.enabled = true;
     this.evaluateAllTracks();
   }
@@ -38,6 +41,66 @@ export class TimelineManager {
   disable() {
     this.enabled = false;
     this.evaluatedValues.clear();
+    // Restore original parameter values
+    this.restoreOriginalValues();
+  }
+
+  /**
+   * Store original parameter values for all tracks
+   */
+  storeOriginalValues() {
+    this.originalValues.clear();
+    for (const track of this.timeline.tracks) {
+      const node = this.editor.graph.nodes.find(n => n.id === track.nodeId);
+      if (node && node.params) {
+        const key = `${track.nodeId}.${track.paramName}`;
+        // Store a deep copy of the value
+        const value = node.params[track.paramName];
+        this.originalValues.set(key, this.cloneValue(value));
+      }
+    }
+  }
+
+  /**
+   * Restore original parameter values for all tracks
+   */
+  restoreOriginalValues() {
+    for (const [key, value] of this.originalValues) {
+      const [nodeId, paramName] = key.split('.');
+      const node = this.editor.graph.nodes.find(n => n.id === nodeId);
+      if (node && node.params) {
+        node.params[paramName] = this.cloneValue(value);
+      }
+    }
+
+    // Trigger shader rebuild if there were any original values
+    if (this.originalValues.size > 0 && this.editor.onChange) {
+      this.editor.onChange('timeline-disabled');
+    }
+
+    // Update parameter panel if a node is selected
+    if (this.editor.paramPanel && this.editor.paramPanel.selectedNode) {
+      this.editor.paramPanel.renderParameters(this.editor.paramPanel.selectedNode);
+    }
+
+    this.originalValues.clear();
+  }
+
+  /**
+   * Clone a value (handles numbers, objects, arrays)
+   */
+  cloneValue(value) {
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        return [...value];
+      }
+      return { ...value };
+    }
+    return value;
   }
 
   /**
@@ -640,6 +703,10 @@ export class TimelineManager {
    */
   setDuration(duration) {
     this.timeline.duration = Math.max(0.1, duration);
+    // Adjust loop end if it exceeds new duration
+    if (this.timeline.loopEnd > this.timeline.duration) {
+      this.timeline.loopEnd = this.timeline.duration;
+    }
   }
 
   /**
@@ -680,6 +747,58 @@ export class TimelineManager {
    */
   getLoop() {
     return this.timeline.loop;
+  }
+
+  /**
+   * Set loop region start time
+   * @param {number} time - Start time in seconds
+   */
+  setLoopStart(time) {
+    this.timeline.loopStart = Math.max(0, Math.min(time, this.timeline.loopEnd));
+  }
+
+  /**
+   * Get loop region start time
+   * @returns {number} Start time in seconds
+   */
+  getLoopStart() {
+    return this.timeline.loopStart;
+  }
+
+  /**
+   * Set loop region end time
+   * @param {number} time - End time in seconds
+   */
+  setLoopEnd(time) {
+    this.timeline.loopEnd = Math.max(this.timeline.loopStart, Math.min(time, this.timeline.duration));
+  }
+
+  /**
+   * Get loop region end time
+   * @returns {number} End time in seconds
+   */
+  getLoopEnd() {
+    return this.timeline.loopEnd;
+  }
+
+  /**
+   * Set loop region (start and end)
+   * @param {number} start - Start time in seconds
+   * @param {number} end - End time in seconds
+   */
+  setLoopRegion(start, end) {
+    const clampedStart = Math.max(0, Math.min(start, this.timeline.duration));
+    const clampedEnd = Math.max(clampedStart, Math.min(end, this.timeline.duration));
+    this.timeline.loopStart = clampedStart;
+    this.timeline.loopEnd = clampedEnd;
+  }
+
+  /**
+   * Reset loop region to full duration
+   */
+  resetLoopRegion() {
+    this.timeline.loopStart = 0;
+    this.timeline.loopEnd = this.timeline.duration;
   }
 
   /**

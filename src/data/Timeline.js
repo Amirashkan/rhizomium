@@ -33,6 +33,8 @@ export class Timeline {
     this.currentTime = 0.0;         // Current playback position
     this.fps = 60;                  // Frame rate
     this.loop = true;               // Whether to loop playback
+    this.loopStart = 0.0;           // Loop region start time
+    this.loopEnd = 10.0;            // Loop region end time
     this.playing = false;           // Playback state
     this.tracks = [];               // Array of Track objects
     this.snapToFrames = true;       // Snap keyframes to frame boundaries
@@ -263,10 +265,23 @@ export class Timeline {
 
     this.currentTime += deltaTime;
 
-    if (this.currentTime > this.duration) {
-      if (this.loop) {
-        this.currentTime = this.currentTime % this.duration;
-      } else {
+    // Use loop region if loop is enabled, otherwise use full duration
+    if (this.loop) {
+      const loopEnd = Math.min(this.loopEnd, this.duration);
+      const loopStart = Math.max(0, Math.min(this.loopStart, loopEnd));
+
+      if (this.currentTime > loopEnd) {
+        // Wrap to loop start
+        const overshoot = this.currentTime - loopEnd;
+        const loopDuration = loopEnd - loopStart;
+        this.currentTime = loopStart + (loopDuration > 0 ? overshoot % loopDuration : 0);
+      } else if (this.currentTime < loopStart) {
+        // If somehow we're before loop start, jump to loop start
+        this.currentTime = loopStart;
+      }
+    } else {
+      // No loop - stop at duration
+      if (this.currentTime > this.duration) {
         this.currentTime = this.duration;
         this.playing = false;
       }
@@ -315,6 +330,8 @@ export class Timeline {
       currentTime: this.currentTime,
       fps: this.fps,
       loop: this.loop,
+      loopStart: this.loopStart,
+      loopEnd: this.loopEnd,
       snapToFrames: this.snapToFrames,
       tracks: this.tracks.map(track => ({
         nodeId: track.nodeId,
@@ -340,6 +357,8 @@ export class Timeline {
     this.currentTime = json.currentTime || 0.0;
     this.fps = json.fps || 60;
     this.loop = json.loop !== undefined ? json.loop : true;
+    this.loopStart = json.loopStart !== undefined ? json.loopStart : 0.0;
+    this.loopEnd = json.loopEnd !== undefined ? json.loopEnd : this.duration;
     this.snapToFrames = json.snapToFrames !== undefined ? json.snapToFrames : true;
     this.playing = false;
     this.selectedKeyframes = [];

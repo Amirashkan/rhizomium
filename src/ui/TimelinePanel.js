@@ -28,6 +28,8 @@ export class TimelinePanel {
     this.isDraggingPlayhead = false;
     this.isDraggingKeyframe = false;
     this.isDraggingResize = false;
+    this.isDraggingLoopStart = false;
+    this.isDraggingLoopEnd = false;
     this.draggedKeyframe = null; // { trackIndex, keyframeIndex }
     this.hoveredKeyframe = null;
     this.selectedTrackIndex = null;
@@ -272,6 +274,26 @@ export class TimelinePanel {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // Check if clicking on loop markers (higher priority than playhead)
+    if (this.timelineManager.getLoop() && y < 15) {
+      const loopStart = this.timelineManager.getLoopStart();
+      const loopEnd = this.timelineManager.getLoopEnd();
+      const loopStartX = this.timeToX(loopStart);
+      const loopEndX = this.timeToX(loopEnd);
+
+      // Check loop start marker
+      if (x >= loopStartX && x <= loopStartX + 8) {
+        this.isDraggingLoopStart = true;
+        return;
+      }
+
+      // Check loop end marker
+      if (x >= loopEndX - 8 && x <= loopEndX) {
+        this.isDraggingLoopEnd = true;
+        return;
+      }
+    }
+
     // Check if clicking on playhead
     const playheadX = this.timeToX(this.timelineManager.getCurrentTime());
     if (Math.abs(x - playheadX) < 5 && y < this.rulerHeight) {
@@ -302,6 +324,20 @@ export class TimelinePanel {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    if (this.isDraggingLoopStart) {
+      const time = this.xToTime(x);
+      this.timelineManager.setLoopStart(time);
+      this.render();
+      return;
+    }
+
+    if (this.isDraggingLoopEnd) {
+      const time = this.xToTime(x);
+      this.timelineManager.setLoopEnd(time);
+      this.render();
+      return;
+    }
+
     if (this.isDraggingPlayhead) {
       const time = this.xToTime(x);
       this.timelineManager.setCurrentTime(time);
@@ -329,6 +365,8 @@ export class TimelinePanel {
   onCanvasMouseUp(e) {
     this.isDraggingPlayhead = false;
     this.isDraggingKeyframe = false;
+    this.isDraggingLoopStart = false;
+    this.isDraggingLoopEnd = false;
     this.draggedKeyframe = null;
   }
 
@@ -496,6 +534,9 @@ export class TimelinePanel {
     // Clear canvas
     this.ctx.clearRect(0, 0, width, height);
 
+    // Draw loop region (behind everything else)
+    this.drawLoopRegion();
+
     // Draw ruler
     this.drawRuler();
 
@@ -504,6 +545,68 @@ export class TimelinePanel {
 
     // Draw playhead
     this.drawPlayhead();
+  }
+
+  /**
+   * Draw loop region
+   */
+  drawLoopRegion() {
+    if (!this.timelineManager.getLoop()) return;
+
+    const width = this.canvas.width / (window.devicePixelRatio || 1);
+    const height = this.canvas.height / (window.devicePixelRatio || 1);
+
+    const loopStart = this.timelineManager.getLoopStart();
+    const loopEnd = this.timelineManager.getLoopEnd();
+
+    const loopStartX = this.timeToX(loopStart);
+    const loopEndX = this.timeToX(loopEnd);
+
+    // Draw semi-transparent overlay for loop region
+    this.ctx.fillStyle = 'rgba(70, 130, 180, 0.15)';
+    this.ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, height);
+
+    // Draw loop markers
+    const markerHeight = 15;
+    const markerWidth = 8;
+
+    // Loop start marker
+    this.ctx.fillStyle = this.isDraggingLoopStart ? '#4a90e2' : '#5aa7e2';
+    this.ctx.beginPath();
+    this.ctx.moveTo(loopStartX, 0);
+    this.ctx.lineTo(loopStartX + markerWidth, 0);
+    this.ctx.lineTo(loopStartX + markerWidth, markerHeight);
+    this.ctx.lineTo(loopStartX, markerHeight);
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    // Loop start line
+    this.ctx.strokeStyle = 'rgba(70, 130, 180, 0.6)';
+    this.ctx.lineWidth = 2;
+    this.ctx.beginPath();
+    this.ctx.moveTo(loopStartX, markerHeight);
+    this.ctx.lineTo(loopStartX, height);
+    this.ctx.stroke();
+
+    // Loop end marker
+    this.ctx.fillStyle = this.isDraggingLoopEnd ? '#4a90e2' : '#5aa7e2';
+    this.ctx.beginPath();
+    this.ctx.moveTo(loopEndX - markerWidth, 0);
+    this.ctx.lineTo(loopEndX, 0);
+    this.ctx.lineTo(loopEndX, markerHeight);
+    this.ctx.lineTo(loopEndX - markerWidth, markerHeight);
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    // Loop end line
+    this.ctx.strokeStyle = 'rgba(70, 130, 180, 0.6)';
+    this.ctx.lineWidth = 2;
+    this.ctx.beginPath();
+    this.ctx.moveTo(loopEndX, markerHeight);
+    this.ctx.lineTo(loopEndX, height);
+    this.ctx.stroke();
+
+    this.ctx.lineWidth = 1; // Reset line width
   }
 
   /**
