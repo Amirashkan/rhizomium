@@ -46,6 +46,7 @@ export class TimelineManager {
    */
   toggle() {
     this.enabled = !this.enabled;
+    console.log('[Timeline] Timeline toggled. Enabled:', this.enabled);
     if (this.enabled) {
       this.evaluateAllTracks();
     } else {
@@ -97,6 +98,7 @@ export class TimelineManager {
    */
   play() {
     this.timeline.playing = true;
+    console.log('[Timeline] Playback started. Playing:', this.timeline.playing, 'Enabled:', this.enabled);
     if (this.onPlayStateChange) {
       this.onPlayStateChange(true);
     }
@@ -180,6 +182,7 @@ export class TimelineManager {
    * @returns {Object} The created keyframe
    */
   addKeyframe(nodeId, paramName, value, interpolation = 'linear') {
+    console.log('[Timeline] Adding keyframe:', nodeId, paramName, 'value:', value, 'at time:', this.timeline.currentTime);
     // Get parameter type from node definition
     const node = this.editor.graph.nodes.find(n => n.id === nodeId);
     if (!node) {
@@ -442,10 +445,15 @@ export class TimelineManager {
   evaluateAllTracks() {
     this.evaluatedValues.clear();
 
+    console.log('[Timeline] Evaluating tracks. Total tracks:', this.timeline.tracks.length, 'Current time:', this.timeline.currentTime);
+
     for (const track of this.timeline.tracks) {
       if (!track.enabled || track.keyframes.length === 0) {
+        console.log('[Timeline] Skipping track:', track.nodeId, track.paramName, 'enabled:', track.enabled, 'keyframes:', track.keyframes.length);
         continue;
       }
+
+      console.log('[Timeline] Evaluating track:', track.nodeId, track.paramName, 'Keyframes:', track.keyframes.length);
 
       const value = InterpolationSystem.evaluateTrack(
         track.keyframes,
@@ -455,8 +463,11 @@ export class TimelineManager {
       if (value !== null) {
         const key = `${track.nodeId}.${track.paramName}`;
         this.evaluatedValues.set(key, value);
+        console.log('[Timeline] Evaluated value:', key, '=', value);
       }
     }
+
+    console.log('[Timeline] Total evaluated values:', this.evaluatedValues.size);
 
     // Apply values to node parameters
     this.applyValuesToNodes();
@@ -466,7 +477,12 @@ export class TimelineManager {
    * Apply evaluated timeline values to node parameters
    */
   applyValuesToNodes() {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      console.log('[Timeline] applyValuesToNodes: Timeline not enabled');
+      return;
+    }
+
+    console.log('[Timeline] applyValuesToNodes: Applying', this.evaluatedValues.size, 'values to nodes');
 
     let anyChanged = false;
     let changedNodeId = null;
@@ -480,16 +496,24 @@ export class TimelineManager {
         const currentValue = node.params[paramName];
         const hasChanged = currentValue !== value;
 
+        console.log('[Timeline] Checking', key, '- Current:', currentValue, 'New:', value, 'Changed:', hasChanged);
+
         if (hasChanged) {
+          console.log('[Timeline] Applying value to', nodeId, paramName, ':', value);
           node.params[paramName] = value;
           anyChanged = true;
           changedNodeId = nodeId;
         }
+      } else {
+        console.log('[Timeline] Node or params not found for', key);
       }
     }
 
+    console.log('[Timeline] Any changed:', anyChanged);
+
     // Trigger shader rebuild if any values changed
     if (anyChanged) {
+      console.log('[Timeline] Triggering shader rebuild');
       if (this.editor.onChange) {
         this.editor.onChange('timeline-update');
       }
