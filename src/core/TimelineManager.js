@@ -455,6 +455,39 @@ export class TimelineManager {
         this.evaluatedValues.set(key, value);
       }
     }
+
+    // Apply values to node parameters
+    this.applyValuesToNodes();
+  }
+
+  /**
+   * Apply evaluated timeline values to node parameters
+   */
+  applyValuesToNodes() {
+    if (!this.enabled) return;
+
+    let anyChanged = false;
+
+    for (const [key, value] of this.evaluatedValues) {
+      const [nodeId, paramName] = key.split('.');
+      const node = this.editor.graph.nodes.find(n => n.id === nodeId);
+
+      if (node && node.params) {
+        // Check if value actually changed to avoid unnecessary updates
+        const currentValue = node.params[paramName];
+        const hasChanged = currentValue !== value;
+
+        if (hasChanged) {
+          node.params[paramName] = value;
+          anyChanged = true;
+        }
+      }
+    }
+
+    // Trigger shader rebuild if any values changed
+    if (anyChanged && this.editor.onChange) {
+      this.editor.onChange('timeline-update');
+    }
   }
 
   /**

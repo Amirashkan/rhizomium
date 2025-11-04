@@ -324,7 +324,10 @@ export class ParameterPanel {
         return;
       }
 
-      if (this.panel.contains(e.target) || e.target.closest('.node')) {
+      // Don't close if clicking on the panel itself, a node, or the timeline panel
+      if (this.panel.contains(e.target) ||
+          e.target.closest('.node') ||
+          e.target.closest('.timeline-panel')) {
         return;
       }
 
