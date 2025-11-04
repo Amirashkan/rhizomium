@@ -16,6 +16,12 @@ import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
 import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
+import { TimelineManager } from './src/core/TimelineManager.js';
+import { TimelinePanel } from './src/ui/TimelinePanel.js';
+
+// Verify timeline imports loaded
+console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
+console.log('[IMPORT CHECK] TimelinePanel:', typeof TimelinePanel);
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -115,6 +121,8 @@ let parameterEventSystem = null;
 let __deviceReady = false;
 let floatingPreview = null;
 let renderLoopController = null;
+let timelineManager = null;
+let timelinePanel = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -188,6 +196,23 @@ async function initialize() {
     } else {
       undoManager.editor = editor;
       undoManager.onChange = editor?.onChange;
+    }
+
+    // Create timeline manager and panel
+    try {
+      console.log("Creating TimelineManager...");
+      timelineManager = new TimelineManager(editor);
+      editor.timelineManager = timelineManager;
+      window.timelineManager = timelineManager;
+      console.log("TimelineManager created:", timelineManager);
+
+      console.log("Creating TimelinePanel...");
+      timelinePanel = new TimelinePanel(editor);
+      window.timelinePanel = timelinePanel;
+      console.log("TimelinePanel created:", timelinePanel);
+    } catch (error) {
+      console.error("ERROR creating timeline components:", error);
+      console.error("Error stack:", error.stack);
     }
 
     console.log("Creating SaveLoadManager...");
@@ -751,6 +776,39 @@ function setupUIEventHandlers() {
   } else {
     console.error('[main.js] Audio settings button NOT found in DOM! Available buttons:',
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
+  }
+
+  // Timeline Panel
+  const timelineBtn = removeExistingHandlers("btn-toggle-timeline");
+  console.log('[main.js] Setting up timeline button, element found:', !!timelineBtn);
+
+  if (timelineBtn) {
+    timelineBtn.addEventListener("click", (e) => {
+      console.log('[main.js] Timeline button clicked!');
+      e.preventDefault();
+
+      try {
+        if (timelinePanel && typeof timelinePanel.toggle === 'function') {
+          timelinePanel.toggle();
+          if (typeof updateStatus === "function") {
+            updateStatus(timelinePanel.visible ? "Timeline opened" : "Timeline closed");
+          }
+        } else {
+          console.error('[main.js] Timeline panel is invalid:', timelinePanel);
+          if (typeof updateStatus === "function") {
+            updateStatus("Timeline panel failed to load", "error");
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error toggling timeline:', error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Error toggling timeline: " + error.message, "error");
+        }
+      }
+    });
+    console.log("Timeline handler attached");
+  } else {
+    console.error('[main.js] Timeline button NOT found in DOM!');
   }
 
   // Display selector for multi-monitor support
@@ -1760,6 +1818,16 @@ function updateStatus(message, type = "info") {
 }
 
 function handleRenderFrame(frameState) {
+  // Update timeline manager
+  if (timelineManager && timelineManager.isEnabled()) {
+    timelineManager.update(frameState.deltaTime);
+  }
+
+  // Update timeline panel visualization
+  if (timelinePanel) {
+    timelinePanel.update();
+  }
+
   if (window.gpuRenderer) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
 
