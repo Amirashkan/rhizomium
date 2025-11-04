@@ -184,7 +184,7 @@ export class TimelineManager {
       throw new Error(`Node ${nodeId} not found`);
     }
 
-    const nodeDef = this.editor.nodeDefs[node.kind];
+    const nodeDef = window.NodeDefs[node.kind];
     if (!nodeDef || !nodeDef.params) {
       throw new Error(`Node definition for ${node.kind} not found`);
     }
@@ -250,7 +250,7 @@ export class TimelineManager {
       throw new Error(`Node ${nodeId} not found`);
     }
 
-    const nodeDef = this.editor.nodeDefs[node.kind];
+    const nodeDef = window.NodeDefs[node.kind];
     if (!nodeDef || !nodeDef.params) {
       throw new Error(`Node definition for ${node.kind} not found`);
     }
