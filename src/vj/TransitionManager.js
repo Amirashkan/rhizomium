@@ -53,7 +53,7 @@ export class TransitionManager {
 
     // Handle instant transitions
     if (type === TransitionManager.TRANSITIONS.CUT || duration === 0) {
-      await this.editor.saveLoadManager.import(targetSceneData);
+      await this.editor.saveLoadManager.importProject(targetSceneData);
       this.completeTransition();
       return true;
     }
@@ -71,7 +71,7 @@ export class TransitionManager {
 
       default:
         console.warn(`[TransitionManager] Unknown transition type: ${type}`);
-        await this.editor.saveLoadManager.import(targetSceneData);
+        await this.editor.saveLoadManager.importProject(targetSceneData);
     }
 
     this.completeTransition();
@@ -91,7 +91,7 @@ export class TransitionManager {
     await this.animateOpacity(1.0, 0.0, this.transitionDuration / 2, startTime);
 
     // Load new scene
-    await this.editor.saveLoadManager.import(targetSceneData);
+    await this.editor.saveLoadManager.importProject(targetSceneData);
 
     // Fade in new scene
     await this.animateOpacity(0.0, 1.0, this.transitionDuration / 2, performance.now());
@@ -108,7 +108,7 @@ export class TransitionManager {
     await this.animateOpacity(1.0, 0.0, this.transitionDuration / 2, startTime);
 
     // Load new scene
-    await this.editor.saveLoadManager.import(targetSceneData);
+    await this.editor.saveLoadManager.importProject(targetSceneData);
 
     // Fade from color
     await this.animateOpacity(0.0, 1.0, this.transitionDuration / 2, performance.now());

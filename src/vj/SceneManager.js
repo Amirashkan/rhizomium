@@ -118,7 +118,7 @@ export class SceneManager {
 
     // Load the scene into the editor
     try {
-      await this.saveLoadManager.import(scene.data);
+      await this.saveLoadManager.importProject(scene.data);
       console.log(`[SceneManager] Scene loaded: ${scene.name}`);
       return true;
     } catch (error) {
