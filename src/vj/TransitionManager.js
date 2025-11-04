@@ -82,34 +82,121 @@ export class TransitionManager {
    * Execute crossfade transition
    */
   async executeCrossfade(targetSceneData) {
-    // Simplified transition: wait half duration, switch, wait half duration
-    // TODO: Implement actual opacity blending in GPU renderer for smooth crossfade
+    console.log(`[TransitionManager] Starting crossfade transition (${this.transitionDuration}s)`);
 
-    console.log(`[TransitionManager] Crossfade: waiting ${this.transitionDuration/2}s...`);
-    await this.delay(this.transitionDuration / 2);
+    const gpuCanvas = document.getElementById('gpu-canvas');
+    if (!gpuCanvas) {
+      console.warn('[TransitionManager] GPU canvas not found, falling back to instant switch');
+      await this.editor.saveLoadManager.importProject(targetSceneData);
+      return;
+    }
 
-    // Load new scene
+    // Fade out current scene
+    await this.fadeCanvas(gpuCanvas, 1.0, 0.0, this.transitionDuration / 2);
+
+    // Load new scene at 0 opacity
     await this.editor.saveLoadManager.importProject(targetSceneData);
 
-    console.log(`[TransitionManager] Scene loaded, waiting ${this.transitionDuration/2}s...`);
-    await this.delay(this.transitionDuration / 2);
+    // Fade in new scene
+    await this.fadeCanvas(gpuCanvas, 0.0, 1.0, this.transitionDuration / 2);
   }
 
   /**
    * Execute fade through color transition
    */
   async executeFade(targetSceneData, type) {
-    // Simplified transition: wait half duration, switch, wait half duration
-    // TODO: Implement actual fade to black/white in GPU renderer
+    const color = type === TransitionManager.TRANSITIONS.FADE_BLACK ? 'black' : 'white';
+    console.log(`[TransitionManager] Starting fade through ${color} (${this.transitionDuration}s)`);
 
-    console.log(`[TransitionManager] Fade: waiting ${this.transitionDuration/2}s...`);
-    await this.delay(this.transitionDuration / 2);
+    const gpuCanvas = document.getElementById('gpu-canvas');
+    if (!gpuCanvas) {
+      console.warn('[TransitionManager] GPU canvas not found, falling back to instant switch');
+      await this.editor.saveLoadManager.importProject(targetSceneData);
+      return;
+    }
 
-    // Load new scene
+    // Fade to color
+    await this.fadeToColor(gpuCanvas, color, 0.0, 1.0, this.transitionDuration / 2);
+
+    // Load new scene while color overlay is visible
     await this.editor.saveLoadManager.importProject(targetSceneData);
 
-    console.log(`[TransitionManager] Scene loaded, waiting ${this.transitionDuration/2}s...`);
-    await this.delay(this.transitionDuration / 2);
+    // Fade from color
+    await this.fadeToColor(gpuCanvas, color, 1.0, 0.0, this.transitionDuration / 2);
+  }
+
+  /**
+   * Fade canvas opacity
+   */
+  async fadeCanvas(canvas, fromOpacity, toOpacity, duration) {
+    const startTime = performance.now();
+
+    return new Promise(resolve => {
+      const animate = () => {
+        const elapsed = (performance.now() - startTime) / 1000;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = this.easeInOutCubic(t);
+
+        const opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
+        canvas.style.opacity = opacity.toString();
+
+        if (t < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          canvas.style.opacity = toOpacity.toString();
+          resolve();
+        }
+      };
+
+      animate();
+    });
+  }
+
+  /**
+   * Fade to/from a color overlay
+   */
+  async fadeToColor(canvas, color, fromOpacity, toOpacity, duration) {
+    // Create overlay if it doesn't exist
+    let overlay = document.getElementById('vj-transition-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'vj-transition-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 9999;
+        opacity: 0;
+      `;
+      document.body.appendChild(overlay);
+    }
+
+    overlay.style.backgroundColor = color;
+
+    const startTime = performance.now();
+
+    return new Promise(resolve => {
+      const animate = () => {
+        const elapsed = (performance.now() - startTime) / 1000;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = this.easeInOutCubic(t);
+
+        const opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
+        overlay.style.opacity = opacity.toString();
+
+        if (t < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          overlay.style.opacity = toOpacity.toString();
+          resolve();
+        }
+      };
+
+      animate();
+    });
   }
 
   /**
