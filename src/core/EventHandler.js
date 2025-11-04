@@ -432,6 +432,11 @@ export class EventHandler {
         return;
       }
 
+      // Don't close parameter panel when clicking on timeline panel
+      if (e.target.closest('.timeline-panel')) {
+        return;
+      }
+
       this.paramPanel.hide();
     });
   }

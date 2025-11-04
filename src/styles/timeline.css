@@ -1,0 +1,274 @@
+/**
+ * timeline.css
+ *
+ * Styles for the timeline panel and keyframe editor
+ */
+
+.timeline-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 200px;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
+}
+
+.timeline-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  background: transparent;
+  cursor: ns-resize;
+  z-index: 10;
+}
+
+.timeline-resize-handle:hover {
+  background: #4a90e2;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  background: #242424;
+  border-bottom: 1px solid #333;
+  min-height: 40px;
+  flex-shrink: 0;
+}
+
+.timeline-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.timeline-button {
+  padding: 5px 10px;
+  background: #333;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+
+.timeline-button:hover {
+  background: #3a3a3a;
+}
+
+.timeline-button:active {
+  background: #2a2a2a;
+}
+
+.timeline-time-display {
+  padding: 5px 10px;
+  background: #1a1a1a;
+  color: #4af;
+  border: 1px solid #333;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  min-width: 60px;
+  text-align: center;
+}
+
+.timeline-duration-input,
+.timeline-fps-input {
+  width: 60px;
+  padding: 4px 6px;
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+}
+
+.timeline-duration-input:focus,
+.timeline-fps-input:focus {
+  outline: none;
+  border-color: #4a90e2;
+}
+
+.timeline-enable-toggle {
+  padding: 5px 12px;
+  background: #4a90e2;
+  color: #fff;
+  border: 1px solid #3a80d2;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: auto;
+  transition: all 0.2s;
+  opacity: 0.7;
+}
+
+.timeline-enable-toggle:hover {
+  opacity: 1;
+  background: #5aa0f2;
+}
+
+.timeline-canvas {
+  flex: 1;
+  width: 100%;
+  background: #1a1a1a;
+  cursor: default;
+}
+
+/* Scrollbar styling for timeline */
+.timeline-panel::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.timeline-panel::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.timeline-panel::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 5px;
+}
+
+.timeline-panel::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Input field labels */
+.timeline-controls label {
+  color: #aaa;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Keyframe diamond styles (applied via canvas, but documented here) */
+/*
+  Keyframe colors:
+  - Default: #4a90e2 (blue)
+  - Hovered: #4af (bright blue)
+  - Selected: #4f4 (green)
+  - Linear interpolation: blue
+  - Ease-in/out: orange
+  - Step: gray
+*/
+
+/* Track background alternating colors */
+/*
+  Even tracks: #1e1e1e
+  Odd tracks: #252525
+*/
+
+/* Playhead */
+/*
+  Color: #f44 (red)
+  Width: 2px
+*/
+
+/* Ruler */
+/*
+  Background: #2a2a2a
+  Text color: #aaa
+  Tick color: #666
+*/
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .timeline-panel {
+    height: 150px;
+  }
+
+  .timeline-button {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .timeline-duration-input,
+  .timeline-fps-input {
+    width: 50px;
+  }
+}
+
+/* Animation for show/hide */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+.timeline-panel.show {
+  animation: slideUp 0.3s ease-out;
+}
+
+.timeline-panel.hide {
+  animation: slideDown 0.3s ease-out;
+}
+
+/* Tooltip styles for keyframes (future enhancement) */
+.timeline-keyframe-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.9);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+}
+
+/* Context menu for keyframes (future enhancement) */
+.timeline-context-menu {
+  position: absolute;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 3px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  z-index: 1001;
+  min-width: 150px;
+}
+
+.timeline-context-menu-item {
+  padding: 8px 12px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.timeline-context-menu-item:hover {
+  background: #3a3a3a;
+}
+
+.timeline-context-menu-separator {
+  height: 1px;
+  background: #444;
+  margin: 4px 0;
+}

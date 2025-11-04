@@ -93,6 +93,26 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
   }
 
   /**
+   * Get the effective parameter value, checking timeline first if enabled
+   * @param {string} nodeId - Node ID
+   * @param {string} paramName - Parameter name
+   * @param {*} defaultValue - Default value from node.params
+   * @returns {*} The effective parameter value (timeline or default)
+   */
+  getEffectiveParameterValue(nodeId, paramName, defaultValue) {
+    // Check if timeline is enabled and has a value for this parameter
+    if (window.timelineManager && window.timelineManager.isEnabled()) {
+      const timelineValue = window.timelineManager.getEvaluatedValue(nodeId, paramName);
+      if (timelineValue !== null) {
+        return timelineValue;
+      }
+    }
+
+    // Fall back to default value (which may be an expression or static value)
+    return defaultValue;
+  }
+
+  /**
    * Evaluates a parameter expression with comprehensive error handling
    */
   evaluateExpression(expression, context = {}, node = null) {

@@ -194,6 +194,9 @@ exportProject(options = {}) {
       connections: this.exportConnections(),
       textures: textureData, // Now textureData is defined
 
+      // Timeline data
+      timeline: this.exportTimeline(),
+
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
@@ -224,9 +227,9 @@ exportProject(options = {}) {
 // Add this helper method
 collectTextureData() {
   const textureData = {};
-  
+
   if (!this.textureManager) return textureData;
-  
+
   for (const node of this.graph.nodes) {
     if (node.kind === 'Texture2D' || node.kind === 'TextureCube') {
       const textureInfo = this.textureManager.getTexture(node.id);
@@ -240,8 +243,18 @@ collectTextureData() {
       }
     }
   }
-  
+
   return textureData;
+}
+
+/**
+ * Export timeline data
+ */
+exportTimeline() {
+  if (window.timelineManager) {
+    return window.timelineManager.toJSON();
+  }
+  return null;
 }
 
 
@@ -325,6 +338,11 @@ if (this.textureManager && this.textureManager.device) {
     // Restore viewport
     if (restoreViewport && projectData.viewport) {
       this.importViewport(projectData.viewport);
+    }
+
+    // Restore timeline
+    if (projectData.timeline) {
+      this.importTimeline(projectData.timeline);
     }
 
     // Restore previews if requested
@@ -1705,6 +1723,26 @@ importConnections(connectionData) {
     this.graph.connections = [];
   }
 }
+
+  /**
+   * Import timeline data
+   */
+  importTimeline(timelineData) {
+    try {
+      if (!window.timelineManager) {
+        console.warn('TimelineManager not available for import');
+        return;
+      }
+
+      window.timelineManager.fromJSON(timelineData);
+      console.log('Timeline data imported successfully');
+    } catch (error) {
+      console.error('Failed to import timeline data:', error);
+      window.errorHandler?.handleError(error, {
+        component: 'timeline-import'
+      });
+    }
+  }
 
   importViewport(viewportData) {
     try {
