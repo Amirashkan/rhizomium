@@ -232,6 +232,13 @@ case "ConicGradient": {
               break;
             }
 
+            case "Trigger": {
+              const inputValue = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+              result = inputValue >= threshold ? 1.0 : 0.0;
+              break;
+            }
+
             case "ConstFloat": {
               // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
               let value = node.params?.value ?? node.value;
