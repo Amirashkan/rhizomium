@@ -116,7 +116,9 @@ export const InputNodes = {
     inputs: 0,
     pinsIn: [],
     pinsOut: [{ label: "rand", type: "f32" }],
-    params: [],
+    params: [
+      { name: "speed", type: "float", default: 1.0, label: "Speed" }
+    ],
   },
 
   // === TEXTURE SAMPLING ===

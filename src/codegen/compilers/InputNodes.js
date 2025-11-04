@@ -99,11 +99,13 @@ export class InputNodes {
           outputType: "f32"
         };
 
-      case 'RandomTime':
+      case 'RandomTime': {
+        const speed = resolveParam('speed', '1.0');
         return {
-          line: `let node_${nodeId} = fract(sin(g.time * 12.9898) * 43758.5453);`,
+          line: `let node_${nodeId} = fract(sin(g.time * ${speed} * 12.9898) * 43758.5453);`,
           outputType: "f32"
         };
+      }
 
       default:
         return null;

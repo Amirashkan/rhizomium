@@ -321,8 +321,11 @@ export class ParameterValueManager {
         return this._toSafeNumber(rawValue, 'sourceNode.value', 0);
       case "time":
         return (Date.now() / 1000) % 1;
-      case "randomtime":
-        return Math.random();
+      case "randomtime": {
+        const speed = node.params?.speed ?? 1.0;
+        const t = (Date.now() / 1000) * speed;
+        return Math.abs(Math.sin(t * 12.9898) * 43758.5453) % 1.0;
+      }
       case "uv":
         return 0.5;
       default:
