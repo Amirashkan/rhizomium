@@ -7,6 +7,16 @@
 
 export class TimelinePanel {
   constructor(editor) {
+    console.log('[TimelinePanel] Initializing...', { editor, timelineManager: editor?.timelineManager });
+
+    if (!editor) {
+      throw new Error('TimelinePanel requires an editor instance');
+    }
+
+    if (!editor.timelineManager) {
+      throw new Error('TimelinePanel requires editor.timelineManager to be initialized');
+    }
+
     this.editor = editor;
     this.timelineManager = editor.timelineManager;
     this.visible = false;
@@ -137,9 +147,12 @@ export class TimelinePanel {
 
     // Add to document
     document.body.appendChild(this.container);
+    console.log('[TimelinePanel] Container appended to body', this.container);
 
     // Update canvas size
     this.updateCanvasSize();
+
+    console.log('[TimelinePanel] UI created successfully');
   }
 
   /**
@@ -422,15 +435,18 @@ export class TimelinePanel {
    * Show the timeline panel
    */
   show() {
+    console.log('[TimelinePanel] Showing timeline');
     this.visible = true;
     this.container.style.display = 'block';
     this.updateCanvasSize();
+    this.render();
   }
 
   /**
    * Hide the timeline panel
    */
   hide() {
+    console.log('[TimelinePanel] Hiding timeline');
     this.visible = false;
     this.container.style.display = 'none';
   }
@@ -439,6 +455,7 @@ export class TimelinePanel {
    * Toggle visibility
    */
   toggle() {
+    console.log('[TimelinePanel] Toggle called, currently visible:', this.visible);
     if (this.visible) {
       this.hide();
     } else {
