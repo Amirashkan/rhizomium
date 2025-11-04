@@ -244,7 +244,7 @@ input.addEventListener("input", (e) => {
         }
       } else {
         // Reset title for non-expressions, but keep any existing tooltip info
-        const baseTitle = input.dataset.paramType === "float" 
+        const baseTitle = (input.dataset.paramType === "float" || input.dataset.paramType === "int")
           ? "Shift+drag to adjust value (Ctrl: fine, Alt: coarse)"
           : "";
         input.title = baseTitle;
@@ -367,8 +367,8 @@ input.addEventListener("input", (e) => {
   }
 
   _addNumericDragSupport(input, param, node, valueManager, onChange) {
-    // Only enable drag for float parameters and when not disabled
-    if (param.type !== "float") return;
+    // Only enable drag for numeric parameters (float and int) and when not disabled
+    if (param.type !== "float" && param.type !== "int") return;
 
     let isDragging = false;
     let startValue = 0;
@@ -395,12 +395,17 @@ input.addEventListener("input", (e) => {
 
         const onMouseMove = (e) => {
           if (!isDragging) return;
-          
+
           const deltaY = startY - e.clientY;
           const sensitivity = e.ctrlKey ? 0.001 : e.altKey ? 0.1 : 0.01;
           const newValue = startValue + deltaY * sensitivity;
-          
-          input.value = newValue.toFixed(3);
+
+          // Format based on parameter type
+          if (param.type === "int") {
+            input.value = Math.round(newValue).toString();
+          } else {
+            input.value = newValue.toFixed(3);
+          }
           
           // Update without undo recording (we'll do it on mouse up)
           const oldUndoManager = valueManager.undoManager;
@@ -437,8 +442,8 @@ input.addEventListener("input", (e) => {
       }
     });
 
-    // Add tooltip for float parameters
-    if (param.type === "float") {
+    // Add tooltip for numeric parameters
+    if (param.type === "float" || param.type === "int") {
       const currentTitle = input.title || "";
       input.title = currentTitle + (currentTitle ? "\n" : "") + "Shift+drag to adjust value (Ctrl: fine, Alt: coarse)";
     }
