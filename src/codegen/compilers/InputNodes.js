@@ -8,7 +8,7 @@ export class InputNodes {
   handles(kind) {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
-      'Mouse', 'Resolution', 'Pi', 'RandomTime', 'Trigger'
+      'Mouse', 'Resolution', 'Pi', 'RandomTime', 'Trigger', 'Hold'
     ].includes(kind);
   }
   
@@ -112,6 +112,16 @@ export class InputNodes {
         const threshold = resolveParam('threshold', '0.5');
         return {
           line: `let node_${nodeId} = select(0.0, 1.0, ${input} >= ${threshold});`,
+          outputType: "f32"
+        };
+      }
+
+      case 'Hold': {
+        const value = getInput(0, 'f32');
+        const pulse = getInput(1, 'f32');
+        const threshold = resolveParam('threshold', '0.5');
+        return {
+          line: `let node_${nodeId} = select(0.0, ${value}, ${pulse} >= ${threshold});`,
           outputType: "f32"
         };
       }

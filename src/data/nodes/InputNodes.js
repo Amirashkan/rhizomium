@@ -132,6 +132,20 @@ export const InputNodes = {
     ],
   },
 
+  Hold: {
+    label: "Hold",
+    cat: "Input",
+    inputs: 2,
+    pinsIn: [
+      { label: "value", type: "f32" },
+      { label: "pulse", type: "f32" }
+    ],
+    pinsOut: [{ label: "out", type: "f32" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" }
+    ],
+  },
+
   // === TEXTURE SAMPLING ===
   Texture2D: {
     label: "Texture 2D",
