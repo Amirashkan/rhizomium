@@ -142,6 +142,13 @@ case "ConicGradient": {
               result = this.animationTime;
               break;
 
+            case "RandomTime": {
+              const speed = node.params?.speed ?? 1.0;
+              const t = this.animationTime * speed;
+              result = Math.abs(Math.sin(t * 12.9898) * 43758.5453) % 1.0;
+              break;
+            }
+
             case "ConstFloat":
               result = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
               break;

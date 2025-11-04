@@ -66,6 +66,13 @@ case "checkerfield": {
           result = (Date.now() / 1000) % 1;
           break;
 
+        case "randomtime": {
+          const speed = this._getParameter(node, "speed") || 1.0;
+          const t = (Date.now() / 1000) * speed;
+          result = Math.abs(Math.sin(t * 12.9898) * 43758.5453) % 1.0;
+          break;
+        }
+
         case "uv":
           result = 0.5;
           break;

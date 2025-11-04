@@ -110,6 +110,17 @@ export const InputNodes = {
     params: [],
   },
 
+  RandomTime: {
+    label: "Random Time",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: [{ label: "rand", type: "f32" }],
+    params: [
+      { name: "speed", type: "float", default: 1.0, label: "Speed" }
+    ],
+  },
+
   // === TEXTURE SAMPLING ===
   Texture2D: {
     label: "Texture 2D",

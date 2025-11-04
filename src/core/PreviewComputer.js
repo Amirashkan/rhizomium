@@ -225,6 +225,13 @@ case "ConicGradient": {
               result = this.animationTime;
               break;
 
+            case "RandomTime": {
+              const speed = this._evaluateParam(node.params?.speed, values, 1.0);
+              const t = this.animationTime * speed;
+              result = Math.abs(Math.sin(t * 12.9898) * 43758.5453) % 1.0;
+              break;
+            }
+
             case "ConstFloat": {
               // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
               let value = node.params?.value ?? node.value;
