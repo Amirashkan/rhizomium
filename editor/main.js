@@ -14,6 +14,8 @@ import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { TimelineManager } from './src/core/TimelineManager.js';
+import { TimelinePanel } from './src/ui/TimelinePanel.js';
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -112,6 +114,8 @@ let parameterEventSystem = null;
 let __deviceReady = false;
 let floatingPreview = null;
 let renderLoopController = null;
+let timelineManager = null;
+let timelinePanel = null;
 
 if (typeof window.render !== "function") {
   window.render = () => {};
@@ -168,7 +172,7 @@ window.gpuRenderer = new GPURenderer(device, canvas);
 
     // Create editor and pass the undo manager to it
     editor = new Editor(graph, updateShaderFromGraph, undoManager);
-    
+
     // Now set the editor reference in undo manager
     if (typeof undoManager.setEditor === "function") {
       undoManager.setEditor(editor);
@@ -176,6 +180,18 @@ window.gpuRenderer = new GPURenderer(device, canvas);
       undoManager.editor = editor;
       undoManager.onChange = editor?.onChange;
     }
+
+    // Create timeline manager and panel
+    console.log("Creating TimelineManager...");
+    timelineManager = new TimelineManager(editor);
+    editor.timelineManager = timelineManager;
+    window.timelineManager = timelineManager;
+    console.log("TimelineManager created:", timelineManager);
+
+    console.log("Creating TimelinePanel...");
+    timelinePanel = new TimelinePanel(editor);
+    window.timelinePanel = timelinePanel;
+    console.log("TimelinePanel created:", timelinePanel);
 
     console.log("Creating SaveLoadManager...");
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
@@ -738,6 +754,39 @@ function setupUIEventHandlers() {
   } else {
     console.error('[main.js] Audio settings button NOT found in DOM! Available buttons:',
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
+  }
+
+  // Timeline Panel
+  const timelineBtn = removeExistingHandlers("btn-toggle-timeline");
+  console.log('[main.js] Setting up timeline button, element found:', !!timelineBtn);
+
+  if (timelineBtn) {
+    timelineBtn.addEventListener("click", (e) => {
+      console.log('[main.js] Timeline button clicked!');
+      e.preventDefault();
+
+      try {
+        if (timelinePanel && typeof timelinePanel.toggle === 'function') {
+          timelinePanel.toggle();
+          if (typeof updateStatus === "function") {
+            updateStatus(timelinePanel.visible ? "Timeline opened" : "Timeline closed");
+          }
+        } else {
+          console.error('[main.js] Timeline panel is invalid:', timelinePanel);
+          if (typeof updateStatus === "function") {
+            updateStatus("Timeline panel failed to load", "error");
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error toggling timeline:', error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Error toggling timeline: " + error.message, "error");
+        }
+      }
+    });
+    console.log("Timeline handler attached");
+  } else {
+    console.error('[main.js] Timeline button NOT found in DOM!');
   }
 
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
@@ -1407,6 +1456,16 @@ function updateStatus(message, type = "info") {
 }
 
 function handleRenderFrame(frameState) {
+  // Update timeline manager
+  if (timelineManager && timelineManager.isEnabled()) {
+    timelineManager.update(frameState.deltaTime);
+  }
+
+  // Update timeline panel visualization
+  if (timelinePanel) {
+    timelinePanel.update();
+  }
+
   if (window.gpuRenderer) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
   }

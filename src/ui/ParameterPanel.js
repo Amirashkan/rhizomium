@@ -1002,11 +1002,25 @@ case 'flip2d':
 
     labelContainer.appendChild(label);
 
+    // Controls container for binding and keyframe buttons
+    const controlsContainer = document.createElement('div');
+    controlsContainer.style.cssText = `
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    `;
+
     // Add binding controls
     if (this.bindingSystem) {
       const bindingControls = this.createBindingControls(param, node, bindingInfo);
-      labelContainer.appendChild(bindingControls);
+      controlsContainer.appendChild(bindingControls);
     }
+
+    // Add keyframe button
+    const keyframeBtn = this.createKeyframeButton(param, node);
+    controlsContainer.appendChild(keyframeBtn);
+
+    labelContainer.appendChild(controlsContainer);
 
     paramContainer.appendChild(labelContainer);
 
@@ -1158,6 +1172,78 @@ case 'flip2d':
     controls.appendChild(pasteBtn);
 
     return controls;
+  }
+
+  createKeyframeButton(param, node) {
+    const keyframeBtn = document.createElement('button');
+    keyframeBtn.type = 'button';
+    keyframeBtn.className = 'keyframe-btn';
+    keyframeBtn.innerHTML = '◆';
+    keyframeBtn.title = 'Add keyframe at current time';
+
+    // Check if parameter has keyframes
+    const hasKeyframes = window.timelineManager &&
+      window.timelineManager.hasKeyframes(node.id, param.name);
+
+    keyframeBtn.style.cssText = `
+      width: 18px;
+      height: 18px;
+      background: ${hasKeyframes ? '#4a90e2' : '#666'};
+      border: none;
+      border-radius: 3px;
+      color: white;
+      cursor: pointer;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    `;
+
+    keyframeBtn.addEventListener('mouseenter', () => {
+      keyframeBtn.style.background = hasKeyframes ? '#5aa0f2' : '#777';
+    });
+
+    keyframeBtn.addEventListener('mouseleave', () => {
+      keyframeBtn.style.background = hasKeyframes ? '#4a90e2' : '#666';
+    });
+
+    keyframeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.addKeyframeForParameter(node, param);
+    });
+
+    return keyframeBtn;
+  }
+
+  addKeyframeForParameter(node, param) {
+    if (!window.timelineManager) {
+      console.error('TimelineManager not available');
+      return;
+    }
+
+    try {
+      // Get current parameter value
+      const value = node.params[param.name];
+
+      // Add keyframe at current time
+      window.timelineManager.addKeyframe(node.id, param.name, value);
+
+      // Show success message
+      if (window.updateStatus) {
+        window.updateStatus(`Keyframe added for ${param.name} at ${window.timelineManager.getCurrentTime().toFixed(2)}s`);
+      }
+
+      // Update the keyframe button appearance
+      this.renderParameters(node);
+
+      console.log(`Added keyframe for ${node.kind}.${param.name}:`, value);
+    } catch (error) {
+      console.error('Error adding keyframe:', error);
+      if (window.updateStatus) {
+        window.updateStatus(`Error adding keyframe: ${error.message}`, 'error');
+      }
+    }
   }
 
   createBindingStatus(param, node, bindingInfo) {

@@ -673,8 +673,20 @@ export class UndoManager {
         }
         
         default:
-          console.error('Unknown action type:', action.type);
-          return false;
+          // Check if action has custom undo callback
+          if (typeof action.undo === 'function') {
+            try {
+              action.undo();
+              success = true;
+            } catch (error) {
+              console.error('Error executing custom undo:', error);
+              return false;
+            }
+          } else {
+            console.error('Unknown action type:', action.type);
+            return false;
+          }
+          break;
       }
 
       if (success) {
@@ -910,8 +922,20 @@ export class UndoManager {
         }
         
         default:
-          console.error('Unknown redo action type:', action.type);
-          return false;
+          // Check if action has custom redo callback
+          if (typeof action.redo === 'function') {
+            try {
+              action.redo();
+              success = true;
+            } catch (error) {
+              console.error('Error executing custom redo:', error);
+              return false;
+            }
+          } else {
+            console.error('Unknown redo action type:', action.type);
+            return false;
+          }
+          break;
       }
 
       if (success) {
