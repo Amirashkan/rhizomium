@@ -98,7 +98,9 @@ export class TimelinePanel {
     this.durationInput.step = '0.1';
     this.durationInput.value = '10';
     this.durationInput.className = 'timeline-duration-input';
+    this.durationInput.addEventListener('click', (e) => e.stopPropagation());
     this.durationInput.addEventListener('change', (e) => {
+      e.stopPropagation();
       const duration = parseFloat(e.target.value);
       if (!isNaN(duration) && duration > 0) {
         this.timelineManager.setDuration(duration);
@@ -120,7 +122,9 @@ export class TimelinePanel {
     this.fpsInput.max = '240';
     this.fpsInput.value = '60';
     this.fpsInput.className = 'timeline-fps-input';
+    this.fpsInput.addEventListener('click', (e) => e.stopPropagation());
     this.fpsInput.addEventListener('change', (e) => {
+      e.stopPropagation();
       const fps = parseInt(e.target.value);
       if (!isNaN(fps) && fps > 0) {
         this.timelineManager.setFPS(fps);
@@ -132,7 +136,11 @@ export class TimelinePanel {
     this.enableToggle = document.createElement('button');
     this.enableToggle.className = 'timeline-enable-toggle';
     this.enableToggle.textContent = 'Enable Timeline';
-    this.enableToggle.addEventListener('click', () => this.toggleTimeline());
+    this.enableToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      this.toggleTimeline();
+    });
     this.controls.appendChild(this.enableToggle);
 
     this.header.appendChild(this.controls);
@@ -163,7 +171,11 @@ export class TimelinePanel {
     button.className = 'timeline-button';
     button.textContent = text;
     button.title = title;
-    button.addEventListener('click', onClick);
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      onClick(e);
+    });
     return button;
   }
 
@@ -171,12 +183,18 @@ export class TimelinePanel {
    * Attach event listeners
    */
   attachEventListeners() {
+    // Stop all clicks from propagating out of the timeline panel
+    this.container.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
     // Resize handle
     this.resizeHandle.addEventListener('mousedown', (e) => {
       this.isDraggingResize = true;
       this.resizeDragStartY = e.clientY;
       this.resizeDragStartHeight = this.height;
       e.preventDefault();
+      e.stopPropagation();
     });
 
     // Canvas mouse events
@@ -247,6 +265,9 @@ export class TimelinePanel {
    * Canvas mouse down event
    */
   onCanvasMouseDown(e) {
+    // Stop propagation to prevent node deselection
+    e.stopPropagation();
+
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;

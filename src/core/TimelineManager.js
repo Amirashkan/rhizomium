@@ -20,6 +20,8 @@ export class TimelineManager {
     this.onTimeChange = null;           // Callback when current time changes
     this.onKeyframeChange = null;       // Callback when keyframes are added/removed/modified
     this.onPlayStateChange = null;      // Callback when play state changes
+    this.lastPanelUpdateTime = 0;       // Throttle parameter panel updates
+    this.panelUpdateInterval = 100;     // Update panel max once per 100ms
   }
 
   /**
@@ -467,6 +469,7 @@ export class TimelineManager {
     if (!this.enabled) return;
 
     let anyChanged = false;
+    let changedNodeId = null;
 
     for (const [key, value] of this.evaluatedValues) {
       const [nodeId, paramName] = key.split('.');
@@ -480,13 +483,27 @@ export class TimelineManager {
         if (hasChanged) {
           node.params[paramName] = value;
           anyChanged = true;
+          changedNodeId = nodeId;
         }
       }
     }
 
     // Trigger shader rebuild if any values changed
-    if (anyChanged && this.editor.onChange) {
-      this.editor.onChange('timeline-update');
+    if (anyChanged) {
+      if (this.editor.onChange) {
+        this.editor.onChange('timeline-update');
+      }
+
+      // Update parameter panel if the changed node is currently selected (throttled)
+      const now = Date.now();
+      if (changedNodeId && this.editor.paramPanel && this.editor.paramPanel.selectedNode) {
+        if (this.editor.paramPanel.selectedNode.id === changedNodeId) {
+          if (now - this.lastPanelUpdateTime > this.panelUpdateInterval) {
+            this.editor.paramPanel.renderParameters(this.editor.paramPanel.selectedNode);
+            this.lastPanelUpdateTime = now;
+          }
+        }
+      }
     }
   }
 
