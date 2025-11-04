@@ -17,6 +17,10 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 
+// Verify timeline imports loaded
+console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
+console.log('[IMPORT CHECK] TimelinePanel:', typeof TimelinePanel);
+
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
 
