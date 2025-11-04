@@ -182,16 +182,21 @@ window.gpuRenderer = new GPURenderer(device, canvas);
     }
 
     // Create timeline manager and panel
-    console.log("Creating TimelineManager...");
-    timelineManager = new TimelineManager(editor);
-    editor.timelineManager = timelineManager;
-    window.timelineManager = timelineManager;
-    console.log("TimelineManager created:", timelineManager);
+    try {
+      console.log("Creating TimelineManager...");
+      timelineManager = new TimelineManager(editor);
+      editor.timelineManager = timelineManager;
+      window.timelineManager = timelineManager;
+      console.log("TimelineManager created:", timelineManager);
 
-    console.log("Creating TimelinePanel...");
-    timelinePanel = new TimelinePanel(editor);
-    window.timelinePanel = timelinePanel;
-    console.log("TimelinePanel created:", timelinePanel);
+      console.log("Creating TimelinePanel...");
+      timelinePanel = new TimelinePanel(editor);
+      window.timelinePanel = timelinePanel;
+      console.log("TimelinePanel created:", timelinePanel);
+    } catch (error) {
+      console.error("ERROR creating timeline components:", error);
+      console.error("Error stack:", error.stack);
+    }
 
     console.log("Creating SaveLoadManager...");
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
