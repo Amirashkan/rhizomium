@@ -142,6 +142,10 @@ case "ConicGradient": {
               result = this.animationTime;
               break;
 
+            case "RandomTime":
+              result = Math.random();
+              break;
+
             case "ConstFloat":
               result = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
               break;
