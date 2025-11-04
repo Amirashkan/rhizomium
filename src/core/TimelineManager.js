@@ -174,6 +174,55 @@ export class TimelineManager {
   }
 
   /**
+   * Convert a value to the proper type based on parameter definition
+   * @param {*} value - Value to convert
+   * @param {string} type - Target type
+   * @returns {*} Converted value
+   */
+  convertValueToType(value, type) {
+    // If already proper type, return as-is
+    if (typeof value === 'number' && (type === 'float' || type === 'int')) {
+      return type === 'int' ? Math.round(value) : value;
+    }
+
+    // Convert string to number for numeric types
+    if (typeof value === 'string' && (type === 'float' || type === 'int')) {
+      const parsed = parseFloat(value);
+      if (!isNaN(parsed)) {
+        return type === 'int' ? Math.round(parsed) : parsed;
+      }
+    }
+
+    // Convert string to boolean
+    if (typeof value === 'string' && type === 'bool') {
+      return value === 'true' || value === '1';
+    }
+
+    // For vec2, vec3, vec4 - handle various input formats
+    if (type === 'vec2' || type === 'vec3' || type === 'vec4') {
+      // If already an object with x, y properties, return as-is
+      if (value && typeof value === 'object' && 'x' in value) {
+        return value;
+      }
+
+      // If it's a string, try to parse it
+      if (typeof value === 'string') {
+        const parts = value.split(',').map(s => parseFloat(s.trim()));
+        if (type === 'vec2' && parts.length >= 2) {
+          return { x: parts[0], y: parts[1] };
+        } else if (type === 'vec3' && parts.length >= 3) {
+          return { x: parts[0], y: parts[1], z: parts[2] };
+        } else if (type === 'vec4' && parts.length >= 4) {
+          return { x: parts[0], y: parts[1], z: parts[2], w: parts[3] };
+        }
+      }
+    }
+
+    // Default: return value as-is
+    return value;
+  }
+
+  /**
    * Add a keyframe for a parameter at the current time
    * @param {string} nodeId - Node ID
    * @param {string} paramName - Parameter name
@@ -182,7 +231,7 @@ export class TimelineManager {
    * @returns {Object} The created keyframe
    */
   addKeyframe(nodeId, paramName, value, interpolation = 'linear') {
-    console.log('[Timeline] Adding keyframe:', nodeId, paramName, 'value:', value, 'at time:', this.timeline.currentTime);
+    console.log('[Timeline] Adding keyframe:', nodeId, paramName, 'value:', value, 'type:', typeof value, 'at time:', this.timeline.currentTime);
     // Get parameter type from node definition
     const node = this.editor.graph.nodes.find(n => n.id === nodeId);
     if (!node) {
@@ -199,18 +248,22 @@ export class TimelineManager {
       throw new Error(`Parameter ${paramName} not found in ${node.kind}`);
     }
 
+    // Convert value to proper type
+    const typedValue = this.convertValueToType(value, paramDef.type);
+    console.log('[Timeline] Converted value:', typedValue, 'type:', typeof typedValue);
+
     // Create track if it doesn't exist
     let track = this.timeline.findTrack(nodeId, paramName);
     if (!track) {
       track = this.timeline.addTrack(nodeId, paramName, paramDef.type);
     }
 
-    // Add keyframe at current time
+    // Add keyframe at current time with properly typed value
     const keyframe = this.timeline.addKeyframe(
       nodeId,
       paramName,
       this.timeline.currentTime,
-      value,
+      typedValue,
       interpolation
     );
 
