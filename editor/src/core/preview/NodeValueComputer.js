@@ -66,7 +66,7 @@ case "checkerfield": {
           result = (Date.now() / 1000) % 1;
           break;
 
-        case "random":
+        case "randomtime":
           result = Math.random();
           break;
 

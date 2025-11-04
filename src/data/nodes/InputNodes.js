@@ -110,8 +110,8 @@ export const InputNodes = {
     params: [],
   },
 
-  Random: {
-    label: "Random",
+  RandomTime: {
+    label: "Random Time",
     cat: "Input",
     inputs: 0,
     pinsIn: [],

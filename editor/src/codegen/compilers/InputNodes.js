@@ -8,7 +8,7 @@ export class InputNodes {
   handles(kind) {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
-      'Mouse', 'Resolution', 'Pi', 'Random'
+      'Mouse', 'Resolution', 'Pi', 'RandomTime'
     ].includes(kind);
   }
   
@@ -86,7 +86,7 @@ export class InputNodes {
           outputType: "f32"
         };
 
-      case 'Random':
+      case 'RandomTime':
         return {
           line: `let node_${nodeId} = fract(sin(g.time * 12.9898) * 43758.5453);`,
           outputType: "f32"
