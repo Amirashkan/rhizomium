@@ -66,6 +66,10 @@ case "checkerfield": {
           result = (Date.now() / 1000) % 1;
           break;
 
+        case "random":
+          result = Math.random();
+          break;
+
         case "uv":
           result = 0.5;
           break;

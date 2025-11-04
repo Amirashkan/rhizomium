@@ -110,6 +110,15 @@ export const InputNodes = {
     params: [],
   },
 
+  Random: {
+    label: "Random",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: [{ label: "rand", type: "f32" }],
+    params: [],
+  },
+
   // === TEXTURE SAMPLING ===
   Texture2D: {
     label: "Texture 2D",
