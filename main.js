@@ -217,7 +217,19 @@ async function initialize() {
       console.error("Error stack:", error.stack);
     }
 
-    // Create VJ Control Panel
+    console.log("Creating SaveLoadManager...");
+    saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
+    saveLoadManager.setTextureManager(window.textureManager);
+    console.log("SaveLoadManager created:", saveLoadManager);
+
+    // Set saveLoadManager on editor for VJ panel
+    editor.saveLoadManager = saveLoadManager;
+
+    console.log("Creating BackupDialog...");
+    backupDialog = new BackupDialog(saveLoadManager);
+    console.log("BackupDialog created:", backupDialog);
+
+    // Create VJ Control Panel (after SaveLoadManager is ready)
     try {
       console.log("Creating VJControlPanel...");
       vjControlPanel = new VJControlPanel(editor);
@@ -227,15 +239,6 @@ async function initialize() {
       console.error("ERROR creating VJ control panel:", error);
       console.error("Error stack:", error.stack);
     }
-
-    console.log("Creating SaveLoadManager...");
-    saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
-    saveLoadManager.setTextureManager(window.textureManager);
-    console.log("SaveLoadManager created:", saveLoadManager);
-
-    console.log("Creating BackupDialog...");
-    backupDialog = new BackupDialog(saveLoadManager);
-    console.log("BackupDialog created:", backupDialog);
 
     const gpuCanvas = document.getElementById("gpu-canvas");
     if (gpuCanvas) {
