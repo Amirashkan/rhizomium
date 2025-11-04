@@ -51,9 +51,10 @@ export class SceneManager {
    * Remove a scene from the collection
    */
   removeScene(sceneId) {
+    // Allow removing active scene - just clear the active ID
     if (sceneId === this.activeSceneId) {
-      console.warn('[SceneManager] Cannot remove active scene');
-      return false;
+      console.log('[SceneManager] Removing active scene, clearing active ID');
+      this.activeSceneId = null;
     }
 
     this.scenes.delete(sceneId);

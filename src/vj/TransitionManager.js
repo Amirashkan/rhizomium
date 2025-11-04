@@ -82,36 +82,41 @@ export class TransitionManager {
    * Execute crossfade transition
    */
   async executeCrossfade(targetSceneData) {
-    // For crossfade, we'll use opacity animation
-    // This requires adding a master opacity parameter to the output
+    // Simplified transition: wait half duration, switch, wait half duration
+    // TODO: Implement actual opacity blending in GPU renderer for smooth crossfade
 
-    const startTime = performance.now();
-
-    // Fade out current scene
-    await this.animateOpacity(1.0, 0.0, this.transitionDuration / 2, startTime);
+    console.log(`[TransitionManager] Crossfade: waiting ${this.transitionDuration/2}s...`);
+    await this.delay(this.transitionDuration / 2);
 
     // Load new scene
     await this.editor.saveLoadManager.importProject(targetSceneData);
 
-    // Fade in new scene
-    await this.animateOpacity(0.0, 1.0, this.transitionDuration / 2, performance.now());
+    console.log(`[TransitionManager] Scene loaded, waiting ${this.transitionDuration/2}s...`);
+    await this.delay(this.transitionDuration / 2);
   }
 
   /**
    * Execute fade through color transition
    */
   async executeFade(targetSceneData, type) {
-    const color = type === TransitionManager.TRANSITIONS.FADE_BLACK ? [0, 0, 0] : [1, 1, 1];
-    const startTime = performance.now();
+    // Simplified transition: wait half duration, switch, wait half duration
+    // TODO: Implement actual fade to black/white in GPU renderer
 
-    // Fade to color
-    await this.animateOpacity(1.0, 0.0, this.transitionDuration / 2, startTime);
+    console.log(`[TransitionManager] Fade: waiting ${this.transitionDuration/2}s...`);
+    await this.delay(this.transitionDuration / 2);
 
     // Load new scene
     await this.editor.saveLoadManager.importProject(targetSceneData);
 
-    // Fade from color
-    await this.animateOpacity(0.0, 1.0, this.transitionDuration / 2, performance.now());
+    console.log(`[TransitionManager] Scene loaded, waiting ${this.transitionDuration/2}s...`);
+    await this.delay(this.transitionDuration / 2);
+  }
+
+  /**
+   * Simple delay helper
+   */
+  async delay(seconds) {
+    return new Promise(resolve => setTimeout(resolve, seconds * 1000));
   }
 
   /**
