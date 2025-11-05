@@ -145,8 +145,12 @@ export class Renderer {
 
         for (const refNodeId of nodeRefs) {
           const refNode = nodes.find(n => n.id === refNodeId);
-          if (!refNode) continue;
+          if (!refNode) {
+            console.log(`Reference to node_${refNodeId} not found (from node ${node.id}, param ${paramKey})`);
+            continue;
+          }
 
+          console.log(`Drawing line from node ${node.id} to node ${refNodeId}`);
           // Draw a subtle dashed line from the parameter node to the referenced node
           this._drawParameterReferenceLine(node, refNode);
         }
@@ -162,8 +166,11 @@ export class Renderer {
     const regex = /node_(\d+)(?:_[xyzw])?/g;
     let match;
 
+    console.log(`Extracting node references from: "${paramValue}"`);
+
     while ((match = regex.exec(paramValue)) !== null) {
       const nodeId = parseInt(match[1], 10);
+      console.log(`  Found reference to node_${nodeId}`);
       nodeIds.add(nodeId);
     }
 
@@ -181,10 +188,10 @@ export class Renderer {
 
     ctx.save();
 
-    // Use a subtle, dashed line style
+    // Use a more visible dashed line style for debugging (make it subtle later)
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(150, 150, 200, 0.3)'; // Very subtle purple-blue
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(150, 150, 200, 0.8)'; // More visible for debugging
+    ctx.lineWidth = 2;
 
     // Draw a straight line (not Bezier) for parameter references
     ctx.beginPath();
