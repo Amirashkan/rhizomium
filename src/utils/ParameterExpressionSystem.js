@@ -1139,12 +1139,65 @@ isIncomplete(value) {
   updateDependentInputs(nodeId, paramName) {
     this.activeInputs.forEach((inputData, key) => {
       const { input, resultDisplay, param, node, valueManager } = inputData;
-      
+
       // Update if this input might be affected
       if (this.expressionSystem.isExpression(input.value)) {
         this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
       }
     });
+  }
+
+  /**
+   * Update input display for MIDI-controlled parameter
+   * Shows the changing value in real-time without disrupting user input
+   */
+  updateMIDIValueDisplay(nodeId, paramName, newValue) {
+    const key = `${nodeId}_${paramName}`;
+    const inputData = this.activeInputs.get(key);
+
+    if (!inputData) return; // Input not currently visible
+
+    const { input, resultDisplay, param, node, valueManager } = inputData;
+
+    // Don't update if user is currently editing the input
+    if (document.activeElement === input) {
+      return;
+    }
+
+    // Format the value nicely
+    let displayValue = newValue;
+    if (typeof newValue === 'number') {
+      // Round to 4 decimal places for display
+      displayValue = Math.round(newValue * 10000) / 10000;
+    }
+
+    // Update the input value
+    const newValueStr = String(displayValue);
+    if (input.value !== newValueStr) {
+      input.value = newValueStr;
+      this._autoResizeTextArea(input);
+    }
+
+    // Update the result display to show real-time MIDI feedback
+    if (resultDisplay) {
+      resultDisplay.textContent = `🎹 ${displayValue}`;
+      resultDisplay.style.color = '#FFD700'; // Gold color for MIDI
+
+      // Clear the MIDI indicator after a short delay
+      clearTimeout(inputData.midiIndicatorTimeout);
+      inputData.midiIndicatorTimeout = setTimeout(() => {
+        if (resultDisplay.textContent.startsWith('🎹')) {
+          resultDisplay.textContent = '';
+        }
+      }, 1000);
+    }
+
+    // Update styling to indicate normal value (not expression)
+    input.style.fontFamily = 'inherit';
+    input.style.backgroundColor = '#333';
+    input.style.color = '#fff';
+    input.style.borderColor = '#555';
+    input.classList.remove('has-expression');
   }
 
   destroy() {
