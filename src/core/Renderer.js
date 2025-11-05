@@ -147,13 +147,15 @@ export class Renderer {
         const nodeRefs = this._extractNodeReferences(paramValue);
 
         for (const refNodeId of nodeRefs) {
-          const refNode = nodes.find(n => n.id === refNodeId);
+          // Try both numeric and string comparison since node IDs might be stored as either
+          const refNode = nodes.find(n => n.id == refNodeId || n.id === String(refNodeId));
           if (!refNode) {
             console.log(`[ParamRef] Reference to node_${refNodeId} not found (from node ${node.id}, param ${paramKey}="${paramValue}")`);
+            console.log(`[ParamRef] Available node IDs:`, nodes.map(n => `${n.id} (${typeof n.id})`).join(', '));
             continue;
           }
 
-          console.log(`[ParamRef] Drawing line from node ${node.id} to node ${refNodeId}`);
+          console.log(`[ParamRef] ✓ Drawing line from node ${node.id} to node ${refNodeId}`);
           // Draw a subtle dashed line from the parameter node to the referenced node
           this._drawParameterReferenceLine(node, refNode);
         }
