@@ -1,3 +1,9 @@
+// ============================================================
+// WARNING: THIS FILE IS NOT USED BY THE APPLICATION
+// The actual main.js is located at /home/user/glsl-node-editor/main.js
+// This file exists for legacy purposes but is NOT loaded by index.html
+// ============================================================
+
 // main.js - Complete version with Undo System and Event System
 import { GPURenderer } from "./src/gpu/gpuRenderer.js";
 import { RenderLoop } from "./src/core/RenderLoop.js";
