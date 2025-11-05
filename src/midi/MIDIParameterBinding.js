@@ -29,24 +29,12 @@ export class MIDIParameterBinding {
       return;
     }
 
-    // Debug: Check event system structure
-    console.log('[MIDIParameterBinding] Event system:', this.eventSystem);
-    console.log('[MIDIParameterBinding] Event system listeners before registration:',
-      this.eventSystem.listeners ? this.eventSystem.listeners.size : 'N/A');
-
     // Listen for MIDI CC messages
     this.eventSystem.on('MIDI_CC', (data) => {
-      console.log('[MIDIParameterBinding] ===== RECEIVED MIDI_CC EVENT =====');
-      console.log('[MIDIParameterBinding] Data:', data);
-      console.log('[MIDIParameterBinding] Learning mode:', this.learningMode);
-      console.log('[MIDIParameterBinding] Learning target:', this.learningTarget);
       this.handleCCMessage(data);
     });
 
-    // Debug: Verify listener was added
     console.log('[MIDIParameterBinding] Event listener registered for MIDI_CC');
-    console.log('[MIDIParameterBinding] MIDI_CC listeners after registration:',
-      this.eventSystem.listeners ? this.eventSystem.listeners.get('MIDI_CC')?.size : 'N/A');
   }
 
   /**
@@ -140,18 +128,12 @@ export class MIDIParameterBinding {
    * Handle incoming MIDI CC message
    */
   handleCCMessage(data) {
-    console.log('[MIDIParameterBinding] handleCCMessage called', {
-      learningMode: this.learningMode,
-      learningTarget: this.learningTarget,
-      data
-    });
-
     const { deviceId, channel, cc, value, normalizedValue } = data;
     const midiKey = `${deviceId}:${channel}:${cc}`;
 
     // Check if we're in learning mode
     if (this.learningMode && this.learningTarget) {
-      console.log('[MIDIParameterBinding] Learning mode active, completing learning');
+      console.log(`[MIDIParameterBinding] Learning mode active, assigning CC${cc} to parameter`);
       this.completeLearning(deviceId, channel, cc);
       return;
     }
@@ -229,11 +211,6 @@ export class MIDIParameterBinding {
     this.learningTarget = { nodeId, paramName, callback };
 
     console.log(`[MIDIParameterBinding] MIDI Learn mode started for ${nodeId}.${paramName}`);
-    console.log('[MIDIParameterBinding] Learning state:', {
-      learningMode: this.learningMode,
-      learningTarget: this.learningTarget,
-      hasEventSystem: !!this.eventSystem
-    });
     console.log('Move any MIDI controller to assign it to this parameter');
 
     if (this.eventSystem) {
@@ -396,9 +373,12 @@ export class MIDIParameterBinding {
    */
 
   getParameterDefinition(node, paramName) {
-    if (window.editor?.paramPanel?.valueManager) {
-      const def = window.editor.paramPanel.valueManager.getParameterDef(node, paramName);
-      return def;
+    if (window.editor?.paramPanel) {
+      const definitions = window.editor.paramPanel.getParameterDefinitions(node);
+      if (definitions && definitions.length > 0) {
+        const def = definitions.find(p => p.name === paramName);
+        return def || null;
+      }
     }
     return null;
   }
