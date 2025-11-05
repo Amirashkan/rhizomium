@@ -9,7 +9,7 @@ export const NoiseNodes = {
     cat: "Noise",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "vec3" }],
     params: [
       { name: "seed", type: "float", default: 1.0, label: "Seed" },
       { name: "scale", type: "float", default: 1.0, label: "Scale" },
@@ -21,7 +21,7 @@ export const NoiseNodes = {
     cat: "Noise",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "vec3" }],
     params: [
       { name: "scale", type: "float", default: 5.0, label: "Scale" },
       { name: "amplitude", type: "float", default: 1.0, label: "Amplitude" },
@@ -35,7 +35,7 @@ export const NoiseNodes = {
     cat: "Noise",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "vec3" }],
     params: [
       { name: "scale", type: "float", default: 5.0, label: "Scale" },
       { name: "amplitude", type: "float", default: 1.0, label: "Amplitude" },
@@ -48,7 +48,7 @@ export const NoiseNodes = {
     cat: "Noise",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "vec3" }],
     params: [
       { name: "scale", type: "float", default: 4.0, label: "Scale" },
       { name: "amplitude", type: "float", default: 1.0, label: "Amplitude" },
@@ -63,7 +63,7 @@ export const NoiseNodes = {
     cat: "Noise",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "vec3" }],
     params: [
       { name: "scale", type: "float", default: 3.0, label: "Scale" },
       { name: "octaves", type: "int", default: 4, label: "Octaves" },
@@ -101,7 +101,7 @@ export const NoiseNodes = {
     cat: "Noise",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "vec3" }],
     params: [
       { name: "scale", type: "float", default: 4.0, label: "Scale" },
       { name: "octaves", type: "int", default: 6, label: "Octaves" },
@@ -118,7 +118,7 @@ export const NoiseNodes = {
     cat: "Noise",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
+    pinsOut: [{ label: "out", type: "vec3" }],
     params: [
       { name: "scale", type: "float", default: 3.0, label: "Scale" },
       { name: "warpScale", type: "float", default: 2.0, label: "Warp Scale" },
