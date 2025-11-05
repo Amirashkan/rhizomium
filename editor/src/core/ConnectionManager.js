@@ -136,6 +136,11 @@ export class ConnectionManager {
 
         if (this.onChange) this.onChange();
 
+        // Refresh parameter panel if a node is currently selected
+        if (window.editor?.paramPanel) {
+          window.editor.paramPanel.refreshCurrentNode();
+        }
+
         // FIXED: Regenerate preview for the target node specifically
 if (window.editor?.previewIntegration) {
   const sourceNode = window.editor.graph.nodes.find(n => n.id === this.dragWire.from.nodeId);
@@ -143,7 +148,7 @@ if (window.editor?.previewIntegration) {
     console.log('🔄 Connection created: regenerating preview for source node', sourceNode.id);
     window.editor.previewIntegration.generateNodePreview(sourceNode);
   }
-  
+
   console.log('🔄 Connection created: regenerating preview for target node', targetNode.id);
   window.editor.previewIntegration.generateNodePreview(targetNode);
 }
@@ -243,6 +248,11 @@ if (window.editor?.previewIntegration) {
 
       if (this.graph.connections.length !== initialLength) {
         if (this.onChange) this.onChange();
+
+        // Refresh parameter panel if a node is currently selected
+        if (window.editor?.paramPanel) {
+          window.editor.paramPanel.refreshCurrentNode();
+        }
 
         // FIXED: Regenerate preview for the disconnected node
         if (window.editor?.previewIntegration) {
