@@ -20,14 +20,24 @@ export class MIDIParameterBinding {
     this.learningMode = false;
     this.learningTarget = null; // { nodeId, paramName, callback }
 
+    // Track which parameters are MIDI-controlled (should use uniforms)
+    this.midiParameters = new Set(); // Set of "nodeId.paramName"
+
     this.setupEventListeners();
   }
 
   setupEventListeners() {
+    if (!this.eventSystem) {
+      console.error('[MIDIParameterBinding] Event system not available');
+      return;
+    }
+
     // Listen for MIDI CC messages
     this.eventSystem.on('MIDI_CC', (data) => {
       this.handleCCMessage(data);
     });
+
+    console.log('[MIDIParameterBinding] Event listener registered for MIDI_CC');
   }
 
   /**
@@ -70,7 +80,19 @@ export class MIDIParameterBinding {
       cc
     });
 
+    // Mark this parameter to use a GPU uniform instead of being baked
+    this.midiParameters.add(paramKey);
+    console.log(`[MIDI] Marked ${paramKey} for uniform usage`);
+    console.log(`[MIDI] Current MIDI parameters:`, Array.from(this.midiParameters));
+
     console.log(`Created MIDI binding: CC${cc} (Ch${channel}) → ${node.kind}.${paramName}`);
+
+    // Trigger ONE shader recompilation to generate the uniform
+    if (window.editor?.onChange) {
+      console.log('[MIDI] Triggering shader recompile to generate uniform');
+      console.log('[MIDI] Node:', node.id, 'Param:', paramName, 'Current value:', node.params[paramName]);
+      window.editor.onChange();
+    }
 
     this.eventSystem.emit('MIDI_BINDING_CREATED', binding);
 
@@ -126,6 +148,7 @@ export class MIDIParameterBinding {
 
     // Check if we're in learning mode
     if (this.learningMode && this.learningTarget) {
+      console.log(`[MIDIParameterBinding] Learning mode active, assigning CC${cc} to parameter`);
       this.completeLearning(deviceId, channel, cc);
       return;
     }
@@ -180,11 +203,11 @@ export class MIDIParameterBinding {
     // Map to parameter range
     const paramValue = min + transformedValue * (max - min);
 
-    // Update parameter value
-    this.setParameterValue(node, paramName, paramValue);
+    // For real-time MIDI, directly update the parameter value (bypass undo tracking)
+    this.setParameterValueDirect(node, paramName, paramValue);
 
-    // Update node preview
-    this.updateNodePreview(node);
+    // Update GPU uniform buffer (fast! no recompilation!)
+    this.triggerImmediateUpdate(node, paramName, paramValue);
 
     // Emit parameter update event
     this.eventSystem.emit('PARAMETER_CHANGED', {
@@ -202,13 +225,15 @@ export class MIDIParameterBinding {
     this.learningMode = true;
     this.learningTarget = { nodeId, paramName, callback };
 
-    console.log(`MIDI Learn mode started for ${nodeId}.${paramName}`);
+    console.log(`[MIDIParameterBinding] MIDI Learn mode started for ${nodeId}.${paramName}`);
     console.log('Move any MIDI controller to assign it to this parameter');
 
-    this.eventSystem.emit('MIDI_LEARN_STARTED', {
-      nodeId,
-      paramName
-    });
+    if (this.eventSystem) {
+      this.eventSystem.emit('MIDI_LEARN_STARTED', {
+        nodeId,
+        paramName
+      });
+    }
   }
 
   /**
@@ -363,19 +388,84 @@ export class MIDIParameterBinding {
    */
 
   getParameterDefinition(node, paramName) {
-    if (window.editor?.paramPanel?.valueManager) {
-      const def = window.editor.paramPanel.valueManager.getParameterDef(node, paramName);
-      return def;
+    if (window.editor?.paramPanel) {
+      const definitions = window.editor.paramPanel.getParameterDefinitions(node);
+      if (definitions && definitions.length > 0) {
+        const def = definitions.find(p => p.name === paramName);
+        return def || null;
+      }
     }
     return null;
   }
 
+  /**
+   * Set parameter value directly without undo tracking (for real-time MIDI)
+   */
+  setParameterValueDirect(node, paramName, value) {
+    // Directly set the value on the node in all possible locations
+    if (paramName === 'value') {
+      node.value = value;
+    } else if (paramName === 'x') {
+      node.x = value;
+    } else if (paramName === 'y') {
+      node.y = value;
+    } else if (paramName === 'z') {
+      node.z = value;
+    } else {
+      // Store in both params and props for compatibility
+      if (!node.params) node.params = {};
+      node.params[paramName] = value;
+      if (!node.props) node.props = {};
+      node.props[paramName] = value;
+    }
+  }
+
+  /**
+   * Fast GPU uniform update - NO shader recompilation!
+   * This is the key to smooth 60fps MIDI control
+   */
+  triggerImmediateUpdate(node, paramName, value) {
+    // Update the GPU uniform buffer directly (super fast!)
+    this.updateUniformValue(node.id, paramName, value);
+  }
+
+  /**
+   * Check if a parameter should use a uniform (called during shader compilation)
+   */
+  shouldUseUniform(nodeId, paramName) {
+    const paramKey = `${nodeId}.${paramName}`;
+    return this.midiParameters.has(paramKey);
+  }
+
+  /**
+   * Update a uniform value in the GPU buffer (NO recompilation!)
+   */
+  updateUniformValue(nodeId, paramName, value) {
+    const uniformManager = window.nodeCompiler?.uniformManager;
+    if (!uniformManager) {
+      console.warn('[MIDI] Uniform manager not available');
+      return;
+    }
+
+    const paramKey = `${nodeId}.${paramName}`;
+
+    // Update the uniform value in the map
+    uniformManager.uniformValues.set(paramKey, value);
+
+    // Write to GPU buffer immediately
+    if (window.gpuRenderer) {
+      window.gpuRenderer._updateParameterUniforms();
+    }
+  }
+
+  /**
+   * Set parameter value with undo tracking (for manual bindings)
+   */
   setParameterValue(node, paramName, value) {
     if (window.editor?.paramPanel?.valueManager) {
       window.editor.paramPanel.valueManager.setValue(node, paramName, value);
     } else {
-      if (!node.params) node.params = {};
-      node.params[paramName] = value;
+      this.setParameterValueDirect(node, paramName, value);
     }
   }
 

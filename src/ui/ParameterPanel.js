@@ -1674,12 +1674,17 @@ _processPreviewUpdate(node) {
   }
 
   handleParameterChange(data) {
-    const { node, parameterName, newValue } = data;
-    
+    const { node, parameterName, newValue, source } = data;
+
     this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
-    
+
     if (this.selectedNode && this.selectedNode.id === node.id) {
       this.refreshParameterDisplays();
+
+      // Update input display for MIDI-controlled parameters
+      if (source === 'midi' && this.textInputHandler?.updateMIDIValueDisplay) {
+        this.textInputHandler.updateMIDIValueDisplay(node.id, parameterName, newValue);
+      }
     }
   }
 

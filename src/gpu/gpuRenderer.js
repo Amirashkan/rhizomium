@@ -100,6 +100,14 @@ export class GPURenderer {
         } else if (varName === "g") {
           // Globals store resolution.xy, time, and 5 audio envelope values (8 floats total)
           size = 32;
+        } else if (varName === "u_params") {
+          // Parameter uniforms - calculate size from uniformManager
+          const uniformManager = window.nodeCompiler?.uniformManager;
+          if (uniformManager && uniformManager.uniformValues.size > 0) {
+            const numParams = uniformManager.uniformValues.size;
+            size = Math.max(16, Math.ceil(numParams * 4 / 16) * 16); // Round up to 16-byte alignment
+            console.log(`[GPURenderer] Creating u_params buffer for ${numParams} parameters, size ${size} bytes`);
+          }
         }
         return {
           buffer: this.device.createBuffer({
@@ -317,6 +325,31 @@ export class GPURenderer {
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 
+  _updateParameterUniforms() {
+    const uniformManager = window.nodeCompiler?.uniformManager;
+    if (!uniformManager || uniformManager.uniformValues.size === 0) {
+      console.log('[GPURenderer] No parameter uniforms to update');
+      return;
+    }
+
+    const target = this._getUniformByVarName("u_params");
+    if (!target?.buffer) {
+      console.warn('[GPURenderer] u_params buffer not found but uniforms exist!');
+      return;
+    }
+
+    console.log('[GPURenderer] Updating parameter uniform buffer');
+    console.log('[GPURenderer] Uniform values:', Array.from(uniformManager.uniformValues.entries()));
+
+    // Get values in order and write to buffer
+    const values = Array.from(uniformManager.uniformValues.values());
+    const data = new Float32Array(values);
+
+    console.log('[GPURenderer] Writing', data.length, 'floats to u_params buffer:', data);
+
+    this.device.queue.writeBuffer(target.buffer, 0, data.buffer, 0, data.byteLength);
+  }
+
   _updateGlobalsUniform(timeSec) {
     const target = this._getUniformByVarName("g");
     if (!target?.buffer) return;
@@ -392,6 +425,10 @@ export class GPURenderer {
       const bindingMap = analyzeBindings(wgslCode);
       this._buildLayoutsAndBindGroups(bindingMap);
       this._updateAspectUniform();
+
+      // Update parameter uniforms if they exist
+      this._updateParameterUniforms();
+
       this.canvas.style.backgroundColor = "";
       console.log("[GPURenderer] Shader compiled & pipeline created");
     } catch (err) {
