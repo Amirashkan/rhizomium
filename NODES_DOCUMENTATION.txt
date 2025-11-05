@@ -1,0 +1,2124 @@
+================================================================================
+                    GLSL NODE EDITOR - NODE DEFINITIONS
+                          Complete Reference Guide
+================================================================================
+
+This document provides comprehensive documentation for all nodes available in
+the GLSL Node Editor. Nodes are organized by category and include detailed
+information about inputs, outputs, parameters, and usage.
+
+================================================================================
+                              TABLE OF CONTENTS
+================================================================================
+
+1. Data Types
+2. Parameter Types
+3. Node Categories
+4. Output Nodes (1 node)
+5. Input Nodes (14 nodes)
+6. Field Nodes (21 nodes)
+7. Math Nodes (43 nodes)
+8. Utility Nodes (13 nodes)
+9. Transform Nodes (11 nodes)
+10. Blend Nodes (7 nodes)
+
+================================================================================
+                              1. DATA TYPES
+================================================================================
+
+The following data types are supported for node inputs and outputs:
+
+  f32     - 32-bit floating point number (scalar)
+  vec2    - 2D vector (x, y)
+  vec3    - 3D vector (x, y, z)
+  vec4    - 4D vector (x, y, z, w)
+  bool    - Boolean value (true/false)
+  int     - Integer number
+  dynamic - Type matches the input type
+
+================================================================================
+                            2. PARAMETER TYPES
+================================================================================
+
+Nodes can have the following parameter types:
+
+  float       - Floating point number input
+  int         - Integer number input
+  bool        - Boolean checkbox
+  string      - Text input
+  expression  - Mathematical expression input
+  file        - File picker
+  select      - Dropdown menu with predefined options
+  colorstops  - Color gradient editor
+  slider      - Slider with min/max range
+
+================================================================================
+                            3. NODE CATEGORIES
+================================================================================
+
+Nodes are organized into the following categories:
+
+  Output    - Final output nodes
+  Input     - Constants, runtime data, textures
+  Field     - Gradients, patterns, noise, shapes
+  Math      - Arithmetic, trigonometric, vector operations
+  Utility   - Data manipulation, color operations
+  Transform - UV coordinate transformations
+  Blend     - Signed Distance Field (SDF) operations
+
+================================================================================
+                            4. OUTPUT NODES
+================================================================================
+
+--------------------------------------------------------------------------------
+OutputFinal
+--------------------------------------------------------------------------------
+Category: Output
+Description: Final output node for rendering the shader result
+
+Inputs:
+  - color: Color to output
+
+Outputs:
+  (none)
+
+Parameters:
+  (none)
+
+Usage: Connect this node to the final color you want to render. Every shader
+       graph must have exactly one Output node.
+
+================================================================================
+                            5. INPUT NODES
+================================================================================
+
+--------------------------------------------------------------------------------
+ConstFloat (Float)
+--------------------------------------------------------------------------------
+Category: Input
+Description: Constant floating point value
+
+Inputs:
+  (none)
+
+Outputs:
+  - out (f32): Output value
+
+Parameters:
+  - value (float): The constant value [default: 0.0]
+
+Usage: Provides a constant scalar value that can be adjusted manually.
+
+--------------------------------------------------------------------------------
+ConstVec2 (Vec2)
+--------------------------------------------------------------------------------
+Category: Input
+Description: Constant 2D vector value
+
+Inputs:
+  (none)
+
+Outputs:
+  - out (vec2): Output vector
+
+Parameters:
+  - x (float): X component [default: 0.0]
+  - y (float): Y component [default: 0.0]
+
+Usage: Provides a constant 2D vector value.
+
+--------------------------------------------------------------------------------
+ConstVec3 (Vec3)
+--------------------------------------------------------------------------------
+Category: Input
+Description: Constant 3D vector value (commonly used for RGB colors)
+
+Inputs:
+  (none)
+
+Outputs:
+  - out (vec3): Output vector
+
+Parameters:
+  - x (float): X component [default: 0.0]
+  - y (float): Y component [default: 0.0]
+  - z (float): Z component [default: 0.0]
+
+Usage: Provides a constant 3D vector value, typically for colors.
+
+--------------------------------------------------------------------------------
+ConstVec4 (Vec4)
+--------------------------------------------------------------------------------
+Category: Input
+Description: Constant 4D vector value (commonly used for RGBA colors)
+
+Inputs:
+  (none)
+
+Outputs:
+  - out (vec4): Output vector
+
+Parameters:
+  - x (float): X component [default: 0.0]
+  - y (float): Y component [default: 0.0]
+  - z (float): Z component [default: 0.0]
+  - w (float): W component [default: 1.0]
+
+Usage: Provides a constant 4D vector value, typically for RGBA colors.
+
+--------------------------------------------------------------------------------
+UV
+--------------------------------------------------------------------------------
+Category: Input
+Description: Provides the current UV coordinates
+
+Inputs:
+  (none)
+
+Outputs:
+  - uv (vec2): Current UV coordinates (0-1 range)
+
+Parameters:
+  (none)
+
+Usage: Essential node that provides the current pixel's UV coordinates. This is
+       the starting point for most texture and pattern generation.
+
+--------------------------------------------------------------------------------
+Time
+--------------------------------------------------------------------------------
+Category: Input
+Description: Provides the current elapsed time in seconds
+
+Inputs:
+  (none)
+
+Outputs:
+  - t (f32): Elapsed time in seconds
+
+Parameters:
+  (none)
+
+Usage: Use this to create animated effects. Time continuously increases.
+
+--------------------------------------------------------------------------------
+Mouse
+--------------------------------------------------------------------------------
+Category: Input
+Description: Provides the current mouse position
+
+Inputs:
+  (none)
+
+Outputs:
+  - pos (vec2): Mouse position as 2D vector
+  - x (f32): Mouse X position
+  - y (f32): Mouse Y position
+
+Parameters:
+  (none)
+
+Usage: Use this to create interactive effects based on mouse position.
+
+--------------------------------------------------------------------------------
+Resolution
+--------------------------------------------------------------------------------
+Category: Input
+Description: Provides information about the canvas resolution
+
+Inputs:
+  (none)
+
+Outputs:
+  - res (vec2): Resolution as (width, height)
+  - width (f32): Canvas width in pixels
+  - height (f32): Canvas height in pixels
+  - aspect (f32): Aspect ratio (width/height)
+
+Parameters:
+  (none)
+
+Usage: Useful for aspect-ratio correction and resolution-dependent effects.
+
+--------------------------------------------------------------------------------
+Pi
+--------------------------------------------------------------------------------
+Category: Input
+Description: Provides the mathematical constant π (pi)
+
+Inputs:
+  (none)
+
+Outputs:
+  - pi (f32): The value of π (~3.14159)
+
+Parameters:
+  (none)
+
+Usage: Useful for trigonometric calculations and angle conversions.
+
+--------------------------------------------------------------------------------
+RandomTime (Random Time)
+--------------------------------------------------------------------------------
+Category: Input
+Description: Generates random noise that changes over time
+
+Inputs:
+  (none)
+
+Outputs:
+  - rand (f32): Random value (0-1)
+
+Parameters:
+  - speed (float): Rate of change [default: 1.0]
+
+Usage: Creates animated random noise. Higher speed means faster changes.
+
+--------------------------------------------------------------------------------
+Trigger
+--------------------------------------------------------------------------------
+Category: Input
+Description: Converts a continuous value into a pulse/trigger signal
+
+Inputs:
+  - value (f32): Input value to monitor
+
+Outputs:
+  - pulse (f32): Output pulse signal
+
+Parameters:
+  - threshold (float): Threshold value [default: 0.5]
+
+Usage: Outputs a pulse when the input crosses the threshold.
+
+--------------------------------------------------------------------------------
+Hold
+--------------------------------------------------------------------------------
+Category: Input
+Description: Holds a value when triggered by a pulse
+
+Inputs:
+  - value (f32): Value to hold
+  - pulse (f32): Pulse signal
+
+Outputs:
+  - out (f32): Held value
+
+Parameters:
+  - threshold (float): Pulse threshold [default: 0.5]
+
+Usage: Captures and holds a value when the pulse input crosses the threshold.
+
+--------------------------------------------------------------------------------
+Texture2D (Texture 2D)
+--------------------------------------------------------------------------------
+Category: Input
+Description: Samples a 2D texture/image
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - RGBA (vec4): Full RGBA color
+  - RGB (vec3): RGB color components
+  - R (f32): Red channel
+  - G (f32): Green channel
+  - B (f32): Blue channel
+  - A (f32): Alpha channel
+
+Parameters:
+  - imageFile (file): Image file to load
+  - wrapU (select): U wrapping mode [options: repeat, clamp, mirror, default: repeat]
+  - wrapV (select): V wrapping mode [options: repeat, clamp, mirror, default: repeat]
+  - filter (select): Filtering mode [options: linear, nearest, default: linear]
+
+Usage: Loads and samples 2D images. Connect UV coordinates to the input.
+
+--------------------------------------------------------------------------------
+TextureCube (Texture Cube)
+--------------------------------------------------------------------------------
+Category: Input
+Description: Samples a cubemap texture
+
+Inputs:
+  - Dir: Direction vector for sampling
+
+Outputs:
+  - RGBA (vec4): Full RGBA color
+  - RGB (vec3): RGB color components
+  - A (f32): Alpha channel
+
+Parameters:
+  - imageFile (file): Cubemap image file
+  - filter (select): Filtering mode [options: linear, nearest, default: linear]
+
+Usage: Samples cubemap textures using a 3D direction vector.
+
+================================================================================
+                            6. FIELD NODES
+================================================================================
+
+--------------------------------------------------------------------------------
+ColorRamp (Color Ramp)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Maps a scalar value to a color gradient
+
+Inputs:
+  - Value: Input value (typically 0-1)
+
+Outputs:
+  - Color: Output color
+
+Parameters:
+  - stops (colorstops): Color gradient stops [default: black to white]
+  - mode (select): Interpolation mode [options: Linear, Step, Smooth, default: Linear]
+
+Usage: Creates color gradients from scalar values. Useful for visualizing
+       noise patterns and creating artistic color effects.
+
+--------------------------------------------------------------------------------
+LinearGradient (Linear Gradient)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates a linear gradient pattern
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - Value: Gradient value (0-1)
+
+Parameters:
+  - angle (float): Gradient rotation angle [default: 0.0]
+  - offset (float): Gradient offset [default: 0.0]
+  - scale (float): Gradient scale [default: 1.0]
+  - repeat (boolean): Enable repeating [default: false]
+
+Usage: Creates linear gradients at any angle. Set repeat to true for stripes.
+
+--------------------------------------------------------------------------------
+RadialGradient (Radial Gradient)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates a radial gradient from a center point
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - Value: Gradient value (0-1)
+
+Parameters:
+  - centerX (float): Center X position [default: 0.5]
+  - centerY (float): Center Y position [default: 0.5]
+  - radius (float): Gradient radius [default: 0.5]
+  - falloff (float): Falloff rate [default: 1.0]
+  - invert (boolean): Invert gradient [default: false]
+
+Usage: Creates circular gradients emanating from a center point.
+
+--------------------------------------------------------------------------------
+AngularGradient (Angular Gradient)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates an angular/conical gradient
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - Value: Gradient value (0-1)
+
+Parameters:
+  - centerX (float): Center X position [default: 0.5]
+  - centerY (float): Center Y position [default: 0.5]
+  - rotation (float): Rotation angle [default: 0.0]
+  - repeat (float): Number of repetitions [default: 1.0]
+
+Usage: Creates a gradient that varies by angle around a center point.
+
+--------------------------------------------------------------------------------
+ConicGradient (Conic Gradient)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates a conic gradient with angle range control
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - Value: Gradient value (0-1)
+
+Parameters:
+  - centerX (float): Center X position [default: 0.5]
+  - centerY (float): Center Y position [default: 0.5]
+  - startAngle (float): Start angle in radians [default: 0.0]
+  - endAngle (float): End angle in radians [default: 6.28318]
+  - smoothness (float): Edge smoothness [default: 0.0]
+
+Usage: Similar to angular gradient but with precise angle range control.
+
+--------------------------------------------------------------------------------
+Checker
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates a checkerboard pattern
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Pattern value (0 or 1)
+
+Parameters:
+  - scaleX (float): Horizontal scale [default: 8.0]
+  - scaleY (float): Vertical scale [default: 8.0]
+  - smoothness (float): Edge smoothness [default: 0.0]
+
+Usage: Creates a classic checkerboard pattern. Adjust scale for tile size.
+
+--------------------------------------------------------------------------------
+Stripe
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates parallel stripe patterns
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Pattern value (0-1)
+
+Parameters:
+  - frequency (float): Number of stripes [default: 5.0]
+  - angle (float): Stripe rotation [default: 0.0]
+  - thickness (float): Stripe width ratio [default: 0.5]
+  - smoothness (float): Edge smoothness [default: 0.0]
+
+Usage: Creates parallel lines at any angle. Adjust frequency for density.
+
+--------------------------------------------------------------------------------
+Circle
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates a circular shape
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Distance field value
+
+Parameters:
+  - centerX (float): Center X position [default: 0.5]
+  - centerY (float): Center Y position [default: 0.5]
+  - radius (float): Circle radius [default: 0.25]
+  - smoothness (float): Edge smoothness [default: 0.01]
+  - invert (bool): Invert the shape [default: false]
+
+Usage: Creates circular shapes. Returns 1 inside, 0 outside.
+
+--------------------------------------------------------------------------------
+Rectangle
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates a rectangular shape with optional rounded corners
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Distance field value
+
+Parameters:
+  - centerX (float): Center X position [default: 0.5]
+  - centerY (float): Center Y position [default: 0.5]
+  - width (float): Rectangle width [default: 0.5]
+  - height (float): Rectangle height [default: 0.5]
+  - roundness (float): Corner rounding [default: 0.0]
+  - smoothness (float): Edge smoothness [default: 0.01]
+  - invert (bool): Invert the shape [default: false]
+
+Usage: Creates rectangular shapes. Set roundness > 0 for rounded corners.
+
+--------------------------------------------------------------------------------
+Polygon
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates a regular polygon shape
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Distance field value
+
+Parameters:
+  - centerX (float): Center X position [default: 0.5]
+  - centerY (float): Center Y position [default: 0.5]
+  - sides (int): Number of sides [default: 6]
+  - radius (float): Polygon radius [default: 0.25]
+  - rotation (float): Rotation angle [default: 0.0]
+  - smoothness (float): Edge smoothness [default: 0.01]
+  - invert (bool): Invert the shape [default: false]
+
+Usage: Creates regular polygons. Set sides to 3 for triangle, 5 for pentagon, etc.
+
+--------------------------------------------------------------------------------
+Random
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates random noise pattern
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Random value (0-1)
+
+Parameters:
+  - seed (float): Random seed [default: 1.0]
+  - scale (float): Pattern scale [default: 1.0]
+
+Usage: Creates random noise. Change seed for different patterns.
+
+--------------------------------------------------------------------------------
+ValueNoise (Value Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Generates smooth value noise
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Noise value
+
+Parameters:
+  - scale (float): Noise scale [default: 5.0]
+  - amplitude (float): Output amplitude [default: 1.0]
+  - offset (float): Output offset [default: 0.0]
+  - power (float): Power curve [default: 1.0]
+
+Usage: Creates smooth interpolated noise. Lower scale = larger features.
+
+--------------------------------------------------------------------------------
+PerlinNoise (Perlin Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Classic Perlin noise algorithm
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Noise value
+
+Parameters:
+  - scale (float): Noise scale [default: 5.0]
+  - amplitude (float): Output amplitude [default: 1.0]
+  - offset (float): Output offset [default: 0.0]
+
+Usage: Standard Perlin noise for organic patterns and textures.
+
+--------------------------------------------------------------------------------
+SimplexNoise (Simplex Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Simplex noise with ridge and turbulence modes
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Noise value
+
+Parameters:
+  - scale (float): Noise scale [default: 4.0]
+  - amplitude (float): Output amplitude [default: 1.0]
+  - offset (float): Output offset [default: 0.0]
+  - ridge (bool): Enable ridge mode [default: false]
+  - turbulence (bool): Enable turbulence [default: false]
+
+Usage: Higher quality noise than Perlin. Ridge mode creates sharp peaks,
+       turbulence adds chaotic variation.
+
+--------------------------------------------------------------------------------
+FBMNoise (FBM Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Fractional Brownian Motion - layered noise with octaves
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Noise value
+
+Parameters:
+  - scale (float): Base noise scale [default: 3.0]
+  - octaves (int): Number of noise layers [default: 4]
+  - persistence (float): Amplitude falloff per octave [default: 0.5]
+  - lacunarity (float): Frequency increase per octave [default: 2.0]
+  - amplitude (float): Overall amplitude [default: 1.0]
+  - offset (float): Output offset [default: 0.0]
+  - gain (float): Amplitude gain [default: 0.5]
+  - warp (float): Domain warping [default: 0.0]
+
+Usage: Complex multi-layered noise for natural terrain and cloud effects.
+       More octaves = more detail but slower performance.
+
+--------------------------------------------------------------------------------
+VoronoiNoise (Voronoi Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Cell-based Voronoi/Worley noise pattern
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - F1 (f32): Distance to nearest cell
+  - F2 (f32): Distance to second nearest cell
+  - cells (vec2): Cell ID coordinates
+
+Parameters:
+  - scale (float): Cell scale [default: 8.0]
+  - randomness (float): Cell randomization [default: 1.0]
+  - minkowskiP (float): Distance metric parameter [default: 2.0]
+  - smoothness (float): Edge smoothness [default: 0.0]
+  - cellType (int): Cell type [default: 0]
+  - outputType (int): Output type [default: 0]
+
+Usage: Creates cellular patterns. F1 shows nearest cell, F2 second nearest.
+       Use F2-F1 for cell edges.
+
+--------------------------------------------------------------------------------
+RidgedNoise (Ridged Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Multi-octave noise with sharp ridges
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Noise value
+
+Parameters:
+  - scale (float): Noise scale [default: 4.0]
+  - octaves (int): Number of octaves [default: 6]
+  - lacunarity (float): Frequency multiplier [default: 2.0]
+  - gain (float): Amplitude gain [default: 0.5]
+  - amplitude (float): Overall amplitude [default: 1.0]
+  - offset (float): Ridge offset [default: 1.0]
+  - threshold (float): Ridge threshold [default: 0.0]
+
+Usage: Creates sharp, mountain-like ridges. Great for terrain generation.
+
+--------------------------------------------------------------------------------
+WarpNoise (Warp Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Domain-warped noise for swirling effects
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Noise value
+
+Parameters:
+  - scale (float): Base noise scale [default: 3.0]
+  - warpScale (float): Warp noise scale [default: 2.0]
+  - warpStrength (float): Warp intensity [default: 0.1]
+  - octaves (int): Number of octaves [default: 3]
+  - amplitude (float): Output amplitude [default: 1.0]
+
+Usage: Creates swirling, marble-like patterns by warping noise coordinates.
+
+--------------------------------------------------------------------------------
+Worley (Worley Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Cellular/Worley noise with multiple distance metrics
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - F1 (f32): Distance to nearest point
+  - F2 (f32): Distance to second nearest point
+  - Combined (f32): Combined distance value
+
+Parameters:
+  - scale (float): Cell scale [default: 8.0]
+  - jitter (float): Point randomization [default: 1.0]
+  - distanceMetric (select): Distance calculation [options: euclidean, manhattan,
+    chebyshev, minkowski, default: euclidean]
+  - minkowskiP (float): Minkowski parameter [default: 2.0]
+
+Usage: Similar to Voronoi but with more control over distance metrics.
+
+--------------------------------------------------------------------------------
+CellNoise (Cell Noise)
+--------------------------------------------------------------------------------
+Category: Field
+Description: Random values per grid cell
+
+Inputs:
+  - UV: Texture coordinates
+
+Outputs:
+  - out (f32): Cell value
+  - cellID (vec2): Cell coordinates
+
+Parameters:
+  - scale (float): Cell size [default: 8.0]
+  - randomness (float): Value randomization [default: 1.0]
+  - smooth (bool): Smooth interpolation [default: false]
+
+Usage: Creates grid-based random patterns. Each cell has a constant value.
+
+--------------------------------------------------------------------------------
+Displacement
+--------------------------------------------------------------------------------
+Category: Field
+Description: Displaces UV coordinates based on an offset value
+
+Inputs:
+  - UV: Input coordinates
+  - Offset: Displacement amount
+
+Outputs:
+  - out (vec2): Displaced coordinates
+
+Parameters:
+  - strength (float): Displacement strength [default: 0.2]
+  - centered (boolean): Center offset input (0.5 = no displacement) [default: true]
+  - wrap (boolean): Wrap UV coordinates [default: false]
+
+Usage: Creates distortion effects by offsetting UV coordinates. Use with noise
+       for organic distortions.
+
+================================================================================
+                            7. MATH NODES
+================================================================================
+
+Note: Most math nodes support "dynamic" typing - they preserve the input type.
+      For example, Add with vec3 inputs produces vec3 output.
+
+--------------------------------------------------------------------------------
+Add
+--------------------------------------------------------------------------------
+Category: Math
+Description: Adds two values together
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): A + B
+
+Parameters:
+  - a (float): Default value for A [default: 0.0]
+  - b (float): Default value for B [default: 0.0]
+
+Usage: Component-wise addition for vectors, simple addition for scalars.
+
+--------------------------------------------------------------------------------
+Subtract
+--------------------------------------------------------------------------------
+Category: Math
+Description: Subtracts B from A
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): A - B
+
+Parameters:
+  - a (float): Default value for A [default: 0.0]
+  - b (float): Default value for B [default: 0.0]
+
+Usage: Component-wise subtraction for vectors.
+
+--------------------------------------------------------------------------------
+Multiply
+--------------------------------------------------------------------------------
+Category: Math
+Description: Multiplies two values
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): A * B
+
+Parameters:
+  - a (float): Default value for A [default: 1.0]
+  - b (float): Default value for B [default: 1.0]
+
+Usage: Component-wise multiplication for vectors. Can scale colors/vectors.
+
+--------------------------------------------------------------------------------
+Divide
+--------------------------------------------------------------------------------
+Category: Math
+Description: Divides A by B
+
+Inputs:
+  - A: Numerator
+  - B: Denominator
+
+Outputs:
+  - out (dynamic): A / B
+
+Parameters:
+  - a (float): Default value for A [default: 1.0]
+  - b (float): Default value for B [default: 1.0]
+
+Usage: Component-wise division. Be careful of division by zero.
+
+--------------------------------------------------------------------------------
+Power
+--------------------------------------------------------------------------------
+Category: Math
+Description: Raises base to the power of exponent
+
+Inputs:
+  - Base: Base value
+  - Exp: Exponent value
+
+Outputs:
+  - out (dynamic): Base ^ Exp
+
+Parameters:
+  - base (float): Default base [default: 1.0]
+  - exp (float): Default exponent [default: 2.0]
+
+Usage: Used for curves, gamma correction, and contrast adjustments.
+
+--------------------------------------------------------------------------------
+Sin
+--------------------------------------------------------------------------------
+Category: Math
+Description: Sine function
+
+Inputs:
+  - x: Input value (radians)
+
+Outputs:
+  - out (dynamic): sin(x)
+
+Usage: Returns value between -1 and 1. Great for oscillations and waves.
+
+--------------------------------------------------------------------------------
+Cos
+--------------------------------------------------------------------------------
+Category: Math
+Description: Cosine function
+
+Inputs:
+  - x: Input value (radians)
+
+Outputs:
+  - out (dynamic): cos(x)
+
+Usage: Returns value between -1 and 1. Use with Sin for circular motion.
+
+--------------------------------------------------------------------------------
+Tan
+--------------------------------------------------------------------------------
+Category: Math
+Description: Tangent function
+
+Inputs:
+  - x: Input value (radians)
+
+Outputs:
+  - out (dynamic): tan(x)
+
+Usage: Returns sin(x) / cos(x). Has discontinuities at ±π/2.
+
+--------------------------------------------------------------------------------
+Asin
+--------------------------------------------------------------------------------
+Category: Math
+Description: Inverse sine (arcsine)
+
+Inputs:
+  - x: Input value (-1 to 1)
+
+Outputs:
+  - out (dynamic): asin(x)
+
+Usage: Returns angle in radians. Input must be in range [-1, 1].
+
+--------------------------------------------------------------------------------
+Acos
+--------------------------------------------------------------------------------
+Category: Math
+Description: Inverse cosine (arccosine)
+
+Inputs:
+  - x: Input value (-1 to 1)
+
+Outputs:
+  - out (dynamic): acos(x)
+
+Usage: Returns angle in radians. Input must be in range [-1, 1].
+
+--------------------------------------------------------------------------------
+Atan
+--------------------------------------------------------------------------------
+Category: Math
+Description: Inverse tangent (arctangent)
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): atan(x)
+
+Usage: Returns angle in radians between -π/2 and π/2.
+
+--------------------------------------------------------------------------------
+Atan2
+--------------------------------------------------------------------------------
+Category: Math
+Description: Two-argument arctangent (angle from x-axis)
+
+Inputs:
+  - y: Y coordinate
+  - x: X coordinate
+
+Outputs:
+  - out (dynamic): atan(y, x)
+
+Usage: Returns angle in radians between -π and π. Handles all quadrants correctly.
+
+--------------------------------------------------------------------------------
+Floor
+--------------------------------------------------------------------------------
+Category: Math
+Description: Rounds down to nearest integer
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): floor(x)
+
+Usage: Returns largest integer less than or equal to x.
+
+--------------------------------------------------------------------------------
+Ceil
+--------------------------------------------------------------------------------
+Category: Math
+Description: Rounds up to nearest integer
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): ceil(x)
+
+Usage: Returns smallest integer greater than or equal to x.
+
+--------------------------------------------------------------------------------
+Round
+--------------------------------------------------------------------------------
+Category: Math
+Description: Rounds to nearest integer
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): round(x)
+
+Usage: Rounds to nearest integer. 0.5 rounds to nearest even number.
+
+--------------------------------------------------------------------------------
+Fract
+--------------------------------------------------------------------------------
+Category: Math
+Description: Returns fractional part
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): fract(x) = x - floor(x)
+
+Usage: Returns fractional part of x (always between 0 and 1). Creates repeating patterns.
+
+--------------------------------------------------------------------------------
+Abs
+--------------------------------------------------------------------------------
+Category: Math
+Description: Absolute value
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): abs(x)
+
+Usage: Returns magnitude without sign. Always positive.
+
+--------------------------------------------------------------------------------
+Sqrt
+--------------------------------------------------------------------------------
+Category: Math
+Description: Square root
+
+Inputs:
+  - x: Input value (must be >= 0)
+
+Outputs:
+  - out (dynamic): sqrt(x)
+
+Usage: Returns square root. Input must be non-negative.
+
+--------------------------------------------------------------------------------
+Sign
+--------------------------------------------------------------------------------
+Category: Math
+Description: Returns sign of value
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): sign(x) = -1, 0, or 1
+
+Usage: Returns -1 for negative, 0 for zero, 1 for positive.
+
+--------------------------------------------------------------------------------
+Mod
+--------------------------------------------------------------------------------
+Category: Math
+Description: Modulo operation (remainder)
+
+Inputs:
+  - x: Value
+  - y: Divisor
+
+Outputs:
+  - out (dynamic): x - y * floor(x/y)
+
+Usage: Returns remainder of division. Useful for repeating patterns.
+
+--------------------------------------------------------------------------------
+Exp
+--------------------------------------------------------------------------------
+Category: Math
+Description: Natural exponential (e^x)
+
+Inputs:
+  - x: Exponent
+
+Outputs:
+  - out (dynamic): e^x
+
+Usage: Natural exponential function. Inverse of Log.
+
+--------------------------------------------------------------------------------
+Exp2
+--------------------------------------------------------------------------------
+Category: Math
+Description: Base-2 exponential (2^x)
+
+Inputs:
+  - x: Exponent
+
+Outputs:
+  - out (dynamic): 2^x
+
+Usage: Power of 2. Inverse of Log2.
+
+--------------------------------------------------------------------------------
+Log
+--------------------------------------------------------------------------------
+Category: Math
+Description: Natural logarithm
+
+Inputs:
+  - x: Input value (must be > 0)
+
+Outputs:
+  - out (dynamic): log(x)
+
+Usage: Natural logarithm (base e). Inverse of Exp.
+
+--------------------------------------------------------------------------------
+Log2
+--------------------------------------------------------------------------------
+Category: Math
+Description: Base-2 logarithm
+
+Inputs:
+  - x: Input value (must be > 0)
+
+Outputs:
+  - out (dynamic): log2(x)
+
+Usage: Logarithm base 2. Inverse of Exp2.
+
+--------------------------------------------------------------------------------
+Min
+--------------------------------------------------------------------------------
+Category: Math
+Description: Returns minimum of two values
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): min(A, B)
+
+Usage: Component-wise minimum for vectors. Useful for clamping.
+
+--------------------------------------------------------------------------------
+Max
+--------------------------------------------------------------------------------
+Category: Math
+Description: Returns maximum of two values
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): max(A, B)
+
+Usage: Component-wise maximum for vectors. Useful for clamping.
+
+--------------------------------------------------------------------------------
+Clamp
+--------------------------------------------------------------------------------
+Category: Math
+Description: Constrains value between min and max
+
+Inputs:
+  - Value: Input value
+  - Min: Minimum bound
+  - Max: Maximum bound
+
+Outputs:
+  - out (dynamic): clamp(Value, Min, Max)
+
+Usage: Limits value to specified range. Essential for preventing overflow.
+
+--------------------------------------------------------------------------------
+Smoothstep
+--------------------------------------------------------------------------------
+Category: Math
+Description: Smooth interpolation between edges
+
+Inputs:
+  - Edge0: Lower edge
+  - Edge1: Upper edge
+  - X: Input value
+
+Outputs:
+  - out (dynamic): smoothstep(Edge0, Edge1, X)
+
+Usage: Smooth interpolation with ease-in and ease-out. Returns 0 below Edge0,
+       1 above Edge1, smooth curve between.
+
+--------------------------------------------------------------------------------
+Step
+--------------------------------------------------------------------------------
+Category: Math
+Description: Step function (threshold)
+
+Inputs:
+  - Edge: Threshold value
+  - X: Input value
+
+Outputs:
+  - out (dynamic): step(Edge, X) = X < Edge ? 0 : 1
+
+Usage: Returns 0 if X < Edge, otherwise 1. Creates hard threshold.
+
+--------------------------------------------------------------------------------
+Mix
+--------------------------------------------------------------------------------
+Category: Math
+Description: Linear interpolation (lerp)
+
+Inputs:
+  - A: Start value
+  - B: End value
+  - T: Blend factor (0-1)
+
+Outputs:
+  - out (dynamic): A * (1-T) + B * T
+
+Usage: Blends between A and B. T=0 returns A, T=1 returns B, T=0.5 returns midpoint.
+
+--------------------------------------------------------------------------------
+Lerp
+--------------------------------------------------------------------------------
+Category: Math
+Description: Linear interpolation (same as Mix)
+
+Inputs:
+  - A: Start value
+  - B: End value
+  - T: Blend factor (0-1)
+
+Outputs:
+  - out (dynamic): A * (1-T) + B * T
+
+Usage: Identical to Mix node. Blends linearly between two values.
+
+--------------------------------------------------------------------------------
+InverseLerp (Inverse Lerp)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Inverse of lerp - finds T given A, B, and Value
+
+Inputs:
+  - A: Start value
+  - B: End value
+  - Value: Target value
+
+Outputs:
+  - out (f32): (Value - A) / (B - A)
+
+Usage: Returns the blend factor that would produce Value when lerping from A to B.
+
+--------------------------------------------------------------------------------
+Saturate
+--------------------------------------------------------------------------------
+Category: Math
+Description: Clamps value to 0-1 range
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): clamp(x, 0, 1)
+
+Usage: Ensures output is in 0-1 range. Useful for colors and blend factors.
+
+--------------------------------------------------------------------------------
+OneMinus (One Minus)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Subtracts value from 1
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): 1 - x
+
+Usage: Inverts 0-1 values. Useful for inverting masks and blend factors.
+
+--------------------------------------------------------------------------------
+Negate
+--------------------------------------------------------------------------------
+Category: Math
+Description: Negates value (multiplies by -1)
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): -x
+
+Usage: Flips sign of value. Reverses direction of vectors.
+
+--------------------------------------------------------------------------------
+Reciprocal
+--------------------------------------------------------------------------------
+Category: Math
+Description: Calculates reciprocal (1/x)
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): 1 / x
+
+Usage: Inverts value. Be careful of division by zero.
+
+--------------------------------------------------------------------------------
+Dot (Dot Product)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Vector dot product
+
+Inputs:
+  - A: First vector
+  - B: Second vector
+
+Outputs:
+  - out (f32): A · B (always scalar)
+
+Usage: Returns scalar projection. Useful for lighting calculations and
+       measuring similarity between vectors. Result is sum of component products.
+
+--------------------------------------------------------------------------------
+Cross (Cross Product)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Vector cross product (3D only)
+
+Inputs:
+  - A: First vector (vec3)
+  - B: Second vector (vec3)
+
+Outputs:
+  - out (vec3): A × B
+
+Usage: Returns vector perpendicular to both inputs. Only works with vec3.
+       Useful for calculating normals.
+
+--------------------------------------------------------------------------------
+Normalize
+--------------------------------------------------------------------------------
+Category: Math
+Description: Normalizes vector to unit length
+
+Inputs:
+  - Vec: Input vector
+
+Outputs:
+  - out (dynamic): Vec / length(Vec)
+
+Usage: Creates vector with same direction but length = 1. Essential for
+       lighting and direction calculations.
+
+--------------------------------------------------------------------------------
+Length
+--------------------------------------------------------------------------------
+Category: Math
+Description: Calculates vector length (magnitude)
+
+Inputs:
+  - Vec: Input vector
+
+Outputs:
+  - out (f32): length(Vec) (always scalar)
+
+Usage: Returns magnitude of vector. Square root of sum of squared components.
+
+--------------------------------------------------------------------------------
+Distance
+--------------------------------------------------------------------------------
+Category: Math
+Description: Calculates distance between two points
+
+Inputs:
+  - A: First point
+  - B: Second point
+
+Outputs:
+  - out (f32): distance(A, B) (always scalar)
+
+Usage: Returns length of vector from A to B. Equivalent to length(B - A).
+
+--------------------------------------------------------------------------------
+Reflect
+--------------------------------------------------------------------------------
+Category: Math
+Description: Reflects vector across normal
+
+Inputs:
+  - I: Incident vector
+  - N: Normal vector
+
+Outputs:
+  - out (dynamic): reflected vector
+
+Usage: Calculates reflection direction. Used for mirror/reflection effects.
+       N should be normalized.
+
+--------------------------------------------------------------------------------
+Refract
+--------------------------------------------------------------------------------
+Category: Math
+Description: Refracts vector through surface
+
+Inputs:
+  - I: Incident vector
+  - N: Normal vector
+  - eta: Refractive index ratio
+
+Outputs:
+  - out (dynamic): refracted vector
+
+Usage: Calculates refraction direction for glass-like effects. N should be
+       normalized. eta is ratio of refractive indices (e.g., 1.0/1.33 for air to water).
+
+================================================================================
+                            8. UTILITY NODES
+================================================================================
+
+--------------------------------------------------------------------------------
+Expr (Expression)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Evaluates custom mathematical expressions
+
+Inputs:
+  - a: First input variable
+  - b: Second input variable
+
+Outputs:
+  - out (f32): Expression result
+
+Parameters:
+  - expr (expression): Mathematical expression [default: "a"]
+
+Usage: Allows custom math expressions using variables a and b. Supports
+       standard operators (+, -, *, /, ^) and functions (sin, cos, etc.).
+
+--------------------------------------------------------------------------------
+Remap
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Remaps value from input range to output range
+
+Inputs:
+  - Value: Input value
+
+Outputs:
+  - out (f32): Remapped value
+
+Parameters:
+  - inMin (float): Input range minimum [default: 0.0]
+  - inMax (float): Input range maximum [default: 1.0]
+  - outMin (float): Output range minimum [default: 0.0]
+  - outMax (float): Output range maximum [default: 1.0]
+  - clamp (bool): Clamp to output range [default: false]
+
+Usage: Linear mapping from one range to another. Set clamp=true to prevent
+       values outside output range.
+
+--------------------------------------------------------------------------------
+Posterize
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Reduces number of distinct values (quantization)
+
+Inputs:
+  - Value: Input value
+
+Outputs:
+  - out (f32): Posterized value
+
+Parameters:
+  - steps (float): Number of steps [default: 8.0]
+
+Usage: Creates banded/posterized effect. Lower steps = fewer distinct values.
+
+--------------------------------------------------------------------------------
+ColorToGrayscale (To Grayscale)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Converts color to grayscale value
+
+Inputs:
+  - Color: Input color (vec3)
+
+Outputs:
+  - out (f32): Grayscale value
+
+Parameters:
+  - method (select): Conversion method [options: luminance, average, lightness,
+    default: luminance]
+
+Usage: Converts RGB to single grayscale value. "luminance" is perceptually
+       correct, "average" is simple mean, "lightness" is (max + min) / 2.
+
+--------------------------------------------------------------------------------
+ColorInvert (Invert Color)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Inverts RGB color values
+
+Inputs:
+  - Color: Input color
+
+Outputs:
+  - out (vec3): Inverted color
+
+Usage: Subtracts each component from 1. Creates negative/inverse colors.
+
+--------------------------------------------------------------------------------
+ColorSaturate (Saturate Color)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Adjusts color saturation
+
+Inputs:
+  - Color: Input color
+
+Outputs:
+  - out (vec3): Adjusted color
+
+Parameters:
+  - saturation (float): Saturation amount [default: 1.0]
+
+Usage: 0 = grayscale, 1 = original, >1 = oversaturated, <0 = inverted saturation.
+
+--------------------------------------------------------------------------------
+ColorContrast (Contrast)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Adjusts color contrast
+
+Inputs:
+  - Color: Input color
+
+Outputs:
+  - out (vec3): Adjusted color
+
+Parameters:
+  - contrast (float): Contrast amount [default: 1.0]
+  - pivot (float): Contrast pivot point [default: 0.5]
+
+Usage: 1 = original, >1 = more contrast, <1 = less contrast. Pivot is the
+       value that remains unchanged.
+
+--------------------------------------------------------------------------------
+ColorBrightness (Brightness)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Adjusts color brightness
+
+Inputs:
+  - Color: Input color
+
+Outputs:
+  - out (vec3): Adjusted color
+
+Parameters:
+  - brightness (float): Brightness adjustment [default: 0.0]
+
+Usage: 0 = original, positive = brighter, negative = darker. Simple additive adjustment.
+
+--------------------------------------------------------------------------------
+ColorMix (Color Mix)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Blends two colors using various blend modes
+
+Inputs:
+  - Base: Base color
+  - Blend: Blend color
+  - Factor: Blend amount (0-1)
+
+Outputs:
+  - out (vec3): Blended color
+
+Parameters:
+  - mode (select): Blend mode [options: mix, multiply, screen, overlay, add,
+    subtract, divide, difference, darken, lighten, default: mix]
+
+Usage: Combines colors using Photoshop-style blend modes. Factor controls blend strength.
+       - mix: Linear interpolation
+       - multiply: Darkening effect
+       - screen: Lightening effect
+       - overlay: Contrast enhancement
+       - add: Additive blending
+       - subtract: Subtractive blending
+       - divide: Division blending
+       - difference: Absolute difference
+       - darken: Keep darker value
+       - lighten: Keep lighter value
+
+--------------------------------------------------------------------------------
+HSVToRGB (HSV to RGB)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Converts HSV color space to RGB
+
+Inputs:
+  - HSV: Input color in HSV format (Hue, Saturation, Value)
+
+Outputs:
+  - out (vec3): RGB color
+
+Usage: Converts from HSV (cylindrical color space) to RGB. Hue is 0-1 (360°),
+       Saturation and Value are 0-1.
+
+--------------------------------------------------------------------------------
+RGBToHSV (RGB to HSV)
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Converts RGB color space to HSV
+
+Inputs:
+  - RGB: Input color in RGB format
+
+Outputs:
+  - out (vec3): HSV color (Hue, Saturation, Value)
+
+Usage: Converts from RGB to HSV. Output Hue is 0-1 (representing 0-360°),
+       Saturation and Value are 0-1.
+
+--------------------------------------------------------------------------------
+Select
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Selects between two inputs based on condition
+
+Inputs:
+  - A: First choice
+  - B: Second choice
+  - Condition: Selection value
+
+Outputs:
+  - out (vec3): Selected value
+
+Parameters:
+  - threshold (float): Selection threshold [default: 0.5]
+
+Usage: Returns A if Condition < threshold, otherwise B. Creates hard switch.
+
+--------------------------------------------------------------------------------
+Compare
+--------------------------------------------------------------------------------
+Category: Utility
+Description: Compares two values with various operators
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (f32): Comparison result (0 or 1)
+
+Parameters:
+  - operator (select): Comparison operator [options: equal, notEqual, greater,
+    greaterEqual, less, lessEqual, default: greater]
+  - epsilon (float): Comparison tolerance for equality [default: 0.001]
+
+Usage: Returns 1 if comparison is true, 0 if false. Epsilon is used for
+       float equality comparisons to handle precision errors.
+
+================================================================================
+                            9. TRANSFORM NODES
+================================================================================
+
+--------------------------------------------------------------------------------
+Transform2D (Transform 2D)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Complete 2D transformation (translate, rotate, scale)
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Transformed coordinates
+
+Parameters:
+  - translateX (float): Horizontal translation [default: 0.0]
+  - translateY (float): Vertical translation [default: 0.0]
+  - scaleX (float): Horizontal scale [default: 1.0]
+  - scaleY (float): Vertical scale [default: 1.0]
+  - rotation (float): Rotation angle in radians [default: 0.0]
+  - centerX (float): Transform center X [default: 0.5]
+  - centerY (float): Transform center Y [default: 0.5]
+
+Usage: All-in-one 2D transformation. Applies scale, rotation, and translation
+       around a center point.
+
+--------------------------------------------------------------------------------
+Scale2D (Scale 2D)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Scales UV coordinates
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Scaled coordinates
+
+Parameters:
+  - scaleX (float): Horizontal scale [default: 1.0]
+  - scaleY (float): Vertical scale [default: 1.0]
+  - centerX (float): Scale center X [default: 0.5]
+  - centerY (float): Scale center Y [default: 0.5]
+
+Usage: Scales around a center point. Values > 1 zoom in, < 1 zoom out.
+
+--------------------------------------------------------------------------------
+Rotate2D (Rotate 2D)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Rotates UV coordinates
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Rotated coordinates
+
+Parameters:
+  - rotation (float): Rotation angle in radians [default: 0.0]
+  - centerX (float): Rotation center X [default: 0.5]
+  - centerY (float): Rotation center Y [default: 0.5]
+
+Usage: Rotates around a center point. Positive values rotate counter-clockwise.
+
+--------------------------------------------------------------------------------
+Translate2D (Translate 2D)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Translates (moves) UV coordinates
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Translated coordinates
+
+Parameters:
+  - translateX (float): Horizontal offset [default: 0.0]
+  - translateY (float): Vertical offset [default: 0.0]
+
+Usage: Moves/pans the UV coordinates. Positive X moves right, positive Y moves up.
+
+--------------------------------------------------------------------------------
+TileAndOffset (Tile and Offset)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Tiles and offsets UV coordinates
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Transformed coordinates
+
+Parameters:
+  - tilingX (float): Horizontal tiling [default: 1.0]
+  - tilingY (float): Vertical tiling [default: 1.0]
+  - offsetX (float): Horizontal offset [default: 0.0]
+  - offsetY (float): Vertical offset [default: 0.0]
+
+Usage: Repeats/tiles UVs. Tiling > 1 creates repeats, < 1 stretches.
+       Offset scrolls the pattern.
+
+--------------------------------------------------------------------------------
+Flip2D (Flip 2D)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Flips/mirrors UV coordinates
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Flipped coordinates
+
+Parameters:
+  - flipX (bool): Flip horizontally [default: false]
+  - flipY (bool): Flip vertically [default: false]
+
+Usage: Mirrors the UVs along X and/or Y axes.
+
+--------------------------------------------------------------------------------
+UVToColor (UV to Color)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Converts UV coordinates to RGB color
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec3): Color representation
+
+Usage: Visualizes UV coordinates as color. X becomes Red, Y becomes Green.
+       Useful for debugging UV layouts.
+
+--------------------------------------------------------------------------------
+PolarCoordinates (Polar Coordinates)
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Converts Cartesian UV to polar coordinates
+
+Inputs:
+  - UV: Input coordinates (Cartesian)
+
+Outputs:
+  - out (vec2): Polar coordinates (radius, angle)
+
+Parameters:
+  - centerX (float): Polar center X [default: 0.5]
+  - centerY (float): Polar center Y [default: 0.5]
+  - radialScale (float): Radius scaling [default: 1.0]
+  - angularScale (float): Angle scaling [default: 1.0]
+
+Usage: Converts to polar coordinates. Output X is radius, Y is angle.
+       Creates radial distortion effects.
+
+--------------------------------------------------------------------------------
+Spherize
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Creates spherical/bulge distortion
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Distorted coordinates
+
+Parameters:
+  - centerX (float): Effect center X [default: 0.5]
+  - centerY (float): Effect center Y [default: 0.5]
+  - strength (float): Distortion strength [default: 0.5]
+  - radius (float): Effect radius [default: 0.5]
+
+Usage: Creates bulge/pinch effect. Positive strength bulges outward,
+       negative pinches inward.
+
+--------------------------------------------------------------------------------
+Twirl
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Creates twisting/swirl distortion
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - out (vec2): Distorted coordinates
+
+Parameters:
+  - centerX (float): Twirl center X [default: 0.5]
+  - centerY (float): Twirl center Y [default: 0.5]
+  - strength (float): Twirl strength [default: 1.0]
+  - radius (float): Effect radius [default: 0.5]
+
+Usage: Twists/swirls UVs around a center point. Strength controls rotation amount.
+
+--------------------------------------------------------------------------------
+Kaleidoscope
+--------------------------------------------------------------------------------
+Category: Transform
+Description: Creates kaleidoscope mirror effect
+
+Inputs:
+  - UV: Input coordinates
+
+Outputs:
+  - UV: Transformed coordinates
+
+Parameters:
+  - segments (int): Number of mirror segments [default: 6, range: 1-24]
+  - angle (float): Rotation angle [default: 0.0]
+  - scale (float): Pattern scale [default: 1.0, range: 0.01-5.0]
+
+Usage: Creates symmetric kaleidoscope patterns by mirroring around a center
+       point. Segments determines the number of symmetrical sections.
+
+================================================================================
+                            10. BLEND NODES
+================================================================================
+
+Note: These nodes are designed for Signed Distance Field (SDF) operations.
+      They work best with distance field inputs.
+
+--------------------------------------------------------------------------------
+SDFAdd (Add SDF)
+--------------------------------------------------------------------------------
+Category: Blend
+Description: Adds two signed distance fields
+
+Inputs:
+  - A (float): First distance field
+  - B (float): Second distance field
+
+Outputs:
+  - Result (float): Combined distance field
+
+Usage: Simple addition of two distance fields. Creates offset union.
+
+--------------------------------------------------------------------------------
+SDFSubtract (Subtract SDF)
+--------------------------------------------------------------------------------
+Category: Blend
+Description: Subtracts distance field B from A
+
+Inputs:
+  - A (float): First distance field
+  - B (float): Second distance field
+
+Outputs:
+  - Result (float): Combined distance field
+
+Usage: Subtractive operation. Creates cutout/hole effect.
+
+--------------------------------------------------------------------------------
+SDFUnion (Union - Min)
+--------------------------------------------------------------------------------
+Category: Blend
+Description: Union of two distance fields (minimum)
+
+Inputs:
+  - A (float): First distance field
+  - B (float): Second distance field
+
+Outputs:
+  - Result (float): Combined distance field
+
+Usage: Takes minimum of two fields. Creates union (combines both shapes).
+
+--------------------------------------------------------------------------------
+SDFIntersection (Intersection - Max)
+--------------------------------------------------------------------------------
+Category: Blend
+Description: Intersection of two distance fields (maximum)
+
+Inputs:
+  - A (float): First distance field
+  - B (float): Second distance field
+
+Outputs:
+  - Result (float): Combined distance field
+
+Usage: Takes maximum of two fields. Creates intersection (only where both overlap).
+
+--------------------------------------------------------------------------------
+SDFSmoothUnion (Smooth Union)
+--------------------------------------------------------------------------------
+Category: Blend
+Description: Smoothly blended union of two distance fields
+
+Inputs:
+  - A (float): First distance field
+  - B (float): Second distance field
+
+Outputs:
+  - Result (float): Combined distance field
+
+Parameters:
+  - smoothness (slider): Blend smoothness [default: 0.1, range: 0.0-1.0]
+
+Usage: Creates smooth, organic-looking union. Higher smoothness = smoother blend.
+
+--------------------------------------------------------------------------------
+SDFSmoothIntersection (Smooth Intersection)
+--------------------------------------------------------------------------------
+Category: Blend
+Description: Smoothly blended intersection of two distance fields
+
+Inputs:
+  - A (float): First distance field
+  - B (float): Second distance field
+
+Outputs:
+  - Result (float): Combined distance field
+
+Parameters:
+  - smoothness (slider): Blend smoothness [default: 0.1, range: 0.0-1.0]
+
+Usage: Creates smooth intersection with rounded edges. Higher smoothness =
+       smoother transition.
+
+--------------------------------------------------------------------------------
+SDFSmoothSubtraction (Smooth Subtraction)
+--------------------------------------------------------------------------------
+Category: Blend
+Description: Smoothly blended subtraction of distance fields
+
+Inputs:
+  - A (float): First distance field
+  - B (float): Second distance field (subtracted)
+
+Outputs:
+  - Result (float): Combined distance field
+
+Parameters:
+  - smoothness (slider): Blend smoothness [default: 0.1, range: 0.0-1.0]
+
+Usage: Creates smooth cutout effect. Higher smoothness = smoother edges on the cut.
+
+================================================================================
+                              NODE SUMMARY
+================================================================================
+
+Total Nodes: 110
+
+By Category:
+  - Output:    1 node   - Final rendering output
+  - Input:     14 nodes - Constants, runtime data, textures
+  - Field:     21 nodes - Gradients, patterns, noise, shapes
+  - Math:      43 nodes - Arithmetic, trigonometry, vector operations
+  - Utility:   13 nodes - Data manipulation, color operations
+  - Transform: 11 nodes - UV coordinate transformations
+  - Blend:     7 nodes  - SDF operations for combining shapes
+
+================================================================================
+                              USAGE TIPS
+================================================================================
+
+1. Start Simple
+   - Begin with a UV node and connect it to simple patterns or textures
+   - Use the Output node to see results
+   - Add complexity gradually
+
+2. Common Patterns
+   - UV → Transform → Pattern → ColorRamp → Output
+   - UV → Noise → Displacement → Texture → Output
+   - Time → Sin/Cos → Parameter → Animated effect
+
+3. Performance
+   - More octaves in noise = slower but more detailed
+   - Complex math operations accumulate
+   - Texture sampling is relatively fast
+
+4. Color Workflow
+   - Use vec3 for RGB colors (0-1 range)
+   - Use vec4 when alpha channel is needed
+   - Convert between RGB and HSV for easier color manipulation
+
+5. Animation
+   - Use Time node for continuous animation
+   - Multiply Time by a constant to control speed
+   - Use Sin(Time) for oscillating values
+
+6. Distance Fields
+   - Combine shapes using Blend nodes
+   - Use smoothness parameters for organic effects
+   - Threshold distance fields to create hard edges
+
+7. UV Manipulation
+   - Apply transforms before sampling textures/patterns
+   - Use polar coordinates for radial effects
+   - Displacement creates organic distortions
+
+8. Debugging
+   - Use UVToColor to visualize coordinate spaces
+   - Connect intermediate values to Output to inspect them
+   - Clamp/Saturate values to ensure they're in expected ranges
+
+================================================================================
+                              END OF DOCUMENT
+================================================================================
+
+For more information, see the source code in:
+  - src/data/nodes/*.js
+  - src/data/NodeDefs.js
+  - src/data/nodes/NodeFactory.js
+  - src/data/nodes/NodeTypes.js
