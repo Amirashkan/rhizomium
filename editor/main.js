@@ -1,3 +1,9 @@
+// ============================================================
+// WARNING: THIS FILE IS NOT USED BY THE APPLICATION
+// The actual main.js is located at /home/user/glsl-node-editor/main.js
+// This file exists for legacy purposes but is NOT loaded by index.html
+// ============================================================
+
 // main.js - Complete version with Undo System and Event System
 import { GPURenderer } from "./src/gpu/gpuRenderer.js";
 import { RenderLoop } from "./src/core/RenderLoop.js";
@@ -5,6 +11,7 @@ import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
+import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
 import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
@@ -113,6 +120,7 @@ let graph = new Graph();
 let editor = null;
 let saveLoadManager = null;
 let backupDialog = null;
+let welcomeWindow = null;
 let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
@@ -211,6 +219,33 @@ window.gpuRenderer = new GPURenderer(device, canvas);
     backupDialog = new BackupDialog(saveLoadManager);
     console.log("BackupDialog created:", backupDialog);
 
+    console.log("Creating WelcomeWindow...");
+    welcomeWindow = new WelcomeWindow({
+      saveLoadManager: saveLoadManager,
+      onNewProject: () => {
+        console.log("Starting new project from welcome window");
+        createNewProject();
+      },
+      onOpenProject: () => {
+        console.log("Opening project from welcome window");
+        const fileInput = document.getElementById("file-import");
+        if (fileInput) {
+          fileInput.click();
+        }
+      },
+      onOpenBackups: () => {
+        console.log("Opening backups from welcome window");
+        if (backupDialog) {
+          backupDialog.show();
+        }
+      },
+      onClose: () => {
+        console.log("Welcome window closed");
+      },
+      storageKey: "rhizomium.welcome.dismissed"
+    });
+    console.log("WelcomeWindow created:", welcomeWindow);
+
     const gpuCanvas = document.getElementById("gpu-canvas");
     if (gpuCanvas) {
       floatingPreview = new FloatingGPUPreview(gpuCanvas);
@@ -225,6 +260,7 @@ window.gpuRenderer = new GPURenderer(device, canvas);
     window.editor = editor;
     window.saveLoadManager = saveLoadManager;
     window.backupDialog = backupDialog;
+    window.welcomeWindow = welcomeWindow;
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
@@ -233,6 +269,12 @@ window.gpuRenderer = new GPURenderer(device, canvas);
 
     await checkAutosaveRecovery();
     await updateShaderFromGraph();
+
+    // Show welcome window at startup if not dismissed
+    if (welcomeWindow && welcomeWindow.shouldShow()) {
+      console.log("Showing welcome window at startup");
+      welcomeWindow.show();
+    }
 
     setInterval(() => {
       const pill = document.getElementById("rz-fallback-pill");
@@ -892,6 +934,17 @@ function setupUIEventHandlers() {
       backupDialog.show();
     });
     console.log("Backups button handler attached");
+  }
+
+  // Welcome button
+  const welcomeBtn = removeExistingHandlers("btn-welcome");
+  if (welcomeBtn && welcomeWindow) {
+    welcomeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      console.log("Welcome button clicked");
+      welcomeWindow.show({ force: true });
+    });
+    console.log("Welcome button handler attached");
   }
 
   // Rebuild button
