@@ -20,6 +20,10 @@ export class MIDIParameterBinding {
     this.learningMode = false;
     this.learningTarget = null; // { nodeId, paramName, callback }
 
+    // Simple frame-based throttling
+    this.shaderNeedsUpdate = false;
+    this.updateScheduled = false;
+
     this.setupEventListeners();
   }
 
@@ -407,21 +411,28 @@ export class MIDIParameterBinding {
 
   /**
    * Trigger immediate shader recompilation and preview update
+   * Uses simple frame-based throttling to avoid redundant recompiles
    */
   triggerImmediateUpdate(node) {
-    // Trigger shader recompilation
-    if (window.editor?.onChange) {
-      window.editor.onChange();
-    }
-
-    // Trigger preview update
+    // Update preview immediately (fast visual feedback)
     if (window.editor?.previewIntegration) {
       window.editor.previewIntegration.onParameterChange(node);
     }
 
-    // Also update the parameter panel UI if the node is selected
+    // Update parameter panel UI if the node is selected
     if (window.editor?.paramPanel?.updateNodePreview) {
       window.editor.paramPanel.updateNodePreview(node);
+    }
+
+    // Schedule shader recompilation (only once per frame)
+    if (!this.updateScheduled) {
+      this.updateScheduled = true;
+      requestAnimationFrame(() => {
+        this.updateScheduled = false;
+        if (window.editor?.onChange) {
+          window.editor.onChange();
+        }
+      });
     }
   }
 
