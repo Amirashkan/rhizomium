@@ -12,7 +12,7 @@ export class ConnectionManager {
     return this.dragWire;
   }
 
-  startWireDrag(fromNodeId, fromPin, startPos) {
+  startWireDrag(fromNodeId, fromPin, startPos, isFromInput = false) {
     try {
       if (!fromNodeId || fromPin === undefined || !startPos) {
         throw new Error('Invalid wire drag parameters');
@@ -21,9 +21,10 @@ export class ConnectionManager {
       this.dragWire = {
         from: { nodeId: fromNodeId, pin: fromPin },
         pos: startPos,
+        isFromInput: isFromInput, // Track whether drag started from input or output
       };
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'wire-drag-start',
         fromNodeId,
         fromPin
@@ -43,33 +44,48 @@ export class ConnectionManager {
     }
   }
 
-  // FIXED: endWireDrag with proper preview regeneration
-  endWireDrag(targetPos, hitInputPin) {
+  // FIXED: endWireDrag with proper preview regeneration and bidirectional support
+  endWireDrag(targetPos, hitPin) {
     try {
       if (!this.dragWire) return false;
 
-      if (hitInputPin) {
+      if (hitPin) {
         // Validate connection parameters
-        if (!hitInputPin.nodeId || hitInputPin.pin === undefined) {
+        if (!hitPin.nodeId || hitPin.pin === undefined) {
           throw new Error('Invalid target pin for connection');
         }
 
-        // Check if source node exists
-        const sourceNode = this.graph.nodes.find(n => n.id === this.dragWire.from.nodeId);
-        if (!sourceNode) {
-          throw new Error('Source node not found for connection');
+        // Determine the actual output and input based on drag direction
+        let outputNode, outputPin, inputNode, inputPin;
+
+        if (this.dragWire.isFromInput) {
+          // Dragging from input to output: reverse the connection
+          // hitPin is the output, dragWire.from is the input
+          outputNode = this.graph.nodes.find(n => n.id === hitPin.nodeId);
+          outputPin = hitPin.pin;
+          inputNode = this.graph.nodes.find(n => n.id === this.dragWire.from.nodeId);
+          inputPin = this.dragWire.from.pin;
+        } else {
+          // Normal: dragging from output to input
+          // dragWire.from is the output, hitPin is the input
+          outputNode = this.graph.nodes.find(n => n.id === this.dragWire.from.nodeId);
+          outputPin = this.dragWire.from.pin;
+          inputNode = this.graph.nodes.find(n => n.id === hitPin.nodeId);
+          inputPin = hitPin.pin;
         }
 
-        // Check if target node exists
-        const targetNode = this.graph.nodes.find(n => n.id === hitInputPin.nodeId);
-        if (!targetNode) {
-          throw new Error('Target node not found for connection');
+        // Validate nodes exist
+        if (!outputNode) {
+          throw new Error('Output node not found for connection');
+        }
+        if (!inputNode) {
+          throw new Error('Input node not found for connection');
         }
 
         // Remove any existing connection to this input
         const existingConnection = this.graph.connections.find(
           (c) =>
-            c.to.nodeId === hitInputPin.nodeId && c.to.pin === hitInputPin.pin,
+            c.to.nodeId === inputNode.id && c.to.pin === inputPin,
         );
 
         if (existingConnection) {
@@ -84,8 +100,8 @@ export class ConnectionManager {
           ) {
             const connectionData = {
               sourceNode: existingSource,
-              targetNode,
-              targetInput: hitInputPin.pin,
+              targetNode: inputNode,
+              targetInput: inputPin,
               sourceOutput:
                 typeof existingConnection.from.pin === "number"
                   ? existingConnection.from.pin
@@ -98,74 +114,74 @@ export class ConnectionManager {
             window.onConnectionDeleted(connectionData);
           }
 
-          if (targetNode.inputs) {
-            targetNode.inputs[hitInputPin.pin] = null;
+          if (inputNode.inputs) {
+            inputNode.inputs[inputPin] = null;
           }
         }
 
         this.graph.connections = this.graph.connections.filter(
           (c) =>
-            !(c.to.nodeId === hitInputPin.nodeId && c.to.pin === hitInputPin.pin),
+            !(c.to.nodeId === inputNode.id && c.to.pin === inputPin),
         );
 
-        // Add new connection
+        // Add new connection (always stored as from: output, to: input)
         const newConnection = {
-          from: this.dragWire.from,
-          to: hitInputPin,
+          from: { nodeId: outputNode.id, pin: outputPin },
+          to: { nodeId: inputNode.id, pin: inputPin },
         };
         this.graph.connections.push(newConnection);
 
         // Update node inputs array
-        if (targetNode) {
-          if (!targetNode.inputs) {
-            targetNode.inputs = [];
+        if (inputNode) {
+          if (!inputNode.inputs) {
+            inputNode.inputs = [];
           }
-          targetNode.inputs[hitInputPin.pin] = this.dragWire.from.nodeId;
+          inputNode.inputs[inputPin] = outputNode.id;
         }
 
         // Record for undo AFTER successful creation
         if (window.onConnectionCreated && typeof window.onConnectionCreated === 'function') {
           console.log("ConnectionManager: Recording connection creation for undo");
           window.onConnectionCreated(
-            this.dragWire.from.nodeId,
-            hitInputPin.nodeId,
-            hitInputPin.pin,
-            this.dragWire.from.pin,
+            outputNode.id,
+            inputNode.id,
+            inputPin,
+            outputPin,
           );
         }
 
         if (this.onChange) this.onChange();
 
-        // FIXED: Regenerate preview for the target node specifically
-if (window.editor?.previewIntegration) {
-  const sourceNode = window.editor.graph.nodes.find(n => n.id === this.dragWire.from.nodeId);
-  if (sourceNode) {
-    console.log('🔄 Connection created: regenerating preview for source node', sourceNode.id);
-    window.editor.previewIntegration.generateNodePreview(sourceNode);
-  }
-  
-  console.log('🔄 Connection created: regenerating preview for target node', targetNode.id);
-  window.editor.previewIntegration.generateNodePreview(targetNode);
-}
+        // FIXED: Regenerate preview for both nodes
+        if (window.editor?.previewIntegration) {
+          const sourceNode = window.editor.graph.nodes.find(n => n.id === outputNode.id);
+          if (sourceNode) {
+            console.log('🔄 Connection created: regenerating preview for source node', sourceNode.id);
+            window.editor.previewIntegration.generateNodePreview(sourceNode);
+          }
+
+          console.log('🔄 Connection created: regenerating preview for target node', inputNode.id);
+          window.editor.previewIntegration.generateNodePreview(inputNode);
+        }
         if (window.editor?.previewIntegration) {
           try {
-            console.log(`🔄 Connection created: regenerating preview for node ${targetNode.id}`);
-            
+            console.log(`🔄 Connection created: regenerating preview for node ${inputNode.id}`);
+
             // Clear the canvas cache for this node to force regeneration
             if (window.editor.previewSystem?.canvasManager?.canvasCache) {
-              window.editor.previewSystem.canvasManager.canvasCache.delete(targetNode.id);
+              window.editor.previewSystem.canvasManager.canvasCache.delete(inputNode.id);
             }
-            
+
             // Regenerate the specific node's preview
-            window.editor.previewIntegration.generateNodePreview(targetNode);
-            
+            window.editor.previewIntegration.generateNodePreview(inputNode);
+
             // Force a redraw of the editor
             if (window.editor.draw) {
               window.editor.draw();
             }
           } catch (previewError) {
-            window.errorHandler?.handleError(previewError, { 
-              component: 'preview-update-after-connection' 
+            window.errorHandler?.handleError(previewError, {
+              component: 'preview-update-after-connection'
             });
           }
         }
@@ -177,13 +193,13 @@ if (window.editor?.previewIntegration) {
       this.dragWire = null;
       return false;
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'connection-creation',
         fromNodeId: this.dragWire?.from?.nodeId,
-        toNodeId: hitInputPin?.nodeId,
-        targetPin: hitInputPin?.pin
+        toNodeId: hitPin?.nodeId,
+        targetPin: hitPin?.pin
       });
-      
+
       // Clean up drag state even if error occurs
       this.dragWire = null;
       return false;

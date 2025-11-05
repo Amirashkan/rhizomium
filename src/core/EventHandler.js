@@ -240,19 +240,31 @@ export class EventHandler {
         this.selection.graph.nodes,
       );
       if (hitOut) {
-        this.connections.startWireDrag(hitOut.nodeId, hitOut.pin, pos);
+        this.connections.startWireDrag(hitOut.nodeId, hitOut.pin, pos, false);
         return;
       }
 
-      // Check for input pin click (connection removal)
+      // Check for input pin - can either start drag or remove connection
       const hitIn = this.connections.hitInputPin(
         pos.x,
         pos.y,
         this.selection.graph.nodes,
       );
       if (hitIn) {
-        this.connections.removeConnection(hitIn.nodeId, hitIn.pin);
-        this.onDraw();
+        // Check if this input has an existing connection
+        const existingConnection = this.selection.graph.connections.find(
+          (c) => c.to.nodeId === hitIn.nodeId && c.to.pin === hitIn.pin
+        );
+
+        if (existingConnection) {
+          // Has connection: remove it and start dragging from this input
+          this.connections.removeConnection(hitIn.nodeId, hitIn.pin);
+          this.connections.startWireDrag(hitIn.nodeId, hitIn.pin, pos, true);
+          this.onDraw();
+        } else {
+          // No connection: start dragging from this input
+          this.connections.startWireDrag(hitIn.nodeId, hitIn.pin, pos, true);
+        }
         return;
       }
 
@@ -353,15 +365,27 @@ export class EventHandler {
       this._zoomDragState = null;
       const pos = this._getCanvasPosition(e);
 
-      // End wire drag - PRESERVE ORIGINAL LOGIC
+      // End wire drag - support bidirectional connections
       if (this.connections.getDragWire()) {
-        const target = this.connections.hitInputPin(
-          pos.x,
-          pos.y,
-          this.selection.graph.nodes,
-        );
-        
-        // Use original connection system but add undo recording
+        const dragWire = this.connections.getDragWire();
+        let target = null;
+
+        if (dragWire.isFromInput) {
+          // Dragging from input: look for output pin
+          target = this.connections.hitOutputPin(
+            pos.x,
+            pos.y,
+            this.selection.graph.nodes,
+          );
+        } else {
+          // Dragging from output: look for input pin
+          target = this.connections.hitInputPin(
+            pos.x,
+            pos.y,
+            this.selection.graph.nodes,
+          );
+        }
+
         this.connections.endWireDrag(pos, target);
         this.onDraw();
       }
