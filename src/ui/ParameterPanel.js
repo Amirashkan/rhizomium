@@ -19,6 +19,7 @@ export class ParameterPanel {
     this.panel = null;
     this.panelContent = null;
     this.resizeHandle = null;
+    this.lastFocusedParameter = null; // Track last focused parameter for MIDI learn
     this._onResizeMouseDown = null;
     this._onResizeMouseMove = null;
     this._onResizeMouseUp = null;
@@ -317,6 +318,17 @@ export class ParameterPanel {
       };
     }
     window.addEventListener('resize', this._onWindowResize);
+
+    // Track focused parameter inputs for MIDI learn
+    this.panel.addEventListener('focusin', (e) => {
+      if (e.target.classList.contains('param-input')) {
+        const paramName = e.target.getAttribute('data-param');
+        if (this.selectedNode && paramName) {
+          this.lastFocusedParameter = { paramName, node: this.selectedNode };
+          console.log('[ParameterPanel] Focused parameter:', paramName);
+        }
+      }
+    });
 
     // Close panel when clicking outside
     document.addEventListener('click', (e) => {
@@ -895,6 +907,7 @@ case 'flip2d':
 
   showNodeParameters(node) {
     this.selectedNode = node;
+    this.lastFocusedParameter = null; // Clear when switching nodes
     this.panel.style.display = 'flex';
     this.renderParameters(node);
   }
@@ -912,6 +925,7 @@ case 'flip2d':
   hide() {
     this.panel.style.display = 'none';
     this.selectedNode = null;
+    this.lastFocusedParameter = null; // Clear when hiding panel
   }
 
   renderParameters(node) {
@@ -1383,16 +1397,31 @@ case 'flip2d':
   }
 
   getSelectedParameter() {
+    // First try currently focused input
     const focusedInput = this.panel.querySelector('.param-input:focus');
     if (focusedInput) {
       const paramName = focusedInput.getAttribute('data-param');
-      
+
       if (this.selectedNode && paramName) {
         const paramDef = this.getParameterDefinitions(this.selectedNode)
           .find(p => p.name === paramName);
-        return paramDef;
+        if (paramDef) {
+          return { name: paramName, ...paramDef };
+        }
       }
     }
+
+    // Fall back to last focused parameter (for MIDI learn)
+    if (this.lastFocusedParameter &&
+        this.lastFocusedParameter.node === this.selectedNode) {
+      const paramName = this.lastFocusedParameter.paramName;
+      const paramDef = this.getParameterDefinitions(this.selectedNode)
+        .find(p => p.name === paramName);
+      if (paramDef) {
+        return { name: paramName, ...paramDef };
+      }
+    }
+
     return null;
   }
 

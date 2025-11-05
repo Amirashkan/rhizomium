@@ -197,6 +197,9 @@ exportProject(options = {}) {
       // Timeline data
       timeline: this.exportTimeline(),
 
+      // MIDI bindings
+      midiBindings: this.exportMIDIBindings(),
+
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
@@ -253,6 +256,16 @@ collectTextureData() {
 exportTimeline() {
   if (window.timelineManager) {
     return window.timelineManager.toJSON();
+  }
+  return null;
+}
+
+/**
+ * Export MIDI bindings
+ */
+exportMIDIBindings() {
+  if (window.midiBinding) {
+    return window.midiBinding.serialize();
   }
   return null;
 }
@@ -343,6 +356,11 @@ if (this.textureManager && this.textureManager.device) {
     // Restore timeline
     if (projectData.timeline) {
       this.importTimeline(projectData.timeline);
+    }
+
+    // Restore MIDI bindings
+    if (projectData.midiBindings) {
+      this.importMIDIBindings(projectData.midiBindings);
     }
 
     // Restore previews if requested
@@ -1740,6 +1758,26 @@ importConnections(connectionData) {
       console.error('Failed to import timeline data:', error);
       window.errorHandler?.handleError(error, {
         component: 'timeline-import'
+      });
+    }
+  }
+
+  /**
+   * Import MIDI bindings
+   */
+  importMIDIBindings(midiData) {
+    try {
+      if (!window.midiBinding) {
+        console.warn('MIDIParameterBinding not available for import');
+        return;
+      }
+
+      window.midiBinding.deserialize(midiData);
+      console.log('MIDI bindings imported successfully');
+    } catch (error) {
+      console.error('Failed to import MIDI bindings:', error);
+      window.errorHandler?.handleError(error, {
+        component: 'midi-import'
       });
     }
   }
