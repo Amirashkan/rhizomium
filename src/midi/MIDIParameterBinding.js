@@ -20,9 +20,10 @@ export class MIDIParameterBinding {
     this.learningMode = false;
     this.learningTarget = null; // { nodeId, paramName, callback }
 
-    // Simple frame-based throttling
-    this.shaderNeedsUpdate = false;
-    this.updateScheduled = false;
+    // Aggressive throttling to prevent FPS drop
+    this.lastShaderUpdate = 0;
+    this.pendingUpdate = null;
+    this.minUpdateInterval = 100; // 10 fps max for shader recompilation
 
     this.setupEventListeners();
   }
@@ -410,29 +411,36 @@ export class MIDIParameterBinding {
   }
 
   /**
-   * Trigger immediate shader recompilation and preview update
-   * Uses simple frame-based throttling to avoid redundant recompiles
+   * Trigger shader update with aggressive throttling
+   * Shader recompilation is VERY expensive, so we limit to 10 fps max
    */
   triggerImmediateUpdate(node) {
-    // Update preview immediately (fast visual feedback)
-    if (window.editor?.previewIntegration) {
-      window.editor.previewIntegration.onParameterChange(node);
+    const now = performance.now();
+    const timeSinceLastUpdate = now - this.lastShaderUpdate;
+
+    // Clear any pending update
+    if (this.pendingUpdate) {
+      clearTimeout(this.pendingUpdate);
     }
 
-    // Update parameter panel UI if the node is selected
-    if (window.editor?.paramPanel?.updateNodePreview) {
-      window.editor.paramPanel.updateNodePreview(node);
+    // If enough time has passed, update immediately
+    if (timeSinceLastUpdate >= this.minUpdateInterval) {
+      this.performShaderUpdate();
+    } else {
+      // Otherwise schedule for later
+      const delay = this.minUpdateInterval - timeSinceLastUpdate;
+      this.pendingUpdate = setTimeout(() => {
+        this.performShaderUpdate();
+      }, delay);
     }
+  }
 
-    // Schedule shader recompilation (only once per frame)
-    if (!this.updateScheduled) {
-      this.updateScheduled = true;
-      requestAnimationFrame(() => {
-        this.updateScheduled = false;
-        if (window.editor?.onChange) {
-          window.editor.onChange();
-        }
-      });
+  performShaderUpdate() {
+    this.lastShaderUpdate = performance.now();
+    this.pendingUpdate = null;
+
+    if (window.editor?.onChange) {
+      window.editor.onChange();
     }
   }
 
