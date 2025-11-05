@@ -7,6 +7,7 @@ import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
 import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
+import { NodeDefs } from '../data/NodeDefs.js';
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
@@ -829,29 +830,29 @@ case 'flip2d':
     { name: 'flipY', type: 'boolean', displayName: 'Flip Y', default: false, description: 'Mirror vertically' }
   );
   break;
+      // Noise nodes: Use parameter definitions from NodeDefs
+      case 'random':
       case 'valuenoise':
-      case 'fbmnoise':
+      case 'perlinnoise':
       case 'simplexnoise':
-        definitions.push(
-          {
-            name: 'scale',
-            type: 'float',
-            displayName: 'Scale',
-            default: 5.0,
-            min: 0.1,
-            max: 20.0,
-            description: 'Noise scale'
-          },
-          {
-            name: 'amplitude',
-            type: 'float',
-            displayName: 'Amplitude',
-            default: 1.0,
-            min: 0.0,
-            max: 2.0,
-            description: 'Noise amplitude'
-          }
-        );
+      case 'fbmnoise':
+      case 'voronoinoise':
+      case 'ridgednoise':
+      case 'warpnoise':
+        const nodeDef = NodeDefs[node.kind];
+        if (nodeDef && nodeDef.params && Array.isArray(nodeDef.params)) {
+          nodeDef.params.forEach(param => {
+            definitions.push({
+              name: param.name,
+              type: param.type === 'bool' ? 'boolean' : param.type,
+              displayName: param.label || param.name.charAt(0).toUpperCase() + param.name.slice(1),
+              default: param.default,
+              min: param.min,
+              max: param.max,
+              description: param.label || `${param.name} parameter`
+            });
+          });
+        }
         break;
         
         case 'colormix':
