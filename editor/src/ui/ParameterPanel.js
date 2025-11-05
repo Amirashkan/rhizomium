@@ -907,6 +907,13 @@ case 'flip2d':
     this.selectedNode = null;
   }
 
+  // Refresh the current node's parameter display (e.g., when connections change)
+  refreshCurrentNode() {
+    if (this.selectedNode) {
+      this.renderParameters(this.selectedNode);
+    }
+  }
+
   renderParameters(node) {
     if (!node) {
       this.panelContent.innerHTML = '<div class="no-parameters">No node provided</div>';
