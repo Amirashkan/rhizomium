@@ -83,12 +83,14 @@ export class MIDIParameterBinding {
     // Mark this parameter to use a GPU uniform instead of being baked
     this.midiParameters.add(paramKey);
     console.log(`[MIDI] Marked ${paramKey} for uniform usage`);
+    console.log(`[MIDI] Current MIDI parameters:`, Array.from(this.midiParameters));
 
     console.log(`Created MIDI binding: CC${cc} (Ch${channel}) → ${node.kind}.${paramName}`);
 
     // Trigger ONE shader recompilation to generate the uniform
     if (window.editor?.onChange) {
       console.log('[MIDI] Triggering shader recompile to generate uniform');
+      console.log('[MIDI] Node:', node.id, 'Param:', paramName, 'Current value:', node.params[paramName]);
       window.editor.onChange();
     }
 

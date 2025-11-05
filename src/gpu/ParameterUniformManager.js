@@ -220,25 +220,30 @@ updateValues(graph) {
    * Generate WGSL uniform struct declaration
    */
 generateUniformStruct() {
+  console.log('[Uniform] generateUniformStruct called, uniformValues.size:', this.uniformValues.size);
+  console.log('[Uniform] uniformValues:', Array.from(this.uniformValues.entries()));
+
   if (this.uniformValues.size === 0) {
+    console.log('[Uniform] No uniform values, returning empty string');
     return '';
   }
 
   let structDef = 'struct ParamUniforms {\n';
-  
+
   for (const [key, value] of this.uniformValues.entries()) {
     // key format is "nodeId.paramName" like "11.radius"
     // Sanitize and add underscore prefix for valid WGSL
     const sanitizedName = key.replace(/[^a-zA-Z0-9_]/g, '_');
     const fieldName = sanitizedName.startsWith('_') ? sanitizedName : `_${sanitizedName}`;
-    
+
     structDef += `  ${fieldName}: f32,\n`;
-    console.log('🔧 Generated uniform struct field:', fieldName);  // ✅ Inside the loop
+    console.log('🔧 Generated uniform struct field:', fieldName, '=', value);
   }
-  
+
   structDef += '}\n\n';
   structDef += '@group(0) @binding(2) var<uniform> u_params: ParamUniforms;\n';
-  
+
+  console.log('[Uniform] Generated struct:\n', structDef);
   return structDef;
 }
 
