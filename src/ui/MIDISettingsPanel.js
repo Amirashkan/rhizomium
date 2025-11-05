@@ -287,25 +287,27 @@ export class MIDISettingsPanel {
     const paramPanel = window.editor?.paramPanel;
 
     if (!paramPanel || !paramPanel.isVisible() || !paramPanel.selectedNode) {
-      alert('Please select a node and focus on a parameter in the Parameter Panel first.');
+      alert('Please select a node first by clicking on it, then open the Parameter Panel.');
       return;
     }
 
-    // Get focused input
-    const focusedInput = document.querySelector('.param-input:focus');
+    // Get selected parameter (either currently focused or last focused)
+    const selectedParam = paramPanel.getSelectedParameter();
 
-    if (!focusedInput) {
-      alert('Please click on a parameter input field first.');
+    if (!selectedParam || !selectedParam.name) {
+      alert('Please click on a parameter input field first.\n\n' +
+            'Steps:\n' +
+            '1. Click on a node to select it\n' +
+            '2. Click on any parameter field in the Parameter Panel\n' +
+            '3. Click "Start MIDI Learn" here\n' +
+            '4. Move a MIDI controller');
       return;
     }
 
-    const paramName = focusedInput.getAttribute('data-param');
+    const paramName = selectedParam.name;
     const node = paramPanel.selectedNode;
 
-    if (!node || !paramName) {
-      alert('Could not determine selected parameter.');
-      return;
-    }
+    console.log(`[MIDI Learn] Starting for ${node.kind}.${paramName}`);
 
     // Start learning
     this.midiBinding.startLearning(node.id, paramName, (result) => {
@@ -315,6 +317,17 @@ export class MIDISettingsPanel {
 
   showLearnMode() {
     const learnStatus = this.panel.querySelector('#midi-learn-status');
+    const paramPanel = window.editor?.paramPanel;
+    const selectedParam = paramPanel?.getSelectedParameter();
+    const node = paramPanel?.selectedNode;
+
+    // Show which parameter is being learned
+    if (selectedParam && node) {
+      learnStatus.innerHTML = `Waiting for MIDI input...<br><strong>${node.kind}.${selectedParam.name}</strong>`;
+    } else {
+      learnStatus.textContent = 'Waiting for MIDI input...';
+    }
+
     learnStatus.style.display = 'block';
     this.learnButton.textContent = 'Cancel';
     this.learnButton.style.background = '#f44336';
