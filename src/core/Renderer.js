@@ -140,17 +140,20 @@ export class Renderer {
       for (const [paramKey, paramValue] of Object.entries(node.params)) {
         if (typeof paramValue !== 'string') continue;
 
+        // Only process expressions that start with '='
+        if (!paramValue.startsWith('=')) continue;
+
         // Extract node references like "=node_14" or "=node_14_x"
         const nodeRefs = this._extractNodeReferences(paramValue);
 
         for (const refNodeId of nodeRefs) {
           const refNode = nodes.find(n => n.id === refNodeId);
           if (!refNode) {
-            console.log(`Reference to node_${refNodeId} not found (from node ${node.id}, param ${paramKey})`);
+            console.log(`[ParamRef] Reference to node_${refNodeId} not found (from node ${node.id}, param ${paramKey}="${paramValue}")`);
             continue;
           }
 
-          console.log(`Drawing line from node ${node.id} to node ${refNodeId}`);
+          console.log(`[ParamRef] Drawing line from node ${node.id} to node ${refNodeId}`);
           // Draw a subtle dashed line from the parameter node to the referenced node
           this._drawParameterReferenceLine(node, refNode);
         }
@@ -166,12 +169,16 @@ export class Renderer {
     const regex = /node_(\d+)(?:_[xyzw])?/g;
     let match;
 
-    console.log(`Extracting node references from: "${paramValue}"`);
+    console.log(`[ParamRef] Extracting node references from: "${paramValue}"`);
 
     while ((match = regex.exec(paramValue)) !== null) {
       const nodeId = parseInt(match[1], 10);
-      console.log(`  Found reference to node_${nodeId}`);
+      console.log(`[ParamRef]   Found reference to node_${nodeId}`);
       nodeIds.add(nodeId);
+    }
+
+    if (nodeIds.size === 0) {
+      console.log(`[ParamRef]   No node references found`);
     }
 
     return Array.from(nodeIds);
