@@ -10,6 +10,7 @@ export class SelectionManager {
     this.undoManager = null;
     this.clipboard = null; // For copy-paste functionality
     this.eventHandler = null; // Set by Editor to access cursor position
+    this.paramPanel = null; // Set by Editor to handle panel closure
     this.snapSettings = {
       enabled: false,
       gridSize: 20,
@@ -24,6 +25,11 @@ export class SelectionManager {
   // Setter for eventHandler (called from Editor)
   setEventHandler(eventHandler) {
     this.eventHandler = eventHandler;
+  }
+
+  // Setter for paramPanel (called from Editor)
+  setParamPanel(paramPanel) {
+    this.paramPanel = paramPanel;
   }
 
   setSnapEnabled(enabled) {
@@ -359,6 +365,12 @@ endDrag() {
       }
 
       this.graph.selection.clear();
+
+      // Hide parameter panel when selection is cleared
+      if (this.paramPanel && typeof this.paramPanel.hide === 'function') {
+        this.paramPanel.hide();
+      }
+
       if (this.onChange) this.onChange();
     } catch (error) {
       window.errorHandler?.handleError(error, {

@@ -348,6 +348,12 @@ export class ParameterPanel {
         return;
       }
 
+      // Only close if the selected node is no longer in the selection
+      // This prevents closing when clicking on menus or other UI elements
+      if (this.selectedNode && this.graph?.selection?.has(this.selectedNode.id)) {
+        return; // Node is still selected, keep panel open
+      }
+
       this.hide();
     });
 

@@ -230,6 +230,11 @@ export class Editor {
         this.graph
       );
 
+      // Set parameter panel on selection manager for panel closure on deselection
+      if (this.selection.setParamPanel) {
+        this.selection.setParamPanel(this.paramPanel);
+      }
+
       this.bindingSystem = new ParameterBindingSystem(this.graph, this.eventSystem, this.undoManager);
       this.bindingMenu = new ParameterBindingMenu(this.bindingSystem, this.paramPanel);
 
