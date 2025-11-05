@@ -28,7 +28,7 @@ export class Renderer {
 
     // Render drag wire if active
     if (renderState.dragWire) {
-      this._renderDragWire(renderState.dragWire, graph.nodes);
+      this._renderDragWire(renderState.dragWire, graph.nodes, graph.connections);
     }
 
     // Render nodes
@@ -126,16 +126,41 @@ export class Renderer {
     }
   }
 
-  _renderDragWire(dragWire, nodes) {
+  _renderDragWire(dragWire, nodes, connections) {
     const ctx = this.ctx;
     const fromNode = nodes.find((n) => n.id === dragWire.from.nodeId);
     if (!fromNode) return;
 
-    const fromPos = this._getOutputPinPosition(fromNode, dragWire.from.pin);
-    if (!fromPos) return;
+    let fromPos, srcType;
 
-    const srcType =
-      NodeDefs[fromNode.kind]?.pinsOut?.[dragWire.from.pin]?.type || "default";
+    if (dragWire.isFromInput) {
+      // Dragging from an input pin
+      fromPos = this._getInputPinPosition(fromNode, dragWire.from.pin);
+      if (!fromPos) return;
+
+      // Try to get the type from the existing connection if there is one
+      const existingConnection = connections.find(
+        (c) => c.to.nodeId === dragWire.from.nodeId && c.to.pin === dragWire.from.pin
+      );
+
+      if (existingConnection) {
+        const sourceNode = nodes.find((n) => n.id === existingConnection.from.nodeId);
+        if (sourceNode) {
+          srcType = NodeDefs[sourceNode.kind]?.pinsOut?.[existingConnection.from.pin]?.type || "default";
+        } else {
+          srcType = "default";
+        }
+      } else {
+        srcType = "default";
+      }
+    } else {
+      // Dragging from an output pin (original behavior)
+      fromPos = this._getOutputPinPosition(fromNode, dragWire.from.pin);
+      if (!fromPos) return;
+
+      srcType = NodeDefs[fromNode.kind]?.pinsOut?.[dragWire.from.pin]?.type || "default";
+    }
+
     const color = this._getWireColor(srcType);
 
     ctx.strokeStyle = color;
