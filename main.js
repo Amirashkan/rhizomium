@@ -14,6 +14,9 @@ import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
 import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
+import { MIDIManager } from './src/midi/MIDIManager.js';
+import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
+import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
 import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
 import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
@@ -237,6 +240,28 @@ async function initialize() {
       console.log("VJControlPanel created:", vjControlPanel);
     } catch (error) {
       console.error("ERROR creating VJ control panel:", error);
+      console.error("Error stack:", error.stack);
+    }
+
+    // Create MIDI system
+    try {
+      console.log("Creating MIDI system...");
+      const midiManager = new MIDIManager(editor.eventSystem);
+      window.midiManager = midiManager;
+      editor.midiManager = midiManager;
+      console.log("MIDIManager created:", midiManager);
+
+      const midiBinding = new MIDIParameterBinding(graph, editor.eventSystem, midiManager);
+      window.midiBinding = midiBinding;
+      editor.midiBinding = midiBinding;
+      console.log("MIDIParameterBinding created:", midiBinding);
+
+      const midiSettingsPanel = getMIDISettingsPanel(midiManager, midiBinding);
+      window.midiSettingsPanel = midiSettingsPanel;
+      editor.midiSettingsPanel = midiSettingsPanel;
+      console.log("MIDISettingsPanel created:", midiSettingsPanel);
+    } catch (error) {
+      console.error("ERROR creating MIDI system:", error);
       console.error("Error stack:", error.stack);
     }
 
@@ -792,6 +817,42 @@ function setupUIEventHandlers() {
   } else {
     console.error('[main.js] Audio settings button NOT found in DOM! Available buttons:',
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
+  }
+
+  // MIDI Settings Panel
+  const midiSettingsBtn = removeExistingHandlers("btn-midi-settings");
+  console.log('[main.js] Setting up MIDI settings button, element found:', !!midiSettingsBtn);
+
+  if (midiSettingsBtn) {
+    midiSettingsBtn.addEventListener("click", (e) => {
+      console.log('[main.js] MIDI settings button clicked!');
+      e.preventDefault();
+
+      try {
+        const midiPanel = window.midiSettingsPanel;
+        console.log('[main.js] MIDI panel instance:', midiPanel);
+
+        if (midiPanel && typeof midiPanel.toggle === 'function') {
+          midiPanel.toggle();
+          if (typeof updateStatus === "function") {
+            updateStatus(midiPanel.visible ? "MIDI settings opened" : "MIDI settings closed");
+          }
+        } else {
+          console.error('[main.js] MIDI panel is invalid:', midiPanel);
+          if (typeof updateStatus === "function") {
+            updateStatus("MIDI settings panel failed to load", "error");
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error opening MIDI settings:', error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Error opening MIDI settings: " + error.message, "error");
+        }
+      }
+    });
+    console.log("MIDI settings handler attached");
+  } else {
+    console.error('[main.js] MIDI settings button NOT found in DOM!');
   }
 
   // Timeline Panel
