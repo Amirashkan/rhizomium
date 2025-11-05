@@ -1830,6 +1830,10 @@ function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
       console.log("Empty graph - skipping shader update");
+      if (window.gpuRenderer) {
+        window.gpuRenderer.clear();
+        window.gpuRenderer.presentFallbackColor();
+      }
       return;
     }
 
@@ -1839,6 +1843,10 @@ function updateShaderFromGraph() {
 
     if (!outputNode) {
       console.log("No output node found - skipping shader update");
+      if (window.gpuRenderer) {
+        window.gpuRenderer.clear();
+        window.gpuRenderer.presentFallbackColor();
+      }
       return;
     }
 
@@ -1849,6 +1857,10 @@ function updateShaderFromGraph() {
 
     if (!hasConnection) {
       console.log("Output node not connected - skipping shader update");
+      if (window.gpuRenderer) {
+        window.gpuRenderer.clear();
+        window.gpuRenderer.presentFallbackColor();
+      }
       return;
     }
 
