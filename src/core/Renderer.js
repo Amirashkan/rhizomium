@@ -26,6 +26,9 @@ export class Renderer {
     // Render connections/wires
     this._renderConnections(graph.connections, graph.nodes);
 
+    // Render parameter reference lines (subtle lines for =node_X references)
+    this._renderParameterReferences(graph.nodes);
+
     // Render drag wire if active
     if (renderState.dragWire) {
       this._renderDragWire(renderState.dragWire, graph.nodes, graph.connections);
@@ -124,6 +127,72 @@ export class Renderer {
       ctx.strokeStyle = color;
       this._drawBezierCurve(fromPos.x, fromPos.y, toPos.x, toPos.y);
     }
+  }
+
+  _renderParameterReferences(nodes) {
+    const ctx = this.ctx;
+
+    // Extract parameter references from all nodes
+    for (const node of nodes) {
+      if (!node.params) continue;
+
+      // Check each parameter for node references
+      for (const [paramKey, paramValue] of Object.entries(node.params)) {
+        if (typeof paramValue !== 'string') continue;
+
+        // Extract node references like "=node_14" or "=node_14_x"
+        const nodeRefs = this._extractNodeReferences(paramValue);
+
+        for (const refNodeId of nodeRefs) {
+          const refNode = nodes.find(n => n.id === refNodeId);
+          if (!refNode) continue;
+
+          // Draw a subtle dashed line from the parameter node to the referenced node
+          this._drawParameterReferenceLine(node, refNode);
+        }
+      }
+    }
+  }
+
+  _extractNodeReferences(paramValue) {
+    const nodeIds = new Set();
+
+    // Match patterns like "=node_14" or "=node_14_x"
+    // This regex looks for "node_" followed by digits, with optional component suffixes
+    const regex = /node_(\d+)(?:_[xyzw])?/g;
+    let match;
+
+    while ((match = regex.exec(paramValue)) !== null) {
+      const nodeId = parseInt(match[1], 10);
+      nodeIds.add(nodeId);
+    }
+
+    return Array.from(nodeIds);
+  }
+
+  _drawParameterReferenceLine(fromNode, toNode) {
+    const ctx = this.ctx;
+
+    // Calculate center positions of both nodes
+    const fromX = fromNode.x + fromNode.w / 2;
+    const fromY = fromNode.y + fromNode.h / 2;
+    const toX = toNode.x + toNode.w / 2;
+    const toY = toNode.y + toNode.h / 2;
+
+    ctx.save();
+
+    // Use a subtle, dashed line style
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(150, 150, 200, 0.3)'; // Very subtle purple-blue
+    ctx.lineWidth = 1;
+
+    // Draw a straight line (not Bezier) for parameter references
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   _renderDragWire(dragWire, nodes, connections) {
