@@ -319,9 +319,24 @@ async function initialize() {
     await updateShaderFromGraph();
 
     // Show welcome window at startup if not dismissed
-    if (welcomeWindow && welcomeWindow.shouldShow()) {
-      console.log("Showing welcome window at startup");
-      welcomeWindow.show();
+    console.log("DEBUG: Checking if welcome window should show...");
+    console.log("DEBUG: welcomeWindow exists:", !!welcomeWindow);
+    if (welcomeWindow) {
+      const shouldShow = welcomeWindow.shouldShow();
+      console.log("DEBUG: welcomeWindow.shouldShow():", shouldShow);
+      if (shouldShow) {
+        console.log("Showing welcome window at startup");
+        try {
+          const result = welcomeWindow.show();
+          console.log("DEBUG: welcomeWindow.show() returned:", result);
+        } catch (error) {
+          console.error("ERROR showing welcome window at startup:", error);
+        }
+      } else {
+        console.log("Welcome window was dismissed, not showing at startup");
+      }
+    } else {
+      console.error("ERROR: welcomeWindow not initialized!");
     }
 
     setInterval(() => {
@@ -1323,13 +1338,24 @@ function setupUIEventHandlers() {
 
   // Welcome button
   const welcomeBtn = removeExistingHandlers("btn-welcome");
+  console.log("DEBUG: Welcome button element:", welcomeBtn);
+  console.log("DEBUG: welcomeWindow:", welcomeWindow);
   if (welcomeBtn && welcomeWindow) {
     welcomeBtn.addEventListener("click", (e) => {
       e.preventDefault();
       console.log("Welcome button clicked");
-      welcomeWindow.show({ force: true });
+      console.log("DEBUG: Calling welcomeWindow.show({ force: true })");
+      try {
+        welcomeWindow.show({ force: true });
+        console.log("DEBUG: welcomeWindow.show() completed");
+      } catch (error) {
+        console.error("ERROR showing welcome window:", error);
+      }
     });
     console.log("Welcome button handler attached");
+  } else {
+    if (!welcomeBtn) console.warn("WARNING: Welcome button not found in DOM!");
+    if (!welcomeWindow) console.warn("WARNING: welcomeWindow not initialized!");
   }
 
   // Rebuild button
