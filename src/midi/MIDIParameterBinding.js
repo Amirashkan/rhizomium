@@ -20,10 +20,8 @@ export class MIDIParameterBinding {
     this.learningMode = false;
     this.learningTarget = null; // { nodeId, paramName, callback }
 
-    // Aggressive throttling to prevent FPS drop
-    this.lastShaderUpdate = 0;
-    this.pendingUpdate = null;
-    this.minUpdateInterval = 100; // 10 fps max for shader recompilation
+    // Track which parameters are MIDI-controlled (should use uniforms)
+    this.midiParameters = new Set(); // Set of "nodeId.paramName"
 
     this.setupEventListeners();
   }
@@ -82,7 +80,17 @@ export class MIDIParameterBinding {
       cc
     });
 
+    // Mark this parameter to use a GPU uniform instead of being baked
+    this.midiParameters.add(paramKey);
+    console.log(`[MIDI] Marked ${paramKey} for uniform usage`);
+
     console.log(`Created MIDI binding: CC${cc} (Ch${channel}) → ${node.kind}.${paramName}`);
+
+    // Trigger ONE shader recompilation to generate the uniform
+    if (window.editor?.onChange) {
+      console.log('[MIDI] Triggering shader recompile to generate uniform');
+      window.editor.onChange();
+    }
 
     this.eventSystem.emit('MIDI_BINDING_CREATED', binding);
 
@@ -196,8 +204,8 @@ export class MIDIParameterBinding {
     // For real-time MIDI, directly update the parameter value (bypass undo tracking)
     this.setParameterValueDirect(node, paramName, paramValue);
 
-    // Trigger immediate shader recompilation and preview update
-    this.triggerImmediateUpdate(node);
+    // Update GPU uniform buffer (fast! no recompilation!)
+    this.triggerImmediateUpdate(node, paramName, paramValue);
 
     // Emit parameter update event
     this.eventSystem.emit('PARAMETER_CHANGED', {
@@ -411,36 +419,40 @@ export class MIDIParameterBinding {
   }
 
   /**
-   * Trigger shader update with aggressive throttling
-   * Shader recompilation is VERY expensive, so we limit to 10 fps max
+   * Fast GPU uniform update - NO shader recompilation!
+   * This is the key to smooth 60fps MIDI control
    */
-  triggerImmediateUpdate(node) {
-    const now = performance.now();
-    const timeSinceLastUpdate = now - this.lastShaderUpdate;
-
-    // Clear any pending update
-    if (this.pendingUpdate) {
-      clearTimeout(this.pendingUpdate);
-    }
-
-    // If enough time has passed, update immediately
-    if (timeSinceLastUpdate >= this.minUpdateInterval) {
-      this.performShaderUpdate();
-    } else {
-      // Otherwise schedule for later
-      const delay = this.minUpdateInterval - timeSinceLastUpdate;
-      this.pendingUpdate = setTimeout(() => {
-        this.performShaderUpdate();
-      }, delay);
-    }
+  triggerImmediateUpdate(node, paramName, value) {
+    // Update the GPU uniform buffer directly (super fast!)
+    this.updateUniformValue(node.id, paramName, value);
   }
 
-  performShaderUpdate() {
-    this.lastShaderUpdate = performance.now();
-    this.pendingUpdate = null;
+  /**
+   * Check if a parameter should use a uniform (called during shader compilation)
+   */
+  shouldUseUniform(nodeId, paramName) {
+    const paramKey = `${nodeId}.${paramName}`;
+    return this.midiParameters.has(paramKey);
+  }
 
-    if (window.editor?.onChange) {
-      window.editor.onChange();
+  /**
+   * Update a uniform value in the GPU buffer (NO recompilation!)
+   */
+  updateUniformValue(nodeId, paramName, value) {
+    const uniformManager = window.nodeCompiler?.uniformManager;
+    if (!uniformManager) {
+      console.warn('[MIDI] Uniform manager not available');
+      return;
+    }
+
+    const paramKey = `${nodeId}.${paramName}`;
+
+    // Update the uniform value in the map
+    uniformManager.uniformValues.set(paramKey, value);
+
+    // Write to GPU buffer immediately
+    if (window.gpuRenderer?.device && uniformManager.uniformBuffer) {
+      uniformManager.updateBuffer(window.gpuRenderer.device);
     }
   }
 

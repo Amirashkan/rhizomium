@@ -19,31 +19,39 @@ export class ParameterUniformManager {
 
 analyzeNode(node) {
   console.log(`Analyzing node ${node.id}`);
-  
-// inside analyzeNode(node)
-for (const [paramName, paramValue] of Object.entries(node.params || {})) {
-  let value = paramValue;
-if (typeof value === "number" && !isFinite(value)) value = 0.0;
 
-// prevent negative geometry params only
-const key = paramName.toLowerCase();
-if ((key.includes("radius") || key.includes("width") || key.includes("height")) && value < 0)
-  value = Math.abs(value);
-  if (typeof value === 'number' && Math.abs(value) < 1e-6) value = 0.0;
-  
-  // normalize negative radius-like params
-  if (paramName.toLowerCase().includes('radius') && value < 0)
-    value = Math.abs(value);
+  // inside analyzeNode(node)
+  for (const [paramName, paramValue] of Object.entries(node.params || {})) {
+    let value = paramValue;
+    if (typeof value === "number" && !isFinite(value)) value = 0.0;
 
-  node.params[paramName] = value; // write back normalized value
-  // continue classification logic...
-}
+    // prevent negative geometry params only
+    const key = paramName.toLowerCase();
+    if ((key.includes("radius") || key.includes("width") || key.includes("height")) && value < 0)
+      value = Math.abs(value);
+    if (typeof value === 'number' && Math.abs(value) < 1e-6) value = 0.0;
+
+    // normalize negative radius-like params
+    if (paramName.toLowerCase().includes('radius') && value < 0)
+      value = Math.abs(value);
+
+    node.params[paramName] = value; // write back normalized value
+
+    // Check if this parameter is MIDI-controlled (needs GPU uniform)
+    const midiBinding = window.editor?.midiBinding;
+    if (midiBinding && midiBinding.shouldUseUniform(node.id, paramName)) {
+      const paramKey = `${node.id}.${paramName}`;
+      const numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+      this.uniformValues.set(paramKey, numericValue);
+      console.log(`[MIDI→Uniform] ${paramKey} = ${numericValue}`);
+    }
+  }
 
   const nodeKey = `${node.id}`;
   const dynamicParamsForNode = Array.from(this.dynamicParams)
     .filter(key => key.startsWith(`${node.id}.`))
     .map(key => key.split('.')[1]);
-    
+
   if (dynamicParamsForNode.length > 0) {
     console.log(`Node ${node.id} has ${dynamicParamsForNode.length} dynamic params:`, dynamicParamsForNode);
   }
@@ -137,18 +145,32 @@ evaluateExpression(expr, context = {}) {
   }
 
   /**
-   * Check if a specific parameter is dynamic
+   * Check if a specific parameter is dynamic (includes MIDI parameters)
    */
   isDynamicParam(nodeId, paramName) {
+    // Check if it's in uniformParameters (time-based expressions)
     const params = this.uniformParameters.get(nodeId);
-    return params ? params.has(paramName) : false;
+    if (params && params.has(paramName)) {
+      return true;
+    }
+
+    // Check if it's in uniformValues (MIDI-bound or other uniforms)
+    const paramKey = `${nodeId}.${paramName}`;
+    if (this.uniformValues.has(paramKey)) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
-   * Get uniform name for a parameter
+   * Get uniform name for a parameter (matches generateUniformStruct format)
    */
   getUniformName(nodeId, paramName) {
-    return `param_${nodeId.replace(/[^a-zA-Z0-9]/g, '_')}_${paramName}`;
+    const paramKey = `${nodeId}.${paramName}`;
+    const sanitizedName = paramKey.replace(/[^a-zA-Z0-9_]/g, '_');
+    const fieldName = sanitizedName.startsWith('_') ? sanitizedName : `_${sanitizedName}`;
+    return `u_params.${fieldName}`;
   }
 isDynamicExpression(value) {
   if (typeof value !== 'string') return false;
