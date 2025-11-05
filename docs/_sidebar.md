@@ -1,31 +1,36 @@
 * [🏠 Home](/)
 
 * Getting Started
-  * [Quick Start](quickstart.md)
-  * [Installation & Setup](setup.md)
+  * [Quick Start](quickstart-web.md)
   * [Your First Graph](guide.md)
+  * [Interface Overview](interface.md)
 
-* Core Concepts
+* Using the Editor
   * [Node System](nodes.md)
-  * [Shader Compilation](shader-compilation.md)
-  * [Audio Reactivity](audio.md)
-
-* Features
-  * [External Viewer](external-viewer.md)
-  * [Dual Screen Setup](dual-screen.md)
-  * [Save & Load](save-load.md)
-
-* Deployment
-  * [Local Deployment](deployment.md)
-  * [Vercel Deployment](vercel.md)
-
-* Troubleshooting
-  * [Common Issues](troubleshooting.md)
-  * [Windows Fixes](windows-fix.md)
-  * [FAQ](faq.md)
+  * [Working with Audio](audio-web.md)
+  * [Saving Your Work](save-load-web.md)
 
 * Reference
-  * [Node Reference](node-reference.md)
-  * [Audio Envelope](audio-envelope.md)
+  * [Complete Node Reference](node-reference.md)
+  * [Keyboard Shortcuts](shortcuts.md)
+  * [FAQ](faq-web.md)
+
+* Advanced Topics
+  * [Shader Compilation](shader-compilation.md)
+  * [Performance Tips](performance.md)
+
+---
+
+* For Developers
+  * [Local Installation](setup.md)
+  * [Deployment Guide](deployment.md)
+  * [Vercel Deployment](vercel.md)
+  * [External Viewer Setup](external-viewer.md)
+  * [Dual Screen Setup](dual-screen.md)
+  * [Audio Server Setup](audio.md)
+  * [Troubleshooting](troubleshooting.md)
+  * [Windows Fixes](windows-fix.md)
+
+---
 
 * [GitHub](https://github.com/Amirashkan/glsl-node-editor)
