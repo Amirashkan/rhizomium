@@ -188,11 +188,11 @@ export class MIDIParameterBinding {
     // Map to parameter range
     const paramValue = min + transformedValue * (max - min);
 
-    // Update parameter value
-    this.setParameterValue(node, paramName, paramValue);
+    // For real-time MIDI, directly update the parameter value (bypass undo tracking)
+    this.setParameterValueDirect(node, paramName, paramValue);
 
-    // Update node preview
-    this.updateNodePreview(node);
+    // Trigger immediate shader recompilation and preview update
+    this.triggerImmediateUpdate(node);
 
     // Emit parameter update event
     this.eventSystem.emit('PARAMETER_CHANGED', {
@@ -383,12 +383,56 @@ export class MIDIParameterBinding {
     return null;
   }
 
+  /**
+   * Set parameter value directly without undo tracking (for real-time MIDI)
+   */
+  setParameterValueDirect(node, paramName, value) {
+    // Directly set the value on the node in all possible locations
+    if (paramName === 'value') {
+      node.value = value;
+    } else if (paramName === 'x') {
+      node.x = value;
+    } else if (paramName === 'y') {
+      node.y = value;
+    } else if (paramName === 'z') {
+      node.z = value;
+    } else {
+      // Store in both params and props for compatibility
+      if (!node.params) node.params = {};
+      node.params[paramName] = value;
+      if (!node.props) node.props = {};
+      node.props[paramName] = value;
+    }
+  }
+
+  /**
+   * Trigger immediate shader recompilation and preview update
+   */
+  triggerImmediateUpdate(node) {
+    // Trigger shader recompilation
+    if (window.editor?.onChange) {
+      window.editor.onChange();
+    }
+
+    // Trigger preview update
+    if (window.editor?.previewIntegration) {
+      window.editor.previewIntegration.onParameterChange(node);
+    }
+
+    // Also update the parameter panel UI if the node is selected
+    if (window.editor?.paramPanel?.updateNodePreview) {
+      window.editor.paramPanel.updateNodePreview(node);
+    }
+  }
+
+  /**
+   * Set parameter value with undo tracking (for manual bindings)
+   */
   setParameterValue(node, paramName, value) {
     if (window.editor?.paramPanel?.valueManager) {
       window.editor.paramPanel.valueManager.setValue(node, paramName, value);
     } else {
-      if (!node.params) node.params = {};
-      node.params[paramName] = value;
+      this.setParameterValueDirect(node, paramName, value);
     }
   }
 
