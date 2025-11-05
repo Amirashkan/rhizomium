@@ -453,8 +453,8 @@ export class MIDIParameterBinding {
     uniformManager.uniformValues.set(paramKey, value);
 
     // Write to GPU buffer immediately
-    if (window.gpuRenderer?.device && uniformManager.uniformBuffer) {
-      uniformManager.updateBuffer(window.gpuRenderer.device);
+    if (window.gpuRenderer) {
+      window.gpuRenderer._updateParameterUniforms();
     }
   }
 
