@@ -18,6 +18,7 @@ import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
 import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
+import { VJControlPanel } from './src/vj/VJControlPanel.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -123,6 +124,7 @@ let floatingPreview = null;
 let renderLoopController = null;
 let timelineManager = null;
 let timelinePanel = null;
+let vjControlPanel = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -220,9 +222,23 @@ async function initialize() {
     saveLoadManager.setTextureManager(window.textureManager);
     console.log("SaveLoadManager created:", saveLoadManager);
 
+    // Set saveLoadManager on editor for VJ panel
+    editor.saveLoadManager = saveLoadManager;
+
     console.log("Creating BackupDialog...");
     backupDialog = new BackupDialog(saveLoadManager);
     console.log("BackupDialog created:", backupDialog);
+
+    // Create VJ Control Panel (after SaveLoadManager is ready)
+    try {
+      console.log("Creating VJControlPanel...");
+      vjControlPanel = new VJControlPanel(editor);
+      window.vjControlPanel = vjControlPanel;
+      console.log("VJControlPanel created:", vjControlPanel);
+    } catch (error) {
+      console.error("ERROR creating VJ control panel:", error);
+      console.error("Error stack:", error.stack);
+    }
 
     const gpuCanvas = document.getElementById("gpu-canvas");
     if (gpuCanvas) {
@@ -811,6 +827,39 @@ function setupUIEventHandlers() {
     console.error('[main.js] Timeline button NOT found in DOM!');
   }
 
+  // VJ Control Panel
+  const vjBtn = removeExistingHandlers("btn-toggle-vj");
+  console.log('[main.js] Setting up VJ control button, element found:', !!vjBtn);
+
+  if (vjBtn) {
+    vjBtn.addEventListener("click", (e) => {
+      console.log('[main.js] VJ control button clicked!');
+      e.preventDefault();
+
+      try {
+        if (vjControlPanel && typeof vjControlPanel.toggle === 'function') {
+          vjControlPanel.toggle();
+          if (typeof updateStatus === "function") {
+            updateStatus(vjControlPanel.visible ? "VJ Control opened" : "VJ Control closed");
+          }
+        } else {
+          console.error('[main.js] VJ control panel is invalid:', vjControlPanel);
+          if (typeof updateStatus === "function") {
+            updateStatus("VJ Control panel failed to load", "error");
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error toggling VJ control:', error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Error toggling VJ Control: " + error.message, "error");
+        }
+      }
+    });
+    console.log("VJ Control handler attached");
+  } else {
+    console.error('[main.js] VJ Control button NOT found in DOM!');
+  }
+
   // Display selector for multi-monitor support
   const displaySelect = document.getElementById('display-select');
   let availableScreens = [];
@@ -1353,6 +1402,16 @@ function setupKeyboardShortcuts() {
         e.preventDefault();
         if (!togglePreviewVisibility()) {
           updateStatus("Preview unavailable", "warning");
+        }
+        break;
+
+      case "v":
+        e.preventDefault();
+        if (vjControlPanel && typeof vjControlPanel.toggle === 'function') {
+          vjControlPanel.toggle();
+          updateStatus(vjControlPanel.visible ? "VJ Control opened" : "VJ Control closed");
+        } else {
+          updateStatus("VJ Control panel unavailable", "warning");
         }
         break;
 
