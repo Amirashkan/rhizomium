@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Rhizomium Documentation</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="description" content="Rhizomium - A modular GPU node environment for real-time generative visuals">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+
+  <!-- Docsify Theme -->
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/dark.css">
+
+  <style>
+    :root {
+      --base-font-size: 15px;
+      --theme-color: #d67f4f;
+      --theme-color-dark: #c87550;
+      --theme-color-light: #e89968;
+      --sidebar-width: 280px;
+    }
+
+    .sidebar {
+      background-color: #1a1a1a;
+    }
+
+    /* Section headers in sidebar */
+    .sidebar-nav > ul > li > p {
+      margin-top: 16px;
+      margin-bottom: 8px;
+      padding: 8px 12px;
+      background: linear-gradient(90deg, rgba(214, 127, 79, 0.15) 0%, rgba(214, 127, 79, 0.05) 100%);
+      border-left: 3px solid var(--theme-color);
+      font-weight: 600;
+      font-size: 0.95em;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--theme-color-light);
+    }
+
+    /* First section no top margin */
+    .sidebar-nav > ul > li:first-child > p {
+      margin-top: 8px;
+    }
+
+    /* Separator lines between major sections */
+    .sidebar-nav > ul > li > hr {
+      border: none;
+      border-top: 1px solid rgba(214, 127, 79, 0.2);
+      margin: 16px 0;
+    }
+
+    .sidebar-nav li strong {
+      font-size: 1.1em;
+      color: var(--theme-color);
+    }
+
+    /* Active link highlighting */
+    .sidebar-nav li.active > a {
+      color: var(--theme-color-light);
+      font-weight: 600;
+      border-right: 2px solid var(--theme-color);
+    }
+
+    /* Hover effects */
+    .sidebar-nav a:hover {
+      color: var(--theme-color-light);
+    }
+
+    .app-name-link {
+      font-size: 1.4em !important;
+      font-weight: 600;
+    }
+
+    .markdown-section h1 {
+      color: var(--theme-color);
+    }
+
+    .markdown-section h2 {
+      color: var(--theme-color-light);
+      border-bottom: 1px solid rgba(214, 127, 79, 0.3);
+    }
+
+    /* Links in content */
+    .markdown-section a {
+      color: var(--theme-color-light);
+    }
+
+    .markdown-section a:hover {
+      color: var(--theme-color);
+      text-decoration: underline;
+    }
+
+    .markdown-section code {
+      background-color: #2d2d2d;
+      color: #f8f8f2;
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+
+    .markdown-section pre > code {
+      background-color: #2d2d2d;
+      color: #f8f8f2;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">Loading Rhizomium Documentation...</div>
+
+  <script>
+    window.$docsify = {
+      name: 'Rhizomium',
+      repo: 'https://github.com/Amirashkan/glsl-node-editor',
+      loadSidebar: true,
+      auto2top: true,
+      maxLevel: 4,
+      subMaxLevel: 3,
+
+      // Homepage
+      homepage: 'README.md',
+
+      // Search plugin
+      search: {
+        placeholder: 'Search documentation...',
+        noData: 'No results found.',
+        depth: 6,
+        hideOtherSidebarContent: false,
+      },
+
+      // Pagination
+      pagination: {
+        previousText: 'Previous',
+        nextText: 'Next',
+        crossChapter: true,
+        crossChapterText: true,
+      },
+
+      // Copy code plugin
+      copyCode: {
+        buttonText: 'Copy',
+        errorText: 'Error',
+        successText: 'Copied!'
+      },
+
+      // Theme color
+      themeColor: '#d67f4f',
+
+      // Alias for cleaner URLs
+      alias: {
+        '/.*/_sidebar.md': '/_sidebar.md'
+      }
+    }
+  </script>
+
+  <!-- Docsify Core -->
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+
+  <!-- Plugins -->
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-copy-code@2"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-pagination@2/dist/docsify-pagination.min.js"></script>
+
+  <!-- Syntax highlighting -->
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-javascript.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-glsl.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+</body>
+</html>
