@@ -13,8 +13,9 @@
   <style>
     :root {
       --base-font-size: 15px;
-      --theme-color: #a25430;
-      --theme-color-dark: #824326;
+      --theme-color: #d67f4f;
+      --theme-color-dark: #c87550;
+      --theme-color-light: #e89968;
       --sidebar-width: 280px;
     }
 
@@ -22,9 +23,47 @@
       background-color: #1a1a1a;
     }
 
+    /* Section headers in sidebar */
+    .sidebar-nav > ul > li > p {
+      margin-top: 16px;
+      margin-bottom: 8px;
+      padding: 8px 12px;
+      background: linear-gradient(90deg, rgba(214, 127, 79, 0.15) 0%, rgba(214, 127, 79, 0.05) 100%);
+      border-left: 3px solid var(--theme-color);
+      font-weight: 600;
+      font-size: 0.95em;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--theme-color-light);
+    }
+
+    /* First section no top margin */
+    .sidebar-nav > ul > li:first-child > p {
+      margin-top: 8px;
+    }
+
+    /* Separator lines between major sections */
+    .sidebar-nav > ul > li > hr {
+      border: none;
+      border-top: 1px solid rgba(214, 127, 79, 0.2);
+      margin: 16px 0;
+    }
+
     .sidebar-nav li strong {
       font-size: 1.1em;
       color: var(--theme-color);
+    }
+
+    /* Active link highlighting */
+    .sidebar-nav li.active > a {
+      color: var(--theme-color-light);
+      font-weight: 600;
+      border-right: 2px solid var(--theme-color);
+    }
+
+    /* Hover effects */
+    .sidebar-nav a:hover {
+      color: var(--theme-color-light);
     }
 
     .app-name-link {
@@ -34,6 +73,21 @@
 
     .markdown-section h1 {
       color: var(--theme-color);
+    }
+
+    .markdown-section h2 {
+      color: var(--theme-color-light);
+      border-bottom: 1px solid rgba(214, 127, 79, 0.3);
+    }
+
+    /* Links in content */
+    .markdown-section a {
+      color: var(--theme-color-light);
+    }
+
+    .markdown-section a:hover {
+      color: var(--theme-color);
+      text-decoration: underline;
     }
 
     .markdown-section code {
@@ -88,7 +142,7 @@
       },
 
       // Theme color
-      themeColor: '#a25430',
+      themeColor: '#d67f4f',
 
       // Alias for cleaner URLs
       alias: {
