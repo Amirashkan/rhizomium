@@ -523,20 +523,27 @@ if (this.textureManager && this.textureManager.device) {
             console.log(`Skipping direct render for OutputFinal, will use shader result`);
             continue;
           }
-          
-          delete node.__thumb;
-          
-          const canvas = document.createElement('canvas');
-          canvas.width = 128;
-          canvas.height = 128;
+
+          // Don't delete __thumb - keep existing preview so dependent nodes can use it
+          // Only create new canvas if needed
+          let canvas = node.__thumb;
+          let needsResize = false;
+
+          if (!canvas || canvas.width !== 128 || canvas.height !== 128) {
+            canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            needsResize = true;
+          }
+
           const ctx = canvas.getContext('2d');
-          
+
           let renderer = null;
 
           if (this.editor?.previewSystem?.rendererRegistry) {
             const registry = this.editor.previewSystem.rendererRegistry;
             const nodeType = node.kind?.toLowerCase();
-            
+
             if (registry[nodeType]) {
               renderer = registry[nodeType];
             } else if (typeof registry.get === 'function') {
@@ -551,11 +558,11 @@ if (this.textureManager && this.textureManager.device) {
           if (renderer && typeof renderer === 'function') {
             renderer(ctx, node);
             node.__thumb = canvas;
-            console.log(`Rendered thumbnail for ${node.kind} (${node.id})`);
+            console.log(`Rendered thumbnail for ${node.kind} (${node.id})${needsResize ? ' [resized to 128x128]' : ' [kept existing canvas]'}`);
           } else {
             console.warn(`No renderer found for ${node.kind}`);
           }
-          
+
           await new Promise(resolve => setTimeout(resolve, 30));
         } catch (error) {
           console.warn(`Failed to render thumbnail for node ${node.id}:`, error);
