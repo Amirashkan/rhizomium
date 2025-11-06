@@ -229,6 +229,7 @@ register(registry) {
   }
 
   renderSaturate(ctx, node) {
+    const size = ctx.canvas.width;
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
     
@@ -236,16 +237,16 @@ register(registry) {
     const result = computedResult;
 
     ctx.fillStyle = "#10b98120";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
     ctx.fillStyle = "#10b981";
     ctx.font = "bold 12px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("SAT", this.size / 2, this.size / 2 - 2);
+    ctx.fillText("SAT", size / 2, size / 2 - 2);
 
     ctx.font = "7px monospace";
-    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.formatValue(result, 2), size / 2, size / 2 + 12);
 
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
@@ -254,12 +255,13 @@ register(registry) {
     // Bar visualization (use extracted value)
     const displayVal = this.extractDisplayValue(input);
     const clampedInput = Math.max(0, Math.min(1, displayVal));
-    const barWidth = (this.size - 4) * clampedInput;
+    const barWidth = (size - 4) * clampedInput;
     ctx.fillStyle = "#10b981";
-    ctx.fillRect(2, this.size - 10, barWidth, 6);
+    ctx.fillRect(2, size - 10, barWidth, 6);
   }
 
   renderClamp(ctx, node) {
+    const size = ctx.canvas.width;
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
     
@@ -269,12 +271,12 @@ register(registry) {
     const result = computedResult;
 
     ctx.fillStyle = "#8b5cf620";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
     ctx.fillStyle = "#8b5cf6";
     ctx.font = "bold 10px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("CLAMP", this.size / 2, this.size / 2 - 4);
+    ctx.fillText("CLAMP", size / 2, size / 2 - 4);
 
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
@@ -284,10 +286,11 @@ register(registry) {
 
     ctx.font = "7px monospace";
     ctx.textAlign = "center";
-    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.formatValue(result, 2), size / 2, size / 2 + 12);
   }
 
   renderLerp(ctx, node) {
+    const size = ctx.canvas.width;
     const computedResult = this.previewSystem.computeNodeValue(node);
     const inputs = this.previewSystem.getConnectedInputs(node);
     
@@ -297,12 +300,12 @@ register(registry) {
     const result = computedResult;
 
     ctx.fillStyle = "#06b6d420";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
     ctx.fillStyle = "#06b6d4";
     ctx.font = "bold 12px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("LERP", this.size / 2, this.size / 2 - 4);
+    ctx.fillText("LERP", size / 2, size / 2 - 4);
 
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
@@ -311,36 +314,37 @@ register(registry) {
     ctx.fillText(`T:${this.formatValue(t, 2)}`, 2, 26);
 
     const tVal = this.extractDisplayValue(t);
-    const lerpPos = Math.max(0, Math.min(1, tVal)) * (this.size - 4);
+    const lerpPos = Math.max(0, Math.min(1, tVal)) * (size - 4);
     ctx.fillStyle = "#06b6d4";
-    ctx.fillRect(2, this.size - 8, this.size - 4, 2);
-    ctx.fillRect(lerpPos, this.size - 12, 4, 8);
+    ctx.fillRect(2, size - 8, size - 4, 2);
+    ctx.fillRect(lerpPos, size - 12, 4, 8);
 
     ctx.font = "7px monospace";
     ctx.textAlign = "center";
-    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.formatValue(result, 2), size / 2, size / 2 + 12);
   }
 
   renderSmoothstep(ctx, node) {
+    const size = ctx.canvas.width;
     const computedResult = this.previewSystem.computeNodeValue(node);
     const result = computedResult;
 
     ctx.fillStyle = "#f59e0b20";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
     ctx.fillStyle = "#f59e0b";
     ctx.font = "bold 9px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("SMOOTH", this.size / 2, this.size / 2 - 4);
+    ctx.fillText("SMOOTH", size / 2, size / 2 - 4);
 
     ctx.strokeStyle = "#f59e0b";
     ctx.lineWidth = 2;
     ctx.beginPath();
     
-    for (let i = 0; i < this.size; i++) {
-      const t = i / this.size;
+    for (let i = 0; i < size; i++) {
+      const t = i / size;
       const smoothT = t * t * (3 - 2 * t);
-      const y = this.size - smoothT * this.size;
+      const y = size - smoothT * size;
       
       if (i === 0) ctx.moveTo(i, y);
       else ctx.lineTo(i, y);
@@ -349,6 +353,6 @@ register(registry) {
 
     ctx.font = "7px monospace";
     ctx.fillStyle = "#f59e0b";
-    ctx.fillText(this.formatValue(result, 2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.formatValue(result, 2), size / 2, size / 2 + 12);
   }
 }

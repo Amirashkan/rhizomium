@@ -103,6 +103,7 @@ register(registry) {
   }
 
   renderRandom(ctx, node) {
+    const size = ctx.canvas.width;
     // Get seed parameter for consistent random patterns
     const seed = this.toSafeNumber(this.getParameterValue(node, "seed", 0), 0);
     const density = this.toSafeNumber(this.getParameterValue(node, "density", 1.0), 1.0);
@@ -114,8 +115,8 @@ register(registry) {
       return randomSeed / 233280;
     };
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
         const noise = seededRandom() * density;
         const color = Math.floor(Math.min(255, noise * 255));
         ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
@@ -132,14 +133,15 @@ register(registry) {
   }
 
   renderValueNoise(ctx, node) {
+    const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 5.0), 5.0);
     const amplitude = this.toSafeNumber(this.getParameterValue(node, "amplitude", 1.0), 1.0);
     const offset = this.toSafeNumber(this.getParameterValue(node, "offset", 0.0), 0.0);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = (x / this.size) * scale;
-        const v = (y / this.size) * scale;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
 
         const noise = this._simpleNoise(u, v) * amplitude + offset;
         const color = Math.floor(Math.max(0, Math.min(255, (noise * 0.5 + 0.5) * 255)));
@@ -156,15 +158,16 @@ register(registry) {
   }
 
   renderFBMNoise(ctx, node) {
+    const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 3.0), 3.0);
     const octaves = Math.max(1, Math.min(8, Math.round(this.toSafeNumber(this.getParameterValue(node, "octaves", 4), 4))));
     const persistence = this.toSafeNumber(this.getParameterValue(node, "persistence", 0.5), 0.5);
     const lacunarity = this.toSafeNumber(this.getParameterValue(node, "lacunarity", 2.0), 2.0);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = (x / this.size) * scale;
-        const v = (y / this.size) * scale;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
 
         let noise = 0;
         let amplitude = 1;
@@ -193,15 +196,16 @@ register(registry) {
   }
 
   renderSimplexNoise(ctx, node) {
+    const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 4.0), 4.0);
     const frequency1 = this.toSafeNumber(this.getParameterValue(node, "frequency1", 1.5), 1.5);
     const frequency2 = this.toSafeNumber(this.getParameterValue(node, "frequency2", 3.0), 3.0);
     const mix = this.toSafeNumber(this.getParameterValue(node, "mix", 0.7), 0.7);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = (x / this.size) * scale;
-        const v = (y / this.size) * scale;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
 
         const noise1 = this._simpleNoise(u * frequency1, v * frequency1);
         const noise2 = this._simpleNoise(u * frequency2, v * frequency2);
@@ -221,14 +225,15 @@ register(registry) {
   }
 
   renderVoronoiNoise(ctx, node) {
+    const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 8.0), 8.0);
     const cellType = this.getParameterValue(node, "cellType", "distance");
     const randomness = this.toSafeNumber(this.getParameterValue(node, "randomness", 1.0), 1.0);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = (x / this.size) * scale;
-        const v = (y / this.size) * scale;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
 
         const cellX = Math.floor(u);
         const cellY = Math.floor(v);
@@ -281,14 +286,15 @@ register(registry) {
   }
 
   renderRidgedNoise(ctx, node) {
+    const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 4.0), 4.0);
     const octaves = Math.max(1, Math.min(8, Math.round(this.toSafeNumber(this.getParameterValue(node, "octaves", 4), 4))));
     const ridge = this.toSafeNumber(this.getParameterValue(node, "ridge", 1.0), 1.0);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = (x / this.size) * scale;
-        const v = (y / this.size) * scale;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
 
         let noise = 0;
         let amplitude = 1;
@@ -316,14 +322,15 @@ register(registry) {
     }
   }
 renderPerlinNoise(ctx, node) {
+    const size = ctx.canvas.width;
   const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 5.0), 5.0);
   const octaves = Math.max(1, Math.min(8, Math.round(this.toSafeNumber(this.getParameterValue(node, "octaves", 4), 4))));
   const persistence = this.toSafeNumber(this.getParameterValue(node, "persistence", 0.5), 0.5);
 
-  for (let y = 0; y < this.size; y++) {
-    for (let x = 0; x < this.size; x++) {
-      const u = (x / this.size) * scale;
-      const v = (y / this.size) * scale;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = (x / size) * scale;
+      const v = (y / size) * scale;
 
       const noise = this._fractalNoise(u, v, octaves, persistence, 2.0);
       const color = Math.floor((noise * 0.5 + 0.5) * 255);
@@ -340,14 +347,15 @@ renderPerlinNoise(ctx, node) {
 }
 
 renderWarpNoise(ctx, node) {
+    const size = ctx.canvas.width;
   const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 3.0), 3.0);
   const warpStrength = this.toSafeNumber(this.getParameterValue(node, "warpStrength", 2.0), 2.0);
   const warpScale = this.toSafeNumber(this.getParameterValue(node, "warpScale", 1.5), 1.5);
 
-  for (let y = 0; y < this.size; y++) {
-    for (let x = 0; x < this.size; x++) {
-      const u = (x / this.size) * scale;
-      const v = (y / this.size) * scale;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = (x / size) * scale;
+      const v = (y / size) * scale;
 
       // Domain warping
       const warpX = this._simpleNoise(u * warpScale, v * warpScale) * warpStrength;
@@ -368,13 +376,14 @@ renderWarpNoise(ctx, node) {
 }
 
 renderWorleyNoise(ctx, node) {
+    const size = ctx.canvas.width;
   const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 8.0), 8.0);
   const jitter = this.toSafeNumber(this.getParameterValue(node, "jitter", 1.0), 1.0);
 
-  for (let y = 0; y < this.size; y++) {
-    for (let x = 0; x < this.size; x++) {
-      const u = (x / this.size) * scale;
-      const v = (y / this.size) * scale;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = (x / size) * scale;
+      const v = (y / size) * scale;
 
       const cellX = Math.floor(u);
       const cellY = Math.floor(v);
@@ -405,14 +414,15 @@ renderWorleyNoise(ctx, node) {
   }
 }
   renderTurbulence(ctx, node) {
+    const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 3.0), 3.0);
     const power = this.toSafeNumber(this.getParameterValue(node, "power", 1.0), 1.0);
     const roughness = this.toSafeNumber(this.getParameterValue(node, "roughness", 2.0), 2.0);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = (x / this.size) * scale;
-        const v = (y / this.size) * scale;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
 
         // Turbulence using domain distortion
         const distortX = this._simpleNoise(u * roughness, v * roughness) * power;
