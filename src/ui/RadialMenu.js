@@ -879,23 +879,31 @@ _createNode(kind) {
   this.graph.nodes.push(node);
   this.graph.selection = new Set([node.id]);
 
-  // Record node creation for undo
+  // Record node creation for undo system
   if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
     window.onNodeCreated(node);
   }
 
-  // CRITICAL: Hide menu FIRST so it doesn't cover the canvas
+  // CRITICAL ORDER OF OPERATIONS (do not reorder these steps):
+
+  // 1. Hide the radial menu FIRST so it doesn't overlay the canvas
   this.hide();
 
-  // Then redraw canvas immediately so node appears
+  // 2. Immediately redraw the UI canvas so the new node appears visually
+  //    IMPORTANT: editor.draw() renders the 2D UI canvas (node boxes, wires, etc.)
+  //    This is SEPARATE from GPU shader compilation which happens later in onChange
+  //    Without this call, the node exists in the graph but is invisible until next redraw
   if (window.editor && typeof window.editor.draw === 'function') {
     if (typeof window.editor.markDirty === 'function') {
       window.editor.markDirty('node-creation');
     }
-    window.editor.draw();
+    window.editor.draw(); // Makes node visible immediately
   }
 
-  // Delay onChange to allow GPU state to settle and prevent bind group mismatch
+  // 3. Delay GPU shader compilation (onChange calls updateShaderFromGraph)
+  //    The 50ms delay allows GPU bind groups to settle and prevents mismatch errors
+  //    NOTE: updateShaderFromGraph() updates the GPU shader but does NOT redraw the canvas
+  //    That's why we need the explicit editor.draw() call above
   setTimeout(() => {
     if (this.onChange) this.onChange();
   }, 50);
