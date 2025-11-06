@@ -2051,36 +2051,32 @@ function handleRenderFrame(frameState) {
   // All updates happen once on mouseup
   const isDragging = editor?._parameterDragging || false;
 
-  // PERFORMANCE LOGGING: Verify pause is working
+  // PERFORMANCE LOGGING: Verify optimization is working
   if (isDragging && !window._dragLogShown) {
-    console.log('[PERF] Render loop PAUSED - drag detected');
+    console.log('[PERF] Render loop OPTIMIZED - skipping expensive operations during drag');
     window._dragLogShown = true;
   } else if (!isDragging && window._dragLogShown) {
-    console.log('[PERF] Render loop RESUMED');
+    console.log('[PERF] Render loop FULL - all operations resumed');
     window._dragLogShown = false;
   }
 
-  // PERFORMANCE: Skip ALL operations during drag
-  if (isDragging) {
-    return; // Early exit - do absolutely nothing
-  }
-
-  // Update timeline manager
-  if (timelineManager && timelineManager.isEnabled()) {
+  // PERFORMANCE: Skip expensive operations during drag, but keep basic rendering
+  // Update timeline manager (only if not dragging)
+  if (!isDragging && timelineManager && timelineManager.isEnabled()) {
     timelineManager.update(frameState.deltaTime);
   }
 
-  // Update timeline panel visualization
-  if (timelinePanel) {
+  // Update timeline panel visualization (only if not dragging)
+  if (!isDragging && timelinePanel) {
     timelinePanel.update();
   }
 
-  // GPU rendering
+  // GPU rendering - ALWAYS render for visual feedback
   if (window.gpuRenderer) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
 
-    // Stream frames to external viewers if enabled
-    if (frameStreamingEnabled) {
+    // Stream frames to external viewers if enabled (only if not dragging)
+    if (!isDragging && frameStreamingEnabled) {
       const canvas = document.getElementById('gpu-canvas');
       if (canvas) {
         // Use BroadcastChannel for Vercel/cloud deployments
@@ -2095,35 +2091,38 @@ function handleRenderFrame(frameState) {
     }
   }
 
-  // FPS counter
+  // FPS counter - ALWAYS update for performance monitoring
   if (!frameState.manual && floatingPreview?.fpsCounter) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Undo UI updates
-  if (undoManager) {
+  // Undo UI updates (only if not dragging)
+  if (!isDragging && undoManager) {
     undoManager.updateUI();
   }
 
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
   if (!frameState.manual) {
-    // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
-    // Previews computed every 100ms, but canvas still redraws every frame for smooth animations
-    const now = performance.now();
-    const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
+    // PERFORMANCE: Skip preview computations during drag (expensive!)
+    if (!isDragging) {
+      // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
+      // Previews computed every 100ms, but canvas still redraws every frame for smooth animations
+      const now = performance.now();
+      const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
 
-    if (shouldUpdatePreviews) {
-      // Update preview values for time/audio-based expressions
-      // This ensures node labels show current values
-      if (editor?.previewComputer && editor?.graph) {
-        editor.previewComputer.computePreviews(editor.graph);
+      if (shouldUpdatePreviews) {
+        // Update preview values for time/audio-based expressions
+        // This ensures node labels show current values
+        if (editor?.previewComputer && editor?.graph) {
+          editor.previewComputer.computePreviews(editor.graph);
+        }
+        lastPreviewUpdate = now;
       }
-      lastPreviewUpdate = now;
     }
 
-    // ALWAYS redraw canvas every frame for smooth animations
-    // (Preview computation is throttled, but rendering is not)
+    // ALWAYS redraw canvas every frame for smooth animations (even during drag)
+    // (Preview computation is skipped during drag, but editor canvas rendering continues)
     if (editor?.draw) {
       if (editor.markDirty) {
         editor.markDirty('animation-frame');

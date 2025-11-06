@@ -1007,7 +1007,8 @@ isIncomplete(value) {
           if (!node.params) node.params = {};
           node.params[param.name] = input.value;
 
-          // PERFORMANCE: Throttled shader rebuild AND render for visual feedback
+          // PERFORMANCE: Throttled shader rebuild for visual feedback
+          // Main render loop continues during drag, so we only need to rebuild shader
           // Throttle to 100ms (10fps) for smooth drag without killing performance
           const now = performance.now();
           const THROTTLE_MS = 100;
@@ -1015,11 +1016,6 @@ isIncomplete(value) {
             lastRebuildTime = now;
             if (typeof window.rebuild === 'function') {
               window.rebuild();
-            }
-            // CRITICAL: Call render() to actually display the update
-            // Main render loop is paused during drag, so we must render manually
-            if (typeof window.render === 'function') {
-              window.render();
             }
           }
 
