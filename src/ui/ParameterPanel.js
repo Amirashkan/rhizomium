@@ -1687,29 +1687,46 @@ _processPreviewUpdate(node) {
   handleParameterChange(data) {
     const { node, parameterName, newValue, source } = data;
 
-    this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
-
     if (this.selectedNode && this.selectedNode.id === node.id) {
-      // For MIDI sources, skip ALL display updates during active control
-      // Everything will be updated after MIDI activity stops (zero overhead!)
+      // For MIDI sources, use ultra-lightweight updates during active control
       if (source === 'midi') {
-        // Debounce ALL UI updates until MIDI activity stops
+        // LIGHTWEIGHT: Just update the input text value (no queries, no style changes)
+        this._lightweightMIDIValueUpdate(node.id, parameterName, newValue);
+
+        // Debounce expensive operations until MIDI activity stops
         if (this._midiDisplayUpdateTimer) {
           clearTimeout(this._midiDisplayUpdateTimer);
         }
         this._midiDisplayUpdateTimer = setTimeout(() => {
-          // Update everything after MIDI stops
+          // Update expression cache and full display after MIDI stops
+          this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
           this.refreshParameterDisplays();
-          if (this.textInputHandler?.updateMIDIValueDisplay) {
-            this.textInputHandler.updateMIDIValueDisplay(node.id, parameterName, newValue);
-          }
         }, this._midiDisplayUpdateDelay);
 
         return;
       }
 
       // For non-MIDI sources, update immediately
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
       this.refreshParameterDisplays();
+    } else if (source !== 'midi') {
+      // Only update dependencies for non-MIDI sources if node not selected
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+    }
+  }
+
+  _lightweightMIDIValueUpdate(nodeId, paramName, newValue) {
+    // Ultra-lightweight: just update the input.value text, nothing else
+    // No DOM queries, no style changes, no validation - just the text
+    const key = `${nodeId}_${paramName}`;
+    const inputData = this.textInputHandler?.activeInputs?.get(key);
+
+    if (inputData?.input && document.activeElement !== inputData.input) {
+      // Only update if user is not currently editing
+      const displayValue = typeof newValue === 'number'
+        ? Math.round(newValue * 10000) / 10000
+        : newValue;
+      inputData.input.value = String(displayValue);
     }
   }
 

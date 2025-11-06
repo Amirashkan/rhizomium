@@ -528,22 +528,18 @@ connectGPURenderer(renderFunction) {
     try {
       const { node, parameterName, newValue, source } = data;
 
-      // Always update expression dependencies (cheap - just clears cache)
-      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
-
-      // For MIDI sources, skip expensive preview updates during active control
-      // Preview updates will be scheduled after MIDI activity stops
+      // For MIDI sources, defer ALL expensive operations until MIDI stops
       if (source === 'midi') {
         // Store this update to be processed later
         const key = `${node.id}:${parameterName}`;
-        this.pendingMidiDependencyUpdates.set(key, { node, parameterName });
+        this.pendingMidiDependencyUpdates.set(key, { node, parameterName, newValue });
 
         // Clear any existing timer
         if (this.midiPreviewUpdateTimer) {
           clearTimeout(this.midiPreviewUpdateTimer);
         }
 
-        // Schedule preview update after MIDI activity stops (debounced)
+        // Schedule updates after MIDI activity stops (debounced)
         this.midiPreviewUpdateTimer = setTimeout(() => {
           this.processPendingMidiDependencyUpdates();
         }, this.midiPreviewUpdateDelay);
@@ -552,6 +548,7 @@ connectGPURenderer(renderFunction) {
       }
 
       // For non-MIDI sources, update immediately
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
       this.updateDependentNodePreviews(node, parameterName);
     } catch (error) {
       console.warn('Error handling parameter change for expressions:', error);
@@ -561,7 +558,10 @@ connectGPURenderer(renderFunction) {
   processPendingMidiDependencyUpdates() {
     try {
       // Process all pending MIDI dependency updates in a single batch
-      for (const { node, parameterName } of this.pendingMidiDependencyUpdates.values()) {
+      for (const { node, parameterName, newValue } of this.pendingMidiDependencyUpdates.values()) {
+        // Update expression dependencies (cache clearing)
+        this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+        // Update previews for dependent nodes
         this.updateDependentNodePreviews(node, parameterName);
       }
 
