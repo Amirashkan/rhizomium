@@ -2051,21 +2051,32 @@ function handleRenderFrame(frameState) {
   // All updates happen once on mouseup
   const isDragging = editor?._parameterDragging || false;
 
-  // PERFORMANCE: Skip timeline updates during drag too
-  if (!isDragging) {
-    // Update timeline manager
-    if (timelineManager && timelineManager.isEnabled()) {
-      timelineManager.update(frameState.deltaTime);
-    }
-
-    // Update timeline panel visualization
-    if (timelinePanel) {
-      timelinePanel.update();
-    }
+  // PERFORMANCE LOGGING: Verify pause is working
+  if (isDragging && !window._dragLogShown) {
+    console.log('[PERF] Render loop PAUSED - drag detected');
+    window._dragLogShown = true;
+  } else if (!isDragging && window._dragLogShown) {
+    console.log('[PERF] Render loop RESUMED');
+    window._dragLogShown = false;
   }
 
-  // PERFORMANCE: Skip GPU rendering during drag
-  if (!isDragging && window.gpuRenderer) {
+  // PERFORMANCE: Skip ALL operations during drag
+  if (isDragging) {
+    return; // Early exit - do absolutely nothing
+  }
+
+  // Update timeline manager
+  if (timelineManager && timelineManager.isEnabled()) {
+    timelineManager.update(frameState.deltaTime);
+  }
+
+  // Update timeline panel visualization
+  if (timelinePanel) {
+    timelinePanel.update();
+  }
+
+  // GPU rendering
+  if (window.gpuRenderer) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
 
     // Stream frames to external viewers if enabled
@@ -2084,20 +2095,19 @@ function handleRenderFrame(frameState) {
     }
   }
 
-  // PERFORMANCE: Skip FPS counter during drag
-  if (!isDragging && !frameState.manual && floatingPreview?.fpsCounter) {
+  // FPS counter
+  if (!frameState.manual && floatingPreview?.fpsCounter) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // PERFORMANCE: Skip undo UI updates during drag
-  if (!isDragging && undoManager) {
+  // Undo UI updates
+  if (undoManager) {
     undoManager.updateUI();
   }
 
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
-  // PERFORMANCE: Skip during parameter drag
-  if (!frameState.manual && !isDragging) {
+  if (!frameState.manual) {
     // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
     // Previews computed every 100ms, but canvas still redraws every frame for smooth animations
     const now = performance.now();
