@@ -149,15 +149,16 @@ export class TransformRenderers {
       // This handles both 48x48 (preview system) and 128x128 (manual rendering) canvases
       const size = ctx.canvas.width;
 
-      // Clear background
-      ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, size, size);
-
-      // Validate input canvas has valid dimensions
+      // Validate input canvas has valid dimensions BEFORE clearing
+      // This prevents leaving a black canvas if validation fails
       if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
         console.warn('Invalid input canvas for transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
-        return;
+        return false; // Return false to signal failure
       }
+
+      // Clear background AFTER validation passes
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, size, size);
 
       // Save context state
       ctx.save();
@@ -217,15 +218,15 @@ export class TransformRenderers {
       // Use actual canvas size from context instead of this.size
       const size = ctx.canvas.width;
 
-      // Clear background
-      ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, size, size);
-
-      // Validate input canvas has valid dimensions
+      // Validate input canvas has valid dimensions BEFORE clearing
       if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
         console.warn('Invalid input canvas for tiling, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
-        return;
+        return false; // Return false to signal failure
       }
+
+      // Clear background AFTER validation passes
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, size, size);
 
       ctx.save();
 
@@ -272,13 +273,15 @@ export class TransformRenderers {
       const width = ctx.canvas.width;
       const height = ctx.canvas.height;
 
-      // Validate input canvas exists and has valid dimensions
+      // Validate input canvas exists and has valid dimensions BEFORE clearing
       if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
         console.warn('Invalid input canvas for UV transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
-        ctx.fillStyle = "#141414";
-        ctx.fillRect(0, 0, width, height);
-        return;
+        return false; // Return false to signal failure
       }
+
+      // Clear destination background BEFORE drawing
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, width, height);
 
       const sourceCtx = inputCanvas.getContext('2d');
       if (!sourceCtx) {
@@ -466,33 +469,37 @@ export class TransformRenderers {
 
     // Check if there's an input to transform
     const inputCanvas = this.getInputPreview(node);
-    
+
     if (inputCanvas) {
-      console.log(`✓ Transform2D rendering with input from Circle`);
+      console.log(`✓ Transform2D rendering with input`);
       console.log(`   Canvas context: ${ctx.canvas.width}x${ctx.canvas.height}`);
-      
-      // Transform the input image
-      this.applyImageTransform(ctx, inputCanvas, {
+
+      // Transform the input image - check if it succeeds
+      const success = this.applyImageTransform(ctx, inputCanvas, {
         translateX, translateY, scaleX, scaleY, rotation, centerX, centerY
       });
-      
-      // Log after drawing
-      console.log(`   Finished drawing to canvas, node.__thumb will be:`, ctx.canvas);
-      
-      // Add visual indicator that this is showing transformed input
-      ctx.save();
-      ctx.fillStyle = "rgba(74, 144, 226, 0.8)";
-      ctx.fillRect(0, 0, 12, 10);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 7px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("T", 6, 7);
-      ctx.restore();
-      
-      if (this.hasExpressions(node)) {
-        this.drawExpressionIndicator(ctx);
+
+      // If transform failed, fall through to show UV grid
+      if (success !== false) {
+        console.log(`   Finished drawing transformed input`);
+
+        // Add visual indicator that this is showing transformed input
+        ctx.save();
+        ctx.fillStyle = "rgba(74, 144, 226, 0.8)";
+        ctx.fillRect(0, 0, 12, 10);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 7px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("T", 6, 7);
+        ctx.restore();
+
+        if (this.hasExpressions(node)) {
+          this.drawExpressionIndicator(ctx);
+        }
+        return;
+      } else {
+        console.warn(`   Transform failed, falling back to UV grid`);
       }
-      return;
     }
 
     // No input - show UV grid
