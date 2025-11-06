@@ -2046,17 +2046,23 @@ function updateStatus(message, type = "info") {
 }
 
 function handleRenderFrame(frameState) {
-  // Update timeline manager
+  // PERFORMANCE: Skip expensive operations during parameter drag
+  // When dragging parameters, we don't need to update anything
+  // All updates happen once on mouseup
+  const isDragging = editor?._parameterDragging || false;
+
+  // Update timeline manager (lightweight, keep running)
   if (timelineManager && timelineManager.isEnabled()) {
     timelineManager.update(frameState.deltaTime);
   }
 
-  // Update timeline panel visualization
+  // Update timeline panel visualization (lightweight, keep running)
   if (timelinePanel) {
     timelinePanel.update();
   }
 
-  if (window.gpuRenderer) {
+  // PERFORMANCE: Skip GPU rendering during drag
+  if (!isDragging && window.gpuRenderer) {
     window.gpuRenderer.render({ timeSec: frameState.simTime });
 
     // Stream frames to external viewers if enabled
@@ -2085,7 +2091,8 @@ function handleRenderFrame(frameState) {
 
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
-  if (!frameState.manual) {
+  // PERFORMANCE: Skip during parameter drag
+  if (!frameState.manual && !isDragging) {
     // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
     // Previews computed every 100ms, but canvas still redraws every frame for smooth animations
     const now = performance.now();

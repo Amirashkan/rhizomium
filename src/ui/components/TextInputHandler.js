@@ -401,7 +401,13 @@ input.addEventListener("input", (e) => {
         dragStartValue = startValue;
         startY = e.clientY;
         input.style.cursor = "ns-resize";
-        
+
+        // PERFORMANCE: Signal that we're in a drag operation
+        // This allows the continuous render loop to skip expensive operations
+        if (window.editor) {
+          window.editor._parameterDragging = true;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
@@ -419,32 +425,12 @@ input.addEventListener("input", (e) => {
             input.value = newValue.toFixed(3);
           }
 
-          // Throttle updates using requestAnimationFrame for better performance
-          if (this._pendingUpdate !== null) {
-            return; // Update already scheduled
-          }
-
-          this._pendingUpdate = requestAnimationFrame(() => {
-            this._pendingUpdate = null;
-
-            // PERFORMANCE: Skip expensive operations during drag
-            // Update parameter value directly without triggering:
-            // - Shader recompilation (onChange callback)
-            // - Preview computation (PreviewIntegration)
-            // - Undo recording
-            const oldUndoManager = valueManager.undoManager;
-            valueManager.undoManager = null;
-
-            // Update the node parameter WITHOUT onChange callback (no shader rebuild)
-            valueManager.updateNodeParameter(node, param.name, input.value, null);
-
-            valueManager.undoManager = oldUndoManager;
-
-            // Trigger only a canvas redraw to show the updated value
-            if (window.editor?.draw) {
-              window.editor.draw();
-            }
-          });
+          // PERFORMANCE: During drag, ONLY update the visual input value
+          // Skip ALL expensive operations:
+          // - No updateNodeParameter calls (skips expression evaluation, events)
+          // - No editor.draw() calls (skips full canvas rendering)
+          // - Just show the number changing in the input field
+          // All actual updates happen once on mouseup
 
           e.preventDefault();
         };
@@ -452,12 +438,6 @@ input.addEventListener("input", (e) => {
         const onMouseUp = (e) => {
           // PERFORMANCE: Disable console logging during drag
           // console.log(`Ending shift+drag on ${param.name}`);
-
-          // Cancel any pending update
-          if (this._pendingUpdate !== null) {
-            cancelAnimationFrame(this._pendingUpdate);
-            this._pendingUpdate = null;
-          }
 
           // PERFORMANCE: Apply final value WITH all expensive operations
           // Now we trigger shader rebuild and preview computation once at the end
@@ -482,6 +462,11 @@ input.addEventListener("input", (e) => {
           dragStartValue = null;
           input.style.cursor = "";
           document.body.style.cursor = "";
+
+          // PERFORMANCE: Clear drag flag to resume normal rendering
+          if (window.editor) {
+            window.editor._parameterDragging = false;
+          }
 
           window.removeEventListener("mousemove", onMouseMove);
           window.removeEventListener("mouseup", onMouseUp);
