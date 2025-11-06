@@ -559,6 +559,12 @@ export class ExpressionTextInputHandler {
     this.undoManager = undoManager;
     this.expressionSystem = expressionSystem;
     this.activeInputs = new Map(); // Track active inputs for real-time updates
+
+    // MIDI value display throttling
+    this.midiUpdatePending = false;
+    this.pendingMidiUpdates = new Map();
+    this.lastMidiUpdateTime = 0;
+    this.midiUpdateThrottle = 50; // ms - max 20 updates/sec
   }
 
 create(param, node, div, label, valueManager, onChange) {
@@ -1124,51 +1130,80 @@ isIncomplete(value) {
    */
   updateMIDIValueDisplay(nodeId, paramName, newValue) {
     const key = `${nodeId}_${paramName}`;
-    const inputData = this.activeInputs.get(key);
 
-    if (!inputData) return; // Input not currently visible
+    // Store the latest value
+    this.pendingMidiUpdates.set(key, { nodeId, paramName, newValue });
 
-    const { input, resultDisplay, param, node, valueManager } = inputData;
-
-    // Don't update if user is currently editing the input
-    if (document.activeElement === input) {
+    // Throttle updates to avoid excessive DOM operations
+    const now = performance.now();
+    if (now - this.lastMidiUpdateTime < this.midiUpdateThrottle) {
+      // Schedule update if not already scheduled
+      if (!this.midiUpdatePending) {
+        this.midiUpdatePending = true;
+        requestAnimationFrame(() => {
+          this._performPendingMidiUpdates();
+        });
+      }
       return;
     }
 
-    // Format the value nicely
-    let displayValue = newValue;
-    if (typeof newValue === 'number') {
-      // Round to 4 decimal places for display
-      displayValue = Math.round(newValue * 10000) / 10000;
+    // Update immediately if enough time has passed
+    this._performPendingMidiUpdates();
+  }
+
+  _performPendingMidiUpdates() {
+    // Process all pending MIDI value updates
+    for (const [key, { nodeId, paramName, newValue }] of this.pendingMidiUpdates.entries()) {
+      const inputData = this.activeInputs.get(key);
+      if (!inputData) continue; // Input not currently visible
+
+      const { input, resultDisplay } = inputData;
+
+      // Don't update if user is currently editing the input
+      if (document.activeElement === input) {
+        continue;
+      }
+
+      // Format the value nicely
+      let displayValue = newValue;
+      if (typeof newValue === 'number') {
+        // Round to 4 decimal places for display
+        displayValue = Math.round(newValue * 10000) / 10000;
+      }
+
+      // Update the input value
+      const newValueStr = String(displayValue);
+      if (input.value !== newValueStr) {
+        input.value = newValueStr;
+        this._autoResizeTextArea(input);
+      }
+
+      // Update the result display to show real-time MIDI feedback
+      if (resultDisplay) {
+        resultDisplay.textContent = `🎹 ${displayValue}`;
+        resultDisplay.style.color = '#FFD700'; // Gold color for MIDI
+
+        // Clear the MIDI indicator after a short delay
+        clearTimeout(inputData.midiIndicatorTimeout);
+        inputData.midiIndicatorTimeout = setTimeout(() => {
+          if (resultDisplay.textContent.startsWith('🎹')) {
+            resultDisplay.textContent = '';
+          }
+        }, 1000);
+      }
+
+      // Update styling to indicate normal value (not expression)
+      input.style.fontFamily = 'inherit';
+      input.style.backgroundColor = '#333';
+      input.style.color = '#fff';
+      input.style.borderColor = '#555';
+      input.classList.remove('has-expression');
     }
 
-    // Update the input value
-    const newValueStr = String(displayValue);
-    if (input.value !== newValueStr) {
-      input.value = newValueStr;
-      this._autoResizeTextArea(input);
-    }
-
-    // Update the result display to show real-time MIDI feedback
-    if (resultDisplay) {
-      resultDisplay.textContent = `🎹 ${displayValue}`;
-      resultDisplay.style.color = '#FFD700'; // Gold color for MIDI
-
-      // Clear the MIDI indicator after a short delay
-      clearTimeout(inputData.midiIndicatorTimeout);
-      inputData.midiIndicatorTimeout = setTimeout(() => {
-        if (resultDisplay.textContent.startsWith('🎹')) {
-          resultDisplay.textContent = '';
-        }
-      }, 1000);
-    }
-
-    // Update styling to indicate normal value (not expression)
-    input.style.fontFamily = 'inherit';
-    input.style.backgroundColor = '#333';
-    input.style.color = '#fff';
-    input.style.borderColor = '#555';
-    input.classList.remove('has-expression');
+    // Clear pending updates and reset state
+    this.pendingMidiUpdates.clear();
+    this.lastMidiUpdateTime = performance.now();
+    this.midiUpdatePending = false;
   }
 
   destroy() {

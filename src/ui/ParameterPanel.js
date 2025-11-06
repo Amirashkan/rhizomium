@@ -33,6 +33,10 @@ export class ParameterPanel {
     this._previewFrame = null;
     this._outputRebuildTimeout = null;
 
+    // MIDI parameter display update throttling
+    this._midiDisplayUpdateTimer = null;
+    this._midiDisplayUpdateDelay = 500; // ms - delay before updating displays after MIDI stops
+
     // Initialize GraphProcessor for expression-aware downstream tracking
     this.graphProcessor = new GraphProcessor();
 
@@ -1686,12 +1690,27 @@ _processPreviewUpdate(node) {
     this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
 
     if (this.selectedNode && this.selectedNode.id === node.id) {
-      this.refreshParameterDisplays();
+      // For MIDI sources, skip expensive display updates during active control
+      // Updates will be scheduled after MIDI activity stops
+      if (source === 'midi') {
+        // Update only the specific MIDI-controlled input display (lightweight)
+        if (this.textInputHandler?.updateMIDIValueDisplay) {
+          this.textInputHandler.updateMIDIValueDisplay(node.id, parameterName, newValue);
+        }
 
-      // Update input display for MIDI-controlled parameters
-      if (source === 'midi' && this.textInputHandler?.updateMIDIValueDisplay) {
-        this.textInputHandler.updateMIDIValueDisplay(node.id, parameterName, newValue);
+        // Debounce full refresh until MIDI activity stops
+        if (this._midiDisplayUpdateTimer) {
+          clearTimeout(this._midiDisplayUpdateTimer);
+        }
+        this._midiDisplayUpdateTimer = setTimeout(() => {
+          this.refreshParameterDisplays();
+        }, this._midiDisplayUpdateDelay);
+
+        return;
       }
+
+      // For non-MIDI sources, update immediately
+      this.refreshParameterDisplays();
     }
   }
 
