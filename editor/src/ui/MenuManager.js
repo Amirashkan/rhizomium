@@ -299,8 +299,10 @@ export class MenuManager {
         const menuItem = this._createMenuItem(
           item.label,
           () => {
+            console.log('>>> MENU ITEM CLICKED:', item.kind);
             this.hide();
             this._createNode(item.kind);
+            console.log('>>> DONE CREATING NODE');
           },
           categoryName,
         );
@@ -351,27 +353,45 @@ export class MenuManager {
   }
 
   _createNode(kind) {
+    console.log('>>> _createNode START:', kind);
     const node = makeNode(kind, this.menuPos.x, this.menuPos.y);
+    console.log('>>> Node object created:', node.id);
+
     this.graph.nodes.push(node);
+    console.log('>>> Node added to graph, total nodes:', this.graph.nodes.length);
+
     this.graph.selection = new Set([node.id]);
+    console.log('>>> Node selected');
 
     // Record node creation for undo
     if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
       window.onNodeCreated(node);
+      console.log('>>> onNodeCreated called');
     }
 
     // CRITICAL FIX: Redraw canvas immediately so node appears
+    console.log('>>> About to call editor.draw()');
+    console.log('>>> window.editor exists?', !!window.editor);
+    console.log('>>> window.editor.draw exists?', !!(window.editor && window.editor.draw));
+
     if (window.editor && typeof window.editor.draw === 'function') {
       if (typeof window.editor.markDirty === 'function') {
         window.editor.markDirty('node-creation');
+        console.log('>>> markDirty called');
       }
       window.editor.draw();
+      console.log('>>> editor.draw() called');
+    } else {
+      console.log('>>> ERROR: Cannot call editor.draw()');
     }
 
     // Then trigger shader update after delay
     if (this.onChange) {
+      console.log('>>> Scheduling onChange callback');
       setTimeout(this.onChange, 50);
     }
+
+    console.log('>>> _createNode END');
   }
 
   _duplicateSelected() {
