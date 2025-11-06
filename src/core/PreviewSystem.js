@@ -298,7 +298,7 @@ updateAllPreviews(nodes) {
 // Add this helper method to PreviewSystem
 topologicalSort(nodes) {
   if (!nodes || !Array.isArray(nodes)) return [];
-  
+
   const byId = new Map(nodes.map(n => [n.id, n]));
   const visited = new Set();
   const result = [];
@@ -323,33 +323,7 @@ topologicalSort(nodes) {
   nodes.forEach(node => {
     if (node && node.id) visit(node.id);
   });
-  
-  return result;
-}
-// Add this helper method to PreviewSystem
-topologicalSort(nodes) {
-  const byId = new Map(nodes.map(n => [n.id, n]));
-  const visited = new Set();
-  const result = [];
 
-  const visit = (nodeId) => {
-    if (visited.has(nodeId)) return;
-    visited.add(nodeId);
-
-    const node = byId.get(nodeId);
-    if (!node) return;
-
-    // Visit dependencies first
-    if (node.inputs && Array.isArray(node.inputs)) {
-      for (const inputId of node.inputs) {
-        if (inputId) visit(inputId);
-      }
-    }
-
-    result.push(node);
-  };
-
-  nodes.forEach(node => visit(node.id));
   return result;
 }
 

@@ -81,7 +81,7 @@ export class TransformRenderers {
 
       const inputNodeId = node.inputs[0];
       const graph = this.previewSystem?.editor?.graph;
-      
+
       if (!graph) {
         console.warn('No graph available in preview system');
         return null;
@@ -89,7 +89,7 @@ export class TransformRenderers {
 
       // Find the input node
       const inputNode = graph.nodes.find(n => n.id === inputNodeId);
-      
+
       if (!inputNode) {
         console.warn(`Input node ${inputNodeId} not found in graph`);
         return null;
@@ -97,22 +97,15 @@ export class TransformRenderers {
 
       console.log(`Transform ${node.id} checking input ${inputNode.kind} (${inputNode.id})`);
 
-      // Get or generate the input node's preview
-      if (!inputNode.__thumb) {
-        console.log(`Input node ${inputNode.id} has no preview, generating...`);
-        // Generate preview for input node if it doesn't exist
-        if (this.previewSystem.generateNodePreview) {
-          this.previewSystem.generateNodePreview(inputNode);
-        }
-      }
-
+      // Return the input node's preview (topological sort ensures it's already rendered)
+      // If it's not available, return null and let validation handle it
       if (inputNode.__thumb) {
         console.log(`✓ Got input preview from ${inputNode.kind}, size: ${inputNode.__thumb.width}x${inputNode.__thumb.height}`);
       } else {
-        console.warn(`✗ Failed to get preview from ${inputNode.kind}`);
+        console.log(`✗ Input node ${inputNode.kind} has no __thumb yet (will retry on next render)`);
       }
 
-      return inputNode.__thumb;
+      return inputNode.__thumb || null;
     } catch (error) {
       console.warn('Error getting input preview:', error);
       return null;
