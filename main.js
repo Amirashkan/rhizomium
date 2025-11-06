@@ -2051,14 +2051,17 @@ function handleRenderFrame(frameState) {
   // All updates happen once on mouseup
   const isDragging = editor?._parameterDragging || false;
 
-  // Update timeline manager (lightweight, keep running)
-  if (timelineManager && timelineManager.isEnabled()) {
-    timelineManager.update(frameState.deltaTime);
-  }
+  // PERFORMANCE: Skip timeline updates during drag too
+  if (!isDragging) {
+    // Update timeline manager
+    if (timelineManager && timelineManager.isEnabled()) {
+      timelineManager.update(frameState.deltaTime);
+    }
 
-  // Update timeline panel visualization (lightweight, keep running)
-  if (timelinePanel) {
-    timelinePanel.update();
+    // Update timeline panel visualization
+    if (timelinePanel) {
+      timelinePanel.update();
+    }
   }
 
   // PERFORMANCE: Skip GPU rendering during drag
@@ -2081,11 +2084,13 @@ function handleRenderFrame(frameState) {
     }
   }
 
-  if (!frameState.manual && floatingPreview?.fpsCounter) {
+  // PERFORMANCE: Skip FPS counter during drag
+  if (!isDragging && !frameState.manual && floatingPreview?.fpsCounter) {
     floatingPreview.fpsCounter.frame();
   }
 
-  if (undoManager) {
+  // PERFORMANCE: Skip undo UI updates during drag
+  if (!isDragging && undoManager) {
     undoManager.updateUI();
   }
 

@@ -415,6 +415,9 @@ input.addEventListener("input", (e) => {
         const onMouseMove = (e) => {
           if (!isDragging) return;
 
+          // PERFORMANCE MEASUREMENT: Time this handler
+          const t0 = performance.now();
+
           const deltaY = startY - e.clientY;
           const sensitivity = e.ctrlKey ? 0.001 : e.altKey ? 0.1 : 0.01;
           const newValue = startValue + deltaY * sensitivity;
@@ -424,6 +427,11 @@ input.addEventListener("input", (e) => {
             currentDragValue = Math.round(newValue);
           } else {
             currentDragValue = newValue;
+          }
+
+          const t1 = performance.now();
+          if (t1 - t0 > 1) {
+            console.warn(`[PERF] Drag handler took ${(t1 - t0).toFixed(2)}ms`);
           }
 
           // PERFORMANCE: During drag, do ABSOLUTELY NOTHING
