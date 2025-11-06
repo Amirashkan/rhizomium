@@ -290,8 +290,11 @@ export class MenuManager {
         const menuItem = this._createMenuItem(
           item.label,
           () => {
-            this._createNode(item.kind);
+            // Hide menu first, then create node after DOM updates
             this.hide();
+            setTimeout(() => {
+              this._createNode(item.kind);
+            }, 0);
           },
           categoryName,
         );
