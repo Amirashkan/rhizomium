@@ -345,6 +345,15 @@ export class ParameterBindingSystem {
     this.midiBindingUpdateTimer = null;
   }
 
+  // Public method to flush pending MIDI binding updates immediately (e.g., on node deselect)
+  flushPendingMidiUpdates() {
+    if (this.midiBindingUpdateTimer) {
+      clearTimeout(this.midiBindingUpdateTimer);
+      this.midiBindingUpdateTimer = null;
+      this.processPendingMidiBindingUpdates();
+    }
+  }
+
   // Check if creating a binding would create circular dependency
   wouldCreateCircularDependency(sourceNodeId, sourceParamName, targetNodeId, targetParamName) {
     const visited = new Set();

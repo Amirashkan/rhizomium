@@ -574,6 +574,15 @@ connectGPURenderer(renderFunction) {
     }
   }
 
+  // Public method to flush pending MIDI updates immediately (e.g., on node deselect)
+  flushPendingMidiUpdates() {
+    if (this.midiPreviewUpdateTimer) {
+      clearTimeout(this.midiPreviewUpdateTimer);
+      this.midiPreviewUpdateTimer = null;
+      this.processPendingMidiDependencyUpdates();
+    }
+  }
+
   handleGraphChangeForExpressions(data) {
     try {
       // Clear expression cache when graph structure changes
