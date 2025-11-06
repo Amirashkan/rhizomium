@@ -884,7 +884,10 @@ _createNode(kind) {
     window.onNodeCreated(node);
   }
 
-  // CRITICAL FIX: Redraw canvas immediately so node appears
+  // CRITICAL: Hide menu FIRST so it doesn't cover the canvas
+  this.hide();
+
+  // Then redraw canvas immediately so node appears
   if (window.editor && typeof window.editor.draw === 'function') {
     if (typeof window.editor.markDirty === 'function') {
       window.editor.markDirty('node-creation');
@@ -896,7 +899,5 @@ _createNode(kind) {
   setTimeout(() => {
     if (this.onChange) this.onChange();
   }, 50);
-
-  this.hide();
 }
 }
