@@ -975,7 +975,12 @@ isIncomplete(value) {
         startValue = parseFloat(input.value) || 0;
         dragStartValue = startValue;
         startY = e.clientY;
-        
+
+        // PERFORMANCE: Signal that parameter drag is active
+        if (window.editor) {
+          window.editor._parameterDragging = true;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
@@ -994,16 +999,13 @@ isIncomplete(value) {
           // PERFORMANCE: Skip _autoResizeTextArea during drag (causes DOM reflows)
           // this._autoResizeTextArea(input);
 
-          // Update immediately without undo recording
-          const oldUndoManager = valueManager.undoManager;
-          valueManager.undoManager = null;
-
-          // PERFORMANCE: Update parameter without triggering onChange (skip preview computation)
-          if (typeof valueManager.updateNodeParameter === 'function') {
-            valueManager.updateNodeParameter(node, param.name, input.value, null);
-          } else {
-            valueManager.setValue(node, param.name, input.value);
-          }
+          // PERFORMANCE: Skip ALL expensive operations during drag
+          // Directly update node params to avoid:
+          // - expressionSystem.updateDependencies() (expensive!)
+          // - updateNodePreview() (expensive!)
+          // - Event emissions (expensive!)
+          if (!node.params) node.params = {};
+          node.params[param.name] = input.value;
 
           // PERFORMANCE: Throttled shader rebuild for visual feedback
           // Throttle to 100ms (10fps) for smooth drag without killing performance
@@ -1015,8 +1017,6 @@ isIncomplete(value) {
               window.rebuild();
             }
           }
-
-          valueManager.undoManager = oldUndoManager;
 
           const trimmedValue = String(input.value).trim();
           if (entry) {
@@ -1031,6 +1031,11 @@ isIncomplete(value) {
         };
 
         const onMouseUp = () => {
+          // PERFORMANCE: Clear drag flag to resume normal rendering
+          if (window.editor) {
+            window.editor._parameterDragging = false;
+          }
+
           if (isDragging && dragStartValue !== null) {
             const finalValue = parseFloat(input.value) || 0;
             if (this.undoManager && Math.abs(dragStartValue - finalValue) > 0.001) {
@@ -1045,6 +1050,8 @@ isIncomplete(value) {
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
 
+          // PERFORMANCE: Apply full update on mouseup with all expensive operations
+          // This triggers expression dependencies, preview updates, and events
           if (entry) {
             this._commitValue(entry, input.value, param, node, valueManager, onChange, input);
             if (resultDisplay) {
