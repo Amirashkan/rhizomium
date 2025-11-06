@@ -23,12 +23,22 @@ export class Renderer {
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
     ctx.scale(this.viewport.scale, this.viewport.scale);
 
+    // PERFORMANCE: Create node lookup map for O(1) access instead of O(n) linear search
+    // Before: For 100 nodes with 50 connections = 100 linear searches = ~5,000 comparisons
+    // After: For 100 nodes with 50 connections = 100 Map lookups = ~100 operations (50x faster)
+    const nodeMap = new Map();
+    for (const node of graph.nodes) {
+      if (node && node.id) {
+        nodeMap.set(node.id, node);
+      }
+    }
+
     // Render connections/wires
-    this._renderConnections(graph.connections, graph.nodes);
+    this._renderConnections(graph.connections, nodeMap);
 
     // Render drag wire if active
     if (renderState.dragWire) {
-      this._renderDragWire(renderState.dragWire, graph.nodes);
+      this._renderDragWire(renderState.dragWire, nodeMap);
     }
 
     // Render nodes
@@ -103,13 +113,14 @@ export class Renderer {
     ctx.restore();
   }
 
-  _renderConnections(connections, nodes) {
+  _renderConnections(connections, nodeMap) {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
     for (const c of connections) {
-      const fromNode = nodes.find((n) => n.id === c.from.nodeId);
-      const toNode = nodes.find((n) => n.id === c.to.nodeId);
+      // PERFORMANCE: O(1) Map lookup instead of O(n) linear search
+      const fromNode = nodeMap.get(c.from.nodeId);
+      const toNode = nodeMap.get(c.to.nodeId);
       if (!fromNode || !toNode) continue;
 
       const fromPos = this._getOutputPinPosition(fromNode, c.from.pin);
@@ -126,9 +137,10 @@ export class Renderer {
     }
   }
 
-  _renderDragWire(dragWire, nodes) {
+  _renderDragWire(dragWire, nodeMap) {
     const ctx = this.ctx;
-    const fromNode = nodes.find((n) => n.id === dragWire.from.nodeId);
+    // PERFORMANCE: O(1) Map lookup instead of O(n) linear search
+    const fromNode = nodeMap.get(dragWire.from.nodeId);
     if (!fromNode) return;
 
     const fromPos = this._getOutputPinPosition(fromNode, dragWire.from.pin);

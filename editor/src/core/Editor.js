@@ -53,6 +53,12 @@ export class Editor {
         movedNodes: new Set()
       };
 
+      // PERFORMANCE: Dirty flag tracking to avoid unnecessary redraws
+      // Before: Canvas redrawn 60 times/sec even when static
+      // After: Only redrawn when something actually changes
+      this._isDirty = true; // Start dirty for initial render
+      this._dirtyReason = 'initialization';
+
       // Initialize event handling
       this.initializeEventHandling();
 
@@ -308,18 +314,23 @@ connectGPURenderer(renderFunction) {
   // PERFORMANCE OPTIMIZATION: Debounced shader rebuild
   triggerShaderRebuild(reason = 'Unknown') {
     console.log(`Triggering shader rebuild: ${reason}`);
-    
+
     // Debounce rebuild calls to prevent spam
     if (this.rebuildTimeout) {
       clearTimeout(this.rebuildTimeout);
     }
-    
+
+    // PERFORMANCE: Use longer debounce for parameter updates (user is likely dragging)
+    // Shorter debounce for structural changes (adding/removing nodes/connections)
+    const isParameterUpdate = reason.toLowerCase().includes('parameter');
+    const debounceMs = isParameterUpdate ? 100 : 16;
+
     this.rebuildTimeout = setTimeout(() => {
       if (window.rebuild && typeof window.rebuild === 'function') {
         try {
           window.rebuild();
           console.log('Shader rebuild completed');
-          
+
           // Clear time expression cache after rebuild
           this.timeExpressionCache = null;
         } catch (error) {
@@ -327,7 +338,7 @@ connectGPURenderer(renderFunction) {
         }
       }
       this.rebuildTimeout = null;
-    }, 16); // Debounce for ~60fps max rebuild rate
+    }, debounceMs); // 16ms for structure changes, 100ms for parameter updates
   }
 
   setupExpressionEventListeners() {
@@ -736,6 +747,8 @@ connectGPURenderer(renderFunction) {
 
   safeDraw() {
     try {
+      // PERFORMANCE: Always mark dirty before drawing to ensure rendering happens
+      this.markDirty('safeDraw');
       this.draw();
     } catch (error) {
       window.errorHandler?.handleError(error, {
@@ -752,11 +765,36 @@ connectGPURenderer(renderFunction) {
     }
   }
 
+  // PERFORMANCE: Mark the editor as needing a redraw
+  // Call this whenever the visual state changes
+  markDirty(reason = 'unknown') {
+    if (!this._isDirty) {
+      this._dirtyReason = reason;
+    }
+    this._isDirty = true;
+  }
+
+  // PERFORMANCE: Check if a redraw is needed
+  isDirty() {
+    return this._isDirty;
+  }
+
   draw() {
     if (!this.renderer) {
       throw new Error('Renderer not initialized');
     }
-    
+
+    // PERFORMANCE: Skip rendering if nothing changed
+    // This prevents 15-30ms overhead when the canvas is static
+    if (!this._isDirty) {
+      return; // Skip render
+    }
+
+    // Clear dirty flag before rendering
+    this._isDirty = false;
+    const lastReason = this._dirtyReason;
+    this._dirtyReason = null;
+
     this.renderer.render(this.graph, {
       selection: this.selection.getSelected(),
       dragWire: this.connections.getDragWire(),

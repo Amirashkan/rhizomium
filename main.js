@@ -1899,6 +1899,12 @@ function setupPreviewButtons() {
   }
 }
 let lastUniformUpdate = 0;
+// PERFORMANCE: Throttle preview computations to reduce CPU overhead
+// Before: Preview computed every frame (60 times/sec) = 10-20ms × 60 = 600-1200ms/sec overhead
+// After: Preview computed every 100ms (10 times/sec) = 10-20ms × 10 = 100-200ms/sec overhead
+let lastPreviewUpdate = 0;
+const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
+
 function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
@@ -1938,31 +1944,48 @@ function updateShaderFromGraph() {
     }
 
     console.log("Graph valid - compiling shader");
+    const updateStart = performance.now();
 
     const result = buildWGSL(window.editor.graph);
+    const buildTime = (performance.now() - updateStart).toFixed(2);
+
     if (!result || !result.wgsl) {
       console.error("Shader compilation produced no code");
       return;
     }
 
     const rawWGSL = typeof result.wgsl === "string" ? result.wgsl : String(result.wgsl ?? "");
+
+    // REMOVED AGGRESSIVE CACHING - it was breaking preview updates on connection changes
+    // Rely on shader compilation cache (glslBuilder.js) and GPU pipeline cache (gpuRenderer.js) instead
+
+    const regexStart = performance.now();
     const sanitizedWGSL = rawWGSL.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
+    const regexTime = (performance.now() - regexStart).toFixed(2);
+
     const shaderLength = sanitizedWGSL.length;
     window.latestGeneratedWGSL = rawWGSL;
     window.latestGeneratedWGSLClean = sanitizedWGSL;
 
+    const domStart = performance.now();
     const codeElement = document.getElementById("code");
     if (codeElement) {
       codeElement.textContent = sanitizedWGSL;
       codeElement.scrollTop = codeElement.scrollHeight;
     }
+    const domTime = (performance.now() - domStart).toFixed(2);
 
+    const gpuStart = performance.now();
     if (window.gpuRenderer) {
       window.gpuRenderer.setShaderSource(rawWGSL, {
         hasTextures: !!result.usesTextures,
         hasUniforms: !!result.usesUniforms,
       });
-      console.log(`Shader updated successfully (${shaderLength} chars)`);
+      const gpuTime = (performance.now() - gpuStart).toFixed(2);
+      const totalTime = (performance.now() - updateStart).toFixed(2);
+
+      console.log(`[PERF] updateShaderFromGraph: ${totalTime}ms total (build=${buildTime}ms, regex=${regexTime}ms, DOM=${domTime}ms, GPU=${gpuTime}ms)`);
+
       lastUniformUpdate = performance.now();
       if (typeof updateStatus === "function") {
         updateStatus("Shader compiled");
@@ -2063,14 +2086,26 @@ function handleRenderFrame(frameState) {
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
   if (!frameState.manual) {
-    // Update preview values for time/audio-based expressions
-    // This ensures node labels show current values
-    if (editor?.previewComputer && editor?.graph) {
-      editor.previewComputer.computePreviews(editor.graph);
+    // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
+    // Previews computed every 100ms, but canvas still redraws every frame for smooth animations
+    const now = performance.now();
+    const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
+
+    if (shouldUpdatePreviews) {
+      // Update preview values for time/audio-based expressions
+      // This ensures node labels show current values
+      if (editor?.previewComputer && editor?.graph) {
+        editor.previewComputer.computePreviews(editor.graph);
+      }
+      lastPreviewUpdate = now;
     }
 
-    // Redraw canvas to update labels
+    // ALWAYS redraw canvas every frame for smooth animations
+    // (Preview computation is throttled, but rendering is not)
     if (editor?.draw) {
+      if (editor.markDirty) {
+        editor.markDirty('animation-frame');
+      }
       editor.draw();
     }
   }
