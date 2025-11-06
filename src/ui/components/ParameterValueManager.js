@@ -284,26 +284,11 @@ export class ParameterValueManager {
   _getConnectedInputValue(node, paramName) {
     if (!this.graph?.connections) return undefined;
 
-    const paramToPinMap = {
-      radius: 0,
-      epsilon: 1,
-      value: 0,
-      x: 0,
-      y: 1,
-      z: 2,
-    };
-
-    const pinIndex = paramToPinMap[paramName];
-    if (pinIndex === undefined) return undefined;
-
-    for (const conn of this.graph.connections) {
-      if (conn.to.nodeId === node.id && conn.to.pin === pinIndex) {
-        const sourceNode = this.graph.nodes.find(n => n.id === conn.from.nodeId);
-        if (sourceNode) {
-          return this._getSourceNodeValue(sourceNode);
-        }
-      }
-    }
+    // Parameters are not driven by input pins in this architecture.
+    // Input pins are for graph connections, parameters are separate settings.
+    // Removing the hardcoded paramToPinMap to prevent incorrect parameter disabling.
+    // If a specific node type needs parameter-to-pin mapping in the future,
+    // it should be defined explicitly in NodeDefs, not hardcoded here.
 
     return undefined;
   }
@@ -340,24 +325,11 @@ export class ParameterValueManager {
   _findConnectedSourceNode(node, paramName) {
     if (!this.graph?.connections) return null;
 
-    const paramToPinMap = {
-      radius: 0,
-      epsilon: 1,
-      value: 0,
-      x: 0,
-      y: 1,
-      z: 2,
-    };
-
-    const pinIndex = paramToPinMap[paramName];
-    if (pinIndex === undefined) return null;
-
-    for (const conn of this.graph.connections) {
-      if (conn.to.nodeId === node.id && conn.to.pin === pinIndex) {
-        const sourceNode = this.graph.nodes.find(n => n.id === conn.from.nodeId);
-        return sourceNode || null;
-      }
-    }
+    // Parameters are not driven by input pins in this architecture.
+    // Input pins are for graph connections, parameters are separate settings.
+    // Removing the hardcoded paramToPinMap to prevent incorrect parameter disabling.
+    // If a specific node type needs parameter-to-pin mapping in the future,
+    // it should be defined explicitly in NodeDefs, not hardcoded here.
 
     return null;
   }
