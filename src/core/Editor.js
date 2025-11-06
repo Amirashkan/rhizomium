@@ -520,11 +520,17 @@ connectGPURenderer(renderFunction) {
 
   handleParameterChangeForExpressions(data) {
     try {
-      const { node, parameterName, newValue } = data;
-      
+      const { node, parameterName, newValue, source } = data;
+
+      // Skip expensive dependency checking for MIDI sources
+      // MIDI changes are real-time and don't affect expression dependencies
+      if (source === 'midi') {
+        return;
+      }
+
       // Update expression dependencies
       this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
-      
+
       // Regenerate previews for dependent nodes
       this.updateDependentNodePreviews(node, parameterName);
     } catch (error) {
