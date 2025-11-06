@@ -1823,9 +1823,6 @@ function createNewProject() {
   graph.connections = [];
   graph.selection = new Set();
 
-  // PERFORMANCE: Clear shader cache for fresh project
-  lastShaderWGSL = null;
-
   if (undoManager) {
     undoManager.clear();
     console.log("Undo history cleared for new project");
@@ -1908,11 +1905,6 @@ let lastUniformUpdate = 0;
 let lastPreviewUpdate = 0;
 const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
 
-// PERFORMANCE: Cache last shader to skip expensive DOM operations
-// Regex sanitization (5-10ms) + DOM textContent update (10-50ms) = 15-60ms wasted
-// When called 10x/sec during parameter drag = 150-600ms overhead/sec → 5-20 FPS
-let lastShaderWGSL = null;
-
 function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
@@ -1952,8 +1944,11 @@ function updateShaderFromGraph() {
     }
 
     console.log("Graph valid - compiling shader");
+    const updateStart = performance.now();
 
     const result = buildWGSL(window.editor.graph);
+    const buildTime = (performance.now() - updateStart).toFixed(2);
+
     if (!result || !result.wgsl) {
       console.error("Shader compilation produced no code");
       return;
@@ -1961,37 +1956,36 @@ function updateShaderFromGraph() {
 
     const rawWGSL = typeof result.wgsl === "string" ? result.wgsl : String(result.wgsl ?? "");
 
-    // PERFORMANCE: Skip expensive operations if shader hasn't changed
-    // This was causing 5-20 FPS during parameter dragging!
-    if (lastShaderWGSL === rawWGSL) {
-      console.log("⚡ Shader unchanged - skipping expensive DOM/regex operations");
-      // Shader is identical, no need to:
-      // - Run regex sanitization (5-10ms)
-      // - Update DOM textContent (10-50ms causing reflow)
-      // - Update GPU (already cached in gpuRenderer)
-      return;
-    }
+    // REMOVED AGGRESSIVE CACHING - it was breaking preview updates on connection changes
+    // Rely on shader compilation cache (glslBuilder.js) and GPU pipeline cache (gpuRenderer.js) instead
 
-    console.log("🔨 Shader changed - updating DOM and GPU");
-    lastShaderWGSL = rawWGSL;
-
+    const regexStart = performance.now();
     const sanitizedWGSL = rawWGSL.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
+    const regexTime = (performance.now() - regexStart).toFixed(2);
+
     const shaderLength = sanitizedWGSL.length;
     window.latestGeneratedWGSL = rawWGSL;
     window.latestGeneratedWGSLClean = sanitizedWGSL;
 
+    const domStart = performance.now();
     const codeElement = document.getElementById("code");
     if (codeElement) {
       codeElement.textContent = sanitizedWGSL;
       codeElement.scrollTop = codeElement.scrollHeight;
     }
+    const domTime = (performance.now() - domStart).toFixed(2);
 
+    const gpuStart = performance.now();
     if (window.gpuRenderer) {
       window.gpuRenderer.setShaderSource(rawWGSL, {
         hasTextures: !!result.usesTextures,
         hasUniforms: !!result.usesUniforms,
       });
-      console.log(`Shader updated successfully (${shaderLength} chars)`);
+      const gpuTime = (performance.now() - gpuStart).toFixed(2);
+      const totalTime = (performance.now() - updateStart).toFixed(2);
+
+      console.log(`[PERF] updateShaderFromGraph: ${totalTime}ms total (build=${buildTime}ms, regex=${regexTime}ms, DOM=${domTime}ms, GPU=${gpuTime}ms)`);
+
       lastUniformUpdate = performance.now();
       if (typeof updateStatus === "function") {
         updateStatus("Shader compiled");
