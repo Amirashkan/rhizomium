@@ -346,6 +346,11 @@ export class MenuManager {
     this.graph.nodes.push(node);
     this.graph.selection = new Set([node.id]);
 
+    // Mark editor as dirty immediately to show the new node
+    if (window.editor && typeof window.editor.markDirty === 'function') {
+      window.editor.markDirty('node-creation');
+    }
+
     // Delay onChange to allow GPU state to settle and prevent bind group mismatch
     setTimeout(() => {
       if (this.onChange) this.onChange();
