@@ -56,6 +56,7 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+    this._lastShaderSource = null; // PERFORMANCE: Clear shader cache on reset
   }
 
   // Create placeholder texture for optional bindings.
@@ -386,6 +387,19 @@ export class GPURenderer {
 
   setShaderSource(wgslCode) {
     try {
+      // PERFORMANCE: Skip GPU pipeline recreation if shader code hasn't changed
+      // This was causing <10 FPS during parameter dragging:
+      // - Every parameter change called this function
+      // - GPU shader compilation + pipeline recreation = 5-20ms
+      // - At 60 events/sec = 300-1200ms overhead/sec
+      if (this._lastShaderSource === wgslCode) {
+        console.log("[GPURenderer] Shader unchanged - skipping pipeline recreation");
+        return; // Same shader, no need to recreate GPU pipeline
+      }
+
+      console.log("[GPURenderer] Shader changed - recreating pipeline");
+      this._lastShaderSource = wgslCode;
+
       this.shaderModule = this.device.createShaderModule({ code: wgslCode });
       this.resources = {};
       this._lastAspectWritten = null;
