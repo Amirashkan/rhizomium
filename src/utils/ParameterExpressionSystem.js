@@ -997,45 +997,23 @@ isIncomplete(value) {
           const oldUndoManager = valueManager.undoManager;
           valueManager.undoManager = null;
 
-          // PERFORMANCE: Skip ALL expensive operations during drag
-          // Just update the input value visually, apply changes on mouseup
-          // if (typeof valueManager.updateNodeParameter === 'function') {
-          //   valueManager.updateNodeParameter(node, param.name, input.value, onChange);
-          // } else {
-          //   valueManager.setValue(node, param.name, input.value);
-          //   onChange(`Drag Parameter: ${param.name}`);
-          // }
+          // PERFORMANCE: Update parameter without triggering onChange (skip preview computation)
+          if (typeof valueManager.updateNodeParameter === 'function') {
+            valueManager.updateNodeParameter(node, param.name, input.value, null);
+          } else {
+            valueManager.setValue(node, param.name, input.value);
+          }
 
-          // // CRITICAL: Force immediate preview update (bypass requestAnimationFrame batching)
-          // if (window.editor?.paramPanel?._processPreviewUpdate) {
-          //   // Call _processPreviewUpdate directly to bypass the batching in updateNodePreview
-          //   window.editor.paramPanel._processPreviewUpdate(node);
-          // } else if (window.editor?.previewIntegration) {
-          //   // Fallback: call preview system directly
-          //   if (window.editor.previewSystem?.canvasManager) {
-          //     window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
-          //   }
-          //   window.editor.previewIntegration.generateNodePreview(node);
-          // }
-
-          // // CRITICAL: Force immediate editor canvas redraw (node graph)
-          // if (window.editor?.draw) {
-          //   window.editor.draw();
-          // }
-
-          // PERFORMANCE: Skip ALL expensive operations during drag
-          // Don't rebuild shader during mousemove - apply once on mouseup
-          // const now = performance.now();
-          // if (now - lastRebuildTime >= REBUILD_THROTTLE_MS) {
-          //   lastRebuildTime = now;
-          //   if (typeof window.rebuild === 'function') {
-          //     window.rebuild();
-          //   }
-          //   // CRITICAL: Force immediate GPU render (floating preview canvas)
-          //   if (typeof window.render === 'function') {
-          //     window.render();
-          //   }
-          // }
+          // PERFORMANCE: Throttled shader rebuild for visual feedback
+          // Throttle to 100ms (10fps) for smooth drag without killing performance
+          const now = performance.now();
+          const THROTTLE_MS = 100;
+          if (now - lastRebuildTime >= THROTTLE_MS) {
+            lastRebuildTime = now;
+            if (typeof window.rebuild === 'function') {
+              window.rebuild();
+            }
+          }
 
           valueManager.undoManager = oldUndoManager;
 
