@@ -44,114 +44,121 @@ export class VectorRenderers {
   }
 
   renderDot(ctx, node) {
+    const size = ctx.canvas.width;
     const result = this.previewSystem.computeNodeValue(node);
     
     ctx.fillStyle = "#3b82f620";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#3b82f6";
     ctx.font = "bold 14px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("DOT", this.size / 2, this.size / 2 - 4);
+    ctx.fillText("DOT", size / 2, size / 2 - 4);
     
     ctx.font = "10px monospace";
-    ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), size / 2, size / 2 + 12);
   }
 
   renderCross(ctx, node) {
+    const size = ctx.canvas.width;
     ctx.fillStyle = "#8b5cf620";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#8b5cf6";
     ctx.font = "bold 14px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("CROSS", this.size / 2, this.size / 2);
+    ctx.fillText("CROSS", size / 2, size / 2);
     
     // Draw cross product visualization
     ctx.strokeStyle = "#8b5cf6";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(this.size / 2, 10);
-    ctx.lineTo(this.size / 2, this.size - 10);
-    ctx.moveTo(10, this.size / 2);
-    ctx.lineTo(this.size - 10, this.size / 2);
+    ctx.moveTo(size / 2, 10);
+    ctx.lineTo(size / 2, size - 10);
+    ctx.moveTo(10, size / 2);
+    ctx.lineTo(size - 10, size / 2);
     ctx.stroke();
   }
 
   renderNormalize(ctx, node) {
+    const size = ctx.canvas.width;
     ctx.fillStyle = "#10b98120";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#10b981";
     ctx.font = "bold 12px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("NORM", this.size / 2, this.size / 2);
+    ctx.fillText("NORM", size / 2, size / 2);
     
     // Draw unit circle
     ctx.strokeStyle = "#10b981";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(this.size / 2, this.size / 2, 15, 0, Math.PI * 2);
+    ctx.arc(size / 2, size / 2, 15, 0, Math.PI * 2);
     ctx.stroke();
   }
 
   renderLength(ctx, node) {
+    const size = ctx.canvas.width;
     const result = this.previewSystem.computeNodeValue(node);
     
     ctx.fillStyle = "#f59e0b20";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#f59e0b";
     ctx.font = "bold 14px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("LEN", this.size / 2, this.size / 2 - 4);
+    ctx.fillText("LEN", size / 2, size / 2 - 4);
     
     ctx.font = "10px monospace";
-    ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), size / 2, size / 2 + 12);
   }
 
   renderDistance(ctx, node) {
+    const size = ctx.canvas.width;
     const result = this.previewSystem.computeNodeValue(node);
     
     ctx.fillStyle = "#06b6d420";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#06b6d4";
     ctx.font = "bold 14px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("DIST", this.size / 2, this.size / 2 - 4);
+    ctx.fillText("DIST", size / 2, size / 2 - 4);
     
     ctx.font = "10px monospace";
-    ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), this.size / 2, this.size / 2 + 12);
+    ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), size / 2, size / 2 + 12);
   }
 
   renderReflect(ctx, node) {
+    const size = ctx.canvas.width;
     ctx.fillStyle = "#ec489920";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#ec4899";
     ctx.font = "bold 12px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("REFL", this.size / 2, this.size / 2);
+    ctx.fillText("REFL", size / 2, size / 2);
     
     // Draw reflection visualization
     ctx.strokeStyle = "#ec4899";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(10, this.size - 10);
-    ctx.lineTo(this.size / 2, this.size / 2);
-    ctx.lineTo(this.size - 10, this.size - 10);
+    ctx.moveTo(10, size - 10);
+    ctx.lineTo(size / 2, size / 2);
+    ctx.lineTo(size - 10, size - 10);
     ctx.stroke();
   }
 
   renderRefract(ctx, node) {
+    const size = ctx.canvas.width;
     ctx.fillStyle = "#8b5cf620";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#8b5cf6";
     ctx.font = "bold 12px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("REFR", this.size / 2, this.size / 2);
+    ctx.fillText("REFR", size / 2, size / 2);
   }
 
   renderSplit(ctx, node, components) {
@@ -209,27 +216,29 @@ export class VectorRenderers {
   }
 
   renderVectorScale(ctx, node) {
+    const size = ctx.canvas.width;
     ctx.fillStyle = "#f59e0b20";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#f59e0b";
     ctx.font = "bold 14px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("SCALE", this.size / 2, this.size / 2);
+    ctx.fillText("SCALE", size / 2, size / 2);
   }
 
   renderSwizzle(ctx, node) {
+    const size = ctx.canvas.width;
     const pattern = node.params?.pattern || "xyz";
     
     ctx.fillStyle = "#a855f720";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
     
     ctx.fillStyle = "#a855f7";
     ctx.font = "bold 12px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("SWIZ", this.size / 2, this.size / 2 - 6);
+    ctx.fillText("SWIZ", size / 2, size / 2 - 6);
     
     ctx.font = "10px monospace";
-    ctx.fillText(pattern, this.size / 2, this.size / 2 + 8);
+    ctx.fillText(pattern, size / 2, size / 2 + 8);
   }
 }

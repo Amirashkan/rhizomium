@@ -142,7 +142,8 @@ getParameterValue(node, paramName, defaultValue = 0) {
   }
 
   renderTexture2D(ctx, node) {
-    console.log("Texture2D preview for node", node.id, "size:", this.size);
+    const size = ctx.canvas.width;
+    console.log("Texture2D preview for node", node.id, "size:", size);
 
     // Get texture parameters with expression support
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 1.0), 1.0);
@@ -158,16 +159,16 @@ getParameterValue(node, paramName, defaultValue = 0) {
       // Try to create image from file
       const img = new Image();
       img.onload = () => {
-        ctx.clearRect(0, 0, this.size, this.size);
+        ctx.clearRect(0, 0, size, size);
         
         // Apply transformations
         ctx.save();
-        ctx.translate(this.size / 2, this.size / 2);
+        ctx.translate(size / 2, size / 2);
         ctx.rotate(rotation);
         ctx.scale(scale, scale);
-        ctx.translate(-this.size / 2 + offsetX, -this.size / 2 + offsetY);
+        ctx.translate(-size / 2 + offsetX, -size / 2 + offsetY);
         
-        ctx.drawImage(img, 0, 0, this.size, this.size);
+        ctx.drawImage(img, 0, 0, size, size);
         ctx.restore();
 
         // Add indicator
@@ -194,34 +195,34 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
       // Show loading state
       ctx.fillStyle = "#555";
-      ctx.fillRect(0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
       ctx.fillStyle = "#4a90e2";
       ctx.font = "bold 10px Arial";
       ctx.textAlign = "center";
-      ctx.fillText("Loading...", this.size / 2, this.size / 2);
+      ctx.fillText("Loading...", size / 2, size / 2);
     } else {
       // No texture - show placeholder
       ctx.fillStyle = "#444";
-      ctx.fillRect(0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
 
       // Bright border
       ctx.strokeStyle = "#4a90e2";
       ctx.lineWidth = 2;
-      ctx.strokeRect(2, 2, this.size - 4, this.size - 4);
+      ctx.strokeRect(2, 2, size - 4, size - 4);
 
       // Text
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 12px Arial";
       ctx.textAlign = "center";
-      ctx.fillText("2D", this.size / 2, this.size / 2 - 4);
-      ctx.fillText("TEX", this.size / 2, this.size / 2 + 10);
+      ctx.fillText("2D", size / 2, size / 2 - 4);
+      ctx.fillText("TEX", size / 2, size / 2 + 10);
 
       if (this.hasExpressions(node)) {
         this.drawExpressionIndicator(ctx);
       }
     }
 
-    console.log("Texture2D preview complete:", "dimensions:", this.size, "x", this.size);
+    console.log("Texture2D preview complete:", "dimensions:", size, "x", size);
   }
 
   renderTextureError(ctx, errorText) {
@@ -235,17 +236,18 @@ getParameterValue(node, paramName, defaultValue = 0) {
   }
 
   renderTextureCube(ctx, node) {
+    const size = ctx.canvas.width;
     // Get cube texture parameters
     const faceSize = this.toSafeNumber(this.getParameterValue(node, "faceSize", 1.0), 1.0);
     const perspective = this.toSafeNumber(this.getParameterValue(node, "perspective", 0.3), 0.3);
 
     ctx.fillStyle = "#333";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
     // Draw a cube wireframe with perspective
-    const centerX = this.size / 2;
-    const centerY = this.size / 2;
-    const cubeSize = this.size * 0.3 * faceSize;
+    const centerX = size / 2;
+    const centerY = size / 2;
+    const cubeSize = size * 0.3 * faceSize;
 
     ctx.strokeStyle = "#4a90e2";
     ctx.lineWidth = 2;
@@ -283,7 +285,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 8px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("CUBE", this.size / 2, this.size - 6);
+    ctx.fillText("CUBE", size / 2, size - 6);
 
     // Show parameters
     this.drawParameterInfo(ctx, { size: faceSize, persp: perspective });
@@ -294,6 +296,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
   }
 
   renderCircle(ctx, node) {
+    const size = ctx.canvas.width;
     // Get raw parameter values
     let radiusParam = node.params?.radius ?? 0.25;
     let epsilonParam = node.params?.epsilon ?? 0.02;
@@ -302,7 +305,13 @@ getParameterValue(node, paramName, defaultValue = 0) {
     let radius, epsilon;
     if (typeof radiusParam === 'string' && radiusParam.startsWith('=')) {
       try {
-        radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
+        // Safely check if expression system is available before using it
+        if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
+          radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
+        } else {
+          console.warn('Expression system not available for radius parameter, using default: 0.25');
+          radius = 0.25;
+        }
       } catch (error) {
         console.warn('Expression evaluation failed:', error);
         radius = 0.25;
@@ -310,10 +319,16 @@ getParameterValue(node, paramName, defaultValue = 0) {
     } else {
       radius = parseFloat(radiusParam) || 0.25;
     }
-    
+
     if (typeof epsilonParam === 'string' && epsilonParam.startsWith('=')) {
       try {
-        epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
+        // Safely check if expression system is available before using it
+        if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
+          epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
+        } else {
+          console.warn('Expression system not available for epsilon parameter, using default: 0.02');
+          epsilon = 0.02;
+        }
       } catch (error) {
         console.warn('Expression evaluation failed:', error);
         epsilon = 0.02;
@@ -326,12 +341,12 @@ getParameterValue(node, paramName, defaultValue = 0) {
     const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
     ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = x / this.size;
-        const v = y / this.size;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = x / size;
+        const v = y / size;
         const dist = Math.sqrt((u - centerX) * (u - centerX) + (v - centerY) * (v - centerY));
         const safeEpsilon = Math.max(epsilon, 0.0001);
         const field = 1.0 - this._smoothstep(radius - safeEpsilon, radius + safeEpsilon, dist);
@@ -359,6 +374,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
  
 renderRectangle(ctx, node) {
+    const size = ctx.canvas.width;
   const width = this.getParameterValue(node, "width", 0.5);
   const height = this.getParameterValue(node, "height", 0.3);
   const centerX = this.getParameterValue(node, "centerX", 0.5);
@@ -366,13 +382,13 @@ renderRectangle(ctx, node) {
   const epsilon = this.getParameterValue(node, "epsilon", 0.02);
 console.log('Rectangle render:', {width, height, centerX, centerY, epsilon});
   ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, this.size, this.size);
+  ctx.fillRect(0, 0, size, size);
 
   // Render rectangle field
-  for (let y = 0; y < this.size; y++) {
-    for (let x = 0; x < this.size; x++) {
-      const u = x / this.size;
-      const v = y / this.size;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
       
       // Distance to rectangle edges (SDF)
       const dx = Math.max(0, Math.abs(u - centerX) - width / 2);
@@ -392,30 +408,31 @@ console.log('Rectangle render:', {width, height, centerX, centerY, epsilon});
 }}
 
   renderGradient(ctx, node) {
+    const size = ctx.canvas.width;
     const direction = this.getParameterValue(node, "direction", "horizontal");
     const startColor = this.getParameterValue(node, "startColor", 0.0);
     const endColor = this.getParameterValue(node, "endColor", 1.0);
     const power = this.toSafeNumber(this.getParameterValue(node, "power", 1.0), 1.0);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
         let t;
         switch (direction) {
           case "vertical":
-            t = y / this.size;
+            t = y / size;
             break;
           case "diagonal":
-            t = (x + y) / (this.size * 2);
+            t = (x + y) / (size * 2);
             break;
           case "radial":
-            const centerX = this.size / 2;
-            const centerY = this.size / 2;
+            const centerX = size / 2;
+            const centerY = size / 2;
             const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
             const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
             t = dist / maxDist;
             break;
           default: // horizontal
-            t = x / this.size;
+            t = x / size;
         }
 
         // Apply power curve
@@ -440,14 +457,15 @@ console.log('Rectangle render:', {width, height, centerX, centerY, epsilon});
   }
 
   renderCheckerboard(ctx, node) {
+    const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 8.0), 8.0);
     const color1 = this.toSafeNumber(this.getParameterValue(node, "color1", 0.0), 0.0);
     const color2 = this.toSafeNumber(this.getParameterValue(node, "color2", 1.0), 1.0);
 
-    for (let y = 0; y < this.size; y++) {
-      for (let x = 0; x < this.size; x++) {
-        const u = (x / this.size) * scale;
-        const v = (y / this.size) * scale;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
         
         const checkX = Math.floor(u) % 2;
         const checkY = Math.floor(v) % 2;

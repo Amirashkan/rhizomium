@@ -435,10 +435,11 @@ if (this.textureManager && this.textureManager.device) {
       if (this.editor.previewSystem.canvasManager && this.editor.previewSystem.canvasManager.clearCache) {
         this.editor.previewSystem.canvasManager.clearCache();
       }
-      
+
       // Force preview regeneration with working GPU connection
-      if (typeof this.editor.previewSystem.updateAllPreviews === 'function') {
-        await this.editor.previewSystem.updateAllPreviews();
+      // CRITICAL: Pass nodes array so topological sort can ensure proper render order
+      if (typeof this.editor.previewSystem.updateAllPreviews === 'function' && this.graph && this.graph.nodes) {
+        await this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
       }
     } else {
       console.warn("GPU device or preview system not available for reconnection");

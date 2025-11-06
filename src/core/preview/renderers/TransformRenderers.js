@@ -27,17 +27,23 @@ export class TransformRenderers {
       if (this.previewSystem && this.previewSystem.getParameterValue) {
         return this.previewSystem.getParameterValue(node, paramName, defaultValue);
       }
-      
+
       const rawValue = node.params?.[paramName] ?? defaultValue;
-      
+
       // Check if it's an expression
       if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
-        return window.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
+        // Safely check if expression system is available before using it
+        if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
+          return window.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
+        } else {
+          console.warn(`Expression system not available for parameter ${paramName}, using default:`, defaultValue);
+          return defaultValue;
+        }
       }
-      
+
       // Handle boolean values
       if (typeof rawValue === 'boolean') return rawValue;
-      
+
       // Return parsed value or default
       return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
     } catch (error) {
@@ -81,7 +87,7 @@ export class TransformRenderers {
 
       const inputNodeId = node.inputs[0];
       const graph = this.previewSystem?.editor?.graph;
-      
+
       if (!graph) {
         console.warn('No graph available in preview system');
         return null;
@@ -89,7 +95,7 @@ export class TransformRenderers {
 
       // Find the input node
       const inputNode = graph.nodes.find(n => n.id === inputNodeId);
-      
+
       if (!inputNode) {
         console.warn(`Input node ${inputNodeId} not found in graph`);
         return null;
@@ -97,21 +103,36 @@ export class TransformRenderers {
 
       console.log(`Transform ${node.id} checking input ${inputNode.kind} (${inputNode.id})`);
 
-      // Get or generate the input node's preview
+      // If input node doesn't have a preview, trigger generation
+      // This handles cases where nodes are connected in new files
       if (!inputNode.__thumb) {
-        console.log(`Input node ${inputNode.id} has no preview, generating...`);
-        // Generate preview for input node if it doesn't exist
-        if (this.previewSystem.generateNodePreview) {
+        console.log(`✗ Input node ${inputNode.kind} has no preview, triggering generation...`);
+
+        // Trigger preview generation for the input node
+        if (this.previewSystem?.generateNodePreview) {
           this.previewSystem.generateNodePreview(inputNode);
+
+          // Also schedule this node (transform) to re-render after input is ready
+          // Use a short delay to allow the input preview to be generated first
+          setTimeout(() => {
+            if (this.previewSystem?.generateNodePreview && inputNode.__thumb) {
+              console.log(`   Input preview ready, re-rendering transform node ${node.id}`);
+              this.previewSystem.generateNodePreview(node);
+              // Trigger editor redraw to show the update
+              if (this.previewSystem?.editor?.draw) {
+                this.previewSystem.editor.draw();
+              }
+            }
+          }, 50);
         }
+
+        // Still return null this time - the next render will pick up the generated preview
+        // This is better than showing incorrect data
+        console.log(`   Preview generation triggered, will update shortly`);
+        return null;
       }
 
-      if (inputNode.__thumb) {
-        console.log(`✓ Got input preview from ${inputNode.kind}, size: ${inputNode.__thumb.width}x${inputNode.__thumb.height}`);
-      } else {
-        console.warn(`✗ Failed to get preview from ${inputNode.kind}`);
-      }
-
+      console.log(`✓ Got input preview from ${inputNode.kind}, size: ${inputNode.__thumb.width}x${inputNode.__thumb.height}`);
       return inputNode.__thumb;
     } catch (error) {
       console.warn('Error getting input preview:', error);
@@ -124,43 +145,54 @@ export class TransformRenderers {
     try {
       const { translateX, translateY, scaleX, scaleY, rotation, centerX, centerY } = params;
 
-      // Clear background
+      // Use actual canvas size from context instead of this.size
+      // This handles both 48x48 (preview system) and 128x128 (manual rendering) canvases
+      const size = ctx.canvas.width;
+
+      // Validate input canvas has valid dimensions BEFORE clearing
+      // This prevents leaving a black canvas if validation fails
+      if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
+        console.warn('Invalid input canvas for transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+        return false; // Return false to signal failure
+      }
+
+      // Clear background AFTER validation passes
       ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
 
       // Save context state
       ctx.save();
 
       // For transform preview, we need to think about UV space transformation
       // The shader does: transformed_uv = (scale * rotate * (uv - center)) + center + translate
-      
+
       // Start by moving origin to center of canvas
-      ctx.translate(this.size / 2, this.size / 2);
-      
+      ctx.translate(size / 2, size / 2);
+
       // Apply the translation (in pixels)
-      ctx.translate(-translateX * this.size, -translateY * this.size);
-      
+      ctx.translate(-translateX * size, -translateY * size);
+
       // Move to the pivot point (relative to center)
-      const pivotOffsetX = (centerX - 0.5) * this.size;
-      const pivotOffsetY = (centerY - 0.5) * this.size;
+      const pivotOffsetX = (centerX - 0.5) * size;
+      const pivotOffsetY = (centerY - 0.5) * size;
       ctx.translate(pivotOffsetX, pivotOffsetY);
-      
+
       // Apply rotation
       ctx.rotate(-rotation);  // Negative because canvas Y is inverted
-      
+
       // Apply scale
       ctx.scale(scaleX, scaleY);
-      
+
       // Move back from pivot
       ctx.translate(-pivotOffsetX, -pivotOffsetY);
 
       // Draw the image centered
       ctx.drawImage(
         inputCanvas,
-        -this.size / 2,
-        -this.size / 2,
-        this.size,
-        this.size
+        -size / 2,
+        -size / 2,
+        size,
+        size
       );
 
       // Restore context state
@@ -168,9 +200,12 @@ export class TransformRenderers {
     } catch (error) {
       console.warn('Error applying image transform:', error);
       // Fallback: just draw the input
+      const size = ctx.canvas.width;
       ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, this.size, this.size);
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
+      if (inputCanvas && inputCanvas.width && inputCanvas.height) {
+        ctx.drawImage(inputCanvas, 0, 0, size, size);
+      }
     }
   }
 
@@ -180,9 +215,18 @@ export class TransformRenderers {
     try {
       const { tilingX, tilingY, offsetX, offsetY } = params;
 
-      // Clear background
+      // Use actual canvas size from context instead of this.size
+      const size = ctx.canvas.width;
+
+      // Validate input canvas has valid dimensions BEFORE clearing
+      if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
+        console.warn('Invalid input canvas for tiling, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+        return false; // Return false to signal failure
+      }
+
+      // Clear background AFTER validation passes
       ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
 
       ctx.save();
 
@@ -193,37 +237,51 @@ export class TransformRenderers {
       if (pattern) {
         // Apply tiling and offset transformations
         // The pattern needs to be scaled and translated
-        ctx.translate(offsetX * this.size, offsetY * this.size);
+        ctx.translate(offsetX * size, offsetY * size);
         ctx.scale(tilingX, tilingY);
 
         // Fill the entire canvas with the pattern
         // We need to account for the transformations when calculating the fill area
-        const fillWidth = this.size / tilingX;
-        const fillHeight = this.size / tilingY;
-        const fillX = -offsetX * this.size / tilingX;
-        const fillY = -offsetY * this.size / tilingY;
+        const fillWidth = size / tilingX;
+        const fillHeight = size / tilingY;
+        const fillX = -offsetX * size / tilingX;
+        const fillY = -offsetY * size / tilingY;
 
         ctx.fillStyle = pattern;
         ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
       } else {
         // Fallback if pattern creation fails
         console.warn('Failed to create pattern, using fallback');
-        ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+        ctx.drawImage(inputCanvas, 0, 0, size, size);
       }
 
       ctx.restore();
     } catch (error) {
       console.warn('Error applying tiling transform:', error);
       // Fallback: just draw the input once
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      const size = ctx.canvas.width;
+      if (inputCanvas && inputCanvas.width && inputCanvas.height) {
+        ctx.drawImage(inputCanvas, 0, 0, size, size);
+      }
     }
   }
 
   // Apply non-linear UV transform by sampling the source canvas
   applyUVTransform(ctx, inputCanvas, transformFunc) {
     try {
-      const width = this.size;
-      const height = this.size;
+      // Use actual canvas size from context instead of this.size
+      const width = ctx.canvas.width;
+      const height = ctx.canvas.height;
+
+      // Validate input canvas exists and has valid dimensions BEFORE clearing
+      if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
+        console.warn('Invalid input canvas for UV transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+        return false; // Return false to signal failure
+      }
+
+      // Clear destination background BEFORE drawing
+      ctx.fillStyle = "#141414";
+      ctx.fillRect(0, 0, width, height);
 
       const sourceCtx = inputCanvas.getContext('2d');
       if (!sourceCtx) {
@@ -274,20 +332,24 @@ export class TransformRenderers {
       ctx.putImageData(destData, 0, 0);
     } catch (error) {
       console.warn('Error applying UV transform:', error);
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      const size = ctx.canvas.width;
+      if (inputCanvas && inputCanvas.width && inputCanvas.height) {
+        ctx.drawImage(inputCanvas, 0, 0, size, size);
+      }
     }
   }
 
   // Draw expression indicator
   drawExpressionIndicator(ctx) {
+    const size = ctx.canvas.width;
     ctx.save();
     ctx.fillStyle = "#4CAF50";
-    ctx.fillRect(this.size - 12, 2, 10, 8);
+    ctx.fillRect(size - 12, 2, 10, 8);
     ctx.fillStyle = "#ffffff";
     ctx.font = "6px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("fx", this.size - 7, 6);
+    ctx.fillText("fx", size - 7, 6);
     ctx.restore();
   }
 
@@ -306,15 +368,16 @@ export class TransformRenderers {
 
   // Draw parameter info overlay
   drawParameterInfo(ctx, params) {
+    const size = ctx.canvas.width;
     ctx.save();
     ctx.fillStyle = "#00000080";
-    ctx.fillRect(0, this.size - 20, this.size, 20);
-    
+    ctx.fillRect(0, size - 20, size, 20);
+
     ctx.fillStyle = "#ffffff";
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
-    
-    let y = this.size - 14;
+
+    let y = size - 14;
     Object.entries(params).forEach(([key, value], index) => {
       if (index < 3 && key && value !== undefined) {
         let displayValue;
@@ -326,15 +389,17 @@ export class TransformRenderers {
         ctx.fillText(`${key}:${displayValue}`, 2, y + index * 6);
       }
     });
-    
+
     ctx.restore();
   }
 
   // Base method to render UV grid visualization
   renderUVGrid(ctx, transformFunc, label, params = {}) {
+    const size = ctx.canvas.width;
+
     // Clear background
     ctx.fillStyle = "#222";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
     // Draw transformed grid
     ctx.strokeStyle = "#4a90e2";
@@ -348,9 +413,9 @@ export class TransformRenderers {
         const u = i / gridRes;
         const v = j / gridRes;
         const transformed = transformFunc(u, v);
-        const x = transformed.u * this.size;
-        const y = transformed.v * this.size;
-        
+        const x = transformed.u * size;
+        const y = transformed.v * size;
+
         if (j === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -362,9 +427,9 @@ export class TransformRenderers {
         const u = j / gridRes;
         const v = i / gridRes;
         const transformed = transformFunc(u, v);
-        const x = transformed.u * this.size;
-        const y = transformed.v * this.size;
-        
+        const x = transformed.u * size;
+        const y = transformed.v * size;
+
         if (j === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -374,18 +439,18 @@ export class TransformRenderers {
     // Draw origin marker
     const origin = transformFunc(0, 0);
     ctx.fillStyle = "#ff4444";
-    ctx.fillRect(origin.u * this.size - 2, origin.v * this.size - 2, 4, 4);
+    ctx.fillRect(origin.u * size - 2, origin.v * size - 2, 4, 4);
 
     // Draw center marker (0.5, 0.5)
     const center = transformFunc(0.5, 0.5);
     ctx.fillStyle = "#44ff44";
-    ctx.fillRect(center.u * this.size - 2, center.v * this.size - 2, 4, 4);
+    ctx.fillRect(center.u * size - 2, center.v * size - 2, 4, 4);
 
     // Label
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 8px Arial";
     ctx.textAlign = "center";
-    ctx.fillText(label, this.size / 2, this.size - 6);
+    ctx.fillText(label, size / 2, size - 6);
 
     // Show parameters if provided
     if (Object.keys(params).length > 0) {
@@ -404,33 +469,37 @@ export class TransformRenderers {
 
     // Check if there's an input to transform
     const inputCanvas = this.getInputPreview(node);
-    
+
     if (inputCanvas) {
-      console.log(`✓ Transform2D rendering with input from Circle`);
+      console.log(`✓ Transform2D rendering with input`);
       console.log(`   Canvas context: ${ctx.canvas.width}x${ctx.canvas.height}`);
-      
-      // Transform the input image
-      this.applyImageTransform(ctx, inputCanvas, {
+
+      // Transform the input image - check if it succeeds
+      const success = this.applyImageTransform(ctx, inputCanvas, {
         translateX, translateY, scaleX, scaleY, rotation, centerX, centerY
       });
-      
-      // Log after drawing
-      console.log(`   Finished drawing to canvas, node.__thumb will be:`, ctx.canvas);
-      
-      // Add visual indicator that this is showing transformed input
-      ctx.save();
-      ctx.fillStyle = "rgba(74, 144, 226, 0.8)";
-      ctx.fillRect(0, 0, 12, 10);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 7px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("T", 6, 7);
-      ctx.restore();
-      
-      if (this.hasExpressions(node)) {
-        this.drawExpressionIndicator(ctx);
+
+      // If transform failed, fall through to show UV grid
+      if (success !== false) {
+        console.log(`   Finished drawing transformed input`);
+
+        // Add visual indicator that this is showing transformed input
+        ctx.save();
+        ctx.fillStyle = "rgba(74, 144, 226, 0.8)";
+        ctx.fillRect(0, 0, 12, 10);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 7px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("T", 6, 7);
+        ctx.restore();
+
+        if (this.hasExpressions(node)) {
+          this.drawExpressionIndicator(ctx);
+        }
+        return;
+      } else {
+        console.warn(`   Transform failed, falling back to UV grid`);
       }
-      return;
     }
 
     // No input - show UV grid
