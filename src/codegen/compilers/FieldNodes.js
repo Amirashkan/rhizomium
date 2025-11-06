@@ -137,17 +137,18 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
     switch (node.kind) {
       case 'Circle': {
         functionDef = this.generateCircleFunction(node, nodeId, functionName);
+        const centerX = this.getParam(node, 'centerX', 0.5);
+        const centerY = this.getParam(node, 'centerY', 0.5);
         const radius = this.getParam(node, 'radius', 0.25);
         // FIXED: Node definition uses 'smoothness', not 'epsilon'
         const smoothness = this.getParam(node, 'smoothness', 0.01);
-        // FIXED: Node definition has no 'scale' parameter, default to 1.0
-        const scale = 1.0;
 
+        const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
+        const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;
         const radiusExpr = typeof radius === 'string' ? `(${radius})` : radius;
         const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
-        const scaleExpr = scale;
 
-        paramExprs = `, ${radiusExpr}, ${smoothnessExpr}, ${scaleExpr}`;
+        paramExprs = `, ${centerXExpr}, ${centerYExpr}, ${radiusExpr}, ${smoothnessExpr}`;
         break;
       }
       case 'Rectangle': {
@@ -175,16 +176,22 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
       }
       case 'Polygon': {
         functionDef = this.generatePolygonFunction(node, nodeId, functionName);
+        const centerX = this.getParam(node, 'centerX', 0.5);
+        const centerY = this.getParam(node, 'centerY', 0.5);
         const sides = this.getParam(node, 'sides', 6);
         const radius = this.getParam(node, 'radius', 0.25);
+        const rotation = this.getParam(node, 'rotation', 0.0);
         // FIXED: Node definition uses 'smoothness', not 'epsilon'
         const smoothness = this.getParam(node, 'smoothness', 0.01);
 
+        const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
+        const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;
         const sidesExpr = typeof sides === 'string' ? `(${sides})` : sides;
         const radiusExpr = typeof radius === 'string' ? `(${radius})` : radius;
+        const rotationExpr = typeof rotation === 'string' ? `(${rotation})` : rotation;
         const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
 
-        paramExprs = `, ${sidesExpr}, ${radiusExpr}, ${smoothnessExpr}`;
+        paramExprs = `, ${centerXExpr}, ${centerYExpr}, ${sidesExpr}, ${radiusExpr}, ${rotationExpr}, ${smoothnessExpr}`;
         break;
       }
     }
@@ -208,16 +215,16 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
   generateCircleFunction(node, nodeId, functionName) {
     const safeId = this.makeSafeIdentifier(nodeId);
 
-    return `fn ${functionName}(uv: vec2<f32>, radius: f32, epsilon: f32, scale: f32) -> f32 {
-  // Domain + aspect: measure distances in aspect space (x in [0, u.aspect], y in [0, 1])
+    return `fn ${functionName}(uv: vec2<f32>, centerX: f32, centerY: f32, radius: f32, smoothness: f32) -> f32 {
+  // Domain + aspect: measure distances in aspect space
   // FIXED: Don't clamp UV - allows transformed coordinates from Transform2D nodes
   var ${safeId}_uvA = uv;
   ${safeId}_uvA.x *= u.aspect;
 
-  let ${safeId}_ctr = vec2<f32>(0.5 * u.aspect, 0.5);
-  // Zoom semantics: larger 'scale' => larger circle (scale radius, do NOT invert coords)
-  let ${safeId}_r = clamp(radius, 0.0, 2.0) * max(scale, 0.0);
-  let ${safeId}_eps = max(epsilon, 1e-4);
+  // FIXED: Use centerX and centerY parameters instead of hardcoded 0.5, 0.5
+  let ${safeId}_ctr = vec2<f32>(centerX * u.aspect, centerY);
+  let ${safeId}_r = clamp(radius, 0.0, 2.0);
+  let ${safeId}_eps = max(smoothness, 1e-4);
 
   let ${safeId}_dist = length(${safeId}_uvA - ${safeId}_ctr) - ${safeId}_r;
   return 1.0 - smoothstep(-${safeId}_eps, ${safeId}_eps, ${safeId}_dist);
@@ -230,16 +237,16 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
 generateRectangleFunction(node, nodeId, functionName) {
   const safeId = this.makeSafeIdentifier(nodeId);
 
-  return `fn ${functionName}(uv: vec2<f32>, width: f32, height: f32, centerX: f32, centerY: f32, scale: f32, rotation: f32, epsilon: f32) -> f32 {
+  return `fn ${functionName}(uv: vec2<f32>, width: f32, height: f32, centerX: f32, centerY: f32, scale: f32, rotation: f32, smoothness: f32) -> f32 {
   // Distances in aspect space
   // FIXED: Don't clamp UV - allows transformed coordinates from Transform2D nodes
   var ${safeId}_uvA = uv;
   ${safeId}_uvA.x *= u.aspect;
 
-  // center in aspect space
+  // center in aspect space (use parameters, not clamped to allow transforms)
   let ${safeId}_ctr = vec2<f32>(
-    clamp(centerX, 0.0, 1.0) * u.aspect,
-    clamp(centerY, 0.0, 1.0)
+    centerX * u.aspect,
+    centerY
   );
   // size in aspect space (no additional aspect scaling needed)
   var ${safeId}_half = clamp(
@@ -263,7 +270,7 @@ generateRectangleFunction(node, nodeId, functionName) {
   let ${safeId}_d = abs(${safeId}_dp) - ${safeId}_half;
   let ${safeId}_dist = length(max(${safeId}_d, vec2<f32>(0.0)))
                      + min(max(${safeId}_d.x, ${safeId}_d.y), 0.0);
-  let ${safeId}_eps = max(epsilon, 1e-4);
+  let ${safeId}_eps = max(smoothness, 1e-4);
   return 1.0 - smoothstep(-${safeId}_eps, ${safeId}_eps, ${safeId}_dist);
 }`;
 }
@@ -271,21 +278,25 @@ generateRectangleFunction(node, nodeId, functionName) {
    * FIXED: Polygon function now aspect-ratio aware and accepts parameters
    */
   generatePolygonFunction(node, nodeId, functionName) {
-    return `fn ${functionName}(uv: vec2<f32>, sides: f32, radius: f32, epsilon: f32) -> f32 {
+    return `fn ${functionName}(uv: vec2<f32>, centerX: f32, centerY: f32, sides: f32, radius: f32, rotation: f32, smoothness: f32) -> f32 {
   // Aspect-corrected UV
   var aspectUV = uv;
   aspectUV.x *= u.aspect;
-  let aspectCenter = vec2<f32>(0.5 * u.aspect, 0.5);
+
+  // FIXED: Use centerX and centerY parameters instead of hardcoded 0.5, 0.5
+  let aspectCenter = vec2<f32>(centerX * u.aspect, centerY);
 
   let p = aspectUV - aspectCenter;
-  let a = atan2(p.y, p.x);
+  // FIXED: Apply rotation parameter
+  let a = atan2(p.y, p.x) + rotation;
   let r = length(p);
   let n = sides;
   let an = 3.14159265 / n;
   let segment = floor(0.5 + a / (2.0 * an));
   let angle = a - 2.0 * an * segment;
   let dist = r * cos(angle) - radius;
-  return 1.0 - smoothstep(-epsilon, epsilon, dist);
+  // FIXED: Use smoothness parameter
+  return 1.0 - smoothstep(-smoothness, smoothness, dist);
 }`;
   }
 
