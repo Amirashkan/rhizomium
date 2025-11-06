@@ -20,42 +20,16 @@ export class EventHandler {
     this._boxSelectCandidate = null;
     this._pendingContextMenu = null;
 
-    // PERFORMANCE: RAF batching system to prevent 100+ draw calls/sec during mouse events
-    // Before: Each mouse event directly called onDraw() → 100-200 draws/sec
-    // After: Batches all draw requests into a single RAF callback → max 60 draws/sec
-    this._drawPending = false;
-    this._rafHandle = null;
-
     this._setupEvents();
   }
 
-  // PERFORMANCE: Request a draw using RAF batching
-  // Multiple calls within the same frame are coalesced into a single draw
-  // This reduces CPU overhead and improves frame pacing
+  // PERFORMANCE: Mark editor as dirty to trigger redraw on next animation frame
+  // Since there's already a main animation loop running at 60fps, we don't need RAF batching
+  // Just mark dirty and let the main loop handle drawing - simpler and no frame delays
   _requestDraw(reason = 'user-interaction') {
-    if (this._drawPending) return; // Already scheduled
-
-    // PERFORMANCE: Mark editor as dirty so it knows to redraw
+    // Mark editor as dirty so the main animation loop redraws on next frame
     if (this.editor && typeof this.editor.markDirty === 'function') {
       this.editor.markDirty(reason);
-    }
-
-    this._drawPending = true;
-    this._rafHandle = requestAnimationFrame(() => {
-      this._drawPending = false;
-      this._rafHandle = null;
-      if (typeof this.onDraw === 'function') {
-        this.onDraw();
-      }
-    });
-  }
-
-  // Cleanup method to cancel pending draws (call this on destroy)
-  destroy() {
-    if (this._rafHandle) {
-      cancelAnimationFrame(this._rafHandle);
-      this._rafHandle = null;
-      this._drawPending = false;
     }
   }
 

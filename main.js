@@ -2069,8 +2069,8 @@ function handleRenderFrame(frameState) {
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
   if (!frameState.manual) {
-    // PERFORMANCE: Throttle preview computations to reduce CPU overhead
-    // Only update previews every PREVIEW_UPDATE_INTERVAL ms instead of every frame
+    // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
+    // Previews computed every 100ms, but canvas still redraws every frame for smooth animations
     const now = performance.now();
     const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
 
@@ -2081,14 +2081,15 @@ function handleRenderFrame(frameState) {
         editor.previewComputer.computePreviews(editor.graph);
       }
       lastPreviewUpdate = now;
+    }
 
-      // Redraw canvas to update labels (only when previews actually change)
-      if (editor?.draw) {
-        if (editor.markDirty) {
-          editor.markDirty('preview-update');
-        }
-        editor.draw();
+    // ALWAYS redraw canvas every frame for smooth animations
+    // (Preview computation is throttled, but rendering is not)
+    if (editor?.draw) {
+      if (editor.markDirty) {
+        editor.markDirty('animation-frame');
       }
+      editor.draw();
     }
   }
 }

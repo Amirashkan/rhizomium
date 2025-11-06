@@ -742,6 +742,8 @@ connectGPURenderer(renderFunction) {
 
   safeDraw() {
     try {
+      // PERFORMANCE: Always mark dirty before drawing to ensure rendering happens
+      this.markDirty('safeDraw');
       this.draw();
     } catch (error) {
       window.errorHandler?.handleError(error, {
