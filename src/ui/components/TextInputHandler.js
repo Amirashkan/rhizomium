@@ -157,22 +157,28 @@ _isValidExpression(value) {
     // Real-time input handling
 input.addEventListener("input", (e) => {
   e.stopPropagation();
-  
+
+  // PERFORMANCE: Skip expensive operations during shift+drag
+  // The drag handler will apply updates with its own throttling
+  if (input._isDragging) {
+    return;
+  }
+
   const newValue = input.value;
-  
+
   // Update styling and validation
   this._updateExpressionStyling(input, newValue);
   this._updateExpressionValidation(input, newValue, node);
-  
+
   // Clear any existing timer
   if (inputTimer) {
     clearTimeout(inputTimer);
   }
-  
+
   // CRITICAL: Don't update parameters immediately if it's an incomplete expression
-  const isIncompleteExpression = newValue.trim().startsWith('=') && 
+  const isIncompleteExpression = newValue.trim().startsWith('=') &&
     (newValue.trim().length <= 1 || newValue.includes('+') && !this._isValidExpression(newValue));
-  
+
   if (!isIncompleteExpression) {
     // Update parameter immediately for non-expressions or complete expressions
     valueManager.updateNodeParameter(node, param.name, newValue, onChange);
@@ -376,6 +382,9 @@ input.addEventListener("input", (e) => {
     let startY = 0;
     let dragStartValue = null;
 
+    // Store drag state on input element so input event listener can check it
+    input._isDragging = false;
+
     input.addEventListener("mousedown", (e) => {
       if (e.button === 0 && e.shiftKey && !input.disabled) {
         // PERFORMANCE: Disable console logging during drag
@@ -387,6 +396,7 @@ input.addEventListener("input", (e) => {
         }
         
         isDragging = true;
+        input._isDragging = true; // Flag for input event listener
         startValue = parseFloat(input.value) || 0;
         dragStartValue = startValue;
         startY = e.clientY;
@@ -468,6 +478,7 @@ input.addEventListener("input", (e) => {
           }
 
           isDragging = false;
+          input._isDragging = false; // Clear flag
           dragStartValue = null;
           input.style.cursor = "";
           document.body.style.cursor = "";
