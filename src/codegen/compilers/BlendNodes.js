@@ -53,21 +53,64 @@ export class BlendNodes {
 
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
-    
-    const uniformName = this.uniformManager?.isDynamicParam(node.id, paramName)
-      ? this.uniformManager.getUniformName(node.id, paramName)
-      : null;
-    
-    if (uniformName) {
-      return `params.${uniformName}`;
+
+    // Check for time-based or audio expressions
+    if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
+      const shaderExpr = rawValue
+        .replace(/\bsin\(/g, 'sin(')
+        .replace(/\bcos\(/g, 'cos(')
+        .replace(/\btime\b/g, 'g.time')
+        .replace(/\baudioEnvelopeBass\b/g, 'g.audioEnvelopeBass')
+        .replace(/\baudioEnvelopeMids\b/g, 'g.audioEnvelopeMids')
+        .replace(/\baudioEnvelopeHighs\b/g, 'g.audioEnvelopeHighs')
+        .replace(/\baudioEnvelopeFull\b/g, 'g.audioEnvelopeFull')
+        .replace(/\baudioEnvelope\b/g, 'g.audioEnvelope');
+      return shaderExpr;
     }
-    
-    const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, uniformName);
-    
+
+    // Check if it's an expression (starts with =)
+    if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
+      const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, null);
+      return typeof result === 'number' ? result.toFixed(6) : result;
+    }
+
+    // PERFORMANCE FIX: Register ALL numeric parameters as uniforms!
+    if (this.uniformManager) {
+      let value = rawValue;
+
+      // Parse string values to numbers
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        value = isNaN(parsed) ? (typeof defaultValue === 'number' ? defaultValue : 0.0) : parsed;
+      }
+
+      // Convert to number
+      if (typeof value !== 'number') {
+        value = typeof defaultValue === 'number' ? defaultValue : 0.0;
+      }
+
+      // Ensure finite value
+      if (!isFinite(value)) {
+        value = 0.0;
+      }
+
+      // Register with uniform manager
+      const paramKey = `${node.id}.${paramName}`;
+      this.uniformManager.uniformValues.set(paramKey, value);
+
+      // Generate uniform reference
+      const sanitizedKey = paramKey.replace(/[^a-zA-Z0-9_]/g, '_');
+      const fieldName = sanitizedKey.startsWith('_') ? sanitizedKey : `_${sanitizedKey}`;
+      return `u_params.${fieldName}`;
+    }
+
+    // Fallback
+    const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, null);
+
     if (typeof result === 'number') {
       return result === Math.floor(result) ? `${result}.0` : result.toString();
     }
-    
+
     return result;
   }
 

@@ -52,6 +52,49 @@ export class NodeCompiler {
   }
 
   /**
+   * Register a parameter as a uniform and return the uniform reference
+   * This is the key function that converts baked parameters to uniforms!
+   * @param {object} node - The node object
+   * @param {string} paramName - The parameter name
+   * @param {*} defaultValue - Default value if parameter doesn't exist
+   * @returns {string} - WGSL uniform reference like "u_params._4_scale"
+   */
+  registerParameterAsUniform(node, paramName, defaultValue = 0.0) {
+    const paramValue = node.params?.[paramName];
+    let value = paramValue !== undefined && paramValue !== null ? paramValue : defaultValue;
+
+    // Parse string values to numbers
+    if (typeof value === 'string') {
+      // Check if it's an expression (starts with =)
+      if (value.trim().startsWith('=')) {
+        // Handle expressions separately - they don't become uniforms
+        return null;
+      }
+      const parsed = parseFloat(value);
+      value = isNaN(parsed) ? defaultValue : parsed;
+    }
+
+    // Convert to number
+    if (typeof value !== 'number') {
+      value = defaultValue;
+    }
+
+    // Ensure finite value
+    if (!isFinite(value)) {
+      value = 0.0;
+    }
+
+    // Register with uniform manager
+    const paramKey = `${node.id}.${paramName}`;
+    this.uniformManager.uniformValues.set(paramKey, value);
+
+    // Generate uniform reference
+    const sanitizedName = paramKey.replace(/[^a-zA-Z0-9_]/g, '_');
+    const fieldName = sanitizedName.startsWith('_') ? sanitizedName : `_${sanitizedName}`;
+    return `u_params.${fieldName}`;
+  }
+
+  /**
    * Resolves a parameter value that might be a node reference or expression
    * Supports: =node_X, =node_X_x, =node_X_y, =sin(time), etc.
    * @param {*} paramValue - The parameter value (could be a number, string, or expression)
@@ -220,9 +263,22 @@ export class NodeCompiler {
     };
 
     // Helper to resolve parameter values (including node references)
+    // UPDATED: Now registers parameters as uniforms for performance!
     const getParam = (paramName, defaultValue = '0.0') => {
       const paramValue = node.params?.[paramName];
-      return this.resolveParameterValue(paramValue, defaultValue);
+
+      // Check if it's an expression or node reference
+      if (typeof paramValue === 'string' && paramValue.trim().startsWith('=')) {
+        // Handle expressions (like =sin(time) or =node_X) - use resolveParameterValue
+        return this.resolveParameterValue(paramValue, defaultValue);
+      }
+
+      // Regular numeric parameters: register as uniform
+      const uniformRef = this.registerParameterAsUniform(node, paramName, typeof defaultValue === 'number' ? defaultValue : parseFloat(defaultValue) || 0.0);
+
+      // If registration succeeded, return uniform reference
+      // Otherwise fall back to baked value (for edge cases)
+      return uniformRef || this.resolveParameterValue(paramValue, defaultValue);
     };
 
     // Delegate to appropriate compiler

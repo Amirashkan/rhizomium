@@ -74,6 +74,7 @@ case 'Spherize':
 
   /**
    * OPTIMIZED: Generate shader expression for parameter
+   * PERFORMANCE FIX: Now registers parameters as uniforms!
    * USE UNIFIED AST SYSTEM - ensures shader matches CPU evaluation exactly
    */
 getShaderParam(node, name, defaultValue) {
@@ -99,6 +100,29 @@ getShaderParam(node, name, defaultValue) {
     }
   }
 
+  // PERFORMANCE FIX: Register numeric parameters as uniforms!
+  if (this.uniformManager) {
+    let numValue = typeof value === 'number' ? value : parseFloat(value);
+
+    if (isNaN(numValue)) {
+      numValue = typeof defaultValue === 'number' ? defaultValue : parseFloat(defaultValue) || 0.0;
+    }
+
+    if (!isFinite(numValue)) {
+      numValue = 0.0;
+    }
+
+    // Register with uniform manager
+    const paramKey = `${node.id}.${name}`;
+    this.uniformManager.uniformValues.set(paramKey, numValue);
+
+    // Generate uniform reference
+    const sanitizedKey = paramKey.replace(/[^a-zA-Z0-9_]/g, '_');
+    const fieldName = sanitizedKey.startsWith('_') ? sanitizedKey : `_${sanitizedKey}`;
+    return `u_params.${fieldName}`;
+  }
+
+  // Fallback
   if (typeof value === 'number') {
     return value.toString();
   }
