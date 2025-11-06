@@ -8,7 +8,7 @@ Nodes created from right-click menu don't appear until you click again.
 
 ## Solution
 
-### File: `editor/src/ui/RadialMenu.js`
+### File: `src/ui/RadialMenu.js`
 
 **Find this function (around line 877):**
 
