@@ -16,11 +16,20 @@ export class MenuManager {
 
   hide() {
     if (this.menuEl) {
+      // Blur any focused input before removing
+      const focused = this.menuEl.querySelector(':focus');
+      if (focused) {
+        focused.blur();
+      }
       this.menuEl.remove();
       this.menuEl = null;
     }
     if (this.radialMenu) {
       this.radialMenu.hide();
+    }
+    // Return focus to document body
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+      document.activeElement.blur();
     }
   }
 
@@ -290,11 +299,11 @@ export class MenuManager {
         const menuItem = this._createMenuItem(
           item.label,
           () => {
-            // Hide menu first, then create node after DOM updates
+            // Hide menu first, then create node after next paint
             this.hide();
-            setTimeout(() => {
+            requestAnimationFrame(() => {
               this._createNode(item.kind);
-            }, 0);
+            });
           },
           categoryName,
         );
@@ -345,22 +354,32 @@ export class MenuManager {
   }
 
   _createNode(kind) {
+    console.log('[MenuManager] Creating node:', kind);
     const node = makeNode(kind, this.menuPos.x, this.menuPos.y);
     this.graph.nodes.push(node);
     this.graph.selection = new Set([node.id]);
+    console.log('[MenuManager] Node created, ID:', node.id, 'Total nodes:', this.graph.nodes.length);
+
+    // Record node creation for undo
+    if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
+      window.onNodeCreated(node);
+    }
 
     // Immediately draw to show the new node
     if (window.editor) {
       if (typeof window.editor.markDirty === 'function') {
         window.editor.markDirty('node-creation');
+        console.log('[MenuManager] Marked editor dirty');
       }
       if (typeof window.editor.draw === 'function') {
         window.editor.draw();
+        console.log('[MenuManager] Called editor.draw()');
       }
     }
 
     // Delay onChange to allow GPU state to settle and prevent bind group mismatch
     setTimeout(() => {
+      console.log('[MenuManager] Triggering onChange after delay');
       if (this.onChange) this.onChange();
     }, 50);
   }
