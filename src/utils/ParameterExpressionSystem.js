@@ -1009,9 +1009,9 @@ isIncomplete(value) {
 
           // PERFORMANCE: Throttled shader rebuild for visual feedback
           // Main render loop continues during drag, so we only need to rebuild shader
-          // Throttle to 100ms (10fps) for smooth drag without killing performance
+          // Throttle to 33ms (30fps) for smooth visual updates during drag
           const now = performance.now();
-          const THROTTLE_MS = 100;
+          const THROTTLE_MS = 33;
           if (now - lastRebuildTime >= THROTTLE_MS) {
             lastRebuildTime = now;
             if (typeof window.rebuild === 'function') {
