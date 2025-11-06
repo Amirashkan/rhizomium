@@ -25,20 +25,25 @@ constructor(editor) {
 
       this.editor = editor;  // Should be on or near line 26
       this.size = 48;
+
+      // Topological sort caching
+      this._sortCache = null;
+      this._sortCacheKey = null;
+
       // Initialize subsystems with error handling
       this._initializeSubsystems();
-      
+
       // Register all renderers
       this._registerRenderers();
-      
+
       // Don't create integration here - let it be created externally
       this.integration = null;
-      
+
       console.log('PreviewSystem initialized successfully');
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'preview-system-constructor'
-        
+
       });
       throw error;
     }
@@ -295,10 +300,39 @@ updateAllPreviews(nodes) {
   }
 }
 
+// Generate a cache key for topological sort based on graph structure
+_generateSortCacheKey(nodes) {
+  if (!nodes || !Array.isArray(nodes)) return '';
+
+  // Create a key based on node IDs and their input connections
+  const parts = [];
+  for (const node of nodes) {
+    if (node && node.id) {
+      const inputs = (node.inputs || []).filter(id => id).join(',');
+      parts.push(`${node.id}:${inputs}`);
+    }
+  }
+  return parts.sort().join('|');
+}
+
+// Invalidate topological sort cache (call when graph structure changes)
+invalidateSortCache() {
+  this._sortCache = null;
+  this._sortCacheKey = null;
+}
+
 // Add this helper method to PreviewSystem
 topologicalSort(nodes) {
   if (!nodes || !Array.isArray(nodes)) return [];
 
+  // Check cache first
+  const cacheKey = this._generateSortCacheKey(nodes);
+  if (this._sortCache && this._sortCacheKey === cacheKey) {
+    // Cache hit - return cached result
+    return this._sortCache;
+  }
+
+  // Cache miss - compute sort
   const byId = new Map(nodes.map(n => [n.id, n]));
   const visited = new Set();
   const result = [];
@@ -323,6 +357,10 @@ topologicalSort(nodes) {
   nodes.forEach(node => {
     if (node && node.id) visit(node.id);
   });
+
+  // Cache the result
+  this._sortCache = result;
+  this._sortCacheKey = cacheKey;
 
   return result;
 }

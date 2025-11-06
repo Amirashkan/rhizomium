@@ -2117,7 +2117,6 @@ function handleRenderFrame(frameState) {
     // PERFORMANCE: Skip preview computations during drag (expensive!)
     if (!isDragging) {
       // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
-      // Previews computed every 100ms, but canvas still redraws every frame for smooth animations
       const now = performance.now();
       const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
 
@@ -2125,19 +2124,22 @@ function handleRenderFrame(frameState) {
         // Update preview values for time/audio-based expressions
         // This ensures node labels show current values
         if (editor?.previewComputer && editor?.graph) {
+          const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           editor.previewComputer.computePreviews(editor.graph);
+
+          // Only mark dirty if there are time-animated nodes that need visual updates
+          if (hadTimeAnimatedNodes && editor.markDirty) {
+            editor.markDirty('time-animation');
+          }
         }
         lastPreviewUpdate = now;
       }
     }
 
-    // ALWAYS redraw canvas every frame for smooth animations (even during drag)
-    // (Preview computation is skipped during drag, but editor canvas rendering continues)
+    // OPTIMIZATION: Only redraw when canvas is dirty
+    // Canvas is marked dirty by: user interactions, preview updates, graph changes
     if (editor?.draw) {
-      if (editor.markDirty) {
-        editor.markDirty('animation-frame');
-      }
-      editor.draw();
+      editor.draw(); // draw() will check _isDirty internally
     }
   }
 }
