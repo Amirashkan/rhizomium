@@ -138,14 +138,16 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
       case 'Circle': {
         functionDef = this.generateCircleFunction(node, nodeId, functionName);
         const radius = this.getParam(node, 'radius', 0.25);
-        const epsilon = this.getParam(node, 'epsilon', 0.02);
-        const scale = this.getParam(node, 'scale', 1.0);
+        // FIXED: Node definition uses 'smoothness', not 'epsilon'
+        const smoothness = this.getParam(node, 'smoothness', 0.01);
+        // FIXED: Node definition has no 'scale' parameter, default to 1.0
+        const scale = 1.0;
 
         const radiusExpr = typeof radius === 'string' ? `(${radius})` : radius;
-        const epsilonExpr = typeof epsilon === 'string' ? `(${epsilon})` : epsilon;
-        const scaleExpr = typeof scale === 'string' ? `(${scale})` : scale;
+        const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
+        const scaleExpr = scale;
 
-        paramExprs = `, ${radiusExpr}, ${epsilonExpr}, ${scaleExpr}`;
+        paramExprs = `, ${radiusExpr}, ${smoothnessExpr}, ${scaleExpr}`;
         break;
       }
       case 'Rectangle': {
@@ -154,32 +156,35 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
         const height = this.getParam(node, 'height', 0.5);
         const centerX = this.getParam(node, 'centerX', 0.5);
         const centerY = this.getParam(node, 'centerY', 0.5);
-        const scale = this.getParam(node, 'scale', 1.0);
-        const rotation = this.getParam(node, 'rotation', 0.0);
-        const epsilon = this.getParam(node, 'epsilon', 0.02);
+        // FIXED: Node definition has no 'scale' or 'rotation' parameters, use defaults
+        const scale = 1.0;
+        const rotation = 0.0;
+        // FIXED: Node definition uses 'smoothness', not 'epsilon'
+        const smoothness = this.getParam(node, 'smoothness', 0.01);
 
         const widthExpr = typeof width === 'string' ? `(${width})` : width;
         const heightExpr = typeof height === 'string' ? `(${height})` : height;
         const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
         const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;
-        const scaleExpr = typeof scale === 'string' ? `(${scale})` : scale;
-        const rotationExpr = typeof rotation === 'string' ? `(${rotation})` : rotation;
-        const epsilonExpr = typeof epsilon === 'string' ? `(${epsilon})` : epsilon;
+        const scaleExpr = scale;
+        const rotationExpr = rotation;
+        const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
 
-        paramExprs = `, ${widthExpr}, ${heightExpr}, ${centerXExpr}, ${centerYExpr}, ${scaleExpr}, ${rotationExpr}, ${epsilonExpr}`;
+        paramExprs = `, ${widthExpr}, ${heightExpr}, ${centerXExpr}, ${centerYExpr}, ${scaleExpr}, ${rotationExpr}, ${smoothnessExpr}`;
         break;
       }
       case 'Polygon': {
         functionDef = this.generatePolygonFunction(node, nodeId, functionName);
         const sides = this.getParam(node, 'sides', 6);
         const radius = this.getParam(node, 'radius', 0.25);
-        const epsilon = this.getParam(node, 'epsilon', 0.02);
+        // FIXED: Node definition uses 'smoothness', not 'epsilon'
+        const smoothness = this.getParam(node, 'smoothness', 0.01);
 
         const sidesExpr = typeof sides === 'string' ? `(${sides})` : sides;
         const radiusExpr = typeof radius === 'string' ? `(${radius})` : radius;
-        const epsilonExpr = typeof epsilon === 'string' ? `(${epsilon})` : epsilon;
+        const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
 
-        paramExprs = `, ${sidesExpr}, ${radiusExpr}, ${epsilonExpr}`;
+        paramExprs = `, ${sidesExpr}, ${radiusExpr}, ${smoothnessExpr}`;
         break;
       }
     }
