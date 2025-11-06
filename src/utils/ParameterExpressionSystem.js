@@ -997,43 +997,45 @@ isIncomplete(value) {
           const oldUndoManager = valueManager.undoManager;
           valueManager.undoManager = null;
 
-          // Force immediate preview update during drag
-          if (typeof valueManager.updateNodeParameter === 'function') {
-            valueManager.updateNodeParameter(node, param.name, input.value, onChange);
-          } else {
-            valueManager.setValue(node, param.name, input.value);
-            onChange(`Drag Parameter: ${param.name}`);
-          }
+          // PERFORMANCE: Skip ALL expensive operations during drag
+          // Just update the input value visually, apply changes on mouseup
+          // if (typeof valueManager.updateNodeParameter === 'function') {
+          //   valueManager.updateNodeParameter(node, param.name, input.value, onChange);
+          // } else {
+          //   valueManager.setValue(node, param.name, input.value);
+          //   onChange(`Drag Parameter: ${param.name}`);
+          // }
 
-          // CRITICAL: Force immediate preview update (bypass requestAnimationFrame batching)
-          if (window.editor?.paramPanel?._processPreviewUpdate) {
-            // Call _processPreviewUpdate directly to bypass the batching in updateNodePreview
-            window.editor.paramPanel._processPreviewUpdate(node);
-          } else if (window.editor?.previewIntegration) {
-            // Fallback: call preview system directly
-            if (window.editor.previewSystem?.canvasManager) {
-              window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
-            }
-            window.editor.previewIntegration.generateNodePreview(node);
-          }
+          // // CRITICAL: Force immediate preview update (bypass requestAnimationFrame batching)
+          // if (window.editor?.paramPanel?._processPreviewUpdate) {
+          //   // Call _processPreviewUpdate directly to bypass the batching in updateNodePreview
+          //   window.editor.paramPanel._processPreviewUpdate(node);
+          // } else if (window.editor?.previewIntegration) {
+          //   // Fallback: call preview system directly
+          //   if (window.editor.previewSystem?.canvasManager) {
+          //     window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
+          //   }
+          //   window.editor.previewIntegration.generateNodePreview(node);
+          // }
 
-          // CRITICAL: Force immediate editor canvas redraw (node graph)
-          if (window.editor?.draw) {
-            window.editor.draw();
-          }
+          // // CRITICAL: Force immediate editor canvas redraw (node graph)
+          // if (window.editor?.draw) {
+          //   window.editor.draw();
+          // }
 
-          // CRITICAL: Rebuild shader with new parameter values (throttled)
-          const now = performance.now();
-          if (now - lastRebuildTime >= REBUILD_THROTTLE_MS) {
-            lastRebuildTime = now;
-            if (typeof window.rebuild === 'function') {
-              window.rebuild();
-            }
-            // CRITICAL: Force immediate GPU render (floating preview canvas)
-            if (typeof window.render === 'function') {
-              window.render();
-            }
-          }
+          // PERFORMANCE: Skip ALL expensive operations during drag
+          // Don't rebuild shader during mousemove - apply once on mouseup
+          // const now = performance.now();
+          // if (now - lastRebuildTime >= REBUILD_THROTTLE_MS) {
+          //   lastRebuildTime = now;
+          //   if (typeof window.rebuild === 'function') {
+          //     window.rebuild();
+          //   }
+          //   // CRITICAL: Force immediate GPU render (floating preview canvas)
+          //   if (typeof window.render === 'function') {
+          //     window.render();
+          //   }
+          // }
 
           valueManager.undoManager = oldUndoManager;
 
