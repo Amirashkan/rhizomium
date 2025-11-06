@@ -21,6 +21,10 @@ export class Editor {
       this.isPreviewEnabled = true;
       this.nodePreviews = new Map();
 
+      // Dirty flag optimization
+      this._isDirty = true; // Start as dirty for initial render
+      this._dirtyReasons = new Set();
+
       // Set basic properties FIRST
       this.graph = graph;
       this.onChange = this.createSafeOnChange(onChange);
@@ -773,17 +777,41 @@ connectGPURenderer(renderFunction) {
     }
   }
 
+  markDirty(reason = 'unknown') {
+    this._isDirty = true;
+    if (reason) {
+      this._dirtyReasons.add(reason);
+    }
+  }
+
+  clearDirty() {
+    this._isDirty = false;
+    this._dirtyReasons.clear();
+  }
+
+  isDirty() {
+    return this._isDirty;
+  }
+
   draw() {
     if (!this.renderer) {
       throw new Error('Renderer not initialized');
     }
-    
+
+    // Only render if dirty (optimization)
+    if (!this._isDirty) {
+      return;
+    }
+
     this.renderer.render(this.graph, {
       selection: this.selection.getSelected(),
       dragWire: this.connections.getDragWire(),
       boxSelect: this.selection.getBoxSelect(),
       editor: this,
     });
+
+    // Clear dirty flag after rendering
+    this.clearDirty();
   }
 
   initializePreviewSystem() {

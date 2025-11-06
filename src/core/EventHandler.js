@@ -47,6 +47,14 @@ export class EventHandler {
     this._setupGlobalEvents();
   }
 
+  // Mark canvas dirty and request render (optimization for dirty flag system)
+  _requestDraw(reason = 'user-interaction') {
+    if (this.editor && typeof this.editor.markDirty === 'function') {
+      this.editor.markDirty(reason);
+    }
+    this._requestRender();
+  }
+
   // Throttled render using requestAnimationFrame for better performance
   _requestRender() {
     if (this._pendingFrame !== null) {
@@ -76,7 +84,7 @@ export class EventHandler {
                   this.onChange();
                 }
               }
-              this.onDraw();
+              this._requestDraw('selection-clear');
             }
           }
           this._panCandidate = null;
@@ -96,7 +104,7 @@ export class EventHandler {
               this._panCandidate.moved = true;
             }
           }
-          this._requestRender();
+          this._requestDraw('pan');
           e.preventDefault();
           e.stopPropagation();
         }
@@ -114,7 +122,7 @@ export class EventHandler {
         const my = e.clientY - rect.top;
 
         if (this.viewport.zoom(mx, my, e.deltaY)) {
-          this.onDraw();
+          this._requestDraw('zoom');
           e.preventDefault();
         }
       },
@@ -274,7 +282,7 @@ export class EventHandler {
           // Has connection: remove it and start dragging from this input
           this.connections.removeConnection(hitIn.nodeId, hitIn.pin);
           this.connections.startWireDrag(hitIn.nodeId, hitIn.pin, pos, true);
-          this.onDraw();
+          this._requestDraw('wire-drag');
         } else {
           // No connection: start dragging from this input
           this.connections.startWireDrag(hitIn.nodeId, hitIn.pin, pos, true);
@@ -313,7 +321,7 @@ export class EventHandler {
 
       // Start node drag
       this.selection.startDrag(clicked.id, pos.x, pos.y);
-      this.onDraw();
+      this._requestDraw('node-drag-start');
     });
 
     // Click handler to prevent double-click from bubbling
@@ -350,7 +358,7 @@ export class EventHandler {
           this.selection.startBoxSelect(x, y);
           this._boxSelectCandidate.started = true;
           this._pendingContextMenu = null;
-          this._requestRender();
+          this._requestDraw('box-select-start');
         }
       }
 
@@ -362,21 +370,21 @@ export class EventHandler {
       // Handle wire dragging
       if (this.connections.getDragWire()) {
         this.connections.updateWireDrag(pos);
-        this._requestRender();
+        this._requestDraw('wire-drag-update');
         return;
       }
 
       // Handle box selection
       if (this.selection.getBoxSelect()) {
         this.selection.updateBoxSelect(pos.x, pos.y);
-        this._requestRender();
+        this._requestDraw('box-select-update');
         return;
       }
 
       // Handle node dragging
       if (this.selection.getDragging()) {
         this.selection.updateDrag(pos.x, pos.y);
-        this._requestRender();
+        this._requestDraw('node-drag-update');
       }
     });
 
@@ -407,13 +415,13 @@ export class EventHandler {
         }
 
         this.connections.endWireDrag(pos, target);
-        this.onDraw();
+        this._requestDraw('wire-drag-end');
       }
 
       // End box selection
       if (this.selection.getBoxSelect()) {
         this.selection.endBoxSelect();
-        this.onDraw();
+        this._requestDraw('box-select-end');
       } else if (
         this._boxSelectCandidate &&
         !this._boxSelectCandidate.started &&
@@ -446,7 +454,7 @@ export class EventHandler {
       ) {
         // SelectionManager now handles undo recording automatically
         this.selection.deleteSelected();
-        this.onDraw();
+        this._requestDraw('delete-selected');
         e.preventDefault();
       }
     });
@@ -515,7 +523,7 @@ export class EventHandler {
         pos.y <= controlY - 8 + buttonHeight
       ) {
         this.editor.toggleNodeVisualInfo(node.id);
-        this.onDraw();
+        this._requestDraw('toggle-visual-info');
         return true;
       }
 
@@ -531,7 +539,7 @@ export class EventHandler {
 
         // This toggles the GLOBAL preview state
         this.editor.toggleNodePreview(node.id);
-        this.onDraw();
+        this._requestDraw('toggle-preview');
         return true;
       }
 
@@ -545,7 +553,7 @@ export class EventHandler {
       ) {
         if (this.editor.isPreviewEnabled) {
           this.editor.cyclePreviewSize(node.id);
-          this.onDraw();
+          this._requestDraw('cycle-preview-size');
         }
         return true; // Still consume click even if disabled
       }
