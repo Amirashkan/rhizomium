@@ -103,15 +103,37 @@ export class TransformRenderers {
 
       console.log(`Transform ${node.id} checking input ${inputNode.kind} (${inputNode.id})`);
 
-      // Return the input node's preview (topological sort ensures it's already rendered)
-      // If it's not available, return null and let validation handle it
-      if (inputNode.__thumb) {
-        console.log(`✓ Got input preview from ${inputNode.kind}, size: ${inputNode.__thumb.width}x${inputNode.__thumb.height}`);
-      } else {
-        console.log(`✗ Input node ${inputNode.kind} has no __thumb yet (will retry on next render)`);
+      // If input node doesn't have a preview, trigger generation
+      // This handles cases where nodes are connected in new files
+      if (!inputNode.__thumb) {
+        console.log(`✗ Input node ${inputNode.kind} has no preview, triggering generation...`);
+
+        // Trigger preview generation for the input node
+        if (this.previewSystem?.generateNodePreview) {
+          this.previewSystem.generateNodePreview(inputNode);
+
+          // Also schedule this node (transform) to re-render after input is ready
+          // Use a short delay to allow the input preview to be generated first
+          setTimeout(() => {
+            if (this.previewSystem?.generateNodePreview && inputNode.__thumb) {
+              console.log(`   Input preview ready, re-rendering transform node ${node.id}`);
+              this.previewSystem.generateNodePreview(node);
+              // Trigger editor redraw to show the update
+              if (this.previewSystem?.editor?.draw) {
+                this.previewSystem.editor.draw();
+              }
+            }
+          }, 50);
+        }
+
+        // Still return null this time - the next render will pick up the generated preview
+        // This is better than showing incorrect data
+        console.log(`   Preview generation triggered, will update shortly`);
+        return null;
       }
 
-      return inputNode.__thumb || null;
+      console.log(`✓ Got input preview from ${inputNode.kind}, size: ${inputNode.__thumb.width}x${inputNode.__thumb.height}`);
+      return inputNode.__thumb;
     } catch (error) {
       console.warn('Error getting input preview:', error);
       return null;
