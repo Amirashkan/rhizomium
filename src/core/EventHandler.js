@@ -330,6 +330,12 @@ export class EventHandler {
         return;
       }
 
+      // PERFORMANCE: Skip ALL processing during parameter drag
+      // This avoids expensive _getCanvasPosition calls (getBoundingClientRect + transforms)
+      if (this.editor?._parameterDragging) {
+        return;
+      }
+
       if (
         this._boxSelectCandidate &&
         !this._boxSelectCandidate.started &&

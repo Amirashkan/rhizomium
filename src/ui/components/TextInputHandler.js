@@ -381,6 +381,7 @@ input.addEventListener("input", (e) => {
     let startValue = 0;
     let startY = 0;
     let dragStartValue = null;
+    let currentDragValue = 0; // Track value internally during drag
 
     // Store drag state on input element so input event listener can check it
     input._isDragging = false;
@@ -420,24 +421,29 @@ input.addEventListener("input", (e) => {
 
           // Format based on parameter type
           if (param.type === "int") {
-            input.value = Math.round(newValue).toString();
+            currentDragValue = Math.round(newValue);
           } else {
-            input.value = newValue.toFixed(3);
+            currentDragValue = newValue;
           }
 
-          // PERFORMANCE: During drag, ONLY update the visual input value
-          // Skip ALL expensive operations:
-          // - No updateNodeParameter calls (skips expression evaluation, events)
-          // - No editor.draw() calls (skips full canvas rendering)
-          // - Just show the number changing in the input field
-          // All actual updates happen once on mouseup
+          // PERFORMANCE: During drag, do ABSOLUTELY NOTHING
+          // Don't even update input.value (avoids DOM manipulation)
+          // Just track the value internally and apply it all on mouseup
+          // This ensures ZERO work during drag for maximum FPS
 
           e.preventDefault();
+          e.stopPropagation(); // Prevent EventHandler from processing this event
         };
 
         const onMouseUp = (e) => {
           // PERFORMANCE: Disable console logging during drag
           // console.log(`Ending shift+drag on ${param.name}`);
+
+          // Update input.value with final drag value
+          const finalValueStr = param.type === "int"
+            ? currentDragValue.toString()
+            : currentDragValue.toFixed(3);
+          input.value = finalValueStr;
 
           // PERFORMANCE: Apply final value WITH all expensive operations
           // Now we trigger shader rebuild and preview computation once at the end
@@ -445,15 +451,14 @@ input.addEventListener("input", (e) => {
           valueManager.undoManager = null;
 
           // This will trigger onChange (shader rebuild) and preview updates
-          valueManager.updateNodeParameter(node, param.name, input.value, onChange);
+          valueManager.updateNodeParameter(node, param.name, finalValueStr, onChange);
 
           valueManager.undoManager = oldUndoManager;
 
           if (isDragging && dragStartValue !== null) {
-            const finalValue = parseFloat(input.value) || 0;
-            if (this.undoManager && Math.abs(dragStartValue - finalValue) > 0.001) {
-              this.undoManager.recordParameterChange(node.id, param.name, dragStartValue, finalValue);
-              // console.log(`Recorded undo: ${param.name} from ${dragStartValue} to ${finalValue}`);
+            if (this.undoManager && Math.abs(dragStartValue - currentDragValue) > 0.001) {
+              this.undoManager.recordParameterChange(node.id, param.name, dragStartValue, currentDragValue);
+              // console.log(`Recorded undo: ${param.name} from ${dragStartValue} to ${currentDragValue}`);
             }
           }
 
