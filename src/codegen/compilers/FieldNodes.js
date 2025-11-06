@@ -205,8 +205,8 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
 
     return `fn ${functionName}(uv: vec2<f32>, radius: f32, epsilon: f32, scale: f32) -> f32 {
   // Domain + aspect: measure distances in aspect space (x in [0, u.aspect], y in [0, 1])
-  let ${safeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  var ${safeId}_uvA = ${safeId}_uv01;
+  // FIXED: Don't clamp UV - allows transformed coordinates from Transform2D nodes
+  var ${safeId}_uvA = uv;
   ${safeId}_uvA.x *= u.aspect;
 
   let ${safeId}_ctr = vec2<f32>(0.5 * u.aspect, 0.5);
@@ -227,8 +227,8 @@ generateRectangleFunction(node, nodeId, functionName) {
 
   return `fn ${functionName}(uv: vec2<f32>, width: f32, height: f32, centerX: f32, centerY: f32, scale: f32, rotation: f32, epsilon: f32) -> f32 {
   // Distances in aspect space
-  let ${safeId}_uv01 = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  var ${safeId}_uvA = ${safeId}_uv01;
+  // FIXED: Don't clamp UV - allows transformed coordinates from Transform2D nodes
+  var ${safeId}_uvA = uv;
   ${safeId}_uvA.x *= u.aspect;
 
   // center in aspect space
