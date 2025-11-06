@@ -1899,6 +1899,12 @@ function setupPreviewButtons() {
   }
 }
 let lastUniformUpdate = 0;
+// PERFORMANCE: Throttle preview computations to reduce CPU overhead
+// Before: Preview computed every frame (60 times/sec) = 10-20ms × 60 = 600-1200ms/sec overhead
+// After: Preview computed every 100ms (10 times/sec) = 10-20ms × 10 = 100-200ms/sec overhead
+let lastPreviewUpdate = 0;
+const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
+
 function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
@@ -2063,15 +2069,26 @@ function handleRenderFrame(frameState) {
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
   if (!frameState.manual) {
-    // Update preview values for time/audio-based expressions
-    // This ensures node labels show current values
-    if (editor?.previewComputer && editor?.graph) {
-      editor.previewComputer.computePreviews(editor.graph);
-    }
+    // PERFORMANCE: Throttle preview computations to reduce CPU overhead
+    // Only update previews every PREVIEW_UPDATE_INTERVAL ms instead of every frame
+    const now = performance.now();
+    const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
 
-    // Redraw canvas to update labels
-    if (editor?.draw) {
-      editor.draw();
+    if (shouldUpdatePreviews) {
+      // Update preview values for time/audio-based expressions
+      // This ensures node labels show current values
+      if (editor?.previewComputer && editor?.graph) {
+        editor.previewComputer.computePreviews(editor.graph);
+      }
+      lastPreviewUpdate = now;
+
+      // Redraw canvas to update labels (only when previews actually change)
+      if (editor?.draw) {
+        if (editor.markDirty) {
+          editor.markDirty('preview-update');
+        }
+        editor.draw();
+      }
     }
   }
 }

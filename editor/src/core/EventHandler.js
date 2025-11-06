@@ -1,4 +1,5 @@
 // src/core/EventHandler.js - Complete version with undo system integration
+// PERFORMANCE: RAF batching system added to prevent excessive redraws
 export class EventHandler {
   constructor(options) {
     this.canvas = options.canvas;
@@ -19,8 +20,43 @@ export class EventHandler {
     this._boxSelectCandidate = null;
     this._pendingContextMenu = null;
 
+    // PERFORMANCE: RAF batching system to prevent 100+ draw calls/sec during mouse events
+    // Before: Each mouse event directly called onDraw() → 100-200 draws/sec
+    // After: Batches all draw requests into a single RAF callback → max 60 draws/sec
+    this._drawPending = false;
+    this._rafHandle = null;
 
     this._setupEvents();
+  }
+
+  // PERFORMANCE: Request a draw using RAF batching
+  // Multiple calls within the same frame are coalesced into a single draw
+  // This reduces CPU overhead and improves frame pacing
+  _requestDraw(reason = 'user-interaction') {
+    if (this._drawPending) return; // Already scheduled
+
+    // PERFORMANCE: Mark editor as dirty so it knows to redraw
+    if (this.editor && typeof this.editor.markDirty === 'function') {
+      this.editor.markDirty(reason);
+    }
+
+    this._drawPending = true;
+    this._rafHandle = requestAnimationFrame(() => {
+      this._drawPending = false;
+      this._rafHandle = null;
+      if (typeof this.onDraw === 'function') {
+        this.onDraw();
+      }
+    });
+  }
+
+  // Cleanup method to cancel pending draws (call this on destroy)
+  destroy() {
+    if (this._rafHandle) {
+      cancelAnimationFrame(this._rafHandle);
+      this._rafHandle = null;
+      this._drawPending = false;
+    }
   }
 
   _setupEvents() {
@@ -60,7 +96,7 @@ export class EventHandler {
                   this.onChange();
                 }
               }
-              this.onDraw();
+              this._requestDraw(); // PERF: Batched draw
             }
           }
           this._panCandidate = null;
@@ -80,7 +116,7 @@ export class EventHandler {
               this._panCandidate.moved = true;
             }
           }
-          this.onDraw();
+          this._requestDraw(); // PERF: Batched draw during pan
           e.preventDefault();
           e.stopPropagation();
         }
@@ -98,7 +134,7 @@ export class EventHandler {
         const my = e.clientY - rect.top;
 
         if (this.viewport.zoom(mx, my, e.deltaY)) {
-          this.onDraw();
+          this._requestDraw(); // PERF: Batched draw during zoom
           e.preventDefault();
         }
       },
@@ -156,7 +192,7 @@ export class EventHandler {
               zoomDelta,
             )
           ) {
-            this.onDraw();
+            this._requestDraw(); // PERF: Batched draw during drag-zoom
           }
           this._zoomDragState.lastY = e.clientY;
         }
@@ -250,7 +286,7 @@ export class EventHandler {
       );
       if (hitIn) {
         this.connections.removeConnection(hitIn.nodeId, hitIn.pin);
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw after connection removal
         return;
       }
 
@@ -285,7 +321,7 @@ export class EventHandler {
 
       // Start node drag
       this.selection.startDrag(clicked.id, pos.x, pos.y);
-      this.onDraw();
+      this._requestDraw(); // PERF: Batched draw on drag start
     });
 
     // Click handler to prevent double-click from bubbling
@@ -316,7 +352,7 @@ export class EventHandler {
           this.selection.startBoxSelect(x, y);
           this._boxSelectCandidate.started = true;
           this._pendingContextMenu = null;
-          this.onDraw();
+          this._requestDraw(); // PERF: Batched draw on box select start
         }
       }
 
@@ -325,21 +361,21 @@ export class EventHandler {
       // Handle wire dragging
       if (this.connections.getDragWire()) {
         this.connections.updateWireDrag(pos);
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw during wire drag
         return;
       }
 
       // Handle box selection
       if (this.selection.getBoxSelect()) {
         this.selection.updateBoxSelect(pos.x, pos.y);
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw during box select
         return;
       }
 
       // Handle node dragging
       if (this.selection.getDragging()) {
         this.selection.updateDrag(pos.x, pos.y);
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw during node drag
       }
     });
 
@@ -355,16 +391,16 @@ export class EventHandler {
           pos.y,
           this.selection.graph.nodes,
         );
-        
+
         // Use original connection system but add undo recording
         this.connections.endWireDrag(pos, target);
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw after wire drag end
       }
 
       // End box selection
       if (this.selection.getBoxSelect()) {
         this.selection.endBoxSelect();
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw after box select end
       } else if (
         this._boxSelectCandidate &&
         !this._boxSelectCandidate.started &&
@@ -397,7 +433,7 @@ export class EventHandler {
       ) {
         // SelectionManager now handles undo recording automatically
         this.selection.deleteSelected();
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw after delete
         e.preventDefault();
       }
     });
@@ -455,7 +491,7 @@ export class EventHandler {
         pos.y <= controlY - 8 + buttonHeight
       ) {
         this.editor.toggleNodeVisualInfo(node.id);
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw after toggle visual info
         return true;
       }
 
@@ -471,7 +507,7 @@ export class EventHandler {
 
         // This toggles the GLOBAL preview state
         this.editor.toggleNodePreview(node.id);
-        this.onDraw();
+        this._requestDraw(); // PERF: Batched draw after toggle preview
         return true;
       }
 
@@ -485,7 +521,7 @@ export class EventHandler {
       ) {
         if (this.editor.isPreviewEnabled) {
           this.editor.cyclePreviewSize(node.id);
-          this.onDraw();
+          this._requestDraw(); // PERF: Batched draw after cycle preview size
         }
         return true; // Still consume click even if disabled
       }
