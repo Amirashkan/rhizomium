@@ -999,34 +999,11 @@ isIncomplete(value) {
           // PERFORMANCE: Skip _autoResizeTextArea during drag (causes DOM reflows)
           // this._autoResizeTextArea(input);
 
-          // PERFORMANCE: Skip ALL expensive operations during drag
-          // Directly update node params to avoid:
-          // - expressionSystem.updateDependencies() (expensive!)
-          // - updateNodePreview() (expensive!)
-          // - Event emissions (expensive!)
+          // PERFORMANCE: Update node.params directly without shader rebuild
+          // GPU uniforms are read from node.params each frame automatically
+          // NO rebuild during drag = 60fps smooth dragging + visual updates
           if (!node.params) node.params = {};
           node.params[param.name] = input.value;
-
-          // PERFORMANCE: Throttled shader rebuild for visual feedback
-          // Main render loop continues during drag, so we only need to rebuild shader
-          // Throttle to 33ms (30fps) for smooth visual updates during drag
-          const now = performance.now();
-          const THROTTLE_MS = 33;
-          if (now - lastRebuildTime >= THROTTLE_MS) {
-            lastRebuildTime = now;
-            if (typeof window.rebuild === 'function') {
-              window.rebuild();
-            }
-          }
-
-          // PERFORMANCE: Skip DOM manipulation during drag
-          // updateExpressionDisplay updates multiple styles (backgroundColor, color, borderColor, textContent)
-          // This causes layout recalculations. Defer to mouseup.
-          const trimmedValue = String(input.value).trim();
-          if (entry) {
-            entry.lastValue = trimmedValue;
-            // Skip _storeTabValue during drag - not needed until mouseup
-          }
 
           e.preventDefault();
         };

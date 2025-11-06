@@ -429,15 +429,11 @@ input.addEventListener("input", (e) => {
             currentDragValue = newValue;
           }
 
-          const t1 = performance.now();
-          if (t1 - t0 > 1) {
-            console.warn(`[PERF] Drag handler took ${(t1 - t0).toFixed(2)}ms`);
-          }
-
-          // PERFORMANCE: During drag, do ABSOLUTELY NOTHING
-          // Don't even update input.value (avoids DOM manipulation)
-          // Just track the value internally and apply it all on mouseup
-          // This ensures ZERO work during drag for maximum FPS
+          // PERFORMANCE: Update node.params directly without shader rebuild
+          // GPU uniforms are read from node.params each frame automatically
+          // NO rebuild during drag = 60fps smooth dragging + visual updates
+          if (!node.params) node.params = {};
+          node.params[param.name] = currentDragValue;
 
           e.preventDefault();
           e.stopPropagation(); // Prevent EventHandler from processing this event
