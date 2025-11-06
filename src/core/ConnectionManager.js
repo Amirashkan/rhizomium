@@ -152,27 +152,14 @@ export class ConnectionManager {
 
         if (this.onChange) this.onChange();
 
-        // FIXED: Regenerate preview for both nodes
-        if (window.editor?.previewIntegration) {
-          const sourceNode = window.editor.graph.nodes.find(n => n.id === outputNode.id);
-          if (sourceNode) {
-            console.log('🔄 Connection created: regenerating preview for source node', sourceNode.id);
-            window.editor.previewIntegration.generateNodePreview(sourceNode);
-          }
-
-          console.log('🔄 Connection created: regenerating preview for target node', inputNode.id);
-          window.editor.previewIntegration.generateNodePreview(inputNode);
-        }
+        // Regenerate preview for the target node (the one receiving input)
+        // The target node needs to redraw with its new input connection
         if (window.editor?.previewIntegration) {
           try {
-            console.log(`🔄 Connection created: regenerating preview for node ${inputNode.id}`);
+            console.log(`🔄 Connection created: regenerating preview for target node ${inputNode.id}`);
 
-            // Clear the canvas cache for this node to force regeneration
-            if (window.editor.previewSystem?.canvasManager?.canvasCache) {
-              window.editor.previewSystem.canvasManager.canvasCache.delete(inputNode.id);
-            }
-
-            // Regenerate the specific node's preview
+            // Regenerate the target node's preview
+            // Don't delete canvas cache - preserve existing canvas
             window.editor.previewIntegration.generateNodePreview(inputNode);
 
             // Force a redraw of the editor
@@ -182,7 +169,9 @@ export class ConnectionManager {
             }
           } catch (previewError) {
             window.errorHandler?.handleError(previewError, {
-              component: 'preview-update-after-connection'
+              component: 'preview-update-after-connection',
+              targetNodeId: inputNode.id,
+              sourceNodeId: outputNode.id
             });
           }
         }
