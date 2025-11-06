@@ -1018,13 +1018,13 @@ isIncomplete(value) {
             }
           }
 
+          // PERFORMANCE: Skip DOM manipulation during drag
+          // updateExpressionDisplay updates multiple styles (backgroundColor, color, borderColor, textContent)
+          // This causes layout recalculations. Defer to mouseup.
           const trimmedValue = String(input.value).trim();
           if (entry) {
             entry.lastValue = trimmedValue;
-            this._storeTabValue(entry, entry.tabState?.active || 'main', trimmedValue);
-          }
-          if (resultDisplay) {
-            this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+            // Skip _storeTabValue during drag - not needed until mouseup
           }
 
           e.preventDefault();
