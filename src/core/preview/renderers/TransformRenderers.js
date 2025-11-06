@@ -128,6 +128,12 @@ export class TransformRenderers {
       ctx.fillStyle = "#141414";
       ctx.fillRect(0, 0, this.size, this.size);
 
+      // Validate input canvas has valid dimensions
+      if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
+        console.warn('Invalid input canvas for transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+        return;
+      }
+
       // Save context state
       ctx.save();
 
@@ -170,7 +176,9 @@ export class TransformRenderers {
       // Fallback: just draw the input
       ctx.fillStyle = "#141414";
       ctx.fillRect(0, 0, this.size, this.size);
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      if (inputCanvas && inputCanvas.width && inputCanvas.height) {
+        ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      }
     }
   }
 
@@ -183,6 +191,12 @@ export class TransformRenderers {
       // Clear background
       ctx.fillStyle = "#141414";
       ctx.fillRect(0, 0, this.size, this.size);
+
+      // Validate input canvas has valid dimensions
+      if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
+        console.warn('Invalid input canvas for tiling, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+        return;
+      }
 
       ctx.save();
 
@@ -215,7 +229,9 @@ export class TransformRenderers {
     } catch (error) {
       console.warn('Error applying tiling transform:', error);
       // Fallback: just draw the input once
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      if (inputCanvas && inputCanvas.width && inputCanvas.height) {
+        ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      }
     }
   }
 
@@ -224,6 +240,14 @@ export class TransformRenderers {
     try {
       const width = this.size;
       const height = this.size;
+
+      // Validate input canvas exists and has valid dimensions
+      if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
+        console.warn('Invalid input canvas for UV transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+        ctx.fillStyle = "#141414";
+        ctx.fillRect(0, 0, width, height);
+        return;
+      }
 
       const sourceCtx = inputCanvas.getContext('2d');
       if (!sourceCtx) {
@@ -274,7 +298,9 @@ export class TransformRenderers {
       ctx.putImageData(destData, 0, 0);
     } catch (error) {
       console.warn('Error applying UV transform:', error);
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      if (inputCanvas && inputCanvas.width && inputCanvas.height) {
+        ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      }
     }
   }
 
