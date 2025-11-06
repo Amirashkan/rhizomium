@@ -975,7 +975,12 @@ isIncomplete(value) {
         startValue = parseFloat(input.value) || 0;
         dragStartValue = startValue;
         startY = e.clientY;
-        
+
+        // PERFORMANCE: Signal that parameter drag is active
+        if (window.editor) {
+          window.editor._parameterDragging = true;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
@@ -991,65 +996,29 @@ isIncomplete(value) {
           const newValue = startValue + deltaY * sensitivity;
 
           input.value = param.type === 'int' ? Math.round(newValue).toString() : newValue.toFixed(3);
-          this._autoResizeTextArea(input);
+          // PERFORMANCE: Skip _autoResizeTextArea during drag (causes DOM reflows)
+          // this._autoResizeTextArea(input);
 
-          // Update immediately without undo recording
-          const oldUndoManager = valueManager.undoManager;
-          valueManager.undoManager = null;
+          // PERFORMANCE: Update uniforms directly without shader rebuild
+          // This updates the uniform manager values which GPU reads each frame
+          // NO rebuild during drag = 60fps smooth dragging + real-time visual updates
+          if (!node.params) node.params = {};
+          node.params[param.name] = input.value;
 
-          // Force immediate preview update during drag
-          if (typeof valueManager.updateNodeParameter === 'function') {
-            valueManager.updateNodeParameter(node, param.name, input.value, onChange);
-          } else {
-            valueManager.setValue(node, param.name, input.value);
-            onChange(`Drag Parameter: ${param.name}`);
-          }
-
-          // CRITICAL: Force immediate preview update (bypass requestAnimationFrame batching)
-          if (window.editor?.paramPanel?._processPreviewUpdate) {
-            // Call _processPreviewUpdate directly to bypass the batching in updateNodePreview
-            window.editor.paramPanel._processPreviewUpdate(node);
-          } else if (window.editor?.previewIntegration) {
-            // Fallback: call preview system directly
-            if (window.editor.previewSystem?.canvasManager) {
-              window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
-            }
-            window.editor.previewIntegration.generateNodePreview(node);
-          }
-
-          // CRITICAL: Force immediate editor canvas redraw (node graph)
-          if (window.editor?.draw) {
-            window.editor.draw();
-          }
-
-          // CRITICAL: Rebuild shader with new parameter values (throttled)
-          const now = performance.now();
-          if (now - lastRebuildTime >= REBUILD_THROTTLE_MS) {
-            lastRebuildTime = now;
-            if (typeof window.rebuild === 'function') {
-              window.rebuild();
-            }
-            // CRITICAL: Force immediate GPU render (floating preview canvas)
-            if (typeof window.render === 'function') {
-              window.render();
-            }
-          }
-
-          valueManager.undoManager = oldUndoManager;
-
-          const trimmedValue = String(input.value).trim();
-          if (entry) {
-            entry.lastValue = trimmedValue;
-            this._storeTabValue(entry, entry.tabState?.active || 'main', trimmedValue);
-          }
-          if (resultDisplay) {
-            this.updateExpressionDisplay(input, resultDisplay, param, node, valueManager);
+          // Update GPU uniforms immediately
+          if (typeof window.updateUniformsOnly === 'function') {
+            window.updateUniformsOnly(node.id, param.name, input.value);
           }
 
           e.preventDefault();
         };
 
         const onMouseUp = () => {
+          // PERFORMANCE: Clear drag flag to resume normal rendering
+          if (window.editor) {
+            window.editor._parameterDragging = false;
+          }
+
           if (isDragging && dragStartValue !== null) {
             const finalValue = parseFloat(input.value) || 0;
             if (this.undoManager && Math.abs(dragStartValue - finalValue) > 0.001) {
@@ -1064,6 +1033,8 @@ isIncomplete(value) {
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
 
+          // PERFORMANCE: Apply full update on mouseup with all expensive operations
+          // This triggers expression dependencies, preview updates, and events
           if (entry) {
             this._commitValue(entry, input.value, param, node, valueManager, onChange, input);
             if (resultDisplay) {

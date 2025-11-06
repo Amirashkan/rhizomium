@@ -100,6 +100,11 @@ export class Editor {
 
   createSafeOnChange(onChange) {
     return (context = 'Unknown') => {
+      // PERFORMANCE: Skip shader recompilation during parameter drag
+      if (this._parameterDragging) {
+        return;
+      }
+
       try {
         if (typeof onChange === 'function') {
           onChange();

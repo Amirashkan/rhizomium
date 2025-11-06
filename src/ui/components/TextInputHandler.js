@@ -6,7 +6,8 @@ export class TextInputHandler {
     this.undoManager = undoManager;
     this.expressionSystem = expressionSystem;
     this.dragState = new Map();
-    
+    // Performance optimization: throttle parameter updates during drag
+    this._pendingUpdate = null;
   }
 _isValidExpression(value) {
   if (!value.trim().startsWith('=')) return true;
@@ -156,22 +157,28 @@ _isValidExpression(value) {
     // Real-time input handling
 input.addEventListener("input", (e) => {
   e.stopPropagation();
-  
+
+  // PERFORMANCE: Skip expensive operations during shift+drag
+  // The drag handler will apply updates with its own throttling
+  if (input._isDragging) {
+    return;
+  }
+
   const newValue = input.value;
-  
+
   // Update styling and validation
   this._updateExpressionStyling(input, newValue);
   this._updateExpressionValidation(input, newValue, node);
-  
+
   // Clear any existing timer
   if (inputTimer) {
     clearTimeout(inputTimer);
   }
-  
+
   // CRITICAL: Don't update parameters immediately if it's an incomplete expression
-  const isIncompleteExpression = newValue.trim().startsWith('=') && 
+  const isIncompleteExpression = newValue.trim().startsWith('=') &&
     (newValue.trim().length <= 1 || newValue.includes('+') && !this._isValidExpression(newValue));
-  
+
   if (!isIncompleteExpression) {
     // Update parameter immediately for non-expressions or complete expressions
     valueManager.updateNodeParameter(node, param.name, newValue, onChange);
@@ -374,27 +381,42 @@ input.addEventListener("input", (e) => {
     let startValue = 0;
     let startY = 0;
     let dragStartValue = null;
+    let currentDragValue = 0; // Track value internally during drag
+
+    // Store drag state on input element so input event listener can check it
+    input._isDragging = false;
 
     input.addEventListener("mousedown", (e) => {
       if (e.button === 0 && e.shiftKey && !input.disabled) {
-        console.log(`Starting shift+drag on ${param.name}`);
-        
+        // PERFORMANCE: Disable console logging during drag
+        // console.log(`Starting shift+drag on ${param.name}`);
+
         // Don't allow drag on expressions
         if (this.expressionSystem.isExpression(input.value)) {
           return;
         }
         
         isDragging = true;
+        input._isDragging = true; // Flag for input event listener
         startValue = parseFloat(input.value) || 0;
         dragStartValue = startValue;
         startY = e.clientY;
         input.style.cursor = "ns-resize";
-        
+
+        // PERFORMANCE: Signal that we're in a drag operation
+        // This allows the continuous render loop to skip expensive operations
+        if (window.editor) {
+          window.editor._parameterDragging = true;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
         const onMouseMove = (e) => {
           if (!isDragging) return;
+
+          // PERFORMANCE MEASUREMENT: Time this handler
+          const t0 = performance.now();
 
           const deltaY = startY - e.clientY;
           const sensitivity = e.ctrlKey ? 0.001 : e.altKey ? 0.1 : 0.01;
@@ -402,36 +424,64 @@ input.addEventListener("input", (e) => {
 
           // Format based on parameter type
           if (param.type === "int") {
-            input.value = Math.round(newValue).toString();
+            currentDragValue = Math.round(newValue);
           } else {
-            input.value = newValue.toFixed(3);
+            currentDragValue = newValue;
           }
-          
-          // Update without undo recording (we'll do it on mouse up)
-          const oldUndoManager = valueManager.undoManager;
-          valueManager.undoManager = null;
-          valueManager.updateNodeParameter(node, param.name, input.value, onChange);
-          valueManager.undoManager = oldUndoManager;
-          
+
+          // PERFORMANCE: Update uniforms directly without shader rebuild
+          // This updates the uniform manager values which GPU reads each frame
+          // NO rebuild during drag = 60fps smooth dragging + real-time visual updates
+          if (!node.params) node.params = {};
+          node.params[param.name] = currentDragValue;
+
+          // Update GPU uniforms immediately
+          if (typeof window.updateUniformsOnly === 'function') {
+            window.updateUniformsOnly(node.id, param.name, currentDragValue);
+          }
+
           e.preventDefault();
+          e.stopPropagation(); // Prevent EventHandler from processing this event
         };
 
         const onMouseUp = (e) => {
-          console.log(`Ending shift+drag on ${param.name}`);
-          
+          // PERFORMANCE: Disable console logging during drag
+          // console.log(`Ending shift+drag on ${param.name}`);
+
+          // Update input.value with final drag value
+          const finalValueStr = param.type === "int"
+            ? currentDragValue.toString()
+            : currentDragValue.toFixed(3);
+          input.value = finalValueStr;
+
+          // PERFORMANCE: Apply final value WITH all expensive operations
+          // Now we trigger shader rebuild and preview computation once at the end
+          const oldUndoManager = valueManager.undoManager;
+          valueManager.undoManager = null;
+
+          // This will trigger onChange (shader rebuild) and preview updates
+          valueManager.updateNodeParameter(node, param.name, finalValueStr, onChange);
+
+          valueManager.undoManager = oldUndoManager;
+
           if (isDragging && dragStartValue !== null) {
-            const finalValue = parseFloat(input.value) || 0;
-            if (this.undoManager && Math.abs(dragStartValue - finalValue) > 0.001) {
-              this.undoManager.recordParameterChange(node.id, param.name, dragStartValue, finalValue);
-              console.log(`Recorded undo: ${param.name} from ${dragStartValue} to ${finalValue}`);
+            if (this.undoManager && Math.abs(dragStartValue - currentDragValue) > 0.001) {
+              this.undoManager.recordParameterChange(node.id, param.name, dragStartValue, currentDragValue);
+              // console.log(`Recorded undo: ${param.name} from ${dragStartValue} to ${currentDragValue}`);
             }
           }
-          
+
           isDragging = false;
+          input._isDragging = false; // Clear flag
           dragStartValue = null;
           input.style.cursor = "";
           document.body.style.cursor = "";
-          
+
+          // PERFORMANCE: Clear drag flag to resume normal rendering
+          if (window.editor) {
+            window.editor._parameterDragging = false;
+          }
+
           window.removeEventListener("mousemove", onMouseMove);
           window.removeEventListener("mouseup", onMouseUp);
         };

@@ -120,19 +120,20 @@ export class ParameterValueManager {
 
   // Update node parameter with connected input support, undo tracking, and expression support
   updateNodeParameter(node, paramName, value, onChange) {
-    console.log("[updateNodeParameter] CALLED:", node.kind, paramName, "newValue:", value, "type:", typeof value);
+    // PERFORMANCE: Disable excessive console logging during drag operations
+    // console.log("[updateNodeParameter] CALLED:", node.kind, paramName, "newValue:", value, "type:", typeof value);
 
     // Get the old raw value for undo tracking
     const oldValue = this.getRawParameterValue(node, paramName, null);
-    console.log("[updateNodeParameter] oldValue:", oldValue, "type:", typeof oldValue);
+    // console.log("[updateNodeParameter] oldValue:", oldValue, "type:", typeof oldValue);
 
     // Don't record undo if value hasn't actually changed
     if (oldValue === value) {
-      console.log("[updateNodeParameter] SKIPPING - values are equal");
+      // console.log("[updateNodeParameter] SKIPPING - values are equal");
       return;
     }
 
-    console.log("[updateNodeParameter] PROCEEDING with update");
+    // console.log("[updateNodeParameter] PROCEEDING with update");
 
     const connectedSourceNode = this._findConnectedSourceNode(node, paramName);
 
@@ -383,10 +384,14 @@ export class ParameterValueManager {
   }
 
   _triggerUpdates(node, onChange) {
-    if (onChange) onChange(); // Trigger shader recompilation
+    if (onChange) {
+      onChange(); // Trigger shader recompilation
+    }
 
-    if (window.editor?.previewIntegration) {
-      console.log("Calling onParameterChange for:", node.kind);
+    // PERFORMANCE: Only trigger preview updates if onChange was provided
+    // When onChange is null, we're in a drag operation and should skip expensive operations
+    if (onChange && window.editor?.previewIntegration) {
+      // console.log("Calling onParameterChange for:", node.kind);
       window.editor.previewIntegration.onParameterChange(node);
     }
   }
