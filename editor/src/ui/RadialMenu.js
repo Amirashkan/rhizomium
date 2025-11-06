@@ -3,6 +3,7 @@ import { makeNode } from "../data/NodeDefs.js";
 
 export class RadialMenu {
   constructor(graph, onChange) {
+    console.log('🟢 RadialMenu CONSTRUCTOR called');
     this.graph = graph;
     this.onChange = onChange;
     this.element = null;
@@ -22,6 +23,7 @@ export class RadialMenu {
   }
 
   show(canvasX, canvasY, clientX, clientY, categories) {
+    console.log('🟢 RadialMenu.show() called');
     this._closeExistingMenus();
 
     this.centerX = clientX;
