@@ -394,6 +394,7 @@ if (this.textureManager && this.textureManager.device) {
 
     // Step 6: Force editor redraw
     if (this.editor && this.editor.draw) {
+      if (this.editor.markDirty) this.editor.markDirty('file-load-step6');
       this.editor.draw();
     }
 
@@ -460,6 +461,7 @@ if (this.textureManager && this.textureManager.device) {
 
     // Force preview updates
     if (this.editor && this.editor.draw) {
+      if (this.editor.markDirty) this.editor.markDirty('file-load-preview');
       this.editor.draw();
     }
 
@@ -473,6 +475,7 @@ if (this.textureManager && this.textureManager.device) {
     // Final delay and redraw
     await new Promise(resolve => setTimeout(resolve, 200));
     if (this.editor && this.editor.draw) {
+      if (this.editor.markDirty) this.editor.markDirty('file-load-final');
       this.editor.draw();
     }
 
@@ -501,6 +504,7 @@ if (this.textureManager && this.textureManager.device) {
     // Final editor redraw
     await new Promise(resolve => setTimeout(resolve, 200));
     if (this.editor && this.editor.draw) {
+      if (this.editor.markDirty) this.editor.markDirty('file-load-complete');
       this.editor.draw();
     }
 
@@ -586,6 +590,7 @@ if (this.textureManager && this.textureManager.device) {
 
           for (let i = 0; i < 5; i++) {
             if (this.editor && this.editor.draw) {
+              if (this.editor.markDirty) this.editor.markDirty('file-load-retry');
               this.editor.draw();
             }
             await new Promise(resolve => setTimeout(resolve, 50));
@@ -600,6 +605,7 @@ if (this.textureManager && this.textureManager.device) {
           }
 
           if (this.editor && this.editor.draw) {
+            if (this.editor.markDirty) this.editor.markDirty('file-load-final-retry');
             this.editor.draw();
           }
 
@@ -1075,6 +1081,7 @@ async reinitializeWebGPU() {
         for (const delay of redraws) {
           setTimeout(() => {
             if (this.editor.draw) {
+              if (this.editor.markDirty) this.editor.markDirty('file-load-staged');
               this.editor.draw();
             }
             

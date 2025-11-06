@@ -706,6 +706,7 @@ function setupUIEventHandlers() {
               setTimeout(() => {
                 nodeWithConnection.inputs[inputIndex] = originalInput;
                 if (editor.draw) {
+                  if (editor.markDirty) editor.markDirty('file-load-input-restore');
                   editor.draw();
                 }
               }, 10);
@@ -735,6 +736,7 @@ function setupUIEventHandlers() {
 
               setTimeout(() => {
                 if (editor.draw) {
+                  if (editor.markDirty) editor.markDirty('file-load-preview-refresh');
                   editor.draw();
                 }
               }, 100);
@@ -750,6 +752,7 @@ function setupUIEventHandlers() {
                     setTimeout(() => {
                       node.inputs[index] = originalInput;
                       if (editor.draw) {
+                        if (editor.markDirty) editor.markDirty('file-load-node-refresh');
                         editor.draw();
                       }
                     }, 5);
@@ -1856,6 +1859,7 @@ function createNewProject() {
 
   updateShaderFromGraph();
   if (editor && editor.draw) {
+    if (editor.markDirty) editor.markDirty('new-project');
     editor.draw();
   }
 if (graph && graph.nodes) {
@@ -1865,10 +1869,13 @@ if (graph && graph.nodes) {
       preview.needsUpdate = true;
     }
   });
-  
+
   // Redraw after marking for update
   setTimeout(() => {
-    if (editor.draw) editor.draw();
+    if (editor.draw) {
+      if (editor.markDirty) editor.markDirty('preview-update');
+      editor.draw();
+    }
   }, 50);
 }
   if (saveLoadManager) {

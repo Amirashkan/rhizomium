@@ -1640,6 +1640,7 @@ _processPreviewUpdate(node) {
 
     // Trigger canvas redraw to update node labels with new preview values
     if (window.editor?.draw) {
+      if (window.editor.markDirty) window.editor.markDirty('parameter-change');
       window.editor.draw();
     } else if (typeof window.render === 'function') {
       window.render();
@@ -1664,6 +1665,7 @@ _processPreviewUpdate(node) {
           window.editor.safeDraw();
           console.log('Called editor.safeDraw()');
         } else if (window.editor.draw) {
+          if (window.editor.markDirty) window.editor.markDirty('preview-toggle');
           window.editor.draw();
           console.log('Called editor.draw()');
         }

@@ -177,6 +177,7 @@ export class ConnectionManager {
 
             // Force a redraw of the editor
             if (window.editor.draw) {
+              if (window.editor.markDirty) window.editor.markDirty('connection-added');
               window.editor.draw();
             }
           } catch (previewError) {
@@ -275,6 +276,7 @@ export class ConnectionManager {
             
             // Force a redraw of the editor
             if (window.editor.draw) {
+              if (window.editor.markDirty) window.editor.markDirty('connection-added');
               window.editor.draw();
             }
           } catch (previewError) {

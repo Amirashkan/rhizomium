@@ -259,6 +259,7 @@ await window.textureManager.uploadTexture(node.id, file);
       if (window.editor?.safeDraw) {
         window.editor.safeDraw();
       } else if (window.editor?.draw) {
+        if (window.editor.markDirty) window.editor.markDirty('file-input-change');
         window.editor.draw();
       }
 

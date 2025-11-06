@@ -1301,6 +1301,7 @@ updateNodePreview(node) {
     
     this._drawDebounceTimeout = setTimeout(() => {
       if (window.editor?.draw) {
+        if (window.editor.markDirty) window.editor.markDirty('expression-preview-update');
         window.editor.draw();
         console.log(`🎨 Editor redrawn after preview update for: ${node.id}`);
       }

@@ -358,7 +358,7 @@ export class EventHandler {
           this.selection.startBoxSelect(x, y);
           this._boxSelectCandidate.started = true;
           this._pendingContextMenu = null;
-          this._requestRender();
+          this._requestDraw('box-select-start');
         }
       }
 
@@ -370,21 +370,21 @@ export class EventHandler {
       // Handle wire dragging
       if (this.connections.getDragWire()) {
         this.connections.updateWireDrag(pos);
-        this._requestRender();
+        this._requestDraw('wire-drag-update');
         return;
       }
 
       // Handle box selection
       if (this.selection.getBoxSelect()) {
         this.selection.updateBoxSelect(pos.x, pos.y);
-        this._requestRender();
+        this._requestDraw('box-select-update');
         return;
       }
 
       // Handle node dragging
       if (this.selection.getDragging()) {
         this.selection.updateDrag(pos.x, pos.y);
-        this._requestRender();
+        this._requestDraw('node-drag-update');
       }
     });
 

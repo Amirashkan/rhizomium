@@ -1280,6 +1280,7 @@ export class UndoManager {
 
     // Trigger editor redraw
     if (this.editor && this.editor.draw) {
+      if (this.editor.markDirty) this.editor.markDirty('undo-redo');
       this.editor.draw();
     }
 
@@ -1291,6 +1292,7 @@ export class UndoManager {
     // Force another draw after a short delay
     setTimeout(() => {
       if (this.editor && this.editor.draw) {
+        if (this.editor.markDirty) this.editor.markDirty('undo-redo-delayed');
         this.editor.draw();
       }
     }, 10);
