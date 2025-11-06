@@ -879,11 +879,24 @@ _createNode(kind) {
   this.graph.nodes.push(node);
   this.graph.selection = new Set([node.id]);
 
+  // Record node creation for undo
+  if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
+    window.onNodeCreated(node);
+  }
+
+  // CRITICAL FIX: Redraw canvas immediately so node appears
+  if (window.editor && typeof window.editor.draw === 'function') {
+    if (typeof window.editor.markDirty === 'function') {
+      window.editor.markDirty('node-creation');
+    }
+    window.editor.draw();
+  }
+
   // Delay onChange to allow GPU state to settle and prevent bind group mismatch
   setTimeout(() => {
     if (this.onChange) this.onChange();
   }, 50);
-  
+
   this.hide();
 }
 }
