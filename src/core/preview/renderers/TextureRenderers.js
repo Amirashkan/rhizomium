@@ -305,7 +305,13 @@ getParameterValue(node, paramName, defaultValue = 0) {
     let radius, epsilon;
     if (typeof radiusParam === 'string' && radiusParam.startsWith('=')) {
       try {
-        radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
+        // Safely check if expression system is available before using it
+        if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
+          radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
+        } else {
+          console.warn('Expression system not available for radius parameter, using default: 0.25');
+          radius = 0.25;
+        }
       } catch (error) {
         console.warn('Expression evaluation failed:', error);
         radius = 0.25;
@@ -313,10 +319,16 @@ getParameterValue(node, paramName, defaultValue = 0) {
     } else {
       radius = parseFloat(radiusParam) || 0.25;
     }
-    
+
     if (typeof epsilonParam === 'string' && epsilonParam.startsWith('=')) {
       try {
-        epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
+        // Safely check if expression system is available before using it
+        if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
+          epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
+        } else {
+          console.warn('Expression system not available for epsilon parameter, using default: 0.02');
+          epsilon = 0.02;
+        }
       } catch (error) {
         console.warn('Expression evaluation failed:', error);
         epsilon = 0.02;

@@ -27,17 +27,23 @@ export class TransformRenderers {
       if (this.previewSystem && this.previewSystem.getParameterValue) {
         return this.previewSystem.getParameterValue(node, paramName, defaultValue);
       }
-      
+
       const rawValue = node.params?.[paramName] ?? defaultValue;
-      
+
       // Check if it's an expression
       if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
-        return window.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
+        // Safely check if expression system is available before using it
+        if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
+          return window.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
+        } else {
+          console.warn(`Expression system not available for parameter ${paramName}, using default:`, defaultValue);
+          return defaultValue;
+        }
       }
-      
+
       // Handle boolean values
       if (typeof rawValue === 'boolean') return rawValue;
-      
+
       // Return parsed value or default
       return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
     } catch (error) {

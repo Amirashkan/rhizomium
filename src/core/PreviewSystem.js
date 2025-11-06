@@ -574,29 +574,41 @@ topologicalSort(nodes) {
 // Replace the entire getParameterValue method (lines 72-85) with this:
 getParameterValue(node, paramName, defaultValue = 0) {
   const rawValue = node.params?.[paramName] ?? defaultValue;
-  
-  // Handle expressions containing 'time' with preview-specific evaluation
-  if (typeof rawValue === 'string' && /\btime\b/i.test(rawValue)) {
+
+  // Check if it's an expression (starts with '=')
+  if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
     try {
-      // Use a fixed preview time (π/2 shows sin at peak, cos at zero)
-      const previewTime = Math.PI / 2;
-      
-      // Simple expression evaluation for preview
-      const expression = rawValue
-        .replace(/\bsin\(/g, 'Math.sin(')
-        .replace(/\bcos\(/g, 'Math.cos(')
-        .replace(/\btan\(/g, 'Math.tan(')
-        .replace(/\btime\b/g, previewTime.toString());
-      
-      const result = eval(expression);
-      return isNaN(result) ? defaultValue : result;
+      // Try to use the full expression system if available
+      if (this.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
+        return this.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
+      }
+
+      // Fallback: handle time expressions with preview-specific evaluation
+      if (/\btime\b/i.test(rawValue)) {
+        // Use a fixed preview time (π/2 shows sin at peak, cos at zero)
+        const previewTime = Math.PI / 2;
+
+        // Simple expression evaluation for preview
+        const expression = rawValue.substring(1) // Remove '=' prefix
+          .replace(/\bsin\(/g, 'Math.sin(')
+          .replace(/\bcos\(/g, 'Math.cos(')
+          .replace(/\btan\(/g, 'Math.tan(')
+          .replace(/\btime\b/g, previewTime.toString());
+
+        const result = eval(expression);
+        return isNaN(result) ? defaultValue : result;
+      }
+
+      // If expression system not available and not a time expression, use default
+      console.warn(`Expression system not available for parameter ${paramName}, cannot evaluate: ${rawValue}`);
+      return defaultValue;
     } catch (error) {
       console.warn(`Preview expression evaluation failed for ${paramName}:`, error);
       return defaultValue;
     }
   }
-  
-  // For non-time expressions, return the raw value or parse it
+
+  // For non-expressions, return the raw value or parse it
   return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
 }
 
