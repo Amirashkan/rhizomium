@@ -378,8 +378,9 @@ input.addEventListener("input", (e) => {
 
     input.addEventListener("mousedown", (e) => {
       if (e.button === 0 && e.shiftKey && !input.disabled) {
-        console.log(`Starting shift+drag on ${param.name}`);
-        
+        // PERFORMANCE: Disable console logging during drag
+        // console.log(`Starting shift+drag on ${param.name}`);
+
         // Don't allow drag on expressions
         if (this.expressionSystem.isExpression(input.value)) {
           return;
@@ -416,18 +417,31 @@ input.addEventListener("input", (e) => {
           this._pendingUpdate = requestAnimationFrame(() => {
             this._pendingUpdate = null;
 
-            // Update without undo recording (we'll do it on mouse up)
+            // PERFORMANCE: Skip expensive operations during drag
+            // Update parameter value directly without triggering:
+            // - Shader recompilation (onChange callback)
+            // - Preview computation (PreviewIntegration)
+            // - Undo recording
             const oldUndoManager = valueManager.undoManager;
             valueManager.undoManager = null;
-            valueManager.updateNodeParameter(node, param.name, input.value, onChange);
+
+            // Update the node parameter WITHOUT onChange callback (no shader rebuild)
+            valueManager.updateNodeParameter(node, param.name, input.value, null);
+
             valueManager.undoManager = oldUndoManager;
+
+            // Trigger only a canvas redraw to show the updated value
+            if (window.editor?.draw) {
+              window.editor.draw();
+            }
           });
 
           e.preventDefault();
         };
 
         const onMouseUp = (e) => {
-          console.log(`Ending shift+drag on ${param.name}`);
+          // PERFORMANCE: Disable console logging during drag
+          // console.log(`Ending shift+drag on ${param.name}`);
 
           // Cancel any pending update
           if (this._pendingUpdate !== null) {
@@ -435,17 +449,21 @@ input.addEventListener("input", (e) => {
             this._pendingUpdate = null;
           }
 
-          // Ensure final value is applied
+          // PERFORMANCE: Apply final value WITH all expensive operations
+          // Now we trigger shader rebuild and preview computation once at the end
           const oldUndoManager = valueManager.undoManager;
           valueManager.undoManager = null;
+
+          // This will trigger onChange (shader rebuild) and preview updates
           valueManager.updateNodeParameter(node, param.name, input.value, onChange);
+
           valueManager.undoManager = oldUndoManager;
 
           if (isDragging && dragStartValue !== null) {
             const finalValue = parseFloat(input.value) || 0;
             if (this.undoManager && Math.abs(dragStartValue - finalValue) > 0.001) {
               this.undoManager.recordParameterChange(node.id, param.name, dragStartValue, finalValue);
-              console.log(`Recorded undo: ${param.name} from ${dragStartValue} to ${finalValue}`);
+              // console.log(`Recorded undo: ${param.name} from ${dragStartValue} to ${finalValue}`);
             }
           }
 
