@@ -148,7 +148,10 @@ async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
             texture: gpuTexture,
             sampler: sampler
           });
-          
+
+          // Invalidate bind group since we have new textures
+          this.textureManager.bindGroup = null;
+
           console.log(`✓ Restored texture: ${filename} for node ${nodeId}`);
         }
         

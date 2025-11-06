@@ -439,6 +439,60 @@ export class GPURenderer {
     }
   }
 
+  _updateTextureBindings() {
+    // Check if texture manager indicates bind groups need updating
+    const texManager = typeof window !== "undefined" ? window.textureManager : null;
+    if (!texManager) return;
+
+    // Check if textures have been added/changed since last bind group build
+    const needsUpdate = texManager.bindGroup === null;
+    if (!needsUpdate || !this.pipeline || !this.bindGroups) return;
+
+    // Update all texture and sampler resources with newly loaded textures
+    for (const resourceKey in this.resources) {
+      const resource = this.resources[resourceKey];
+      if (resource.kind === "texture-2d" || resource.kind === "texture-cube" || resource.kind === "sampler") {
+        this._applyExternalTextureResource(resource);
+      }
+    }
+
+    // Rebuild bind groups with updated texture resources
+    this.bindGroups = this.bindGroups.map((_, layoutIndex) => {
+      const entries = [];
+
+      // Collect all resources for this group
+      for (const resourceKey in this.resources) {
+        const [groupStr, bindingStr] = resourceKey.split(":");
+        const group = parseInt(groupStr, 10);
+        const binding = parseInt(bindingStr, 10);
+
+        if (group === layoutIndex) {
+          const resource = this.resources[resourceKey];
+          if (resource.buffer) {
+            entries.push({ binding, resource: { buffer: resource.buffer } });
+          } else if (resource.sampler) {
+            entries.push({ binding, resource: resource.sampler });
+          } else if (resource.textureView) {
+            entries.push({ binding, resource: resource.textureView });
+          }
+        }
+      }
+
+      // Sort entries by binding number to ensure correct order
+      entries.sort((a, b) => a.binding - b.binding);
+
+      return this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(layoutIndex),
+        entries,
+      });
+    });
+
+    // Mark that we've updated the bind groups
+    texManager.bindGroup = {};
+
+    console.log("[GPURenderer] Texture bindings updated");
+  }
+
   render(config) {
     let options = {};
     if (Array.isArray(config)) {
@@ -487,6 +541,9 @@ export class GPURenderer {
 
     // CRITICAL: Update parameter uniforms every frame so changes are reflected
     this._updateParameterUniforms();
+
+    // CRITICAL: Update texture bindings when new files are loaded
+    this._updateTextureBindings();
 
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({

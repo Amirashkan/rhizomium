@@ -44,7 +44,10 @@ async uploadTexture(nodeId, file) {
     } else {
       console.warn("No GPU device available for texture upload");
     }
-    
+
+    // Invalidate bind group since we have new textures
+    this.bindGroup = null;
+
     console.log(`✅ Uploaded texture: ${file.name} for node ${nodeId}`);
     return textureInfo;
     
