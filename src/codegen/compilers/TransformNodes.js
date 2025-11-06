@@ -149,7 +149,7 @@ getShaderParam(node, name, defaultValue) {
   compileOptimizedTransform2D(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     console.log(`🔧 Transform2D input UV: ${uv}`);
-    
+
     const translateX = this.getShaderParam(node, 'translateX', 0.0);
     const translateY = this.getShaderParam(node, 'translateY', 0.0);
     const scaleX = this.getShaderParam(node, 'scaleX', 1.0);
@@ -160,22 +160,25 @@ getShaderParam(node, name, defaultValue) {
 
     console.log(`🔧 Transform2D shader params:`, { translateX, translateY, scaleX, scaleY, rotation, centerX, centerY });
 
-    // OPTIMIZATION: Check if rotation is static to avoid trig calculations
+    // OPTIMIZATION: Check if rotation is static AND numeric (not a uniform reference)
     const isStaticRotation = !this.isTimeExpression(node.params?.rotation);
-    
+    const isUniformRef = typeof rotation === 'string' && rotation.includes('u_params.');
+    const rotationValue = parseFloat(rotation);
+    const canPreCalculate = isStaticRotation && !isUniformRef && !isNaN(rotationValue);
+
     let line;
-    if (isStaticRotation && parseFloat(rotation) === 0.0) {
+    if (canPreCalculate && rotationValue === 0.0) {
       // FAST PATH: No rotation, just scale and translate
       line = `
   // Transform2D node_${nodeId} (optimized - no rotation)
   var uv_${nodeId} = ${uv};
   uv_${nodeId} = (uv_${nodeId} - vec2<f32>(${centerX}, ${centerY})) * vec2<f32>(${scaleX}, ${scaleY}) + vec2<f32>(${centerX}, ${centerY});
   let node_${nodeId} = uv_${nodeId} + vec2<f32>(${translateX}, ${translateY});`;
-    } else if (isStaticRotation) {
+    } else if (canPreCalculate) {
       // MEDIUM PATH: Static rotation, pre-calculate trig
-      const cos_r = Math.cos(parseFloat(rotation));
-      const sin_r = Math.sin(parseFloat(rotation));
-      
+      const cos_r = Math.cos(rotationValue);
+      const sin_r = Math.sin(rotationValue);
+
       line = `
   // Transform2D node_${nodeId} (optimized - static rotation)
   var uv_${nodeId} = ${uv} - vec2<f32>(${centerX}, ${centerY});
@@ -185,7 +188,7 @@ getShaderParam(node, name, defaultValue) {
   ) * vec2<f32>(${scaleX}, ${scaleY}) + vec2<f32>(${centerX}, ${centerY});
   let node_${nodeId} = uv_${nodeId} + vec2<f32>(${translateX}, ${translateY});`;
     } else {
-      // SLOW PATH: Dynamic rotation, calculate on GPU
+      // SLOW PATH: Dynamic rotation or uniform, calculate on GPU
       line = `
   // Transform2D node_${nodeId} (dynamic rotation)
   var uv_${nodeId} = ${uv} - vec2<f32>(${centerX}, ${centerY});
@@ -211,22 +214,25 @@ getShaderParam(node, name, defaultValue) {
    */
   compileOptimizedRotate2D(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    
+
     const rotation = this.getShaderParam(node, 'rotation', 0.0);
     const centerX = this.getShaderParam(node, 'centerX', 0.5);
     const centerY = this.getShaderParam(node, 'centerY', 0.5);
 
-    // OPTIMIZATION: Check if rotation is static
+    // OPTIMIZATION: Check if rotation is static AND numeric (not a uniform reference)
     const isStaticRotation = !this.isTimeExpression(node.params?.rotation);
-    
+    const isUniformRef = typeof rotation === 'string' && rotation.includes('u_params.');
+    const rotationValue = parseFloat(rotation);
+    const canPreCalculate = isStaticRotation && !isUniformRef && !isNaN(rotationValue);
+
     let line;
-    if (isStaticRotation && parseFloat(rotation) === 0.0) {
+    if (canPreCalculate && rotationValue === 0.0) {
       // FAST PATH: No rotation
       line = `let node_${nodeId} = ${uv};`;
-    } else if (isStaticRotation) {
+    } else if (canPreCalculate) {
       // MEDIUM PATH: Static rotation
-      const cos_r = Math.cos(parseFloat(rotation));
-      const sin_r = Math.sin(parseFloat(rotation));
+      const cos_r = Math.cos(rotationValue);
+      const sin_r = Math.sin(rotationValue);
 
       line = `
   // Rotate2D node_${nodeId} (static)
@@ -236,7 +242,7 @@ getShaderParam(node, name, defaultValue) {
     uv_${nodeId}.x * ${sin_r} + uv_${nodeId}.y * ${cos_r}
   ) + vec2<f32>(${centerX}, ${centerY});`;
     } else {
-      // SLOW PATH: Dynamic rotation
+      // SLOW PATH: Dynamic rotation or uniform
       line = `
   // Rotate2D node_${nodeId} (dynamic)
   var uv_${nodeId} = ${uv} - vec2<f32>(${centerX}, ${centerY});
