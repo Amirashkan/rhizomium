@@ -875,29 +875,52 @@ export class RadialMenu {
   }
 
 _createNode(kind) {
+  console.log('🔵 RadialMenu._createNode START', kind);
+
   const node = makeNode(kind, this.canvasPos.x, this.canvasPos.y);
+  console.log('🔵 Node created:', node.id, 'at', this.canvasPos);
+
   this.graph.nodes.push(node);
+  console.log('🔵 Graph now has', this.graph.nodes.length, 'nodes');
+
   this.graph.selection = new Set([node.id]);
+  console.log('🔵 Node selected');
 
   // Record node creation for undo
   if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
     window.onNodeCreated(node);
+    console.log('🔵 onNodeCreated called');
   }
 
   // CRITICAL: Hide menu FIRST so it doesn't cover the canvas
+  console.log('🔵 Hiding menu...');
   this.hide();
+  console.log('🔵 Menu hidden');
 
   // Then redraw canvas immediately so node appears
+  console.log('🔵 Checking if can draw - editor exists?', !!window.editor);
+  console.log('🔵 draw function exists?', !!(window.editor && window.editor.draw));
+
   if (window.editor && typeof window.editor.draw === 'function') {
     if (typeof window.editor.markDirty === 'function') {
       window.editor.markDirty('node-creation');
+      console.log('🔵 markDirty called');
     }
+    console.log('🔵 Calling editor.draw()...');
     window.editor.draw();
+    console.log('🔵 editor.draw() completed');
+  } else {
+    console.error('🔴 ERROR: Cannot call editor.draw()!');
   }
 
   // Delay onChange to allow GPU state to settle and prevent bind group mismatch
+  console.log('🔵 Scheduling onChange...');
   setTimeout(() => {
+    console.log('🔵 onChange callback executing');
     if (this.onChange) this.onChange();
+    console.log('🔵 onChange completed');
   }, 50);
+
+  console.log('🔵 RadialMenu._createNode END');
 }
 }
