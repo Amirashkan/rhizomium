@@ -15,7 +15,9 @@ export class MenuManager {
   }
 
   hide() {
+    console.log('[MenuManager] hide() called');
     if (this.menuEl) {
+      console.log('[MenuManager] Removing menu element');
       // Blur any focused input before removing
       const focused = this.menuEl.querySelector(':focus');
       if (focused) {
@@ -25,12 +27,14 @@ export class MenuManager {
       this.menuEl = null;
     }
     if (this.radialMenu) {
+      console.log('[MenuManager] Hiding radial menu');
       this.radialMenu.hide();
     }
     // Return focus to document body
     if (document.activeElement && document.activeElement.tagName === 'INPUT') {
       document.activeElement.blur();
     }
+    console.log('[MenuManager] hide() complete');
   }
 
   contains(element) {
@@ -43,6 +47,7 @@ export class MenuManager {
   }
 
   showCreateMenu(canvasX, canvasY, clientX, clientY) {
+    console.log('[MenuManager] showCreateMenu called at canvas:', canvasX, canvasY);
     this.menuPos = { x: canvasX, y: canvasY };
     const el = this._createMenuRoot(clientX, clientY);
     el.innerHTML = "";
@@ -299,9 +304,12 @@ export class MenuManager {
         const menuItem = this._createMenuItem(
           item.label,
           () => {
+            console.log('[MenuManager] Menu item clicked:', item.label, item.kind);
             // Hide menu first, then create node after next paint
             this.hide();
+            console.log('[MenuManager] Menu hidden, scheduling node creation');
             requestAnimationFrame(() => {
+              console.log('[MenuManager] RAF callback executing');
               this._createNode(item.kind);
             });
           },
