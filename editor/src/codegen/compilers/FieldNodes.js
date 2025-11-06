@@ -287,19 +287,46 @@ getParam(node, paramName, defaultValue) {
 
     return shaderExpr;  // Return shader code, not a uniform reference
   }
-  
-  const uniformName = this.uniformManager?.isDynamicParam(node.id, paramName)
-    ? this.uniformManager.getUniformName(node.id, paramName)
-    : null;
-  
-  if (uniformName) {
-    const sanitizedKey = `${node.id}.${paramName}`.replace(/[^a-zA-Z0-9_]/g, '_');
+
+  // PERFORMANCE FIX: Check if it's an expression (starts with =)
+  if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
+    // Handle expressions using the paramHandler
+    const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, null);
+    return typeof result === 'number' ? result.toFixed(6) : result;
+  }
+
+  // PERFORMANCE FIX: Register ALL numeric parameters as uniforms!
+  if (this.uniformManager) {
+    let value = rawValue;
+
+    // Parse string values to numbers
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      value = isNaN(parsed) ? (typeof defaultValue === 'number' ? defaultValue : 0.0) : parsed;
+    }
+
+    // Convert to number
+    if (typeof value !== 'number') {
+      value = typeof defaultValue === 'number' ? defaultValue : 0.0;
+    }
+
+    // Ensure finite value
+    if (!isFinite(value)) {
+      value = 0.0;
+    }
+
+    // Register with uniform manager
+    const paramKey = `${node.id}.${paramName}`;
+    this.uniformManager.uniformValues.set(paramKey, value);
+
+    // Generate uniform reference
+    const sanitizedKey = paramKey.replace(/[^a-zA-Z0-9_]/g, '_');
     const fieldName = sanitizedKey.startsWith('_') ? sanitizedKey : `_${sanitizedKey}`;
     return `u_params.${fieldName}`;
   }
-  
-  // For static params, evaluate and return the value
-  const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, uniformName);
+
+  // Fallback: For static params without uniform manager, evaluate and return the value
+  const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, null);
   
   if (typeof result === 'number') {
     return result === Math.floor(result) ? `${result}.0` : result.toString();

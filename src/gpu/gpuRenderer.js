@@ -328,24 +328,22 @@ export class GPURenderer {
   _updateParameterUniforms() {
     const uniformManager = window.nodeCompiler?.uniformManager;
     if (!uniformManager || uniformManager.uniformValues.size === 0) {
-      console.log('[GPURenderer] No parameter uniforms to update');
-      return;
+      return; // Silent when no uniforms - this is normal
     }
 
     const target = this._getUniformByVarName("u_params");
     if (!target?.buffer) {
-      console.warn('[GPURenderer] u_params buffer not found but uniforms exist!');
+      // Only warn once per missing buffer
+      if (!this._warnedMissingParamBuffer) {
+        console.warn('[GPURenderer] u_params buffer not found but uniforms exist!');
+        this._warnedMissingParamBuffer = true;
+      }
       return;
     }
-
-    console.log('[GPURenderer] Updating parameter uniform buffer');
-    console.log('[GPURenderer] Uniform values:', Array.from(uniformManager.uniformValues.entries()));
 
     // Get values in order and write to buffer
     const values = Array.from(uniformManager.uniformValues.values());
     const data = new Float32Array(values);
-
-    console.log('[GPURenderer] Writing', data.length, 'floats to u_params buffer:', data);
 
     this.device.queue.writeBuffer(target.buffer, 0, data.buffer, 0, data.byteLength);
   }
@@ -422,6 +420,7 @@ export class GPURenderer {
       this.shaderModule = this.device.createShaderModule({ code: wgslCode });
       this.resources = {};
       this._lastAspectWritten = null;
+      this._warnedMissingParamBuffer = false; // Reset warning flag on new shader
       const bindingMap = analyzeBindings(wgslCode);
       this._buildLayoutsAndBindGroups(bindingMap);
       this._updateAspectUniform();
@@ -485,6 +484,9 @@ export class GPURenderer {
 
     const timeValue = Number.isFinite(timeSec) ? timeSec : performance.now() * 0.001;
     this._updateGlobalsUniform(timeValue);
+
+    // CRITICAL: Update parameter uniforms every frame so changes are reflected
+    this._updateParameterUniforms();
 
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({

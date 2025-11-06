@@ -13,28 +13,28 @@ export class NoiseNodes {
     return OPTIMIZED_NOISE_FUNCTIONS_WGSL;
   }
   
-  compile(node, getInput) {
+  compile(node, getInput, getParam) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
-    
+
     switch (node.kind) {
       case 'Random':
-        return this.compileRandom(node, getInput, nodeId);
+        return this.compileRandom(node, getInput, getParam, nodeId);
       case 'ValueNoise':
-        return this.compileValueNoise(node, getInput, nodeId);
+        return this.compileValueNoise(node, getInput, getParam, nodeId);
       case 'FBMNoise':
-        return this.compileFBMNoise(node, getInput, nodeId);
+        return this.compileFBMNoise(node, getInput, getParam, nodeId);
       case 'SimplexNoise':
-        return this.compileOptimizedSimplexNoise(node, getInput, nodeId);
+        return this.compileOptimizedSimplexNoise(node, getInput, getParam, nodeId);
       case 'PerlinNoise':
-        return this.compilePerlinNoise(node, getInput, nodeId);
+        return this.compilePerlinNoise(node, getInput, getParam, nodeId);
       case 'VoronoiNoise':
-        return this.compileVoronoiNoise(node, getInput, nodeId);
+        return this.compileVoronoiNoise(node, getInput, getParam, nodeId);
       case 'RidgedNoise':
-        return this.compileRidgedNoise(node, getInput, nodeId);
+        return this.compileRidgedNoise(node, getInput, getParam, nodeId);
       case 'WarpNoise':
-        return this.compileWarpNoise(node, getInput, nodeId);
+        return this.compileWarpNoise(node, getInput, getParam, nodeId);
       default:
-        return this.compileGenericNoise(node, getInput, nodeId);
+        return this.compileGenericNoise(node, getInput, getParam, nodeId);
     }
   }
   
@@ -97,13 +97,14 @@ export class NoiseNodes {
   }
 
   // OPTIMIZED: Simplex noise with LOD system
-  compileOptimizedSimplexNoise(node, getInput, nodeId) {
+  // PERFORMANCE: Now uses uniforms instead of baked parameters!
+  compileOptimizedSimplexNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 4.0));
-    const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
-    const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
-    const ridge = this.getParam(node, 'ridge', false);
-    const turbulence = this.getParam(node, 'turbulence', false);
+    const scale = getParam('scale', 4.0);
+    const amplitude = getParam('amplitude', 1.0);
+    const offset = getParam('offset', 0.0);
+    const ridge = node.params?.ridge ?? false;
+    const turbulence = node.params?.turbulence ?? false;
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
@@ -128,11 +129,12 @@ export class NoiseNodes {
   }
 
   // FIXED: Added Perlin Noise compiler
-  compilePerlinNoise(node, getInput, nodeId) {
+  // PERFORMANCE: Now uses uniforms instead of baked parameters!
+  compilePerlinNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 5.0));
-    const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
-    const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
+    const scale = getParam('scale', 5.0);
+    const amplitude = getParam('amplitude', 1.0);
+    const offset = getParam('offset', 0.0);
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
@@ -144,10 +146,10 @@ export class NoiseNodes {
     return { line, outputType: "vec3" };
   }
   
-  compileRandom(node, getInput, nodeId) {
+  compileRandom(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const seed = this.formatParam(this.getParam(node, 'seed', 1.0));
-    const scale = this.formatParam(this.getParam(node, 'scale', 1.0));
+    const seed = getParam('seed', 1.0);
+    const scale = getParam('scale', 1.0);
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
@@ -158,12 +160,12 @@ export class NoiseNodes {
     return { line, outputType: "vec3" };
   }
   
-  compileValueNoise(node, getInput, nodeId) {
+  compileValueNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 5.0));
-    const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
-    const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
-    const power = this.formatParam(this.getParam(node, 'power', 1.0));
+    const scale = getParam('scale', 5.0);
+    const amplitude = getParam('amplitude', 1.0);
+    const offset = getParam('offset', 0.0);
+    const power = getParam('power', 1.0);
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
@@ -174,21 +176,26 @@ export class NoiseNodes {
     return { line, outputType: "vec3" };
   }
   
-  compileFBMNoise(node, getInput, nodeId) {
+  compileFBMNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 3.0));
-    const octaves = Math.max(1, Math.min(8, parseInt(this.getParam(node, 'octaves', 4))));
-    const persistence = this.formatParam(this.getParam(node, 'persistence', 0.5));
-    const lacunarity = this.formatParam(this.getParam(node, 'lacunarity', 2.0));
-    const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
-    const offset = this.formatParam(this.getParam(node, 'offset', 0.0));
-    const gain = this.formatParam(this.getParam(node, 'gain', 0.5));
-    const warp = this.formatParam(this.getParam(node, 'warp', 0.0));
+    const scale = getParam('scale', 3.0);
+    const octaves = Math.max(1, Math.min(8, parseInt(node.params?.octaves ?? 4)));
+    const persistence = getParam('persistence', 0.5);
+    const lacunarity = getParam('lacunarity', 2.0);
+    const amplitude = getParam('amplitude', 1.0);
+    const offset = getParam('offset', 0.0);
+    const gain = getParam('gain', 0.5);
+    const warp = getParam('warp', 0.0);
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
+
+    // Check if warp is a uniform reference or a baked value
+    const warpValue = typeof warp === 'string' && warp.includes('u_params') ? warp : parseFloat(warp);
+    const useWarp = typeof warpValue === 'number' ? warpValue > 0.001 : true; // If it's a uniform, always generate warp code
+
     let line;
-    if (parseFloat(warp) > 0.001) {
+    if (useWarp) {
       line = `
   var ${uvAspect} = ${uv};
   ${uvAspect}.x *= u.aspect;
@@ -204,14 +211,19 @@ export class NoiseNodes {
   }
   
   // FIXED: Voronoi now properly outputs multiple values
-  compileVoronoiNoise(node, getInput, nodeId) {
+  // PERFORMANCE: Now uses uniforms instead of baked parameters!
+  compileVoronoiNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 8.0));
-    const randomness = this.formatParam(this.getParam(node, 'randomness', 1.0));
-    const minkowskiP = this.formatParam(this.getParam(node, 'minkowskiP', 2.0));
-    const smoothness = this.formatParam(this.getParam(node, 'smoothness', 0.0));
-    const cellType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'cellType', 0))));
-    const outputType = Math.max(0, Math.min(2, parseInt(this.getParam(node, 'outputType', 0))));
+    const scale = getParam('scale', 8.0);
+    const randomness = getParam('randomness', 1.0);
+    const minkowskiP = getParam('minkowskiP', 2.0);
+    const smoothness = getParam('smoothness', 0.0);
+
+    // Integer parameters - parse them
+    const cellTypeValue = node.params?.cellType ?? 0;
+    const cellType = Math.max(0, Math.min(2, parseInt(cellTypeValue)));
+    const outputTypeValue = node.params?.outputType ?? 0;
+    const outputType = Math.max(0, Math.min(2, parseInt(outputTypeValue)));
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
@@ -230,15 +242,15 @@ export class NoiseNodes {
     return { line, outputType: "f32", outputPins };
   }
   
-  compileRidgedNoise(node, getInput, nodeId) {
+  compileRidgedNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 4.0));
-    const octaves = Math.max(1, Math.min(8, parseInt(this.getParam(node, 'octaves', 6))));
-    const lacunarity = this.formatParam(this.getParam(node, 'lacunarity', 2.0));
-    const gain = this.formatParam(this.getParam(node, 'gain', 0.5));
-    const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
-    const offset = this.formatParam(this.getParam(node, 'offset', 1.0));
-    const threshold = this.formatParam(this.getParam(node, 'threshold', 0.0));
+    const scale = getParam('scale', 4.0);
+    const octaves = Math.max(1, Math.min(8, parseInt(node.params?.octaves ?? 6)));
+    const lacunarity = getParam('lacunarity', 2.0);
+    const gain = getParam('gain', 0.5);
+    const amplitude = getParam('amplitude', 1.0);
+    const offset = getParam('offset', 1.0);
+    const threshold = getParam('threshold', 0.0);
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
@@ -249,13 +261,13 @@ export class NoiseNodes {
     return { line, outputType: "vec3" };
   }
   
-  compileWarpNoise(node, getInput, nodeId) {
+  compileWarpNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 3.0));
-    const warpScale = this.formatParam(this.getParam(node, 'warpScale', 2.0));
-    const warpStrength = this.formatParam(this.getParam(node, 'warpStrength', 0.1));
-    const octaves = Math.max(1, Math.min(8, parseInt(this.getParam(node, 'octaves', 3))));
-    const amplitude = this.formatParam(this.getParam(node, 'amplitude', 1.0));
+    const scale = getParam('scale', 3.0);
+    const warpScale = getParam('warpScale', 2.0);
+    const warpStrength = getParam('warpStrength', 0.1);
+    const octaves = Math.max(1, Math.min(8, parseInt(node.params?.octaves ?? 3)));
+    const amplitude = getParam('amplitude', 1.0);
 
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
@@ -266,9 +278,9 @@ export class NoiseNodes {
     return { line, outputType: "vec3" };
   }
   
-  compileGenericNoise(node, getInput, nodeId) {
+  compileGenericNoise(node, getInput, getParam, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const scale = this.formatParam(this.getParam(node, 'scale', 5.0));
+    const scale = getParam('scale', 5.0);
 
     console.warn(`Unknown noise type: ${node.kind}, using generic noise`);
     // Apply aspect ratio correction

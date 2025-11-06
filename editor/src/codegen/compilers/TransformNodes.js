@@ -72,10 +72,11 @@ case 'Spherize':
 
   /**
    * OPTIMIZED: Generate shader expression for parameter
+   * PERFORMANCE FIX: Now registers parameters as uniforms!
    */
 getShaderParam(node, name, defaultValue) {
   const value = this.getParam(node, name, defaultValue);
-  
+
   if (typeof value === 'string' && value.startsWith('=')) {
     let expr = value.substring(1);
     expr = expr.replace(/time/g, 'g.time');
@@ -84,17 +85,40 @@ getShaderParam(node, name, defaultValue) {
     expr = expr.replace(/\*/g, ' * ');
     return expr;
   }
-  
+
   // Handle expressions without = prefix (like "time" or "time*10")
   if (typeof value === 'string' && /\btime\b/.test(value)) {
     let expr = value.replace(/time/g, 'g.time');
     return expr;
   }
-  
+
+  // PERFORMANCE FIX: Register numeric parameters as uniforms!
+  if (this.uniformManager) {
+    let numValue = typeof value === 'number' ? value : parseFloat(value);
+
+    if (isNaN(numValue)) {
+      numValue = typeof defaultValue === 'number' ? defaultValue : parseFloat(defaultValue) || 0.0;
+    }
+
+    if (!isFinite(numValue)) {
+      numValue = 0.0;
+    }
+
+    // Register with uniform manager
+    const paramKey = `${node.id}.${name}`;
+    this.uniformManager.uniformValues.set(paramKey, numValue);
+
+    // Generate uniform reference
+    const sanitizedKey = paramKey.replace(/[^a-zA-Z0-9_]/g, '_');
+    const fieldName = sanitizedKey.startsWith('_') ? sanitizedKey : `_${sanitizedKey}`;
+    return `u_params.${fieldName}`;
+  }
+
+  // Fallback: Return string representation
   if (typeof value === 'number') {
     return value.toString();
   }
-  
+
   const parsed = parseFloat(value);
   return isNaN(parsed) ? defaultValue.toString() : parsed.toString();
 }
