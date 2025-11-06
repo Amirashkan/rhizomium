@@ -346,7 +346,10 @@ export class MenuManager {
     this.graph.nodes.push(node);
     this.graph.selection = new Set([node.id]);
 
-    if (this.onChange) this.onChange();
+    // Delay onChange to allow GPU state to settle and prevent bind group mismatch
+    setTimeout(() => {
+      if (this.onChange) this.onChange();
+    }, 50);
   }
 
   _duplicateSelected() {
