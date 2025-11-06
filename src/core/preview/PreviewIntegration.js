@@ -31,15 +31,18 @@ export class PreviewIntegration {
     }
 
     const animate = (timestamp) => {
-      if (this.editor.isPreviewEnabled && this.previewSystem) {
-        // OPTIMIZATION: Only update time nodes if enough time has passed
-        // Limit to 30 FPS max for time updates (33.33ms between updates)
-        if (timestamp - this.lastTimeUpdate >= 33.33) {
-          this.updateTimeNodes();
-          this.lastTimeUpdate = timestamp;
+      // PERFORMANCE: Skip during parameter drag
+      if (!this.editor._parameterDragging) {
+        if (this.editor.isPreviewEnabled && this.previewSystem) {
+          // OPTIMIZATION: Only update time nodes if enough time has passed
+          // Limit to 30 FPS max for time updates (33.33ms between updates)
+          if (timestamp - this.lastTimeUpdate >= 33.33) {
+            this.updateTimeNodes();
+            this.lastTimeUpdate = timestamp;
+          }
         }
       }
-      
+
       this.frameRequestId = requestAnimationFrame(animate);
     };
 
