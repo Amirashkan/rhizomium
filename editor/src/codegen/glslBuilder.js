@@ -34,14 +34,16 @@ function computeGraphHash(graph) {
     // Include node type/kind
     hashParts.push(`${node.id}:${node.kind || node.type || 'unknown'}`);
 
-    // Include parameters (skip position-related params)
+    // PERFORMANCE FIX: Include parameter KEYS but not VALUES
+    // Parameter values are passed as uniforms and don't affect shader structure
+    // Only the existence of parameters matters for shader compilation
+    // This prevents cache misses during parameter dragging (was causing <10 FPS)
     if (node.params) {
-      const paramStr = Object.entries(node.params)
-        .filter(([key]) => key !== 'x' && key !== 'y')
-        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+      const paramKeys = Object.keys(node.params)
+        .filter((key) => key !== 'x' && key !== 'y')
         .sort()
         .join(',');
-      if (paramStr) hashParts.push(paramStr);
+      if (paramKeys) hashParts.push(`params:${paramKeys}`);
     }
 
     // Include inputs (connections)

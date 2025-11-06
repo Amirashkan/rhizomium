@@ -314,18 +314,23 @@ connectGPURenderer(renderFunction) {
   // PERFORMANCE OPTIMIZATION: Debounced shader rebuild
   triggerShaderRebuild(reason = 'Unknown') {
     console.log(`Triggering shader rebuild: ${reason}`);
-    
+
     // Debounce rebuild calls to prevent spam
     if (this.rebuildTimeout) {
       clearTimeout(this.rebuildTimeout);
     }
-    
+
+    // PERFORMANCE: Use longer debounce for parameter updates (user is likely dragging)
+    // Shorter debounce for structural changes (adding/removing nodes/connections)
+    const isParameterUpdate = reason.toLowerCase().includes('parameter');
+    const debounceMs = isParameterUpdate ? 100 : 16;
+
     this.rebuildTimeout = setTimeout(() => {
       if (window.rebuild && typeof window.rebuild === 'function') {
         try {
           window.rebuild();
           console.log('Shader rebuild completed');
-          
+
           // Clear time expression cache after rebuild
           this.timeExpressionCache = null;
         } catch (error) {
@@ -333,7 +338,7 @@ connectGPURenderer(renderFunction) {
         }
       }
       this.rebuildTimeout = null;
-    }, 16); // Debounce for ~60fps max rebuild rate
+    }, debounceMs); // 16ms for structure changes, 100ms for parameter updates
   }
 
   setupExpressionEventListeners() {
