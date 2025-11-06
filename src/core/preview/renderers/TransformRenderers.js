@@ -175,6 +175,7 @@ export class TransformRenderers {
   }
 
   // Apply tiling transformation (repeating pattern)
+  // OPTIMIZED: Use createPattern() instead of nested loop for better performance
   applyTilingTransform(ctx, inputCanvas, params) {
     try {
       const { tilingX, tilingY, offsetX, offsetY } = params;
@@ -183,31 +184,33 @@ export class TransformRenderers {
       ctx.fillStyle = "#141414";
       ctx.fillRect(0, 0, this.size, this.size);
 
-      // Create pattern and draw tiled
       ctx.save();
-      
-      // Scale the context to apply tiling
-      ctx.scale(tilingX, tilingY);
-      
-      // Apply offset
-      ctx.translate(offsetX * this.size / tilingX, offsetY * this.size / tilingY);
-      
-      // Draw multiple tiles to fill the canvas
-      const tilesX = Math.ceil(1 / tilingX) + 2;
-      const tilesY = Math.ceil(1 / tilingY) + 2;
-      
-      for (let ty = -1; ty < tilesY; ty++) {
-        for (let tx = -1; tx < tilesX; tx++) {
-          ctx.drawImage(
-            inputCanvas,
-            tx * this.size / tilingX,
-            ty * this.size / tilingY,
-            this.size / tilingX,
-            this.size / tilingY
-          );
-        }
+
+      // OPTIMIZATION: Use createPattern for hardware-accelerated tiling
+      // This is MUCH faster than drawing multiple tiles in a loop, especially for small tiling values
+      const pattern = ctx.createPattern(inputCanvas, 'repeat');
+
+      if (pattern) {
+        // Apply tiling and offset transformations
+        // The pattern needs to be scaled and translated
+        ctx.translate(offsetX * this.size, offsetY * this.size);
+        ctx.scale(tilingX, tilingY);
+
+        // Fill the entire canvas with the pattern
+        // We need to account for the transformations when calculating the fill area
+        const fillWidth = this.size / tilingX;
+        const fillHeight = this.size / tilingY;
+        const fillX = -offsetX * this.size / tilingX;
+        const fillY = -offsetY * this.size / tilingY;
+
+        ctx.fillStyle = pattern;
+        ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
+      } else {
+        // Fallback if pattern creation fails
+        console.warn('Failed to create pattern, using fallback');
+        ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
       }
-      
+
       ctx.restore();
     } catch (error) {
       console.warn('Error applying tiling transform:', error);

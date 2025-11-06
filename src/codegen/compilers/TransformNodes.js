@@ -4,9 +4,21 @@
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 
 export class TransformNodes {
+  constructor() {
+    this.uniformManager = null;
+  }
+
+  /**
+   * Set the uniform manager for registering parameters as GPU uniforms
+   * @param {ParameterUniformManager} uniformManager
+   */
+  setUniformManager(uniformManager) {
+    this.uniformManager = uniformManager;
+  }
+
   /**
    * Check if this compiler handles the given node kind
-   * @param {string} kind 
+   * @param {string} kind
    * @returns {boolean}
    */
 handles(kind) {
