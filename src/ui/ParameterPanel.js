@@ -1690,20 +1690,19 @@ _processPreviewUpdate(node) {
     this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
 
     if (this.selectedNode && this.selectedNode.id === node.id) {
-      // For MIDI sources, skip expensive display updates during active control
-      // Updates will be scheduled after MIDI activity stops
+      // For MIDI sources, skip ALL display updates during active control
+      // Everything will be updated after MIDI activity stops (zero overhead!)
       if (source === 'midi') {
-        // Update only the specific MIDI-controlled input display (lightweight)
-        if (this.textInputHandler?.updateMIDIValueDisplay) {
-          this.textInputHandler.updateMIDIValueDisplay(node.id, parameterName, newValue);
-        }
-
-        // Debounce full refresh until MIDI activity stops
+        // Debounce ALL UI updates until MIDI activity stops
         if (this._midiDisplayUpdateTimer) {
           clearTimeout(this._midiDisplayUpdateTimer);
         }
         this._midiDisplayUpdateTimer = setTimeout(() => {
+          // Update everything after MIDI stops
           this.refreshParameterDisplays();
+          if (this.textInputHandler?.updateMIDIValueDisplay) {
+            this.textInputHandler.updateMIDIValueDisplay(node.id, parameterName, newValue);
+          }
         }, this._midiDisplayUpdateDelay);
 
         return;

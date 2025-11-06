@@ -4,26 +4,31 @@ export class ParameterBindingSystem {
     this.graph = graph;
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
-    
+
     // Map of parameter bindings: sourceId -> Set of bound parameters
     this.bindings = new Map();
-    
+
     // Reverse map for quick lookup: boundId -> source parameter
     this.boundToSource = new Map();
-    
+
     // Parameter clipboard for copy/paste operations
     this.clipboard = null;
-    
+
     // Binding visualization state
     this.showBindings = false;
-    
+
+    // MIDI preview update throttling for bound parameters
+    this.midiBindingUpdateTimer = null;
+    this.midiBindingUpdateDelay = 500; // ms
+    this.pendingMidiBindingUpdates = new Set();
+
     this.setupEventListeners();
   }
 
   setupEventListeners() {
     // Listen for parameter changes to update bound parameters
     this.eventSystem.on('PARAMETER_CHANGED', (data) => {
-      this.updateBoundParameters(data.node, data.parameterName, data.newValue);
+      this.updateBoundParameters(data.node, data.parameterName, data.newValue, data.source);
     });
 
     // Listen for keyboard shortcuts
@@ -287,18 +292,22 @@ export class ParameterBindingSystem {
   }
 
   // Update all parameters bound to a source parameter
-  updateBoundParameters(sourceNode, sourceParamName, newValue) {
+  updateBoundParameters(sourceNode, sourceParamName, newValue, source) {
     const sourceKey = `${sourceNode.id}.${sourceParamName}`;
     const boundParams = this.bindings.get(sourceKey);
 
-    if (!boundParams) return;
+    if (!boundParams || boundParams.size === 0) return;
 
     // Get the EVALUATED value if source is an expression
     let valueToPropagate = newValue;
     if (window.editor?.paramPanel?.valueManager) {
       // This will evaluate expressions like "=audioEnvelope" to their numeric value
       valueToPropagate = window.editor.paramPanel.valueManager.getValue(sourceNode, sourceParamName);
-      console.log(`[ParameterBinding] Propagating evaluated value: ${valueToPropagate} (from ${newValue})`);
+
+      // Skip expensive console.log for MIDI (100+ times/sec)
+      if (source !== 'midi') {
+        console.log(`[ParameterBinding] Propagating evaluated value: ${valueToPropagate} (from ${newValue})`);
+      }
     }
 
     boundParams.forEach(bound => {
@@ -307,10 +316,33 @@ export class ParameterBindingSystem {
         // Set the EVALUATED value, not the expression string
         this.setParameterValueDirect(targetNode, bound.parameterName, valueToPropagate);
 
-        // Update preview for target node
-        this.updateNodePreview(targetNode);
+        // For MIDI sources, skip expensive preview updates during active control
+        if (source === 'midi') {
+          // Store node for later preview update
+          this.pendingMidiBindingUpdates.add(targetNode);
+
+          // Debounce preview update
+          if (this.midiBindingUpdateTimer) {
+            clearTimeout(this.midiBindingUpdateTimer);
+          }
+          this.midiBindingUpdateTimer = setTimeout(() => {
+            this.processPendingMidiBindingUpdates();
+          }, this.midiBindingUpdateDelay);
+        } else {
+          // For non-MIDI sources, update preview immediately
+          this.updateNodePreview(targetNode);
+        }
       }
     });
+  }
+
+  processPendingMidiBindingUpdates() {
+    // Update previews for all bound nodes after MIDI stops
+    for (const targetNode of this.pendingMidiBindingUpdates) {
+      this.updateNodePreview(targetNode);
+    }
+    this.pendingMidiBindingUpdates.clear();
+    this.midiBindingUpdateTimer = null;
   }
 
   // Check if creating a binding would create circular dependency
