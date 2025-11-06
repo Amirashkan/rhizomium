@@ -365,17 +365,20 @@ export class MenuManager {
       window.onNodeCreated(node);
     }
 
-    // Immediately draw to show the new node
-    if (window.editor) {
-      if (typeof window.editor.markDirty === 'function') {
-        window.editor.markDirty('node-creation');
-        console.log('[MenuManager] Marked editor dirty');
+    // CRITICAL: Force immediate redraw using requestAnimationFrame
+    // This ensures the node appears before the onChange callback
+    requestAnimationFrame(() => {
+      if (window.editor) {
+        if (typeof window.editor.markDirty === 'function') {
+          window.editor.markDirty('node-creation');
+          console.log('[MenuManager] Marked editor dirty');
+        }
+        if (typeof window.editor.draw === 'function') {
+          window.editor.draw();
+          console.log('[MenuManager] Called editor.draw()');
+        }
       }
-      if (typeof window.editor.draw === 'function') {
-        window.editor.draw();
-        console.log('[MenuManager] Called editor.draw()');
-      }
-    }
+    });
 
     // Delay onChange to allow GPU state to settle and prevent bind group mismatch
     setTimeout(() => {
