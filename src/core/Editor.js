@@ -28,6 +28,8 @@ export class Editor {
       // MIDI dependency update throttling
       this.midiDependencyUpdatePending = false;
       this.pendingMidiDependencyUpdates = new Map();
+      this.midiPreviewUpdateTimer = null;
+      this.midiPreviewUpdateDelay = 500; // ms - delay before updating previews after MIDI stops
 
       // Set basic properties FIRST
       this.graph = graph;
@@ -529,19 +531,23 @@ connectGPURenderer(renderFunction) {
       // Always update expression dependencies (cheap - just clears cache)
       this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
 
-      // For MIDI sources, throttle expensive preview updates to once per animation frame
+      // For MIDI sources, skip expensive preview updates during active control
+      // Preview updates will be scheduled after MIDI activity stops
       if (source === 'midi') {
         // Store this update to be processed later
         const key = `${node.id}:${parameterName}`;
         this.pendingMidiDependencyUpdates.set(key, { node, parameterName });
 
-        // Schedule update if not already scheduled
-        if (!this.midiDependencyUpdatePending) {
-          this.midiDependencyUpdatePending = true;
-          requestAnimationFrame(() => {
-            this.processPendingMidiDependencyUpdates();
-          });
+        // Clear any existing timer
+        if (this.midiPreviewUpdateTimer) {
+          clearTimeout(this.midiPreviewUpdateTimer);
         }
+
+        // Schedule preview update after MIDI activity stops (debounced)
+        this.midiPreviewUpdateTimer = setTimeout(() => {
+          this.processPendingMidiDependencyUpdates();
+        }, this.midiPreviewUpdateDelay);
+
         return;
       }
 
@@ -561,10 +567,10 @@ connectGPURenderer(renderFunction) {
 
       // Clear pending updates
       this.pendingMidiDependencyUpdates.clear();
-      this.midiDependencyUpdatePending = false;
+      this.midiPreviewUpdateTimer = null;
     } catch (error) {
       console.warn('Error processing pending MIDI dependency updates:', error);
-      this.midiDependencyUpdatePending = false;
+      this.midiPreviewUpdateTimer = null;
     }
   }
 
