@@ -397,6 +397,18 @@ export class TransformRenderers {
   renderUVGrid(ctx, transformFunc, label, params = {}) {
     const size = ctx.canvas.width;
 
+    // Validate canvas size
+    if (!size || size <= 0) {
+      console.error(`Invalid canvas size for renderUVGrid: ${size}`);
+      // Draw error indicator
+      ctx.fillStyle = "#ff0000";
+      ctx.fillRect(0, 0, 48, 48);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "10px Arial";
+      ctx.fillText("SIZE ERR", 2, 24);
+      return;
+    }
+
     // Clear background
     ctx.fillStyle = "#222";
     ctx.fillRect(0, 0, size, size);
@@ -459,16 +471,19 @@ export class TransformRenderers {
   }
 
   renderTransform2D(ctx, node) {
-    const translateX = this.toSafeNumber(this.getParameterValue(node, "translateX", 0.0), 0.0);
-    const translateY = this.toSafeNumber(this.getParameterValue(node, "translateY", 0.0), 0.0);
-    const scaleX = this.toSafeNumber(this.getParameterValue(node, "scaleX", 1.0), 1.0);
-    const scaleY = this.toSafeNumber(this.getParameterValue(node, "scaleY", 1.0), 1.0);
-    const rotation = this.toSafeNumber(this.getParameterValue(node, "rotation", 0.0), 0.0);
-    const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
-    const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
+    try {
+      const translateX = this.toSafeNumber(this.getParameterValue(node, "translateX", 0.0), 0.0);
+      const translateY = this.toSafeNumber(this.getParameterValue(node, "translateY", 0.0), 0.0);
+      const scaleX = this.toSafeNumber(this.getParameterValue(node, "scaleX", 1.0), 1.0);
+      const scaleY = this.toSafeNumber(this.getParameterValue(node, "scaleY", 1.0), 1.0);
+      const rotation = this.toSafeNumber(this.getParameterValue(node, "rotation", 0.0), 0.0);
+      const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
+      const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
-    // Check if there's an input to transform
-    const inputCanvas = this.getInputPreview(node);
+      console.log(`[Transform2D] Rendering node ${node.id}, params: tx=${translateX}, ty=${translateY}, sx=${scaleX}, sy=${scaleY}, rot=${rotation}`);
+
+      // Check if there's an input to transform
+      const inputCanvas = this.getInputPreview(node);
 
     if (inputCanvas) {
       console.log(`✓ Transform2D rendering with input`);
@@ -520,16 +535,25 @@ export class TransformRenderers {
       };
     };
 
-    this.renderUVGrid(ctx, transformFunc, "TRANS", {
-      tx: translateX,
-      ty: translateY,
-      sx: scaleX,
-      sy: scaleY,
-      rot: rotation
-    });
+      this.renderUVGrid(ctx, transformFunc, "TRANS", {
+        tx: translateX,
+        ty: translateY,
+        sx: scaleX,
+        sy: scaleY,
+        rot: rotation
+      });
 
-    if (this.hasExpressions(node)) {
-      this.drawExpressionIndicator(ctx);
+      if (this.hasExpressions(node)) {
+        this.drawExpressionIndicator(ctx);
+      }
+    } catch (error) {
+      console.error(`[Transform2D] Error rendering node ${node.id}:`, error);
+      // Draw error indicator
+      ctx.fillStyle = "#ff0000";
+      ctx.fillRect(0, 0, ctx.canvas.width || 48, ctx.canvas.height || 48);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "10px Arial";
+      ctx.fillText("ERROR", 2, 24);
     }
   }
 
