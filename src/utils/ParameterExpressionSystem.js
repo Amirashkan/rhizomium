@@ -991,7 +991,8 @@ isIncomplete(value) {
           const newValue = startValue + deltaY * sensitivity;
 
           input.value = param.type === 'int' ? Math.round(newValue).toString() : newValue.toFixed(3);
-          this._autoResizeTextArea(input);
+          // PERFORMANCE: Skip _autoResizeTextArea during drag (causes DOM reflows)
+          // this._autoResizeTextArea(input);
 
           // Update immediately without undo recording
           const oldUndoManager = valueManager.undoManager;
