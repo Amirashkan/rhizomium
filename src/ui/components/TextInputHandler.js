@@ -429,11 +429,16 @@ input.addEventListener("input", (e) => {
             currentDragValue = newValue;
           }
 
-          // PERFORMANCE: Update node.params directly without shader rebuild
-          // GPU uniforms are read from node.params each frame automatically
-          // NO rebuild during drag = 60fps smooth dragging + visual updates
+          // PERFORMANCE: Update uniforms directly without shader rebuild
+          // This updates the uniform manager values which GPU reads each frame
+          // NO rebuild during drag = 60fps smooth dragging + real-time visual updates
           if (!node.params) node.params = {};
           node.params[param.name] = currentDragValue;
+
+          // Update GPU uniforms immediately
+          if (typeof window.updateUniformsOnly === 'function') {
+            window.updateUniformsOnly(node.id, param.name, currentDragValue);
+          }
 
           e.preventDefault();
           e.stopPropagation(); // Prevent EventHandler from processing this event

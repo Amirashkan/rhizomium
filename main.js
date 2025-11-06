@@ -313,6 +313,16 @@ async function initialize() {
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
 
+    // PERFORMANCE: Lightweight uniform update without shader rebuild
+    window.updateUniformsOnly = function(nodeId, paramName, value) {
+      if (!window.nodeCompiler?.uniformManager) return;
+      const paramKey = `${nodeId}.${paramName}`;
+      const numValue = parseFloat(value);
+      if (!isNaN(numValue)) {
+        window.nodeCompiler.uniformManager.uniformValues.set(paramKey, numValue);
+      }
+    };
+
     initializeRenderLoopFromSettings();
 
     await checkAutosaveRecovery();
