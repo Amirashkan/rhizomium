@@ -183,12 +183,17 @@ export class GPURenderer {
 
   _lookupTextureBinding(texManager, varName) {
     const match = /^(textureCube_|texture_|samplerCube_|sampler_)(.+)$/.exec(varName);
-    if (!match) return null;
+    if (!match) {
+      console.log(`[GPURenderer] Lookup failed: ${varName} doesn't match pattern`);
+      return null;
+    }
     const sanitizedId = match[2];
+    console.log(`[GPURenderer] Looking up texture: varName=${varName}, sanitizedId=${sanitizedId}`);
 
     if (texManager.gpuTextures?.get) {
       const gpuInfo = texManager.gpuTextures.get(sanitizedId);
       if (gpuInfo) {
+        console.log(`[GPURenderer] Found in gpuTextures.get(${sanitizedId})`);
         this._ensureTextureView(texManager, sanitizedId, gpuInfo);
         return gpuInfo;
       }
@@ -197,14 +202,19 @@ export class GPURenderer {
     if (typeof texManager.getTexture === "function") {
       const direct = texManager.getTexture(sanitizedId);
       if (direct && (direct.textureView || direct.sampler)) {
+        console.log(`[GPURenderer] Found via getTexture(${sanitizedId})`);
         this._ensureTextureView(texManager, sanitizedId, direct);
         return direct;
       }
     }
 
     if (texManager.textures) {
+      console.log(`[GPURenderer] Searching textures map (${texManager.textures.size} entries)`);
       for (const [nodeId, info] of texManager.textures.entries()) {
-        if (this._sanitizeId(nodeId) === sanitizedId) {
+        const sanitized = this._sanitizeId(nodeId);
+        console.log(`[GPURenderer] Checking nodeId=${nodeId}, sanitized=${sanitized}, match=${sanitized === sanitizedId}`);
+        if (sanitized === sanitizedId) {
+          console.log(`[GPURenderer] Found in textures map: ${nodeId}`);
           this._ensureTextureView(texManager, nodeId, info);
           return info;
         }
@@ -212,14 +222,18 @@ export class GPURenderer {
     }
 
     if (texManager.gpuTextures) {
+      console.log(`[GPURenderer] Searching gpuTextures map (${texManager.gpuTextures.size} entries)`);
       for (const [nodeId, info] of texManager.gpuTextures.entries()) {
-        if (this._sanitizeId(nodeId) === sanitizedId) {
+        const sanitized = this._sanitizeId(nodeId);
+        if (sanitized === sanitizedId) {
+          console.log(`[GPURenderer] Found in gpuTextures map: ${nodeId}`);
           this._ensureTextureView(texManager, nodeId, info);
           return info;
         }
       }
     }
 
+    console.log(`[GPURenderer] No texture found for ${varName}`);
     return null;
   }
 
@@ -442,19 +456,42 @@ export class GPURenderer {
   _updateTextureBindings() {
     // Check if texture manager indicates bind groups need updating
     const texManager = typeof window !== "undefined" ? window.textureManager : null;
-    if (!texManager) return;
+    if (!texManager) {
+      console.log("[GPURenderer] No texture manager found");
+      return;
+    }
 
     // Check if textures have been added/changed since last bind group build
     const needsUpdate = texManager.bindGroup === null;
-    if (!needsUpdate || !this.pipeline || !this.bindGroups) return;
+    console.log(`[GPURenderer] Checking texture bindings - needsUpdate: ${needsUpdate}, bindGroup:`, texManager.bindGroup);
+
+    if (!needsUpdate) return;
+    if (!this.pipeline) {
+      console.log("[GPURenderer] No pipeline, skipping texture update");
+      return;
+    }
+    if (!this.bindGroups) {
+      console.log("[GPURenderer] No bind groups, skipping texture update");
+      return;
+    }
+
+    console.log("[GPURenderer] Updating texture bindings...");
+    console.log("[GPURenderer] Available textures:", texManager.textures?.size, "gpuTextures:", texManager.gpuTextures?.size);
 
     // Update all texture and sampler resources with newly loaded textures
+    let textureResourceCount = 0;
     for (const resourceKey in this.resources) {
       const resource = this.resources[resourceKey];
       if (resource.kind === "texture-2d" || resource.kind === "texture-cube" || resource.kind === "sampler") {
+        textureResourceCount++;
+        console.log(`[GPURenderer] Updating resource ${resourceKey}: ${resource.varName} (${resource.kind})`);
+        const beforeView = resource.textureView;
         this._applyExternalTextureResource(resource);
+        const afterView = resource.textureView;
+        console.log(`[GPURenderer] Texture view changed: ${beforeView !== afterView}`);
       }
     }
+    console.log(`[GPURenderer] Updated ${textureResourceCount} texture/sampler resources`);
 
     // Rebuild bind groups with updated texture resources
     this.bindGroups = this.bindGroups.map((_, layoutIndex) => {
