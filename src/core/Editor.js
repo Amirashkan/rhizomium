@@ -25,6 +25,10 @@ export class Editor {
       this._isDirty = true; // Start as dirty for initial render
       this._dirtyReasons = new Set();
 
+      // MIDI dependency update throttling
+      this.midiDependencyUpdatePending = false;
+      this.pendingMidiDependencyUpdates = new Map();
+
       // Set basic properties FIRST
       this.graph = graph;
       this.onChange = this.createSafeOnChange(onChange);
@@ -522,19 +526,45 @@ connectGPURenderer(renderFunction) {
     try {
       const { node, parameterName, newValue, source } = data;
 
-      // Skip expensive dependency checking for MIDI sources
-      // MIDI changes are real-time and don't affect expression dependencies
+      // Always update expression dependencies (cheap - just clears cache)
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+
+      // For MIDI sources, throttle expensive preview updates to once per animation frame
       if (source === 'midi') {
+        // Store this update to be processed later
+        const key = `${node.id}:${parameterName}`;
+        this.pendingMidiDependencyUpdates.set(key, { node, parameterName });
+
+        // Schedule update if not already scheduled
+        if (!this.midiDependencyUpdatePending) {
+          this.midiDependencyUpdatePending = true;
+          requestAnimationFrame(() => {
+            this.processPendingMidiDependencyUpdates();
+          });
+        }
         return;
       }
 
-      // Update expression dependencies
-      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
-
-      // Regenerate previews for dependent nodes
+      // For non-MIDI sources, update immediately
       this.updateDependentNodePreviews(node, parameterName);
     } catch (error) {
       console.warn('Error handling parameter change for expressions:', error);
+    }
+  }
+
+  processPendingMidiDependencyUpdates() {
+    try {
+      // Process all pending MIDI dependency updates in a single batch
+      for (const { node, parameterName } of this.pendingMidiDependencyUpdates.values()) {
+        this.updateDependentNodePreviews(node, parameterName);
+      }
+
+      // Clear pending updates
+      this.pendingMidiDependencyUpdates.clear();
+      this.midiDependencyUpdatePending = false;
+    } catch (error) {
+      console.warn('Error processing pending MIDI dependency updates:', error);
+      this.midiDependencyUpdatePending = false;
     }
   }
 
