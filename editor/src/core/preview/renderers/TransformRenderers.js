@@ -123,44 +123,45 @@ export class TransformRenderers {
   applyImageTransform(ctx, inputCanvas, params) {
     try {
       const { translateX, translateY, scaleX, scaleY, rotation, centerX, centerY } = params;
+      const size = ctx.canvas.width; // Use actual canvas size
 
       // Clear background
       ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
 
       // Save context state
       ctx.save();
 
       // For transform preview, we need to think about UV space transformation
       // The shader does: transformed_uv = (scale * rotate * (uv - center)) + center + translate
-      
+
       // Start by moving origin to center of canvas
-      ctx.translate(this.size / 2, this.size / 2);
-      
+      ctx.translate(size / 2, size / 2);
+
       // Apply the translation (in pixels)
-      ctx.translate(-translateX * this.size, -translateY * this.size);
-      
+      ctx.translate(-translateX * size, -translateY * size);
+
       // Move to the pivot point (relative to center)
-      const pivotOffsetX = (centerX - 0.5) * this.size;
-      const pivotOffsetY = (centerY - 0.5) * this.size;
+      const pivotOffsetX = (centerX - 0.5) * size;
+      const pivotOffsetY = (centerY - 0.5) * size;
       ctx.translate(pivotOffsetX, pivotOffsetY);
-      
+
       // Apply rotation
       ctx.rotate(-rotation);  // Negative because canvas Y is inverted
-      
+
       // Apply scale
       ctx.scale(scaleX, scaleY);
-      
+
       // Move back from pivot
       ctx.translate(-pivotOffsetX, -pivotOffsetY);
 
       // Draw the image centered
       ctx.drawImage(
         inputCanvas,
-        -this.size / 2,
-        -this.size / 2,
-        this.size,
-        this.size
+        -size / 2,
+        -size / 2,
+        size,
+        size
       );
 
       // Restore context state
@@ -168,9 +169,10 @@ export class TransformRenderers {
     } catch (error) {
       console.warn('Error applying image transform:', error);
       // Fallback: just draw the input
+      const size = ctx.canvas.width;
       ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, this.size, this.size);
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(inputCanvas, 0, 0, size, size);
     }
   }
 
@@ -178,49 +180,51 @@ export class TransformRenderers {
   applyTilingTransform(ctx, inputCanvas, params) {
     try {
       const { tilingX, tilingY, offsetX, offsetY } = params;
+      const size = ctx.canvas.width; // Use actual canvas size
 
       // Clear background
       ctx.fillStyle = "#141414";
-      ctx.fillRect(0, 0, this.size, this.size);
+      ctx.fillRect(0, 0, size, size);
 
       // Create pattern and draw tiled
       ctx.save();
-      
+
       // Scale the context to apply tiling
       ctx.scale(tilingX, tilingY);
-      
+
       // Apply offset
-      ctx.translate(offsetX * this.size / tilingX, offsetY * this.size / tilingY);
-      
+      ctx.translate(offsetX * size / tilingX, offsetY * size / tilingY);
+
       // Draw multiple tiles to fill the canvas
       const tilesX = Math.ceil(1 / tilingX) + 2;
       const tilesY = Math.ceil(1 / tilingY) + 2;
-      
+
       for (let ty = -1; ty < tilesY; ty++) {
         for (let tx = -1; tx < tilesX; tx++) {
           ctx.drawImage(
             inputCanvas,
-            tx * this.size / tilingX,
-            ty * this.size / tilingY,
-            this.size / tilingX,
-            this.size / tilingY
+            tx * size / tilingX,
+            ty * size / tilingY,
+            size / tilingX,
+            size / tilingY
           );
         }
       }
-      
+
       ctx.restore();
     } catch (error) {
       console.warn('Error applying tiling transform:', error);
       // Fallback: just draw the input once
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      const size = ctx.canvas.width;
+      ctx.drawImage(inputCanvas, 0, 0, size, size);
     }
   }
 
   // Apply non-linear UV transform by sampling the source canvas
   applyUVTransform(ctx, inputCanvas, transformFunc) {
     try {
-      const width = this.size;
-      const height = this.size;
+      const width = ctx.canvas.width; // Use actual canvas size
+      const height = ctx.canvas.height;
 
       const sourceCtx = inputCanvas.getContext('2d');
       if (!sourceCtx) {
@@ -271,20 +275,22 @@ export class TransformRenderers {
       ctx.putImageData(destData, 0, 0);
     } catch (error) {
       console.warn('Error applying UV transform:', error);
-      ctx.drawImage(inputCanvas, 0, 0, this.size, this.size);
+      const size = ctx.canvas.width;
+      ctx.drawImage(inputCanvas, 0, 0, size, size);
     }
   }
 
   // Draw expression indicator
   drawExpressionIndicator(ctx) {
     ctx.save();
+    const size = ctx.canvas.width;
     ctx.fillStyle = "#4CAF50";
-    ctx.fillRect(this.size - 12, 2, 10, 8);
+    ctx.fillRect(size - 12, 2, 10, 8);
     ctx.fillStyle = "#ffffff";
     ctx.font = "6px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("fx", this.size - 7, 6);
+    ctx.fillText("fx", size - 7, 6);
     ctx.restore();
   }
 
@@ -304,14 +310,15 @@ export class TransformRenderers {
   // Draw parameter info overlay
   drawParameterInfo(ctx, params) {
     ctx.save();
+    const size = ctx.canvas.width;
     ctx.fillStyle = "#00000080";
-    ctx.fillRect(0, this.size - 20, this.size, 20);
-    
+    ctx.fillRect(0, size - 20, size, 20);
+
     ctx.fillStyle = "#ffffff";
     ctx.font = "6px monospace";
     ctx.textAlign = "left";
-    
-    let y = this.size - 14;
+
+    let y = size - 14;
     Object.entries(params).forEach(([key, value], index) => {
       if (index < 3 && key && value !== undefined) {
         let displayValue;
@@ -323,15 +330,17 @@ export class TransformRenderers {
         ctx.fillText(`${key}:${displayValue}`, 2, y + index * 6);
       }
     });
-    
+
     ctx.restore();
   }
 
   // Base method to render UV grid visualization
   renderUVGrid(ctx, transformFunc, label, params = {}) {
+    const size = ctx.canvas.width; // Use actual canvas size
+
     // Clear background
     ctx.fillStyle = "#222";
-    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.fillRect(0, 0, size, size);
 
     // Draw transformed grid
     ctx.strokeStyle = "#4a90e2";
@@ -345,9 +354,9 @@ export class TransformRenderers {
         const u = i / gridRes;
         const v = j / gridRes;
         const transformed = transformFunc(u, v);
-        const x = transformed.u * this.size;
-        const y = transformed.v * this.size;
-        
+        const x = transformed.u * size;
+        const y = transformed.v * size;
+
         if (j === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -359,9 +368,9 @@ export class TransformRenderers {
         const u = j / gridRes;
         const v = i / gridRes;
         const transformed = transformFunc(u, v);
-        const x = transformed.u * this.size;
-        const y = transformed.v * this.size;
-        
+        const x = transformed.u * size;
+        const y = transformed.v * size;
+
         if (j === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -371,18 +380,18 @@ export class TransformRenderers {
     // Draw origin marker
     const origin = transformFunc(0, 0);
     ctx.fillStyle = "#ff4444";
-    ctx.fillRect(origin.u * this.size - 2, origin.v * this.size - 2, 4, 4);
+    ctx.fillRect(origin.u * size - 2, origin.v * size - 2, 4, 4);
 
     // Draw center marker (0.5, 0.5)
     const center = transformFunc(0.5, 0.5);
     ctx.fillStyle = "#44ff44";
-    ctx.fillRect(center.u * this.size - 2, center.v * this.size - 2, 4, 4);
+    ctx.fillRect(center.u * size - 2, center.v * size - 2, 4, 4);
 
     // Label
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 8px Arial";
     ctx.textAlign = "center";
-    ctx.fillText(label, this.size / 2, this.size - 6);
+    ctx.fillText(label, size / 2, size - 6);
 
     // Show parameters if provided
     if (Object.keys(params).length > 0) {

@@ -1410,11 +1410,25 @@ connectGPURenderer(renderFunction) {
 
       this.onChange('Node Creation');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Node Creation' });
-      
+
       // PERFORMANCE FIX: Use debounced rebuild
       this.triggerShaderRebuild('Node Creation');
-      
+
       this.safeDraw();
+
+      // Generate preview for the newly created node
+      // This ensures the node has a preview before any connections are made
+      if (this.previewIntegration && this.isPreviewEnabled) {
+        try {
+          this.previewIntegration.generateNodePreview(newNode);
+        } catch (previewError) {
+          window.errorHandler?.handleError(previewError, {
+            component: 'node-creation-preview',
+            nodeId: newNode.id,
+            nodeKind: newNode.kind
+          });
+        }
+      }
 
       return newNode;
       
