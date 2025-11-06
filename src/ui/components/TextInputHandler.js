@@ -6,7 +6,8 @@ export class TextInputHandler {
     this.undoManager = undoManager;
     this.expressionSystem = expressionSystem;
     this.dragState = new Map();
-    
+    // Performance optimization: throttle parameter updates during drag
+    this._pendingUpdate = null;
   }
 _isValidExpression(value) {
   if (!value.trim().startsWith('=')) return true;
@@ -406,19 +407,40 @@ input.addEventListener("input", (e) => {
           } else {
             input.value = newValue.toFixed(3);
           }
-          
-          // Update without undo recording (we'll do it on mouse up)
-          const oldUndoManager = valueManager.undoManager;
-          valueManager.undoManager = null;
-          valueManager.updateNodeParameter(node, param.name, input.value, onChange);
-          valueManager.undoManager = oldUndoManager;
-          
+
+          // Throttle updates using requestAnimationFrame for better performance
+          if (this._pendingUpdate !== null) {
+            return; // Update already scheduled
+          }
+
+          this._pendingUpdate = requestAnimationFrame(() => {
+            this._pendingUpdate = null;
+
+            // Update without undo recording (we'll do it on mouse up)
+            const oldUndoManager = valueManager.undoManager;
+            valueManager.undoManager = null;
+            valueManager.updateNodeParameter(node, param.name, input.value, onChange);
+            valueManager.undoManager = oldUndoManager;
+          });
+
           e.preventDefault();
         };
 
         const onMouseUp = (e) => {
           console.log(`Ending shift+drag on ${param.name}`);
-          
+
+          // Cancel any pending update
+          if (this._pendingUpdate !== null) {
+            cancelAnimationFrame(this._pendingUpdate);
+            this._pendingUpdate = null;
+          }
+
+          // Ensure final value is applied
+          const oldUndoManager = valueManager.undoManager;
+          valueManager.undoManager = null;
+          valueManager.updateNodeParameter(node, param.name, input.value, onChange);
+          valueManager.undoManager = oldUndoManager;
+
           if (isDragging && dragStartValue !== null) {
             const finalValue = parseFloat(input.value) || 0;
             if (this.undoManager && Math.abs(dragStartValue - finalValue) > 0.001) {
@@ -426,12 +448,12 @@ input.addEventListener("input", (e) => {
               console.log(`Recorded undo: ${param.name} from ${dragStartValue} to ${finalValue}`);
             }
           }
-          
+
           isDragging = false;
           dragStartValue = null;
           input.style.cursor = "";
           document.body.style.cursor = "";
-          
+
           window.removeEventListener("mousemove", onMouseMove);
           window.removeEventListener("mouseup", onMouseUp);
         };

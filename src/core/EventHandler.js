@@ -20,7 +20,9 @@ export class EventHandler {
     this._pendingContextMenu = null;
     // Track last cursor position for paste/duplicate
     this.lastCanvasPos = { x: 0, y: 0 };
-
+    // Performance optimization: throttle rendering with requestAnimationFrame
+    this._pendingFrame = null;
+    this._needsRender = false;
 
     this._setupEvents();
   }
@@ -43,6 +45,18 @@ export class EventHandler {
 
     // Global click handling for menu closing
     this._setupGlobalEvents();
+  }
+
+  // Throttled render using requestAnimationFrame for better performance
+  _requestRender() {
+    if (this._pendingFrame !== null) {
+      return; // Frame already scheduled
+    }
+
+    this._pendingFrame = requestAnimationFrame(() => {
+      this._pendingFrame = null;
+      this.onDraw();
+    });
   }
 
   _setupPanEvents() {
@@ -82,7 +96,7 @@ export class EventHandler {
               this._panCandidate.moved = true;
             }
           }
-          this.onDraw();
+          this._requestRender();
           e.preventDefault();
           e.stopPropagation();
         }
@@ -158,7 +172,7 @@ export class EventHandler {
               zoomDelta,
             )
           ) {
-            this.onDraw();
+            this._requestRender();
           }
           this._zoomDragState.lastY = e.clientY;
         }
@@ -330,7 +344,7 @@ export class EventHandler {
           this.selection.startBoxSelect(x, y);
           this._boxSelectCandidate.started = true;
           this._pendingContextMenu = null;
-          this.onDraw();
+          this._requestRender();
         }
       }
 
@@ -342,21 +356,21 @@ export class EventHandler {
       // Handle wire dragging
       if (this.connections.getDragWire()) {
         this.connections.updateWireDrag(pos);
-        this.onDraw();
+        this._requestRender();
         return;
       }
 
       // Handle box selection
       if (this.selection.getBoxSelect()) {
         this.selection.updateBoxSelect(pos.x, pos.y);
-        this.onDraw();
+        this._requestRender();
         return;
       }
 
       // Handle node dragging
       if (this.selection.getDragging()) {
         this.selection.updateDrag(pos.x, pos.y);
-        this.onDraw();
+        this._requestRender();
       }
     });
 
