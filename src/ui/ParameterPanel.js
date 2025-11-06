@@ -839,6 +839,10 @@ case 'flip2d':
       case 'voronoinoise':
       case 'ridgednoise':
       case 'warpnoise':
+      // Pattern and field nodes: Use parameter definitions from NodeDefs
+      case 'checker':
+      case 'stripe':
+      case 'displacement':
         const nodeDef = NodeDefs[node.kind];
         if (nodeDef && nodeDef.params && Array.isArray(nodeDef.params)) {
           nodeDef.params.forEach(param => {
