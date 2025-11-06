@@ -224,9 +224,13 @@ export class MIDISettingsPanel {
       disableBtn.disabled = true;
     });
 
-    // MIDI Learn button
+    // MIDI Learn button - using a single event listener that checks state
     this.learnButton.addEventListener('click', () => {
-      this.startMIDILearn();
+      if (this.midiBinding.learningMode) {
+        this.midiBinding.cancelLearning();
+      } else {
+        this.startMIDILearn();
+      }
     });
 
     // Clear all bindings
@@ -331,11 +335,6 @@ export class MIDISettingsPanel {
     learnStatus.style.display = 'block';
     this.learnButton.textContent = 'Cancel';
     this.learnButton.style.background = '#f44336';
-
-    // Update button to cancel mode
-    this.learnButton.onclick = () => {
-      this.midiBinding.cancelLearning();
-    };
   }
 
   hideLearnMode() {
@@ -343,11 +342,6 @@ export class MIDISettingsPanel {
     learnStatus.style.display = 'none';
     this.learnButton.textContent = 'Start MIDI Learn';
     this.learnButton.style.background = '#2196F3';
-
-    // Restore button
-    this.learnButton.onclick = () => {
-      this.startMIDILearn();
-    };
   }
 
   updateStatus() {
