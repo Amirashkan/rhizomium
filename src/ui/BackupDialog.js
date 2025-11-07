@@ -1,5 +1,6 @@
 // src/ui/BackupDialog.js - Complete Backup Management System
 import { makeDraggable } from './utils/draggable.js';
+import { modalManager } from './ModalManager.js';
 
 export class BackupDialog {
   constructor(saveLoadManager) {
@@ -445,13 +446,19 @@ export class BackupDialog {
   }
 
   async restoreBackup(backupId) {
-    if (!confirm("Restore this backup? Current work will be lost.")) return;
+    const confirmed = await modalManager.confirm(
+      "Restore this backup? Current work will be lost.",
+      'Restore Backup',
+      { danger: true, confirmLabel: 'Restore' }
+    );
+    if (!confirmed) return;
 
     try {
       await this.saveLoadManager.restoreBackup(backupId);
       this.hide();
+      modalManager.toast('Backup restored successfully', 'success', 'Backup Restored');
     } catch (error) {
-      alert(`Restore failed: ${error.message}`);
+      await modalManager.alert(`Restore failed: ${error.message}`, 'Error');
     }
   }
 
@@ -461,8 +468,13 @@ export class BackupDialog {
     this.saveLoadManager.downloadFile(content, filename, "application/json");
   }
 
-  deleteBackup(backupId) {
-    if (!confirm("Delete this backup?")) return;
+  async deleteBackup(backupId) {
+    const confirmed = await modalManager.confirm(
+      "Delete this backup?",
+      'Delete Backup',
+      { danger: true, confirmLabel: 'Delete' }
+    );
+    if (!confirmed) return;
 
     const backups = this.saveLoadManager.getBackups();
     const filtered = backups.filter((b) => b.id !== backupId);
@@ -473,20 +485,27 @@ export class BackupDialog {
     );
     this.refreshBackupList();
     this.saveLoadManager.updateStatus("Backup deleted");
+    modalManager.toast('Backup deleted', 'info', 'Backup Deleted');
   }
 
-  clearAllBackups() {
-    if (!confirm("Delete all backups? This cannot be undone.")) return;
+  async clearAllBackups() {
+    const confirmed = await modalManager.confirm(
+      "Delete all backups? This cannot be undone.",
+      'Clear All Backups',
+      { danger: true, confirmLabel: 'Delete All' }
+    );
+    if (!confirmed) return;
 
     localStorage.removeItem(this.saveLoadManager.backupsKey);
     this.refreshBackupList();
     this.saveLoadManager.updateStatus("All backups cleared");
+    modalManager.toast('All backups cleared', 'info', 'Backups Cleared');
   }
 
-  exportAllBackups() {
+  async exportAllBackups() {
     const backups = this.saveLoadManager.getBackups();
     if (backups.length === 0) {
-      alert("No backups to export");
+      await modalManager.alert("No backups to export", 'No Backups');
       return;
     }
 
@@ -499,5 +518,6 @@ export class BackupDialog {
     const content = JSON.stringify(exportData, null, 2);
     const filename = `rhizomium-backups-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.json`;
     this.saveLoadManager.downloadFile(content, filename, "application/json");
+    modalManager.toast(`Exported ${backups.length} backups`, 'success', 'Export Complete');
   }
 }

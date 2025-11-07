@@ -1,6 +1,7 @@
 // src/ui/MIDISettingsPanel.js
 
 import { makeDraggable } from './utils/draggable.js';
+import { modalManager } from './ModalManager.js';
 
 /**
  * MIDISettingsPanel - UI for configuring MIDI controllers and parameter mappings
@@ -228,7 +229,7 @@ export class MIDISettingsPanel {
         disableBtn.disabled = false;
       } catch (error) {
         console.error('Failed to enable MIDI:', error);
-        alert('Failed to enable MIDI: ' + error.message);
+        await modalManager.alert('Failed to enable MIDI: ' + error.message, 'MIDI Error');
       }
     });
 
@@ -250,8 +251,13 @@ export class MIDISettingsPanel {
 
     // Clear all bindings
     const clearAllBtn = this.panel.querySelector('#midi-clear-all-btn');
-    clearAllBtn.addEventListener('click', () => {
-      if (confirm('Remove all MIDI bindings?')) {
+    clearAllBtn.addEventListener('click', async () => {
+      const confirmed = await modalManager.confirm(
+        'Remove all MIDI bindings?',
+        'Clear All Bindings',
+        { danger: true, confirmLabel: 'Clear All' }
+      );
+      if (confirmed) {
         this.clearAllBindings();
       }
     });
@@ -298,12 +304,12 @@ export class MIDISettingsPanel {
     // MIDI_BINDING_CREATED, MIDI_BINDING_REMOVED, MIDI_LEARN_COMPLETED
   }
 
-  startMIDILearn() {
+  async startMIDILearn() {
     // Get selected parameter from parameter panel
     const paramPanel = window.editor?.paramPanel;
 
     if (!paramPanel || !paramPanel.isVisible() || !paramPanel.selectedNode) {
-      alert('Please select a node first by clicking on it, then open the Parameter Panel.');
+      await modalManager.alert('Please select a node first by clicking on it, then open the Parameter Panel.', 'MIDI Learn');
       return;
     }
 
@@ -311,12 +317,10 @@ export class MIDISettingsPanel {
     const selectedParam = paramPanel.getSelectedParameter();
 
     if (!selectedParam || !selectedParam.name) {
-      alert('Please click on a parameter input field first.\n\n' +
-            'Steps:\n' +
-            '1. Click on a node to select it\n' +
-            '2. Click on any parameter field in the Parameter Panel\n' +
-            '3. Click "Start MIDI Learn" here\n' +
-            '4. Move a MIDI controller');
+      await modalManager.alert(
+        'Please click on a parameter input field first.\n\nSteps:\n1. Click on a node to select it\n2. Click on any parameter field in the Parameter Panel\n3. Click "Start MIDI Learn" here\n4. Move a MIDI controller',
+        'MIDI Learn'
+      );
       return;
     }
 

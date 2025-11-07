@@ -1,4 +1,5 @@
 // src/ui/components/ColorStopInputHandler.js
+import { modalManager } from '../ModalManager.js';
 
 export class ColorStopInputHandler {
   constructor(undoManager) {
@@ -205,16 +206,16 @@ export class ColorStopInputHandler {
     });
     
     // Double-click to delete
-    handle.addEventListener('dblclick', (e) => {
+    handle.addEventListener('dblclick', async (e) => {
       e.stopPropagation();
       e.preventDefault();
-      
+
       const currentStops = node.params[param.name];
       if (currentStops.length <= 2) {
-        alert('Cannot delete - gradient must have at least 2 stops');
+        await modalManager.alert('Cannot delete - gradient must have at least 2 stops', 'Minimum Stops');
         return;
       }
-      
+
       const newStops = currentStops.filter((_, i) => i !== index);
       valueManager.setValue(node, param.name, newStops);
       onUpdate(`Delete color stop`);
@@ -349,16 +350,16 @@ export class ColorStopInputHandler {
       margin-left: auto;
     `;
     
-    deleteBtn.addEventListener('click', (e) => {
+    deleteBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       e.preventDefault();
-      
+
       const currentStops = node.params[param.name];
       if (currentStops.length <= 2) {
-        alert('Cannot delete - gradient must have at least 2 stops');
+        await modalManager.alert('Cannot delete - gradient must have at least 2 stops', 'Minimum Stops');
         return;
       }
-      
+
       const newStops = currentStops.filter((_, i) => i !== index);
       valueManager.setValue(node, param.name, newStops);
       onUpdate(`Delete color stop`);
