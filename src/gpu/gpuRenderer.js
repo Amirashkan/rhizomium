@@ -35,6 +35,7 @@ export class GPURenderer {
     this.canvas = canvas;
     this.context = canvas.getContext("webgpu");
     this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.sampleCount = 4; // 4x MSAA antialiasing
 
     this.context.configure({
       device,
@@ -48,6 +49,7 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+    this.msaaTexture = null; // MSAA render target
   }
 
   clear() {
@@ -56,6 +58,23 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+  }
+
+  // Create or recreate MSAA texture to match canvas size
+  _createMSAATexture() {
+    if (this.msaaTexture) {
+      this.msaaTexture.destroy();
+    }
+
+    this.msaaTexture = this.device.createTexture({
+      size: [this.canvas.width, this.canvas.height, 1],
+      sampleCount: this.sampleCount,
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      label: "msaa-render-target",
+    });
+
+    console.log(`[GPURenderer] MSAA texture created: ${this.canvas.width}x${this.canvas.height} (${this.sampleCount}x)`);
   }
 
   // Explicit canvas resize method - should only be called on window resize, not during render
@@ -68,6 +87,7 @@ export class GPURenderer {
       this.canvas.width = targetWidth;
       this.canvas.height = targetHeight;
       this._lastAspectWritten = null; // force aspect ratio recalculation
+      this._createMSAATexture(); // Recreate MSAA texture for new size
       console.log(`[GPURenderer] Canvas resized to ${targetWidth}x${targetHeight} (${dpr}x DPR)`);
     }
   }
@@ -272,6 +292,7 @@ export class GPURenderer {
       vertex: { module: this.shaderModule, entryPoint: "vs_main" },
       fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.format }] },
       primitive: { topology: "triangle-list" },
+      multisample: { count: this.sampleCount }, // Enable MSAA
     });
 
     this.bindGroups = groupIndices.map((groupIndex, layoutIndex) => {
@@ -434,10 +455,16 @@ export class GPURenderer {
   presentFallbackColor(color = { r: 0.5, g: 0.5, b: 0.5, a: 1.0 }) {
     if (!this.device || !this.context) return;
 
+    // Ensure MSAA texture exists
+    if (!this.msaaTexture) {
+      this._createMSAATexture();
+    }
+
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
+        view: this.msaaTexture.createView(),
+        resolveTarget: this.context.getCurrentTexture().createView(),
         loadOp: "clear",
         storeOp: "store",
         clearValue: color,
@@ -585,10 +612,18 @@ export class GPURenderer {
     // CRITICAL: Update texture bindings when new files are loaded
     this._updateTextureBindings();
 
+    // Ensure MSAA texture exists and matches canvas size
+    if (!this.msaaTexture ||
+        this.msaaTexture.width !== this.canvas.width ||
+        this.msaaTexture.height !== this.canvas.height) {
+      this._createMSAATexture();
+    }
+
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
+        view: this.msaaTexture.createView(),
+        resolveTarget: this.context.getCurrentTexture().createView(),
         clearValue: { r: 0, g: 0, b: 0, a: 1 },
         loadOp: "clear",
         storeOp: "store",
@@ -629,6 +664,15 @@ export class GPURenderer {
       label: "preview-capture-texture",
     });
 
+    // Create MSAA texture for capture
+    const captureMSAATexture = this.device.createTexture({
+      size: [targetWidth, targetHeight, 1],
+      sampleCount: this.sampleCount,
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      label: "preview-capture-msaa-texture",
+    });
+
     const bytesPerRow = Math.ceil((targetWidth * 4) / 256) * 256;
     const bufferSize = bytesPerRow * targetHeight;
 
@@ -648,7 +692,8 @@ export class GPURenderer {
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
-          view: captureTexture.createView(),
+          view: captureMSAATexture.createView(),
+          resolveTarget: captureTexture.createView(),
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: "clear",
           storeOp: "store",
@@ -680,6 +725,7 @@ export class GPURenderer {
 
     outputBuffer.destroy();
     captureTexture.destroy();
+    captureMSAATexture.destroy();
 
     this._lastAspectWritten = null;
     this._updateAspectUniform();
