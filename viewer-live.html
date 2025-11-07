@@ -619,8 +619,18 @@
                 if (kind === 'uniform-buffer') {
                     // Create uniform buffer
                     let size = 64;
-                    if (varName === 'u') size = 16; // aspect only
-                    else if (varName === 'g') size = 48; // globals
+                    if (varName === 'u') {
+                        size = 16; // aspect only
+                    } else if (varName === 'g') {
+                        size = 48; // globals (resolution, time, audio)
+                    } else if (varName === 'p') {
+                        // Parameters buffer - allocate large enough for many parameters
+                        // WebGPU requires 16-byte alignment, so sizes are multiples of 16
+                        size = 256; // Enough for 64 float parameters (256 / 4 = 64 floats)
+                    } else {
+                        // Default size for unknown buffers
+                        size = 256;
+                    }
 
                     const buffer = this.device.createBuffer({
                         size,
@@ -764,10 +774,11 @@
 
                 // Update custom parameter uniforms
                 if (this.resources['p']) {
-                    const paramData = new Float32Array(16);
+                    // Allocate buffer for 64 parameters (256 bytes / 4 bytes per float = 64 floats)
+                    const paramData = new Float32Array(64);
                     let idx = 0;
                     for (const [key, value] of this.uniformValues.entries()) {
-                        if (idx < 16) {
+                        if (idx < 64) {
                             paramData[idx++] = value;
                         }
                     }
