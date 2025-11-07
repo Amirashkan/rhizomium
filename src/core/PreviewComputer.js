@@ -250,7 +250,6 @@ case "ConicGradient": {
             case "ConstFloat": {
               // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
               let value = node.params?.value ?? node.value;
-              console.log(`[PreviewComputer] ConstFloat node ${node.id}: raw value =`, value, `(type: ${typeof value}), time=${this.animationTime}`);
 
               // Check if value is an expression (with or without = prefix)
               // The = prefix may have been stripped by ParameterExpressionSystem
@@ -296,14 +295,11 @@ case "ConicGradient": {
                       }
                     });
 
-                    console.log(`[PreviewComputer] Detected expression, evaluating with context:`, context);
-
                     // Remove = prefix if present before evaluation
                     const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
 
                     // Evaluate using UnifiedExpressionSystem (has proper math function support)
                     value = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
-                    console.log(`[PreviewComputer] Evaluated expression "${expressionWithoutPrefix}" to:`, value, `(type: ${typeof value})`);
                   } catch (error) {
                     console.error(`[PreviewComputer] Error evaluating expression in ConstFloat:`, error);
                     console.error(`[PreviewComputer] Expression was:`, value);
@@ -323,7 +319,6 @@ case "ConicGradient": {
               } else {
                 result = value ?? 0;
               }
-              console.log(`[PreviewComputer] ConstFloat node ${node.id}: final result =`, result);
               break;
             }
 

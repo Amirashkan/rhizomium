@@ -549,6 +549,11 @@ connectGPURenderer(renderFunction) {
 
       // For non-MIDI sources, update immediately
       this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+
+      // Update preview for the changed node itself (so labels show correct values)
+      this.updateNodePreview(node);
+
+      // Update previews for dependent nodes
       this.updateDependentNodePreviews(node, parameterName);
     } catch (error) {
       console.warn('Error handling parameter change for expressions:', error);
@@ -561,6 +566,10 @@ connectGPURenderer(renderFunction) {
       for (const { node, parameterName, newValue } of this.pendingMidiDependencyUpdates.values()) {
         // Update expression dependencies (cache clearing)
         this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+
+        // Update preview for the changed node itself (so labels show correct values)
+        this.updateNodePreview(node);
+
         // Update previews for dependent nodes
         this.updateDependentNodePreviews(node, parameterName);
       }

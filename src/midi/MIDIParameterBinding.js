@@ -215,6 +215,16 @@ export class MIDIParameterBinding {
     // Update GPU uniform buffer (fast! no recompilation!)
     this.triggerImmediateUpdate(node, paramName, paramValue);
 
+    // Mark dirty and redraw canvas to update labels immediately
+    if (window.editor) {
+      if (window.editor.markDirty) {
+        window.editor.markDirty('midi-parameter-update');
+      }
+      if (window.editor.draw) {
+        window.editor.draw();
+      }
+    }
+
     // Emit parameter update event
     this.eventSystem.emit('PARAMETER_CHANGED', {
       node,
@@ -409,14 +419,23 @@ export class MIDIParameterBinding {
    */
   setParameterValueDirect(node, paramName, value) {
     // Directly set the value on the node in all possible locations
+    // IMPORTANT: Set BOTH node.params[paramName] AND node[paramName] for compatibility
     if (paramName === 'value') {
       node.value = value;
+      if (!node.params) node.params = {};
+      node.params.value = value;
     } else if (paramName === 'x') {
       node.x = value;
+      if (!node.params) node.params = {};
+      node.params.x = value;
     } else if (paramName === 'y') {
       node.y = value;
+      if (!node.params) node.params = {};
+      node.params.y = value;
     } else if (paramName === 'z') {
       node.z = value;
+      if (!node.params) node.params = {};
+      node.params.z = value;
     } else {
       // Store in both params and props for compatibility
       if (!node.params) node.params = {};
