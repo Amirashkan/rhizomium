@@ -816,8 +816,9 @@ isIncomplete(value) {
     const keywords = ['time', 'frame', 'node_', 'audioEnvelope', 'PI', 'E'];
     if (keywords.some(kw => trimmed.includes(kw))) return true;
 
-    // Contains operators (but not just a negative number)
-    if (/[+\-*/]/.test(trimmed) && !/^-?\d+\.?\d*$/.test(trimmed)) return true;
+    // Contains operators (but not just a negative number or incomplete number being typed)
+    // Allow "-", "-2", "-2.5", etc. by making digits optional with \d* instead of \d+
+    if (/[+\-*/]/.test(trimmed) && !/^-?\d*\.?\d*$/.test(trimmed)) return true;
 
     return false;
   }
