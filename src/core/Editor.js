@@ -842,17 +842,9 @@ connectGPURenderer(renderFunction) {
     if (reason) {
       this._dirtyReasons.add(reason);
     }
-    // DEBUG: Log markDirty during drag
-    if (this._parameterDragging && reason === 'parameter-drag') {
-      console.log(`[Editor.markDirty DRAG] Set dirty, reason:`, reason);
-    }
   }
 
   clearDirty() {
-    // DEBUG: Log clearDirty during drag
-    if (this._parameterDragging) {
-      console.log(`[Editor.clearDirty DRAG] Clearing dirty flag`);
-    }
     this._isDirty = false;
     this._dirtyReasons.clear();
   }
@@ -866,21 +858,9 @@ connectGPURenderer(renderFunction) {
       throw new Error('Renderer not initialized');
     }
 
-    // DEBUG: Log draw calls during drag
-    if (this._parameterDragging) {
-      console.log(`[Editor.draw DRAG] Called, _isDirty:`, this._isDirty);
-    }
-
     // Only render if dirty (optimization)
     if (!this._isDirty) {
-      if (this._parameterDragging) {
-        console.log(`[Editor.draw DRAG] Skipped - not dirty`);
-      }
       return;
-    }
-
-    if (this._parameterDragging) {
-      console.log(`[Editor.draw DRAG] Rendering...`);
     }
 
     this.renderer.render(this.graph, {

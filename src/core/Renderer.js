@@ -576,11 +576,6 @@ export class Renderer {
       // Read directly from params for real-time display
       const rawValue = node.params?.value ?? node.value;
 
-      // DEBUG: Log what we're reading during drag
-      if (window.editor?._parameterDragging) {
-        console.log(`[Renderer DRAG] ConstFloat ${node.id}: rawValue =`, rawValue, typeof rawValue);
-      }
-
       // Parse the value - could be number or numeric string
       if (typeof rawValue === 'number') {
         previewValue = rawValue;
@@ -592,11 +587,6 @@ export class Renderer {
             previewValue = parsed;
           }
         }
-      }
-
-      // DEBUG: Log what preview value we're using
-      if (window.editor?._parameterDragging) {
-        console.log(`[Renderer DRAG] ConstFloat ${node.id}: previewValue =`, previewValue);
       }
     } else if (node.kind === "ConstVec2") {
       // Read vector components directly for real-time display
