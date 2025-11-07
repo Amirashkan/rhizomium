@@ -106,7 +106,15 @@ export class LiveShaderStream {
      * @param {Object} resolution - Current resolution {width, height}
      */
     sendShaderUpdate(shaderCode, uniformValues = {}, resolution = null) {
-        if (!this.isStreaming || !this.channel) return;
+        if (!this.isStreaming || !this.channel) {
+            console.warn('[LiveShaderStream] Cannot send: not streaming or no channel');
+            return;
+        }
+
+        if (!shaderCode || shaderCode.length === 0) {
+            console.warn('[LiveShaderStream] Cannot send: empty shader code');
+            return;
+        }
 
         this.currentShader = shaderCode;
         this.currentUniforms = uniformValues;
@@ -122,14 +130,17 @@ export class LiveShaderStream {
             timestamp: Date.now()
         };
 
+        console.log('[LiveShaderStream] 📤 Sending shader update:', {
+            codeLength: shaderCode.length,
+            uniformCount: Object.keys(uniformValues).length,
+            resolution: this.currentResolution,
+            shaderPreview: shaderCode.substring(0, 100) + '...'
+        });
+
         this.channel.postMessage(message);
         this.shaderUpdatesSent++;
 
-        console.log('[LiveShaderStream] Sent shader update:', {
-            codeLength: shaderCode.length,
-            uniformCount: Object.keys(uniformValues).length,
-            resolution: this.currentResolution
-        });
+        console.log(`[LiveShaderStream] ✅ Sent shader update #${this.shaderUpdatesSent}`);
     }
 
     /**
@@ -185,10 +196,11 @@ export class LiveShaderStream {
      */
     sendCurrentState() {
         if (!this.currentShader) {
-            console.log('[LiveShaderStream] No shader to send yet');
+            console.warn('[LiveShaderStream] ⚠️ No shader to send yet - viewer will receive shader on next update');
             return;
         }
 
+        console.log('[LiveShaderStream] 📤 Sending current state to new viewer');
         this.sendShaderUpdate(
             this.currentShader,
             this.currentUniforms,

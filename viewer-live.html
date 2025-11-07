@@ -390,6 +390,11 @@
                     resolution
                 });
 
+                if (!shaderCode) {
+                    console.error('[LiveViewer] No shader code received!');
+                    return;
+                }
+
                 if (!this.hasReceivedShader) {
                     this.hasReceivedShader = true;
                     document.getElementById('overlay').classList.add('hidden');
@@ -402,6 +407,7 @@
                     this.canvas.width = this.currentWidth;
                     this.canvas.height = this.currentHeight;
                     this.updateCanvasDisplaySize();
+                    console.log(`[LiveViewer] Updated resolution to ${this.currentWidth}x${this.currentHeight}`);
                 }
 
                 // Update uniform values
@@ -412,10 +418,12 @@
                 }
 
                 // Compile shader
+                console.log('[LiveViewer] Compiling shader...');
                 this.compileShader(shaderCode);
 
                 // Start rendering if not already running
                 if (!this.isRunning) {
+                    console.log('[LiveViewer] Starting render loop...');
                     this.startRendering();
                 }
             }
@@ -441,6 +449,7 @@
 
             compileShader(wgslCode) {
                 try {
+                    console.log('[LiveViewer] Starting shader compilation...');
                     this.currentShader = wgslCode;
 
                     // Clear existing pipeline
@@ -449,17 +458,30 @@
                     this.resources = {};
 
                     // Parse shader bindings
+                    console.log('[LiveViewer] Analyzing bindings...');
                     const bindings = this.analyzeBindings(wgslCode);
+                    console.log('[LiveViewer] Found bindings:', bindings);
 
                     // Create shader module
+                    console.log('[LiveViewer] Creating shader module...');
                     const shaderModule = this.device.createShaderModule({
                         code: wgslCode
                     });
 
+                    // Check for shader compilation errors
+                    shaderModule.getCompilationInfo().then(info => {
+                        if (info.messages.length > 0) {
+                            console.log('[LiveViewer] Shader compilation messages:', info.messages);
+                        }
+                    });
+
                     // Create bind group layouts and resources
+                    console.log('[LiveViewer] Creating bind group layouts...');
                     const bindGroupLayouts = this.createBindGroupLayouts(bindings);
+                    console.log('[LiveViewer] Created', bindGroupLayouts.length, 'bind group layouts');
 
                     // Create pipeline
+                    console.log('[LiveViewer] Creating pipeline...');
                     const pipelineLayout = this.device.createPipelineLayout({
                         bindGroupLayouts
                     });
@@ -481,14 +503,21 @@
                     });
 
                     // Create bind groups
+                    console.log('[LiveViewer] Creating bind groups...');
                     this.createBindGroups(bindings, bindGroupLayouts);
+                    console.log('[LiveViewer] Created', this.bindGroups.length, 'bind groups');
 
-                    console.log('[LiveViewer] Shader compiled successfully');
+                    console.log('[LiveViewer] ✅ Shader compiled successfully');
                     this.setStatus('Rendering', 'connected');
 
                 } catch (error) {
-                    console.error('[LiveViewer] Shader compilation error:', error);
-                    this.setStatus('Shader compilation failed', 'error');
+                    console.error('[LiveViewer] ❌ Shader compilation error:', error);
+                    console.error('[LiveViewer] Error stack:', error.stack);
+                    this.setStatus('Shader compilation failed: ' + error.message, 'error');
+
+                    // Show error in info
+                    document.getElementById('info').innerHTML =
+                        `<strong>Shader Error:</strong><br>${error.message}`;
                 }
             }
 
@@ -651,7 +680,12 @@
             }
 
             render() {
-                if (!this.pipeline || !this.device) return;
+                if (!this.pipeline || !this.device) {
+                    if (this.frameCount === 0) {
+                        console.warn('[LiveViewer] Cannot render: pipeline or device not ready');
+                    }
+                    return;
+                }
 
                 try {
                     // Update uniforms
@@ -691,10 +725,15 @@
                         document.getElementById('render-fps').textContent = this.fps;
                         this.frameCount = 0;
                         this.lastFPSUpdate = now;
+
+                        // Log rendering status
+                        console.log(`[LiveViewer] Rendering at ${this.fps} FPS`);
                     }
 
                 } catch (error) {
-                    console.error('[LiveViewer] Render error:', error);
+                    console.error('[LiveViewer] ❌ Render error:', error);
+                    console.error('[LiveViewer] Error stack:', error.stack);
+                    this.setStatus('Render error: ' + error.message, 'error');
                 }
             }
 
