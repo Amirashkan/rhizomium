@@ -2043,6 +2043,10 @@ function updateShaderFromGraph() {
         let uniformValues = [];
         if (result.uniformManager && result.uniformManager.uniformValues) {
           uniformValues = Array.from(result.uniformManager.uniformValues.values());
+          console.log('[main.js] Extracted parameter values:', uniformValues);
+          console.log('[main.js] Parameter count:', uniformValues.length);
+        } else {
+          console.warn('[main.js] No uniformManager or uniformValues found in result');
         }
 
         liveShaderStream.sendShaderUpdate(

@@ -414,7 +414,9 @@
                 // Update uniform values (now an array)
                 if (uniformValues && Array.isArray(uniformValues)) {
                     this.uniformValuesArray = uniformValues;
-                    console.log('[LiveViewer] Updated', uniformValues.length, 'parameter values');
+                    console.log('[LiveViewer] Updated', uniformValues.length, 'parameter values:', uniformValues);
+                } else {
+                    console.warn('[LiveViewer] No uniformValues received or not an array:', uniformValues);
                 }
 
                 // Compile shader
@@ -777,6 +779,19 @@
                     // Write parameter values directly from array (matching main renderer)
                     const paramData = new Float32Array(this.uniformValuesArray);
                     this.device.queue.writeBuffer(this.resources['p'], 0, paramData);
+
+                    // Log first write for debugging
+                    if (!this._loggedFirstParamWrite) {
+                        console.log('[LiveViewer] Writing', this.uniformValuesArray.length, 'parameters to GPU buffer');
+                        console.log('[LiveViewer] Parameter values:', this.uniformValuesArray);
+                        this._loggedFirstParamWrite = true;
+                    }
+                } else if (this.uniformValuesArray.length > 0 && !this.resources['p']) {
+                    if (!this._loggedMissingBuffer) {
+                        console.warn('[LiveViewer] Have', this.uniformValuesArray.length, 'parameter values but no "p" buffer!');
+                        console.warn('[LiveViewer] Available resources:', Object.keys(this.resources));
+                        this._loggedMissingBuffer = true;
+                    }
                 }
             }
 
