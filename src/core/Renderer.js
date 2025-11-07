@@ -575,6 +575,7 @@ export class Renderer {
     if (node.kind === "ConstFloat") {
       // Read directly from params for real-time display
       const rawValue = node.params?.value ?? node.value;
+      console.log(`[Renderer] ConstFloat ${node.id}: rawValue =`, rawValue, `type:`, typeof rawValue);
       // Only use the raw value if it's already a number (not an expression)
       if (typeof rawValue === 'number') {
         previewValue = rawValue;
