@@ -140,8 +140,8 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
         const centerX = this.getParam(node, 'centerX', 0.5);
         const centerY = this.getParam(node, 'centerY', 0.5);
         const radius = this.getParam(node, 'radius', 0.25);
-        // FIXED: Node definition uses 'smoothness', not 'epsilon'
-        const smoothness = this.getParam(node, 'smoothness', 0.01);
+        // FIXED: Use 'epsilon' to match ParameterDefs, fallback to 'smoothness' for compatibility
+        const smoothness = this.getParam(node, 'epsilon', this.getParam(node, 'smoothness', 0.01));
 
         const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
         const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;
@@ -160,8 +160,8 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
         // FIXED: Node definition has no 'scale' or 'rotation' parameters, use defaults
         const scale = 1.0;
         const rotation = 0.0;
-        // FIXED: Node definition uses 'smoothness', not 'epsilon'
-        const smoothness = this.getParam(node, 'smoothness', 0.01);
+        // FIXED: Use 'epsilon' to match ParameterDefs, fallback to 'smoothness' for compatibility
+        const smoothness = this.getParam(node, 'epsilon', this.getParam(node, 'smoothness', 0.01));
 
         const widthExpr = typeof width === 'string' ? `(${width})` : width;
         const heightExpr = typeof height === 'string' ? `(${height})` : height;
@@ -181,8 +181,8 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
         const sides = this.getParam(node, 'sides', 6);
         const radius = this.getParam(node, 'radius', 0.25);
         const rotation = this.getParam(node, 'rotation', 0.0);
-        // FIXED: Node definition uses 'smoothness', not 'epsilon'
-        const smoothness = this.getParam(node, 'smoothness', 0.01);
+        // FIXED: Use 'epsilon' to match ParameterDefs, fallback to 'smoothness' for compatibility
+        const smoothness = this.getParam(node, 'epsilon', this.getParam(node, 'smoothness', 0.01));
 
         const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
         const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;

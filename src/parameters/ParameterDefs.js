@@ -94,7 +94,12 @@ export const ParameterDefinitions = {
       capabilities: ParameterCapabilities.ALL,
       default: 0.5
     },
-    repeat: {
+    falloff: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 1.0
+    },
+    invert: {
       type: ParameterTypes.BOOL,
       capabilities: ParameterCapabilities.STATIC_ONLY,
       default: false
@@ -135,15 +140,20 @@ export const ParameterDefinitions = {
       capabilities: ParameterCapabilities.ALL,
       default: 0.5
     },
-    rotation: {
+    startAngle: {
       type: ParameterTypes.ANGLE,
       capabilities: ParameterCapabilities.ALL,
       default: 0
     },
-    repeat: {
+    endAngle: {
+      type: ParameterTypes.ANGLE,
+      capabilities: ParameterCapabilities.ALL,
+      default: 6.28318
+    },
+    smoothness: {
       type: ParameterTypes.FLOAT,
       capabilities: ParameterCapabilities.ALL,
-      default: 1
+      default: 0
     }
   },
   
@@ -191,34 +201,114 @@ export const ParameterDefinitions = {
       max: 1
     }
   },
-Kaleidoscope: {
-  label: "Kaleidoscope",
-  type: "transform",
-  params: {
-    segments: { type: "float", default: 6.0, min: 2.0, max: 32.0 },
-    angle: { type: "float", default: 0.0, min: 0.0, max: 6.283, supportsDrag: true },
-    scale: { type: "float", default: 1.0, min: 0.1, max: 4.0, supportsDrag: true },
-    mirror: { type: "bool", default: true },
+  Kaleidoscope: {
+    segments: {
+      type: ParameterTypes.INT,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: 6,
+      min: 2,
+      max: 32
+    },
+    angle: {
+      type: ParameterTypes.ANGLE,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.0
+    },
+    scale: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 1.0,
+      min: 0.1,
+      max: 4.0
+    },
+    mirror: {
+      type: ParameterTypes.BOOL,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: true
+    }
   },
-  outputs: [{ type: "vec2", name: "UV" }],
-},
 
+  Checker: {
+    scaleX: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 8.0
+    },
+    scaleY: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 8.0
+    },
+    smoothness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.0
+    }
+  },
+
+  Stripe: {
+    frequency: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 5.0
+    },
+    angle: {
+      type: ParameterTypes.ANGLE,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.0
+    },
+    thickness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.5
+    },
+    smoothness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.0
+    }
+  },
 
   // Shape nodes - support all parameter types
   Circle: {
+    centerX: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.5
+    },
+    centerY: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.5
+    },
     radius: {
       type: ParameterTypes.FLOAT,
       capabilities: ParameterCapabilities.ALL,
       default: 0.25
     },
-    epsilon: {
+    smoothness: {
       type: ParameterTypes.FLOAT,
       capabilities: ParameterCapabilities.ALL,
-      default: 0.02
+      default: 0.01
+    },
+    invert: {
+      type: ParameterTypes.BOOL,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: false
     }
   },
   
   Rectangle: {
+    centerX: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.5
+    },
+    centerY: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.5
+    },
     width: {
       type: ParameterTypes.FLOAT,
       capabilities: ParameterCapabilities.ALL,
@@ -229,13 +319,61 @@ Kaleidoscope: {
       capabilities: ParameterCapabilities.ALL,
       default: 0.5
     },
-    epsilon: {
+    roundness: {
       type: ParameterTypes.FLOAT,
       capabilities: ParameterCapabilities.ALL,
-      default: 0.02
+      default: 0.0
+    },
+    smoothness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.01
+    },
+    invert: {
+      type: ParameterTypes.BOOL,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: false
     }
   },
-  
+
+  Polygon: {
+    centerX: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.5
+    },
+    centerY: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.5
+    },
+    sides: {
+      type: ParameterTypes.INT,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: 6
+    },
+    radius: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.25
+    },
+    rotation: {
+      type: ParameterTypes.ANGLE,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.0
+    },
+    smoothness: {
+      type: ParameterTypes.FLOAT,
+      capabilities: ParameterCapabilities.ALL,
+      default: 0.01
+    },
+    invert: {
+      type: ParameterTypes.BOOL,
+      capabilities: ParameterCapabilities.STATIC_ONLY,
+      default: false
+    }
+  },
+
   // Math nodes - typically static only (for now)
   Add: {
     // No special parameters - uses inputs

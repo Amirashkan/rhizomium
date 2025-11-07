@@ -13,6 +13,12 @@ export class MIDISettingsPanel {
     this.devicesList = null;
     this.bindingsList = null;
 
+    // Throttle updateActivity to prevent excessive DOM updates
+    this.lastActivityUpdate = 0;
+    this.activityUpdateThrottle = 100; // ms (10 updates/sec max)
+    this.pendingActivityData = null;
+    this.activityRAF = null;
+
     this.createPanel();
     this.setupEventListeners();
   }
@@ -278,12 +284,9 @@ export class MIDISettingsPanel {
       });
     }
 
-    // Update display periodically
-    setInterval(() => {
-      if (this.visible) {
-        this.updateBindingsList();
-      }
-    }, 100);
+    // REMOVED: Wasteful setInterval that updated bindings list every 100ms
+    // Bindings list now only updates when bindings actually change via events:
+    // MIDI_BINDING_CREATED, MIDI_BINDING_REMOVED, MIDI_LEARN_COMPLETED
   }
 
   startMIDILearn() {
@@ -432,6 +435,29 @@ export class MIDISettingsPanel {
   }
 
   updateActivity(data) {
+    // Store the latest data
+    this.pendingActivityData = data;
+
+    // Throttle updates to avoid excessive DOM reflows
+    const now = performance.now();
+    if (now - this.lastActivityUpdate < this.activityUpdateThrottle) {
+      // Schedule update if not already scheduled
+      if (!this.activityRAF) {
+        this.activityRAF = requestAnimationFrame(() => {
+          this._performActivityUpdate();
+        });
+      }
+      return;
+    }
+
+    // Update immediately if enough time has passed
+    this._performActivityUpdate();
+  }
+
+  _performActivityUpdate() {
+    if (!this.pendingActivityData) return;
+
+    const data = this.pendingActivityData;
     const activityEl = this.panel.querySelector('#midi-activity');
     const timestamp = new Date().toLocaleTimeString();
 
@@ -446,6 +472,10 @@ export class MIDISettingsPanel {
     setTimeout(() => {
       activityEl.style.opacity = '0.5';
     }, 300);
+
+    this.lastActivityUpdate = performance.now();
+    this.activityRAF = null;
+    this.pendingActivityData = null;
   }
 
   removeBinding(deviceId, channel, cc) {

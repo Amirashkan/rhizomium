@@ -33,6 +33,11 @@ export class ParameterPanel {
     this._previewFrame = null;
     this._outputRebuildTimeout = null;
 
+    // MIDI parameter display update throttling
+    this._midiDisplayUpdateTimer = null;
+    this._midiDisplayUpdateDelay = 500; // ms - delay before updating displays after MIDI stops
+    this._pendingMidiUpdate = null; // Store pending MIDI update data for flushing
+
     // Initialize GraphProcessor for expression-aware downstream tracking
     this.graphProcessor = new GraphProcessor();
 
@@ -917,6 +922,11 @@ case 'flip2d':
   }
 
   showNodeParameters(node) {
+    // Flush any pending MIDI updates from the previous node before switching
+    if (this.selectedNode && this.selectedNode.id !== node.id) {
+      this._flushPendingMIDIUpdates();
+    }
+
     this.selectedNode = node;
     this.lastFocusedParameter = null; // Clear when switching nodes
     this.panel.style.display = 'flex';
@@ -934,9 +944,36 @@ case 'flip2d':
   }
 
   hide() {
+    // Flush any pending MIDI updates before hiding
+    this._flushPendingMIDIUpdates();
+
     this.panel.style.display = 'none';
     this.selectedNode = null;
     this.lastFocusedParameter = null; // Clear when hiding panel
+  }
+
+  _flushPendingMIDIUpdates() {
+    // Flush pending MIDI updates from ParameterPanel
+    if (this._midiDisplayUpdateTimer && this._pendingMidiUpdate) {
+      clearTimeout(this._midiDisplayUpdateTimer);
+      this._midiDisplayUpdateTimer = null;
+
+      // Process the pending updates immediately with the stored data
+      const { node, parameterName, newValue } = this._pendingMidiUpdate;
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+      if (this.selectedNode && this.selectedNode.id === node.id) {
+        this.refreshParameterDisplays();
+      }
+      this._pendingMidiUpdate = null;
+    }
+
+    // Also flush pending MIDI updates from Editor and ParameterBindingSystem
+    if (window.editor?.flushPendingMidiUpdates) {
+      window.editor.flushPendingMidiUpdates();
+    }
+    if (this.bindingSystem?.flushPendingMidiUpdates) {
+      this.bindingSystem.flushPendingMidiUpdates();
+    }
   }
 
   renderParameters(node) {
@@ -1683,15 +1720,50 @@ _processPreviewUpdate(node) {
   handleParameterChange(data) {
     const { node, parameterName, newValue, source } = data;
 
-    this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
-
     if (this.selectedNode && this.selectedNode.id === node.id) {
-      this.refreshParameterDisplays();
+      // For MIDI sources, use ultra-lightweight updates during active control
+      if (source === 'midi') {
+        // LIGHTWEIGHT: Just update the input text value (no queries, no style changes)
+        this._lightweightMIDIValueUpdate(node.id, parameterName, newValue);
 
-      // Update input display for MIDI-controlled parameters
-      if (source === 'midi' && this.textInputHandler?.updateMIDIValueDisplay) {
-        this.textInputHandler.updateMIDIValueDisplay(node.id, parameterName, newValue);
+        // Store pending update data for potential flushing on deselect
+        this._pendingMidiUpdate = { node, parameterName, newValue };
+
+        // Debounce expensive operations until MIDI activity stops
+        if (this._midiDisplayUpdateTimer) {
+          clearTimeout(this._midiDisplayUpdateTimer);
+        }
+        this._midiDisplayUpdateTimer = setTimeout(() => {
+          // Update expression cache and full display after MIDI stops
+          this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+          this.refreshParameterDisplays();
+          this._pendingMidiUpdate = null;
+        }, this._midiDisplayUpdateDelay);
+
+        return;
       }
+
+      // For non-MIDI sources, update immediately
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+      this.refreshParameterDisplays();
+    } else if (source !== 'midi') {
+      // Only update dependencies for non-MIDI sources if node not selected
+      this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+    }
+  }
+
+  _lightweightMIDIValueUpdate(nodeId, paramName, newValue) {
+    // Ultra-lightweight: just update the input.value text, nothing else
+    // No DOM queries, no style changes, no validation - just the text
+    const key = `${nodeId}_${paramName}`;
+    const inputData = this.textInputHandler?.activeInputs?.get(key);
+
+    if (inputData?.input && document.activeElement !== inputData.input) {
+      // Only update if user is not currently editing
+      const displayValue = typeof newValue === 'number'
+        ? Math.round(newValue * 10000) / 10000
+        : newValue;
+      inputData.input.value = String(displayValue);
     }
   }
 

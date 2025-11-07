@@ -156,8 +156,14 @@ export class MIDIParameterBinding {
     // Check if this CC is bound to a parameter
     const binding = this.bindings.get(midiKey);
 
+    console.log(`[MIDI CC${cc}] Key: ${midiKey}, Binding found:`, binding ? `${binding.nodeId}.${binding.paramName}` : 'NONE');
+    console.log(`[MIDI] Total bindings:`, this.bindings.size, 'Keys:', Array.from(this.bindings.keys()));
+
     if (binding && binding.enabled) {
+      console.log(`[MIDI] Updating parameter: ${binding.nodeId}.${binding.paramName} = ${normalizedValue}`);
       this.updateParameter(binding, normalizedValue);
+    } else if (binding && !binding.enabled) {
+      console.log(`[MIDI] Binding exists but is DISABLED`);
     }
 
     // Emit generic MIDI CC update event
@@ -455,6 +461,10 @@ export class MIDIParameterBinding {
     // Write to GPU buffer immediately
     if (window.gpuRenderer) {
       window.gpuRenderer._updateParameterUniforms();
+      // Trigger render to show the visual change
+      if (window.gpuRenderer.render) {
+        window.gpuRenderer.render();
+      }
     }
   }
 
