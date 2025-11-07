@@ -3,6 +3,7 @@
  */
 
 import { makeDraggable } from './utils/draggable.js';
+import { modalManager } from './ModalManager.js';
 
 export class PreviewSettings {
   constructor(floatingPreview) {
@@ -27,7 +28,7 @@ export class PreviewSettings {
   async _publishImage() {
     const canvas = this.floatingPreview.gpuCanvas;
     if (!canvas) {
-      alert('Canvas not available. Open preview first.');
+      await modalManager.alert('Canvas not available. Open preview first.', 'Error');
       return;
     }
 
@@ -36,10 +37,10 @@ export class PreviewSettings {
         await window.initWebGPU(canvas, true); 
       } catch (_) {}
     }
-    
+
     const renderer = window.gpuRenderer;
     if (!renderer || typeof renderer.captureFrame !== 'function') {
-      alert('Renderer not ready. Render preview at least once.');
+      await modalManager.alert('Renderer not ready. Render preview at least once.', 'Error');
       return;
     }
 
@@ -77,7 +78,7 @@ for (let y = 0; y < height; y++) {
 
       const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
       if (!blob) {
-        alert('Failed to create image blob');
+        await modalManager.alert('Failed to create image blob', 'Error');
         return;
       }
 
@@ -105,33 +106,36 @@ for (let y = 0; y < height; y++) {
         throw new Error('No URL returned from upload');
       }
 
-      // Redirect to publish page with the file URL
-      window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+      // Show success message and open publish page
+      modalManager.toast('Image uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
+      setTimeout(() => {
+        window.open(`https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`, '_blank');
+      }, 1000);
 
     } catch (err) {
       console.error(err);
-      
+
       if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-        const shouldSignIn = confirm(
-          'You need to sign in to share your work.\n\n' +
-          'Click OK to go to the gallery and sign in.'
+        const shouldSignIn = await modalManager.confirm(
+          'You need to sign in to share your work.\n\nWould you like to go to the gallery and sign in?',
+          'Sign In Required'
         );
         if (shouldSignIn) {
           window.open('https://art.tenderworld.org', '_blank');
         }
       } else {
-        alert(`Publish failed: ${err?.message || err}`);
+        await modalManager.alert(`Publish failed: ${err?.message || err}`, 'Upload Error');
       }
     }
   }
 async _publishAnimation() {
   const canvas = this.floatingPreview.gpuCanvas;
   if (!canvas || typeof canvas.captureStream !== 'function') {
-    alert("Canvas streaming is not supported in this browser.");
+    await modalManager.alert("Canvas streaming is not supported in this browser.", 'Browser Compatibility');
     return;
   }
   if (typeof MediaRecorder === 'undefined') {
-    alert("MediaRecorder API is not available. Try a Chromium-based browser.");
+    await modalManager.alert("MediaRecorder API is not available. Try a Chromium-based browser.", 'Browser Compatibility');
     return;
   }
 
@@ -145,28 +149,40 @@ async _publishAnimation() {
 
   const renderer = window.gpuRenderer;
   if (!renderer || typeof renderer.render !== 'function') {
-    alert("GPU renderer not ready. Render the preview before exporting animation.");
+    await modalManager.alert("GPU renderer not ready. Render the preview before exporting animation.", 'Error');
     return;
   }
 
   const defaultFps = Math.max(1, this.settings.refreshRate || 30);
-  const fpsInput = prompt("Frames per second for the recording (1-60)?", String(defaultFps));
+  const fpsInput = await modalManager.prompt("Frames per second for the recording (1-60)?", 'Animation Settings', String(defaultFps), {
+    inputType: 'number',
+    placeholder: '30',
+    validator: (value) => {
+      const fps = Number(value);
+      if (!Number.isFinite(fps) || fps <= 0 || fps > 60) {
+        return 'Please enter a valid FPS value between 1 and 60';
+      }
+      return null;
+    }
+  });
   if (fpsInput === null) return;
 
   const fps = Math.min(60, Math.max(1, Number(fpsInput)));
-  if (!Number.isFinite(fps) || fps <= 0) {
-    alert("Invalid FPS value.");
-    return;
-  }
 
-  const durationInput = prompt("Duration in seconds (1-60)?", "5");
+  const durationInput = await modalManager.prompt("Duration in seconds (1-60)?", 'Animation Settings', "5", {
+    inputType: 'number',
+    placeholder: '5',
+    validator: (value) => {
+      const duration = Number(value);
+      if (!Number.isFinite(duration) || duration <= 0 || duration > 60) {
+        return 'Please enter a valid duration between 1 and 60 seconds';
+      }
+      return null;
+    }
+  });
   if (durationInput === null) return;
 
   const duration = Math.min(60, Math.max(1, Number(durationInput)));
-  if (!Number.isFinite(duration) || duration <= 0) {
-    alert("Invalid duration value.");
-    return;
-  }
 
   const mimeCandidates = [
     "video/webm;codecs=vp9",
@@ -182,7 +198,7 @@ async _publishAnimation() {
   });
 
   if (!mimeType) {
-    alert("No supported WebM encoder found for this browser.");
+    await modalManager.alert("No supported WebM encoder found for this browser.", 'Browser Compatibility');
     return;
   }
 
@@ -223,7 +239,7 @@ async _publishAnimation() {
       clearInterval(renderInterval);
     }
     stream.getTracks().forEach((track) => track.stop());
-    alert("Unable to start recorder: " + error.message);
+    await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
     return;
   }
 
@@ -251,7 +267,7 @@ async _publishAnimation() {
     await recordingPromise;
   } catch (error) {
     console.error("Animation recording failed:", error);
-    alert("Animation recording failed: " + error.message);
+    await modalManager.alert("Animation recording failed: " + error.message, 'Recording Error');
     return;
   } finally {
     clearTimeout(stopTimer);
@@ -262,7 +278,7 @@ async _publishAnimation() {
   }
 
   if (!chunks.length) {
-    alert("Recording produced no data.");
+    await modalManager.alert("Recording produced no data.", 'Recording Error');
     return;
   }
 
@@ -274,6 +290,8 @@ async _publishAnimation() {
   try {
     const formData = new FormData();
     formData.append('file', blob, filename);
+
+    modalManager.toast('Uploading animation...', 'info', 'Share to Gallery');
 
     const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
       method: 'POST',
@@ -287,27 +305,30 @@ async _publishAnimation() {
     }
 
     const data = await response.json();
-    
+
     if (!data.url) {
       throw new Error('No URL returned from upload');
     }
 
-    // Redirect to publish page
-    window.location.href = `https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`;
+    // Show success message and open publish page
+    modalManager.toast('Animation uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
+    setTimeout(() => {
+      window.open(`https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`, '_blank');
+    }, 1000);
 
   } catch (err) {
     console.error(err);
-    
+
     if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-      const shouldSignIn = confirm(
-        'You need to sign in to share your work.\n\n' +
-        'Click OK to go to the gallery and sign in.'
+      const shouldSignIn = await modalManager.confirm(
+        'You need to sign in to share your work.\n\nWould you like to go to the gallery and sign in?',
+        'Sign In Required'
       );
       if (shouldSignIn) {
         window.open('https://art.tenderworld.org', '_blank');
       }
     } else {
-      alert(`Upload failed: ${err?.message || err}`);
+      await modalManager.alert(`Upload failed: ${err?.message || err}`, 'Upload Error');
     }
   }
 }
@@ -1119,7 +1140,7 @@ _createExportButtons() {
   async _exportPNG() {
     const canvas = this.floatingPreview.gpuCanvas;
     if (!canvas) {
-      alert("Canvas not available. Make sure the preview window is open.");
+      await modalManager.alert("Canvas not available. Make sure the preview window is open.", 'Error');
       return;
     }
 
@@ -1133,7 +1154,7 @@ _createExportButtons() {
 
     const renderer = window.gpuRenderer;
     if (!renderer || typeof renderer.captureFrame !== "function") {
-      alert("GPU renderer not ready for capture. Render the preview at least once before exporting.");
+      await modalManager.alert("GPU renderer not ready for capture. Render the preview at least once before exporting.", 'Error');
       return;
     }
 
@@ -1171,7 +1192,7 @@ _createExportButtons() {
 
       const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, "image/png"));
       if (!blob) {
-        alert("Failed to create image blob");
+        await modalManager.alert("Failed to create image blob", 'Error');
         return;
       }
 
@@ -1182,21 +1203,23 @@ _createExportButtons() {
       link.click();
       console.log("Exported PNG:", link.download);
 
+      modalManager.toast(`PNG exported: ${link.download}`, 'success', 'Export Complete');
+
       setTimeout(() => URL.revokeObjectURL(link.href), 100);
     } catch (error) {
       console.error("Export error:", error);
-      alert("Export failed: " + error.message + "\n\nMake sure the preview is actively rendering.");
+      await modalManager.alert("Export failed: " + error.message + "\n\nMake sure the preview is actively rendering.", 'Export Error');
     }
   }
 
   async _exportAnimation() {
     const canvas = this.floatingPreview.gpuCanvas;
     if (!canvas || typeof canvas.captureStream !== "function") {
-      alert("Canvas streaming is not supported in this browser.");
+      await modalManager.alert("Canvas streaming is not supported in this browser.", 'Browser Compatibility');
       return;
     }
     if (typeof MediaRecorder === "undefined") {
-      alert("MediaRecorder API is not available. Try a Chromium-based browser.");
+      await modalManager.alert("MediaRecorder API is not available. Try a Chromium-based browser.", 'Browser Compatibility');
       return;
     }
 
@@ -1210,28 +1233,40 @@ _createExportButtons() {
 
     const renderer = window.gpuRenderer;
     if (!renderer || typeof renderer.render !== "function") {
-      alert("GPU renderer not ready. Render the preview before exporting animation.");
+      await modalManager.alert("GPU renderer not ready. Render the preview before exporting animation.", 'Error');
       return;
     }
 
     const defaultFps = Math.max(1, this.settings.refreshRate || 30);
-    const fpsInput = prompt("Frames per second for the recording (1-60)?", String(defaultFps));
+    const fpsInput = await modalManager.prompt("Frames per second for the recording (1-60)?", 'Animation Settings', String(defaultFps), {
+      inputType: 'number',
+      placeholder: '30',
+      validator: (value) => {
+        const fps = Number(value);
+        if (!Number.isFinite(fps) || fps <= 0 || fps > 60) {
+          return 'Please enter a valid FPS value between 1 and 60';
+        }
+        return null;
+      }
+    });
     if (fpsInput === null) return;
 
     const fps = Math.min(60, Math.max(1, Number(fpsInput)));
-    if (!Number.isFinite(fps) || fps <= 0) {
-      alert("Invalid FPS value.");
-      return;
-    }
 
-    const durationInput = prompt("Duration in seconds (1-60)?", "5");
+    const durationInput = await modalManager.prompt("Duration in seconds (1-60)?", 'Animation Settings', "5", {
+      inputType: 'number',
+      placeholder: '5',
+      validator: (value) => {
+        const duration = Number(value);
+        if (!Number.isFinite(duration) || duration <= 0 || duration > 60) {
+          return 'Please enter a valid duration between 1 and 60 seconds';
+        }
+        return null;
+      }
+    });
     if (durationInput === null) return;
 
     const duration = Math.min(60, Math.max(1, Number(durationInput)));
-    if (!Number.isFinite(duration) || duration <= 0) {
-      alert("Invalid duration value.");
-      return;
-    }
 
     const mimeCandidates = [
       "video/webm;codecs=vp9",
@@ -1247,7 +1282,7 @@ _createExportButtons() {
     });
 
     if (!mimeType) {
-      alert("No supported WebM encoder found for this browser.");
+      await modalManager.alert("No supported WebM encoder found for this browser.", 'Browser Compatibility');
       return;
     }
 
@@ -1288,7 +1323,7 @@ _createExportButtons() {
         clearInterval(renderInterval);
       }
       stream.getTracks().forEach((track) => track.stop());
-      alert("Unable to start recorder: " + error.message);
+      await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
       return;
     }
 
@@ -1305,6 +1340,7 @@ _createExportButtons() {
     });
 
     recorder.start();
+    modalManager.toast(`Recording ${duration}s animation at ${fps} FPS...`, 'info', 'Export Animation');
 
     const stopTimer = setTimeout(() => {
       if (recorder.state === "recording") {
@@ -1316,7 +1352,7 @@ _createExportButtons() {
       await recordingPromise;
     } catch (error) {
       console.error("Animation export failed:", error);
-      alert("Animation export failed: " + error.message);
+      await modalManager.alert("Animation export failed: " + error.message, 'Export Error');
       return;
     } finally {
       clearTimeout(stopTimer);
@@ -1327,7 +1363,7 @@ _createExportButtons() {
     }
 
     if (!chunks.length) {
-      alert("Recording produced no data.");
+      await modalManager.alert("Recording produced no data.", 'Export Error');
       return;
     }
 
@@ -1341,6 +1377,8 @@ _createExportButtons() {
     link.download = `shader-${width}x${height}-${timestamp}.webm`;
     link.href = URL.createObjectURL(blob);
     link.click();
+
+    modalManager.toast(`Animation exported: ${link.download}`, 'success', 'Export Complete');
 
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
