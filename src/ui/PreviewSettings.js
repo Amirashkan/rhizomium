@@ -2,6 +2,8 @@
  * PreviewSettings.js - Settings panel with Share to Gallery2
  */
 
+import { makeDraggable } from './utils/draggable.js';
+
 export class PreviewSettings {
   constructor(floatingPreview) {
     this.floatingPreview = floatingPreview;
@@ -19,6 +21,7 @@ export class PreviewSettings {
     };
     this.settingsPanel = null;
     this._refreshRateControls = null;
+    this.cleanupDraggable = null;
   }
 
   async _publishImage() {
@@ -329,6 +332,12 @@ async _publishAnimation() {
 
   hideSettings() {
     if (!this.settingsPanel) return;
+
+    // Cleanup draggable
+    if (this.cleanupDraggable) {
+      this.cleanupDraggable();
+      this.cleanupDraggable = null;
+    }
 
     this.settingsPanel.style.opacity = "0";
     this.settingsPanel.style.transform = "scale(0.95)";
@@ -696,6 +705,9 @@ async _publishAnimation() {
 
     panel.appendChild(header);
     panel.appendChild(content);
+
+    // Make panel draggable by its header
+    this.cleanupDraggable = makeDraggable(panel, header);
 
     return panel;
   }

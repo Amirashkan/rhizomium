@@ -1,9 +1,12 @@
 // src/ui/BackupDialog.js - Complete Backup Management System
+import { makeDraggable } from './utils/draggable.js';
+
 export class BackupDialog {
   constructor(saveLoadManager) {
     this.saveLoadManager = saveLoadManager;
     this.dialog = null;
     this.isOpen = false;
+    this.cleanupDraggable = null;
   }
 
   show() {
@@ -15,6 +18,10 @@ export class BackupDialog {
   }
 
   hide() {
+    if (this.cleanupDraggable) {
+      this.cleanupDraggable();
+      this.cleanupDraggable = null;
+    }
     if (this.dialog) {
       document.body.removeChild(this.dialog);
       this.dialog = null;
@@ -70,6 +77,13 @@ export class BackupDialog {
 
     // Add to document
     document.body.appendChild(this.dialog);
+
+    // Make dialog draggable by its header
+    const dialogEl = this.dialog.querySelector('.backup-dialog');
+    const header = this.dialog.querySelector('.backup-header');
+    if (dialogEl && header) {
+      this.cleanupDraggable = makeDraggable(dialogEl, header);
+    }
 
     // Focus trap and ESC handler
     this.setupKeyboardHandlers();
