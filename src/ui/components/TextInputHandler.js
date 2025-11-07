@@ -434,7 +434,6 @@ input.addEventListener("input", (e) => {
           // NO rebuild during drag = 60fps smooth dragging + real-time visual updates
           if (!node.params) node.params = {};
           node.params[param.name] = currentDragValue;
-          console.log(`[TextInputHandler] Drag: node ${node.id}.${param.name} = ${currentDragValue}`);
 
           // Update GPU uniforms immediately
           if (typeof window.updateUniformsOnly === 'function') {
@@ -447,7 +446,6 @@ input.addEventListener("input", (e) => {
               window.editor.markDirty('parameter-drag');
             }
             if (window.editor.draw) {
-              console.log(`[TextInputHandler] Calling editor.draw(), _isDirty:`, window.editor._isDirty);
               window.editor.draw();
             }
           }

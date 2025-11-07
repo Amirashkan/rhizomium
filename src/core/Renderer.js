@@ -575,24 +575,38 @@ export class Renderer {
     if (node.kind === "ConstFloat") {
       // Read directly from params for real-time display
       const rawValue = node.params?.value ?? node.value;
-      console.log(`[Renderer] ConstFloat ${node.id}: rawValue =`, rawValue, `type:`, typeof rawValue);
-      // Only use the raw value if it's already a number (not an expression)
+      // Parse the value - could be number or numeric string
       if (typeof rawValue === 'number') {
         previewValue = rawValue;
+      } else if (typeof rawValue === 'string') {
+        // Try to parse as number (unless it's an expression starting with =)
+        if (!rawValue.trim().startsWith('=')) {
+          const parsed = parseFloat(rawValue);
+          if (!isNaN(parsed)) {
+            previewValue = parsed;
+          }
+        }
       }
     } else if (node.kind === "ConstVec2") {
       // Read vector components directly for real-time display
-      const x = node.params?.x ?? node.x;
-      const y = node.params?.y ?? node.y;
-      if (typeof x === 'number' && typeof y === 'number') {
+      let x = node.params?.x ?? node.x;
+      let y = node.params?.y ?? node.y;
+      // Parse if strings
+      if (typeof x === 'string') x = parseFloat(x);
+      if (typeof y === 'string') y = parseFloat(y);
+      if (typeof x === 'number' && typeof y === 'number' && !isNaN(x) && !isNaN(y)) {
         previewValue = [x, y];
       }
     } else if (node.kind === "ConstVec3") {
       // Read vector components directly for real-time display
-      const x = node.params?.x ?? node.x;
-      const y = node.params?.y ?? node.y;
-      const z = node.params?.z ?? node.z;
-      if (typeof x === 'number' && typeof y === 'number' && typeof z === 'number') {
+      let x = node.params?.x ?? node.x;
+      let y = node.params?.y ?? node.y;
+      let z = node.params?.z ?? node.z;
+      // Parse if strings
+      if (typeof x === 'string') x = parseFloat(x);
+      if (typeof y === 'string') y = parseFloat(y);
+      if (typeof z === 'string') z = parseFloat(z);
+      if (typeof x === 'number' && typeof y === 'number' && typeof z === 'number' && !isNaN(x) && !isNaN(y) && !isNaN(z)) {
         previewValue = [x, y, z];
       }
     }
