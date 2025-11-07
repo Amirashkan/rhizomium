@@ -154,7 +154,9 @@ async function initialize() {
   const canvas =
     document.getElementById("gpu-canvas") || document.querySelector("canvas");
   if (canvas) {
-    const adapter = await navigator.gpu.requestAdapter();
+    const adapter = await navigator.gpu.requestAdapter({
+      powerPreference: "high-performance"
+    });
     const device = await adapter.requestDevice();
     window.gpuRenderer = new GPURenderer(device, canvas);
 

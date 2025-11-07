@@ -39,7 +39,7 @@ export class GPURenderer {
     this.context.configure({
       device,
       format: this.format,
-      alphaMode: "premultiplied",
+      alphaMode: "opaque",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
 
