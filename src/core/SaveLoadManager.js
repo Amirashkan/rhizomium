@@ -1578,8 +1578,8 @@ async reinitializeWebGPU() {
 
       const vp = this.editor.viewport;
       return {
-        pan: { x: vp.panX || 0, y: vp.panY || 0 },
-        zoom: vp.zoom || 1,
+        pan: { x: vp.offsetX || 0, y: vp.offsetY || 0 },
+        zoom: vp.scale || 1,
       };
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -1806,11 +1806,11 @@ importConnections(connectionData) {
 
       const vp = this.editor.viewport;
       if (viewportData.pan) {
-        vp.panX = viewportData.pan.x || 0;
-        vp.panY = viewportData.pan.y || 0;
+        vp.offsetX = viewportData.pan.x || 0;
+        vp.offsetY = viewportData.pan.y || 0;
       }
       if (viewportData.zoom) {
-        vp.zoom = viewportData.zoom;
+        vp.scale = viewportData.zoom;
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 

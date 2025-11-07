@@ -2033,9 +2033,9 @@ function createNewProject() {
       editor.nodePreviews.clear();
     }
     if (editor.viewport) {
-      editor.viewport.panX = 0;
-      editor.viewport.panY = 0;
-      editor.viewport.zoom = 1;
+      editor.viewport.offsetX = 0;
+      editor.viewport.offsetY = 0;
+      editor.viewport.scale = 1;
     }
   }
 
