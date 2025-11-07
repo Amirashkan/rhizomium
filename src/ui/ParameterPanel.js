@@ -394,14 +394,14 @@ export class ParameterPanel {
     switch (node.kind.toLowerCase()) {
       case 'lineargradient':
   definitions.push(
-    { 
-      name: 'angle', 
-      type: 'float', 
-      displayName: 'Angle (rad)', 
-      default: 0.0, 
-      min: 0, 
-      max: 6.28318, 
-      description: 'Gradient rotation angle in radians' 
+    {
+      name: 'angle',
+      type: 'float',
+      displayName: 'Angle (°)',
+      default: 0.0,
+      min: 0,
+      max: 360,
+      description: 'Gradient rotation angle in degrees'
     },
     { 
       name: 'offset', 
@@ -499,14 +499,14 @@ case 'angulargradient':
       max: 1, 
       description: 'Vertical center position' 
     },
-    { 
-      name: 'rotation', 
-      type: 'float', 
-      displayName: 'Rotation (rad)', 
-      default: 0.0, 
-      min: 0, 
-      max: 6.28318, 
-      description: 'Starting angle rotation' 
+    {
+      name: 'rotation',
+      type: 'float',
+      displayName: 'Rotation (°)',
+      default: 0.0,
+      min: 0,
+      max: 360,
+      description: 'Starting angle rotation in degrees'
     },
     { 
       name: 'repeat', 
@@ -540,23 +540,23 @@ case 'conicgradient':
       max: 1, 
       description: 'Vertical center position' 
     },
-    { 
-      name: 'startAngle', 
-      type: 'float', 
-      displayName: 'Start Angle (rad)', 
-      default: 0.0, 
-      min: 0, 
-      max: 6.28318, 
-      description: 'Gradient start angle' 
+    {
+      name: 'startAngle',
+      type: 'float',
+      displayName: 'Start Angle (°)',
+      default: 0.0,
+      min: 0,
+      max: 360,
+      description: 'Gradient start angle in degrees'
     },
-    { 
-      name: 'endAngle', 
-      type: 'float', 
-      displayName: 'End Angle (rad)', 
-      default: 6.28318, 
-      min: 0, 
-      max: 6.28318, 
-      description: 'Gradient end angle' 
+    {
+      name: 'endAngle',
+      type: 'float',
+      displayName: 'End Angle (°)',
+      default: 360,
+      min: 0,
+      max: 360,
+      description: 'Gradient end angle in degrees'
     },
     { 
       name: 'smoothness', 
@@ -616,7 +616,7 @@ case 'colorramp':
   break;
 case 'lineargradient':
   definitions.push(
-    { name: 'angle', type: 'float', displayName: 'Angle', default: 0.0, min: 0, max: 6.28318, description: 'Gradient angle in radians' },
+    { name: 'angle', type: 'float', displayName: 'Angle', default: 0.0, min: 0, max: 360, description: 'Gradient angle in degrees' },
     { name: 'offset', type: 'float', displayName: 'Offset', default: 0.0, description: 'Gradient offset' },
     { name: 'scale', type: 'float', displayName: 'Scale', default: 1.0, min: 0.1, max: 10.0, description: 'Gradient scale' },
     { name: 'repeat', type: 'boolean', displayName: 'Repeat', default: false, description: 'Repeat gradient' }
@@ -790,7 +790,7 @@ case 'transform2d':
     { name: 'translateY', type: 'float', displayName: 'Translate Y', default: 0.0, description: 'Vertical translation' },
     { name: 'scaleX', type: 'float', displayName: 'Scale X', default: 1.0, min: 0.01, description: 'Horizontal scale' },
     { name: 'scaleY', type: 'float', displayName: 'Scale Y', default: 1.0, min: 0.01, description: 'Vertical scale' },
-    { name: 'rotation', type: 'float', displayName: 'Rotation (rad)', default: 0.0, description: 'Rotation angle' },
+    { name: 'rotation', type: 'float', displayName: 'Rotation (°)', default: 0.0, min: 0, max: 360, description: 'Rotation angle in degrees' },
     { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation center X' },
     { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation center Y' }
   );
@@ -807,7 +807,7 @@ case 'scale2d':
 
 case 'rotate2d':
   definitions.push(
-    { name: 'rotation', type: 'float', displayName: 'Rotation (rad)', default: 0.0, description: 'Rotation angle' },
+    { name: 'rotation', type: 'float', displayName: 'Rotation (°)', default: 0.0, min: 0, max: 360, description: 'Rotation angle in degrees' },
     { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation center X' },
     { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation center Y' }
   );
