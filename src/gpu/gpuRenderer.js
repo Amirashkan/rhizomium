@@ -39,7 +39,7 @@ export class GPURenderer {
     this.context.configure({
       device,
       format: this.format,
-      alphaMode: "opaque",
+      alphaMode: "premultiplied",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
 
@@ -48,12 +48,6 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
-
-    // Canvas resize management to prevent tearing during animations
-    this._cachedCanvasWidth = 0;
-    this._cachedCanvasHeight = 0;
-    this._lastResizeTime = 0;
-    this._resizeDebounceMs = 16; // One frame at 60fps - prevent mid-frame resizes
   }
 
   clear() {
@@ -62,6 +56,20 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+  }
+
+  // Explicit canvas resize method - should only be called on window resize, not during render
+  resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const targetWidth = Math.max(1, Math.floor((this.canvas.clientWidth || window.innerWidth) * dpr));
+    const targetHeight = Math.max(1, Math.floor((this.canvas.clientHeight || window.innerHeight) * dpr));
+
+    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+      this.canvas.width = targetWidth;
+      this.canvas.height = targetHeight;
+      this._lastAspectWritten = null; // force aspect ratio recalculation
+      console.log(`[GPURenderer] Canvas resized to ${targetWidth}x${targetHeight} (${dpr}x DPR)`);
+    }
   }
 
   // Create placeholder texture for optional bindings.
@@ -550,28 +558,13 @@ export class GPURenderer {
     const targetWidth = Math.max(1, Math.floor(baseWidth * resolvedDpr));
     const targetHeight = Math.max(1, Math.floor(baseHeight * resolvedDpr));
 
-    // Debounce canvas resizing to prevent tearing during animations
-    const now = performance.now();
-    const timeSinceLastResize = now - this._lastResizeTime;
-    const dimensionsChanged =
-      this.canvas.width !== targetWidth ||
-      this.canvas.height !== targetHeight;
-
-    // Only resize if dimensions changed AND enough time has passed since last resize
-    // OR if this is the first render (cached dimensions are 0)
-    const shouldResize = dimensionsChanged && (
-      timeSinceLastResize >= this._resizeDebounceMs ||
-      (this._cachedCanvasWidth === 0 && this._cachedCanvasHeight === 0)
-    );
-
-    if (shouldResize) {
-      this.canvas.width = targetWidth;
-      this.canvas.height = targetHeight;
-      this._cachedCanvasWidth = targetWidth;
-      this._cachedCanvasHeight = targetHeight;
-      this._lastResizeTime = now;
-      this._lastAspectWritten = null; // force update after resize
-    }
+    // CRITICAL FIX: NEVER resize canvas during render() - only on explicit resize events
+    // Canvas resizing breaks WebGPU presentation timing and causes tearing
+    // The canvas should be sized once at init or via window resize handler
+    //
+    // if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+    //   console.warn('[GPURenderer] Canvas size mismatch - use explicit resize instead');
+    // }
 
     this._updateAspectUniform();
 
