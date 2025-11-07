@@ -2038,11 +2038,20 @@ function updateShaderFromGraph() {
       // Send shader update to LiveShaderStream if active
       if (liveShaderStream && liveShaderStream.isStreaming) {
         const canvas = document.getElementById('gpu-canvas');
+
+        // Extract parameter values from uniformManager as ordered array
+        let uniformValues = [];
+        if (result.uniformManager && result.uniformManager.uniformValues) {
+          uniformValues = Array.from(result.uniformManager.uniformValues.values());
+        }
+
         liveShaderStream.sendShaderUpdate(
           rawWGSL,
-          {},
+          uniformValues,
           { width: canvas?.width || 1920, height: canvas?.height || 1080 }
         );
+
+        console.log('[main.js] Sent shader with', uniformValues.length, 'parameters');
       }
     } else {
       console.warn("GPU renderer not initialized");

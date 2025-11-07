@@ -270,6 +270,7 @@
                 // Shader state
                 this.currentShader = null;
                 this.uniformValues = new Map();
+                this.uniformValuesArray = [];
 
                 // Animation state
                 this.animationId = null;
@@ -386,7 +387,7 @@
 
                 console.log('[LiveViewer] Received shader update:', {
                     codeLength: shaderCode?.length,
-                    uniformCount: Object.keys(uniformValues || {}).length,
+                    uniformCount: Array.isArray(uniformValues) ? uniformValues.length : 0,
                     resolution
                 });
 
@@ -410,11 +411,10 @@
                     console.log(`[LiveViewer] Updated resolution to ${this.currentWidth}x${this.currentHeight}`);
                 }
 
-                // Update uniform values
-                if (uniformValues) {
-                    for (const [key, value] of Object.entries(uniformValues)) {
-                        this.uniformValues.set(key, value);
-                    }
+                // Update uniform values (now an array)
+                if (uniformValues && Array.isArray(uniformValues)) {
+                    this.uniformValuesArray = uniformValues;
+                    console.log('[LiveViewer] Updated', uniformValues.length, 'parameter values');
                 }
 
                 // Compile shader
@@ -773,15 +773,9 @@
                 }
 
                 // Update custom parameter uniforms
-                if (this.resources['p']) {
-                    // Allocate buffer for 64 parameters (256 bytes / 4 bytes per float = 64 floats)
-                    const paramData = new Float32Array(64);
-                    let idx = 0;
-                    for (const [key, value] of this.uniformValues.entries()) {
-                        if (idx < 64) {
-                            paramData[idx++] = value;
-                        }
-                    }
+                if (this.resources['p'] && this.uniformValuesArray.length > 0) {
+                    // Write parameter values directly from array (matching main renderer)
+                    const paramData = new Float32Array(this.uniformValuesArray);
                     this.device.queue.writeBuffer(this.resources['p'], 0, paramData);
                 }
             }
