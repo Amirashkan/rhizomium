@@ -235,9 +235,14 @@ canvas {
   position: fixed;
   left: 0;
   display: block;
-  /* Force hardware acceleration and prevent tearing */
-  will-change: contents;
-  transform: translateZ(0);
+  /* Aggressive hardware acceleration and compositor hints */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  -webkit-transform: translate3d(0, 0, 0);
+  /* Force own compositor layer to prevent interference */
+  isolation: isolate;
 }
 
 #gpu-canvas {
@@ -245,6 +250,9 @@ canvas {
   top: 40px;
   width: 100vw;
   height: calc(100vh - 40px);
+  /* Additional GPU canvas specific fixes */
+  contain: strict;
+  content-visibility: auto;
 }
 
 #ui-canvas {
