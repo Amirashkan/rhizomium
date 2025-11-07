@@ -54,6 +54,12 @@ export class GPURenderer {
     this._cachedCanvasHeight = 0;
     this._lastResizeTime = 0;
     this._resizeDebounceMs = 100; // Minimum time between resizes
+
+    // Frame-in-flight limiting to prevent tearing from multiple renders per frame
+    this._isRenderInFlight = false;
+    this._lastFrameId = null;
+    this._pendingRenderOptions = null;
+    this._rafHandle = null;
   }
 
   clear() {
@@ -525,6 +531,20 @@ export class GPURenderer {
       options = config;
     }
 
+    // Frame-in-flight protection: Only allow ONE GPU submission per browser frame
+    // This prevents tearing caused by multiple render() calls from UI components
+    const currentFrame = Math.floor(performance.now() / 16.67); // ~60fps frame bucket
+
+    // If we're already rendering in this frame, skip to prevent double-submission
+    if (this._isRenderInFlight || this._lastFrameId === currentFrame) {
+      // Silently skip duplicate renders in the same frame
+      return;
+    }
+
+    // Mark this frame as having a render in progress
+    this._isRenderInFlight = true;
+    this._lastFrameId = currentFrame;
+
     const {
       size,
       timeSec,
@@ -607,6 +627,12 @@ export class GPURenderer {
     pass.draw(3, 1, 0, 0);
     pass.end();
     this.device.queue.submit([encoder.finish()]);
+
+    // Wait for GPU work to complete before allowing next render
+    // This ensures proper frame pacing and prevents tearing
+    this.device.queue.onSubmittedWorkDone().then(() => {
+      this._isRenderInFlight = false;
+    });
   }
 
   async captureFrame(options = {}) {
