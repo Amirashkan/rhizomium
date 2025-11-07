@@ -52,6 +52,27 @@ export class GradientNodes {
     return String(value);
   }
 
+  /**
+   * Convert angle parameter from degrees to radians
+   * Handles both static values and dynamic expressions
+   */
+  convertDegToRad(angleDeg) {
+    const isUniformRef = typeof angleDeg === 'string' && angleDeg.includes('u_params.');
+    if (isUniformRef) {
+      // If it's a uniform reference, add conversion in shader
+      return `(${angleDeg} * ${Math.PI / 180})`;
+    }
+
+    const degValue = parseFloat(angleDeg);
+    if (!isNaN(degValue)) {
+      // Static numeric value - convert now
+      return (degValue * Math.PI / 180).toString();
+    }
+
+    // Expression - add conversion wrapper
+    return `(${angleDeg} * ${Math.PI / 180})`;
+  }
+
   compile(node, getInput) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
@@ -70,9 +91,12 @@ export class GradientNodes {
   }
   
   compileLinearGradient(node, getInput, nodeId) {
-    const angle = this.getShaderParam(node, 'angle', 0.0);
+    const angleDeg = this.getShaderParam(node, 'angle', 0.0);
     const offset = this.getShaderParam(node, 'offset', 0.0);
     const scale = this.getShaderParam(node, 'scale', 1.0);
+
+    // Convert angle from degrees to radians
+    const angle = this.convertDegToRad(angleDeg);
 
     return {
       line: `
@@ -101,8 +125,11 @@ export class GradientNodes {
   compileAngularGradient(node, getInput, nodeId) {
     const centerX = this.getShaderParam(node, 'centerX', 0.5);
     const centerY = this.getShaderParam(node, 'centerY', 0.5);
-    const rotation = this.getShaderParam(node, 'rotation', 0.0);
+    const rotationDeg = this.getShaderParam(node, 'rotation', 0.0);
     const repeat = this.getShaderParam(node, 'repeat', 1.0);
+
+    // Convert rotation from degrees to radians
+    const rotation = this.convertDegToRad(rotationDeg);
 
     return {
       line: `
@@ -116,8 +143,12 @@ export class GradientNodes {
   compileConicGradient(node, getInput, nodeId) {
     const centerX = this.getShaderParam(node, 'centerX', 0.5);
     const centerY = this.getShaderParam(node, 'centerY', 0.5);
-    const startAngle = this.getShaderParam(node, 'startAngle', 0.0);
-    const endAngle = this.getShaderParam(node, 'endAngle', 6.28318530718); // 2*PI
+    const startAngleDeg = this.getShaderParam(node, 'startAngle', 0.0);
+    const endAngleDeg = this.getShaderParam(node, 'endAngle', 360);
+
+    // Convert angles from degrees to radians
+    const startAngle = this.convertDegToRad(startAngleDeg);
+    const endAngle = this.convertDegToRad(endAngleDeg);
 
     return {
       line: `

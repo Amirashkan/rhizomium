@@ -25,6 +25,27 @@ export class FieldNodes {
     this.paramHandler.setExpressionSystem(expressionSystem);
   }
 
+  /**
+   * Convert angle parameter from degrees to radians
+   * Handles both static values and dynamic expressions
+   */
+  convertDegToRad(angleDeg) {
+    const isUniformRef = typeof angleDeg === 'string' && angleDeg.includes('u_params.');
+    if (isUniformRef) {
+      // If it's a uniform reference, add conversion in shader
+      return `(${angleDeg} * ${Math.PI / 180})`;
+    }
+
+    const degValue = parseFloat(angleDeg);
+    if (!isNaN(degValue)) {
+      // Static numeric value - convert now
+      return (degValue * Math.PI / 180).toString();
+    }
+
+    // Expression - add conversion wrapper
+    return `(${angleDeg} * ${Math.PI / 180})`;
+  }
+
   handles(kind) {
     return [
       'LinearGradient', 'RadialGradient', 'AngularGradient', 'ConicGradient',
@@ -76,9 +97,10 @@ compileKaleidoscope(node, getInput, nodeId) {
   const uv = getInput(0, "vec2", "in.uv");
 
   // Use FieldNodes.getParam so uniforms/expressions work correctly
-  // segments can be int in UI; we’ll treat it as f32 in WGSL
+  // segments can be int in UI; we'll treat it as f32 in WGSL
   const segments   = this.getParam(node, "segments", 6.0);
-  const rotation   = this.getParam(node, "angle", 0.0);
+  const rotationDeg = this.getParam(node, "angle", 0.0);
+  const rotation   = this.convertDegToRad(rotationDeg);  // Convert degrees to radians
   const scale      = this.getParam(node, "scale", 1.0);
   const mirror     = node.params?.mirror ?? true;
 
@@ -180,7 +202,8 @@ fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: boo
         const centerY = this.getParam(node, 'centerY', 0.5);
         const sides = this.getParam(node, 'sides', 6);
         const radius = this.getParam(node, 'radius', 0.25);
-        const rotation = this.getParam(node, 'rotation', 0.0);
+        const rotationDeg = this.getParam(node, 'rotation', 0.0);
+        const rotation = this.convertDegToRad(rotationDeg);  // Convert degrees to radians
         // FIXED: Use 'epsilon' to match ParameterDefs, fallback to 'smoothness' for compatibility
         const smoothness = this.getParam(node, 'epsilon', this.getParam(node, 'smoothness', 0.01));
 
@@ -375,7 +398,8 @@ getParam(node, paramName, defaultValue) {
 
   compileLinearGradient(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    const angle = this.getParam(node, 'angle', 0.0);
+    const angleDeg = this.getParam(node, 'angle', 0.0);
+    const angle = this.convertDegToRad(angleDeg);  // Convert degrees to radians
     const offset = this.getParam(node, 'offset', 0.0);
     const scale = this.getParam(node, 'scale', 1.0);
     const repeat = this.getParam(node, 'repeat', false);
@@ -415,7 +439,8 @@ getParam(node, paramName, defaultValue) {
     const uv = getInput(0, "vec2", "in.uv");
     const centerX = this.getParam(node, 'centerX', 0.5);
     const centerY = this.getParam(node, 'centerY', 0.5);
-    const rotation = this.getParam(node, 'rotation', 0.0);
+    const rotationDeg = this.getParam(node, 'rotation', 0.0);
+    const rotation = this.convertDegToRad(rotationDeg);  // Convert degrees to radians
     const repeat = this.getParam(node, 'repeat', 1.0);
 
     const line = `
@@ -432,7 +457,8 @@ getParam(node, paramName, defaultValue) {
     const uv = getInput(0, "vec2", "in.uv");
     const centerX = this.getParam(node, 'centerX', 0.5);
     const centerY = this.getParam(node, 'centerY', 0.5);
-    const rotation = this.getParam(node, 'rotation', 0.0);
+    const rotationDeg = this.getParam(node, 'rotation', 0.0);
+    const rotation = this.convertDegToRad(rotationDeg);  // Convert degrees to radians
     const repeat = this.getParam(node, 'repeat', 1.0);
 
     const line = `
@@ -585,7 +611,8 @@ fn ${fnName}(uv: vec2<f32>, scaleX: f32, scaleY: f32, smoothness: f32) -> f32 {
 compileStripe(node, getInput, nodeId) {
   const uv = getInput(0, "vec2", "in.uv");
   const freq = this.getParam(node, "frequency", 5.0);
-  const angle = this.getParam(node, "angle", 0.0);
+  const angleDeg = this.getParam(node, "angle", 0.0);
+  const angle = this.convertDegToRad(angleDeg);  // Convert degrees to radians
   const thickness = this.getParam(node, "thickness", 0.5);
   const smoothness = this.getParam(node, "smoothness", 0.0);
 
