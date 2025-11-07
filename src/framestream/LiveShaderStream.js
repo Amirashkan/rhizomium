@@ -22,7 +22,7 @@ export class LiveShaderStream {
 
         // State tracking
         this.currentShader = null;
-        this.currentUniforms = {};
+        this.currentUniforms = [];  // Changed from {} to [] to match new array format
         this.currentResolution = { width: 1920, height: 1080 };
 
         // Statistics
