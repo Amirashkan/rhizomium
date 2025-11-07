@@ -842,9 +842,17 @@ connectGPURenderer(renderFunction) {
     if (reason) {
       this._dirtyReasons.add(reason);
     }
+    // DEBUG: Log markDirty during drag
+    if (this._parameterDragging && reason === 'parameter-drag') {
+      console.log(`[Editor.markDirty DRAG] Set dirty, reason:`, reason);
+    }
   }
 
   clearDirty() {
+    // DEBUG: Log clearDirty during drag
+    if (this._parameterDragging) {
+      console.log(`[Editor.clearDirty DRAG] Clearing dirty flag`);
+    }
     this._isDirty = false;
     this._dirtyReasons.clear();
   }
