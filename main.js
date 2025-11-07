@@ -20,6 +20,7 @@ import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
 import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
 import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
+import { LiveShaderStream } from './src/framestream/LiveShaderStream.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
@@ -134,6 +135,7 @@ let vjControlPanel = null;
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
 let broadcastFrameStream = null;
+let liveShaderStream = null;
 let frameStreamingEnabled = false;
 
 // Detect deployment environment
@@ -1078,25 +1080,35 @@ function setupUIEventHandlers() {
 
       // Check if running on Vercel/cloud
       if (isCloudHosted) {
-        // Use BroadcastChannel for same-origin communication
-        console.log('[main.js] Cloud deployment detected, using BroadcastChannel');
+        // Use LiveShaderStream for same-origin communication
+        console.log('[main.js] Cloud deployment detected, using LiveShaderStream');
 
-        if (!BroadcastFrameStream.isSupported()) {
+        if (!LiveShaderStream.isSupported()) {
           alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
           return;
         }
 
         try {
-          // Initialize BroadcastChannel streaming
-          if (!broadcastFrameStream) {
-            broadcastFrameStream = new BroadcastFrameStream();
-            broadcastFrameStream.init();
-            console.log('[main.js] BroadcastChannel initialized');
+          // Initialize LiveShaderStream
+          if (!liveShaderStream) {
+            liveShaderStream = new LiveShaderStream();
+            liveShaderStream.init();
+            console.log('[main.js] LiveShaderStream initialized');
           }
 
           // Start streaming
-          broadcastFrameStream.startStreaming();
+          liveShaderStream.startStreaming();
           frameStreamingEnabled = true;
+
+          // Send current shader immediately
+          if (window.latestGeneratedWGSL) {
+            const canvas = document.getElementById('gpu-canvas');
+            liveShaderStream.sendShaderUpdate(
+              window.latestGeneratedWGSL,
+              {},
+              { width: canvas?.width || 1920, height: canvas?.height || 1080 }
+            );
+          }
 
           // Update button
           openViewerBtn.textContent = "Streaming Active";
@@ -1119,18 +1131,18 @@ function setupUIEventHandlers() {
             }
           }
 
-          // Open viewer in new window with auto-fullscreen
-          const viewerUrl = window.location.origin + '/viewer-vercel.html?fullscreen=true&hideui=true';
-          window.open(viewerUrl, 'RhizomiumViewer', windowFeatures);
-          console.log('[main.js] Opening viewer with auto-fullscreen and hidden UI');
+          // Open live viewer in new window with auto-fullscreen
+          const viewerUrl = window.location.origin + '/viewer-live.html?fullscreen=true&hideui=true';
+          window.open(viewerUrl, 'RhizomiumLiveViewer', windowFeatures);
+          console.log('[main.js] Opening live viewer with auto-fullscreen and hidden UI');
 
           if (typeof updateStatus === "function") {
-            updateStatus("Streaming to new tab (BroadcastChannel)");
+            updateStatus("Streaming shaders to live viewer (60 FPS)");
           }
 
-          console.log('[main.js] BroadcastChannel streaming started');
+          console.log('[main.js] LiveShaderStream started');
         } catch (error) {
-          console.error('[main.js] Error starting BroadcastChannel:', error);
+          console.error('[main.js] Error starting LiveShaderStream:', error);
           alert('❌ Failed to start streaming: ' + error.message);
         }
 
@@ -1231,6 +1243,11 @@ function setupUIEventHandlers() {
 
         // WebGPU renderer will automatically handle the resize on next render
         // The context will be recreated with new dimensions
+
+        // Send resolution update to LiveShaderStream if active
+        if (liveShaderStream && liveShaderStream.isStreaming) {
+          liveShaderStream.sendResolutionUpdate(width, height);
+        }
 
         if (typeof updateStatus === "function") {
           updateStatus(`Resolution changed to ${width}x${height}`);
@@ -2006,6 +2023,16 @@ function updateShaderFromGraph() {
       lastUniformUpdate = performance.now();
       if (typeof updateStatus === "function") {
         updateStatus("Shader compiled");
+      }
+
+      // Send shader update to LiveShaderStream if active
+      if (liveShaderStream && liveShaderStream.isStreaming) {
+        const canvas = document.getElementById('gpu-canvas');
+        liveShaderStream.sendShaderUpdate(
+          rawWGSL,
+          {},
+          { width: canvas?.width || 1920, height: canvas?.height || 1080 }
+        );
       }
     } else {
       console.warn("GPU renderer not initialized");

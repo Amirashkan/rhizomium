@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhizomium Live Viewer - Smooth 60 FPS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #canvas {
+            display: block;
+            image-rendering: auto;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #status {
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+            color: #ffa500;
+        }
+
+        #status.connected {
+            color: #00ff00;
+        }
+
+        #status.error {
+            color: #ff0000;
+        }
+
+        #info {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 20px;
+        }
+
+        #controls {
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
+            display: flex !important;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid #333;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat {
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .stat strong {
+            color: #fff;
+        }
+
+        button {
+            background: #444;
+            border: 1px solid #666;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        button.primary {
+            background: #007acc;
+            border-color: #005a9e;
+        }
+
+        button.primary:hover {
+            background: #005a9e;
+        }
+
+        .banner {
+            background: linear-gradient(135deg, #00ff88 0%, #00ccff 100%);
+            padding: 10px 20px;
+            text-align: center;
+            font-size: 13px;
+            display: block !important;
+            color: #000;
+        }
+
+        .banner strong {
+            color: #000;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* UI hiding styles */
+        body.ui-hidden .banner,
+        body.ui-hidden #controls,
+        body.ui-hidden #stats-overlay,
+        body.ui-hidden #ui-hint {
+            display: none !important;
+        }
+
+        body.ui-hidden #canvas-container {
+            height: 100vh !important;
+        }
+
+        #ui-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+            opacity: 0.6;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 100;
+            display: block !important;
+        }
+
+        #ui-hint:hover {
+            opacity: 1;
+        }
+
+        /* Stats overlay */
+        #stats-overlay {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 15px;
+            border-radius: 6px;
+            z-index: 50;
+            display: flex !important;
+            gap: 15px;
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div class="banner">
+            <strong>⚡ Live Shader Viewer</strong> - Real-time 60 FPS WebGPU rendering
+        </div>
+
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div id="overlay">
+                <div id="status" class="pulse">Initializing WebGPU...</div>
+                <div id="info">
+                    Open the <strong>Editor</strong> and click<br>
+                    <strong>"Open Live Viewer"</strong> to start streaming
+                </div>
+            </div>
+        </div>
+
+        <div id="controls">
+            <div class="control-group">
+                <button id="btn-hide-ui">Hide UI (H)</button>
+                <button id="btn-fullscreen">Fullscreen (F)</button>
+                <button id="btn-refresh">Refresh</button>
+            </div>
+        </div>
+
+        <!-- Stats overlay -->
+        <div id="stats-overlay">
+            <div class="stat">Render FPS: <strong id="render-fps">0</strong></div>
+            <div class="stat">Frame: <strong id="resolution">...</strong></div>
+            <div class="stat">Display: <strong id="display-size">...</strong></div>
+            <div class="stat">Messages: <strong id="msg-count">0</strong></div>
+        </div>
+
+        <div id="ui-hint">Press H to hide UI • Press F for fullscreen</div>
+    </div>
+
+    <script type="module">
+        // Check WebGPU support
+        if (!navigator.gpu) {
+            document.getElementById('status').textContent = 'WebGPU not supported';
+            document.getElementById('status').classList.add('error');
+            document.getElementById('status').classList.remove('pulse');
+            document.getElementById('info').innerHTML =
+                'Your browser doesn\'t support WebGPU.<br>' +
+                'Please use Chrome 113+, Edge 113+, or another WebGPU-enabled browser.';
+            throw new Error('WebGPU not supported');
+        }
+
+        // Check BroadcastChannel support
+        if (!('BroadcastChannel' in window)) {
+            document.getElementById('status').textContent = 'BroadcastChannel not supported';
+            document.getElementById('status').classList.add('error');
+            document.getElementById('status').classList.remove('pulse');
+            document.getElementById('info').innerHTML =
+                'Your browser doesn\'t support BroadcastChannel API.<br>' +
+                'Please use Chrome, Edge, Firefox, or Safari.';
+            throw new Error('BroadcastChannel not supported');
+        }
+
+        class LiveShaderViewer {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.channel = new BroadcastChannel('rhizo-live-shader-stream');
+
+                // WebGPU state
+                this.device = null;
+                this.context = null;
+                this.pipeline = null;
+                this.bindGroups = [];
+                this.resources = {};
+                this.format = null;
+
+                // Shader state
+                this.currentShader = null;
+                this.uniformValues = new Map();
+
+                // Animation state
+                this.animationId = null;
+                this.isRunning = false;
+                this.startTime = performance.now();
+
+                // Statistics
+                this.frameCount = 0;
+                this.lastFPSUpdate = 0;
+                this.fps = 0;
+                this.msgCount = 0;
+                this.hasReceivedShader = false;
+
+                // Resolution tracking
+                this.currentWidth = 1920;
+                this.currentHeight = 1080;
+
+                this._setupEventListeners();
+                this._init();
+            }
+
+            _setupEventListeners() {
+                // Channel messages
+                this.channel.onmessage = (event) => {
+                    this.handleMessage(event.data);
+                };
+
+                // UI buttons
+                document.getElementById('btn-hide-ui').addEventListener('click', () => {
+                    this.toggleUI();
+                });
+                document.getElementById('btn-fullscreen').addEventListener('click', () => {
+                    this.toggleFullscreen();
+                });
+                document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'h' || e.key === 'H') {
+                        e.preventDefault();
+                        this.toggleUI();
+                    } else if (e.key === 'f' || e.key === 'F') {
+                        e.preventDefault();
+                        this.toggleFullscreen();
+                    }
+                });
+
+                // Auto-resize canvas
+                window.addEventListener('resize', () => this.updateCanvasDisplaySize());
+            }
+
+            async _init() {
+                try {
+                    // Initialize WebGPU
+                    const adapter = await navigator.gpu.requestAdapter();
+                    if (!adapter) {
+                        throw new Error('No GPU adapter found');
+                    }
+
+                    this.device = await adapter.requestDevice();
+                    this.context = this.canvas.getContext('webgpu');
+                    this.format = navigator.gpu.getPreferredCanvasFormat();
+
+                    this.context.configure({
+                        device: this.device,
+                        format: this.format,
+                        alphaMode: 'premultiplied',
+                        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+                    });
+
+                    // Set initial canvas size
+                    this.canvas.width = this.currentWidth;
+                    this.canvas.height = this.currentHeight;
+                    this.updateCanvasDisplaySize();
+
+                    this.setStatus('Waiting for shader...', 'pulse');
+                    document.getElementById('info').innerHTML =
+                        'WebGPU initialized!<br>Waiting for shader from editor...';
+
+                    // Request shader from editor
+                    this.channel.postMessage({
+                        type: 'request_shader',
+                        timestamp: Date.now()
+                    });
+
+                    console.log('[LiveViewer] Initialized and ready');
+
+                } catch (error) {
+                    console.error('[LiveViewer] Initialization error:', error);
+                    this.setStatus('WebGPU initialization failed', 'error');
+                    document.getElementById('info').textContent = error.message;
+                }
+            }
+
+            handleMessage(data) {
+                if (!data || !data.type) return;
+
+                this.msgCount++;
+                document.getElementById('msg-count').textContent = this.msgCount;
+
+                const { type } = data;
+
+                if (type === 'shader_update') {
+                    this.handleShaderUpdate(data);
+                } else if (type === 'uniform_update') {
+                    this.handleUniformUpdate(data);
+                } else if (type === 'resolution_update') {
+                    this.handleResolutionUpdate(data);
+                }
+            }
+
+            handleShaderUpdate(data) {
+                const { shaderCode, uniformValues, resolution } = data;
+
+                console.log('[LiveViewer] Received shader update:', {
+                    codeLength: shaderCode?.length,
+                    uniformCount: Object.keys(uniformValues || {}).length,
+                    resolution
+                });
+
+                if (!this.hasReceivedShader) {
+                    this.hasReceivedShader = true;
+                    document.getElementById('overlay').classList.add('hidden');
+                }
+
+                // Update resolution if provided
+                if (resolution) {
+                    this.currentWidth = resolution.width;
+                    this.currentHeight = resolution.height;
+                    this.canvas.width = this.currentWidth;
+                    this.canvas.height = this.currentHeight;
+                    this.updateCanvasDisplaySize();
+                }
+
+                // Update uniform values
+                if (uniformValues) {
+                    for (const [key, value] of Object.entries(uniformValues)) {
+                        this.uniformValues.set(key, value);
+                    }
+                }
+
+                // Compile shader
+                this.compileShader(shaderCode);
+
+                // Start rendering if not already running
+                if (!this.isRunning) {
+                    this.startRendering();
+                }
+            }
+
+            handleUniformUpdate(data) {
+                const { uniformName, value } = data;
+                this.uniformValues.set(uniformName, value);
+            }
+
+            handleResolutionUpdate(data) {
+                const { width, height } = data;
+                this.currentWidth = width;
+                this.currentHeight = height;
+                this.canvas.width = width;
+                this.canvas.height = height;
+                this.updateCanvasDisplaySize();
+
+                // Recompile shader with new resolution
+                if (this.currentShader) {
+                    this.compileShader(this.currentShader);
+                }
+            }
+
+            compileShader(wgslCode) {
+                try {
+                    this.currentShader = wgslCode;
+
+                    // Clear existing pipeline
+                    this.pipeline = null;
+                    this.bindGroups = [];
+                    this.resources = {};
+
+                    // Parse shader bindings
+                    const bindings = this.analyzeBindings(wgslCode);
+
+                    // Create shader module
+                    const shaderModule = this.device.createShaderModule({
+                        code: wgslCode
+                    });
+
+                    // Create bind group layouts and resources
+                    const bindGroupLayouts = this.createBindGroupLayouts(bindings);
+
+                    // Create pipeline
+                    const pipelineLayout = this.device.createPipelineLayout({
+                        bindGroupLayouts
+                    });
+
+                    this.pipeline = this.device.createRenderPipeline({
+                        layout: pipelineLayout,
+                        vertex: {
+                            module: shaderModule,
+                            entryPoint: 'vs_main'
+                        },
+                        fragment: {
+                            module: shaderModule,
+                            entryPoint: 'fs_main',
+                            targets: [{ format: this.format }]
+                        },
+                        primitive: {
+                            topology: 'triangle-list'
+                        }
+                    });
+
+                    // Create bind groups
+                    this.createBindGroups(bindings, bindGroupLayouts);
+
+                    console.log('[LiveViewer] Shader compiled successfully');
+                    this.setStatus('Rendering', 'connected');
+
+                } catch (error) {
+                    console.error('[LiveViewer] Shader compilation error:', error);
+                    this.setStatus('Shader compilation failed', 'error');
+                }
+            }
+
+            analyzeBindings(wgsl) {
+                const groups = {};
+                const re = /@group\((\d+)\)\s*@binding\((\d+)\)\s*var(?:<(\w+)>)?\s+([\w_]+)\s*:\s*([^;]+);/g;
+
+                let match;
+                while ((match = re.exec(wgsl)) !== null) {
+                    const groupIndex = parseInt(match[1], 10);
+                    const bindingIndex = parseInt(match[2], 10);
+                    const addressSpace = (match[3] || '').trim();
+                    const varName = match[4];
+                    const typeStr = match[5].trim();
+
+                    let kind = 'uniform-buffer';
+                    if (/^sampler/.test(typeStr)) kind = 'sampler';
+                    else if (/^texture_2d/.test(typeStr)) kind = 'texture-2d';
+                    else if (/^texture_cube/.test(typeStr)) kind = 'texture-cube';
+                    else if (/storage/.test(addressSpace)) kind = 'storage-buffer';
+
+                    if (!groups[groupIndex]) groups[groupIndex] = {};
+                    groups[groupIndex][bindingIndex] = { kind, varName, typeStr };
+                }
+
+                return { groups };
+            }
+
+            createBindGroupLayouts(bindings) {
+                const layouts = [];
+                const { groups } = bindings;
+
+                for (const groupIndex in groups) {
+                    const entries = [];
+                    const groupBindings = groups[groupIndex];
+
+                    for (const bindingIndex in groupBindings) {
+                        const { kind } = groupBindings[bindingIndex];
+                        const entry = this.createLayoutEntry(parseInt(bindingIndex), kind);
+                        entries.push(entry);
+                    }
+
+                    const layout = this.device.createBindGroupLayout({ entries });
+                    layouts.push(layout);
+                }
+
+                return layouts;
+            }
+
+            createLayoutEntry(binding, kind) {
+                const STAGES = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
+
+                switch (kind) {
+                    case 'uniform-buffer':
+                        return { binding, visibility: STAGES, buffer: { type: 'uniform' } };
+                    case 'storage-buffer':
+                        return { binding, visibility: STAGES, buffer: { type: 'read-only-storage' } };
+                    case 'sampler':
+                        return { binding, visibility: STAGES, sampler: {} };
+                    case 'texture-2d':
+                        return { binding, visibility: STAGES, texture: {} };
+                    case 'texture-cube':
+                        return { binding, visibility: STAGES, texture: { viewDimension: 'cube' } };
+                    default:
+                        return { binding, visibility: STAGES, buffer: { type: 'uniform' } };
+                }
+            }
+
+            createBindGroups(bindings, layouts) {
+                const { groups } = bindings;
+
+                for (const groupIndex in groups) {
+                    const groupBindings = groups[groupIndex];
+                    const entries = [];
+
+                    for (const bindingIndex in groupBindings) {
+                        const { kind, varName } = groupBindings[bindingIndex];
+                        const resource = this.createResource(kind, varName);
+
+                        if (resource) {
+                            entries.push({
+                                binding: parseInt(bindingIndex),
+                                resource
+                            });
+                        }
+                    }
+
+                    if (entries.length > 0) {
+                        const bindGroup = this.device.createBindGroup({
+                            layout: layouts[groupIndex],
+                            entries
+                        });
+                        this.bindGroups[groupIndex] = bindGroup;
+                    }
+                }
+            }
+
+            createResource(kind, varName) {
+                if (kind === 'uniform-buffer') {
+                    // Create uniform buffer
+                    let size = 64;
+                    if (varName === 'u') size = 16; // aspect only
+                    else if (varName === 'g') size = 48; // globals
+
+                    const buffer = this.device.createBuffer({
+                        size,
+                        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                    });
+
+                    this.resources[varName] = buffer;
+                    return { buffer };
+
+                } else if (kind === 'sampler') {
+                    const sampler = this.device.createSampler({
+                        magFilter: 'linear',
+                        minFilter: 'linear'
+                    });
+                    return { sampler };
+
+                } else if (kind === 'texture-2d' || kind === 'texture-cube') {
+                    // Create dummy texture
+                    const texture = this.device.createTexture({
+                        size: [1, 1, 1],
+                        format: 'rgba8unorm',
+                        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                    });
+                    const color = new Uint8Array([255, 255, 255, 255]);
+                    this.device.queue.writeTexture({ texture }, color, { bytesPerRow: 4 }, [1, 1]);
+                    return { textureView: texture.createView() };
+                }
+
+                return null;
+            }
+
+            startRendering() {
+                if (this.isRunning) return;
+
+                this.isRunning = true;
+                this.startTime = performance.now();
+                this.frameCount = 0;
+                this.lastFPSUpdate = this.startTime;
+
+                console.log('[LiveViewer] Starting render loop');
+                this.renderLoop();
+            }
+
+            stopRendering() {
+                this.isRunning = false;
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+            }
+
+            renderLoop() {
+                if (!this.isRunning) return;
+
+                this.render();
+                this.animationId = requestAnimationFrame(() => this.renderLoop());
+            }
+
+            render() {
+                if (!this.pipeline || !this.device) return;
+
+                try {
+                    // Update uniforms
+                    this.updateUniforms();
+
+                    // Render pass
+                    const commandEncoder = this.device.createCommandEncoder();
+                    const textureView = this.context.getCurrentTexture().createView();
+
+                    const renderPass = commandEncoder.beginRenderPass({
+                        colorAttachments: [{
+                            view: textureView,
+                            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                            loadOp: 'clear',
+                            storeOp: 'store'
+                        }]
+                    });
+
+                    renderPass.setPipeline(this.pipeline);
+
+                    for (let i = 0; i < this.bindGroups.length; i++) {
+                        if (this.bindGroups[i]) {
+                            renderPass.setBindGroup(i, this.bindGroups[i]);
+                        }
+                    }
+
+                    renderPass.draw(3, 1, 0, 0);
+                    renderPass.end();
+
+                    this.device.queue.submit([commandEncoder.finish()]);
+
+                    // Update FPS
+                    this.frameCount++;
+                    const now = performance.now();
+                    if (now - this.lastFPSUpdate >= 1000) {
+                        this.fps = Math.round(this.frameCount * 1000 / (now - this.lastFPSUpdate));
+                        document.getElementById('render-fps').textContent = this.fps;
+                        this.frameCount = 0;
+                        this.lastFPSUpdate = now;
+                    }
+
+                } catch (error) {
+                    console.error('[LiveViewer] Render error:', error);
+                }
+            }
+
+            updateUniforms() {
+                const time = (performance.now() - this.startTime) / 1000;
+
+                // Update aspect uniform
+                if (this.resources['u']) {
+                    const aspect = this.canvas.width / this.canvas.height;
+                    const aspectData = new Float32Array([aspect]);
+                    this.device.queue.writeBuffer(this.resources['u'], 0, aspectData);
+                }
+
+                // Update globals uniform
+                if (this.resources['g']) {
+                    const globalsData = new Float32Array([
+                        this.canvas.width,
+                        this.canvas.height,
+                        time,
+                        0, // audioEnvelope
+                        0, // audioEnvelopeBass
+                        0, // audioEnvelopeMids
+                        0, // audioEnvelopeHighs
+                        0, // audioEnvelopeFull
+                    ]);
+                    this.device.queue.writeBuffer(this.resources['g'], 0, globalsData);
+                }
+
+                // Update custom parameter uniforms
+                if (this.resources['p']) {
+                    const paramData = new Float32Array(16);
+                    let idx = 0;
+                    for (const [key, value] of this.uniformValues.entries()) {
+                        if (idx < 16) {
+                            paramData[idx++] = value;
+                        }
+                    }
+                    this.device.queue.writeBuffer(this.resources['p'], 0, paramData);
+                }
+            }
+
+            updateCanvasDisplaySize() {
+                const container = document.getElementById('canvas-container');
+                const containerWidth = container.clientWidth;
+                const containerHeight = container.clientHeight;
+
+                if (this.canvas.width === 0 || this.canvas.height === 0) return;
+
+                const frameAspect = this.canvas.width / this.canvas.height;
+                const containerAspect = containerWidth / containerHeight;
+
+                let displayWidth, displayHeight;
+
+                if (frameAspect > containerAspect) {
+                    displayWidth = containerWidth;
+                    displayHeight = containerWidth / frameAspect;
+                } else {
+                    displayHeight = containerHeight;
+                    displayWidth = containerHeight * frameAspect;
+                }
+
+                this.canvas.style.width = `${displayWidth}px`;
+                this.canvas.style.height = `${displayHeight}px`;
+
+                document.getElementById('resolution').textContent =
+                    `${this.canvas.width}x${this.canvas.height}`;
+                document.getElementById('display-size').textContent =
+                    `${Math.round(displayWidth)}x${Math.round(displayHeight)}`;
+            }
+
+            setStatus(message, className = '') {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = message;
+                statusEl.className = className;
+            }
+
+            toggleUI() {
+                document.body.classList.toggle('ui-hidden');
+                setTimeout(() => this.updateCanvasDisplaySize(), 100);
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.error(`Error attempting fullscreen: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        // Initialize viewer
+        const viewer = new LiveShaderViewer();
+
+        console.log('⚡ Rhizomium Live Shader Viewer initialized');
+        console.log('Real-time 60 FPS WebGPU rendering with local shader compilation');
+
+        // Check for auto-fullscreen/hideui URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoFullscreen = urlParams.get('fullscreen') === 'true';
+        const autoHideUI = urlParams.get('hideui') === 'true';
+
+        if (autoHideUI) {
+            setTimeout(() => {
+                document.body.classList.add('ui-hidden');
+            }, 100);
+        }
+
+        if (autoFullscreen) {
+            setTimeout(() => {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.warn(`Auto-fullscreen blocked: ${err.message}`);
+                });
+            }, 800);
+        }
+    </script>
+</body>
+</html>
