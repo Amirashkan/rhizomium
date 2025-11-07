@@ -276,6 +276,7 @@
                 this.animationId = null;
                 this.isRunning = false;
                 this.startTime = performance.now();
+                this.syncedTime = null; // Time synced from main editor
 
                 // Statistics
                 this.frameCount = 0;
@@ -377,6 +378,8 @@
                     this.handleShaderUpdate(data);
                 } else if (type === 'uniform_update') {
                     this.handleUniformUpdate(data);
+                } else if (type === 'parameter_update') {
+                    this.handleParameterUpdate(data);
                 } else if (type === 'resolution_update') {
                     this.handleResolutionUpdate(data);
                 }
@@ -446,6 +449,20 @@
                 // Recompile shader with new resolution
                 if (this.currentShader) {
                     this.compileShader(this.currentShader);
+                }
+            }
+
+            handleParameterUpdate(data) {
+                const { uniformValues, time } = data;
+
+                // Update parameter values if provided
+                if (uniformValues && Array.isArray(uniformValues)) {
+                    this.uniformValuesArray = uniformValues;
+                }
+
+                // Update synced time if provided
+                if (typeof time === 'number') {
+                    this.syncedTime = time;
                 }
             }
 
@@ -750,7 +767,8 @@
             }
 
             updateUniforms() {
-                const time = (performance.now() - this.startTime) / 1000;
+                // Use synced time from editor if available, otherwise use local time
+                const time = this.syncedTime !== null ? this.syncedTime : (performance.now() - this.startTime) / 1000;
 
                 // Update aspect uniform
                 if (this.resources['u']) {

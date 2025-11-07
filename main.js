@@ -1093,6 +1093,7 @@ function setupUIEventHandlers() {
           if (!liveShaderStream) {
             liveShaderStream = new LiveShaderStream();
             liveShaderStream.init();
+            window.liveShaderStream = liveShaderStream; // Expose for GPU renderer
             console.log('[main.js] LiveShaderStream initialized');
           }
 

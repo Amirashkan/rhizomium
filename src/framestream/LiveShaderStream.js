@@ -193,6 +193,32 @@ export class LiveShaderStream {
     }
 
     /**
+     * Send parameter and time update to viewers (for real-time sync during dragging)
+     * @param {Array} uniformValues - Array of parameter values
+     * @param {number} time - Current time in seconds
+     */
+    sendParameterUpdate(uniformValues, time) {
+        if (!this.isStreaming || !this.channel) return;
+
+        this.currentUniforms = uniformValues;
+
+        const message = {
+            type: 'parameter_update',
+            uniformValues: uniformValues,
+            time: time,
+            timestamp: Date.now()
+        };
+
+        this.channel.postMessage(message);
+        this.uniformUpdatesSent++;
+
+        // Log every 30th update to avoid spam
+        if (this.uniformUpdatesSent % 30 === 0) {
+            console.log(`[LiveShaderStream] Sent ${this.uniformUpdatesSent} parameter updates`);
+        }
+    }
+
+    /**
      * Send current state to newly connected viewers
      */
     sendCurrentState() {
