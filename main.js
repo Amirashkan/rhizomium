@@ -826,6 +826,9 @@ function setupUIEventHandlers() {
     consoleContainer.classList.toggle("closed", !visible);
     if (toggleConsoleBtn) {
       toggleConsoleBtn.textContent = visible ? "Hide Console" : "Show Console";
+      // Add visual feedback
+      toggleConsoleBtn.style.backgroundColor = visible ? "rgba(74, 74, 78, 0.8)" : "";
+      toggleConsoleBtn.style.borderColor = visible ? "rgba(102, 170, 255, 0.4)" : "";
     }
     if (notify && typeof updateStatus === "function") {
       updateStatus(visible ? "Console shown" : "Console hidden");
@@ -833,6 +836,9 @@ function setupUIEventHandlers() {
   };
 
   if (toggleConsoleBtn) {
+    // Set initial button text based on actual state
+    setConsoleVisibility(consoleVisible, false);
+
     toggleConsoleBtn.addEventListener("click", (e) => {
       e.preventDefault();
       setConsoleVisibility(!consoleVisible);
@@ -863,6 +869,18 @@ function setupUIEventHandlers() {
 
         if (audioPanel && typeof audioPanel.toggle === 'function') {
           audioPanel.toggle();
+
+          // Update button appearance based on panel state
+          if (audioPanel.visible) {
+            audioSettingsBtn.textContent = "Audio Settings ✓";
+            audioSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+            audioSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+          } else {
+            audioSettingsBtn.textContent = "Audio Settings";
+            audioSettingsBtn.style.backgroundColor = "";
+            audioSettingsBtn.style.borderColor = "";
+          }
+
           if (typeof updateStatus === "function") {
             updateStatus(audioPanel.visible ? "Audio settings opened" : "Audio settings closed");
           }
@@ -900,6 +918,18 @@ function setupUIEventHandlers() {
 
         if (midiPanel && typeof midiPanel.toggle === 'function') {
           midiPanel.toggle();
+
+          // Update button appearance based on panel state
+          if (midiPanel.visible) {
+            midiSettingsBtn.textContent = "MIDI Settings ✓";
+            midiSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+            midiSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+          } else {
+            midiSettingsBtn.textContent = "MIDI Settings";
+            midiSettingsBtn.style.backgroundColor = "";
+            midiSettingsBtn.style.borderColor = "";
+          }
+
           if (typeof updateStatus === "function") {
             updateStatus(midiPanel.visible ? "MIDI settings opened" : "MIDI settings closed");
           }
@@ -933,6 +963,18 @@ function setupUIEventHandlers() {
       try {
         if (timelinePanel && typeof timelinePanel.toggle === 'function') {
           timelinePanel.toggle();
+
+          // Update button appearance based on panel state
+          if (timelinePanel.visible) {
+            timelineBtn.textContent = "Timeline ✓";
+            timelineBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+            timelineBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+          } else {
+            timelineBtn.textContent = "Timeline";
+            timelineBtn.style.backgroundColor = "";
+            timelineBtn.style.borderColor = "";
+          }
+
           if (typeof updateStatus === "function") {
             updateStatus(timelinePanel.visible ? "Timeline opened" : "Timeline closed");
           }
@@ -966,6 +1008,18 @@ function setupUIEventHandlers() {
       try {
         if (vjControlPanel && typeof vjControlPanel.toggle === 'function') {
           vjControlPanel.toggle();
+
+          // Update button appearance based on panel state
+          if (vjControlPanel.visible) {
+            vjBtn.textContent = "VJ Control ✓";
+            vjBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+            vjBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+          } else {
+            vjBtn.textContent = "VJ Control";
+            vjBtn.style.backgroundColor = "";
+            vjBtn.style.borderColor = "";
+          }
+
           if (typeof updateStatus === "function") {
             updateStatus(vjControlPanel.visible ? "VJ Control opened" : "VJ Control closed");
           }
@@ -1080,6 +1134,23 @@ function setupUIEventHandlers() {
 
       // Check if running on Vercel/cloud
       if (isCloudHosted) {
+        // If already streaming, stop it
+        if (frameStreamingEnabled && liveShaderStream) {
+          console.log('[main.js] Stopping LiveShaderStream');
+          liveShaderStream.stopStreaming();
+          frameStreamingEnabled = false;
+
+          // Reset button appearance
+          openViewerBtn.textContent = "Open External Viewer";
+          openViewerBtn.style.backgroundColor = "";
+          openViewerBtn.style.borderColor = "";
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming stopped");
+          }
+          return;
+        }
+
         // Use LiveShaderStream for same-origin communication
         console.log('[main.js] Cloud deployment detected, using LiveShaderStream');
 
@@ -1130,8 +1201,9 @@ function setupUIEventHandlers() {
           }
 
           // Update button
-          openViewerBtn.textContent = "Streaming Active";
-          openViewerBtn.style.backgroundColor = "#00aa00";
+          openViewerBtn.textContent = "Stop Streaming";
+          openViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
+          openViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
 
           // Get selected display
           const selectedDisplayIndex = displaySelect ? displaySelect.value : 'auto';
@@ -1170,6 +1242,23 @@ function setupUIEventHandlers() {
 
       // Local development - use HTTP/WebSocket streaming
       try {
+        // If already streaming, stop it
+        if (frameStreamingEnabled && frameStreamClient) {
+          console.log('[main.js] Stopping frame streaming');
+          frameStreamClient.stopStreaming();
+          frameStreamingEnabled = false;
+
+          // Reset button appearance
+          openViewerBtn.textContent = "Open External Viewer";
+          openViewerBtn.style.backgroundColor = "";
+          openViewerBtn.style.borderColor = "";
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming stopped");
+          }
+          return;
+        }
+
         // Initialize frame streaming client if not already done
         if (!frameStreamClient) {
           frameStreamClient = new FrameStreamClient('http://localhost:5000');
@@ -1205,8 +1294,9 @@ function setupUIEventHandlers() {
           }
 
           // Update button text to show streaming is active
-          openViewerBtn.textContent = "Streaming Active";
-          openViewerBtn.style.backgroundColor = "#00aa00";
+          openViewerBtn.textContent = "Stop Streaming";
+          openViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
+          openViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
 
         } else {
           console.error('[main.js] Failed to launch external viewer:', response.status);
@@ -1929,26 +2019,112 @@ function setupPreviewButtons() {
   const fullscreenBtn = document.getElementById("btn-fullscreen-preview");
 
   if (toggleBtn) {
-    toggleBtn.addEventListener("click", () => floatingPreview.toggle());
+    toggleBtn.addEventListener("click", () => {
+      floatingPreview.toggle();
+
+      // Update button text and appearance
+      const isVisible = floatingPreview.isVisible;
+      toggleBtn.textContent = isVisible ? "Hide Preview" : "Show Preview";
+
+      if (isVisible) {
+        toggleBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+        toggleBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+      } else {
+        toggleBtn.style.backgroundColor = "";
+        toggleBtn.style.borderColor = "";
+      }
+    });
+
+    // Set initial state
+    const isVisible = floatingPreview.isVisible;
+    toggleBtn.textContent = isVisible ? "Hide Preview" : "Show Preview";
+    if (isVisible) {
+      toggleBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+      toggleBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+    }
   }
 
   if (dockBtn) {
     dockBtn.addEventListener("click", () => {
       floatingPreview.toggleDocked();
-      dockBtn.textContent = floatingPreview.isDocked
-        ? "Float Preview"
-        : "Dock Preview";
+      const isDocked = floatingPreview.isDocked;
+
+      dockBtn.textContent = isDocked ? "Float Preview" : "Dock Preview";
+
+      if (isDocked) {
+        dockBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+        dockBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+      } else {
+        dockBtn.style.backgroundColor = "";
+        dockBtn.style.borderColor = "";
+      }
     });
+
+    // Set initial state
+    const isDocked = floatingPreview.isDocked;
+    dockBtn.textContent = isDocked ? "Float Preview" : "Dock Preview";
+    if (isDocked) {
+      dockBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+      dockBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+    }
   }
 
   if (lockBtn) {
-    lockBtn.addEventListener("click", () => floatingPreview.toggleLock());
+    lockBtn.addEventListener("click", () => {
+      floatingPreview.toggleLock();
+      const isLocked = floatingPreview.isLocked;
+
+      lockBtn.textContent = isLocked ? "Unlock Preview" : "Lock Preview";
+
+      if (isLocked) {
+        lockBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+        lockBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+      } else {
+        lockBtn.style.backgroundColor = "";
+        lockBtn.style.borderColor = "";
+      }
+    });
+
+    // Set initial state
+    const isLocked = floatingPreview.isLocked;
+    lockBtn.textContent = isLocked ? "Unlock Preview" : "Lock Preview";
+    if (isLocked) {
+      lockBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+      lockBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+    }
   }
 
   if (fullscreenBtn) {
-    fullscreenBtn.addEventListener("click", () =>
-      floatingPreview.toggleFullscreen(),
-    );
+    fullscreenBtn.addEventListener("click", () => {
+      floatingPreview.toggleFullscreen();
+
+      // Check if we're in fullscreen mode
+      const isFullscreen = document.fullscreenElement !== null;
+
+      if (isFullscreen) {
+        fullscreenBtn.textContent = "Exit Fullscreen";
+        fullscreenBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+        fullscreenBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+      } else {
+        fullscreenBtn.textContent = "Fullscreen";
+        fullscreenBtn.style.backgroundColor = "";
+        fullscreenBtn.style.borderColor = "";
+      }
+    });
+
+    // Listen for fullscreen changes (e.g., ESC key pressed)
+    document.addEventListener('fullscreenchange', () => {
+      const isFullscreen = document.fullscreenElement !== null;
+      fullscreenBtn.textContent = isFullscreen ? "Exit Fullscreen" : "Fullscreen";
+
+      if (isFullscreen) {
+        fullscreenBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+        fullscreenBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+      } else {
+        fullscreenBtn.style.backgroundColor = "";
+        fullscreenBtn.style.borderColor = "";
+      }
+    });
   }
 }
 let lastUniformUpdate = 0;
