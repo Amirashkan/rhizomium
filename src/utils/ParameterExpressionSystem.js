@@ -1017,6 +1017,16 @@ isIncomplete(value) {
             window.updateUniformsOnly(node.id, param.name, input.value);
           }
 
+          // Mark dirty and redraw canvas to update labels in real-time during drag
+          if (window.editor) {
+            if (window.editor.markDirty) {
+              window.editor.markDirty('parameter-drag');
+            }
+            if (window.editor.draw) {
+              window.editor.draw();
+            }
+          }
+
           e.preventDefault();
         };
 
