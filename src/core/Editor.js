@@ -858,9 +858,21 @@ connectGPURenderer(renderFunction) {
       throw new Error('Renderer not initialized');
     }
 
+    // DEBUG: Log draw calls during drag
+    if (this._parameterDragging) {
+      console.log(`[Editor.draw DRAG] Called, _isDirty:`, this._isDirty);
+    }
+
     // Only render if dirty (optimization)
     if (!this._isDirty) {
+      if (this._parameterDragging) {
+        console.log(`[Editor.draw DRAG] Skipped - not dirty`);
+      }
       return;
+    }
+
+    if (this._parameterDragging) {
+      console.log(`[Editor.draw DRAG] Rendering...`);
     }
 
     this.renderer.render(this.graph, {

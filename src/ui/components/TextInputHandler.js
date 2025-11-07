@@ -434,6 +434,7 @@ input.addEventListener("input", (e) => {
           // NO rebuild during drag = 60fps smooth dragging + real-time visual updates
           if (!node.params) node.params = {};
           node.params[param.name] = currentDragValue;
+          console.log(`[TextInputHandler DRAG] node ${node.id}.${param.name} = ${currentDragValue}`);
 
           // Update GPU uniforms immediately
           if (typeof window.updateUniformsOnly === 'function') {
@@ -442,6 +443,7 @@ input.addEventListener("input", (e) => {
 
           // Mark dirty and redraw canvas to update labels in real-time during drag
           if (window.editor) {
+            console.log(`[TextInputHandler DRAG] Calling markDirty and draw...`);
             if (window.editor.markDirty) {
               window.editor.markDirty('parameter-drag');
             }
