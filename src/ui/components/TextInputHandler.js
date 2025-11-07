@@ -440,6 +440,11 @@ input.addEventListener("input", (e) => {
             window.updateUniformsOnly(node.id, param.name, currentDragValue);
           }
 
+          // Redraw canvas to update labels in real-time during drag
+          if (window.editor?.draw) {
+            window.editor.draw();
+          }
+
           e.preventDefault();
           e.stopPropagation(); // Prevent EventHandler from processing this event
         };

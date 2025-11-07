@@ -568,15 +568,44 @@ export class Renderer {
 
     let labelText = pinType;
 
-    // Use computed preview values from PreviewComputer
-    // This correctly handles expressions like =node_1
-    let previewValue = node.__preview;
+    // For simple const nodes, read the ACTUAL parameter value directly for real-time updates
+    // This ensures MIDI-bound parameters and dragged sliders show current values immediately
+    let previewValue;
 
-    // Try to get from PreviewComputer if available (most up-to-date)
-    if (editor.previewComputer && editor.previewComputer.lastComputedValues) {
-      const computedValue = editor.previewComputer.lastComputedValues.get(node.id);
-      if (computedValue !== undefined) {
-        previewValue = computedValue;
+    if (node.kind === "ConstFloat") {
+      // Read directly from params for real-time display
+      const rawValue = node.params?.value ?? node.value;
+      // Only use the raw value if it's already a number (not an expression)
+      if (typeof rawValue === 'number') {
+        previewValue = rawValue;
+      }
+    } else if (node.kind === "ConstVec2") {
+      // Read vector components directly for real-time display
+      const x = node.params?.x ?? node.x;
+      const y = node.params?.y ?? node.y;
+      if (typeof x === 'number' && typeof y === 'number') {
+        previewValue = [x, y];
+      }
+    } else if (node.kind === "ConstVec3") {
+      // Read vector components directly for real-time display
+      const x = node.params?.x ?? node.x;
+      const y = node.params?.y ?? node.y;
+      const z = node.params?.z ?? node.z;
+      if (typeof x === 'number' && typeof y === 'number' && typeof z === 'number') {
+        previewValue = [x, y, z];
+      }
+    }
+
+    // If we didn't get a value above (expression or non-ConstFloat node), use computed preview
+    if (previewValue === undefined) {
+      previewValue = node.__preview;
+
+      // Try to get from PreviewComputer if available (most up-to-date for expressions)
+      if (editor.previewComputer && editor.previewComputer.lastComputedValues) {
+        const computedValue = editor.previewComputer.lastComputedValues.get(node.id);
+        if (computedValue !== undefined) {
+          previewValue = computedValue;
+        }
       }
     }
 
