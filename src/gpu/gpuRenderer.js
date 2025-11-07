@@ -35,6 +35,7 @@ export class GPURenderer {
     this.canvas = canvas;
     this.context = canvas.getContext("webgpu");
     this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.sampleCount = 4; // 4x MSAA antialiasing
 
     this.context.configure({
       device,
@@ -48,6 +49,7 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+    this.msaaTexture = null; // MSAA render target
   }
 
   clear() {
@@ -56,6 +58,35 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+  }
+
+  // Create or recreate MSAA texture to match canvas size
+  _createMSAATexture() {
+    if (this.msaaTexture) {
+      this.msaaTexture.destroy();
+    }
+
+    const width = Math.max(1, this.canvas.width);
+    const height = Math.max(1, this.canvas.height);
+
+    try {
+      this.msaaTexture = this.device.createTexture({
+        size: [width, height, 1],
+        sampleCount: this.sampleCount,
+        format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        label: "msaa-render-target",
+      });
+
+      console.log(`[GPURenderer] ✓ MSAA texture created: ${width}x${height} (${this.sampleCount}x MSAA enabled)`);
+    } catch (err) {
+      console.error(`[GPURenderer] Failed to create MSAA texture (${this.sampleCount}x), falling back to no MSAA:`, err);
+      // Fall back to sampleCount = 1 (no MSAA)
+      this.sampleCount = 1;
+      this.msaaTexture = null;
+      // Will need to recreate pipeline without MSAA
+      console.warn("[GPURenderer] MSAA not supported on this device. Edges may appear jagged.");
+    }
   }
 
   // Explicit canvas resize method - should only be called on window resize, not during render
@@ -68,6 +99,7 @@ export class GPURenderer {
       this.canvas.width = targetWidth;
       this.canvas.height = targetHeight;
       this._lastAspectWritten = null; // force aspect ratio recalculation
+      this._createMSAATexture(); // Recreate MSAA texture for new size
       console.log(`[GPURenderer] Canvas resized to ${targetWidth}x${targetHeight} (${dpr}x DPR)`);
     }
   }
@@ -272,6 +304,7 @@ export class GPURenderer {
       vertex: { module: this.shaderModule, entryPoint: "vs_main" },
       fragment: { module: this.shaderModule, entryPoint: "fs_main", targets: [{ format: this.format }] },
       primitive: { topology: "triangle-list" },
+      multisample: { count: this.sampleCount }, // Enable MSAA
     });
 
     this.bindGroups = groupIndices.map((groupIndex, layoutIndex) => {
@@ -434,14 +467,29 @@ export class GPURenderer {
   presentFallbackColor(color = { r: 0.5, g: 0.5, b: 0.5, a: 1.0 }) {
     if (!this.device || !this.context) return;
 
+    // Ensure MSAA texture exists (only if MSAA is supported)
+    if (this.sampleCount > 1 && !this.msaaTexture) {
+      this._createMSAATexture();
+    }
+
     const encoder = this.device.createCommandEncoder();
+
+    // Configure color attachment based on MSAA support
+    const colorAttachment = {
+      loadOp: "clear",
+      storeOp: "store",
+      clearValue: color,
+    };
+
+    if (this.sampleCount > 1 && this.msaaTexture) {
+      colorAttachment.view = this.msaaTexture.createView();
+      colorAttachment.resolveTarget = this.context.getCurrentTexture().createView();
+    } else {
+      colorAttachment.view = this.context.getCurrentTexture().createView();
+    }
+
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
-        loadOp: "clear",
-        storeOp: "store",
-        clearValue: color,
-      }],
+      colorAttachments: [colorAttachment],
     });
     pass.end();
     this.device.queue.submit([encoder.finish()]);
@@ -459,6 +507,11 @@ export class GPURenderer {
 
       // Update parameter uniforms if they exist
       this._updateParameterUniforms();
+
+      // Ensure MSAA texture is created when shader is set
+      if (!this.msaaTexture && this.canvas.width > 0 && this.canvas.height > 0) {
+        this._createMSAATexture();
+      }
 
       this.canvas.style.backgroundColor = "";
       console.log("[GPURenderer] Shader compiled & pipeline created");
@@ -585,14 +638,35 @@ export class GPURenderer {
     // CRITICAL: Update texture bindings when new files are loaded
     this._updateTextureBindings();
 
+    // Ensure MSAA texture exists and matches canvas size (only if MSAA is supported)
+    if (this.sampleCount > 1) {
+      if (!this.msaaTexture ||
+          this.msaaTexture.width !== this.canvas.width ||
+          this.msaaTexture.height !== this.canvas.height) {
+        this._createMSAATexture();
+      }
+    }
+
     const encoder = this.device.createCommandEncoder();
+
+    // Configure render pass based on MSAA support
+    const colorAttachment = {
+      clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      loadOp: "clear",
+      storeOp: "store",
+    };
+
+    if (this.sampleCount > 1 && this.msaaTexture) {
+      // MSAA enabled - render to MSAA texture and resolve to canvas
+      colorAttachment.view = this.msaaTexture.createView();
+      colorAttachment.resolveTarget = this.context.getCurrentTexture().createView();
+    } else {
+      // No MSAA - render directly to canvas
+      colorAttachment.view = this.context.getCurrentTexture().createView();
+    }
+
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        loadOp: "clear",
-        storeOp: "store",
-      }],
+      colorAttachments: [colorAttachment],
     });
 
     pass.setPipeline(this.pipeline);
@@ -629,6 +703,18 @@ export class GPURenderer {
       label: "preview-capture-texture",
     });
 
+    // Create MSAA texture for capture (only if MSAA is supported)
+    let captureMSAATexture = null;
+    if (this.sampleCount > 1) {
+      captureMSAATexture = this.device.createTexture({
+        size: [targetWidth, targetHeight, 1],
+        sampleCount: this.sampleCount,
+        format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        label: "preview-capture-msaa-texture",
+      });
+    }
+
     const bytesPerRow = Math.ceil((targetWidth * 4) / 256) * 256;
     const bufferSize = bytesPerRow * targetHeight;
 
@@ -645,15 +731,23 @@ export class GPURenderer {
     this._writeGlobalsForSize(targetWidth, targetHeight, captureTime);
 
     const encoder = this.device.createCommandEncoder({ label: "preview-capture-encoder" });
+
+    // Configure color attachment based on MSAA support
+    const colorAttachment = {
+      clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      loadOp: "clear",
+      storeOp: "store",
+    };
+
+    if (this.sampleCount > 1 && captureMSAATexture) {
+      colorAttachment.view = captureMSAATexture.createView();
+      colorAttachment.resolveTarget = captureTexture.createView();
+    } else {
+      colorAttachment.view = captureTexture.createView();
+    }
+
     const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: captureTexture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: "clear",
-          storeOp: "store",
-        },
-      ],
+      colorAttachments: [colorAttachment],
     });
 
     pass.setPipeline(this.pipeline);
@@ -680,6 +774,9 @@ export class GPURenderer {
 
     outputBuffer.destroy();
     captureTexture.destroy();
+    if (captureMSAATexture) {
+      captureMSAATexture.destroy();
+    }
 
     this._lastAspectWritten = null;
     this._updateAspectUniform();
