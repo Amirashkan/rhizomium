@@ -353,6 +353,8 @@ export class GPURenderer {
     const height = Math.max(1, this.canvas.height || 1);
     const aspect = width / height;
 
+    console.log(`[DIAGNOSTIC] Canvas: ${width}x${height}, aspect: ${aspect.toFixed(4)}, CSS: ${this.canvas.clientWidth}x${this.canvas.clientHeight}, style: ${this.canvas.style.width}x${this.canvas.style.height}`);
+
     if (this._lastAspectWritten !== null && Math.abs(this._lastAspectWritten - aspect) < 1e-5) {
       return;
     }
