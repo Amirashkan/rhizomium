@@ -1100,7 +1100,7 @@ function setupUIEventHandlers() {
           liveShaderStream.startStreaming();
           frameStreamingEnabled = true;
 
-          // Send current shader immediately
+          // Send current shader immediately if available
           if (window.latestGeneratedWGSL) {
             const canvas = document.getElementById('gpu-canvas');
             liveShaderStream.sendShaderUpdate(
@@ -1108,6 +1108,16 @@ function setupUIEventHandlers() {
               {},
               { width: canvas?.width || 1920, height: canvas?.height || 1080 }
             );
+            console.log('[main.js] ✅ Sent initial shader to LiveShaderStream');
+          } else {
+            console.warn('[main.js] ⚠️ No shader available yet - triggering rebuild');
+            // Trigger a shader rebuild to generate and send the shader
+            if (window.rebuild && typeof window.rebuild === 'function') {
+              setTimeout(() => {
+                console.log('[main.js] Running rebuild to generate shader...');
+                window.rebuild();
+              }, 100);
+            }
           }
 
           // Update button
