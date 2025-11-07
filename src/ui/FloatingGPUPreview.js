@@ -152,13 +152,16 @@ show() {
     // FIX: Don't use 100% - use actual scaled dimensions
     const { width, height } = this.settings.settings.resolution;
     const scale = this.isDocked ? 0.3 : this.previewScale;
-    
+
     this.gpuCanvas.width = width;
     this.gpuCanvas.height = height;
     this.gpuCanvas.style.width = (width * scale) + "px";
     this.gpuCanvas.style.height = (height * scale) + "px";
     this.gpuCanvas.style.position = "relative";
     this.gpuCanvas.style.zIndex = "auto";
+    // FIX: Override global canvas CSS that sets left/top to 0
+    this.gpuCanvas.style.left = "auto";
+    this.gpuCanvas.style.top = "auto";
 
     this.updateSize();
     this._setupDragging();
@@ -191,6 +194,8 @@ show() {
       this.gpuCanvas.style.height = "100%";
       this.gpuCanvas.style.position = "";
       this.gpuCanvas.style.zIndex = "";
+      this.gpuCanvas.style.left = "";
+      this.gpuCanvas.style.top = "";
     }
 
     this.container.style.opacity = "0";
