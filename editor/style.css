@@ -206,13 +206,6 @@
   color: #ffaa66;
 }
 
-/* Adjust canvas to account for top menu */
-#ui-canvas,
-#gpu-canvas {
-  top: 40px;
-  height: calc(100vh - 40px);
-}
-
 /* Base styles */
 html,
 body {
@@ -230,19 +223,22 @@ body {
 
 canvas {
   position: fixed;
-  top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
   display: block;
 }
 
 #gpu-canvas {
   z-index: 0;
+  top: 40px;
+  width: 100vw;
+  height: calc(100vh - 40px);
 }
 
 #ui-canvas {
   z-index: 10;
+  top: 40px;
+  width: 100vw;
+  height: calc(100vh - 40px);
   background-color: #0a0a0a;
 }
 
