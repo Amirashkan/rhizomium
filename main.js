@@ -154,9 +154,28 @@ async function initialize() {
   const canvas =
     document.getElementById("gpu-canvas") || document.querySelector("canvas");
   if (canvas) {
-    const adapter = await navigator.gpu.requestAdapter();
+    const adapter = await navigator.gpu.requestAdapter({
+      powerPreference: "high-performance"
+    });
     const device = await adapter.requestDevice();
     window.gpuRenderer = new GPURenderer(device, canvas);
+
+    // Set up window resize handler to prevent tearing from mid-render resizing
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      // Debounce resize to avoid excessive calls
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (window.gpuRenderer) {
+          window.gpuRenderer.resizeCanvas();
+        }
+      }, 100);
+    });
+
+    // Initial canvas size
+    if (window.gpuRenderer) {
+      window.gpuRenderer.resizeCanvas();
+    }
 
     if (device) {
       const { TextureManager } = await import("./src/core/TextureManager.js");

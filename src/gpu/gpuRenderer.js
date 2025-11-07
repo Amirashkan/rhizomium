@@ -58,6 +58,20 @@ export class GPURenderer {
     this._lastAspectWritten = null;
   }
 
+  // Explicit canvas resize method - should only be called on window resize, not during render
+  resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const targetWidth = Math.max(1, Math.floor((this.canvas.clientWidth || window.innerWidth) * dpr));
+    const targetHeight = Math.max(1, Math.floor((this.canvas.clientHeight || window.innerHeight) * dpr));
+
+    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+      this.canvas.width = targetWidth;
+      this.canvas.height = targetHeight;
+      this._lastAspectWritten = null; // force aspect ratio recalculation
+      console.log(`[GPURenderer] Canvas resized to ${targetWidth}x${targetHeight} (${dpr}x DPR)`);
+    }
+  }
+
   // Create placeholder texture for optional bindings.
   createDummyTexture() {
     const texture = this.device.createTexture({
@@ -519,6 +533,9 @@ export class GPURenderer {
       options = config;
     }
 
+    // REMOVED: Frame-in-flight protection was too aggressive and broke preview
+    // The real fix needs to be at the GPU context level, not render call limiting
+
     const {
       size,
       timeSec,
@@ -541,11 +558,13 @@ export class GPURenderer {
     const targetWidth = Math.max(1, Math.floor(baseWidth * resolvedDpr));
     const targetHeight = Math.max(1, Math.floor(baseHeight * resolvedDpr));
 
-    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
-      this.canvas.width = targetWidth;
-      this.canvas.height = targetHeight;
-      this._lastAspectWritten = null; // force update after resize
-    }
+    // CRITICAL FIX: NEVER resize canvas during render() - only on explicit resize events
+    // Canvas resizing breaks WebGPU presentation timing and causes tearing
+    // The canvas should be sized once at init or via window resize handler
+    //
+    // if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+    //   console.warn('[GPURenderer] Canvas size mismatch - use explicit resize instead');
+    // }
 
     this._updateAspectUniform();
 
