@@ -1,3 +1,13 @@
+/**
+ * ROOT STYLE.CSS
+ *
+ * IMPORTANT: This file is served by Vercel for the deployed version.
+ * Changes made to editor/style.css must be copied here!
+ *
+ * Keep this file in sync with editor/style.css to ensure consistent
+ * styling between local development and production deployment.
+ */
+
 :root {
   --snap-grid-size: 20px;
   --snap-grid-line: rgba(255, 255, 255, 0.025);

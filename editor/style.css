@@ -1,3 +1,13 @@
+/**
+ * EDITOR STYLE.CSS
+ *
+ * IMPORTANT: This is the main stylesheet for the editor.
+ * After making changes here, copy this file to /style.css (root)
+ * to ensure Vercel serves the updated styles in production.
+ *
+ * Command: cp editor/style.css style.css
+ */
+
 :root {
   --snap-grid-size: 20px;
   --snap-grid-line: rgba(255, 255, 255, 0.025);

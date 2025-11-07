@@ -449,7 +449,21 @@ function setupUIEventHandlers() {
     return null;
   };
 
-  // Setup Top Menu Dropdown System
+  /**
+   * Setup Top Menu Dropdown System
+   *
+   * This handles the dropdown menu behavior for the top menu bar.
+   * Menu structure: File, Edit, View, Settings, Display, Help
+   *
+   * Features:
+   * - Click menu button to toggle dropdown
+   * - Click outside to close all dropdowns
+   * - Clicking menu items closes dropdown automatically
+   * - Interactive elements (checkboxes, inputs, selects) keep dropdown open
+   *
+   * Menu HTML structure is in editor/index.html (search for #top-menu-bar)
+   * Menu styles are in style.css and editor/style.css (keep both in sync!)
+   */
   const setupMenuDropdowns = () => {
     const menuButtons = document.querySelectorAll('.menu-button');
     const menuDropdowns = document.querySelectorAll('.menu-dropdown');
