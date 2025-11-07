@@ -105,11 +105,12 @@ export class PreviewComputer {
 
             
             case "LinearGradient": {
-  const angle = this._evaluateParam(node.params?.angle, values, 0.0);
+  const angleDeg = this._evaluateParam(node.params?.angle, values, 0.0);
+  const angle = angleDeg * Math.PI / 180; // Convert degrees to radians
   const offset = this._evaluateParam(node.params?.offset, values, 0.0);
   const scale = this._evaluateParam(node.params?.scale, values, 1.0);
   const repeat = node.params?.repeat ?? false;
-  
+
   // Simple UV evaluation at center
   const uv = [0.5, 0.5];
   const dir = [Math.cos(angle), Math.sin(angle)];
@@ -139,9 +140,10 @@ case "RadialGradient": {
 case "AngularGradient": {
   const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
   const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
-  const rotation = this._evaluateParam(node.params?.rotation, values, 0.0);
+  const rotationDeg = this._evaluateParam(node.params?.rotation, values, 0.0);
+  const rotation = rotationDeg * Math.PI / 180; // Convert degrees to radians
   const repeat = this._evaluateParam(node.params?.repeat, values, 1.0);
-  
+
   const uv = [0.5, 0.5];
   const dx = uv[0] - centerX;
   const dy = uv[1] - centerY;
@@ -205,9 +207,11 @@ case "ColorRamp": {
 case "ConicGradient": {
   const centerX = node.params?.centerX ?? 0.5;
   const centerY = node.params?.centerY ?? 0.5;
-  const startAngle = node.params?.startAngle ?? 0.0;
-  const endAngle = node.params?.endAngle ?? 6.28318;
-  
+  const startAngleDeg = node.params?.startAngle ?? 0.0;
+  const endAngleDeg = node.params?.endAngle ?? 360;
+  const startAngle = startAngleDeg * Math.PI / 180; // Convert degrees to radians
+  const endAngle = endAngleDeg * Math.PI / 180; // Convert degrees to radians
+
   const uv = [0.5, 0.5];
   const dx = uv[0] - centerX;
   const dy = uv[1] - centerY;

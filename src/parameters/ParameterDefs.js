@@ -148,7 +148,7 @@ export const ParameterDefinitions = {
     endAngle: {
       type: ParameterTypes.ANGLE,
       capabilities: ParameterCapabilities.ALL,
-      default: 6.28318
+      default: 360
     },
     smoothness: {
       type: ParameterTypes.FLOAT,

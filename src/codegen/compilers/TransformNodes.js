@@ -154,15 +154,31 @@ getShaderParam(node, name, defaultValue) {
     const translateY = this.getShaderParam(node, 'translateY', 0.0);
     const scaleX = this.getShaderParam(node, 'scaleX', 1.0);
     const scaleY = this.getShaderParam(node, 'scaleY', 1.0);
-    const rotation = this.getShaderParam(node, 'rotation', 0.0);
+    const rotationDeg = this.getShaderParam(node, 'rotation', 0.0);
     const centerX = this.getShaderParam(node, 'centerX', 0.5);
     const centerY = this.getShaderParam(node, 'centerY', 0.5);
+
+    // Convert rotation from degrees to radians
+    let rotation;
+    const isUniformRef = typeof rotationDeg === 'string' && rotationDeg.includes('u_params.');
+    if (isUniformRef) {
+      // If it's a uniform reference, add conversion in shader
+      rotation = `(${rotationDeg} * ${Math.PI / 180})`;
+    } else {
+      const rotDegValue = parseFloat(rotationDeg);
+      if (!isNaN(rotDegValue)) {
+        // Static numeric value - convert now
+        rotation = (rotDegValue * Math.PI / 180).toString();
+      } else {
+        // Expression - add conversion wrapper
+        rotation = `(${rotationDeg} * ${Math.PI / 180})`;
+      }
+    }
 
     console.log(`🔧 Transform2D shader params:`, { translateX, translateY, scaleX, scaleY, rotation, centerX, centerY });
 
     // OPTIMIZATION: Check if rotation is static AND numeric (not a uniform reference)
     const isStaticRotation = !this.isTimeExpression(node.params?.rotation);
-    const isUniformRef = typeof rotation === 'string' && rotation.includes('u_params.');
     const rotationValue = parseFloat(rotation);
     const canPreCalculate = isStaticRotation && !isUniformRef && !isNaN(rotationValue);
 
@@ -215,13 +231,29 @@ getShaderParam(node, name, defaultValue) {
   compileOptimizedRotate2D(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
 
-    const rotation = this.getShaderParam(node, 'rotation', 0.0);
+    const rotationDeg = this.getShaderParam(node, 'rotation', 0.0);
     const centerX = this.getShaderParam(node, 'centerX', 0.5);
     const centerY = this.getShaderParam(node, 'centerY', 0.5);
 
+    // Convert rotation from degrees to radians
+    let rotation;
+    const isUniformRef = typeof rotationDeg === 'string' && rotationDeg.includes('u_params.');
+    if (isUniformRef) {
+      // If it's a uniform reference, add conversion in shader
+      rotation = `(${rotationDeg} * ${Math.PI / 180})`;
+    } else {
+      const rotDegValue = parseFloat(rotationDeg);
+      if (!isNaN(rotDegValue)) {
+        // Static numeric value - convert now
+        rotation = (rotDegValue * Math.PI / 180).toString();
+      } else {
+        // Expression - add conversion wrapper
+        rotation = `(${rotationDeg} * ${Math.PI / 180})`;
+      }
+    }
+
     // OPTIMIZATION: Check if rotation is static AND numeric (not a uniform reference)
     const isStaticRotation = !this.isTimeExpression(node.params?.rotation);
-    const isUniformRef = typeof rotation === 'string' && rotation.includes('u_params.');
     const rotationValue = parseFloat(rotation);
     const canPreCalculate = isStaticRotation && !isUniformRef && !isNaN(rotationValue);
 

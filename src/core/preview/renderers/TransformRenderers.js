@@ -476,7 +476,8 @@ export class TransformRenderers {
       const translateY = this.toSafeNumber(this.getParameterValue(node, "translateY", 0.0), 0.0);
       const scaleX = this.toSafeNumber(this.getParameterValue(node, "scaleX", 1.0), 1.0);
       const scaleY = this.toSafeNumber(this.getParameterValue(node, "scaleY", 1.0), 1.0);
-      const rotation = this.toSafeNumber(this.getParameterValue(node, "rotation", 0.0), 0.0);
+      const rotationDeg = this.toSafeNumber(this.getParameterValue(node, "rotation", 0.0), 0.0);
+      const rotation = rotationDeg * Math.PI / 180; // Convert degrees to radians
       const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
       const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
@@ -604,7 +605,8 @@ export class TransformRenderers {
   }
 
   renderRotate2D(ctx, node) {
-    const rotation = this.toSafeNumber(this.getParameterValue(node, "rotation", 0.0), 0.0);
+    const rotationDeg = this.toSafeNumber(this.getParameterValue(node, "rotation", 0.0), 0.0);
+    const rotation = rotationDeg * Math.PI / 180; // Convert degrees to radians
     const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
     const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 

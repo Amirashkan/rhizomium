@@ -277,8 +277,8 @@ Generates a conic gradient with angular range control.
 - **Parameters**:
   - `centerX` (float, default: 0.5) - Center X position
   - `centerY` (float, default: 0.5) - Center Y position
-  - `startAngle` (float, default: 0.0) - Starting angle in radians
-  - `endAngle` (float, default: 6.28318) - Ending angle in radians
+  - `startAngle` (float, default: 0.0) - Starting angle in degrees
+  - `endAngle` (float, default: 360) - Ending angle in degrees
   - `smoothness` (float, default: 0.0) - Edge smoothing amount
 - **Description**: Creates a gradient that sweeps between specified start and end angles with smooth transitions.
 
@@ -1342,7 +1342,7 @@ Applies combined transformation to UV coordinates.
   - `Translate Y` (float, default: 0.0) - Vertical offset
   - `Scale X` (float, default: 1.0) - Horizontal scale
   - `Scale Y` (float, default: 1.0) - Vertical scale
-  - `Rotation` (float, default: 0.0) - Rotation angle in radians
+  - `Rotation` (float, default: 0.0) - Rotation angle in degrees
   - `Center X` (float, default: 0.5) - Transform center X
   - `Center Y` (float, default: 0.5) - Transform center Y
 - **Description**: Combines translation, rotation, and scaling transformations around a specified center point.
@@ -1371,10 +1371,10 @@ Rotates UV coordinates.
 - **Outputs**:
   - `out` (vec2) - Rotated coordinates
 - **Parameters**:
-  - `Rotation` (float, default: 0.0) - Rotation angle in radians
+  - `Rotation` (float, default: 0.0) - Rotation angle in degrees
   - `Center X` (float, default: 0.5) - Rotation center X
   - `Center Y` (float, default: 0.5) - Rotation center Y
-- **Description**: Rotates UV coordinates around a center point. Use Pi node for convenient angle conversion.
+- **Description**: Rotates UV coordinates around a center point.
 
 #### Translate 2D
 Translates (offsets) UV coordinates.

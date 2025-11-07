@@ -453,8 +453,8 @@ Outputs:
 Parameters:
   - centerX (float): Center X position [default: 0.5]
   - centerY (float): Center Y position [default: 0.5]
-  - startAngle (float): Start angle in radians [default: 0.0]
-  - endAngle (float): End angle in radians [default: 6.28318]
+  - startAngle (float): Start angle in degrees [default: 0.0]
+  - endAngle (float): End angle in degrees [default: 360]
   - smoothness (float): Edge smoothness [default: 0.0]
 
 Usage: Similar to angular gradient but with precise angle range control.
@@ -1732,7 +1732,7 @@ Parameters:
   - translateY (float): Vertical translation [default: 0.0]
   - scaleX (float): Horizontal scale [default: 1.0]
   - scaleY (float): Vertical scale [default: 1.0]
-  - rotation (float): Rotation angle in radians [default: 0.0]
+  - rotation (float): Rotation angle in degrees [default: 0.0]
   - centerX (float): Transform center X [default: 0.5]
   - centerY (float): Transform center Y [default: 0.5]
 
@@ -1772,7 +1772,7 @@ Outputs:
   - out (vec2): Rotated coordinates
 
 Parameters:
-  - rotation (float): Rotation angle in radians [default: 0.0]
+  - rotation (float): Rotation angle in degrees [default: 0.0]
   - centerX (float): Rotation center X [default: 0.5]
   - centerY (float): Rotation center Y [default: 0.5]
 
