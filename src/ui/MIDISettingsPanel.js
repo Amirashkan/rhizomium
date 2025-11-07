@@ -1,5 +1,7 @@
 // src/ui/MIDISettingsPanel.js
 
+import { makeDraggable } from './utils/draggable.js';
+
 /**
  * MIDISettingsPanel - UI for configuring MIDI controllers and parameter mappings
  */
@@ -12,6 +14,7 @@ export class MIDISettingsPanel {
     this.learnButton = null;
     this.devicesList = null;
     this.bindingsList = null;
+    this.cleanupDraggable = null;
 
     // Throttle updateActivity to prevent excessive DOM updates
     this.lastActivityUpdate = 0;
@@ -200,6 +203,12 @@ export class MIDISettingsPanel {
     this.learnButton = this.panel.querySelector('#midi-learn-btn');
     this.devicesList = this.panel.querySelector('#midi-devices-list');
     this.bindingsList = this.panel.querySelector('#midi-bindings-list');
+
+    // Make panel draggable by its header
+    const header = this.panel.querySelector('div[style*="display: flex"]');
+    if (header) {
+      this.cleanupDraggable = makeDraggable(this.panel, header);
+    }
   }
 
   setupEventListeners() {

@@ -1,4 +1,6 @@
 // src/ui/WelcomeWindow.js
+import { makeDraggable } from './utils/draggable.js';
+
 export class WelcomeWindow {
   constructor(options = {}) {
     this.saveLoadManager = options.saveLoadManager || null;
@@ -12,6 +14,7 @@ export class WelcomeWindow {
     this.overlay = null;
     this.neverShowAgain = false;
     this.keyHandler = null;
+    this.cleanupDraggable = null;
     this.state = {
       hasAutosave: false,
       autosaveAgeText: null,
@@ -49,6 +52,11 @@ export class WelcomeWindow {
 
     if (commitPreference) {
       this.persistPreference();
+    }
+
+    if (this.cleanupDraggable) {
+      this.cleanupDraggable();
+      this.cleanupDraggable = null;
     }
 
     this.overlay.classList.remove("visible");
@@ -142,6 +150,13 @@ export class WelcomeWindow {
     this.overlay.className = "welcome-overlay";
     this.overlay.innerHTML = this.getTemplate();
     document.body.appendChild(this.overlay);
+
+    // Make dialog draggable by its header
+    const dialog = this.overlay.querySelector('.welcome-dialog');
+    const header = this.overlay.querySelector('.welcome-header');
+    if (dialog && header) {
+      this.cleanupDraggable = makeDraggable(dialog, header);
+    }
 
     requestAnimationFrame(() => {
       this.overlay?.classList.add("visible");

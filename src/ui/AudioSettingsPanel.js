@@ -5,12 +5,14 @@
  */
 
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
+import { makeDraggable } from './utils/draggable.js';
 
 export class AudioSettingsPanel {
     constructor() {
         console.log('[AudioSettingsPanel] Constructor called');
         this.panel = null;
         this.visible = false;
+        this.cleanupDraggable = null;
 
         try {
             this.audioClient = getBrowserAudioCapture();
@@ -288,6 +290,12 @@ export class AudioSettingsPanel {
         document.body.appendChild(this.panel);
         console.log('[AudioSettingsPanel] Panel appended to document.body, element:', this.panel);
         console.log('[AudioSettingsPanel] Panel initial styles - display:', this.panel.style.display, 'z-index:', this.panel.style.zIndex);
+
+        // Make panel draggable by its header
+        const header = this.panel.querySelector('div[style*="display: flex"]');
+        if (header) {
+            this.cleanupDraggable = makeDraggable(this.panel, header);
+        }
     }
 
     setupEventListeners() {
