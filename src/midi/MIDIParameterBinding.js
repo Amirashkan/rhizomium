@@ -215,9 +215,14 @@ export class MIDIParameterBinding {
     // Update GPU uniform buffer (fast! no recompilation!)
     this.triggerImmediateUpdate(node, paramName, paramValue);
 
-    // Trigger canvas redraw to update labels immediately
-    if (window.editor?.draw) {
-      window.editor.draw();
+    // Mark dirty and redraw canvas to update labels immediately
+    if (window.editor) {
+      if (window.editor.markDirty) {
+        window.editor.markDirty('midi-parameter-update');
+      }
+      if (window.editor.draw) {
+        window.editor.draw();
+      }
     }
 
     // Emit parameter update event
