@@ -292,26 +292,64 @@ body {
 
 /* Old HUD styles removed - now using top menu bar */
 
-/* Code console */
+/* Floating WGSL Toggle Button
+   NOTE: Keep this section in sync with ../style.css */
+.floating-toggle-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(20, 20, 20, 0.9);
+  border: 1px solid rgba(102, 170, 255, 0.3);
+  color: rgba(102, 170, 255, 0.9);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.floating-toggle-btn:hover {
+  background: rgba(30, 30, 30, 0.95);
+  border-color: rgba(102, 170, 255, 0.6);
+  color: rgba(102, 170, 255, 1);
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(102, 170, 255, 0.2);
+}
+
+.floating-toggle-btn:active {
+  transform: scale(0.95);
+}
+
+/* Code console - repositioned to bottom-right corner */
 #code-console {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 220px;
+  bottom: 80px;
+  right: 20px;
+  width: 500px;
+  max-width: calc(100vw - 40px);
+  height: 400px;
+  max-height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
   background: linear-gradient(135deg, #141414 0%, #1a1a1a 100%);
-  border-top: 1px solid #333;
+  border: 1px solid rgba(102, 170, 255, 0.3);
+  border-radius: 8px;
   backdrop-filter: blur(10px);
-  z-index: 50;
+  z-index: 90;
   transition: transform 0.25s ease, opacity 0.25s ease;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 #code-console.closed {
   pointer-events: none;
   opacity: 0;
-  transform: translateY(100%);
+  transform: translateY(20px) scale(0.95);
 }
 
 .code-toolbar {

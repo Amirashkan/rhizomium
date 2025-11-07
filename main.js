@@ -883,6 +883,16 @@ function setupUIEventHandlers() {
     console.log("Console close handler attached");
   }
 
+  // Floating WGSL toggle button
+  const floatingToggleBtn = removeExistingHandlers("btn-toggle-wgsl-console");
+  if (floatingToggleBtn) {
+    floatingToggleBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      setConsoleVisibility(!consoleVisible);
+    });
+    console.log("Floating WGSL toggle handler attached");
+  }
+
   // Audio Settings Panel - with robust error handling
   const audioSettingsBtn = removeExistingHandlers("btn-audio-settings");
   console.log('[main.js] Setting up audio settings button, element found:', !!audioSettingsBtn);
