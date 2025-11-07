@@ -59,87 +59,114 @@
     </style>
   </head>
   <body>
-    <canvas id="gpu-canvas"></canvas>
-    <canvas id="ui-canvas"></canvas>
-
-    <div id="hud">
-      <button
-        id="btn-toggle-hud"
-        class="hud-collapse-toggle"
-        type="button"
-        aria-expanded="true"
-        aria-controls="hud-content"
-      >
-        Hide Menu
-      </button>
-      <div id="hud-content" class="hud-content">
-        <button id="btn-toggle-preview">Toggle Preview</button>
-        <button id="btn-dock-preview">Dock Preview</button>
-        <button id="btn-lock-preview">Lock Preview</button>
-        <button id="btn-fullscreen-preview">Fullscreen</button>
-        <div class="snap-controls">
-          <label class="snap-toggle">
-            <input type="checkbox" id="snap-toggle" /> Snap
-          </label>
-          <label class="snap-size">
-            <span>Grid</span>
-            <input
-              type="number"
-              id="snap-size"
-              inputmode="numeric"
-              min="2"
-              max="512"
-              step="1"
-              value="20"
-            />
-          </label>
+    <!-- Top Menu Bar -->
+    <div id="top-menu-bar">
+      <div class="menu-section">
+        <button class="menu-button" id="menu-file">File ▾</button>
+        <div class="menu-dropdown" id="dropdown-file">
+          <button id="btn-save">Save Project</button>
+          <button id="btn-load">Load Project</button>
+          <button id="btn-import">Import</button>
+          <div class="menu-separator"></div>
+          <button id="btn-export-json">Export JSON</button>
+          <button id="btn-backups">Backups</button>
         </div>
-        
-        <!-- History section with proper inline styling -->
-        <span class="history-section">
-          <label>History:</label>
+      </div>
+
+      <div class="menu-section">
+        <button class="menu-button" id="menu-edit">Edit ▾</button>
+        <div class="menu-dropdown" id="dropdown-edit">
           <button id="btn-undo" title="Undo last action (Ctrl+Z)" disabled>
             <span class="icon">&#8634;</span> Undo
           </button>
           <button id="btn-redo" title="Redo last action (Ctrl+Y)" disabled>
             <span class="icon">&#8635;</span> Redo
           </button>
-        </span>
-        
-        <button id="btn-rebuild">Rebuild</button>
-        <button id="btn-save">Save Project</button>
-        <button id="btn-load">Load Project</button>
-        <button id="btn-backups">Backups</button>
-        <button id="btn-welcome">Welcome</button>
-        <button id="btn-export-json">Export JSON</button>
-        <button id="btn-import">Import</button>
-        <button id="btn-toggle-console">Console</button>
-        <button id="btn-audio-settings">Audio Settings</button>
-        <button id="btn-midi-settings">MIDI Settings</button>
-        <button id="btn-toggle-timeline">Timeline</button>
-        <button id="btn-toggle-vj">VJ Control</button>
-        <button id="btn-open-viewer">Open External Viewer</button>
-        <label for="resolution-select" style="margin-left: 10px; font-size: 13px;">Resolution:</label>
-        <select id="resolution-select" title="Set canvas resolution for streaming">
-          <option value="960x540">960x540 (SD)</option>
-          <option value="1280x720">1280x720 (HD)</option>
-          <option value="1920x1080" selected>1920x1080 (FHD)</option>
-          <option value="2560x1440">2560x1440 (QHD)</option>
-          <option value="3840x2160">3840x2160 (4K)</option>
-        </select>
-        <label for="display-select" style="margin-left: 10px; font-size: 13px;">Display:</label>
-        <select id="display-select" title="Choose which monitor to open viewer on">
-          <option value="auto">Auto</option>
-        </select>
-        <input
-          id="file-import"
-          type="file"
-          accept=".json,.rz,.wgsl,.glsl"
-          style="display: none"
-        />
-        <span id="status">Idle</span>
+          <div class="menu-separator"></div>
+          <button id="btn-rebuild">Rebuild</button>
+        </div>
       </div>
+
+      <div class="menu-section">
+        <button class="menu-button" id="menu-view">View ▾</button>
+        <div class="menu-dropdown" id="dropdown-view">
+          <button id="btn-toggle-preview">Toggle Preview</button>
+          <button id="btn-dock-preview">Dock Preview</button>
+          <button id="btn-lock-preview">Lock Preview</button>
+          <button id="btn-fullscreen-preview">Fullscreen</button>
+          <div class="menu-separator"></div>
+          <button id="btn-toggle-console">Console</button>
+          <button id="btn-toggle-timeline">Timeline</button>
+          <button id="btn-toggle-vj">VJ Control</button>
+        </div>
+      </div>
+
+      <div class="menu-section">
+        <button class="menu-button" id="menu-settings">Settings ▾</button>
+        <div class="menu-dropdown" id="dropdown-settings">
+          <button id="btn-audio-settings">Audio Settings</button>
+          <button id="btn-midi-settings">MIDI Settings</button>
+          <div class="menu-separator"></div>
+          <div class="snap-controls">
+            <label class="snap-toggle">
+              <input type="checkbox" id="snap-toggle" /> Snap to Grid
+            </label>
+            <label class="snap-size">
+              <span>Grid Size:</span>
+              <input
+                type="number"
+                id="snap-size"
+                inputmode="numeric"
+                min="2"
+                max="512"
+                step="1"
+                value="20"
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="menu-section">
+        <button class="menu-button" id="menu-display">Display ▾</button>
+        <div class="menu-dropdown" id="dropdown-display">
+          <button id="btn-open-viewer">Open External Viewer</button>
+          <div class="menu-separator"></div>
+          <label for="resolution-select" class="menu-label">Resolution:</label>
+          <select id="resolution-select" title="Set canvas resolution for streaming">
+            <option value="960x540">960x540 (SD)</option>
+            <option value="1280x720">1280x720 (HD)</option>
+            <option value="1920x1080" selected>1920x1080 (FHD)</option>
+            <option value="2560x1440">2560x1440 (QHD)</option>
+            <option value="3840x2160">3840x2160 (4K)</option>
+          </select>
+          <label for="display-select" class="menu-label">Display:</label>
+          <select id="display-select" title="Choose which monitor to open viewer on">
+            <option value="auto">Auto</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="menu-section">
+        <button class="menu-button" id="menu-help">Help ▾</button>
+        <div class="menu-dropdown" id="dropdown-help">
+          <button id="btn-welcome">Welcome</button>
+        </div>
+      </div>
+
+      <span id="status" class="menu-status">Idle</span>
     </div>
+
+    <canvas id="gpu-canvas"></canvas>
+    <canvas id="ui-canvas"></canvas>
+
+    <!-- Hidden file input for file loading -->
+    <input
+      id="file-import"
+      type="file"
+      accept=".json,.rz,.wgsl,.glsl"
+      style="display: none"
+    />
     <div id="param-panel" class="panel hidden"></div>
     <div id="ctx-menu" class="menu hidden"></div>
     <div id="code-console">
