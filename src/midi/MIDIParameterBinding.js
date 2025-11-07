@@ -455,6 +455,10 @@ export class MIDIParameterBinding {
     // Write to GPU buffer immediately
     if (window.gpuRenderer) {
       window.gpuRenderer._updateParameterUniforms();
+      // Trigger render to show the visual change
+      if (window.gpuRenderer.render) {
+        window.gpuRenderer.render();
+      }
     }
   }
 
