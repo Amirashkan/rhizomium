@@ -19,6 +19,8 @@ export function makeDraggable(panel, dragHandle) {
   let currentY = 0;
   let initialX = 0;
   let initialY = 0;
+  let originalTransition = '';
+  let originalTransform = '';
 
   const onMouseDown = (e) => {
     // Only drag on left click, and not on buttons or inputs
@@ -27,53 +29,75 @@ export function makeDraggable(panel, dragHandle) {
       return;
     }
 
-    isDragging = true;
+    // Prevent default to avoid text selection
+    e.preventDefault();
+    e.stopPropagation();
 
     // Get current position
     const rect = panel.getBoundingClientRect();
     currentX = rect.left;
     currentY = rect.top;
 
-    // Store initial mouse position
+    // Store initial mouse position relative to panel
     initialX = e.clientX - currentX;
     initialY = e.clientY - currentY;
 
-    // Change cursor
+    // Set dragging state immediately
+    isDragging = true;
+
+    // Store and disable transitions for instant response
+    originalTransition = panel.style.transition;
+    originalTransform = panel.style.transform;
+    panel.style.transition = 'none';
+
+    // Change cursor immediately for instant feedback
     dragHandle.style.cursor = 'grabbing';
     document.body.style.cursor = 'grabbing';
     document.body.style.userSelect = 'none';
 
-    e.preventDefault();
-  };
-
-  const onMouseMove = (e) => {
-    if (!isDragging) return;
-
-    e.preventDefault();
-
-    // Calculate new position
-    currentX = e.clientX - initialX;
-    currentY = e.clientY - initialY;
-
-    // Keep panel within viewport bounds
-    const panelRect = panel.getBoundingClientRect();
-    const maxX = window.innerWidth - panelRect.width;
-    const maxY = window.innerHeight - panelRect.height;
-
-    currentX = Math.max(0, Math.min(currentX, maxX));
-    currentY = Math.max(0, Math.min(currentY, maxY));
-
-    // Update position
+    // Ensure panel has absolute positioning with current position
+    if (panel.style.position !== 'fixed' && panel.style.position !== 'absolute') {
+      panel.style.position = 'fixed';
+    }
     panel.style.left = currentX + 'px';
     panel.style.top = currentY + 'px';
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
   };
 
+  const onMouseMove = (e) => {
+    if (!isDragging) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Calculate new position
+    const newX = e.clientX - initialX;
+    const newY = e.clientY - initialY;
+
+    // Keep panel within viewport bounds
+    const panelRect = panel.getBoundingClientRect();
+    const maxX = window.innerWidth - panelRect.width;
+    const maxY = window.innerHeight - panelRect.height;
+
+    currentX = Math.max(0, Math.min(newX, maxX));
+    currentY = Math.max(0, Math.min(newY, maxY));
+
+    // Update position immediately for responsive feel
+    panel.style.left = currentX + 'px';
+    panel.style.top = currentY + 'px';
+  };
+
   const onMouseUp = () => {
     if (!isDragging) return;
 
     isDragging = false;
+
+    // Restore transition after a brief delay to avoid snapping
+    setTimeout(() => {
+      panel.style.transition = originalTransition;
+    }, 10);
+
     dragHandle.style.cursor = 'grab';
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
