@@ -235,6 +235,9 @@ canvas {
   position: fixed;
   left: 0;
   display: block;
+  /* Force hardware acceleration and prevent tearing */
+  will-change: contents;
+  transform: translateZ(0);
 }
 
 #gpu-canvas {

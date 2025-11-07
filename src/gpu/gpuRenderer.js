@@ -48,6 +48,12 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+
+    // Canvas resize management to prevent tearing during animations
+    this._cachedCanvasWidth = 0;
+    this._cachedCanvasHeight = 0;
+    this._lastResizeTime = 0;
+    this._resizeDebounceMs = 100; // Minimum time between resizes
   }
 
   clear() {
@@ -541,9 +547,26 @@ export class GPURenderer {
     const targetWidth = Math.max(1, Math.floor(baseWidth * resolvedDpr));
     const targetHeight = Math.max(1, Math.floor(baseHeight * resolvedDpr));
 
-    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
+    // Debounce canvas resizing to prevent tearing during animations
+    const now = performance.now();
+    const timeSinceLastResize = now - this._lastResizeTime;
+    const dimensionsChanged =
+      this.canvas.width !== targetWidth ||
+      this.canvas.height !== targetHeight;
+
+    // Only resize if dimensions changed AND enough time has passed since last resize
+    // OR if this is the first render (cached dimensions are 0)
+    const shouldResize = dimensionsChanged && (
+      timeSinceLastResize >= this._resizeDebounceMs ||
+      (this._cachedCanvasWidth === 0 && this._cachedCanvasHeight === 0)
+    );
+
+    if (shouldResize) {
       this.canvas.width = targetWidth;
       this.canvas.height = targetHeight;
+      this._cachedCanvasWidth = targetWidth;
+      this._cachedCanvasHeight = targetHeight;
+      this._lastResizeTime = now;
       this._lastAspectWritten = null; // force update after resize
     }
 
