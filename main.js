@@ -1103,9 +1103,17 @@ function setupUIEventHandlers() {
           // Send current shader immediately if available
           if (window.latestGeneratedWGSL) {
             const canvas = document.getElementById('gpu-canvas');
+
+            // Extract current parameter values
+            let uniformValues = [];
+            if (window.nodeCompiler?.uniformManager?.uniformValues) {
+              uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
+              console.log('[main.js] Extracted', uniformValues.length, 'initial parameter values');
+            }
+
             liveShaderStream.sendShaderUpdate(
               window.latestGeneratedWGSL,
-              {},
+              uniformValues,
               { width: canvas?.width || 1920, height: canvas?.height || 1080 }
             );
             console.log('[main.js] ✅ Sent initial shader to LiveShaderStream');
