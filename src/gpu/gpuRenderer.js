@@ -348,6 +348,24 @@ export class GPURenderer {
     this.device.queue.writeBuffer(target.buffer, 0, data.buffer, 0, data.byteLength);
   }
 
+  _sendLiveParameterUpdate(timeSec) {
+    // Send parameter + time updates to external viewer if streaming
+    if (!window.liveShaderStream || !window.liveShaderStream.isStreaming) {
+      return;
+    }
+
+    const uniformManager = window.nodeCompiler?.uniformManager;
+    if (!uniformManager || uniformManager.uniformValues.size === 0) {
+      return;
+    }
+
+    // Get values in order (same as _updateParameterUniforms)
+    const values = Array.from(uniformManager.uniformValues.values());
+
+    // Send to viewer with current time for sync
+    window.liveShaderStream.sendParameterUpdate(values, timeSec);
+  }
+
   _updateGlobalsUniform(timeSec) {
     const target = this._getUniformByVarName("g");
     if (!target?.buffer) return;
@@ -541,6 +559,9 @@ export class GPURenderer {
 
     // CRITICAL: Update parameter uniforms every frame so changes are reflected
     this._updateParameterUniforms();
+
+    // Send parameter + time updates to external viewer for real-time sync
+    this._sendLiveParameterUpdate(timeValue);
 
     // CRITICAL: Update texture bindings when new files are loaded
     this._updateTextureBindings();
