@@ -440,8 +440,14 @@ export class ParameterBindingSystem {
 
   setParameterValueDirect(node, paramName, value) {
     // Direct assignment without triggering events
+    // IMPORTANT: Set BOTH node.params[paramName] AND node[paramName] for compatibility
     if (!node.params) node.params = {};
     node.params[paramName] = value;
+
+    // Also set top-level property for ConstFloat/ConstVec nodes
+    if (paramName === 'value' || paramName === 'x' || paramName === 'y' || paramName === 'z') {
+      node[paramName] = value;
+    }
   }
 
   updateNodePreview(node) {
