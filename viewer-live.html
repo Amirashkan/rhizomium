@@ -625,7 +625,7 @@
                         size = 16; // aspect only
                     } else if (varName === 'g') {
                         size = 48; // globals (resolution, time, audio)
-                    } else if (varName === 'p') {
+                    } else if (varName === 'p' || varName === 'u_params') {
                         // Parameters buffer - allocate large enough for many parameters
                         // WebGPU requires 16-byte alignment, so sizes are multiples of 16
                         size = 256; // Enough for 64 float parameters (256 / 4 = 64 floats)
@@ -775,10 +775,12 @@
                 }
 
                 // Update custom parameter uniforms
-                if (this.resources['p'] && this.uniformValuesArray.length > 0) {
+                // Check for both 'p' and 'u_params' buffer names
+                const paramBuffer = this.resources['p'] || this.resources['u_params'];
+                if (paramBuffer && this.uniformValuesArray.length > 0) {
                     // Write parameter values directly from array (matching main renderer)
                     const paramData = new Float32Array(this.uniformValuesArray);
-                    this.device.queue.writeBuffer(this.resources['p'], 0, paramData);
+                    this.device.queue.writeBuffer(paramBuffer, 0, paramData);
 
                     // Log first write for debugging
                     if (!this._loggedFirstParamWrite) {
@@ -786,9 +788,9 @@
                         console.log('[LiveViewer] Parameter values:', this.uniformValuesArray);
                         this._loggedFirstParamWrite = true;
                     }
-                } else if (this.uniformValuesArray.length > 0 && !this.resources['p']) {
+                } else if (this.uniformValuesArray.length > 0 && !paramBuffer) {
                     if (!this._loggedMissingBuffer) {
-                        console.warn('[LiveViewer] Have', this.uniformValuesArray.length, 'parameter values but no "p" buffer!');
+                        console.warn('[LiveViewer] Have', this.uniformValuesArray.length, 'parameter values but no parameter buffer!');
                         console.warn('[LiveViewer] Available resources:', Object.keys(this.resources));
                         this._loggedMissingBuffer = true;
                     }
