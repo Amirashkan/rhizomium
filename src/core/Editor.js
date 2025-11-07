@@ -1607,8 +1607,8 @@ connectGPURenderer(renderFunction) {
   
   getConnectionAt(mouseX, mouseY) {
     try {
-      const worldX = (mouseX - this.viewport.panX) / this.viewport.zoom;
-      const worldY = (mouseY - this.viewport.panY) / this.viewport.zoom;
+      const worldX = (mouseX - this.viewport.offsetX) / this.viewport.scale;
+      const worldY = (mouseY - this.viewport.offsetY) / this.viewport.scale;
 
       for (const node of this.graph.nodes) {
         if (!node.inputs || !Array.isArray(node.inputs)) continue;
@@ -1646,8 +1646,8 @@ connectGPURenderer(renderFunction) {
 
   getNodeAt(mouseX, mouseY) {
     try {
-      const worldX = (mouseX - this.viewport.panX) / this.viewport.zoom;
-      const worldY = (mouseY - this.viewport.panY) / this.viewport.zoom;
+      const worldX = (mouseX - this.viewport.offsetX) / this.viewport.scale;
+      const worldY = (mouseY - this.viewport.offsetY) / this.viewport.scale;
 
       for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
         const node = this.graph.nodes[i];
@@ -1986,9 +1986,9 @@ connectGPURenderer(renderFunction) {
           height: this.canvas?.height || 0
         },
         viewport: {
-          zoom: this.viewport?.zoom || 1,
-          panX: this.viewport?.panX || 0,
-          panY: this.viewport?.panY || 0
+          scale: this.viewport?.scale || 1,
+          offsetX: this.viewport?.offsetX || 0,
+          offsetY: this.viewport?.offsetY || 0
         }
       };
     } catch (error) {
