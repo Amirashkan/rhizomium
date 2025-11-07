@@ -51,11 +51,16 @@ export class NodeCompiler {
 
   compileNodes(orderedNodes) {
     this.uniformManager.clear();
-    
+
     if (this.compilers.utility?.resetHelperTracking) {
       this.compilers.utility.resetHelperTracking();
     }
-    
+
+    // Reset noise function tracking before compilation
+    if (this.compilers.noise?.resetTracking) {
+      this.compilers.noise.resetTracking();
+    }
+
     const lines = [];
     let usesNoise = false;
     
