@@ -449,51 +449,66 @@ function setupUIEventHandlers() {
     return null;
   };
 
-  // HUD collapse toggle
-  const hud = document.getElementById("hud");
-  const hudToggle = removeExistingHandlers("btn-toggle-hud");
-  const HUD_STORAGE_KEY = "hudCollapsed";
+  // Setup Top Menu Dropdown System
+  const setupMenuDropdowns = () => {
+    const menuButtons = document.querySelectorAll('.menu-button');
+    const menuDropdowns = document.querySelectorAll('.menu-dropdown');
 
-  const setHudCollapsed = (collapsed, notify = false) => {
-    if (!hud) return;
+    // Close all dropdowns
+    const closeAllDropdowns = () => {
+      menuDropdowns.forEach(dropdown => dropdown.classList.remove('show'));
+      menuButtons.forEach(button => button.classList.remove('active'));
+    };
 
-    hud.classList.toggle("collapsed", collapsed);
+    // Toggle dropdown for a specific menu
+    menuButtons.forEach(button => {
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dropdownId = button.id.replace('menu-', 'dropdown-');
+        const dropdown = document.getElementById(dropdownId);
 
-    if (hudToggle) {
-      hudToggle.setAttribute("aria-expanded", (!collapsed).toString());
-      hudToggle.textContent = collapsed ? "Show Menu" : "Hide Menu";
-    }
+        if (!dropdown) return;
 
-    if (notify && typeof updateStatus === "function") {
-      updateStatus(collapsed ? "Menu hidden" : "Menu shown");
-    }
+        // Check if this dropdown is already open
+        const isOpen = dropdown.classList.contains('show');
 
-    try {
-      window.localStorage?.setItem(HUD_STORAGE_KEY, collapsed ? "true" : "false");
-    } catch (error) {
-      console.warn("Unable to persist HUD state:", error);
-    }
+        // Close all dropdowns first
+        closeAllDropdowns();
+
+        // If it wasn't open, open it
+        if (!isOpen) {
+          dropdown.classList.add('show');
+          button.classList.add('active');
+        }
+      });
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.menu-section')) {
+        closeAllDropdowns();
+      }
+    });
+
+    // Close dropdown when clicking a menu item (except for checkboxes and inputs)
+    menuDropdowns.forEach(dropdown => {
+      dropdown.addEventListener('click', (e) => {
+        // Don't close if clicking on checkbox, input, select, or label
+        if (e.target.matches('input, select, label, .snap-controls, .snap-controls *')) {
+          e.stopPropagation();
+          return;
+        }
+        // Close dropdown if clicking on a button
+        if (e.target.closest('button')) {
+          setTimeout(() => closeAllDropdowns(), 100);
+        }
+      });
+    });
+
+    console.log('Menu dropdown system initialized');
   };
 
-  let initialHudState = false;
-  try {
-    const stored = window.localStorage?.getItem(HUD_STORAGE_KEY);
-    initialHudState = stored === "true";
-  } catch (error) {
-    console.warn("Unable to read HUD state:", error);
-  }
-
-  if (hud) {
-    setHudCollapsed(initialHudState);
-  }
-
-  if (hudToggle) {
-    hudToggle.addEventListener("click", () => {
-      if (!hud) return;
-      const nextState = !hud.classList.contains("collapsed");
-      setHudCollapsed(nextState, true);
-    });
-  }
+  setupMenuDropdowns();
 
   // Undo/Redo button handlers
   console.log("Setting up undo/redo button handlers...");

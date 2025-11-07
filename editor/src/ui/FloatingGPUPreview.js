@@ -321,10 +321,11 @@ show() {
     const dockedScale = 0.3;
     const headerHeight = 37;
     const padding = 20;
+    const menuBarHeight = 40;
 
     this.container.style.cssText = `
       position: fixed;
-      top: 20px;
+      top: ${menuBarHeight + 16}px;
       right: 20px;
       width: ${width * dockedScale + padding}px;
       height: ${height * dockedScale + headerHeight + padding}px;
