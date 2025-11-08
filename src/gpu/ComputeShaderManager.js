@@ -9,9 +9,14 @@ export class ComputeShaderManager {
     this.computePipeline = null;
     this.bindGroup = null;
 
-    // Storage textures for compute output
+    // Ping-pong textures for feedback
+    this.storageTextureA = null;  // Write target
+    this.storageTextureB = null;  // Read source (previous frame)
+    this.outputTexture = null;    // Final output for fragment shader
+    this.currentWriteTexture = 'A'; // Toggle between A and B
+
+    // Legacy support
     this.storageTexture = null;
-    this.outputTexture = null;
 
     // Uniform buffers
     this.uniformBuffer = null;
@@ -24,20 +29,24 @@ export class ComputeShaderManager {
     // Texture dimensions
     this.textureWidth = 0;
     this.textureHeight = 0;
+
+    // Feedback support
+    this.supportsFeedback = false;
   }
 
   /**
    * Initialize compute shader with WGSL source code
    */
-  async initialize(wgslSource, width, height) {
+  async initialize(wgslSource, width, height, supportsFeedback = false) {
     this.textureWidth = width;
     this.textureHeight = height;
+    this.supportsFeedback = supportsFeedback;
 
     // Calculate dispatch size based on workgroup size
     this.dispatchSize.x = Math.ceil(width / this.workgroupSize.x);
     this.dispatchSize.y = Math.ceil(height / this.workgroupSize.y);
 
-    // Create storage texture for compute output
+    // Create storage textures for compute output
     this.createStorageTextures(width, height);
 
     // Create uniform buffer
@@ -49,7 +58,8 @@ export class ComputeShaderManager {
     console.log('[ComputeShaderManager] Initialized:', {
       textureSize: `${width}x${height}`,
       workgroupSize: `${this.workgroupSize.x}x${this.workgroupSize.y}`,
-      dispatchSize: `${this.dispatchSize.x}x${this.dispatchSize.y}`
+      dispatchSize: `${this.dispatchSize.x}x${this.dispatchSize.y}`,
+      feedback: supportsFeedback
     });
   }
 
@@ -57,21 +67,45 @@ export class ComputeShaderManager {
    * Create storage textures for compute shader
    */
   createStorageTextures(width, height) {
-    // Storage texture (write-only from compute shader)
-    this.storageTexture = this.device.createTexture({
-      size: [width, height, 1],
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
-    });
+    if (this.supportsFeedback) {
+      // Ping-pong textures for feedback (both read/write)
+      this.storageTextureA = this.device.createTexture({
+        size: [width, height, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+        label: 'Feedback Texture A'
+      });
 
-    // Output texture (for rendering to canvas)
+      this.storageTextureB = this.device.createTexture({
+        size: [width, height, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+        label: 'Feedback Texture B'
+      });
+
+      // Legacy support
+      this.storageTexture = this.storageTextureA;
+
+      console.log('[ComputeShaderManager] Ping-pong textures created for feedback');
+    } else {
+      // Single storage texture (no feedback)
+      this.storageTexture = this.device.createTexture({
+        size: [width, height, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        label: 'Storage Texture'
+      });
+
+      console.log('[ComputeShaderManager] Storage texture created');
+    }
+
+    // Output texture (for rendering to fragment shader)
     this.outputTexture = this.device.createTexture({
       size: [width, height, 1],
       format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      label: 'Output Texture'
     });
-
-    console.log('[ComputeShaderManager] Storage textures created');
   }
 
   /**
@@ -97,25 +131,42 @@ export class ComputeShaderManager {
         label: 'Compute Shader Module'
       });
 
+      // Build bind group layout entries
+      const entries = [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: 'uniform' }
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: 'write-only',
+            format: 'rgba8unorm',
+            viewDimension: '2d'
+          }
+        }
+      ];
+
+      // Add previous frame texture binding for feedback
+      if (this.supportsFeedback) {
+        entries.push({
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: 'float', viewDimension: '2d' }
+        });
+        entries.push({
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          sampler: { type: 'filtering' }
+        });
+      }
+
       // Create bind group layout
       const bindGroupLayout = this.device.createBindGroupLayout({
         label: 'Compute Bind Group Layout',
-        entries: [
-          {
-            binding: 0,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: { type: 'uniform' }
-          },
-          {
-            binding: 1,
-            visibility: GPUShaderStage.COMPUTE,
-            storageTexture: {
-              access: 'write-only',
-              format: 'rgba8unorm',
-              viewDimension: '2d'
-            }
-          }
-        ]
+        entries
       });
 
       // Create pipeline layout
@@ -134,21 +185,11 @@ export class ComputeShaderManager {
         }
       });
 
-      // Create bind group
-      this.bindGroup = this.device.createBindGroup({
-        label: 'Compute Bind Group',
-        layout: bindGroupLayout,
-        entries: [
-          {
-            binding: 0,
-            resource: { buffer: this.uniformBuffer }
-          },
-          {
-            binding: 1,
-            resource: this.storageTexture.createView()
-          }
-        ]
-      });
+      // Store bind group layout for dynamic bind group creation
+      this.bindGroupLayout = bindGroupLayout;
+
+      // Create initial bind group (will be recreated each frame for feedback)
+      this.recreateBindGroup();
 
       console.log('[ComputeShaderManager] Compute pipeline created successfully');
     } catch (error) {
@@ -185,6 +226,60 @@ export class ComputeShaderManager {
   }
 
   /**
+   * Recreate bind group (for ping-pong buffering)
+   */
+  recreateBindGroup() {
+    if (!this.bindGroupLayout) return;
+
+    const entries = [
+      {
+        binding: 0,
+        resource: { buffer: this.uniformBuffer }
+      }
+    ];
+
+    if (this.supportsFeedback) {
+      // Ping-pong: write to one texture, read from the other
+      const writeTexture = this.currentWriteTexture === 'A' ? this.storageTextureA : this.storageTextureB;
+      const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
+
+      entries.push({ binding: 1, resource: writeTexture.createView() });
+      entries.push({ binding: 2, resource: readTexture.createView() });
+
+      // Create sampler for reading previous frame
+      const sampler = this.device.createSampler({
+        magFilter: 'linear',
+        minFilter: 'linear',
+        addressModeU: 'clamp-to-edge',
+        addressModeV: 'clamp-to-edge'
+      });
+      entries.push({ binding: 3, resource: sampler });
+
+      // Update legacy reference
+      this.storageTexture = writeTexture;
+    } else {
+      // No feedback - simple binding
+      entries.push({ binding: 1, resource: this.storageTexture.createView() });
+    }
+
+    this.bindGroup = this.device.createBindGroup({
+      label: 'Compute Bind Group',
+      layout: this.bindGroupLayout,
+      entries
+    });
+  }
+
+  /**
+   * Swap ping-pong buffers
+   */
+  swapBuffers() {
+    if (!this.supportsFeedback) return;
+
+    this.currentWriteTexture = this.currentWriteTexture === 'A' ? 'B' : 'A';
+    this.storageTexture = this.currentWriteTexture === 'A' ? this.storageTextureA : this.storageTextureB;
+  }
+
+  /**
    * Dispatch compute shader and copy result to output texture
    */
   dispatch(commandEncoder, time) {
@@ -201,6 +296,11 @@ export class ComputeShaderManager {
 
     // Update uniforms
     this.updateUniforms(time);
+
+    // For feedback, recreate bind group to use correct ping-pong textures
+    if (this.supportsFeedback) {
+      this.recreateBindGroup();
+    }
 
     // Create compute pass
     const computePass = commandEncoder.beginComputePass({
@@ -223,6 +323,11 @@ export class ComputeShaderManager {
       { texture: this.outputTexture },
       [this.textureWidth, this.textureHeight, 1]
     );
+
+    // Swap buffers for next frame
+    if (this.supportsFeedback) {
+      this.swapBuffers();
+    }
   }
 
   /**

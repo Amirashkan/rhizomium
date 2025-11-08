@@ -52,11 +52,11 @@ export class ComputeExecutor {
    */
   async initializeComputeNode(nodeId, nodeData) {
     try {
-      const { node, wgslCode, resolution } = nodeData;
+      const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
       // Create compute shader manager with node reference for parameters
       const manager = new ComputeShaderManager(this.device, node);
-      await manager.initialize(wgslCode, resolution[0], resolution[1]);
+      await manager.initialize(wgslCode, resolution[0], resolution[1], supportsFeedback);
 
       // Store manager
       this.computeManagers.set(nodeId, manager);

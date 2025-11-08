@@ -92,6 +92,10 @@ export class ComputeNodes {
   registerComputeNode(node, getInput, resolution) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
+    // Determine if this node needs feedback (previous frame texture)
+    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback'];
+    const supportsFeedback = feedbackNodes.includes(node.kind);
+
     // Store compute node info for later execution
     if (!window.computeNodeRegistry) {
       window.computeNodeRegistry = new Map();
@@ -102,10 +106,11 @@ export class ComputeNodes {
       getInput,
       resolution,
       wgslCode: this.generateComputeWGSL(node, getInput),
+      supportsFeedback,
       lastInputHash: null // For tracking when inputs change
     });
 
-    console.log(`[ComputeNodes] Registered compute node: ${node.kind} (${nodeId})`);
+    console.log(`[ComputeNodes] Registered compute node: ${node.kind} (${nodeId}), feedback: ${supportsFeedback}`);
   }
 
   /**
@@ -346,8 +351,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate reaction-diffusion shader
    */
   generateReactionDiffusionShader(node, getInput) {
-    return `
-// Reaction-Diffusion (Gray-Scott Model)
+    const feedRate = this.getParamValue(node, 'feedRate', 0.055);
+    const killRate = this.getParamValue(node, 'killRate', 0.062);
+    const diffusionA = this.getParamValue(node, 'diffusionA', 1.0);
+    const diffusionB = this.getParamValue(node, 'diffusionB', 0.5);
+    const timestep = this.getParamValue(node, 'timestep', 1.0);
+
+    const shader = `
+// Reaction-Diffusion (Gray-Scott Model) with Feedback
 struct Uniforms {
   resolution: vec2<f32>,
   time: f32,
@@ -359,36 +370,47 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var stateTexture: texture_2d<f32>;
-@group(0) @binding(2) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var prevFrame: texture_2d<f32>;
+@group(0) @binding(3) var prevSampler: sampler;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-  let texCoord = vec2<i32>(global_id.xy);
-  let texSize = textureDimensions(stateTexture);
+  let texCoord = vec2<u32>(global_id.xy);
+  let texSize = vec2<u32>(u32(uniforms.resolution.x), u32(uniforms.resolution.y));
 
-  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+  if (texCoord.x >= texSize.x || texCoord.y >= texSize.y) {
     return;
   }
 
-  let current = textureLoad(stateTexture, texCoord, 0);
-  let a = current.r;
-  let b = current.g;
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
 
-  // Laplacian for diffusion
+  // Sample current state from previous frame
+  let current = textureSample(prevFrame, prevSampler, uv);
+  var a = current.r;
+  var b = current.g;
+
+  // Initialize on first frame (check if nearly black)
+  if (a < 0.01 && b < 0.01 && uniforms.time < 0.5) {
+    // Create initial pattern (center spot)
+    let center = vec2<f32>(0.5, 0.5);
+    let dist = length(uv - center);
+    a = 1.0;
+    b = select(0.0, 0.5, dist < 0.1);
+  }
+
+  // Laplacian for diffusion using texture sampling
   var laplaceA = 0.0;
   var laplaceB = 0.0;
+  let texelSize = 1.0 / vec2<f32>(texSize);
 
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
-      let samplePos = texCoord + vec2<i32>(dx, dy);
-      if (samplePos.x >= 0 && samplePos.x < i32(texSize.x) &&
-          samplePos.y >= 0 && samplePos.y < i32(texSize.y)) {
-        let sample = textureLoad(stateTexture, samplePos, 0);
-        let weight = select(0.2, 0.05, dx == 0 || dy == 0);
-        laplaceA += (sample.r - a) * weight;
-        laplaceB += (sample.g - b) * weight;
-      }
+      let offset = vec2<f32>(f32(dx), f32(dy)) * texelSize;
+      let sample = textureSample(prevFrame, prevSampler, uv + offset);
+      let weight = select(0.2, 0.05, dx == 0 || dy == 0);
+      laplaceA += (sample.r - a) * weight;
+      laplaceB += (sample.g - b) * weight;
     }
   }
 
@@ -401,9 +423,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let newA = a + (uniforms.diffusionA * laplaceA - reaction + f * (1.0 - a)) * dt;
   let newB = b + (uniforms.diffusionB * laplaceB + reaction - (k + f) * b) * dt;
 
-  let color = vec3<f32>(newB, newA, newB * 0.5);
-  textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, 1.0));
+  // Clamp values
+  let clampedA = clamp(newA, 0.0, 1.0);
+  let clampedB = clamp(newB, 0.0, 1.0);
+
+  // Colorize output
+  let color = vec3<f32>(clampedB, clampedA, clampedB * 0.5);
+  textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
 }`;
+
+    console.log('[ComputeNodes] Generated reaction-diffusion shader');
+    return shader;
   }
 
   /**
