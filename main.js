@@ -29,6 +29,7 @@ import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
 import { ComputeProfiler } from './src/gpu/ComputeProfiler.js';
 import { ComputeProfilerOverlay } from './src/ui/ComputeProfilerOverlay.js';
 import { GPUPerformanceMonitor } from './src/utils/GPUPerformanceMonitor.js';
+import { globalResourceRegistry } from './src/gpu/ResourceTracker.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -246,6 +247,14 @@ async function initialize() {
         console.log("ComputeExecutor created successfully");
       } catch (error) {
         console.error("Failed to create ComputeExecutor:", error);
+      }
+
+      // Initialize global resource tracker registry
+      try {
+        window.globalResourceRegistry = globalResourceRegistry;
+        console.log("Global resource tracker registry initialized");
+      } catch (error) {
+        console.error("Failed to initialize global resource registry:", error);
       }
 
       // Initialize compute profiler
