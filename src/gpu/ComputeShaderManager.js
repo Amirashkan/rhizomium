@@ -149,17 +149,12 @@ export class ComputeShaderManager {
         }
       ];
 
-      // Add previous frame texture binding for feedback
+      // Add previous frame texture binding for feedback (textureLoad only, no sampler needed)
       if (this.supportsFeedback) {
         entries.push({
           binding: 2,
           visibility: GPUShaderStage.COMPUTE,
           texture: { sampleType: 'float', viewDimension: '2d' }
-        });
-        entries.push({
-          binding: 3,
-          visibility: GPUShaderStage.COMPUTE,
-          sampler: { type: 'filtering' }
         });
       }
 
@@ -245,15 +240,6 @@ export class ComputeShaderManager {
 
       entries.push({ binding: 1, resource: writeTexture.createView() });
       entries.push({ binding: 2, resource: readTexture.createView() });
-
-      // Create sampler for reading previous frame
-      const sampler = this.device.createSampler({
-        magFilter: 'linear',
-        minFilter: 'linear',
-        addressModeU: 'clamp-to-edge',
-        addressModeV: 'clamp-to-edge'
-      });
-      entries.push({ binding: 3, resource: sampler });
 
       // Update legacy reference
       this.storageTexture = writeTexture;

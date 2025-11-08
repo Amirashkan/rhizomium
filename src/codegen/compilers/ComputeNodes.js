@@ -372,45 +372,49 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var prevFrame: texture_2d<f32>;
-@group(0) @binding(3) var prevSampler: sampler;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-  let texCoord = vec2<u32>(global_id.xy);
-  let texSize = vec2<u32>(u32(uniforms.resolution.x), u32(uniforms.resolution.y));
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = vec2<i32>(i32(uniforms.resolution.x), i32(uniforms.resolution.y));
 
   if (texCoord.x >= texSize.x || texCoord.y >= texSize.y) {
     return;
   }
 
-  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
-
-  // Sample current state from previous frame
-  let current = textureSample(prevFrame, prevSampler, uv);
+  // Load current state from previous frame using textureLoad (compute shaders can't use textureSample)
+  let current = textureLoad(prevFrame, texCoord, 0);
   var a = current.r;
   var b = current.g;
 
   // Initialize on first frame (check if nearly black)
   if (a < 0.01 && b < 0.01 && uniforms.time < 0.5) {
     // Create initial pattern (center spot)
+    let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
     let center = vec2<f32>(0.5, 0.5);
     let dist = length(uv - center);
     a = 1.0;
     b = select(0.0, 0.5, dist < 0.1);
   }
 
-  // Laplacian for diffusion using texture sampling
+  // Laplacian for diffusion using textureLoad
   var laplaceA = 0.0;
   var laplaceB = 0.0;
-  let texelSize = 1.0 / vec2<f32>(texSize);
 
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
-      let offset = vec2<f32>(f32(dx), f32(dy)) * texelSize;
-      let sample = textureSample(prevFrame, prevSampler, uv + offset);
-      let weight = select(0.2, 0.05, dx == 0 || dy == 0);
-      laplaceA += (sample.r - a) * weight;
-      laplaceB += (sample.g - b) * weight;
+      if (dx == 0 && dy == 0) { continue; }
+
+      let samplePos = texCoord + vec2<i32>(dx, dy);
+
+      // Clamp to texture bounds
+      if (samplePos.x >= 0 && samplePos.x < texSize.x &&
+          samplePos.y >= 0 && samplePos.y < texSize.y) {
+        let sample = textureLoad(prevFrame, samplePos, 0);
+        let weight = select(0.05, 0.2, dx == 0 || dy == 0);
+        laplaceA += (sample.r - a) * weight;
+        laplaceB += (sample.g - b) * weight;
+      }
     }
   }
 
@@ -429,7 +433,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   // Colorize output
   let color = vec3<f32>(clampedB, clampedA, clampedB * 0.5);
-  textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
+  textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, 1.0));
 }`;
 
     console.log('[ComputeNodes] Generated reaction-diffusion shader');
