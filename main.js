@@ -2410,7 +2410,6 @@ function handleRenderFrame(frameState) {
   } else if (window.gpuRenderer) {
     // Normal rendering
     window.gpuRenderer.render({ timeSec: frameState.simTime });
-  }
 
     // Stream frames to external viewers if enabled (only if not dragging)
     if (!isDragging && frameStreamingEnabled) {
