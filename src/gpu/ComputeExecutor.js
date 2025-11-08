@@ -150,11 +150,16 @@ export class ComputeExecutor {
   generateBindingDeclarations() {
     let wgsl = '\n// Compute Shader Texture Bindings\n';
 
-    for (const binding of this.getTextureBindings()) {
+    const bindings = this.getTextureBindings();
+    console.log(`[ComputeExecutor] Generating ${bindings.length} compute texture bindings`);
+
+    for (const binding of bindings) {
+      console.log(`[ComputeExecutor] Binding: ${binding.name} at ${binding.textureBinding}, sampler at ${binding.samplerBinding}`);
       wgsl += `@group(0) @binding(${binding.textureBinding}) var ${binding.name}: texture_2d<f32>;\n`;
       wgsl += `@group(0) @binding(${binding.samplerBinding}) var sampler_${binding.name}: sampler;\n`;
     }
 
+    console.log('[ComputeExecutor] Generated bindings:\n', wgsl);
     return wgsl;
   }
 

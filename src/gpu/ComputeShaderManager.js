@@ -14,7 +14,7 @@ export class ComputeShaderManager {
 
     // Uniform buffers
     this.uniformBuffer = null;
-    this.uniformData = new Float32Array(4); // [resolution.x, resolution.y, time, padding]
+    this.uniformData = new Float32Array(8); // [resolution.x, resolution.y, time, scale, octaves_as_float, speed, pad0, pad1]
 
     // Workgroup configuration
     this.workgroupSize = { x: 8, y: 8, z: 1 };
@@ -78,7 +78,7 @@ export class ComputeShaderManager {
    */
   createUniformBuffer() {
     this.uniformBuffer = this.device.createBuffer({
-      size: 16, // 4 floats * 4 bytes
+      size: 32, // 8 floats * 4 bytes = 32 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -163,7 +163,11 @@ export class ComputeShaderManager {
     this.uniformData[0] = this.textureWidth;
     this.uniformData[1] = this.textureHeight;
     this.uniformData[2] = time;
-    this.uniformData[3] = 0.0; // padding
+    this.uniformData[3] = 8.0; // scale (default)
+    this.uniformData[4] = 5.0; // octaves (default, as float since i32 in struct but we use f32 in buffer)
+    this.uniformData[5] = 0.1; // speed (default)
+    this.uniformData[6] = 0.0; // padding
+    this.uniformData[7] = 0.0; // padding
 
     this.device.queue.writeBuffer(
       this.uniformBuffer,
