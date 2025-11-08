@@ -148,11 +148,10 @@ export class ComputeShaderManager {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < seed.radius) {
-            // Inside seed region - set B to 10-20% (compromise between growth and visibility)
-            // Smooth falloff from center
-            const falloff = 1.0 - (dist / seed.radius);
-            const seedB = 25 + Math.random() * 25; // 10-20% of 255
-            bValue = Math.max(bValue, seedB * falloff);
+            // Inside seed region - use 25% flat (0.25 is typical for RD sims)
+            // No falloff - just mark the region
+            const seedB = 64; // 25% of 255 (0.25 in normalized coords)
+            bValue = seedB;
           }
         }
         pixelData[idx + 1] = Math.floor(bValue);

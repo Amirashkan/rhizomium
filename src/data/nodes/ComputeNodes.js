@@ -83,7 +83,7 @@ export const ComputeNodes = {
       { name: 'killRate', type: 'float', default: 0.062, min: 0.0, max: 0.1 },
       { name: 'diffusionA', type: 'float', default: 1.0, min: 0.5, max: 2.0 },
       { name: 'diffusionB', type: 'float', default: 0.5, min: 0.1, max: 1.0 },
-      { name: 'timestep', type: 'float', default: 2.0, min: 0.1, max: 10.0, step: 0.1 },
+      { name: 'timestep', type: 'float', default: 1.0, min: 0.01, max: 5.0, step: 0.01 },
       { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' }
     ],
     description: "Gray-Scott reaction-diffusion simulation with pattern presets",
