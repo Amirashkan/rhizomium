@@ -144,7 +144,7 @@ struct Uniforms {
   resolution: vec2<f32>,
   time: f32,
   scale: f32,
-  octaves: i32,
+  octaves: f32,
   speed: f32,
   padding: vec2<f32>
 }
@@ -204,7 +204,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   var noisePos = uv * uniforms.scale;
   noisePos += vec2<f32>(time * 0.1, time * 0.15);
 
-  let noiseValue = fbm(noisePos, uniforms.octaves);
+  let noiseValue = fbm(noisePos, i32(uniforms.octaves));
 
   ${colorize ? `
   // Colorize the noise
