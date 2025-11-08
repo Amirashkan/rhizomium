@@ -2226,7 +2226,7 @@ let lastUniformUpdate = 0;
 let lastPreviewUpdate = 0;
 const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
 
-function updateShaderFromGraph() {
+async function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
       console.log("Empty graph - skipping shader update");
@@ -2275,6 +2275,14 @@ function updateShaderFromGraph() {
       return;
     }
 
+    // Initialize compute nodes BEFORE setting shader source
+    // This ensures compute textures exist when bind groups are created
+    if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+      console.log('[main] Initializing compute executor before GPU pipeline...');
+      await computeExecutor.initialize();
+      console.log('[main] Compute executor ready');
+    }
+
     const rawWGSL = typeof result.wgsl === "string" ? result.wgsl : String(result.wgsl ?? "");
 
     // REMOVED AGGRESSIVE CACHING - it was breaking preview updates on connection changes
@@ -2310,14 +2318,6 @@ function updateShaderFromGraph() {
       lastUniformUpdate = performance.now();
       if (typeof updateStatus === "function") {
         updateStatus("Shader compiled");
-      }
-
-      // Initialize compute nodes after shader compilation
-      // Note: Bindings are already included in shader from registry
-      if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
-        computeExecutor.initialize().catch(err => {
-          console.error('[ComputeExecutor] Initialization failed:', err);
-        });
       }
 
       // Send shader update to LiveShaderStream if active
