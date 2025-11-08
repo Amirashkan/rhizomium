@@ -78,14 +78,15 @@ export const ComputeNodes = {
     pinsIn: [],
     pinsOut: ["Texture", "RGB"],
     params: [
-      { name: 'feedRate', type: 'float', default: 0.055, min: 0.0, max: 0.1 },
+      { name: 'pattern', type: 'select', options: ['Coral', 'Spots', 'Stripes', 'Waves', 'Mitosis', 'Worms', 'Spirals'], default: 'Coral' },
+      { name: 'feedRate', type: 'float', default: 0.0545, min: 0.0, max: 0.1 },
       { name: 'killRate', type: 'float', default: 0.062, min: 0.0, max: 0.1 },
       { name: 'diffusionA', type: 'float', default: 1.0, min: 0.0, max: 2.0 },
       { name: 'diffusionB', type: 'float', default: 0.5, min: 0.0, max: 2.0 },
-      { name: 'timestep', type: 'float', default: 1.0, min: 0.1, max: 5.0 },
-      { name: 'pattern', type: 'select', options: ['Coral', 'Spots', 'Stripes', 'Waves'], default: 'Coral' }
+      { name: 'timestep', type: 'float', default: 1.0, min: 0.1, max: 2.0 },
+      { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' }
     ],
-    description: "Gray-Scott reaction-diffusion simulation",
+    description: "Gray-Scott reaction-diffusion simulation with pattern presets",
     workgroupSize: [8, 8, 1]
   },
 

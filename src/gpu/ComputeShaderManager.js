@@ -83,6 +83,11 @@ export class ComputeShaderManager {
         label: 'Feedback Texture B'
       });
 
+      // Initialize feedback textures for reaction-diffusion
+      if (this.node?.kind === 'ComputeReactionDiffusion') {
+        this.initializeReactionDiffusionTextures(width, height);
+      }
+
       // Legacy support
       this.storageTexture = this.storageTextureA;
 
@@ -106,6 +111,79 @@ export class ComputeShaderManager {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
       label: 'Output Texture'
     });
+  }
+
+  /**
+   * Initialize reaction-diffusion textures with proper initial state
+   * A=1.0 everywhere, B=0.5 in seed regions, B=0.0 elsewhere
+   */
+  initializeReactionDiffusionTextures(width, height) {
+    const pixelData = new Uint8Array(width * height * 4);
+
+    // Create multiple seed points for interesting patterns
+    const seeds = [
+      { x: 0.5, y: 0.5, radius: 0.08 },      // Center
+      { x: 0.3, y: 0.3, radius: 0.03 },      // Top-left
+      { x: 0.7, y: 0.3, radius: 0.03 },      // Top-right
+      { x: 0.3, y: 0.7, radius: 0.03 },      // Bottom-left
+      { x: 0.7, y: 0.7, radius: 0.03 },      // Bottom-right
+    ];
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        const uvX = x / width;
+        const uvY = y / height;
+
+        // A channel (chemical A) - start at 1.0 everywhere
+        pixelData[idx + 0] = 255;
+
+        // B channel (chemical B) - start at 0.0 except in seed regions
+        let bValue = 0;
+        for (const seed of seeds) {
+          const dx = uvX - seed.x;
+          const dy = uvY - seed.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < seed.radius) {
+            // Inside seed region - set B to ~0.5 with some randomness
+            bValue = Math.max(bValue, 128 + Math.random() * 64);
+          }
+        }
+        pixelData[idx + 1] = bValue;
+
+        // G and A channels unused
+        pixelData[idx + 2] = 0;
+        pixelData[idx + 3] = 255;
+      }
+    }
+
+    // Write initial data to both ping-pong textures
+    this.device.queue.writeTexture(
+      { texture: this.storageTextureA },
+      pixelData,
+      { bytesPerRow: width * 4, rowsPerImage: height },
+      { width, height, depthOrArrayLayers: 1 }
+    );
+
+    this.device.queue.writeTexture(
+      { texture: this.storageTextureB },
+      pixelData,
+      { bytesPerRow: width * 4, rowsPerImage: height },
+      { width, height, depthOrArrayLayers: 1 }
+    );
+
+    console.log('[ComputeShaderManager] Reaction-diffusion textures initialized with seed patterns');
+  }
+
+  /**
+   * Reset reaction-diffusion simulation (reinitialize textures)
+   * Useful when changing patterns or parameters
+   */
+  resetReactionDiffusion() {
+    if (this.node?.kind === 'ComputeReactionDiffusion' && this.supportsFeedback) {
+      this.initializeReactionDiffusionTextures(this.textureWidth, this.textureHeight);
+      console.log('[ComputeShaderManager] Reaction-diffusion simulation reset');
+    }
   }
 
   /**

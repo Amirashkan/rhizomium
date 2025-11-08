@@ -351,8 +351,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate reaction-diffusion shader
    */
   generateReactionDiffusionShader(node, getInput) {
-    const feedRate = this.getParamValue(node, 'feedRate', 0.055);
-    const killRate = this.getParamValue(node, 'killRate', 0.062);
+    // Get pattern preset and apply preset parameters
+    const pattern = this.getParamValue(node, 'pattern', 'Coral');
+    const presets = this.getReactionDiffusionPresets();
+    const preset = presets[pattern] || presets['Coral'];
+
+    // Allow user to override preset values with manual parameters
+    const feedRate = this.getParamValue(node, 'feedRate', preset.feedRate);
+    const killRate = this.getParamValue(node, 'killRate', preset.killRate);
     const diffusionA = this.getParamValue(node, 'diffusionA', 1.0);
     const diffusionB = this.getParamValue(node, 'diffusionB', 0.5);
     const timestep = this.getParamValue(node, 'timestep', 1.0);
@@ -382,61 +388,84 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     return;
   }
 
-  // Load current state from previous frame using textureLoad (compute shaders can't use textureSample)
+  // Load current state from previous frame using textureLoad
   let current = textureLoad(prevFrame, texCoord, 0);
   var a = current.r;
   var b = current.g;
 
-  // Initialize on first frame (check if nearly black)
-  if (a < 0.01 && b < 0.01 && uniforms.time < 0.5) {
-    // Create initial pattern (center spot)
-    let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
-    let center = vec2<f32>(0.5, 0.5);
-    let dist = length(uv - center);
-    a = 1.0;
-    b = select(0.0, 0.5, dist < 0.1);
-  }
-
-  // Laplacian for diffusion using textureLoad
+  // Improved Laplacian for diffusion using 9-point stencil
+  // Using proper weights for better accuracy and stability
   var laplaceA = 0.0;
   var laplaceB = 0.0;
 
+  // 9-point stencil with proper weights
+  // Center weight: -1.0, Orthogonal neighbors: 0.2, Diagonal neighbors: 0.05
+  let center_weight = -1.0;
+  let ortho_weight = 0.2;
+  let diag_weight = 0.05;
+
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
-      if (dx == 0 && dy == 0) { continue; }
+      var samplePos = texCoord + vec2<i32>(dx, dy);
 
-      let samplePos = texCoord + vec2<i32>(dx, dy);
+      // Wrap-around boundary conditions for seamless tiling
+      samplePos.x = (samplePos.x + texSize.x) % texSize.x;
+      samplePos.y = (samplePos.y + texSize.y) % texSize.y;
 
-      // Clamp to texture bounds
-      if (samplePos.x >= 0 && samplePos.x < texSize.x &&
-          samplePos.y >= 0 && samplePos.y < texSize.y) {
-        let sample = textureLoad(prevFrame, samplePos, 0);
-        let weight = select(0.05, 0.2, dx == 0 || dy == 0);
-        laplaceA += (sample.r - a) * weight;
-        laplaceB += (sample.g - b) * weight;
+      let sample = textureLoad(prevFrame, samplePos, 0);
+
+      var weight = 0.0;
+      if (dx == 0 && dy == 0) {
+        weight = center_weight;
+      } else if (dx == 0 || dy == 0) {
+        weight = ortho_weight;  // Orthogonal neighbors
+      } else {
+        weight = diag_weight;   // Diagonal neighbors
       }
+
+      laplaceA += sample.r * weight;
+      laplaceB += sample.g * weight;
     }
   }
 
-  // Gray-Scott equations
+  // Gray-Scott reaction-diffusion equations
   let f = uniforms.feedRate;
   let k = uniforms.killRate;
-  let dt = uniforms.timestep;
+  let dA = uniforms.diffusionA;
+  let dB = uniforms.diffusionB;
 
+  // Clamp timestep for stability (max 1.0 to prevent oscillations)
+  let dt = clamp(uniforms.timestep, 0.1, 1.0);
+
+  // Reaction term: A + 2B → 3B (simplified Gray-Scott)
   let reaction = a * b * b;
-  let newA = a + (uniforms.diffusionA * laplaceA - reaction + f * (1.0 - a)) * dt;
-  let newB = b + (uniforms.diffusionB * laplaceB + reaction - (k + f) * b) * dt;
 
-  // Clamp values
+  // Update equations:
+  // dA/dt = dA*∇²A - AB² + f(1-A)
+  // dB/dt = dB*∇²B + AB² - (k+f)B
+  let newA = a + (dA * laplaceA - reaction + f * (1.0 - a)) * dt;
+  let newB = b + (dB * laplaceB + reaction - (k + f) * b) * dt;
+
+  // Clamp to valid range [0, 1]
   let clampedA = clamp(newA, 0.0, 1.0);
   let clampedB = clamp(newB, 0.0, 1.0);
 
-  // Colorize output
-  let color = vec3<f32>(clampedB, clampedA, clampedB * 0.5);
+  // Colorize output - enhanced visualization
+  // Use B concentration for primary color, A for brightness variation
+  let bIntensity = clampedB * 2.0; // Boost B visibility
+  let aModulation = clampedA * 0.5 + 0.5; // Use A to modulate
+
+  // Create vibrant color gradient based on chemical concentrations
+  let color = vec3<f32>(
+    clampedB * 1.5,           // Red channel: B concentration
+    clampedA * 0.8,           // Green channel: A concentration
+    clampedB * clampedA * 2.0 // Blue channel: interaction
+  );
+
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, 1.0));
 }`;
 
-    console.log('[ComputeNodes] Generated reaction-diffusion shader');
+    console.log('[ComputeNodes] Generated improved reaction-diffusion shader');
     return shader;
   }
 
@@ -540,6 +569,50 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     const value = node.params[paramName];
     return value !== undefined ? value : defaultValue;
+  }
+
+  /**
+   * Get reaction-diffusion pattern presets
+   * These are well-known Gray-Scott parameter combinations
+   */
+  getReactionDiffusionPresets() {
+    return {
+      'Coral': {
+        feedRate: 0.0545,
+        killRate: 0.062,
+        description: 'Coral-like branching patterns'
+      },
+      'Spots': {
+        feedRate: 0.039,
+        killRate: 0.058,
+        description: 'Stable spots that don\'t grow'
+      },
+      'Stripes': {
+        feedRate: 0.035,
+        killRate: 0.065,
+        description: 'Stripe patterns and labyrinths'
+      },
+      'Waves': {
+        feedRate: 0.014,
+        killRate: 0.054,
+        description: 'Moving wave patterns'
+      },
+      'Mitosis': {
+        feedRate: 0.0367,
+        killRate: 0.0649,
+        description: 'Dividing spot patterns'
+      },
+      'Worms': {
+        feedRate: 0.078,
+        killRate: 0.061,
+        description: 'Worm-like moving patterns'
+      },
+      'Spirals': {
+        feedRate: 0.018,
+        killRate: 0.051,
+        description: 'Spiral wave patterns'
+      }
+    };
   }
 
   /**
