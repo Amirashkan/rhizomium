@@ -28,7 +28,8 @@ export class ComputeNodes {
       'ComputeReactionDiffusion',
       'ComputeFluidSim',
       'ComputeConvolution',
-      'ComputeCellular'
+      'ComputeCellular',
+      'ComputeFeedbackField'
     ].includes(kind);
   }
 
@@ -93,7 +94,7 @@ export class ComputeNodes {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
     // Determine if this node needs feedback (previous frame texture)
-    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback'];
+    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField'];
     const supportsFeedback = feedbackNodes.includes(node.kind);
 
     // Store compute node info for later execution
@@ -128,6 +129,8 @@ export class ComputeNodes {
         return this.generateReactionDiffusionShader(node, getInput);
       case 'ComputeCellular':
         return this.generateCellularShader(node, getInput);
+      case 'ComputeFeedbackField':
+        return this.generateFeedbackFieldShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -538,6 +541,174 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let color = vec3<f32>(newState);
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, 1.0));
 }`;
+  }
+
+  /**
+   * Generate feedback field shader
+   * This shader uses the FeedbackManager for persistent state
+   */
+  generateFeedbackFieldShader(node, getInput) {
+    const mode = this.getParamValue(node, 'mode', 'Flow');
+    const decay = this.getParamValue(node, 'decay', 0.98);
+    const diffusion = this.getParamValue(node, 'diffusion', 0.1);
+    const feedback = this.getParamValue(node, 'feedback', 0.5);
+    const speed = this.getParamValue(node, 'speed', 1.0);
+
+    return `
+// Feedback Field Shader - Persistent Texture System
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  decay: f32,
+  diffusion: f32,
+  feedback: f32,
+  speed: f32,
+  mode: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var inputTexture: texture_2d<f32>;
+@group(0) @binding(2) var prevFrame: texture_2d<f32>;
+@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+
+// Helper: Sample with wrapping
+fn sampleWrap(tex: texture_2d<f32>, coord: vec2<i32>, size: vec2<i32>) -> vec4<f32> {
+  var wrappedCoord = coord;
+  wrappedCoord.x = (wrappedCoord.x + size.x) % size.x;
+  wrappedCoord.y = (wrappedCoord.y + size.y) % size.y;
+  return textureLoad(tex, wrappedCoord, 0);
+}
+
+// Compute diffusion using Laplacian
+fn computeDiffusion(coord: vec2<i32>, size: vec2<i32>) -> vec4<f32> {
+  var laplacian = vec4<f32>(0.0);
+
+  // 5-point stencil for diffusion
+  let center = sampleWrap(prevFrame, coord, size);
+  let up = sampleWrap(prevFrame, coord + vec2<i32>(0, -1), size);
+  let down = sampleWrap(prevFrame, coord + vec2<i32>(0, 1), size);
+  let left = sampleWrap(prevFrame, coord + vec2<i32>(-1, 0), size);
+  let right = sampleWrap(prevFrame, coord + vec2<i32>(1, 0), size);
+
+  laplacian = (up + down + left + right - 4.0 * center);
+
+  return laplacian;
+}
+
+// Flow field mode: advect based on velocity
+fn flowMode(coord: vec2<i32>, size: vec2<i32>, input: vec4<f32>) -> vec4<f32> {
+  let uv = vec2<f32>(coord) / vec2<f32>(size);
+
+  // Extract velocity from input (encoded in RG channels)
+  let velocity = (input.rg - 0.5) * 2.0 * uniforms.speed;
+
+  // Advect previous frame along velocity field
+  let samplePos = vec2<f32>(coord) - velocity * vec2<f32>(size) * 0.1;
+  let sampleCoord = vec2<i32>(floor(samplePos));
+  let prev = sampleWrap(prevFrame, sampleCoord, size);
+
+  // Add diffusion for smooth flow
+  let diff = computeDiffusion(coord, size);
+
+  // Combine: advected color + diffusion + new input
+  var result = prev * uniforms.decay;
+  result += diff * uniforms.diffusion * 0.1;
+  result += input * uniforms.feedback * 0.1;
+
+  return clamp(result, vec4<f32>(0.0), vec4<f32>(1.0));
+}
+
+// Reaction-diffusion mode: similar to RD but simpler
+fn reactionDiffusionMode(coord: vec2<i32>, size: vec2<i32>, input: vec4<f32>) -> vec4<f32> {
+  let current = sampleWrap(prevFrame, coord, size);
+  let diff = computeDiffusion(coord, size);
+
+  // Simple reaction: input acts as activator
+  let activation = input.r;
+  let inhibition = current.r * current.r * 0.5;
+
+  var result = current;
+  result.r += (diff.r * uniforms.diffusion + activation * 0.1 - inhibition) * uniforms.speed;
+  result.g += (diff.g * uniforms.diffusion * 0.5) * uniforms.speed;
+  result.b += (diff.b * uniforms.diffusion * 0.5) * uniforms.speed;
+
+  result *= uniforms.decay;
+  result += input * uniforms.feedback * 0.05;
+
+  return clamp(result, vec4<f32>(0.0), vec4<f32>(1.0));
+}
+
+// Accumulate mode: simple additive feedback
+fn accumulateMode(coord: vec2<i32>, size: vec2<i32>, input: vec4<f32>) -> vec4<f32> {
+  let prev = sampleWrap(prevFrame, coord, size);
+  let diff = computeDiffusion(coord, size);
+
+  var result = prev * uniforms.decay;
+  result += diff * uniforms.diffusion * 0.05;
+  result += input * uniforms.feedback;
+
+  return clamp(result, vec4<f32>(0.0), vec4<f32>(1.0));
+}
+
+// Custom mode: user-defined behavior
+fn customMode(coord: vec2<i32>, size: vec2<i32>, input: vec4<f32>) -> vec4<f32> {
+  let prev = sampleWrap(prevFrame, coord, size);
+  let diff = computeDiffusion(coord, size);
+
+  // Custom: mix of all behaviors
+  var result = prev * uniforms.decay;
+  result += diff * uniforms.diffusion * 0.1;
+  result += input * uniforms.feedback * 0.2;
+
+  // Add some interesting non-linear behavior
+  result = result + result * result * 0.1 * uniforms.speed;
+
+  return clamp(result, vec4<f32>(0.0), vec4<f32>(1.0));
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = vec2<i32>(i32(uniforms.resolution.x), i32(uniforms.resolution.y));
+
+  if (texCoord.x >= texSize.x || texCoord.y >= texSize.y) {
+    return;
+  }
+
+  // Load input
+  let input = textureLoad(inputTexture, texCoord, 0);
+
+  // Select mode (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom)
+  var result: vec4<f32>;
+
+  // Mode selection based on parameter
+  let modeType = ${this.getModeIndex(mode)};
+
+  if (modeType == 0) {
+    result = flowMode(texCoord, texSize, input);
+  } else if (modeType == 1) {
+    result = reactionDiffusionMode(texCoord, texSize, input);
+  } else if (modeType == 2) {
+    result = accumulateMode(texCoord, texSize, input);
+  } else {
+    result = customMode(texCoord, texSize, input);
+  }
+
+  textureStore(outputTexture, vec2<u32>(texCoord), result);
+}`;
+  }
+
+  /**
+   * Convert mode string to index
+   */
+  getModeIndex(mode) {
+    const modes = {
+      'Flow': 0,
+      'Reaction-Diffusion': 1,
+      'Accumulate': 2,
+      'Custom': 3
+    };
+    return modes[mode] || 0;
   }
 
   /**
