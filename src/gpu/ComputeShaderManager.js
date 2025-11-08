@@ -387,7 +387,7 @@ export class ComputeShaderManager {
   /**
    * Dispatch compute shader and copy result to output texture
    */
-  dispatch(commandEncoder, time) {
+  dispatch(commandEncoder, time, profiler = null) {
     if (!this.computePipeline || !this.bindGroup) {
       console.warn('[ComputeShaderManager] Cannot dispatch: pipeline not initialized');
       return;
@@ -413,6 +413,16 @@ export class ComputeShaderManager {
       this.recreateBindGroup();
     }
 
+    // Begin profiling
+    const dispatchId = profiler ? profiler.beginDispatch(
+      commandEncoder,
+      this.node?.kind || 'Compute',
+      {
+        dispatchSize: this.dispatchSize,
+        workgroupSize: this.workgroupSize
+      }
+    ) : -1;
+
     // Create compute pass
     const computePass = commandEncoder.beginComputePass({
       label: 'Compute Pass'
@@ -427,6 +437,11 @@ export class ComputeShaderManager {
     );
 
     computePass.end();
+
+    // End profiling
+    if (profiler) {
+      profiler.endDispatch(commandEncoder, dispatchId);
+    }
 
     // Copy storage texture to output texture
     commandEncoder.copyTextureToTexture(

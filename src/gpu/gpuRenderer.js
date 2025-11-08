@@ -50,6 +50,7 @@ export class GPURenderer {
     this.shaderModule = null;
     this._lastAspectWritten = null;
     this.msaaTexture = null; // MSAA render target
+    this.profiler = null; // ComputeProfiler instance
   }
 
   clear() {
@@ -693,6 +694,11 @@ export class GPURenderer {
       }
     }
 
+    // Begin profiling frame
+    if (this.profiler) {
+      this.profiler.beginFrame();
+    }
+
     const encoder = this.device.createCommandEncoder();
 
     // Execute compute shaders BEFORE fragment shader
@@ -727,6 +733,12 @@ export class GPURenderer {
 
     pass.draw(3, 1, 0, 0);
     pass.end();
+
+    // End profiling frame
+    if (this.profiler) {
+      this.profiler.endFrame(encoder);
+    }
+
     this.device.queue.submit([encoder.finish()]);
   }
 

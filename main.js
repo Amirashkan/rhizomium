@@ -26,6 +26,8 @@ import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
 import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
 import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
+import { ComputeProfiler } from './src/gpu/ComputeProfiler.js';
+import { ComputeProfilerOverlay } from './src/ui/ComputeProfilerOverlay.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -104,6 +106,22 @@ window.gpuRenderer = new GPURenderer(device, canvas);
         editor.paramPanel.setDevice(window.gpuRenderer.device);
         console.log("WebGPU device re-set for WGSL editor after reload");
       }
+
+      // Reinitialize profiler if it exists
+      if (computeProfiler) {
+        computeProfiler.destroy();
+      }
+      computeProfiler = new ComputeProfiler(device);
+      window.computeProfiler = computeProfiler;
+
+      // Set profiler on renderer
+      if (window.gpuRenderer) {
+        window.gpuRenderer.profiler = computeProfiler;
+      }
+
+      // Enable profiler
+      computeProfiler.setEnabled(true);
+      console.log("ComputeProfiler reinitialized");
     }
 
     if (device) {
@@ -141,6 +159,8 @@ let timelinePanel = null;
 let vjControlPanel = null;
 let computeShaderTest = null;
 let computeExecutor = null;
+let computeProfiler = null;
+let profilerOverlay = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -209,6 +229,32 @@ async function initialize() {
         console.log("ComputeExecutor created successfully");
       } catch (error) {
         console.error("Failed to create ComputeExecutor:", error);
+      }
+
+      // Initialize compute profiler
+      try {
+        computeProfiler = new ComputeProfiler(device);
+        window.computeProfiler = computeProfiler;
+
+        // Set profiler on renderer and executor
+        if (window.gpuRenderer) {
+          window.gpuRenderer.profiler = computeProfiler;
+        }
+        if (computeExecutor) {
+          computeExecutor.setProfiler(computeProfiler);
+        }
+
+        // Create profiler overlay
+        profilerOverlay = new ComputeProfilerOverlay();
+        window.profilerOverlay = profilerOverlay;
+
+        // Enable profiler by default
+        computeProfiler.setEnabled(true);
+
+        console.log("ComputeProfiler initialized successfully");
+        console.log("Profiler overlay available - press Ctrl+P to toggle");
+      } catch (error) {
+        console.error("Failed to initialize ComputeProfiler:", error);
       }
     }
 
@@ -2465,6 +2511,12 @@ function handleRenderFrame(frameState) {
   // FPS counter - ALWAYS update for performance monitoring
   if (!frameState.manual && floatingPreview?.fpsCounter) {
     floatingPreview.fpsCounter.frame();
+  }
+
+  // Update compute profiler overlay
+  if (profilerOverlay && computeProfiler) {
+    const metrics = computeProfiler.getMetrics();
+    profilerOverlay.update(metrics);
   }
 
   // Undo UI updates (only if not dragging)
