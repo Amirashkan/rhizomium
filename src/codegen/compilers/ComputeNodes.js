@@ -138,7 +138,7 @@ export class ComputeNodes {
     const speed = this.getParamValue(node, 'speed', 0.1);
     const colorize = this.getParamValue(node, 'colorize', true);
 
-    return `
+    const shader = `
 // Compute Noise Shader
 struct Uniforms {
   resolution: vec2<f32>,
@@ -223,6 +223,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, texCoord, vec4<f32>(noiseValue, noiseValue, noiseValue, 1.0));
   `}
 }`;
+
+    console.log('[ComputeNodes] Generated noise shader:\n', shader);
+    return shader;
   }
 
   /**
