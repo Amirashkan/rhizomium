@@ -5,16 +5,21 @@
  * - Dispatches compute shaders before fragment shader
  * - Handles auto re-dispatch when inputs change
  * - Manages compute output textures as shader bindings
+ * - Supports both ComputeNodeBase (unified API) and legacy ComputeShaderManager
  */
 
 import { ComputeShaderManager } from './ComputeShaderManager.js';
+import { ComputeNodeBase } from './ComputeNodeBase.js';
 
 export class ComputeExecutor {
   constructor(device) {
     this.device = device;
 
-    // Map of nodeId -> ComputeShaderManager
+    // Map of nodeId -> ComputeShaderManager or ComputeNodeBase
     this.computeManagers = new Map();
+
+    // Map of nodeId -> ComputeNodeBase (for unified API nodes)
+    this.computeNodes = new Map();
 
     // Map of nodeId -> { texture, sampler, bindGroup }
     this.computeTextures = new Map();
@@ -91,14 +96,19 @@ export class ComputeExecutor {
       return;
     }
 
-    // Dispatch all compute shaders
+    // Dispatch all compute shaders (both legacy and unified API)
     for (const [nodeId, manager] of this.computeManagers) {
       try {
         // Check if inputs have changed
         const shouldUpdate = this.checkInputsChanged(nodeId);
 
         if (shouldUpdate) {
-          manager.dispatch(commandEncoder, time);
+          // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
+          if (manager instanceof ComputeNodeBase) {
+            manager.dispatch(this.device, commandEncoder, time);
+          } else {
+            manager.dispatch(commandEncoder, time);
+          }
         }
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
@@ -254,7 +264,125 @@ export class ComputeExecutor {
     return {
       nodeCount: this.computeManagers.size,
       initialized: this.initialized,
-      nodes: Array.from(this.computeManagers.keys())
+      nodes: Array.from(this.computeManagers.keys()),
+      unifiedApiNodes: Array.from(this.computeNodes.keys())
     };
+  }
+
+  /**
+   * Add a ComputeNodeBase instance directly (unified API)
+   * This allows creating compute nodes with the unified API outside of the registry
+   *
+   * @param {ComputeNodeBase} computeNode - Initialized ComputeNodeBase instance
+   */
+  addComputeNode(computeNode) {
+    if (!(computeNode instanceof ComputeNodeBase)) {
+      throw new Error('[ComputeExecutor] addComputeNode requires a ComputeNodeBase instance');
+    }
+
+    if (!computeNode.initialized) {
+      console.warn(`[ComputeExecutor] Adding uninitialized node ${computeNode.id}`);
+    }
+
+    const nodeId = computeNode.id;
+
+    // Store node in both maps
+    this.computeNodes.set(nodeId, computeNode);
+    this.computeManagers.set(nodeId, computeNode);
+
+    // Create sampler for this texture
+    const sampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'repeat',
+      addressModeV: 'repeat'
+    });
+
+    // Store texture and sampler
+    this.computeTextures.set(nodeId, {
+      texture: computeNode.getOutputTexture(),
+      sampler,
+      manager: computeNode
+    });
+
+    console.log(`[ComputeExecutor] Added compute node: ${computeNode.kind} (${nodeId})`);
+
+    return computeNode;
+  }
+
+  /**
+   * Remove a compute node
+   * @param {string} nodeId - Node ID to remove
+   */
+  removeComputeNode(nodeId) {
+    const node = this.computeManagers.get(nodeId);
+    if (node) {
+      // Destroy resources
+      if (node instanceof ComputeNodeBase) {
+        node.destroy();
+      } else if (typeof node.destroy === 'function') {
+        node.destroy();
+      }
+
+      this.computeManagers.delete(nodeId);
+      this.computeNodes.delete(nodeId);
+      this.computeTextures.delete(nodeId);
+      this.inputHashes.delete(nodeId);
+
+      console.log(`[ComputeExecutor] Removed compute node: ${nodeId}`);
+    }
+  }
+
+  /**
+   * Get a compute node by ID
+   * @param {string} nodeId - Node ID
+   * @returns {ComputeNodeBase|null} The compute node or null
+   */
+  getComputeNode(nodeId) {
+    return this.computeNodes.get(nodeId) || null;
+  }
+
+  /**
+   * Set a uniform on a compute node (unified API convenience method)
+   * @param {string} nodeId - Node ID
+   * @param {string} uniformName - Uniform parameter name
+   * @param {any} value - Parameter value
+   */
+  setUniform(nodeId, uniformName, value) {
+    const node = this.computeNodes.get(nodeId);
+    if (node) {
+      node.setUniform(uniformName, value);
+    } else {
+      console.warn(`[ComputeExecutor] Node ${nodeId} not found or not a ComputeNodeBase instance`);
+    }
+  }
+
+  /**
+   * Serialize all compute nodes
+   * @returns {Array<Object>} Array of serialized node data
+   */
+  serializeAll() {
+    const serialized = [];
+    for (const [nodeId, node] of this.computeNodes) {
+      serialized.push(node.serialize());
+    }
+    return serialized;
+  }
+
+  /**
+   * Deserialize and add compute nodes
+   * Note: Nodes must be initialized with WGSL after deserialization
+   *
+   * @param {Array<Object>} data - Array of serialized node data
+   * @returns {Array<ComputeNodeBase>} Array of deserialized nodes
+   */
+  deserializeAll(data) {
+    const nodes = [];
+    for (const nodeData of data) {
+      const node = ComputeNodeBase.deserialize(this.device, nodeData);
+      nodes.push(node);
+      // Note: Caller must initialize nodes with WGSL before adding to executor
+    }
+    return nodes;
   }
 }
