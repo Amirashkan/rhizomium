@@ -135,5 +135,24 @@ export const ComputeNodes = {
     ],
     description: "Cellular automata simulation (Game of Life, etc.)",
     workgroupSize: [8, 8, 1]
+  },
+
+  ComputeFeedbackField: {
+    label: "Feedback Field",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'mode', type: 'select', options: ['Flow', 'Reaction-Diffusion', 'Accumulate', 'Custom'], default: 'Flow' },
+      { name: 'decay', type: 'float', default: 0.98, min: 0.0, max: 1.0 },
+      { name: 'diffusion', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
+      { name: 'feedback', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
+      { name: 'reset', type: 'boolean', default: false },
+      { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' }
+    ],
+    description: "Persistent feedback field for simulations using FeedbackManager",
+    workgroupSize: [8, 8, 1]
   }
 };
