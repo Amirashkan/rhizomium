@@ -25,6 +25,7 @@ import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
 import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
+import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -133,6 +134,7 @@ let timelineManager = null;
 let timelinePanel = null;
 let vjControlPanel = null;
 let computeShaderTest = null;
+let computeExecutor = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -192,6 +194,15 @@ async function initialize() {
         console.log("ComputeShaderTest created successfully");
       } catch (error) {
         console.error("Failed to create ComputeShaderTest:", error);
+      }
+
+      // Initialize compute executor for compute shader nodes
+      try {
+        computeExecutor = new ComputeExecutor(device);
+        window.computeExecutor = computeExecutor;
+        console.log("ComputeExecutor created successfully");
+      } catch (error) {
+        console.error("Failed to create ComputeExecutor:", error);
       }
     }
 
@@ -2299,6 +2310,13 @@ function updateShaderFromGraph() {
       lastUniformUpdate = performance.now();
       if (typeof updateStatus === "function") {
         updateStatus("Shader compiled");
+      }
+
+      // Initialize compute nodes after shader compilation
+      if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+        computeExecutor.initialize().catch(err => {
+          console.error('[ComputeExecutor] Initialization failed:', err);
+        });
       }
 
       // Send shader update to LiveShaderStream if active
