@@ -316,6 +316,19 @@ export class ShaderPreviewManager {
   }
 
   /**
+   * Destroy preview texture for a specific node
+   * @param {string} nodeId - Node ID
+   */
+  destroyPreviewTexture(nodeId) {
+    if (this.gpuRenderer && typeof this.gpuRenderer.destroyPreviewTexture === 'function') {
+      this.gpuRenderer.destroyPreviewTexture(nodeId);
+    }
+    this.shaderCache.delete(nodeId);
+    this.pendingNodes.delete(nodeId);
+    console.log(`[ShaderPreviewManager] Destroyed preview for node ${nodeId}`);
+  }
+
+  /**
    * Clear all preview caches
    */
   clearCache() {

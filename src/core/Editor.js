@@ -1274,17 +1274,20 @@ connectGPURenderer(renderFunction) {
 
       this.graph.nodes.splice(nodeIndex, 1);
       console.log(`Node ${nodeToDelete.kind}(${nodeToDelete.id}) deleted from graph`);
-      
+
       if (connectionsRemoved > 0) {
         console.log(`Removed ${connectionsRemoved} connections to deleted node`);
       }
 
+      // Clean up GPU resources for this node
+      this.cleanupNodeResources(nodeToDelete);
+
       this.onChange('Node Deletion');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Node Deletion' });
-      
+
       // PERFORMANCE FIX: Use debounced rebuild
       this.triggerShaderRebuild('Node Deletion');
-      
+
       this.safeDraw();
 
       return true;
@@ -1367,9 +1370,14 @@ connectGPURenderer(renderFunction) {
         this.graph.nodes.splice(index, 1);
         console.log(`Node ${node.kind}(${node.id}) deleted from graph`);
       });
-      
+
+      // Clean up GPU resources for all deleted nodes
+      validNodes.forEach(node => {
+        this.cleanupNodeResources(node);
+      });
+
       console.log(`Group deletion completed: ${validNodes.length} nodes, ${connectionsRemoved} connections`);
-      
+
       this.onChange('Group Deletion');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Group Deletion' });
       
@@ -1938,7 +1946,71 @@ connectGPURenderer(renderFunction) {
   }
 
   // ---- CLEANUP AND DISPOSAL ----
-  
+
+  /**
+   * Clean up all GPU resources associated with a node
+   * @param {Object} node - The node being deleted
+   */
+  cleanupNodeResources(node) {
+    if (!node || !node.id) {
+      console.warn('Cannot cleanup resources: invalid node');
+      return;
+    }
+
+    const nodeId = node.id;
+    console.log(`[Editor] Cleaning up resources for node: ${node.kind} (${nodeId})`);
+
+    try {
+      // 1. Clean up compute executor resources
+      if (window.computeExecutor && typeof window.computeExecutor.removeComputeNode === 'function') {
+        window.computeExecutor.removeComputeNode(nodeId);
+        console.log(`  - Removed compute node from executor`);
+      }
+
+      // 2. Clean up texture manager resources (for texture nodes)
+      if (window.textureManager && typeof window.textureManager.removeTexture === 'function') {
+        window.textureManager.removeTexture(nodeId);
+        console.log(`  - Removed texture from texture manager`);
+      }
+
+      // 3. Clean up preview textures
+      if (this.shaderPreviewManager && typeof this.shaderPreviewManager.destroyPreviewTexture === 'function') {
+        this.shaderPreviewManager.destroyPreviewTexture(nodeId);
+        console.log(`  - Destroyed preview texture`);
+      }
+
+      // 4. Clean up GPU preview renderer cache
+      if (window.gpuPreviewRenderer && typeof window.gpuPreviewRenderer.destroyPreviewTexture === 'function') {
+        window.gpuPreviewRenderer.destroyPreviewTexture(nodeId);
+        console.log(`  - Destroyed GPU preview renderer texture`);
+      }
+
+      // 5. Clean up from resource tracker registry (if not already cleaned by compute executor)
+      if (typeof window.globalResourceRegistry !== 'undefined' && window.globalResourceRegistry) {
+        const stats = window.globalResourceRegistry.destroy(nodeId);
+        if (stats) {
+          console.log(`  - Resource tracker cleanup:`, stats);
+        }
+      }
+
+      // 6. Remove any preview from the editor's cache
+      if (this.nodePreviews && this.nodePreviews.has(nodeId)) {
+        this.nodePreviews.delete(nodeId);
+        console.log(`  - Removed from editor preview cache`);
+      }
+
+      console.log(`[Editor] Resource cleanup completed for ${nodeId}`);
+
+    } catch (error) {
+      console.error(`[Editor] Error cleaning up resources for node ${nodeId}:`, error);
+      window.errorHandler?.handleError(error, {
+        component: 'cleanup-node-resources',
+        nodeId,
+        nodeKind: node.kind
+      });
+    }
+  }
+
   dispose() {
     try {
       console.log('Disposing Editor...');

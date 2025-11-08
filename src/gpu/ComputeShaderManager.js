@@ -1,3 +1,5 @@
+import { globalResourceRegistry } from './ResourceTracker.js';
+
 /**
  * ComputeShaderManager
  * Manages WebGPU compute pipelines and compute shader execution
@@ -32,6 +34,9 @@ export class ComputeShaderManager {
 
     // Feedback support
     this.supportsFeedback = false;
+
+    // Resource tracking
+    this.resourceTracker = node?.id ? globalResourceRegistry.getOrCreate(node.id) : null;
   }
 
   /**
@@ -75,6 +80,7 @@ export class ComputeShaderManager {
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
         label: 'Feedback Texture A'
       });
+      this.resourceTracker?.trackTexture(this.storageTextureA, { width, height, format: 'rgba8unorm', type: 'feedback-A' });
 
       this.storageTextureB = this.device.createTexture({
         size: [width, height, 1],
@@ -82,6 +88,7 @@ export class ComputeShaderManager {
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
         label: 'Feedback Texture B'
       });
+      this.resourceTracker?.trackTexture(this.storageTextureB, { width, height, format: 'rgba8unorm', type: 'feedback-B' });
 
       // Initialize feedback textures for reaction-diffusion
       if (this.node?.kind === 'ComputeReactionDiffusion') {
@@ -100,6 +107,7 @@ export class ComputeShaderManager {
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
         label: 'Storage Texture'
       });
+      this.resourceTracker?.trackTexture(this.storageTexture, { width, height, format: 'rgba8unorm', type: 'storage' });
 
       console.log('[ComputeShaderManager] Storage texture created');
     }
@@ -111,6 +119,7 @@ export class ComputeShaderManager {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
       label: 'Output Texture'
     });
+    this.resourceTracker?.trackTexture(this.outputTexture, { width, height, format: 'rgba8unorm', type: 'output' });
   }
 
   /**
@@ -199,6 +208,7 @@ export class ComputeShaderManager {
       size: 32, // 8 floats * 4 bytes = 32 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
+    this.resourceTracker?.trackBuffer(this.uniformBuffer, 32);
 
     console.log('[ComputeShaderManager] Uniform buffer created');
   }
@@ -516,13 +526,23 @@ export class ComputeShaderManager {
    * Clean up resources
    */
   destroy() {
-    this.storageTexture?.destroy();
-    this.outputTexture?.destroy();
-    this.uniformBuffer?.destroy();
+    // Use resource tracker if available (it will handle all tracked resources)
+    if (this.resourceTracker) {
+      this.resourceTracker.destroy();
+    } else {
+      // Fallback: manual cleanup if no tracker
+      this.storageTexture?.destroy();
+      this.storageTextureA?.destroy();
+      this.storageTextureB?.destroy();
+      this.outputTexture?.destroy();
+      this.uniformBuffer?.destroy();
+    }
 
     this.computePipeline = null;
     this.bindGroup = null;
     this.storageTexture = null;
+    this.storageTextureA = null;
+    this.storageTextureB = null;
     this.outputTexture = null;
     this.uniformBuffer = null;
 
