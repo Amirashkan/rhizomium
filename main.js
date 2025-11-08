@@ -1787,13 +1787,15 @@ function setupKeyboardShortcuts() {
         }
         break;
 
-      case "t":
-        e.preventDefault();
-        if (computeShaderTest) {
-          computeShaderTest.toggle();
-          updateStatus(computeShaderTest.isEnabled ? "Compute shader test enabled" : "Compute shader test disabled");
-        } else {
-          updateStatus("Compute shader test not available", "warning");
+      case "c":
+        if (e.shiftKey) {
+          e.preventDefault();
+          if (computeShaderTest) {
+            computeShaderTest.toggle();
+            updateStatus(computeShaderTest.isEnabled ? "Compute shader test enabled" : "Compute shader test disabled");
+          } else {
+            updateStatus("Compute shader test not available", "warning");
+          }
         }
         break;
 
