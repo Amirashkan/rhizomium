@@ -1,4 +1,5 @@
 // src/ui/ParameterPanel.js - Clean implementation with binding support
+// VERSION: d5c395f - WITH WGSL EDITOR
 
 import { ExpressionTextInputHandler, ExpressionParameterValueManager, expressionSystem, expressionStyles } from '../utils/ParameterExpressionSystem.js';
 import { SelectInputHandler } from './components/SelectInputHandler.js';
@@ -7,6 +8,8 @@ import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
 import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
+
+console.log('[ParameterPanel] Loading version d5c395f with WGSL editor support');
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
