@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "name": "Blur Field with Chaining",
+  "description": "Demonstrates compute node chaining by generating noise and applying a high-quality Gaussian blur. Shows how to connect multiple compute nodes together for complex effects.",
+  "category": "Effects",
+  "tags": ["blur", "gaussian", "post-processing", "chaining"],
+  "author": "Rhizomium",
+  "presets": [
+    {
+      "id": "preset_blur_field_001",
+      "name": "Noise + Blur Chain",
+      "parameterState": {
+        "noise_source": {
+          "kind": "ComputeNoise",
+          "params": {
+            "scale": 12.0,
+            "octaves": 4,
+            "speed": 0.08,
+            "colorize": true,
+            "resolution": "512"
+          }
+        },
+        "blur_effect": {
+          "kind": "ComputeBlur",
+          "params": {
+            "radius": 8.0,
+            "quality": "High",
+            "direction": "Both"
+          }
+        }
+      },
+      "connections": [
+        {
+          "from": "noise_source.Texture",
+          "to": "blur_effect.Input",
+          "description": "Feed noise texture into blur node"
+        }
+      ],
+      "capturedAt": 1731093900000,
+      "lastUsed": null
+    },
+    {
+      "id": "preset_blur_field_002",
+      "name": "Dual-Pass Blur (Performance)",
+      "parameterState": {
+        "noise_source": {
+          "kind": "ComputeNoise",
+          "params": {
+            "scale": 10.0,
+            "octaves": 3,
+            "speed": 0.1,
+            "colorize": true,
+            "resolution": "512"
+          }
+        },
+        "blur_horizontal": {
+          "kind": "ComputeBlur",
+          "params": {
+            "radius": 10.0,
+            "quality": "Medium",
+            "direction": "Horizontal"
+          }
+        },
+        "blur_vertical": {
+          "kind": "ComputeBlur",
+          "params": {
+            "radius": 10.0,
+            "quality": "Medium",
+            "direction": "Vertical"
+          }
+        }
+      },
+      "connections": [
+        {
+          "from": "noise_source.Texture",
+          "to": "blur_horizontal.Input",
+          "description": "First pass: horizontal blur"
+        },
+        {
+          "from": "blur_horizontal.Texture",
+          "to": "blur_vertical.Input",
+          "description": "Second pass: vertical blur (more efficient)"
+        }
+      ],
+      "capturedAt": 1731093950000,
+      "lastUsed": null
+    }
+  ],
+  "presetOrder": ["preset_blur_field_001", "preset_blur_field_002"],
+  "usage": {
+    "description": "This preset showcases compute node chaining. It creates a noise source and applies Gaussian blur, demonstrating how to build processing pipelines. The second variation shows the dual-pass technique for more efficient large-radius blurs.",
+    "workflow": [
+      "ComputeNoise generates animated texture",
+      "ComputeBlur reads and processes the texture",
+      "Output can be used in fragment shaders or further processing"
+    ],
+    "tips": [
+      "Use 'Both' direction for uniform blur in all directions",
+      "Use separate H/V passes for better performance with large radius",
+      "Higher quality increases sample count (Low=9, Medium=17, High=25)",
+      "Chain multiple blurs for extreme softness effects"
+    ]
+  }
+}
