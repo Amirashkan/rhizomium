@@ -407,6 +407,11 @@ input.addEventListener("input", (e) => {
         // This allows the continuous render loop to skip expensive operations
         if (window.editor) {
           window.editor._parameterDragging = true;
+
+          // Notify shader preview manager of edit start (for throttling)
+          if (window.editor.shaderPreviewManager) {
+            window.editor.shaderPreviewManager.beginInteraction('edit');
+          }
         }
 
         e.preventDefault();
@@ -492,6 +497,11 @@ input.addEventListener("input", (e) => {
           // PERFORMANCE: Clear drag flag to resume normal rendering
           if (window.editor) {
             window.editor._parameterDragging = false;
+
+            // Notify shader preview manager of edit end (for throttling)
+            if (window.editor.shaderPreviewManager) {
+              window.editor.shaderPreviewManager.endInteraction('edit');
+            }
           }
 
           window.removeEventListener("mousemove", onMouseMove);

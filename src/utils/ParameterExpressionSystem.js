@@ -986,6 +986,11 @@ isIncomplete(value) {
         // PERFORMANCE: Signal that parameter drag is active
         if (window.editor) {
           window.editor._parameterDragging = true;
+
+          // Notify shader preview manager of edit start (for throttling)
+          if (window.editor.shaderPreviewManager) {
+            window.editor.shaderPreviewManager.beginInteraction('edit');
+          }
         }
 
         e.preventDefault();
@@ -1034,6 +1039,11 @@ isIncomplete(value) {
           // PERFORMANCE: Clear drag flag to resume normal rendering
           if (window.editor) {
             window.editor._parameterDragging = false;
+
+            // Notify shader preview manager of edit end (for throttling)
+            if (window.editor.shaderPreviewManager) {
+              window.editor.shaderPreviewManager.endInteraction('edit');
+            }
           }
 
           if (isDragging && dragStartValue !== null) {
