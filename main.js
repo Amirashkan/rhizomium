@@ -28,6 +28,7 @@ import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
 import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
 import { ComputeProfiler } from './src/gpu/ComputeProfiler.js';
 import { ComputeProfilerOverlay } from './src/ui/ComputeProfilerOverlay.js';
+import { GPUPerformanceMonitor } from './src/utils/GPUPerformanceMonitor.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -114,6 +115,10 @@ window.gpuRenderer = new GPURenderer(device, canvas);
       computeProfiler = new ComputeProfiler(device);
       window.computeProfiler = computeProfiler;
 
+      // Recreate profiler overlay
+      profilerOverlay = new ComputeProfilerOverlay();
+      window.profilerOverlay = profilerOverlay;
+
       // Set profiler on renderer
       if (window.gpuRenderer) {
         window.gpuRenderer.profiler = computeProfiler;
@@ -121,6 +126,17 @@ window.gpuRenderer = new GPURenderer(device, canvas);
 
       // Enable profiler
       computeProfiler.setEnabled(true);
+
+      // Reinitialize GPU Performance Monitor
+      gpuPerformanceMonitor = new GPUPerformanceMonitor({
+        autoShowOverlay: true,
+        enableWarnings: true,
+        fpsWarningThreshold: 30,
+        frameTimeWarningThreshold: 33.33
+      });
+      gpuPerformanceMonitor.initialize(device);
+      window.gpuPerformanceMonitor = gpuPerformanceMonitor;
+
       console.log("ComputeProfiler reinitialized");
     }
 
@@ -161,6 +177,7 @@ let computeShaderTest = null;
 let computeExecutor = null;
 let computeProfiler = null;
 let profilerOverlay = null;
+let gpuPerformanceMonitor = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -250,6 +267,16 @@ async function initialize() {
 
         // Enable profiler by default
         computeProfiler.setEnabled(true);
+
+        // Initialize GPU Performance Monitor
+        gpuPerformanceMonitor = new GPUPerformanceMonitor({
+          autoShowOverlay: true, // Show overlay on startup
+          enableWarnings: true,
+          fpsWarningThreshold: 30,
+          frameTimeWarningThreshold: 33.33
+        });
+        gpuPerformanceMonitor.initialize(device);
+        window.gpuPerformanceMonitor = gpuPerformanceMonitor;
 
         console.log("ComputeProfiler initialized successfully");
         console.log("Profiler overlay available - press Ctrl+P to toggle");
