@@ -352,6 +352,186 @@ PointCloudRenderer / MeshRenderer
 3D Scene
 ```
 
+## Real-Time Reactive Updates (NEW)
+
+The field visualization system now supports **automatic real-time updates** when parameters change. This is perfect for interactive UI controls, sliders, and dynamic parameter adjustments.
+
+### FieldVisualizerManager
+
+The `FieldVisualizerManager` handles automatic parameter change detection and visualization regeneration:
+
+```javascript
+import { FieldVisualizerManager } from './scene/FieldVisualizerManager.js';
+
+// Create manager with event system
+const manager = new FieldVisualizerManager(device);
+
+// Create field mapper with event system integration
+const fieldMapper = new ComputeFieldMapperNode('Field', {
+    dimensions: [256, 256, 1],
+    mappingMode: 'points',
+    eventSystem: manager.getEventSystem()  // Enable reactive updates!
+});
+
+await fieldMapper.initializeVisualizer(device);
+
+// Register for automatic updates
+manager.registerFieldMapper('Field', fieldMapper, computeNode);
+
+// In your render loop:
+async function render(time) {
+    // Update parameters - visualization will automatically regenerate!
+    manager.updateParameter('Field', 'threshold', 0.3 + Math.sin(time) * 0.2);
+    manager.updateParameter('Field', 'displacementScale', 0.5);
+
+    // Process all pending updates automatically
+    const updatedGeometries = await manager.processPendingUpdates(time);
+
+    // Render...
+    requestAnimationFrame(render);
+}
+```
+
+### UI Integration Example
+
+Connect UI sliders to automatically update the 3D visualization:
+
+```javascript
+// HTML:
+// <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.3">
+// <input type="range" id="pointsize-slider" min="0.001" max="0.1" step="0.001" value="0.02">
+
+const thresholdSlider = document.getElementById('threshold-slider');
+thresholdSlider.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+    // This automatically triggers 3D visualization update!
+    manager.updateParameter('Field', 'threshold', value);
+});
+
+const pointSizeSlider = document.getElementById('pointsize-slider');
+pointSizeSlider.addEventListener('input', (e) => {
+    const value = parseFloat(e.target.value);
+    manager.updateParameter('Field', 'pointSize', value);
+});
+```
+
+### Node Editor UI Integration
+
+The `ComputeFieldMapper` node is now available in the node editor UI with all parameters exposed:
+
+```javascript
+// In your node editor, the ComputeFieldMapper node appears with these controls:
+// - Width, Height, Depth sliders
+// - Mapping Mode dropdown (points, surface, volume)
+// - Threshold slider
+// - Point Size slider
+// - Color Mode dropdown
+// - Color gradient controls (colorA, colorB)
+// - Displacement controls
+// - And more...
+```
+
+All parameter changes through the node editor UI will automatically trigger real-time 3D visualization updates!
+
+### Event System Integration
+
+The system uses `ParameterEventSystem` for reactive updates:
+
+```javascript
+import { ParameterEventSystem, ParameterEvents } from './utils/ParameterEventSystem.js';
+
+const eventSystem = new ParameterEventSystem();
+
+// Listen for parameter changes
+eventSystem.on(ParameterEvents.PARAMETER_CHANGED, (data) => {
+    console.log(`Parameter ${data.parameterName} changed to ${data.newValue}`);
+});
+
+// Emit parameter change (triggers automatic update)
+eventSystem.emit(ParameterEvents.PARAMETER_CHANGED, {
+    nodeId: 'Field',
+    parameterName: 'threshold',
+    newValue: 0.5
+});
+```
+
+### Available Parameters for Dynamic Updates
+
+All these parameters can be updated in real-time:
+
+**Field Configuration:**
+- `width`, `height`, `depth` - Field dimensions
+- `boundsMinX`, `boundsMinY`, `boundsMinZ` - Minimum bounds
+- `boundsMaxX`, `boundsMaxY`, `boundsMaxZ` - Maximum bounds
+- `mappingMode` - Visualization mode
+
+**Visualization:**
+- `threshold` - Point generation threshold
+- `isoThreshold` - Surface isosurface threshold
+- `pointSize` - Point size in world units
+- `sampleRate` - Sampling rate
+
+**Colors:**
+- `colorMode` - Color mode (solid, gradient, field)
+- `colorAR`, `colorAG`, `colorAB`, `colorAA` - Gradient start color
+- `colorBR`, `colorBG`, `colorBB`, `colorBA` - Gradient end color
+- `solidColorR`, `solidColorG`, `solidColorB`, `solidColorA` - Solid color
+- `colorScaleMin`, `colorScaleMax` - Color mapping range
+
+**Displacement:**
+- `displacementScale` - Displacement amount
+- `displacementAxisX`, `displacementAxisY`, `displacementAxisZ` - Displacement direction
+
+### Complete Reactive Example
+
+```javascript
+import { FieldVisualizerManager } from './scene/FieldVisualizerManager.js';
+import { ComputeFieldMapperNode } from './scene/nodes/ComputeFieldMapperNode.js';
+import { ReactiveFieldExample, setupUISliders } from './examples/FieldVisualizationExample.js';
+
+// Create reactive example
+const device = await navigator.gpu.requestAdapter()
+    .then(a => a.requestDevice());
+const canvas = document.querySelector('canvas');
+
+const example = new ReactiveFieldExample(device, canvas);
+await example.initialize();
+
+// Setup UI sliders (optional)
+setupUISliders(example);
+
+// Render loop with automatic updates
+function animate(time) {
+    await example.update(time * 0.001);
+    // Visualization automatically regenerates when parameters change!
+    requestAnimationFrame(animate);
+}
+animate(0);
+```
+
+### Performance Notes
+
+- Parameter changes are batched - multiple changes in the same frame only trigger one regeneration
+- Use `updateFrequency` to limit updates: `updateFrequency: 2` updates every 2 frames
+- The system tracks "dirty" state - no unnecessary regeneration
+- Updates are asynchronous and non-blocking
+
+### Manual vs Automatic Updates
+
+**Old way (manual):**
+```javascript
+fieldMapper.setVisualizationParam('threshold', 0.5);
+await fieldMapper.generateVisualization(texture);  // Must call manually
+```
+
+**New way (automatic):**
+```javascript
+manager.updateParameter('Field', 'threshold', 0.5);
+await manager.processPendingUpdates();  // Automatically regenerates if needed
+```
+
+See `/src/examples/FieldVisualizationExample.js` for complete working examples with reactive updates!
+
 ## Future Enhancements
 
 - GPU-based point cloud generation (compute shader)

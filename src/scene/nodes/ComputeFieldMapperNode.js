@@ -1,5 +1,6 @@
 import { Node } from './Node.js';
 import { FieldVisualizer } from '../FieldVisualizer.js';
+import { ParameterEvents } from '../../utils/ParameterEventSystem.js';
 
 /**
  * ComputeFieldMapper node for mapping compute shader outputs to 3D space
@@ -12,9 +13,16 @@ export class ComputeFieldMapperNode extends Node {
      * @param {number[]} options.dimensions - [width, height, depth] of the compute field
      * @param {Object} options.computeShader - reference to compute shader
      * @param {string} options.mappingMode - how to map the field ('volume', 'surface', 'points')
+     * @param {ParameterEventSystem} options.eventSystem - Event system for parameter changes
      */
     constructor(name = '', options = {}) {
         super(name);
+
+        /**
+         * Parameter event system
+         * @type {ParameterEventSystem|null}
+         */
+        this.eventSystem = options.eventSystem || null;
 
         /**
          * Dimensions of the compute field [width, height, depth]
@@ -123,6 +131,203 @@ export class ComputeFieldMapperNode extends Node {
          * @type {Object|null}
          */
         this.geometry = null;
+
+        /**
+         * Flag indicating if visualization needs regeneration
+         * @type {boolean}
+         */
+        this.needsUpdate = true;
+
+        /**
+         * Event listener unsubscribe functions
+         * @type {Function[]}
+         */
+        this._unsubscribers = [];
+
+        // Subscribe to parameter changes if event system is provided
+        if (this.eventSystem) {
+            this._setupEventListeners();
+        }
+    }
+
+    /**
+     * Setup event listeners for parameter changes
+     * @private
+     */
+    _setupEventListeners() {
+        // Listen for parameter changes on this node
+        const unsubscribe = this.eventSystem.on(ParameterEvents.PARAMETER_CHANGED, (data) => {
+            if (data.nodeId === this.id || data.nodeId === this.name) {
+                this._handleParameterChange(data.parameterName, data.newValue);
+            }
+        });
+        this._unsubscribers.push(unsubscribe);
+    }
+
+    /**
+     * Handle parameter change from UI
+     * @param {string} paramName - Parameter name from UI
+     * @param {*} value - New parameter value
+     * @private
+     */
+    _handleParameterChange(paramName, value) {
+        // Map UI parameters to internal structure
+        switch (paramName) {
+            case 'width':
+                this.setDimensions(value, this.dimensions[1], this.dimensions[2]);
+                break;
+            case 'height':
+                this.setDimensions(this.dimensions[0], value, this.dimensions[2]);
+                break;
+            case 'depth':
+                this.setDimensions(this.dimensions[0], this.dimensions[1], value);
+                break;
+
+            case 'mappingMode':
+                this.setMappingMode(value);
+                break;
+            case 'updateFrequency':
+                this.updateFrequency = value;
+                break;
+
+            case 'boundsMinX':
+                this.fieldBounds.min[0] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'boundsMinY':
+                this.fieldBounds.min[1] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'boundsMinZ':
+                this.fieldBounds.min[2] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'boundsMaxX':
+                this.fieldBounds.max[0] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'boundsMaxY':
+                this.fieldBounds.max[1] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'boundsMaxZ':
+                this.fieldBounds.max[2] = value;
+                this.markNeedsUpdate();
+                break;
+
+            case 'threshold':
+                this.visualizationParams.threshold = value;
+                this.markNeedsUpdate();
+                break;
+            case 'isoThreshold':
+                this.isoThreshold = value;
+                this.markNeedsUpdate();
+                break;
+            case 'pointSize':
+                this.visualizationParams.pointSize = value;
+                this.markNeedsUpdate();
+                break;
+            case 'sampleRate':
+                this.visualizationParams.sampleRate = value;
+                this.markNeedsUpdate();
+                break;
+
+            case 'colorMode':
+                this.visualizationParams.colorMode = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorAR':
+                this.visualizationParams.colorA[0] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorAG':
+                this.visualizationParams.colorA[1] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorAB':
+                this.visualizationParams.colorA[2] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorAA':
+                this.visualizationParams.colorA[3] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorBR':
+                this.visualizationParams.colorB[0] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorBG':
+                this.visualizationParams.colorB[1] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorBB':
+                this.visualizationParams.colorB[2] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorBA':
+                this.visualizationParams.colorB[3] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'solidColorR':
+                this.visualizationParams.solidColor[0] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'solidColorG':
+                this.visualizationParams.solidColor[1] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'solidColorB':
+                this.visualizationParams.solidColor[2] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'solidColorA':
+                this.visualizationParams.solidColor[3] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorScaleMin':
+                this.visualizationParams.colorScale[0] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'colorScaleMax':
+                this.visualizationParams.colorScale[1] = value;
+                this.markNeedsUpdate();
+                break;
+
+            case 'displacementScale':
+                this.visualizationParams.displacementScale = value;
+                this.markNeedsUpdate();
+                break;
+            case 'displacementAxisX':
+                this.visualizationParams.displacementAxis[0] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'displacementAxisY':
+                this.visualizationParams.displacementAxis[1] = value;
+                this.markNeedsUpdate();
+                break;
+            case 'displacementAxisZ':
+                this.visualizationParams.displacementAxis[2] = value;
+                this.markNeedsUpdate();
+                break;
+
+            default:
+                console.warn(`[ComputeFieldMapperNode] Unknown parameter: ${paramName}`);
+        }
+    }
+
+    /**
+     * Mark this node as needing visualization update
+     */
+    markNeedsUpdate() {
+        this.needsUpdate = true;
+
+        // Emit node dirty event
+        if (this.eventSystem) {
+            this.eventSystem.emit(ParameterEvents.NODE_DIRTY, {
+                nodeId: this.id || this.name,
+                nodeName: this.name
+            });
+        }
     }
 
     /**
@@ -157,6 +362,7 @@ export class ComputeFieldMapperNode extends Node {
             y: Math.ceil(height / 8),
             z: Math.ceil(depth / 8)
         };
+        this.markNeedsUpdate();
         return this;
     }
 
@@ -168,6 +374,7 @@ export class ComputeFieldMapperNode extends Node {
      */
     setFieldBounds(min, max) {
         this.fieldBounds = { min, max };
+        this.markNeedsUpdate();
         return this;
     }
 
@@ -178,6 +385,7 @@ export class ComputeFieldMapperNode extends Node {
      */
     setMappingMode(mode) {
         this.mappingMode = mode;
+        this.markNeedsUpdate();
         return this;
     }
 
@@ -188,6 +396,7 @@ export class ComputeFieldMapperNode extends Node {
      */
     setIsoThreshold(threshold) {
         this.isoThreshold = threshold;
+        this.markNeedsUpdate();
         return this;
     }
 
@@ -258,12 +467,18 @@ export class ComputeFieldMapperNode extends Node {
     /**
      * Generate visualization from compute shader output
      * @param {GPUTexture} fieldTexture - Output texture from compute shader
+     * @param {boolean} forceUpdate - Force regeneration even if not marked dirty
      * @returns {Promise<Object>} Generated geometry
      */
-    async generateVisualization(fieldTexture) {
+    async generateVisualization(fieldTexture, forceUpdate = false) {
         if (!this.visualizer) {
             console.warn('[ComputeFieldMapperNode] Visualizer not initialized');
             return null;
+        }
+
+        // Only regenerate if needed (unless forced)
+        if (!this.needsUpdate && !forceUpdate && this.geometry) {
+            return this.geometry;
         }
 
         // Update visualizer parameters
@@ -283,6 +498,17 @@ export class ComputeFieldMapperNode extends Node {
             this.geometry = null;
         }
 
+        // Mark as clean
+        this.needsUpdate = false;
+
+        // Emit node clean event
+        if (this.eventSystem) {
+            this.eventSystem.emit(ParameterEvents.NODE_CLEAN, {
+                nodeId: this.id || this.name,
+                nodeName: this.name
+            });
+        }
+
         return this.geometry;
     }
 
@@ -293,6 +519,7 @@ export class ComputeFieldMapperNode extends Node {
      */
     setVisualizationParam(name, value) {
         this.visualizationParams[name] = value;
+        this.markNeedsUpdate();
     }
 
     /**
@@ -338,6 +565,23 @@ export class ComputeFieldMapperNode extends Node {
         json.isoThreshold = this.isoThreshold;
         json.dispatchSize = this.dispatchSize;
         json.updateFrequency = this.updateFrequency;
+        json.visualizationParams = this.visualizationParams;
         return json;
+    }
+
+    /**
+     * Cleanup and unsubscribe from events
+     */
+    dispose() {
+        // Unsubscribe from all events
+        this._unsubscribers.forEach(unsubscribe => unsubscribe());
+        this._unsubscribers = [];
+
+        // Dispose visualizer if it exists
+        if (this.visualizer && this.visualizer.dispose) {
+            this.visualizer.dispose();
+        }
+
+        super.dispose?.();
     }
 }
