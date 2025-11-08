@@ -65,6 +65,13 @@ export function buildWGSL(graph) {
 
   const textureBindings = TextureBindings.generate(graph);
 
+  // Add compute shader texture bindings if compute nodes exist
+  let computeBindings = '';
+  if (window.computeExecutor && window.computeExecutor.initialized) {
+    computeBindings = window.computeExecutor.generateBindingDeclarations();
+    console.log('[glslBuilder] Added compute texture bindings');
+  }
+
   // --- Build the final shader using the WGSL template ---
   const wgsl = generateShader(
     {
@@ -74,6 +81,7 @@ export function buildWGSL(graph) {
       transformHelpers,
       noiseHelpers,
       colorHelpers,
+      computeBindings,
     },
     textureBindings
   );

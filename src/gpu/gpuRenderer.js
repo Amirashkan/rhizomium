@@ -228,9 +228,27 @@ export class GPURenderer {
   }
 
   _lookupTextureBinding(texManager, varName) {
-    const match = /^(textureCube_|texture_|samplerCube_|sampler_)(.+)$/.exec(varName);
+    const match = /^(textureCube_|texture_|samplerCube_|sampler_|compute_)(.+)$/.exec(varName);
     if (!match) return null;
+    const prefix = match[1];
     const sanitizedId = match[2];
+
+    // Check compute textures first (for compute shader nodes)
+    if (prefix === 'compute_' || prefix.startsWith('sampler_compute_')) {
+      const computeExecutor = typeof window !== 'undefined' ? window.computeExecutor : null;
+      if (computeExecutor && computeExecutor.computeTextures) {
+        const actualId = sanitizedId.replace('compute_', '');
+        const computeInfo = computeExecutor.computeTextures.get(actualId);
+        if (computeInfo) {
+          // Return appropriate resource based on prefix
+          if (prefix.startsWith('sampler_')) {
+            return { sampler: computeInfo.sampler };
+          } else {
+            return { textureView: computeInfo.texture.createView() };
+          }
+        }
+      }
+    }
 
     if (texManager.gpuTextures?.get) {
       const gpuInfo = texManager.gpuTextures.get(sanitizedId);
@@ -648,6 +666,11 @@ export class GPURenderer {
     }
 
     const encoder = this.device.createCommandEncoder();
+
+    // Execute compute shaders BEFORE fragment shader
+    if (window.computeExecutor && window.computeExecutor.initialized) {
+      window.computeExecutor.execute(encoder, timeValue);
+    }
 
     // Configure render pass based on MSAA support
     const colorAttachment = {
