@@ -115,18 +115,18 @@ export class ComputeShaderManager {
 
   /**
    * Initialize reaction-diffusion textures with proper initial state
-   * A=1.0 everywhere, B=0.5 in seed regions, B=0.0 elsewhere
+   * A=1.0 everywhere, B=0.15-0.25 in seed regions, tiny noise elsewhere
    */
   initializeReactionDiffusionTextures(width, height) {
     const pixelData = new Uint8Array(width * height * 4);
 
     // Create multiple seed points for interesting patterns
     const seeds = [
-      { x: 0.5, y: 0.5, radius: 0.08 },      // Center
-      { x: 0.3, y: 0.3, radius: 0.03 },      // Top-left
-      { x: 0.7, y: 0.3, radius: 0.03 },      // Top-right
-      { x: 0.3, y: 0.7, radius: 0.03 },      // Bottom-left
-      { x: 0.7, y: 0.7, radius: 0.03 },      // Bottom-right
+      { x: 0.5, y: 0.5, radius: 0.1 },       // Center (larger)
+      { x: 0.25, y: 0.25, radius: 0.04 },    // Top-left
+      { x: 0.75, y: 0.25, radius: 0.04 },    // Top-right
+      { x: 0.25, y: 0.75, radius: 0.04 },    // Bottom-left
+      { x: 0.75, y: 0.75, radius: 0.04 },    // Bottom-right
     ];
 
     for (let y = 0; y < height; y++) {
@@ -138,18 +138,24 @@ export class ComputeShaderManager {
         // A channel (chemical A) - start at 1.0 everywhere
         pixelData[idx + 0] = 255;
 
-        // B channel (chemical B) - start at 0.0 except in seed regions
-        let bValue = 0;
+        // B channel (chemical B) - start very low, slightly higher in seed regions
+        // Background has tiny noise to help pattern formation
+        let bValue = Math.random() * 3; // Background noise: 0-3 (0-1% of max)
+
         for (const seed of seeds) {
           const dx = uvX - seed.x;
           const dy = uvY - seed.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
+
           if (dist < seed.radius) {
-            // Inside seed region - set B to ~0.5 with some randomness
-            bValue = Math.max(bValue, 128 + Math.random() * 64);
+            // Inside seed region - set B to 15-25% (not 50%!)
+            // Smooth falloff from center
+            const falloff = 1.0 - (dist / seed.radius);
+            const seedB = 38 + Math.random() * 26; // 15-25% of 255
+            bValue = Math.max(bValue, seedB * falloff);
           }
         }
-        pixelData[idx + 1] = bValue;
+        pixelData[idx + 1] = Math.floor(bValue);
 
         // G and A channels unused
         pixelData[idx + 2] = 0;
