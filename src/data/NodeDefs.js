@@ -6,6 +6,7 @@ import { MathNodes } from './nodes/MathNodes.js';
 import { UtilityNodes } from './nodes/UtilityNodes.js';
 import { TransformNodes } from './nodes/TransformNodes.js';
 import { BlendNodes } from './nodes/BlendNodes.js';
+import { ComputeNodes } from './nodes/ComputeNodes.js';
 
 let _nextId = 1;
 
@@ -44,7 +45,7 @@ export function updateNodeIdCounter(existingNodes) {
 
 /**
  * Central registry of all node definitions organized by category
- * 
+ *
  * Categories:
  * - Input: Constants, runtime data, and textures (13 nodes)
  * - Math: Scalar and vector mathematical operations (43 nodes)
@@ -52,6 +53,7 @@ export function updateNodeIdCounter(existingNodes) {
  * - Transform: UV coordinate manipulation (11 nodes)
  * - Utility: Data manipulation and component operations (19 nodes)
  * - Blend: Distance field combination operations (7 nodes)
+ * - Compute: GPU-accelerated compute shaders (8 nodes)
  * - Output: Final rendering (1 node)
  */
 export const NodeDefs = {
@@ -62,6 +64,7 @@ export const NodeDefs = {
   ...UtilityNodes,
   ...BlendNodes,
   ...TransformNodes,
+  ...ComputeNodes,
 };
 
 /**
