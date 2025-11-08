@@ -1,2 +1,5 @@
 node_modules/
-editor/src/
+editor/src/*
+!editor/src/ui/
+!editor/src/utils/
+!editor/src/core/
