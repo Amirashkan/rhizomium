@@ -187,6 +187,12 @@ export class ComputeShaderManager {
       return;
     }
 
+    // Debug: Log dispatch (throttled)
+    if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 2000) {
+      console.log(`[ComputeShaderManager] Dispatching at time: ${time.toFixed(2)}s`);
+      this._lastDispatchLog = Date.now();
+    }
+
     // Update uniforms
     this.updateUniforms(time);
 
