@@ -11,6 +11,7 @@ import { PreviewComputer } from "./PreviewComputer.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
+import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
 export class Editor {
   constructor(graph, onChange, undoManager = null) {
     try {
@@ -888,7 +889,10 @@ connectGPURenderer(renderFunction) {
       this.previewSystem = PreviewSystem.create(this);
       window.previewSystem = this.previewSystem;
       this.previewIntegration = this.previewSystem.integration;
-      
+
+      // Initialize ShaderPreviewManager for GPU-based previews
+      this.initializeShaderPreviewManager();
+
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'preview-system-initialization'
@@ -897,6 +901,40 @@ connectGPURenderer(renderFunction) {
       this.previewSystem = null;
       this.previewIntegration = null;
       window.previewSystem = null;
+    }
+  }
+
+  initializeShaderPreviewManager() {
+    try {
+      // Wait for GPU device to be available
+      if (typeof window !== 'undefined' && window.gpuRenderer?.device) {
+        const device = window.gpuRenderer.device;
+        const format = window.gpuRenderer.format || 'bgra8unorm';
+
+        this.shaderPreviewManager = new ShaderPreviewManager(this, device, format);
+        window.shaderPreviewManager = this.shaderPreviewManager;
+
+        console.log('[Editor] ShaderPreviewManager initialized successfully');
+      } else {
+        console.warn('[Editor] GPU device not available yet, ShaderPreviewManager will be initialized later');
+
+        // Retry initialization when GPU device becomes available
+        const checkDevice = setInterval(() => {
+          if (window.gpuRenderer?.device) {
+            clearInterval(checkDevice);
+            this.initializeShaderPreviewManager();
+          }
+        }, 100);
+
+        // Give up after 5 seconds
+        setTimeout(() => clearInterval(checkDevice), 5000);
+      }
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'shader-preview-manager-initialization'
+      });
+      this.shaderPreviewManager = null;
+      console.warn('[Editor] Failed to initialize ShaderPreviewManager, falling back to CPU previews');
     }
   }
 

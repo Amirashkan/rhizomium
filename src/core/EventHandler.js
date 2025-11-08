@@ -321,6 +321,12 @@ export class EventHandler {
 
       // Start node drag
       this.selection.startDrag(clicked.id, pos.x, pos.y);
+
+      // Notify shader preview manager of drag start (for throttling)
+      if (this.editor?.shaderPreviewManager) {
+        this.editor.shaderPreviewManager.beginInteraction('drag');
+      }
+
       this._requestDraw('node-drag-start');
     });
 
@@ -434,6 +440,11 @@ export class EventHandler {
 
       // End node dragging
       this.selection.endDrag();
+
+      // Notify shader preview manager of drag end (for throttling)
+      if (this.editor?.shaderPreviewManager) {
+        this.editor.shaderPreviewManager.endInteraction('drag');
+      }
 
       this._boxSelectCandidate = null;
       this._pendingContextMenu = null;
