@@ -1,11 +1,24 @@
 /**
  * ComputeExecutor
- * Manages execution of compute shader nodes in the node graph
- * - Tracks compute nodes and their dependencies
- * - Dispatches compute shaders before fragment shader
- * - Handles auto re-dispatch when inputs change
- * - Manages compute output textures as shader bindings
- * - Supports both ComputeNodeBase (unified API) and legacy ComputeShaderManager
+ * Manages execution of compute shader nodes in the node graph with dependency-aware execution
+ *
+ * Features:
+ * - Topological sort: Executes compute nodes in dependency order (inputs before outputs)
+ * - Output dictionary: Maintains a map of node outputs for propagation to dependent nodes
+ * - Fallback values: Provides default textures for nodes that haven't been computed yet
+ * - Change detection: Only re-dispatches nodes when inputs or parameters change
+ * - Flexible API: Supports both ComputeNodeBase (unified API) and legacy ComputeShaderManager
+ *
+ * Execution Flow:
+ * 1. Initialize: Create fallback texture, load compute nodes, compute execution order
+ * 2. Execute: Dispatch nodes in topological order, update output dictionary after each dispatch
+ * 3. Propagate: Provide computed outputs (or fallbacks) to dependent nodes
+ *
+ * Data Structures:
+ * - nodeOutputs: Map<nodeId, GPUTexture> - Stores computed outputs for propagation
+ * - executionOrder: Array<nodeId> - Topologically sorted node IDs for execution
+ * - fallbackTexture: GPUTexture - 1x1 black texture used when dependencies aren't ready
+ * - inputHashes: Map<nodeId, string> - Tracks input/parameter changes for selective updates
  */
 
 import { ComputeShaderManager } from './ComputeShaderManager.js';
@@ -27,6 +40,15 @@ export class ComputeExecutor {
     // Map of nodeId -> input hash for detecting changes
     this.inputHashes = new Map();
 
+    // Output dictionary for propagation (nodeId -> output texture)
+    this.nodeOutputs = new Map();
+
+    // Fallback texture for uncomputed nodes
+    this.fallbackTexture = null;
+
+    // Cached execution order
+    this.executionOrder = [];
+
     // Track initialization state
     this.initialized = false;
 
@@ -47,9 +69,15 @@ export class ComputeExecutor {
 
     console.log(`[ComputeExecutor] Initializing ${window.computeNodeRegistry.size} compute nodes...`);
 
+    // Create fallback texture
+    this.createFallbackTexture();
+
     for (const [nodeId, nodeData] of window.computeNodeRegistry) {
       await this.initializeComputeNode(nodeId, nodeData);
     }
+
+    // Compute execution order after all nodes are initialized
+    this.updateExecutionOrder();
 
     this.initialized = true;
     console.log('[ComputeExecutor] ✓ Initialization complete');
@@ -91,6 +119,106 @@ export class ComputeExecutor {
   }
 
   /**
+   * Create fallback texture for uncomputed nodes
+   */
+  createFallbackTexture() {
+    // Create a small 1x1 black texture as fallback
+    const fallbackData = new Uint8Array([0, 0, 0, 255]); // Black pixel
+
+    this.fallbackTexture = this.device.createTexture({
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
+
+    this.device.queue.writeTexture(
+      { texture: this.fallbackTexture },
+      fallbackData,
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 }
+    );
+
+    console.log('[ComputeExecutor] Created fallback texture');
+  }
+
+  /**
+   * Update execution order using topological sort
+   */
+  updateExecutionOrder() {
+    if (!window.graph || !window.graph.nodes) {
+      console.warn('[ComputeExecutor] No graph available for execution order');
+      this.executionOrder = Array.from(this.computeManagers.keys());
+      return;
+    }
+
+    try {
+      // Filter to only compute nodes
+      const computeNodeIds = new Set(this.computeManagers.keys());
+      const computeNodes = window.graph.nodes.filter(node =>
+        node && node.id && computeNodeIds.has(node.id)
+      );
+
+      if (computeNodes.length === 0) {
+        this.executionOrder = [];
+        return;
+      }
+
+      // Build dependency graph
+      const byId = new Map();
+      for (const node of computeNodes) {
+        byId.set(node.id, node);
+      }
+
+      // Topological sort using DFS
+      const visited = new Set();
+      const visiting = new Set();
+      const result = [];
+
+      const visit = (id) => {
+        if (!id || visited.has(id)) return;
+
+        if (visiting.has(id)) {
+          console.warn(`[ComputeExecutor] Circular dependency detected involving node: ${id}`);
+          return;
+        }
+
+        visiting.add(id);
+
+        const node = byId.get(id);
+        if (!node) {
+          visiting.delete(id);
+          return;
+        }
+
+        // Visit dependencies first (inputs)
+        if (node.inputs && Array.isArray(node.inputs)) {
+          for (const inputId of node.inputs) {
+            if (inputId !== null && inputId !== undefined && computeNodeIds.has(inputId)) {
+              visit(inputId);
+            }
+          }
+        }
+
+        visiting.delete(id);
+        visited.add(id);
+        result.push(id);
+      };
+
+      // Visit all compute nodes
+      for (const node of computeNodes) {
+        visit(node.id);
+      }
+
+      this.executionOrder = result;
+      console.log(`[ComputeExecutor] Execution order computed: ${this.executionOrder.length} nodes`);
+      console.log(`[ComputeExecutor] Order: ${this.executionOrder.join(' -> ')}`);
+    } catch (error) {
+      console.error('[ComputeExecutor] Error computing execution order:', error);
+      this.executionOrder = Array.from(this.computeManagers.keys());
+    }
+  }
+
+  /**
    * Set profiler for performance tracking
    */
   setProfiler(profiler) {
@@ -106,8 +234,14 @@ export class ComputeExecutor {
       return;
     }
 
-    // Dispatch all compute shaders (both legacy and unified API)
-    for (const [nodeId, manager] of this.computeManagers) {
+    // Execute in topological order (dependencies first)
+    for (const nodeId of this.executionOrder) {
+      const manager = this.computeManagers.get(nodeId);
+      if (!manager) {
+        console.warn(`[ComputeExecutor] Node ${nodeId} in execution order but not in managers`);
+        continue;
+      }
+
       try {
         // Check if inputs have changed
         const shouldUpdate = this.checkInputsChanged(nodeId);
@@ -119,11 +253,44 @@ export class ComputeExecutor {
           } else {
             manager.dispatch(commandEncoder, time, this.profiler);
           }
+
+          // Update output dictionary after successful dispatch
+          this.updateNodeOutput(nodeId, manager);
         }
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
       }
     }
+  }
+
+  /**
+   * Update node output in the dictionary after successful dispatch
+   */
+  updateNodeOutput(nodeId, manager) {
+    try {
+      const outputTexture = manager.getOutputTexture();
+      if (outputTexture) {
+        this.nodeOutputs.set(nodeId, outputTexture);
+      }
+    } catch (error) {
+      console.error(`[ComputeExecutor] Error updating output for node ${nodeId}:`, error);
+    }
+  }
+
+  /**
+   * Get output texture for a node (with fallback)
+   * @param {string} nodeId - Node ID
+   * @returns {GPUTexture} Output texture or fallback
+   */
+  getNodeOutput(nodeId) {
+    const output = this.nodeOutputs.get(nodeId);
+    if (output) {
+      return output;
+    }
+
+    // Return fallback texture for uncomputed nodes
+    console.warn(`[ComputeExecutor] Node ${nodeId} not computed yet, using fallback`);
+    return this.fallbackTexture;
   }
 
   /**
@@ -134,9 +301,40 @@ export class ComputeExecutor {
     const nodeData = window.computeNodeRegistry?.get(nodeId);
     if (!nodeData) return true;
 
-    // For now, always update (later we can add input tracking)
-    // TODO: Hash input textures and parameters to detect changes
-    return true;
+    try {
+      const node = nodeData.node;
+      if (!node || !node.inputs) return true;
+
+      // Build hash of inputs and parameters
+      let hash = '';
+
+      // Hash input node outputs
+      for (const inputId of node.inputs) {
+        if (inputId !== null && inputId !== undefined) {
+          const inputTexture = this.nodeOutputs.get(inputId);
+          // Use texture memory address as part of hash
+          hash += inputTexture ? `${inputId}:computed;` : `${inputId}:missing;`;
+        }
+      }
+
+      // Hash parameters
+      if (node.params) {
+        hash += JSON.stringify(node.params);
+      }
+
+      // Check if hash changed
+      const previousHash = this.inputHashes.get(nodeId);
+      const changed = hash !== previousHash;
+
+      if (changed) {
+        this.inputHashes.set(nodeId, hash);
+      }
+
+      return changed;
+    } catch (error) {
+      console.error(`[ComputeExecutor] Error checking inputs for node ${nodeId}:`, error);
+      return true; // Update on error to be safe
+    }
   }
 
   /**
@@ -214,9 +412,18 @@ export class ComputeExecutor {
       manager.destroy();
     }
 
+    // Destroy fallback texture
+    if (this.fallbackTexture) {
+      this.fallbackTexture.destroy();
+      this.fallbackTexture = null;
+    }
+
     this.computeManagers.clear();
+    this.computeNodes.clear();
     this.computeTextures.clear();
     this.inputHashes.clear();
+    this.nodeOutputs.clear();
+    this.executionOrder = [];
     this.initialized = false;
 
     // Clear registry
@@ -243,8 +450,15 @@ export class ComputeExecutor {
       this.computeManagers.delete(nodeId);
     }
 
+    // Clean up output dictionary and hashes
+    this.nodeOutputs.delete(nodeId);
+    this.inputHashes.delete(nodeId);
+
     // Reinitialize
     await this.initializeComputeNode(nodeId, nodeData);
+
+    // Recompute execution order
+    this.updateExecutionOrder();
 
     console.log(`[ComputeExecutor] Updated compute node: ${nodeId}`);
   }
@@ -275,7 +489,10 @@ export class ComputeExecutor {
       nodeCount: this.computeManagers.size,
       initialized: this.initialized,
       nodes: Array.from(this.computeManagers.keys()),
-      unifiedApiNodes: Array.from(this.computeNodes.keys())
+      unifiedApiNodes: Array.from(this.computeNodes.keys()),
+      executionOrder: [...this.executionOrder],
+      computedOutputs: Array.from(this.nodeOutputs.keys()),
+      hasFallbackTexture: this.fallbackTexture !== null
     };
   }
 
@@ -315,6 +532,9 @@ export class ComputeExecutor {
       manager: computeNode
     });
 
+    // Recompute execution order
+    this.updateExecutionOrder();
+
     console.log(`[ComputeExecutor] Added compute node: ${computeNode.kind} (${nodeId})`);
 
     return computeNode;
@@ -338,6 +558,10 @@ export class ComputeExecutor {
       this.computeNodes.delete(nodeId);
       this.computeTextures.delete(nodeId);
       this.inputHashes.delete(nodeId);
+      this.nodeOutputs.delete(nodeId);
+
+      // Recompute execution order
+      this.updateExecutionOrder();
 
       console.log(`[ComputeExecutor] Removed compute node: ${nodeId}`);
     }
