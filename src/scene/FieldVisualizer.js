@@ -71,10 +71,14 @@ export class FieldVisualizer {
         this.geometry = {
             positions: null,
             colors: null,
+            uvs: null,
             indices: null,
             vertexCount: 0,
             indexCount: 0
         };
+
+        // UV mapping mode for procedural geometry
+        this.uvMode = 'planar-xz'; // Options: 'planar-xz', 'planar-xy', 'spherical', 'cylindrical'
 
         this.initialized = false;
     }
@@ -208,16 +212,20 @@ export class FieldVisualizer {
             }
         );
 
+        // Generate UVs for point cloud
+        const uvs = this.generateUVs(geometry.positions, geometry.vertexCount);
+
         this.geometry = {
             positions: geometry.positions,
             colors: geometry.colors,
+            uvs,
             indices: null,
             normals: null,
             vertexCount: geometry.vertexCount,
             indexCount: 0
         };
 
-        console.log(`[FieldVisualizer] Generated ${this.geometry.vertexCount} points`);
+        console.log(`[FieldVisualizer] Generated ${this.geometry.vertexCount} points with UVs`);
 
         return this.geometry;
     }
@@ -252,16 +260,20 @@ export class FieldVisualizer {
             colors[i * 4 + 3] = color[3];
         }
 
+        // Generate UVs for mesh
+        const uvs = this.generateUVs(mesh.positions, mesh.vertexCount);
+
         this.geometry = {
             positions: mesh.positions,
             normals: mesh.normals,
             colors,
+            uvs,
             indices: mesh.indices,
             vertexCount: mesh.vertexCount,
             indexCount: mesh.indices.length
         };
 
-        console.log(`[FieldVisualizer] Generated mesh with ${this.geometry.vertexCount} vertices`);
+        console.log(`[FieldVisualizer] Generated mesh with ${this.geometry.vertexCount} vertices and UVs`);
 
         return this.geometry;
     }
@@ -293,6 +305,105 @@ export class FieldVisualizer {
         }
 
         return [1, 1, 1, 1];
+    }
+
+    /**
+     * Set UV mapping mode
+     * @param {string} mode - UV mapping mode: 'planar-xz', 'planar-xy', 'spherical', 'cylindrical'
+     */
+    setUVMode(mode) {
+        const validModes = ['planar-xz', 'planar-xy', 'planar-yz', 'spherical', 'cylindrical'];
+        if (!validModes.includes(mode)) {
+            console.warn(`[FieldVisualizer] Invalid UV mode: ${mode}`);
+            return;
+        }
+        this.uvMode = mode;
+    }
+
+    /**
+     * Generate UV coordinates for vertices based on their positions
+     * @param {Float32Array} positions - Vertex positions (x, y, z)
+     * @param {number} vertexCount - Number of vertices
+     * @returns {Float32Array} UV coordinates (u, v)
+     */
+    generateUVs(positions, vertexCount) {
+        const uvs = new Float32Array(vertexCount * 2);
+        const bounds = this.params.fieldBounds;
+        const boundsSize = [
+            bounds.max[0] - bounds.min[0],
+            bounds.max[1] - bounds.min[1],
+            bounds.max[2] - bounds.min[2]
+        ];
+
+        for (let i = 0; i < vertexCount; i++) {
+            const x = positions[i * 3 + 0];
+            const y = positions[i * 3 + 1];
+            const z = positions[i * 3 + 2];
+
+            let u = 0, v = 0;
+
+            switch (this.uvMode) {
+                case 'planar-xz':
+                    // Project onto XZ plane
+                    u = (x - bounds.min[0]) / boundsSize[0];
+                    v = (z - bounds.min[2]) / boundsSize[2];
+                    break;
+
+                case 'planar-xy':
+                    // Project onto XY plane
+                    u = (x - bounds.min[0]) / boundsSize[0];
+                    v = (y - bounds.min[1]) / boundsSize[1];
+                    break;
+
+                case 'planar-yz':
+                    // Project onto YZ plane
+                    u = (y - bounds.min[1]) / boundsSize[1];
+                    v = (z - bounds.min[2]) / boundsSize[2];
+                    break;
+
+                case 'spherical':
+                    // Spherical projection
+                    // Calculate spherical coordinates from position
+                    const dx = x - (bounds.min[0] + bounds.max[0]) / 2;
+                    const dy = y - (bounds.min[1] + bounds.max[1]) / 2;
+                    const dz = z - (bounds.min[2] + bounds.max[2]) / 2;
+                    const radius = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                    if (radius > 0.0001) {
+                        // U: azimuthal angle (0 to 1)
+                        u = 0.5 + Math.atan2(dz, dx) / (2 * Math.PI);
+                        // V: polar angle (0 to 1)
+                        v = 0.5 - Math.asin(dy / radius) / Math.PI;
+                    } else {
+                        u = 0.5;
+                        v = 0.5;
+                    }
+                    break;
+
+                case 'cylindrical':
+                    // Cylindrical projection around Y axis
+                    const centerX = (bounds.min[0] + bounds.max[0]) / 2;
+                    const centerZ = (bounds.min[2] + bounds.max[2]) / 2;
+                    const dcx = x - centerX;
+                    const dcz = z - centerZ;
+
+                    // U: angle around Y axis
+                    u = 0.5 + Math.atan2(dcz, dcx) / (2 * Math.PI);
+                    // V: height along Y axis
+                    v = (y - bounds.min[1]) / boundsSize[1];
+                    break;
+
+                default:
+                    // Default to planar XZ
+                    u = (x - bounds.min[0]) / boundsSize[0];
+                    v = (z - bounds.min[2]) / boundsSize[2];
+            }
+
+            uvs[i * 2 + 0] = u;
+            uvs[i * 2 + 1] = v;
+        }
+
+        return uvs;
     }
 
     /**

@@ -1,10 +1,11 @@
 /**
- * MeshRenderer
+ * TexturedMeshRenderer
  *
- * Renders mesh geometry with vertex colors using WebGPU
+ * Extends MeshRenderer to support texture mapping from node outputs
+ * Allows rendering meshes with textures generated from the node graph
  */
 
-export class MeshRenderer {
+export class TexturedMeshRenderer {
     /**
      * @param {GPUDevice} device - WebGPU device
      */
@@ -23,6 +24,10 @@ export class MeshRenderer {
         this.indexBuffer = null;
         this.uniformBuffer = null;
 
+        // Texture resources
+        this.texture = null;
+        this.sampler = null;
+
         // Shader modules
         this.vertexShader = null;
         this.fragmentShader = null;
@@ -39,38 +44,60 @@ export class MeshRenderer {
             return;
         }
 
+        // Create default sampler
+        this.sampler = this.device.createSampler({
+            magFilter: 'linear',
+            minFilter: 'linear',
+            mipmapFilter: 'linear',
+            addressModeU: 'repeat',
+            addressModeV: 'repeat'
+        });
+
         // Create shader modules
         this.vertexShader = this.device.createShaderModule({
-            label: 'Mesh Vertex Shader',
+            label: 'Textured Mesh Vertex Shader',
             code: this.getVertexShaderCode()
         });
 
         this.fragmentShader = this.device.createShaderModule({
-            label: 'Mesh Fragment Shader',
+            label: 'Textured Mesh Fragment Shader',
             code: this.getFragmentShaderCode()
         });
 
         // Create bind group layout
         this.bindGroupLayout = this.device.createBindGroupLayout({
-            label: 'Mesh Bind Group Layout',
+            label: 'Textured Mesh Bind Group Layout',
             entries: [
                 {
+                    // Uniforms
                     binding: 0,
                     visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' }
+                },
+                {
+                    // Texture
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'float' }
+                },
+                {
+                    // Sampler
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: { type: 'filtering' }
                 }
             ]
         });
 
         // Create pipeline layout
         this.pipelineLayout = this.device.createPipelineLayout({
-            label: 'Mesh Pipeline Layout',
+            label: 'Textured Mesh Pipeline Layout',
             bindGroupLayouts: [this.bindGroupLayout]
         });
 
         // Create render pipeline
         this.pipeline = this.device.createRenderPipeline({
-            label: 'Mesh Render Pipeline',
+            label: 'Textured Mesh Render Pipeline',
             layout: this.pipelineLayout,
             vertex: {
                 module: this.vertexShader,
@@ -99,22 +126,11 @@ export class MeshRenderer {
                         ]
                     },
                     {
-                        // Color buffer
-                        arrayStride: 16, // 4 floats
-                        attributes: [
-                            {
-                                shaderLocation: 2,
-                                offset: 0,
-                                format: 'float32x4'
-                            }
-                        ]
-                    },
-                    {
                         // UV buffer
                         arrayStride: 8, // 2 floats
                         attributes: [
                             {
-                                shaderLocation: 3,
+                                shaderLocation: 2,
                                 offset: 0,
                                 format: 'float32x2'
                             }
@@ -157,29 +173,48 @@ export class MeshRenderer {
 
         // Create uniform buffer
         this.uniformBuffer = this.device.createBuffer({
-            size: 256, // Enough for matrices and lighting params
+            size: 256, // Enough for matrices and params
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
 
         this.initialized = true;
-        console.log('[MeshRenderer] Initialized');
+        console.log('[TexturedMeshRenderer] Initialized');
     }
 
     /**
-     * Render mesh geometry
+     * Set texture from node output
+     * @param {GPUTexture} texture - Texture from node graph
+     */
+    setTexture(texture) {
+        this.texture = texture;
+    }
+
+    /**
+     * Render textured mesh
      * @param {GPURenderPassEncoder} passEncoder - Render pass encoder
-     * @param {Object} geometry - Mesh geometry
+     * @param {Object} geometry - Mesh geometry (must include uvs)
      * @param {Mat4} viewMatrix - Camera view matrix
      * @param {Mat4} projectionMatrix - Camera projection matrix
      * @param {Mat4} modelMatrix - Model transform matrix
+     * @param {Object} options - Rendering options
      */
-    render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix) {
+    render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, options = {}) {
         if (!this.initialized) {
-            console.warn('[MeshRenderer] Not initialized');
+            console.warn('[TexturedMeshRenderer] Not initialized');
             return;
         }
 
         if (!geometry || !geometry.positions || geometry.vertexCount === 0) {
+            return;
+        }
+
+        if (!geometry.uvs) {
+            console.warn('[TexturedMeshRenderer] Geometry missing UVs, cannot render textured mesh');
+            return;
+        }
+
+        if (!this.texture) {
+            console.warn('[TexturedMeshRenderer] No texture set');
             return;
         }
 
@@ -195,47 +230,40 @@ export class MeshRenderer {
         }
         this.device.queue.writeBuffer(this.vertexBuffer, 0, geometry.positions);
 
-        // Update or create normal buffer
-        if (geometry.normals) {
-            if (!this.normalBuffer || this.normalBuffer.size < geometry.normals.byteLength) {
-                if (this.normalBuffer) {
-                    this.normalBuffer.destroy();
-                }
-                this.normalBuffer = this.device.createBuffer({
-                    size: geometry.normals.byteLength,
-                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-                });
+        // Update or create normal buffer (create default normals if missing)
+        let normals = geometry.normals;
+        if (!normals) {
+            // Create default normals (pointing up)
+            normals = new Float32Array(geometry.vertexCount * 3);
+            for (let i = 0; i < geometry.vertexCount; i++) {
+                normals[i * 3 + 0] = 0;
+                normals[i * 3 + 1] = 1;
+                normals[i * 3 + 2] = 0;
             }
-            this.device.queue.writeBuffer(this.normalBuffer, 0, geometry.normals);
         }
 
-        // Update or create color buffer
-        if (geometry.colors) {
-            if (!this.colorBuffer || this.colorBuffer.size < geometry.colors.byteLength) {
-                if (this.colorBuffer) {
-                    this.colorBuffer.destroy();
-                }
-                this.colorBuffer = this.device.createBuffer({
-                    size: geometry.colors.byteLength,
-                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-                });
+        if (!this.normalBuffer || this.normalBuffer.size < normals.byteLength) {
+            if (this.normalBuffer) {
+                this.normalBuffer.destroy();
             }
-            this.device.queue.writeBuffer(this.colorBuffer, 0, geometry.colors);
+            this.normalBuffer = this.device.createBuffer({
+                size: normals.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+            });
         }
+        this.device.queue.writeBuffer(this.normalBuffer, 0, normals);
 
         // Update or create UV buffer
-        if (geometry.uvs) {
-            if (!this.uvBuffer || this.uvBuffer.size < geometry.uvs.byteLength) {
-                if (this.uvBuffer) {
-                    this.uvBuffer.destroy();
-                }
-                this.uvBuffer = this.device.createBuffer({
-                    size: geometry.uvs.byteLength,
-                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-                });
+        if (!this.uvBuffer || this.uvBuffer.size < geometry.uvs.byteLength) {
+            if (this.uvBuffer) {
+                this.uvBuffer.destroy();
             }
-            this.device.queue.writeBuffer(this.uvBuffer, 0, geometry.uvs);
+            this.uvBuffer = this.device.createBuffer({
+                size: geometry.uvs.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+            });
         }
+        this.device.queue.writeBuffer(this.uvBuffer, 0, geometry.uvs);
 
         // Update or create index buffer
         if (geometry.indices && geometry.indexCount > 0) {
@@ -258,6 +286,8 @@ export class MeshRenderer {
         uniformData.set(projectionMatrix.elements, 32);
         // Light direction
         uniformData.set([0.5, 0.7, 0.3], 48);
+        // Texture blend factor
+        uniformData[51] = options.textureBlend !== undefined ? options.textureBlend : 1.0;
         this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
 
         // Create bind group
@@ -267,6 +297,14 @@ export class MeshRenderer {
                 {
                     binding: 0,
                     resource: { buffer: this.uniformBuffer }
+                },
+                {
+                    binding: 1,
+                    resource: this.texture.createView()
+                },
+                {
+                    binding: 2,
+                    resource: this.sampler
                 }
             ]
         });
@@ -275,15 +313,8 @@ export class MeshRenderer {
         passEncoder.setPipeline(this.pipeline);
         passEncoder.setBindGroup(0, bindGroup);
         passEncoder.setVertexBuffer(0, this.vertexBuffer);
-        if (this.normalBuffer) {
-            passEncoder.setVertexBuffer(1, this.normalBuffer);
-        }
-        if (this.colorBuffer) {
-            passEncoder.setVertexBuffer(2, this.colorBuffer);
-        }
-        if (this.uvBuffer) {
-            passEncoder.setVertexBuffer(3, this.uvBuffer);
-        }
+        passEncoder.setVertexBuffer(1, this.normalBuffer);
+        passEncoder.setVertexBuffer(2, this.uvBuffer);
 
         if (geometry.indices && geometry.indexCount > 0) {
             passEncoder.setIndexBuffer(this.indexBuffer, 'uint32');
@@ -304,21 +335,20 @@ export class MeshRenderer {
                 viewMatrix: mat4x4<f32>,
                 projectionMatrix: mat4x4<f32>,
                 lightDir: vec3<f32>,
+                textureBlend: f32,
             }
 
             struct VertexInput {
                 @location(0) position: vec3<f32>,
                 @location(1) normal: vec3<f32>,
-                @location(2) color: vec4<f32>,
-                @location(3) uv: vec2<f32>,
+                @location(2) uv: vec2<f32>,
             }
 
             struct VertexOutput {
                 @builtin(position) position: vec4<f32>,
                 @location(0) worldNormal: vec3<f32>,
-                @location(1) color: vec4<f32>,
-                @location(2) uv: vec2<f32>,
-                @location(3) worldPosition: vec3<f32>,
+                @location(1) uv: vec2<f32>,
+                @location(2) worldPosition: vec3<f32>,
             }
 
             @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -334,7 +364,6 @@ export class MeshRenderer {
                 // Transform normal to world space
                 output.worldNormal = (uniforms.modelMatrix * vec4<f32>(input.normal, 0.0)).xyz;
 
-                output.color = input.color;
                 output.uv = input.uv;
                 output.worldPosition = worldPos.xyz;
 
@@ -354,19 +383,24 @@ export class MeshRenderer {
                 viewMatrix: mat4x4<f32>,
                 projectionMatrix: mat4x4<f32>,
                 lightDir: vec3<f32>,
+                textureBlend: f32,
             }
 
             struct FragmentInput {
                 @location(0) worldNormal: vec3<f32>,
-                @location(1) color: vec4<f32>,
-                @location(2) uv: vec2<f32>,
-                @location(3) worldPosition: vec3<f32>,
+                @location(1) uv: vec2<f32>,
+                @location(2) worldPosition: vec3<f32>,
             }
 
             @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+            @group(0) @binding(1) var colorTexture: texture_2d<f32>;
+            @group(0) @binding(2) var colorSampler: sampler;
 
             @fragment
             fn main(input: FragmentInput) -> @location(0) vec4<f32> {
+                // Sample texture
+                let texColor = textureSample(colorTexture, colorSampler, input.uv);
+
                 // Normalize normal
                 let normal = normalize(input.worldNormal);
 
@@ -378,7 +412,10 @@ export class MeshRenderer {
                 let ambient = 0.3;
                 let lighting = ambient + diffuse * 0.7;
 
-                return vec4<f32>(input.color.rgb * lighting, input.color.a);
+                // Apply lighting to texture color
+                let finalColor = texColor.rgb * lighting;
+
+                return vec4<f32>(finalColor, texColor.a);
             }
         `;
     }
@@ -389,19 +426,18 @@ export class MeshRenderer {
     destroy() {
         if (this.vertexBuffer) this.vertexBuffer.destroy();
         if (this.normalBuffer) this.normalBuffer.destroy();
-        if (this.colorBuffer) this.colorBuffer.destroy();
         if (this.uvBuffer) this.uvBuffer.destroy();
         if (this.indexBuffer) this.indexBuffer.destroy();
         if (this.uniformBuffer) this.uniformBuffer.destroy();
 
         this.vertexBuffer = null;
         this.normalBuffer = null;
-        this.colorBuffer = null;
         this.uvBuffer = null;
         this.indexBuffer = null;
         this.uniformBuffer = null;
+        this.texture = null;
         this.initialized = false;
 
-        console.log('[MeshRenderer] Destroyed');
+        console.log('[TexturedMeshRenderer] Destroyed');
     }
 }
