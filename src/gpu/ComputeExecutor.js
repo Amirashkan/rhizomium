@@ -30,6 +30,9 @@ export class ComputeExecutor {
     // Track initialization state
     this.initialized = false;
 
+    // Profiler reference (injected)
+    this.profiler = null;
+
     console.log('[ComputeExecutor] Created');
   }
 
@@ -88,6 +91,13 @@ export class ComputeExecutor {
   }
 
   /**
+   * Set profiler for performance tracking
+   */
+  setProfiler(profiler) {
+    this.profiler = profiler;
+  }
+
+  /**
    * Execute all compute shaders
    * Should be called before fragment shader execution
    */
@@ -107,7 +117,7 @@ export class ComputeExecutor {
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time);
           } else {
-            manager.dispatch(commandEncoder, time);
+            manager.dispatch(commandEncoder, time, this.profiler);
           }
         }
       } catch (error) {
