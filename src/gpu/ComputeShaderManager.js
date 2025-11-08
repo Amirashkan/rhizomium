@@ -197,19 +197,55 @@ export class ComputeShaderManager {
    * Update uniform buffer with current time and resolution
    */
   updateUniforms(time) {
-    // Read parameters from node if available
-    const scale = this.node?.params?.scale ?? 8.0;
-    const octaves = this.node?.params?.octaves ?? 5;
-    const speed = this.node?.params?.speed ?? 0.1;
-
+    // Always set resolution and time first
     this.uniformData[0] = this.textureWidth;
     this.uniformData[1] = this.textureHeight;
     this.uniformData[2] = time;
-    this.uniformData[3] = scale;
-    this.uniformData[4] = octaves; // as float (converted to i32 in shader)
-    this.uniformData[5] = speed;
-    this.uniformData[6] = 0.0; // padding
-    this.uniformData[7] = 0.0; // padding
+
+    // Set node-specific parameters based on node kind
+    if (!this.node) {
+      // No node - use defaults
+      this.uniformData[3] = 8.0;
+      this.uniformData[4] = 5.0;
+      this.uniformData[5] = 0.1;
+      this.uniformData[6] = 0.0;
+      this.uniformData[7] = 0.0;
+    } else {
+      switch (this.node.kind) {
+        case 'ComputeNoise':
+          this.uniformData[3] = this.node.params?.scale ?? 8.0;
+          this.uniformData[4] = this.node.params?.octaves ?? 5;
+          this.uniformData[5] = this.node.params?.speed ?? 0.1;
+          this.uniformData[6] = 0.0;
+          this.uniformData[7] = 0.0;
+          break;
+
+        case 'ComputeReactionDiffusion':
+          this.uniformData[3] = this.node.params?.feedRate ?? 0.055;
+          this.uniformData[4] = this.node.params?.killRate ?? 0.062;
+          this.uniformData[5] = this.node.params?.diffusionA ?? 1.0;
+          this.uniformData[6] = this.node.params?.diffusionB ?? 0.5;
+          this.uniformData[7] = this.node.params?.timestep ?? 1.0;
+          break;
+
+        case 'ComputeFeedback':
+          this.uniformData[3] = this.node.params?.decay ?? 0.95;
+          this.uniformData[4] = this.node.params?.scale ?? 1.01;
+          this.uniformData[5] = this.node.params?.rotation ?? 0.0;
+          this.uniformData[6] = this.node.params?.offsetX ?? 0.0;
+          this.uniformData[7] = this.node.params?.offsetY ?? 0.0;
+          break;
+
+        default:
+          // Unknown node type - use defaults
+          this.uniformData[3] = 0.0;
+          this.uniformData[4] = 0.0;
+          this.uniformData[5] = 0.0;
+          this.uniformData[6] = 0.0;
+          this.uniformData[7] = 0.0;
+          break;
+      }
+    }
 
     this.device.queue.writeBuffer(
       this.uniformBuffer,
@@ -276,7 +312,13 @@ export class ComputeShaderManager {
 
     // Debug: Log dispatch (throttled)
     if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 2000) {
-      console.log(`[ComputeShaderManager] Dispatching at time: ${time.toFixed(2)}s`);
+      const params = this.supportsFeedback ?
+        `feedback=true, buffer=${this.currentWriteTexture}` :
+        'feedback=false';
+      console.log(`[ComputeShaderManager] Dispatching ${this.node?.kind ?? 'unknown'} at time: ${time.toFixed(2)}s, ${params}`);
+      if (this.node?.kind === 'ComputeReactionDiffusion') {
+        console.log(`  RD params: feed=${this.uniformData[3].toFixed(4)}, kill=${this.uniformData[4].toFixed(4)}, diffA=${this.uniformData[5].toFixed(2)}, diffB=${this.uniformData[6].toFixed(2)}, dt=${this.uniformData[7].toFixed(2)}`);
+      }
       this._lastDispatchLog = Date.now();
     }
 
