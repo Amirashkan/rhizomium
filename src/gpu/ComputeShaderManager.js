@@ -148,11 +148,10 @@ export class ComputeShaderManager {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < seed.radius) {
-            // Inside seed region - set B to ONLY 3-8% for growth regime!
-            // Gray-Scott needs very small initial B to see pattern formation
+            // Inside seed region - set B to 10-20% (compromise between growth and visibility)
             // Smooth falloff from center
             const falloff = 1.0 - (dist / seed.radius);
-            const seedB = 8 + Math.random() * 12; // 3-8% of 255 (very low!)
+            const seedB = 25 + Math.random() * 25; // 10-20% of 255
             bValue = Math.max(bValue, seedB * falloff);
           }
         }

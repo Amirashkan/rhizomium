@@ -436,8 +436,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   // Scale timestep appropriately - typical RD needs very small steps
   // User timestep is a multiplier, actual dt should be much smaller
-  // Even slower evolution so you can see the patterns develop
-  let dt = uniforms.timestep * 0.005; // Scale down to 0.0005-0.025 range
+  let dt = uniforms.timestep * 0.02; // Scale down to 0.002-0.2 range
+  // At default timestep=1.0, dt=0.02 gives visible evolution in 30-60 seconds
 
   // Reaction term: A + 2B → 3B (simplified Gray-Scott)
   let reaction = a * b * b;
