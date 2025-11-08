@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Controls Demo - GLSL Node Editor</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: #0a0a0a;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 300px;
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 18px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+
+        .control-group {
+            margin: 15px 0;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button.secondary {
+            background: #2196F3;
+        }
+
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+
+        #info {
+            margin-top: 15px;
+            font-size: 11px;
+            color: #666;
+            border-top: 1px solid #333;
+            padding-top: 10px;
+        }
+
+        .value-display {
+            font-family: monospace;
+            font-size: 11px;
+            color: #4CAF50;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="controls">
+        <h2>Camera Controls Demo</h2>
+
+        <div class="control-group">
+            <label>Camera Mode:</label>
+            <button onclick="setCameraMode('perspective')">Perspective</button>
+            <button onclick="setCameraMode('orthographic')">Orthographic</button>
+        </div>
+
+        <div class="control-group">
+            <label>Presets:</label>
+            <button onclick="viewPreset('front')">Front</button>
+            <button onclick="viewPreset('top')">Top</button>
+            <button onclick="viewPreset('side')">Side</button>
+        </div>
+
+        <div class="control-group">
+            <button class="secondary" onclick="resetCamera()">Reset Camera</button>
+            <button class="secondary" onclick="frameScene()">Frame Scene</button>
+        </div>
+
+        <div id="info">
+            <strong>Mouse Controls:</strong><br>
+            • Left Button: Orbit<br>
+            • Middle/Shift+Left: Pan<br>
+            • Wheel: Zoom<br>
+            <br>
+            <div id="camera-info"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { Viewport3D } from '../src/scene/Viewport3D.js';
+        import { Vec3 } from '../src/scene/math/Vec3.js';
+
+        // Setup canvas
+        const canvas = document.getElementById('canvas');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const ctx = canvas.getContext('2d');
+
+        // Create 3D viewport
+        const viewport = new Viewport3D(canvas, {
+            cameraType: 'perspective',
+            fov: 60,
+            near: 0.1,
+            far: 1000,
+            orbitSpeed: 0.005,
+            panSpeed: 0.002,
+            zoomSpeed: 0.01,
+            minDistance: 1,
+            maxDistance: 50,
+            initialPosition: {
+                target: new Vec3(0, 0, 0),
+                distance: 8,
+                azimuth: Math.PI / 4,
+                elevation: Math.PI / 6
+            }
+        });
+
+        // Scene bounds for texture mapping demonstration
+        const sceneBounds = {
+            min: new Vec3(-2, -2, -2),
+            max: new Vec3(2, 2, 2)
+        };
+
+        // Demo scene data (simple grid)
+        const gridPoints = [];
+        const gridSize = 10;
+        const gridSpacing = 0.5;
+        for (let x = -gridSize; x <= gridSize; x++) {
+            for (let z = -gridSize; z <= gridSize; z++) {
+                gridPoints.push(new Vec3(x * gridSpacing, 0, z * gridSpacing));
+            }
+        }
+
+        // Cube vertices for demonstration
+        const cubeVertices = [
+            new Vec3(-1, -1, -1), new Vec3(1, -1, -1),
+            new Vec3(1, -1, 1), new Vec3(-1, -1, 1),
+            new Vec3(-1, 1, -1), new Vec3(1, 1, -1),
+            new Vec3(1, 1, 1), new Vec3(-1, 1, 1)
+        ];
+
+        const cubeEdges = [
+            [0, 1], [1, 2], [2, 3], [3, 0], // Bottom
+            [4, 5], [5, 6], [6, 7], [7, 4], // Top
+            [0, 4], [1, 5], [2, 6], [3, 7]  // Sides
+        ];
+
+        // Render function
+        function render() {
+            // Clear canvas
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 1;
+            gridPoints.forEach(point => {
+                const screen = viewport.worldToScreen(point);
+                if (screen.depth >= -1 && screen.depth <= 1) {
+                    ctx.beginPath();
+                    ctx.arc(screen.x, screen.y, 1, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+
+            // Draw cube
+            ctx.strokeStyle = '#4CAF50';
+            ctx.lineWidth = 2;
+            cubeEdges.forEach(([start, end]) => {
+                const p1 = viewport.worldToScreen(cubeVertices[start]);
+                const p2 = viewport.worldToScreen(cubeVertices[end]);
+
+                if (p1.depth >= -1 && p1.depth <= 1 && p2.depth >= -1 && p2.depth <= 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+            });
+
+            // Draw axes
+            drawAxis(new Vec3(0, 0, 0), new Vec3(2, 0, 0), '#f00', 'X');
+            drawAxis(new Vec3(0, 0, 0), new Vec3(0, 2, 0), '#0f0', 'Y');
+            drawAxis(new Vec3(0, 0, 0), new Vec3(0, 0, 2), '#00f', 'Z');
+
+            // Update camera info
+            const controller = viewport.getController();
+            const angles = controller.getAngles();
+            document.getElementById('camera-info').innerHTML = `
+                <strong>Camera Info:</strong><br>
+                Mode: ${viewport.getCameraType()}<br>
+                Distance: ${controller.getDistance().toFixed(2)}<br>
+                Azimuth: ${(angles.azimuth * 180 / Math.PI).toFixed(1)}°<br>
+                Elevation: ${(angles.elevation * 180 / Math.PI).toFixed(1)}°
+            `;
+        }
+
+        function drawAxis(start, end, color, label) {
+            const p1 = viewport.worldToScreen(start);
+            const p2 = viewport.worldToScreen(end);
+
+            if (p2.depth >= -1 && p2.depth <= 1) {
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+
+                ctx.fillStyle = color;
+                ctx.font = '14px monospace';
+                ctx.fillText(label, p2.x + 5, p2.y - 5);
+            }
+        }
+
+        // Animation loop
+        function animate() {
+            viewport.update();
+            render();
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        // Window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            render();
+        });
+
+        // Global functions for controls
+        window.setCameraMode = function(mode) {
+            viewport.setCameraType(mode);
+        };
+
+        window.viewPreset = function(preset) {
+            const controller = viewport.getController();
+            switch(preset) {
+                case 'front':
+                    controller.setAngles(0, 0);
+                    break;
+                case 'top':
+                    controller.setAngles(0, Math.PI / 2 - 0.1);
+                    break;
+                case 'side':
+                    controller.setAngles(Math.PI / 2, 0);
+                    break;
+            }
+        };
+
+        window.resetCamera = function() {
+            viewport.resetCamera();
+        };
+
+        window.frameScene = function() {
+            viewport.frameBounds(sceneBounds);
+        };
+
+        // Demonstrate coordinate mapping
+        canvas.addEventListener('click', (e) => {
+            const ray = viewport.screenToWorldRay(e.clientX, e.clientY);
+            const texCoords = viewport.worldToTexture(ray.origin, sceneBounds);
+
+            console.log('Click position:');
+            console.log('  Screen:', e.clientX, e.clientY);
+            console.log('  Ray origin:', ray.origin);
+            console.log('  Ray direction:', ray.direction);
+            console.log('  Texture coords:', texCoords);
+        });
+    </script>
+</body>
+</html>

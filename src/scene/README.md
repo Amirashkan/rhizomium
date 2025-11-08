@@ -405,6 +405,68 @@ function render() {
 }
 ```
 
+## Camera Controls
+
+The scene system includes a comprehensive camera control system for interactive 3D navigation.
+
+### CameraController
+
+The `CameraController` class provides intuitive mouse and touch controls for camera movement:
+
+```javascript
+import { CameraController } from './CameraController.js';
+
+const controller = new CameraController(camera, canvasElement, {
+    orbitSpeed: 0.005,
+    panSpeed: 0.001,
+    zoomSpeed: 0.01,
+    minDistance: 0.1,
+    maxDistance: 100
+});
+
+// Set camera target and position
+controller.setTarget(0, 0, 0);
+controller.setDistance(5);
+controller.setAngles(Math.PI/4, Math.PI/6);
+```
+
+**Mouse Controls:**
+- Left button: Orbit around target
+- Middle button or Shift+Left: Pan camera
+- Right button or wheel: Zoom
+
+**Touch Controls:**
+- 1 finger: Orbit
+- 2 fingers: Pinch to zoom
+
+### Viewport3D
+
+The `Viewport3D` class combines camera, controller, and coordinate transformations:
+
+```javascript
+import { Viewport3D } from './Viewport3D.js';
+
+const viewport = new Viewport3D(canvas, {
+    cameraType: 'perspective',
+    fov: 60,
+    near: 0.1,
+    far: 1000
+});
+
+// Get matrices for rendering
+const viewMatrix = viewport.getViewMatrix();
+const projMatrix = viewport.getProjectionMatrix();
+
+// Coordinate transformations
+const ray = viewport.screenToWorldRay(mouseX, mouseY);
+const screenPos = viewport.worldToScreen(new Vec3(1, 2, 3));
+const worldPos = viewport.textureToWorld(0.5, 0.5, 0.5, bounds);
+```
+
+**See [../../docs/camera-controls.md](../../docs/camera-controls.md) for complete camera controls documentation.**
+
+**See [../../examples/camera-controls-demo.html](../../examples/camera-controls-demo.html) for a live demo.**
+
 ## Future Enhancements
 
 Potential future additions:
@@ -415,6 +477,8 @@ Potential future additions:
 - Full JSON deserialization
 - Light shadow map support
 - Material system expansion
+- Camera animation and smooth transitions
+- Multiple viewport support
 
 ## License
 
