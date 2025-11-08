@@ -3,8 +3,9 @@
  * Manages WebGPU compute pipelines and compute shader execution
  */
 export class ComputeShaderManager {
-  constructor(device) {
+  constructor(device, node = null) {
     this.device = device;
+    this.node = node; // Store node reference to access parameters
     this.computePipeline = null;
     this.bindGroup = null;
 
@@ -160,12 +161,17 @@ export class ComputeShaderManager {
    * Update uniform buffer with current time and resolution
    */
   updateUniforms(time) {
+    // Read parameters from node if available
+    const scale = this.node?.params?.scale ?? 8.0;
+    const octaves = this.node?.params?.octaves ?? 5;
+    const speed = this.node?.params?.speed ?? 0.1;
+
     this.uniformData[0] = this.textureWidth;
     this.uniformData[1] = this.textureHeight;
     this.uniformData[2] = time;
-    this.uniformData[3] = 8.0; // scale (default)
-    this.uniformData[4] = 5.0; // octaves (default, as float since i32 in struct but we use f32 in buffer)
-    this.uniformData[5] = 0.1; // speed (default)
+    this.uniformData[3] = scale;
+    this.uniformData[4] = octaves; // as float (converted to i32 in shader)
+    this.uniformData[5] = speed;
     this.uniformData[6] = 0.0; // padding
     this.uniformData[7] = 0.0; // padding
 

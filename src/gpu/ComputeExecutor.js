@@ -54,8 +54,8 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution } = nodeData;
 
-      // Create compute shader manager
-      const manager = new ComputeShaderManager(this.device);
+      // Create compute shader manager with node reference for parameters
+      const manager = new ComputeShaderManager(this.device, node);
       await manager.initialize(wgslCode, resolution[0], resolution[1]);
 
       // Store manager
