@@ -3,6 +3,7 @@
 
 import { PreviewThrottler } from './PreviewThrottler.js';
 import { GPUPreviewRenderer } from './GPUPreviewRenderer.js';
+import { buildWGSL } from '../codegen/glslBuilder.js';
 
 export class ShaderPreviewManager {
   constructor(editor, device, format) {
@@ -237,10 +238,265 @@ export class ShaderPreviewManager {
    * @param {object} node - The fragment node
    */
   async updateFragmentNodePreview(node) {
-    // This requires compiling a shader for the node and rendering it
-    // For now, fall back to existing preview system
-    // TODO: Implement fragment shader preview compilation
+    try {
+      // Create a temporary graph with just this node for preview
+      const previewGraph = this.createPreviewGraph(node);
 
+      // Get cache key
+      const cacheKey = this.getNodeCacheKey(node);
+
+      // Check if shader is cached and still valid
+      const cached = this.shaderCache.get(cacheKey);
+      if (cached && cached.pipeline) {
+        // Render using cached pipeline
+        await this.renderFragmentPreview(node, cached.pipeline, cached.bindGroups);
+        return;
+      }
+
+      // Compile shader for this node
+      const shaderResult = buildWGSL(previewGraph);
+
+      if (!shaderResult || !shaderResult.wgsl) {
+        console.warn(`[ShaderPreviewManager] Failed to build shader for ${node.id}`);
+        this.fallbackToLegacyPreview(node);
+        return;
+      }
+
+      console.log(`[ShaderPreviewManager] Compiled preview shader for ${node.id}`);
+
+      // Create render pipeline
+      const pipeline = await this.createPreviewPipeline(shaderResult.wgsl, node.id);
+
+      if (!pipeline) {
+        console.warn(`[ShaderPreviewManager] Failed to create pipeline for ${node.id}`);
+        this.fallbackToLegacyPreview(node);
+        return;
+      }
+
+      // Create bind groups for uniforms and textures
+      const bindGroups = this.createPreviewBindGroups(node, shaderResult.uniformManager);
+
+      // Cache the compiled shader
+      this.shaderCache.set(cacheKey, {
+        pipeline,
+        bindGroups,
+        uniformManager: shaderResult.uniformManager,
+        timestamp: Date.now()
+      });
+
+      // Render the preview
+      await this.renderFragmentPreview(node, pipeline, bindGroups);
+
+    } catch (error) {
+      console.error(`[ShaderPreviewManager] Error in fragment preview for ${node.id}:`, error);
+      this.fallbackToLegacyPreview(node);
+    }
+  }
+
+  /**
+   * Create a minimal graph containing just this node for preview
+   * @param {object} node - The node to preview
+   * @returns {object} Preview graph
+   */
+  createPreviewGraph(node) {
+    // Create a minimal graph with UV input and this node
+    return {
+      nodes: [
+        {
+          id: 'preview_uv',
+          kind: 'UV',
+          label: 'UV',
+          x: 0,
+          y: 0
+        },
+        {
+          ...node,
+          x: 100,
+          y: 0
+        },
+        {
+          id: 'preview_output',
+          kind: 'Output',
+          label: 'Output',
+          x: 200,
+          y: 0
+        }
+      ],
+      connections: [
+        // Connect UV to node's first input (if it has inputs)
+        ...(node.inputs > 0 ? [{
+          fromNode: 'preview_uv',
+          fromPin: 'UV',
+          toNode: node.id,
+          toPin: node.pinsIn?.[0] || 'UV'
+        }] : []),
+        // Connect node to output
+        {
+          fromNode: node.id,
+          fromPin: node.pinsOut?.[0] || 'Color',
+          toNode: 'preview_output',
+          toPin: 'Color'
+        }
+      ]
+    };
+  }
+
+  /**
+   * Create render pipeline for preview
+   * @param {string} wgsl - WGSL shader source
+   * @param {string} nodeId - Node ID for labeling
+   * @returns {Promise<GPURenderPipeline>}
+   */
+  async createPreviewPipeline(wgsl, nodeId) {
+    try {
+      const shaderModule = this.device.createShaderModule({
+        label: `preview-shader-${nodeId}`,
+        code: wgsl
+      });
+
+      // Check for compilation errors
+      const compilationInfo = await shaderModule.getCompilationInfo();
+      const errors = compilationInfo.messages.filter(m => m.type === 'error');
+
+      if (errors.length > 0) {
+        console.error(`[ShaderPreviewManager] Shader compilation errors for ${nodeId}:`, errors);
+        return null;
+      }
+
+      const pipeline = this.device.createRenderPipeline({
+        label: `preview-pipeline-${nodeId}`,
+        layout: 'auto',
+        vertex: {
+          module: shaderModule,
+          entryPoint: 'vertex_main',
+          buffers: []
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: 'fragment_main',
+          targets: [{
+            format: this.format
+          }]
+        },
+        primitive: {
+          topology: 'triangle-list'
+        }
+      });
+
+      return pipeline;
+    } catch (error) {
+      console.error(`[ShaderPreviewManager] Pipeline creation error for ${nodeId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Create bind groups for preview rendering
+   * @param {object} node - The node being previewed
+   * @param {object} uniformManager - Uniform manager from shader compilation
+   * @returns {Array<GPUBindGroup>}
+   */
+  createPreviewBindGroups(node, uniformManager) {
+    const bindGroups = [];
+
+    try {
+      // Create uniform buffer if needed
+      if (uniformManager && uniformManager.getSize() > 0) {
+        const uniformBuffer = this.device.createBuffer({
+          size: Math.max(uniformManager.getSize(), 16), // Minimum 16 bytes
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          label: `preview-uniforms-${node.id}`
+        });
+
+        // Write uniform data
+        const uniformData = uniformManager.getArrayBuffer();
+        if (uniformData && uniformData.byteLength > 0) {
+          this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+        }
+
+        // Create bind group with uniforms
+        // Note: This is a simplified version - may need adjustment based on actual shader layout
+        const bindGroup = this.device.createBindGroup({
+          label: `preview-bindgroup-${node.id}`,
+          layout: this.device.createBindGroupLayout({
+            entries: [{
+              binding: 0,
+              visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX,
+              buffer: { type: 'uniform' }
+            }]
+          }),
+          entries: [{
+            binding: 0,
+            resource: { buffer: uniformBuffer }
+          }]
+        });
+
+        bindGroups.push(bindGroup);
+      }
+    } catch (error) {
+      console.warn(`[ShaderPreviewManager] Failed to create bind groups for ${node.id}:`, error);
+    }
+
+    return bindGroups;
+  }
+
+  /**
+   * Render fragment preview to texture and optionally readback
+   * @param {object} node - The node being previewed
+   * @param {GPURenderPipeline} pipeline - Render pipeline
+   * @param {Array<GPUBindGroup>} bindGroups - Bind groups
+   */
+  async renderFragmentPreview(node, pipeline, bindGroups) {
+    try {
+      // Render to preview texture
+      const previewInfo = this.gpuRenderer.renderToPreviewTexture(
+        pipeline,
+        bindGroups || [],
+        node.id,
+        { size: this.previewSize }
+      );
+
+      // Readback to CPU for thumbnail if enabled
+      if (this.enableCPUReadback) {
+        const pixels = await this.gpuRenderer.readbackPreviewTexture(node.id);
+        const imageData = this.gpuRenderer.pixelsToImageData(pixels, this.previewSize);
+
+        // Create canvas from ImageData
+        const canvas = document.createElement('canvas');
+        canvas.width = imageData.width;
+        canvas.height = imageData.height;
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(imageData, 0, 0);
+
+        node.__thumb = canvas;
+      } else {
+        // Just mark that we have a GPU texture (no CPU readback)
+        node.__gpuPreview = previewInfo;
+      }
+
+      console.log(`[ShaderPreviewManager] Rendered preview for ${node.id}`);
+    } catch (error) {
+      console.error(`[ShaderPreviewManager] Render error for ${node.id}:`, error);
+      this.fallbackToLegacyPreview(node);
+    }
+  }
+
+  /**
+   * Get cache key for node (includes parameters for invalidation)
+   * @param {object} node - The node
+   * @returns {string} Cache key
+   */
+  getNodeCacheKey(node) {
+    // Include node kind and parameter values in cache key
+    const params = JSON.stringify(node.props || {});
+    return `${node.id}_${node.kind}_${params}`;
+  }
+
+  /**
+   * Fall back to legacy preview system
+   * @param {object} node - The node
+   */
+  fallbackToLegacyPreview(node) {
     if (this.editor.previewSystem) {
       this.editor.previewSystem.generateNodePreview(node);
     }
