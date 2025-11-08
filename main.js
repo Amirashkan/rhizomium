@@ -24,6 +24,7 @@ import { LiveShaderStream } from './src/framestream/LiveShaderStream.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
+import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -131,6 +132,7 @@ let renderLoopController = null;
 let timelineManager = null;
 let timelinePanel = null;
 let vjControlPanel = null;
+let computeShaderTest = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -182,6 +184,15 @@ async function initialize() {
       window.textureManager = new TextureManager();
       await window.textureManager.initialize(device);
       console.log("TextureManager initialized successfully");
+
+      // Initialize compute shader test
+      try {
+        computeShaderTest = new ComputeShaderTest(device, canvas);
+        window.computeShaderTest = computeShaderTest;
+        console.log("ComputeShaderTest created successfully");
+      } catch (error) {
+        console.error("Failed to create ComputeShaderTest:", error);
+      }
     }
 
     __deviceReady = !!device;
@@ -1776,6 +1787,16 @@ function setupKeyboardShortcuts() {
         }
         break;
 
+      case "t":
+        e.preventDefault();
+        if (computeShaderTest) {
+          computeShaderTest.toggle();
+          updateStatus(computeShaderTest.isEnabled ? "Compute shader test enabled" : "Compute shader test disabled");
+        } else {
+          updateStatus("Compute shader test not available", "warning");
+        }
+        break;
+
       default:
         break;
     }
@@ -2382,8 +2403,14 @@ function handleRenderFrame(frameState) {
   }
 
   // GPU rendering - ALWAYS render for visual feedback
-  if (window.gpuRenderer) {
+  // Check if compute shader test is active
+  if (computeShaderTest && computeShaderTest.isEnabled) {
+    // Render compute shader test instead of normal renderer
+    computeShaderTest.render(frameState.simTime);
+  } else if (window.gpuRenderer) {
+    // Normal rendering
     window.gpuRenderer.render({ timeSec: frameState.simTime });
+  }
 
     // Stream frames to external viewers if enabled (only if not dragging)
     if (!isDragging && frameStreamingEnabled) {
