@@ -100,7 +100,7 @@ window.gpuRenderer = new GPURenderer(device, canvas);
       __deviceReady = true;
 
       // Re-set WebGPU device for WGSL editor after reinitialization
-      if (editor?.paramPanel && window.gpuRenderer?.device) {
+      if (editor?.paramPanel && typeof editor.paramPanel.setDevice === 'function' && window.gpuRenderer?.device) {
         editor.paramPanel.setDevice(window.gpuRenderer.device);
         console.log("WebGPU device re-set for WGSL editor after reload");
       }
@@ -255,9 +255,11 @@ async function initialize() {
     }
 
     // Set WebGPU device for WGSL editor in ParameterPanel
-    if (editor.paramPanel && window.gpuRenderer && window.gpuRenderer.device) {
+    if (editor.paramPanel && typeof editor.paramPanel.setDevice === 'function' && window.gpuRenderer && window.gpuRenderer.device) {
       editor.paramPanel.setDevice(window.gpuRenderer.device);
       console.log("WebGPU device set for WGSL editor");
+    } else if (editor.paramPanel && typeof editor.paramPanel.setDevice !== 'function') {
+      console.warn("ParameterPanel.setDevice method not available - WGSL editor compilation checking will be disabled");
     }
 
     // Create timeline manager and panel
