@@ -10,6 +10,7 @@ import { FieldNodes } from '../compilers/FieldNodes.js';
 import { TypeConverter } from './TypeConverter.js';
 import { BlendNodes } from '../compilers/BlendNodes.js';
 import { GradientNodes } from '../compilers/GradientNodes.js';
+import { ComputeNodes } from '../compilers/ComputeNodes.js';
 import { UnifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 
 export class NodeCompiler {
@@ -28,6 +29,7 @@ export class NodeCompiler {
       transform: new TransformNodes(),
       blend: new BlendNodes(),
       field: new FieldNodes(),
+      compute: new ComputeNodes(),
     };
     
     // Give compilers access to uniform manager
@@ -299,6 +301,8 @@ export class NodeCompiler {
       result = this.compilers.noise.compile(node, getInput, getParam);
     } else if (this.compilers.texture.handles(kind)) {
       result = this.compilers.texture.compile(node, getInput, getParam);
+    } else if (this.compilers.compute.handles(kind)) {
+      result = this.compilers.compute.compile(node, getInput, getParam);
     } else if (this.compilers.utility.handles(kind)) {
       result = this.compilers.utility.compile(node, getInput, getParam);
     } else if (this.compilers.transform.handles(kind)) {

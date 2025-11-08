@@ -216,21 +216,67 @@ export class GPURenderer {
     const texManager = typeof window !== "undefined" ? window.textureManager : null;
     if (!texManager || !resource || !resource.varName) return;
 
+    console.log(`[GPURenderer] Looking up texture binding for: ${resource.varName}`);
     const info = this._lookupTextureBinding(texManager, resource.varName);
-    if (!info) return;
+
+    if (!info) {
+      console.warn(`[GPURenderer] No texture found for: ${resource.varName}`);
+      return;
+    }
+
+    console.log(`[GPURenderer] Found texture for ${resource.varName}:`, info);
 
     if (resource.textureView && info.textureView) {
       resource.textureView = info.textureView;
+      console.log(`[GPURenderer] Applied textureView for ${resource.varName}`);
     }
     if (resource.sampler && info.sampler) {
       resource.sampler = info.sampler;
+      console.log(`[GPURenderer] Applied sampler for ${resource.varName}`);
     }
   }
 
   _lookupTextureBinding(texManager, varName) {
-    const match = /^(textureCube_|texture_|samplerCube_|sampler_)(.+)$/.exec(varName);
+    const match = /^(sampler_compute_|textureCube_|texture_|samplerCube_|sampler_|compute_)(.+)$/.exec(varName);
     if (!match) return null;
+    const prefix = match[1];
     const sanitizedId = match[2];
+
+    // Check compute textures first (for compute shader nodes)
+    if (prefix === 'compute_' || prefix === 'sampler_compute_') {
+      console.log(`[GPURenderer] Checking compute textures for varName: ${varName}, prefix: ${prefix}, sanitizedId: ${sanitizedId}`);
+      const computeExecutor = typeof window !== 'undefined' ? window.computeExecutor : null;
+
+      if (!computeExecutor) {
+        console.warn('[GPURenderer] ComputeExecutor not found');
+        return null;
+      }
+
+      if (!computeExecutor.computeTextures) {
+        console.warn('[GPURenderer] ComputeExecutor has no computeTextures');
+        return null;
+      }
+
+      console.log('[GPURenderer] ComputeExecutor.computeTextures keys:', Array.from(computeExecutor.computeTextures.keys()));
+
+      const actualId = sanitizedId.replace('compute_', '');
+      console.log(`[GPURenderer] Looking for compute texture with ID: ${actualId}`);
+
+      const computeInfo = computeExecutor.computeTextures.get(actualId);
+      if (computeInfo) {
+        console.log(`[GPURenderer] Found compute texture for ${actualId}:`, computeInfo);
+        // Return appropriate resource based on prefix
+        if (prefix.startsWith('sampler_')) {
+          console.log(`[GPURenderer] Returning sampler for ${varName}`);
+          return { sampler: computeInfo.sampler };
+        } else {
+          console.log(`[GPURenderer] Returning texture view for ${varName}`);
+          return { textureView: computeInfo.texture.createView() };
+        }
+      } else {
+        console.warn(`[GPURenderer] No compute texture found for ID: ${actualId}`);
+      }
+    }
 
     if (texManager.gpuTextures?.get) {
       const gpuInfo = texManager.gpuTextures.get(sanitizedId);
@@ -648,6 +694,11 @@ export class GPURenderer {
     }
 
     const encoder = this.device.createCommandEncoder();
+
+    // Execute compute shaders BEFORE fragment shader
+    if (window.computeExecutor && window.computeExecutor.initialized) {
+      window.computeExecutor.execute(encoder, timeValue);
+    }
 
     // Configure render pass based on MSAA support
     const colorAttachment = {
