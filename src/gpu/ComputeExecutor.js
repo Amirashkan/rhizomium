@@ -122,6 +122,7 @@ export class ComputeExecutor {
   /**
    * Get texture bindings for all compute nodes
    * Returns array of { binding, resource } for WGSL @group(0) @binding(N)
+   * NOTE: Binding indices MUST match those in glslBuilder.js
    */
   getTextureBindings() {
     const bindings = [];
@@ -129,11 +130,12 @@ export class ComputeExecutor {
 
     for (const [nodeId, textureData] of this.computeTextures) {
       const { texture, sampler } = textureData;
+      const sanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
 
       // Add texture binding
       bindings.push({
-        nodeId,
-        name: `compute_${nodeId}`,
+        nodeId: sanitizedId,
+        name: `compute_${sanitizedId}`,
         textureBinding: bindingIndex++,
         samplerBinding: bindingIndex++,
         texture,

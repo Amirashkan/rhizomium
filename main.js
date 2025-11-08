@@ -2312,18 +2312,10 @@ function updateShaderFromGraph() {
         updateStatus("Shader compiled");
       }
 
-      // Initialize compute nodes after shader compilation, then recompile to include bindings
+      // Initialize compute nodes after shader compilation
+      // Note: Bindings are already included in shader from registry
       if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
-        computeExecutor.initialize().then(() => {
-          console.log('[ComputeExecutor] Initialized, recompiling shader with compute bindings...');
-          // Rebuild shader to include compute texture bindings
-          const newResult = buildWGSL(window.editor.graph);
-          if (newResult && newResult.wgsl) {
-            const newWGSL = typeof newResult.wgsl === "string" ? newResult.wgsl : String(newResult.wgsl ?? "");
-            window.gpuRenderer.setShaderSource(newWGSL);
-            console.log('[ComputeExecutor] Shader recompiled with compute bindings');
-          }
-        }).catch(err => {
+        computeExecutor.initialize().catch(err => {
           console.error('[ComputeExecutor] Initialization failed:', err);
         });
       }

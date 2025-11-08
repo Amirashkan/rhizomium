@@ -66,10 +66,19 @@ export function buildWGSL(graph) {
   const textureBindings = TextureBindings.generate(graph);
 
   // Add compute shader texture bindings if compute nodes exist
+  // Generate bindings from registry BEFORE executor initialization
   let computeBindings = '';
-  if (window.computeExecutor && window.computeExecutor.initialized) {
-    computeBindings = window.computeExecutor.generateBindingDeclarations();
-    console.log('[glslBuilder] Added compute texture bindings');
+  if (window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+    computeBindings = '\n// Compute Shader Texture Bindings\n';
+    let bindingIndex = 100;
+
+    for (const [nodeId, nodeData] of window.computeNodeRegistry) {
+      const sanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+      computeBindings += `@group(0) @binding(${bindingIndex++}) var compute_${sanitizedId}: texture_2d<f32>;\n`;
+      computeBindings += `@group(0) @binding(${bindingIndex++}) var sampler_compute_${sanitizedId}: sampler;\n`;
+    }
+
+    console.log('[glslBuilder] Added compute texture bindings for', window.computeNodeRegistry.size, 'nodes');
   }
 
   // --- Build the final shader using the WGSL template ---
