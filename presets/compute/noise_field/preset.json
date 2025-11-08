@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "Animated Noise Field",
+  "description": "Generates a colorful animated procedural noise field using multi-octave Perlin noise with FBM (Fractal Brownian Motion). Perfect for creating organic backgrounds, distortion maps, or displacement fields.",
+  "category": "Generators",
+  "tags": ["noise", "procedural", "animated", "generator"],
+  "author": "Rhizomium",
+  "presets": [
+    {
+      "id": "preset_noise_field_001",
+      "name": "Animated Noise Field",
+      "parameterState": {
+        "noise_generator": {
+          "kind": "ComputeNoise",
+          "params": {
+            "scale": 8.0,
+            "octaves": 5,
+            "speed": 0.1,
+            "colorize": true,
+            "resolution": "512"
+          }
+        }
+      },
+      "capturedAt": 1731093844000,
+      "lastUsed": null
+    }
+  ],
+  "presetOrder": ["preset_noise_field_001"],
+  "usage": {
+    "description": "This preset creates a single ComputeNoise node that generates animated procedural noise. The noise evolves over time and can be used as a texture source, displacement field, or combined with other effects.",
+    "outputs": [
+      "Texture - Full RGBA texture output",
+      "RGB - Color channels combined",
+      "R, G, B, A - Individual color channels"
+    ],
+    "tips": [
+      "Increase 'octaves' for more detail (at performance cost)",
+      "Lower 'speed' for slower, smoother animation",
+      "Adjust 'scale' to change the frequency of the noise pattern",
+      "Disable 'colorize' for grayscale noise useful as displacement"
+    ]
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "version": 1,
+  "name": "Reaction-Diffusion Patterns",
+  "description": "Gray-Scott reaction-diffusion simulation generating organic patterns like coral, spots, stripes, and waves. A classic example of emergent complexity from simple rules.",
+  "category": "Simulation",
+  "tags": ["reaction-diffusion", "simulation", "organic", "generative", "gray-scott"],
+  "author": "Rhizomium",
+  "presets": [
+    {
+      "id": "preset_rd_coral",
+      "name": "Coral Pattern",
+      "parameterState": {
+        "reaction_diffusion": {
+          "kind": "ComputeReactionDiffusion",
+          "params": {
+            "pattern": "Coral",
+            "feedRate": 0.0545,
+            "killRate": 0.062,
+            "diffusionA": 1.0,
+            "diffusionB": 0.5,
+            "timestep": 1.0,
+            "resolution": "512"
+          }
+        }
+      },
+      "capturedAt": 1731094000000,
+      "lastUsed": null
+    },
+    {
+      "id": "preset_rd_spots",
+      "name": "Leopard Spots",
+      "parameterState": {
+        "reaction_diffusion": {
+          "kind": "ComputeReactionDiffusion",
+          "params": {
+            "pattern": "Spots",
+            "feedRate": 0.055,
+            "killRate": 0.062,
+            "diffusionA": 1.0,
+            "diffusionB": 0.5,
+            "timestep": 1.0,
+            "resolution": "512"
+          }
+        }
+      },
+      "capturedAt": 1731094050000,
+      "lastUsed": null
+    },
+    {
+      "id": "preset_rd_stripes",
+      "name": "Zebra Stripes",
+      "parameterState": {
+        "reaction_diffusion": {
+          "kind": "ComputeReactionDiffusion",
+          "params": {
+            "pattern": "Stripes",
+            "feedRate": 0.035,
+            "killRate": 0.065,
+            "diffusionA": 1.0,
+            "diffusionB": 0.5,
+            "timestep": 1.0,
+            "resolution": "512"
+          }
+        }
+      },
+      "capturedAt": 1731094100000,
+      "lastUsed": null
+    },
+    {
+      "id": "preset_rd_waves",
+      "name": "Wave Propagation",
+      "parameterState": {
+        "reaction_diffusion": {
+          "kind": "ComputeReactionDiffusion",
+          "params": {
+            "pattern": "Waves",
+            "feedRate": 0.014,
+            "killRate": 0.054,
+            "diffusionA": 1.0,
+            "diffusionB": 0.5,
+            "timestep": 1.0,
+            "resolution": "512"
+          }
+        }
+      },
+      "capturedAt": 1731094150000,
+      "lastUsed": null
+    },
+    {
+      "id": "preset_rd_worms",
+      "name": "Worms Pattern",
+      "parameterState": {
+        "reaction_diffusion": {
+          "kind": "ComputeReactionDiffusion",
+          "params": {
+            "pattern": "Worms",
+            "feedRate": 0.078,
+            "killRate": 0.061,
+            "diffusionA": 1.0,
+            "diffusionB": 0.5,
+            "timestep": 1.0,
+            "resolution": "512"
+          }
+        }
+      },
+      "capturedAt": 1731094200000,
+      "lastUsed": null
+    },
+    {
+      "id": "preset_rd_chain",
+      "name": "RD + Blur + Feedback Chain",
+      "parameterState": {
+        "reaction_diffusion": {
+          "kind": "ComputeReactionDiffusion",
+          "params": {
+            "pattern": "Coral",
+            "feedRate": 0.0545,
+            "killRate": 0.062,
+            "diffusionA": 1.0,
+            "diffusionB": 0.5,
+            "timestep": 1.0,
+            "resolution": "512"
+          }
+        },
+        "blur_smooth": {
+          "kind": "ComputeBlur",
+          "params": {
+            "radius": 3.0,
+            "quality": "Medium",
+            "direction": "Both"
+          }
+        },
+        "feedback_trail": {
+          "kind": "ComputeFeedback",
+          "params": {
+            "decay": 0.98,
+            "scale": 1.002,
+            "rotation": 0.5,
+            "offsetX": 0.001,
+            "offsetY": 0.001
+          }
+        }
+      },
+      "connections": [
+        {
+          "from": "reaction_diffusion.Texture",
+          "to": "blur_smooth.Input",
+          "description": "Smooth the RD output"
+        },
+        {
+          "from": "blur_smooth.Texture",
+          "to": "feedback_trail.Input",
+          "description": "Create trailing feedback effect"
+        }
+      ],
+      "capturedAt": 1731094250000,
+      "lastUsed": null
+    }
+  ],
+  "presetOrder": [
+    "preset_rd_coral",
+    "preset_rd_spots",
+    "preset_rd_stripes",
+    "preset_rd_waves",
+    "preset_rd_worms",
+    "preset_rd_chain"
+  ],
+  "usage": {
+    "description": "Reaction-diffusion simulations create organic patterns through the interaction of two chemicals (A and B). Different feed/kill rate combinations produce dramatically different patterns. The last preset shows chaining RD with blur and feedback for complex effects.",
+    "notes": [
+      "Patterns evolve over time - give them 5-10 seconds to stabilize",
+      "Random initialization creates unique results each run",
+      "Feed and kill rates are highly sensitive - small changes create big differences",
+      "Increase timestep for faster evolution (may become unstable)",
+      "Use as animated texture source for other effects"
+    ]
+  }
+}
