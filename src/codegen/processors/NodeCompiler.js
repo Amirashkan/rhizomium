@@ -301,6 +301,8 @@ export class NodeCompiler {
       result = this.compilers.noise.compile(node, getInput, getParam);
     } else if (this.compilers.texture.handles(kind)) {
       result = this.compilers.texture.compile(node, getInput, getParam);
+    } else if (this.compilers.compute.handles(kind)) {
+      result = this.compilers.compute.compile(node, getInput, getParam);
     } else if (this.compilers.utility.handles(kind)) {
       result = this.compilers.utility.compile(node, getInput, getParam);
     } else if (this.compilers.transform.handles(kind)) {

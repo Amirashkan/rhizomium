@@ -36,8 +36,10 @@ export class ComputeNodes {
    * Compile a compute shader node
    * Compute nodes don't generate inline WGSL code - they execute on GPU and return texture references
    */
-  compile(node, getInput) {
+  compile(node, getInput, getParam) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
+
+    console.log('[ComputeNodes] Compiling node:', node.kind, nodeId);
 
     // Analyze node parameters for uniforms
     if (this.uniformManager) {
@@ -131,10 +133,10 @@ export class ComputeNodes {
    * Generate compute noise shader
    */
   generateNoiseShader(node, getInput) {
-    const scale = this.getParam(node, 'scale', 8.0);
-    const octaves = this.getParam(node, 'octaves', 5);
-    const speed = this.getParam(node, 'speed', 0.1);
-    const colorize = node.params?.colorize ?? true;
+    const scale = this.getParamValue(node, 'scale', 8.0);
+    const octaves = this.getParamValue(node, 'octaves', 5);
+    const speed = this.getParamValue(node, 'speed', 0.1);
+    const colorize = this.getParamValue(node, 'colorize', true);
 
     return `
 // Compute Noise Shader
@@ -227,7 +229,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate compute blur shader
    */
   generateBlurShader(node, getInput) {
-    const radius = this.getParam(node, 'radius', 5.0);
+    const radius = this.getParamValue(node, 'radius', 5.0);
 
     return `
 // Compute Gaussian Blur Shader
@@ -280,8 +282,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate feedback shader
    */
   generateFeedbackShader(node, getInput) {
-    const decay = this.getParam(node, 'decay', 0.95);
-    const scale = this.getParam(node, 'scale', 1.01);
+    const decay = this.getParamValue(node, 'decay', 0.95);
+    const scale = this.getParamValue(node, 'scale', 1.01);
 
     return `
 // Compute Feedback Shader
@@ -492,24 +494,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   /**
-   * Get parameter value with uniform support
+   * Get parameter value - simple implementation
    */
-  getParam(node, paramName, defaultValue) {
+  getParamValue(node, paramName, defaultValue) {
     if (!node.params || !(paramName in node.params)) {
       return defaultValue;
     }
 
     const value = node.params[paramName];
-
-    // Check if this is an expression/uniform reference
-    if (this.uniformManager && this.paramHandler) {
-      const result = this.paramHandler.getParamValue(node, paramName, defaultValue);
-      if (typeof result === 'string' && result.includes('u_params.')) {
-        return result; // Return uniform reference
-      }
-      return result;
-    }
-
     return value !== undefined ? value : defaultValue;
   }
 
