@@ -53,7 +53,13 @@ export class ParameterPanel {
     this.fileInputHandler = new FileInputHandler(undoManager);
 
     // Initialize WGSL code editor handler (device will be set later)
-    this.wgslCodeInputHandler = new WGSLCodeInputHandler(undoManager);
+    try {
+      this.wgslCodeInputHandler = new WGSLCodeInputHandler(undoManager);
+      console.log('[ParameterPanel] WGSLCodeInputHandler initialized successfully');
+    } catch (error) {
+      console.error('[ParameterPanel] Failed to initialize WGSLCodeInputHandler:', error);
+      this.wgslCodeInputHandler = null;
+    }
 
     // Input handlers mapping
     this.inputHandlers = {
@@ -64,9 +70,13 @@ export class ParameterPanel {
       select: this.selectInputHandler,
       file: this.fileInputHandler,
       colorstops: this.colorStopInputHandler,
-      boolean: this.booleanInputHandler,
-      'wgsl-code': this.wgslCodeInputHandler
+      boolean: this.booleanInputHandler
     };
+
+    // Only add WGSL handler if it initialized successfully
+    if (this.wgslCodeInputHandler) {
+      this.inputHandlers['wgsl-code'] = this.wgslCodeInputHandler;
+    }
 
     this.init();
   }
