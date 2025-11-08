@@ -138,9 +138,9 @@ export class ComputeShaderManager {
         // A channel (chemical A) - start at 1.0 everywhere
         pixelData[idx + 0] = 255;
 
-        // B channel (chemical B) - start very low, slightly higher in seed regions
+        // B channel (chemical B) - start VERY low, slightly higher in seed regions
         // Background has tiny noise to help pattern formation
-        let bValue = Math.random() * 3; // Background noise: 0-3 (0-1% of max)
+        let bValue = Math.random() * 2; // Background noise: 0-2 (0-1% of max)
 
         for (const seed of seeds) {
           const dx = uvX - seed.x;
@@ -148,10 +148,11 @@ export class ComputeShaderManager {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist < seed.radius) {
-            // Inside seed region - set B to 15-25% (not 50%!)
+            // Inside seed region - set B to ONLY 3-8% for growth regime!
+            // Gray-Scott needs very small initial B to see pattern formation
             // Smooth falloff from center
             const falloff = 1.0 - (dist / seed.radius);
-            const seedB = 38 + Math.random() * 26; // 15-25% of 255
+            const seedB = 8 + Math.random() * 12; // 3-8% of 255 (very low!)
             bValue = Math.max(bValue, seedB * falloff);
           }
         }
