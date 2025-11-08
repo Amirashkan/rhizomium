@@ -1,4 +1,5 @@
 // src/ui/ParameterPanel.js - Clean implementation with binding support
+// VERSION: d5c395f - WITH WGSL EDITOR
 
 import { ExpressionTextInputHandler, ExpressionParameterValueManager, expressionSystem, expressionStyles } from '../utils/ParameterExpressionSystem.js';
 import { SelectInputHandler } from './components/SelectInputHandler.js';
@@ -6,6 +7,9 @@ import { FileInputHandler } from './components/FileInputHandler.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
+import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
+
+console.log('[ParameterPanel] Loading version d5c395f with WGSL editor support');
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
@@ -29,28 +33,37 @@ export class ParameterPanel {
     this._pendingPreviewUpdates = new Map();
     this._previewFrame = null;
     this._outputRebuildTimeout = null;
-    
+
     // Initialize binding system
     this.bindingSystem = new ParameterBindingSystem(graph, eventSystem, undoManager);
-    
+
     this.expressionSystem.startAnimationLoop();
-    
+
     // Initialize expression system components
     this.valueManager = new ExpressionParameterValueManager(
-      graph, 
-      undoManager, 
-      eventSystem, 
+      graph,
+      undoManager,
+      eventSystem,
       this.expressionSystem
     );
-    
+
     // Initialize input handlers with expression support
     this.textInputHandler = new ExpressionTextInputHandler(
-      undoManager, 
+      undoManager,
       this.expressionSystem
     );
     this.selectInputHandler = new SelectInputHandler(undoManager);
     this.fileInputHandler = new FileInputHandler(undoManager);
-    
+
+    // Initialize WGSL code editor handler (device will be set later)
+    try {
+      this.wgslCodeInputHandler = new WGSLCodeInputHandler(undoManager);
+      console.log('[ParameterPanel] WGSLCodeInputHandler initialized successfully');
+    } catch (error) {
+      console.error('[ParameterPanel] Failed to initialize WGSLCodeInputHandler:', error);
+      this.wgslCodeInputHandler = null;
+    }
+
     // Input handlers mapping
     this.inputHandlers = {
       text: this.textInputHandler,
@@ -62,7 +75,12 @@ export class ParameterPanel {
       colorstops: this.colorStopInputHandler,
       boolean: this.booleanInputHandler
     };
-    
+
+    // Only add WGSL handler if it initialized successfully
+    if (this.wgslCodeInputHandler) {
+      this.inputHandlers['wgsl-code'] = this.wgslCodeInputHandler;
+    }
+
     this.init();
   }
 
@@ -851,6 +869,50 @@ case 'flip2d':
           });
           break;
 
+        // Compute nodes with WGSL editor
+        case 'computenoise':
+        case 'computeblur':
+        case 'computeparticles':
+        case 'computefeedback':
+        case 'computereactiondiffusion':
+        case 'computefluidsim':
+        case 'computeconvolution':
+        case 'computecellular':
+          // Add WGSL code editor parameter
+          definitions.push({
+            name: 'wgslSource',
+            type: 'wgsl-code',
+            displayName: 'WGSL Shader Code',
+            default: node.wgslSource || '',
+            description: 'WGSL compute shader source code'
+          });
+
+          // Add standard compute parameters if they exist in the node
+          if (node.params) {
+            Object.keys(node.params).forEach(key => {
+              // Skip wgslSource as it's already added
+              if (key === 'wgslSource') return;
+
+              const value = node.params[key];
+              let inferredType = 'text';
+
+              if (typeof value === 'number') {
+                inferredType = Number.isInteger(value) ? 'int' : 'float';
+              } else if (typeof value === 'boolean') {
+                inferredType = 'boolean';
+              }
+
+              definitions.push({
+                name: key,
+                type: inferredType,
+                displayName: key.charAt(0).toUpperCase() + key.slice(1),
+                default: value,
+                description: `${key} parameter`
+              });
+            });
+          }
+          break;
+
         default:
         if (node.params && Object.keys(node.params).length > 0) {
           Object.keys(node.params).forEach(key => {
@@ -884,6 +946,16 @@ case 'flip2d':
     }
     
     return definitions;
+  }
+
+  /**
+   * Set the WebGPU device for WGSL compilation checking
+   */
+  setDevice(device) {
+    if (this.wgslCodeInputHandler) {
+      this.wgslCodeInputHandler.setDevice(device);
+      console.log('[ParameterPanel] WebGPU device set for WGSL editor');
+    }
   }
 
   showNodeParameters(node) {

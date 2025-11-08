@@ -98,6 +98,12 @@ window.gpuRenderer = new GPURenderer(device, canvas);
       await window.textureManager.initialize(device);
       console.log("TextureManager initialized successfully");
       __deviceReady = true;
+
+      // Re-set WebGPU device for WGSL editor after reinitialization
+      if (editor?.paramPanel && typeof editor.paramPanel.setDevice === 'function' && window.gpuRenderer?.device) {
+        editor.paramPanel.setDevice(window.gpuRenderer.device);
+        console.log("WebGPU device re-set for WGSL editor after reload");
+      }
     }
 
     if (device) {
@@ -239,13 +245,21 @@ async function initialize() {
 
     // Create editor and pass the undo manager to it
     editor = new Editor(graph, updateShaderFromGraph, undoManager);
-    
+
     // Now set the editor reference in undo manager
     if (typeof undoManager.setEditor === "function") {
       undoManager.setEditor(editor);
     } else {
       undoManager.editor = editor;
       undoManager.onChange = editor?.onChange;
+    }
+
+    // Set WebGPU device for WGSL editor in ParameterPanel
+    if (editor.paramPanel && typeof editor.paramPanel.setDevice === 'function' && window.gpuRenderer && window.gpuRenderer.device) {
+      editor.paramPanel.setDevice(window.gpuRenderer.device);
+      console.log("WebGPU device set for WGSL editor");
+    } else if (editor.paramPanel && typeof editor.paramPanel.setDevice !== 'function') {
+      console.warn("ParameterPanel.setDevice method not available - WGSL editor compilation checking will be disabled");
     }
 
     // Create timeline manager and panel
