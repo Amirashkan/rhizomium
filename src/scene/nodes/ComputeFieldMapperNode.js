@@ -1,4 +1,5 @@
 import { Node } from './Node.js';
+import { FieldVisualizer } from '../FieldVisualizer.js';
 
 /**
  * ComputeFieldMapper node for mapping compute shader outputs to 3D space
@@ -84,6 +85,44 @@ export class ComputeFieldMapperNode extends Node {
          * @type {number}
          */
         this._frameCounter = 0;
+
+        /**
+         * Field visualizer instance
+         * @type {FieldVisualizer|null}
+         */
+        this.visualizer = null;
+
+        /**
+         * Visualization parameters
+         * @type {Object}
+         */
+        this.visualizationParams = {
+            // Threshold for point cloud
+            threshold: 0.5,
+
+            // Point size
+            pointSize: 0.02,
+
+            // Color parameters
+            colorMode: 'gradient', // 'solid', 'gradient', 'field'
+            colorScale: [0.0, 1.0],
+            colorA: [0.2, 0.4, 1.0, 1.0],
+            colorB: [1.0, 0.4, 0.2, 1.0],
+            solidColor: [1.0, 1.0, 1.0, 1.0],
+
+            // Displacement
+            displacementScale: 0.0,
+            displacementAxis: [0, 1, 0],
+
+            // Sampling
+            sampleRate: 1
+        };
+
+        /**
+         * Generated geometry (cached)
+         * @type {Object|null}
+         */
+        this.geometry = null;
     }
 
     /**
@@ -186,6 +225,82 @@ export class ComputeFieldMapperNode extends Node {
         const z = min[2] + (k / depth) * (max[2] - min[2]);
 
         return [x, y, z];
+    }
+
+    /**
+     * Initialize field visualizer
+     * @param {GPUDevice} device - WebGPU device
+     */
+    async initializeVisualizer(device) {
+        if (this.visualizer) {
+            return;
+        }
+
+        this.visualizer = new FieldVisualizer(device);
+        await this.visualizer.initialize();
+
+        // Set initial parameters
+        this.visualizer.setDimensions(this.dimensions);
+        this.visualizer.setFieldBounds(this.fieldBounds.min, this.fieldBounds.max);
+        this.visualizer.setMode(this.mappingMode === 'points' ? 'points' : 'mesh');
+        this.visualizer.setThreshold(this.visualizationParams.threshold);
+        this.visualizer.setIsoValue(this.isoThreshold);
+        this.visualizer.setPointSize(this.visualizationParams.pointSize);
+        this.visualizer.setColorParams(this.visualizationParams);
+        this.visualizer.setDisplacement(
+            this.visualizationParams.displacementScale,
+            this.visualizationParams.displacementAxis
+        );
+
+        console.log(`[ComputeFieldMapperNode] Initialized visualizer for ${this.name}`);
+    }
+
+    /**
+     * Generate visualization from compute shader output
+     * @param {GPUTexture} fieldTexture - Output texture from compute shader
+     * @returns {Promise<Object>} Generated geometry
+     */
+    async generateVisualization(fieldTexture) {
+        if (!this.visualizer) {
+            console.warn('[ComputeFieldMapperNode] Visualizer not initialized');
+            return null;
+        }
+
+        // Update visualizer parameters
+        this.visualizer.setDimensions(this.dimensions);
+        this.visualizer.setFieldBounds(this.fieldBounds.min, this.fieldBounds.max);
+        this.visualizer.setThreshold(this.visualizationParams.threshold);
+        this.visualizer.setIsoValue(this.isoThreshold);
+        this.visualizer.setColorParams(this.visualizationParams);
+
+        // Generate geometry based on mapping mode
+        if (this.mappingMode === 'points') {
+            this.geometry = await this.visualizer.generatePointCloud(fieldTexture);
+        } else if (this.mappingMode === 'surface' || this.mappingMode === 'volume') {
+            // For mesh mode, we need 3D field data
+            // This is a placeholder - full implementation would read 3D texture
+            console.warn('[ComputeFieldMapperNode] Mesh generation requires 3D field data');
+            this.geometry = null;
+        }
+
+        return this.geometry;
+    }
+
+    /**
+     * Set visualization parameter
+     * @param {string} name - Parameter name
+     * @param {*} value - Parameter value
+     */
+    setVisualizationParam(name, value) {
+        this.visualizationParams[name] = value;
+    }
+
+    /**
+     * Get generated geometry
+     * @returns {Object|null} Geometry data
+     */
+    getGeometry() {
+        return this.geometry;
     }
 
     /**
