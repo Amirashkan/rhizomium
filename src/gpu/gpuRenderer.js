@@ -237,13 +237,13 @@ export class GPURenderer {
   }
 
   _lookupTextureBinding(texManager, varName) {
-    const match = /^(textureCube_|texture_|samplerCube_|sampler_|compute_)(.+)$/.exec(varName);
+    const match = /^(sampler_compute_|textureCube_|texture_|samplerCube_|sampler_|compute_)(.+)$/.exec(varName);
     if (!match) return null;
     const prefix = match[1];
     const sanitizedId = match[2];
 
     // Check compute textures first (for compute shader nodes)
-    if (prefix === 'compute_' || prefix.startsWith('sampler_compute_')) {
+    if (prefix === 'compute_' || prefix === 'sampler_compute_') {
       console.log(`[GPURenderer] Checking compute textures for varName: ${varName}, prefix: ${prefix}, sanitizedId: ${sanitizedId}`);
       const computeExecutor = typeof window !== 'undefined' ? window.computeExecutor : null;
 
