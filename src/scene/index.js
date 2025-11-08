@@ -22,3 +22,18 @@ export { ComputeFieldMapperNode } from './nodes/ComputeFieldMapperNode.js';
 
 // Scene management
 export { Scene } from './Scene.js';
+export { Viewport3D } from './Viewport3D.js';
+export { CameraController } from './CameraController.js';
+
+// Field Visualization
+export { FieldVisualizer } from './FieldVisualizer.js';
+
+// Generators
+export { PointCloudGenerator } from './generators/PointCloudGenerator.js';
+
+// Algorithms
+export { MarchingCubes } from './algorithms/MarchingCubes.js';
+
+// Renderers
+export { PointCloudRenderer } from './renderers/PointCloudRenderer.js';
+export { MeshRenderer } from './renderers/MeshRenderer.js';
