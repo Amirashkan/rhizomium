@@ -434,8 +434,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let dA = uniforms.diffusionA;
   let dB = uniforms.diffusionB;
 
-  // Clamp timestep for stability (max 1.0 to prevent oscillations)
-  let dt = clamp(uniforms.timestep, 0.1, 1.0);
+  // Scale timestep appropriately - typical RD needs very small steps
+  // User timestep is a multiplier, actual dt should be much smaller
+  let dt = uniforms.timestep * 0.01; // Scale down to 0.01-0.05 range for stability
 
   // Reaction term: A + 2B → 3B (simplified Gray-Scott)
   let reaction = a * b * b;
@@ -450,17 +451,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let clampedA = clamp(newA, 0.0, 1.0);
   let clampedB = clamp(newB, 0.0, 1.0);
 
-  // Colorize output - enhanced visualization
-  // Use B concentration for primary color, A for brightness variation
-  let bIntensity = clampedB * 2.0; // Boost B visibility
-  let aModulation = clampedA * 0.5 + 0.5; // Use A to modulate
+  // Colorize output - visualize the pattern
+  // Classic approach: show B concentration as brightness
+  // B forms the visible pattern, A is the substrate
 
-  // Create vibrant color gradient based on chemical concentrations
-  let color = vec3<f32>(
-    clampedB * 1.5,           // Red channel: B concentration
-    clampedA * 0.8,           // Green channel: A concentration
-    clampedB * clampedA * 2.0 // Blue channel: interaction
-  );
+  // Simple grayscale visualization of B concentration
+  // let color = vec3<f32>(clampedB, clampedB, clampedB);
+
+  // Colored visualization: map B concentration to a color gradient
+  let t = clampedB;
+  var color: vec3<f32>;
+
+  if (t < 0.5) {
+    // Low B: dark blue to cyan
+    color = mix(vec3<f32>(0.0, 0.0, 0.2), vec3<f32>(0.0, 0.5, 1.0), t * 2.0);
+  } else {
+    // High B: cyan to yellow/white
+    color = mix(vec3<f32>(0.0, 0.5, 1.0), vec3<f32>(1.0, 1.0, 0.3), (t - 0.5) * 2.0);
+  }
 
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, 1.0));
 }`;
