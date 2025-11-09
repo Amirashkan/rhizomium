@@ -34,8 +34,13 @@ async function test3DVisualization() {
 
     console.log('\n3. Adding test cube to scene...');
     try {
-        const cube = await window.addTestCubeToScene(window.systemIntegration.scene);
-        console.log(`   ✓ Test cube added with ${cube.geometry.vertexCount} vertices`);
+        const device = window.gpuRenderer?.device;
+        if (!device) {
+            console.error('   ✗ WebGPU device not available');
+        } else {
+            const cube = await window.addTestCubeToScene(window.systemIntegration.scene, device);
+            console.log(`   ✓ Test cube added with ${cube.geometry.vertexCount} vertices`);
+        }
     } catch (error) {
         console.error('   ✗ Failed to add test cube:', error);
     }

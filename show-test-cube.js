@@ -32,9 +32,16 @@ async function showTestCube() {
         console.log('1. Showing 3D viewport...');
         window.viewportPanel.show();
 
+        // Get device
+        const device = window.gpuRenderer?.device;
+        if (!device) {
+            console.error('❌ WebGPU device not available');
+            return;
+        }
+
         // Add test cube
         console.log('2. Adding test cube...');
-        const cube = await window.addTestCubeToScene(window.systemIntegration.scene);
+        const cube = await window.addTestCubeToScene(window.systemIntegration.scene, device);
         console.log(`   ✓ Cube added: ${cube.geometry.vertexCount} vertices`);
 
         // Render
