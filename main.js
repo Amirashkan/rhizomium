@@ -38,6 +38,7 @@ import { SceneRenderer3D } from './src/scene/SceneRenderer3D.js';
 import { FieldVisualizerManager } from './src/scene/FieldVisualizerManager.js';
 import { addTestCubeToScene } from './src/scene/helpers/createTestCube.js';
 import { test3DVisualization } from './test-3d-viewport.js';
+import { showTestCube } from './show-test-cube.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -396,11 +397,13 @@ async function initialize() {
           console.log("FieldMapperIntegration initialized successfully");
         }
 
-        // Expose test function globally
+        // Expose test functions globally
         window.test3DVisualization = test3DVisualization;
+        window.showTestCube = showTestCube;
 
         console.log("3D Viewport available - press Ctrl+3 to toggle");
         console.log("Test 3D system: test3DVisualization()");
+        console.log("Show test cube: showTestCube()");
       } catch (error) {
         console.error("Failed to initialize 3D viewport:", error);
       }
