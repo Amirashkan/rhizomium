@@ -107,5 +107,8 @@ export function addTestCubeToScene(scene, device, name = 'Test Cube') {
   const cube = createTestCube(device, name);
   scene.addNode(cube);
   console.log(`[TestCube] Added "${name}" to scene`);
+  console.log(`[TestCube] Scene now has ${scene.root.children.length} root children`);
+  console.log(`[TestCube] Cube type:`, cube.constructor.name);
+  console.log(`[TestCube] getMeshNodes returns:`, scene.getMeshNodes().length, 'nodes');
   return cube;
 }

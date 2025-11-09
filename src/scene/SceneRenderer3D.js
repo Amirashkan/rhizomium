@@ -265,8 +265,18 @@ export class SceneRenderer3D {
     try {
       const meshNodes = this.scene.getMeshNodes();
       if (meshNodes && meshNodes.length > 0) {
+        if (!this._hasLoggedNodes) {
+          console.log(`[SceneRenderer3D] Found ${meshNodes.length} mesh nodes to render`);
+          this._hasLoggedNodes = true;
+        }
         for (const meshNode of meshNodes) {
           this.renderMeshNode(passEncoder, meshNode, time);
+        }
+      } else {
+        if (!this._hasLoggedEmpty) {
+          console.log('[SceneRenderer3D] No mesh nodes found in scene');
+          console.log('[SceneRenderer3D] Scene has', this.scene.root.children.length, 'root children');
+          this._hasLoggedEmpty = true;
         }
       }
     } catch (error) {
