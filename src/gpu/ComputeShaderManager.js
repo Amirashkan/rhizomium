@@ -447,6 +447,13 @@ export class ComputeShaderManager {
           this.uniformData[3] = this.node.params?.strength ?? 1.0;
           break;
 
+        case 'ComputeEdgeDetect':
+          // Uniforms: threshold, strength, invertEdges
+          this.uniformData[3] = this.node.params?.threshold ?? 0.1;
+          this.uniformData[4] = this.node.params?.strength ?? 1.0;
+          this.uniformData[5] = this.node.params?.invertEdges ? 1.0 : 0.0;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
