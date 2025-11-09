@@ -2502,9 +2502,9 @@ async function updateShaderFromGraph() {
     }
 
     // Process ComputeFieldMapper nodes for 3D visualization
-    if (fieldMapperIntegration && graph && graph.connections) {
+    if (fieldMapperIntegration && graph && graph.nodes) {
       try {
-        await fieldMapperIntegration.processFieldMappers(graph.nodes, graph.connections);
+        await fieldMapperIntegration.processFieldMappers(graph.nodes, graph.connections || []);
       } catch (error) {
         console.error('[main] Error processing field mappers:', error);
       }
