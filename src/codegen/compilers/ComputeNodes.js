@@ -486,7 +486,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   var result: f32;
 
-  // Mode: 0=Binary, 1=Range, 2=Adaptive
+  // Mode: 0=Binary, 1=Range, 2=Adaptive (compile-time constant)
   let modeType = ${modeIndex};
 
   if (modeType == 0) {
@@ -502,10 +502,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   // Output result as grayscale
   let color = vec4<f32>(result, result, result, input.a);
+
+  // DEBUG: Uncomment to output raw input for debugging
+  // textureStore(outputTexture, vec2<u32>(texCoord), input);
+
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
 
-    console.log(`[ComputeNodes] Generated threshold shader with mode: ${mode}`);
+    console.log(`[ComputeNodes] Generated threshold shader with mode: ${mode}, modeIndex: ${modeIndex}`);
     return shader;
   }
 
