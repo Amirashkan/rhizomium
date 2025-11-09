@@ -257,8 +257,17 @@ export class ViewportPanel {
 
       // Resize viewport3D canvas if it exists
       if (this.viewport3D && this.viewport3D.canvas) {
-        this.viewport3D.canvas.width = width;
-        this.viewport3D.canvas.height = height;
+        // Get the actual container size (accounting for header and controls)
+        const containerHeight = this.canvasContainer.clientHeight;
+        const containerWidth = this.canvasContainer.clientWidth;
+
+        this.viewport3D.canvas.width = containerWidth;
+        this.viewport3D.canvas.height = containerHeight;
+
+        // Update viewport3D dimensions
+        if (this.viewport3D.handleResize) {
+          this.viewport3D.handleResize(containerWidth, containerHeight);
+        }
       }
     });
 
@@ -295,6 +304,22 @@ export class ViewportPanel {
       display: block;
     `;
     this.canvasContainer.appendChild(canvas);
+
+    // Resize canvas to match container after it's been added
+    setTimeout(() => {
+      const containerWidth = this.canvasContainer.clientWidth;
+      const containerHeight = this.canvasContainer.clientHeight;
+
+      if (containerWidth > 0 && containerHeight > 0) {
+        canvas.width = containerWidth;
+        canvas.height = containerHeight;
+
+        // Update viewport3D if available
+        if (this.viewport3D && this.viewport3D.handleResize) {
+          this.viewport3D.handleResize(containerWidth, containerHeight);
+        }
+      }
+    }, 0);
   }
 
   /**

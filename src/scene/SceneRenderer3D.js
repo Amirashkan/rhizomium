@@ -220,6 +220,12 @@ export class SceneRenderer3D {
   render(time = 0) {
     if (!this.initialized) return;
 
+    // Check if canvas size changed and recreate depth texture if needed
+    if (this.depthTexture.width !== this.canvas.width ||
+        this.depthTexture.height !== this.canvas.height) {
+      this.createDepthTexture();
+    }
+
     // Update viewport
     if (this.viewport3D) {
       this.viewport3D.update();
@@ -250,16 +256,28 @@ export class SceneRenderer3D {
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
     passEncoder.setPipeline(this.renderPipeline);
 
-    // Render mesh nodes
-    const meshNodes = this.scene.getMeshNodes();
-    for (const meshNode of meshNodes) {
-      this.renderMeshNode(passEncoder, meshNode, time);
+    // Render mesh nodes (if any)
+    try {
+      const meshNodes = this.scene.getMeshNodes();
+      if (meshNodes && meshNodes.length > 0) {
+        for (const meshNode of meshNodes) {
+          this.renderMeshNode(passEncoder, meshNode, time);
+        }
+      }
+    } catch (error) {
+      console.warn('[SceneRenderer3D] Error rendering mesh nodes:', error);
     }
 
-    // Render compute field mapper nodes
-    const fieldMapperNodes = this.scene.getComputeFieldMapperNodes();
-    for (const fieldNode of fieldMapperNodes) {
-      this.renderFieldMapperNode(passEncoder, fieldNode, time);
+    // Render compute field mapper nodes (if any)
+    try {
+      const fieldMapperNodes = this.scene.getComputeFieldMapperNodes();
+      if (fieldMapperNodes && fieldMapperNodes.length > 0) {
+        for (const fieldNode of fieldMapperNodes) {
+          this.renderFieldMapperNode(passEncoder, fieldNode, time);
+        }
+      }
+    } catch (error) {
+      console.warn('[SceneRenderer3D] Error rendering field mapper nodes:', error);
     }
 
     passEncoder.end();
@@ -388,7 +406,7 @@ export class SceneRenderer3D {
 
     // Update viewport
     if (this.viewport3D) {
-      this.viewport3D.resize(this.canvas.width, this.canvas.height);
+      this.viewport3D.handleResize(this.canvas.width, this.canvas.height);
     }
   }
 
