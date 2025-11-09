@@ -431,6 +431,20 @@ export class ComputeShaderManager {
           this.uniformData[5] = this.node.params?.thresholdMax ?? 0.7;
           this.uniformData[6] = this.node.params?.outputLow ?? 0.0;
           this.uniformData[7] = this.node.params?.outputHigh ?? 1.0;
+
+          // Debug logging (throttled)
+          if (!this._lastThresholdLog || Date.now() - this._lastThresholdLog > 2000) {
+            console.log('[ComputeShaderManager] ComputeThreshold uniforms:', {
+              threshold: this.uniformData[3],
+              thresholdMin: this.uniformData[4],
+              thresholdMax: this.uniformData[5],
+              outputLow: this.uniformData[6],
+              outputHigh: this.uniformData[7],
+              mode: this.node.params?.mode,
+              hasParams: !!this.node.params
+            });
+            this._lastThresholdLog = Date.now();
+          }
           break;
 
         case 'ComputeConvolution':
