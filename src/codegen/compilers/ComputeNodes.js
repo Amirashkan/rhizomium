@@ -32,7 +32,8 @@ export class ComputeNodes {
       'ComputeFeedbackField',
       'ComputeThreshold',
       'ComputeColorAdjust',
-      'ComputeEdgeDetect'
+      'ComputeEdgeDetect',
+      'ComputeMorphology'
     ].includes(kind);
   }
 
@@ -142,6 +143,8 @@ export class ComputeNodes {
         return this.generateColorAdjustShader(node, getInput);
       case 'ComputeEdgeDetect':
         return this.generateEdgeDetectShader(node, getInput);
+      case 'ComputeMorphology':
+        return this.generateMorphologyShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -1246,6 +1249,148 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Roberts': 3
     };
     return methods[method] || 0;
+  }
+
+  /**
+   * Generate morphology shader
+   */
+  generateMorphologyShader(node, getInput) {
+    const operation = this.getParamValue(node, 'operation', 'Dilate');
+    const kernelSize = this.getParamValue(node, 'kernelSize', '3x3');
+    const iterations = this.getParamValue(node, 'iterations', 1);
+    const strength = this.getParamValue(node, 'strength', 1.0);
+
+    const operationIndex = this.getMorphologyOperationIndex(operation);
+    const kernelRadius = this.getKernelRadius(kernelSize);
+
+    const shader = `
+// Compute Morphology Shader - Operation: ${operation}, Kernel: ${kernelSize}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  strength: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Sample color at offset position with bounds checking
+fn sampleColor(coord: vec2<i32>, offset: vec2<i32>, texSize: vec2<u32>) -> vec4<f32> {
+  let samplePos = coord + offset;
+
+  if (samplePos.x >= 0 && samplePos.x < i32(texSize.x) &&
+      samplePos.y >= 0 && samplePos.y < i32(texSize.y)) {
+    return textureLoad(inputTexture, samplePos, 0);
+  }
+
+  // Return black for out-of-bounds (for dilate this won't affect max, for erode it will be minimum)
+  return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+}
+
+// Dilate operation: Maximum filter (expands bright regions)
+fn dilate(coord: vec2<i32>, texSize: vec2<u32>, radius: i32) -> vec4<f32> {
+  var maxColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+
+  for (var dy = -radius; dy <= radius; dy = dy + 1) {
+    for (var dx = -radius; dx <= radius; dx = dx + 1) {
+      let sample = sampleColor(coord, vec2<i32>(dx, dy), texSize);
+      maxColor = max(maxColor, sample);
+    }
+  }
+
+  return maxColor;
+}
+
+// Erode operation: Minimum filter (shrinks bright regions)
+fn erode(coord: vec2<i32>, texSize: vec2<u32>, radius: i32) -> vec4<f32> {
+  var minColor = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+
+  for (var dy = -radius; dy <= radius; dy = dy + 1) {
+    for (var dx = -radius; dx <= radius; dx = dx + 1) {
+      let sample = sampleColor(coord, vec2<i32>(dx, dy), texSize);
+      minColor = min(minColor, sample);
+    }
+  }
+
+  return minColor;
+}
+
+// Open operation: Erode then dilate (removes small bright spots)
+// Note: True opening requires two passes. This approximates with a single erode pass.
+// For proper opening, chain this node (set to Open/Erode) -> another morphology node (set to Dilate)
+fn open(coord: vec2<i32>, texSize: vec2<u32>, radius: i32) -> vec4<f32> {
+  return erode(coord, texSize, radius);
+}
+
+// Close operation: Dilate then erode (removes small dark spots)
+// Note: True closing requires two passes. This approximates with a single dilate pass.
+// For proper closing, chain this node (set to Close/Dilate) -> another morphology node (set to Erode)
+fn close(coord: vec2<i32>, texSize: vec2<u32>, radius: i32) -> vec4<f32> {
+  return dilate(coord, texSize, radius);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  // Get original color
+  let original = textureLoad(inputTexture, texCoord, 0);
+
+  // Select morphology operation
+  let operation = ${operationIndex}; // 0=Dilate, 1=Erode, 2=Open, 3=Close
+  let radius = ${kernelRadius};
+
+  var result: vec4<f32>;
+  if (operation == 0) {
+    result = dilate(texCoord, texSize, radius);
+  } else if (operation == 1) {
+    result = erode(texCoord, texSize, radius);
+  } else if (operation == 2) {
+    result = open(texCoord, texSize, radius);
+  } else {
+    result = close(texCoord, texSize, radius);
+  }
+
+  // Blend result with original based on strength
+  let finalColor = mix(original, result, uniforms.strength);
+
+  textureStore(outputTexture, vec2<u32>(texCoord), finalColor);
+}`;
+
+    console.log('[ComputeNodes] Generated morphology shader with operation:', operation, 'kernel:', kernelSize);
+    return shader;
+  }
+
+  /**
+   * Convert morphology operation string to index
+   */
+  getMorphologyOperationIndex(operation) {
+    const operations = {
+      'Dilate': 0,
+      'Erode': 1,
+      'Open': 2,
+      'Close': 3
+    };
+    return operations[operation] || 0;
+  }
+
+  /**
+   * Convert kernel size to radius
+   */
+  getKernelRadius(kernelSize) {
+    const sizes = {
+      '3x3': 1,  // radius 1 = 3x3 kernel
+      '5x5': 2,  // radius 2 = 5x5 kernel
+      '7x7': 3   // radius 3 = 7x7 kernel
+    };
+    return sizes[kernelSize] || 1;
   }
 
   /**
