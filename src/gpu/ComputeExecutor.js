@@ -94,7 +94,8 @@ export class ComputeExecutor {
       // Check both the node definition (how many inputs it's designed for) and actual connections
       // Nodes like ComputeBlur and ComputeFeedback are designed to take inputs
       const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
-                                     'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles'].includes(node.kind);
+                                     'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
+                                     'ComputeThreshold'].includes(node.kind);
       const needsInput = nodeDesignedForInput;
 
       console.log(`[ComputeExecutor] Initializing compute node: ${node.kind} (${nodeId})`);
