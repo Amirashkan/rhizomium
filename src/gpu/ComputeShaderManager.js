@@ -522,8 +522,8 @@ export class ComputeShaderManager {
     // Update uniforms
     this.updateUniforms(time);
 
-    // For feedback, recreate bind group to use correct ping-pong textures
-    if (this.supportsFeedback) {
+    // For feedback or input nodes, recreate bind group to use updated textures
+    if (this.supportsFeedback || this.needsInput) {
       this.recreateBindGroup();
     }
 
