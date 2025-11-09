@@ -31,7 +31,8 @@ export class ComputeNodes {
       'ComputeCellular',
       'ComputeFeedbackField',
       'ComputeThreshold',
-      'ComputeColorAdjust'
+      'ComputeColorAdjust',
+      'ComputeEdgeDetect'
     ].includes(kind);
   }
 
@@ -139,6 +140,8 @@ export class ComputeNodes {
         return this.generateThresholdShader(node, getInput);
       case 'ComputeColorAdjust':
         return this.generateColorAdjustShader(node, getInput);
+      case 'ComputeEdgeDetect':
+        return this.generateEdgeDetectShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -1042,6 +1045,207 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     console.log('[ComputeNodes] Generated color adjust shader');
     return shader;
+  }
+
+  /**
+   * Generate edge detection shader
+   */
+  generateEdgeDetectShader(node, getInput) {
+    const method = this.getParamValue(node, 'method', 'Sobel');
+    const threshold = this.getParamValue(node, 'threshold', 0.1);
+    const strength = this.getParamValue(node, 'strength', 1.0);
+    const invertEdges = this.getParamValue(node, 'invertEdges', false);
+
+    const methodIndex = this.getEdgeDetectMethodIndex(method);
+
+    const shader = `
+// Compute Edge Detection Shader - Method: ${method}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  threshold: f32,
+  strength: f32,
+  invertEdges: f32,
+  padding: vec2<f32>
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Convert RGB to luminance (Rec. 709)
+fn luminance(color: vec3<f32>) -> f32 {
+  return dot(color, vec3<f32>(0.299, 0.587, 0.114));
+}
+
+// Sample luminance at offset position with bounds checking
+fn sampleLum(coord: vec2<i32>, offset: vec2<i32>, texSize: vec2<u32>) -> f32 {
+  let samplePos = coord + offset;
+
+  if (samplePos.x >= 0 && samplePos.x < i32(texSize.x) &&
+      samplePos.y >= 0 && samplePos.y < i32(texSize.y)) {
+    let sample = textureLoad(inputTexture, samplePos, 0);
+    return luminance(sample.rgb);
+  }
+
+  // Return edge luminance for out-of-bounds
+  return 0.0;
+}
+
+// Sobel operator (3x3)
+fn sobelEdgeDetect(coord: vec2<i32>, texSize: vec2<u32>) -> f32 {
+  // Sobel kernels
+  // Gx = [-1  0  1]    Gy = [-1 -2 -1]
+  //      [-2  0  2]         [ 0  0  0]
+  //      [-1  0  1]         [ 1  2  1]
+
+  // Sample 3x3 neighborhood
+  let tl = sampleLum(coord, vec2<i32>(-1, -1), texSize);
+  let tc = sampleLum(coord, vec2<i32>( 0, -1), texSize);
+  let tr = sampleLum(coord, vec2<i32>( 1, -1), texSize);
+  let ml = sampleLum(coord, vec2<i32>(-1,  0), texSize);
+  let mr = sampleLum(coord, vec2<i32>( 1,  0), texSize);
+  let bl = sampleLum(coord, vec2<i32>(-1,  1), texSize);
+  let bc = sampleLum(coord, vec2<i32>( 0,  1), texSize);
+  let br = sampleLum(coord, vec2<i32>( 1,  1), texSize);
+
+  // Compute gradients
+  let gx = -tl + tr - 2.0*ml + 2.0*mr - bl + br;
+  let gy = -tl - 2.0*tc - tr + bl + 2.0*bc + br;
+
+  // Gradient magnitude
+  return sqrt(gx * gx + gy * gy);
+}
+
+// Scharr operator (3x3, more accurate rotation invariance)
+fn scharrEdgeDetect(coord: vec2<i32>, texSize: vec2<u32>) -> f32 {
+  // Scharr kernels (optimized weights)
+  // Gx = [-3   0   3]    Gy = [-3 -10  -3]
+  //      [-10  0  10]         [ 0   0   0]
+  //      [-3   0   3]         [ 3  10   3]
+
+  let tl = sampleLum(coord, vec2<i32>(-1, -1), texSize);
+  let tc = sampleLum(coord, vec2<i32>( 0, -1), texSize);
+  let tr = sampleLum(coord, vec2<i32>( 1, -1), texSize);
+  let ml = sampleLum(coord, vec2<i32>(-1,  0), texSize);
+  let mr = sampleLum(coord, vec2<i32>( 1,  0), texSize);
+  let bl = sampleLum(coord, vec2<i32>(-1,  1), texSize);
+  let bc = sampleLum(coord, vec2<i32>( 0,  1), texSize);
+  let br = sampleLum(coord, vec2<i32>( 1,  1), texSize);
+
+  // Compute gradients with Scharr weights
+  let gx = -3.0*tl + 3.0*tr - 10.0*ml + 10.0*mr - 3.0*bl + 3.0*br;
+  let gy = -3.0*tl - 10.0*tc - 3.0*tr + 3.0*bl + 10.0*bc + 3.0*br;
+
+  // Gradient magnitude (normalized by kernel weight sum)
+  return sqrt(gx * gx + gy * gy) / 32.0; // Normalize by sum of weights
+}
+
+// Prewitt operator (3x3)
+fn prewittEdgeDetect(coord: vec2<i32>, texSize: vec2<u32>) -> f32 {
+  // Prewitt kernels (uniform weights)
+  // Gx = [-1  0  1]    Gy = [-1 -1 -1]
+  //      [-1  0  1]         [ 0  0  0]
+  //      [-1  0  1]         [ 1  1  1]
+
+  let tl = sampleLum(coord, vec2<i32>(-1, -1), texSize);
+  let tc = sampleLum(coord, vec2<i32>( 0, -1), texSize);
+  let tr = sampleLum(coord, vec2<i32>( 1, -1), texSize);
+  let ml = sampleLum(coord, vec2<i32>(-1,  0), texSize);
+  let mr = sampleLum(coord, vec2<i32>( 1,  0), texSize);
+  let bl = sampleLum(coord, vec2<i32>(-1,  1), texSize);
+  let bc = sampleLum(coord, vec2<i32>( 0,  1), texSize);
+  let br = sampleLum(coord, vec2<i32>( 1,  1), texSize);
+
+  // Compute gradients
+  let gx = -tl + tr - ml + mr - bl + br;
+  let gy = -tl - tc - tr + bl + bc + br;
+
+  // Gradient magnitude
+  return sqrt(gx * gx + gy * gy);
+}
+
+// Roberts Cross operator (2x2, diagonal gradients)
+fn robertsEdgeDetect(coord: vec2<i32>, texSize: vec2<u32>) -> f32 {
+  // Roberts Cross kernels (2x2)
+  // Gx = [ 1  0]    Gy = [ 0  1]
+  //      [ 0 -1]         [-1  0]
+
+  let c  = sampleLum(coord, vec2<i32>( 0,  0), texSize);
+  let cr = sampleLum(coord, vec2<i32>( 1,  0), texSize);
+  let cb = sampleLum(coord, vec2<i32>( 0,  1), texSize);
+  let cbr = sampleLum(coord, vec2<i32>( 1,  1), texSize);
+
+  // Compute diagonal gradients
+  let gx = c - cbr;
+  let gy = cr - cb;
+
+  // Gradient magnitude
+  return sqrt(gx * gx + gy * gy);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  // Select edge detection method
+  var edgeMagnitude: f32;
+  let method = ${methodIndex}; // 0=Sobel, 1=Scharr, 2=Prewitt, 3=Roberts
+
+  if (method == 0) {
+    edgeMagnitude = sobelEdgeDetect(texCoord, texSize);
+  } else if (method == 1) {
+    edgeMagnitude = scharrEdgeDetect(texCoord, texSize);
+  } else if (method == 2) {
+    edgeMagnitude = prewittEdgeDetect(texCoord, texSize);
+  } else {
+    edgeMagnitude = robertsEdgeDetect(texCoord, texSize);
+  }
+
+  // Apply strength multiplier
+  edgeMagnitude *= uniforms.strength;
+
+  // Apply threshold
+  var edge: f32;
+  if (edgeMagnitude >= uniforms.threshold) {
+    edge = clamp(edgeMagnitude, 0.0, 1.0);
+  } else {
+    edge = 0.0;
+  }
+
+  // Optionally invert (show non-edges instead of edges)
+  if (uniforms.invertEdges > 0.5) {
+    edge = 1.0 - edge;
+  }
+
+  // Output edge as grayscale, preserve original alpha
+  let input = textureLoad(inputTexture, texCoord, 0);
+  let color = vec4<f32>(edge, edge, edge, input.a);
+
+  textureStore(outputTexture, vec2<u32>(texCoord), color);
+}`;
+
+    console.log('[ComputeNodes] Generated edge detection shader with method:', method);
+    return shader;
+  }
+
+  /**
+   * Convert edge detection method string to index
+   */
+  getEdgeDetectMethodIndex(method) {
+    const methods = {
+      'Sobel': 0,
+      'Scharr': 1,
+      'Prewitt': 2,
+      'Roberts': 3
+    };
+    return methods[method] || 0;
   }
 
   /**
