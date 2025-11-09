@@ -424,6 +424,24 @@ export class ComputeShaderManager {
           this.uniformData[7] = 0.0; // pad1
           break;
 
+        case 'ComputeThreshold':
+          // Uniforms: threshold, thresholdMin, thresholdMax, outputLow, outputHigh
+          this.uniformData[3] = this.node.params?.threshold ?? 0.5;
+          this.uniformData[4] = this.node.params?.thresholdMin ?? 0.3;
+          this.uniformData[5] = this.node.params?.thresholdMax ?? 0.7;
+          this.uniformData[6] = this.node.params?.outputLow ?? 0.0;
+          this.uniformData[7] = this.node.params?.outputHigh ?? 1.0;
+          break;
+
+        case 'ComputeConvolution':
+          // Uniforms: strength
+          this.uniformData[3] = this.node.params?.strength ?? 1.0;
+          this.uniformData[4] = 0.0;
+          this.uniformData[5] = 0.0;
+          this.uniformData[6] = 0.0;
+          this.uniformData[7] = 0.0;
+          break;
+
         default:
           // Unknown node type - use defaults
           this.uniformData[3] = 0.0;
