@@ -88,9 +88,9 @@ export function createTestCube(device, name = 'Test Cube') {
   const meshNode = new MeshNode(name);
   meshNode.geometry = geometry;
 
-  // Set initial transform (position at origin)
-  meshNode.transform.position = { x: 0, y: 0, z: 0 };
-  meshNode.transform.rotation = { x: 0, y: 0, z: 0 };
+  // Set initial transform (position at origin, slight back for camera)
+  meshNode.transform.position = { x: 0, y: 0, z: -5 };
+  meshNode.transform.rotation = { x: 0.3, y: 0.3, z: 0 }; // Slight rotation for visibility
   meshNode.transform.scale = { x: 1, y: 1, z: 1 };
 
   return meshNode;
