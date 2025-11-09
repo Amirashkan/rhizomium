@@ -253,6 +253,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -309,7 +310,8 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var inputTexture: texture_2d<f32>;
-@group(0) @binding(3) var feedbackTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+@group(0) @binding(4) var feedbackTexture: texture_2d<f32>;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -381,6 +383,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var prevFrame: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -494,8 +497,9 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var stateTexture: texture_2d<f32>;
-@group(0) @binding(2) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var stateTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -569,7 +573,8 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var inputTexture: texture_2d<f32>;
-@group(0) @binding(3) var prevFrame: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+@group(0) @binding(4) var prevFrame: texture_2d<f32>;
 
 // Helper: Sample with wrapping
 fn sampleWrap(tex: texture_2d<f32>, coord: vec2<i32>, size: vec2<i32>) -> vec4<f32> {

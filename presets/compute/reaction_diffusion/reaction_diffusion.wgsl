@@ -14,9 +14,9 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var stateTexture: texture_2d<f32>;      // Previous state
-@group(0) @binding(2) var texSampler: sampler;
-@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var stateTexture: texture_2d<f32>;      // Previous state (feedback)
+@group(0) @binding(3) var texSampler: sampler;
 
 // Hash function for initialization
 fn hash(p: vec2<f32>) -> f32 {
