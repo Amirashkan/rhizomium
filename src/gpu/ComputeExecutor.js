@@ -93,6 +93,11 @@ export class ComputeExecutor {
       // Detect if this node needs input textures from other compute nodes
       // Check both the node definition (how many inputs it's designed for) and actual connections
       // Nodes like ComputeBlur and ComputeFeedback are designed to take inputs
+      //
+      // IMPORTANT: When adding a new compute node that requires input textures,
+      // you MUST add its name to this list. Otherwise, the bind group layout won't
+      // include bindings for @binding(2) inputTexture and @binding(3) texSampler,
+      // causing WebGPU validation errors like "Binding doesn't exist in BindGroupLayoutInternal"
       const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
                                      'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
                                      'ComputeThreshold'].includes(node.kind);
