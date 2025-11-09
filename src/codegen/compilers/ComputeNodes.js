@@ -503,16 +503,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   // Output result as grayscale
   let color = vec4<f32>(result, result, result, input.a);
 
-  // DEBUG: Output red to verify shader is running
-  textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(1.0, 0.0, 0.0, 1.0));
+  // DEBUG: Output input directly to verify we're receiving data
+  // textureStore(outputTexture, vec2<u32>(texCoord), input);
 
-  // Normal output (currently disabled for debugging)
-  // textureStore(outputTexture, vec2<u32>(texCoord), color);
+  // Normal output
+  textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
 
     console.log(`[ComputeNodes] Generated threshold shader with mode: ${mode}, modeIndex: ${modeIndex}`);
     console.log(`[ComputeNodes] Threshold params from shader gen: threshold=${threshold}, outputLow=${outputLow}, outputHigh=${outputHigh}`);
-    console.log(`[ComputeNodes] DEBUG: Shader will output RED to verify it's running`);
     return shader;
   }
 
