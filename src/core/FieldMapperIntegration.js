@@ -78,20 +78,31 @@ export class FieldMapperIntegration {
     /**
      * Process a single ComputeFieldMapper node
      * @param {Object} node - The node to process
-     * @param {Array} connections - All connections
+     * @param {Array} connections - All connections (optional - will use node.inputs if not provided)
      */
     async processFieldMapperNode(node, connections) {
         const nodeId = node.id;
 
-        // Find input connection (compute shader that provides field data)
-        const inputConnection = connections.find(c => c.targetNodeId === nodeId);
+        // Find input - try connections array first, then fall back to node.inputs
+        let sourceNodeId = null;
 
-        if (!inputConnection) {
+        if (connections && connections.length > 0) {
+            // Try modern connection structure (toNode/fromNode)
+            const inputConnection = connections.find(c => c.toNode === nodeId);
+            if (inputConnection) {
+                sourceNodeId = inputConnection.fromNode;
+            }
+        }
+
+        // Fall back to node.inputs array (older connection model)
+        if (!sourceNodeId && node.inputs && node.inputs[0]) {
+            sourceNodeId = node.inputs[0];
+        }
+
+        if (!sourceNodeId) {
             console.warn(`[FieldMapperIntegration] Node ${nodeId} has no input connection`);
             return;
         }
-
-        const sourceNodeId = inputConnection.sourceNodeId;
 
         // Get the compute texture from the source node
         const computeTexture = this.getComputeTexture(sourceNodeId);
