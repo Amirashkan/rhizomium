@@ -27,7 +27,7 @@ export class ComputeShaderManager {
 
     // Uniform buffers
     this.uniformBuffer = null;
-    this.uniformData = new Float32Array(8); // [resolution.x, resolution.y, time, scale, octaves_as_float, speed, pad0, pad1]
+    this.uniformData = new Float32Array(16); // Expanded to support more parameters [resolution.x, resolution.y, time, param1-12, pad0]
 
     // Workgroup configuration
     this.workgroupSize = { x: 8, y: 8, z: 1 };
@@ -253,10 +253,10 @@ export class ComputeShaderManager {
    */
   createUniformBuffer() {
     this.uniformBuffer = this.device.createBuffer({
-      size: 32, // 8 floats * 4 bytes = 32 bytes
+      size: 64, // 16 floats * 4 bytes = 64 bytes (expanded for more parameters)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    this.resourceTracker?.trackBuffer(this.uniformBuffer, 32);
+    this.resourceTracker?.trackBuffer(this.uniformBuffer, 64);
 
     console.log('[ComputeShaderManager] Uniform buffer created');
   }
@@ -372,22 +372,23 @@ export class ComputeShaderManager {
     this.uniformData[1] = this.textureHeight;
     this.uniformData[2] = time;
 
+    // Initialize all parameter slots to 0 (will be overwritten by specific node types)
+    for (let i = 3; i < 16; i++) {
+      this.uniformData[i] = 0.0;
+    }
+
     // Set node-specific parameters based on node kind
     if (!this.node) {
       // No node - use defaults
       this.uniformData[3] = 8.0;
       this.uniformData[4] = 5.0;
       this.uniformData[5] = 0.1;
-      this.uniformData[6] = 0.0;
-      this.uniformData[7] = 0.0;
     } else {
       switch (this.node.kind) {
         case 'ComputeNoise':
           this.uniformData[3] = this.node.params?.scale ?? 8.0;
           this.uniformData[4] = this.node.params?.octaves ?? 5;
           this.uniformData[5] = this.node.params?.speed ?? 0.1;
-          this.uniformData[6] = 0.0;
-          this.uniformData[7] = 0.0;
           break;
 
         case 'ComputeReactionDiffusion':
@@ -420,8 +421,6 @@ export class ComputeShaderManager {
           this.uniformData[3] = this.node.params?.radius ?? 5.0;
           this.uniformData[4] = qualityValue;
           this.uniformData[5] = directionValue;
-          this.uniformData[6] = 0.0; // pad0
-          this.uniformData[7] = 0.0; // pad1
           break;
 
         case 'ComputeThreshold':
@@ -433,22 +432,23 @@ export class ComputeShaderManager {
           this.uniformData[7] = this.node.params?.outputHigh ?? 1.0;
           break;
 
+        case 'ComputeColorAdjust':
+          // Uniforms: brightness, contrast, saturation, hue, gamma, exposure
+          this.uniformData[3] = this.node.params?.brightness ?? 0.0;
+          this.uniformData[4] = this.node.params?.contrast ?? 1.0;
+          this.uniformData[5] = this.node.params?.saturation ?? 1.0;
+          this.uniformData[6] = this.node.params?.hue ?? 0.0;
+          this.uniformData[7] = this.node.params?.gamma ?? 1.0;
+          this.uniformData[8] = this.node.params?.exposure ?? 0.0;
+          break;
+
         case 'ComputeConvolution':
           // Uniforms: strength
           this.uniformData[3] = this.node.params?.strength ?? 1.0;
-          this.uniformData[4] = 0.0;
-          this.uniformData[5] = 0.0;
-          this.uniformData[6] = 0.0;
-          this.uniformData[7] = 0.0;
           break;
 
         default:
-          // Unknown node type - use defaults
-          this.uniformData[3] = 0.0;
-          this.uniformData[4] = 0.0;
-          this.uniformData[5] = 0.0;
-          this.uniformData[6] = 0.0;
-          this.uniformData[7] = 0.0;
+          // Unknown node type - all params already initialized to 0.0
           break;
       }
     }
