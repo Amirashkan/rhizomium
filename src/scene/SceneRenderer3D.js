@@ -313,6 +313,14 @@ export class SceneRenderer3D {
     const viewProjection = this.viewport3D.getViewProjectionMatrix();
     const modelMatrix = meshNode.getWorldMatrix();
 
+    if (!this._hasLoggedMatrices) {
+      console.log('[SceneRenderer3D] ViewProjection matrix:', viewProjection.elements);
+      console.log('[SceneRenderer3D] Model matrix:', modelMatrix.elements);
+      console.log('[SceneRenderer3D] Mesh position:', meshNode.transform.position);
+      console.log('[SceneRenderer3D] Index count:', meshNode.geometry.indexCount);
+      this._hasLoggedMatrices = true;
+    }
+
     // Update uniforms
     this.updateUniforms(viewProjection, modelMatrix, time);
 
