@@ -9,12 +9,12 @@ async function test3DVisualization() {
     // Check prerequisites
     console.log('1. Checking system components...');
     const checks = {
-        'Device': window.device,
+        'GPURenderer': window.gpuRenderer,
         'Scene': window.systemIntegration?.scene,
         'Viewport3D': window.viewport3D,
         'ViewportPanel': window.viewportPanel,
         'SceneRenderer3D': window.sceneRenderer3D,
-        'FieldVisualizerManager': window.fieldVisualizerManager
+        'FieldMapperIntegration': window.fieldMapperIntegration
     };
 
     let allGood = true;
@@ -85,14 +85,14 @@ async function test3DVisualization() {
     }
 
     console.log('\n=== Test Complete ===');
-    console.log('\nIf you see a rotating cube in the 3D viewport, the system works!');
-    console.log('The mesh generation is ready, it just needs graph integration.');
-    console.log('\nTo use ComputeFieldMapper:');
-    console.log('1. Create a ComputeNoise node');
-    console.log('2. Create a ComputeFieldMapper node');
-    console.log('3. Connect: ComputeNoise → ComputeFieldMapper');
-    console.log('4. Do NOT connect to OutputFinal');
-    console.log('5. The 3D geometry will appear in this viewport (integration needed)');
+    console.log('\n✅ If you see a rotating cube in the 3D viewport, the system works!');
+    console.log('\n📋 To use ComputeFieldMapper in your graph:');
+    console.log('   1. DISCONNECT ComputeFieldMapper from OutputFinal');
+    console.log('   2. Create a ComputeNoise (or other compute shader) node');
+    console.log('   3. Connect: ComputeNoise → ComputeFieldMapper');
+    console.log('   4. The 3D visualization will appear automatically!');
+    console.log('\n💡 Tip: Press Ctrl+3 to toggle the 3D viewport');
+    console.log('\n📚 Read QUICK-START-3D.md for complete instructions');
 }
 
 // Auto-run if loaded as module
