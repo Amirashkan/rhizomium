@@ -33,7 +33,10 @@ export class ComputeNodes {
       'ComputeThreshold',
       'ComputeColorAdjust',
       'ComputeEdgeDetect',
-      'ComputeMorphology'
+      'ComputeMorphology',
+      'ComputeVoronoi',
+      'ComputeGradient',
+      'ComputePattern'
     ].includes(kind);
   }
 
@@ -145,6 +148,12 @@ export class ComputeNodes {
         return this.generateEdgeDetectShader(node, getInput);
       case 'ComputeMorphology':
         return this.generateMorphologyShader(node, getInput);
+      case 'ComputeVoronoi':
+        return this.generateVoronoiShader(node, getInput);
+      case 'ComputeGradient':
+        return this.generateGradientShader(node, getInput);
+      case 'ComputePattern':
+        return this.generatePatternShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -1391,6 +1400,500 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       '7x7': 3   // radius 3 = 7x7 kernel
     };
     return sizes[kernelSize] || 1;
+  }
+
+  /**
+   * Generate Voronoi diagram shader
+   */
+  generateVoronoiShader(node, getInput) {
+    const mode = this.getParamValue(node, 'mode', 'Cells');
+    const scale = this.getParamValue(node, 'scale', 8.0);
+    const pointCount = this.getParamValue(node, 'pointCount', 16);
+    const distanceMetric = this.getParamValue(node, 'distanceMetric', 'Euclidean');
+    const seed = this.getParamValue(node, 'seed', 0.0);
+    const animate = this.getParamValue(node, 'animate', true);
+    const speed = this.getParamValue(node, 'speed', 0.1);
+
+    const modeIndex = this.getVoronoiModeIndex(mode);
+    const metricIndex = this.getDistanceMetricIndex(distanceMetric);
+
+    const shader = `
+// Compute Voronoi Shader - Mode: ${mode}, Metric: ${distanceMetric}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  scale: f32,
+  seed: f32,
+  speed: f32,
+  padding: vec2<f32>
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+
+// Hash function for pseudo-random numbers
+fn hash2(p: vec2<f32>) -> vec2<f32> {
+  var p3 = fract(vec3<f32>(p.xyx) * vec3<f32>(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+fn hash1(p: vec2<f32>) -> f32 {
+  var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+// Distance metrics
+fn distEuclidean(a: vec2<f32>, b: vec2<f32>) -> f32 {
+  let d = a - b;
+  return length(d);
+}
+
+fn distManhattan(a: vec2<f32>, b: vec2<f32>) -> f32 {
+  let d = abs(a - b);
+  return d.x + d.y;
+}
+
+fn distChebyshev(a: vec2<f32>, b: vec2<f32>) -> f32 {
+  let d = abs(a - b);
+  return max(d.x, d.y);
+}
+
+fn distMinkowski(a: vec2<f32>, b: vec2<f32>) -> f32 {
+  let d = abs(a - b);
+  let p = 3.0; // Minkowski parameter
+  return pow(pow(d.x, p) + pow(d.y, p), 1.0 / p);
+}
+
+fn getDistance(a: vec2<f32>, b: vec2<f32>, metric: i32) -> f32 {
+  if (metric == 0) {
+    return distEuclidean(a, b);
+  } else if (metric == 1) {
+    return distManhattan(a, b);
+  } else if (metric == 2) {
+    return distChebyshev(a, b);
+  } else {
+    return distMinkowski(a, b);
+  }
+}
+
+// Voronoi function
+fn voronoi(uv: vec2<f32>, metric: i32) -> vec4<f32> {
+  let gridUV = uv * uniforms.scale;
+  let gridCell = floor(gridUV);
+  let gridFract = fract(gridUV);
+
+  var minDist1 = 100.0;
+  var minDist2 = 100.0;
+  var minPoint = vec2<f32>(0.0);
+  var minCellId = vec2<f32>(0.0);
+
+  // Search in 3x3 neighborhood
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let neighbor = vec2<f32>(f32(x), f32(y));
+      let cellId = gridCell + neighbor;
+
+      // Generate random point in this cell
+      var pointOffset = hash2(cellId + uniforms.seed);
+
+      // Animate point if enabled
+      ${animate ? `
+      let t = uniforms.time * uniforms.speed;
+      pointOffset += vec2<f32>(sin(t + cellId.x), cos(t + cellId.y)) * 0.3;
+      pointOffset = fract(pointOffset);
+      ` : ''}
+
+      let point = neighbor + pointOffset;
+      let dist = getDistance(gridFract, point, metric);
+
+      if (dist < minDist1) {
+        minDist2 = minDist1;
+        minDist1 = dist;
+        minPoint = point;
+        minCellId = cellId;
+      } else if (dist < minDist2) {
+        minDist2 = dist;
+      }
+    }
+  }
+
+  // Return: (distance1, distance2, cellId.x, cellId.y)
+  return vec4<f32>(minDist1, minDist2, minCellId.xy);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<u32>(global_id.xy);
+  let texSize = vec2<u32>(u32(uniforms.resolution.x), u32(uniforms.resolution.y));
+
+  if (texCoord.x >= texSize.x || texCoord.y >= texSize.y) {
+    return;
+  }
+
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+
+  let metric = ${metricIndex}; // 0=Euclidean, 1=Manhattan, 2=Chebyshev, 3=Minkowski
+  let voronoiData = voronoi(uv, metric);
+  let dist1 = voronoiData.x;
+  let dist2 = voronoiData.y;
+  let cellId = voronoiData.zw;
+
+  var color: vec3<f32>;
+  let mode = ${modeIndex}; // 0=Cells, 1=Distance, 2=Borders, 3=Worley
+
+  if (mode == 0) {
+    // Cells mode: Color by cell ID
+    let cellHash = hash1(cellId + uniforms.seed);
+    let hue = cellHash;
+    let sat = 0.7;
+    let val = 0.8;
+
+    // HSV to RGB
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(vec3<f32>(hue) + k.xyz) * 6.0 - k.www);
+    color = val * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), sat);
+  } else if (mode == 1) {
+    // Distance mode: Visualize distance field
+    let d = clamp(dist1 * 2.0, 0.0, 1.0);
+    color = vec3<f32>(d);
+  } else if (mode == 2) {
+    // Borders mode: Show cell borders
+    let borderWidth = 0.05;
+    let border = smoothstep(0.0, borderWidth, dist2 - dist1);
+    color = vec3<f32>(border);
+  } else {
+    // Worley noise mode: F2 - F1
+    let worley = clamp(dist2 - dist1, 0.0, 1.0);
+    color = vec3<f32>(worley);
+  }
+
+  textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
+}`;
+
+    console.log('[ComputeNodes] Generated Voronoi shader with mode:', mode, 'metric:', distanceMetric);
+    return shader;
+  }
+
+  /**
+   * Generate gradient shader
+   */
+  generateGradientShader(node, getInput) {
+    const type = this.getParamValue(node, 'type', 'Linear');
+    const angle = this.getParamValue(node, 'angle', 0.0);
+    const centerX = this.getParamValue(node, 'centerX', 0.5);
+    const centerY = this.getParamValue(node, 'centerY', 0.5);
+    const radius = this.getParamValue(node, 'radius', 0.5);
+    const repeat = this.getParamValue(node, 'repeat', 1);
+    const reverse = this.getParamValue(node, 'reverse', false);
+
+    const typeIndex = this.getGradientTypeIndex(type);
+
+    const shader = `
+// Compute Gradient Shader - Type: ${type}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  angle: f32,
+  center: vec2<f32>,
+  radius: f32,
+  repeat: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+
+const PI = 3.14159265359;
+
+// Linear gradient
+fn gradientLinear(uv: vec2<f32>, angle: f32) -> f32 {
+  let radians = angle * PI / 180.0;
+  let dir = vec2<f32>(cos(radians), sin(radians));
+  return dot(uv - 0.5, dir) + 0.5;
+}
+
+// Radial gradient
+fn gradientRadial(uv: vec2<f32>, center: vec2<f32>, radius: f32) -> f32 {
+  let dist = length(uv - center);
+  return 1.0 - clamp(dist / radius, 0.0, 1.0);
+}
+
+// Angular/Conical gradient
+fn gradientAngular(uv: vec2<f32>, center: vec2<f32>, angle: f32) -> f32 {
+  let offset = uv - center;
+  var a = atan2(offset.y, offset.x);
+  a = a / (2.0 * PI) + 0.5; // Normalize to 0-1
+
+  // Apply angle rotation
+  a = fract(a + angle / 360.0);
+
+  return a;
+}
+
+// Diamond gradient
+fn gradientDiamond(uv: vec2<f32>, center: vec2<f32>, radius: f32) -> f32 {
+  let offset = abs(uv - center);
+  let dist = (offset.x + offset.y);
+  return 1.0 - clamp(dist / radius, 0.0, 1.0);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<u32>(global_id.xy);
+  let texSize = vec2<u32>(u32(uniforms.resolution.x), u32(uniforms.resolution.y));
+
+  if (texCoord.x >= texSize.x || texCoord.y >= texSize.y) {
+    return;
+  }
+
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+
+  var gradient: f32;
+  let gradientType = ${typeIndex}; // 0=Linear, 1=Radial, 2=Angular, 3=Diamond
+
+  if (gradientType == 0) {
+    gradient = gradientLinear(uv, uniforms.angle);
+  } else if (gradientType == 1) {
+    gradient = gradientRadial(uv, uniforms.center, uniforms.radius);
+  } else if (gradientType == 2) {
+    gradient = gradientAngular(uv, uniforms.center, uniforms.angle);
+  } else {
+    gradient = gradientDiamond(uv, uniforms.center, uniforms.radius);
+  }
+
+  // Apply repeat
+  gradient = fract(gradient * uniforms.repeat);
+
+  // Apply reverse
+  ${reverse ? `
+  gradient = 1.0 - gradient;
+  ` : ''}
+
+  let color = vec3<f32>(gradient);
+  textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
+}`;
+
+    console.log('[ComputeNodes] Generated gradient shader with type:', type);
+    return shader;
+  }
+
+  /**
+   * Generate pattern shader
+   */
+  generatePatternShader(node, getInput) {
+    const type = this.getParamValue(node, 'type', 'Checkerboard');
+    const scaleX = this.getParamValue(node, 'scaleX', 8.0);
+    const scaleY = this.getParamValue(node, 'scaleY', 8.0);
+    const rotation = this.getParamValue(node, 'rotation', 0.0);
+    const thickness = this.getParamValue(node, 'thickness', 0.5);
+    const smoothness = this.getParamValue(node, 'smoothness', 0.01);
+
+    const typeIndex = this.getPatternTypeIndex(type);
+
+    const shader = `
+// Compute Pattern Shader - Type: ${type}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  scale: vec2<f32>,
+  rotation: f32,
+  thickness: f32,
+  smoothness: f32,
+  padding: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+
+const PI = 3.14159265359;
+
+// Rotate UV coordinates
+fn rotate2D(uv: vec2<f32>, angle: f32) -> vec2<f32> {
+  let center = vec2<f32>(0.5);
+  let offset = uv - center;
+  let radians = angle * PI / 180.0;
+  let c = cos(radians);
+  let s = sin(radians);
+  let rotated = vec2<f32>(
+    offset.x * c - offset.y * s,
+    offset.x * s + offset.y * c
+  );
+  return rotated + center;
+}
+
+// Checkerboard pattern
+fn patternCheckerboard(uv: vec2<f32>) -> f32 {
+  let cell = floor(uv);
+  let checker = mod(cell.x + cell.y, 2.0);
+  return checker;
+}
+
+// Stripes pattern (horizontal by default, use rotation for vertical/diagonal)
+fn patternStripes(uv: vec2<f32>, thickness: f32) -> f32 {
+  let stripePos = fract(uv.y);
+  return smoothstep(thickness - uniforms.smoothness, thickness + uniforms.smoothness, stripePos);
+}
+
+// Dots pattern
+fn patternDots(uv: vec2<f32>, thickness: f32) -> f32 {
+  let cell = fract(uv);
+  let center = vec2<f32>(0.5);
+  let dist = length(cell - center);
+  let radius = thickness * 0.5;
+  return 1.0 - smoothstep(radius - uniforms.smoothness, radius + uniforms.smoothness, dist);
+}
+
+// Grid pattern
+fn patternGrid(uv: vec2<f32>, thickness: f32) -> f32 {
+  let cell = fract(uv);
+  let lineWidth = thickness * 0.1;
+
+  let edgeX = smoothstep(lineWidth, lineWidth + uniforms.smoothness, cell.x) *
+              smoothstep(lineWidth, lineWidth + uniforms.smoothness, 1.0 - cell.x);
+  let edgeY = smoothstep(lineWidth, lineWidth + uniforms.smoothness, cell.y) *
+              smoothstep(lineWidth, lineWidth + uniforms.smoothness, 1.0 - cell.y);
+
+  return 1.0 - (edgeX * edgeY);
+}
+
+// Hexagon pattern
+fn patternHexagon(uv: vec2<f32>, thickness: f32) -> f32 {
+  // Hexagonal grid
+  let s = vec2<f32>(1.0, 1.732); // sqrt(3)
+  let p = vec2<f32>(uv.x, uv.y * s.y);
+
+  let pi = floor(p);
+  var pf = fract(p);
+
+  // Determine which of 3 hexagon tiles we're in
+  var h = 0.0;
+  if (pf.x + pf.y > 1.0) {
+    pf = 1.0 - pf;
+    h = 1.0;
+  }
+
+  // Distance to center of hexagon
+  let center = vec2<f32>(0.5);
+  let dist = length(pf - center);
+
+  return 1.0 - smoothstep(thickness * 0.5 - uniforms.smoothness,
+                          thickness * 0.5 + uniforms.smoothness, dist);
+}
+
+// Brick pattern
+fn patternBrick(uv: vec2<f32>, thickness: f32) -> f32 {
+  var pos = uv;
+
+  // Offset every other row
+  let row = floor(pos.y);
+  pos.x += step(1.0, mod(row, 2.0)) * 0.5;
+
+  let cell = fract(pos);
+  let mortarWidth = (1.0 - thickness) * 0.1;
+
+  let edgeX = smoothstep(mortarWidth, mortarWidth + uniforms.smoothness, cell.x) *
+              smoothstep(mortarWidth, mortarWidth + uniforms.smoothness, 1.0 - cell.x);
+  let edgeY = smoothstep(mortarWidth, mortarWidth + uniforms.smoothness, cell.y) *
+              smoothstep(mortarWidth, mortarWidth + uniforms.smoothness, 1.0 - cell.y);
+
+  return edgeX * edgeY;
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<u32>(global_id.xy);
+  let texSize = vec2<u32>(u32(uniforms.resolution.x), u32(uniforms.resolution.y));
+
+  if (texCoord.x >= texSize.x || texCoord.y >= texSize.y) {
+    return;
+  }
+
+  var uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+
+  // Apply rotation
+  uv = rotate2D(uv, uniforms.rotation);
+
+  // Apply scale
+  uv = uv * uniforms.scale;
+
+  var pattern: f32;
+  let patternType = ${typeIndex}; // 0=Checkerboard, 1=Stripes, 2=Dots, 3=Grid, 4=Hexagon, 5=Brick
+
+  if (patternType == 0) {
+    pattern = patternCheckerboard(uv);
+  } else if (patternType == 1) {
+    pattern = patternStripes(uv, uniforms.thickness);
+  } else if (patternType == 2) {
+    pattern = patternDots(uv, uniforms.thickness);
+  } else if (patternType == 3) {
+    pattern = patternGrid(uv, uniforms.thickness);
+  } else if (patternType == 4) {
+    pattern = patternHexagon(uv, uniforms.thickness);
+  } else {
+    pattern = patternBrick(uv, uniforms.thickness);
+  }
+
+  let color = vec3<f32>(pattern);
+  textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
+}`;
+
+    console.log('[ComputeNodes] Generated pattern shader with type:', type);
+    return shader;
+  }
+
+  /**
+   * Convert Voronoi mode to index
+   */
+  getVoronoiModeIndex(mode) {
+    const modes = {
+      'Cells': 0,
+      'Distance': 1,
+      'Borders': 2,
+      'Worley': 3
+    };
+    return modes[mode] || 0;
+  }
+
+  /**
+   * Convert distance metric to index
+   */
+  getDistanceMetricIndex(metric) {
+    const metrics = {
+      'Euclidean': 0,
+      'Manhattan': 1,
+      'Chebyshev': 2,
+      'Minkowski': 3
+    };
+    return metrics[metric] || 0;
+  }
+
+  /**
+   * Convert gradient type to index
+   */
+  getGradientTypeIndex(type) {
+    const types = {
+      'Linear': 0,
+      'Radial': 1,
+      'Angular': 2,
+      'Diamond': 3
+    };
+    return types[type] || 0;
+  }
+
+  /**
+   * Convert pattern type to index
+   */
+  getPatternTypeIndex(type) {
+    const types = {
+      'Checkerboard': 0,
+      'Stripes': 1,
+      'Dots': 2,
+      'Grid': 3,
+      'Hexagon': 4,
+      'Brick': 5
+    };
+    return types[type] || 0;
   }
 
   /**
