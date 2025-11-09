@@ -20,6 +20,10 @@ export class ComputeShaderManager {
     // Legacy support
     this.storageTexture = null;
 
+    // Input texture from other compute nodes
+    this.inputTexture = null;
+    this.fallbackInputTexture = null;
+
     // Uniform buffers
     this.uniformBuffer = null;
     this.uniformData = new Float32Array(8); // [resolution.x, resolution.y, time, scale, octaves_as_float, speed, pad0, pad1]
@@ -35,6 +39,9 @@ export class ComputeShaderManager {
     // Feedback support
     this.supportsFeedback = false;
 
+    // Input texture support
+    this.needsInput = false;
+
     // Resource tracking
     this.resourceTracker = node?.id ? globalResourceRegistry.getOrCreate(node.id) : null;
   }
@@ -42,14 +49,18 @@ export class ComputeShaderManager {
   /**
    * Initialize compute shader with WGSL source code
    */
-  async initialize(wgslSource, width, height, supportsFeedback = false) {
+  async initialize(wgslSource, width, height, supportsFeedback = false, needsInput = false) {
     this.textureWidth = width;
     this.textureHeight = height;
     this.supportsFeedback = supportsFeedback;
+    this.needsInput = needsInput;
 
     // Calculate dispatch size based on workgroup size
     this.dispatchSize.x = Math.ceil(width / this.workgroupSize.x);
     this.dispatchSize.y = Math.ceil(height / this.workgroupSize.y);
+
+    // Create fallback input texture if needed
+    this.createFallbackInputTexture();
 
     // Create storage textures for compute output
     this.createStorageTextures(width, height);
@@ -64,8 +75,34 @@ export class ComputeShaderManager {
       textureSize: `${width}x${height}`,
       workgroupSize: `${this.workgroupSize.x}x${this.workgroupSize.y}`,
       dispatchSize: `${this.dispatchSize.x}x${this.dispatchSize.y}`,
-      feedback: supportsFeedback
+      feedback: supportsFeedback,
+      needsInput: needsInput
     });
+  }
+
+  /**
+   * Create fallback input texture (1x1 black texture)
+   */
+  createFallbackInputTexture() {
+    if (!this.needsInput) return;
+
+    const fallbackData = new Uint8Array([0, 0, 0, 255]); // Black pixel
+
+    this.fallbackInputTexture = this.device.createTexture({
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      label: 'Fallback Input Texture'
+    });
+
+    this.device.queue.writeTexture(
+      { texture: this.fallbackInputTexture },
+      fallbackData,
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 }
+    );
+
+    console.log('[ComputeShaderManager] Created fallback input texture');
   }
 
   /**
@@ -225,6 +262,11 @@ export class ComputeShaderManager {
       });
 
       // Build bind group layout entries
+      // Standard layout:
+      // - binding(0): uniforms
+      // - binding(1): storage texture (output) - ALWAYS
+      // - binding(2): input texture (if needsInput)
+      // - binding(3): feedback texture (if supportsFeedback)
       const entries = [
         {
           binding: 0,
@@ -242,10 +284,19 @@ export class ComputeShaderManager {
         }
       ];
 
-      // Add previous frame texture binding for feedback (textureLoad only, no sampler needed)
-      if (this.supportsFeedback) {
+      // Add input texture binding for nodes that take inputs from other compute nodes
+      if (this.needsInput) {
         entries.push({
           binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          texture: { sampleType: 'float', viewDimension: '2d' }
+        });
+      }
+
+      // Add previous frame texture binding for feedback (uses binding 3 if input exists, else binding 2)
+      if (this.supportsFeedback) {
+        entries.push({
+          binding: this.needsInput ? 3 : 2,
           visibility: GPUShaderStage.COMPUTE,
           texture: { sampleType: 'float', viewDimension: '2d' }
         });
@@ -362,19 +413,28 @@ export class ComputeShaderManager {
       }
     ];
 
+    // Binding 1: Always the output storage texture
     if (this.supportsFeedback) {
       // Ping-pong: write to one texture, read from the other
       const writeTexture = this.currentWriteTexture === 'A' ? this.storageTextureA : this.storageTextureB;
-      const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
-
       entries.push({ binding: 1, resource: writeTexture.createView() });
-      entries.push({ binding: 2, resource: readTexture.createView() });
 
       // Update legacy reference
       this.storageTexture = writeTexture;
     } else {
-      // No feedback - simple binding
       entries.push({ binding: 1, resource: this.storageTexture.createView() });
+    }
+
+    // Binding 2: Input texture (if needed)
+    if (this.needsInput) {
+      const inputTexture = this.inputTexture || this.fallbackInputTexture;
+      entries.push({ binding: 2, resource: inputTexture.createView() });
+    }
+
+    // Binding 3 (or 2 if no input): Feedback texture (if needed)
+    if (this.supportsFeedback) {
+      const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
+      entries.push({ binding: this.needsInput ? 3 : 2, resource: readTexture.createView() });
     }
 
     this.bindGroup = this.device.createBindGroup({
@@ -382,6 +442,13 @@ export class ComputeShaderManager {
       layout: this.bindGroupLayout,
       entries
     });
+  }
+
+  /**
+   * Set input texture from another compute node
+   */
+  setInputTexture(texture) {
+    this.inputTexture = texture;
   }
 
   /**
@@ -536,6 +603,7 @@ export class ComputeShaderManager {
       this.storageTextureB?.destroy();
       this.outputTexture?.destroy();
       this.uniformBuffer?.destroy();
+      this.fallbackInputTexture?.destroy();
     }
 
     this.computePipeline = null;
@@ -545,6 +613,7 @@ export class ComputeShaderManager {
     this.storageTextureB = null;
     this.outputTexture = null;
     this.uniformBuffer = null;
+    this.fallbackInputTexture = null;
 
     console.log('[ComputeShaderManager] Destroyed');
   }
