@@ -271,20 +271,19 @@ export class ComputeExecutor {
         // Set input texture if this node needs it
         if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
           const inputNodeId = node.inputs[0]; // Get first input (most compute nodes have 1 input)
-          console.log(`[ComputeExecutor] Node ${nodeId} (${node.kind}) has inputs:`, node.inputs, 'First input:', inputNodeId);
           if (inputNodeId !== null && inputNodeId !== undefined) {
             const inputTexture = this.nodeOutputs.get(inputNodeId);
-            console.log(`[ComputeExecutor] Looking up input texture for ${inputNodeId}:`, inputTexture ? 'Found' : 'Not found');
-            console.log(`[ComputeExecutor] Available outputs:`, Array.from(this.nodeOutputs.keys()));
             if (inputTexture && manager.setInputTexture) {
-              console.log(`[ComputeExecutor] ✓ Setting input texture for ${nodeId} from ${inputNodeId}`);
               manager.setInputTexture(inputTexture);
             } else if (!inputTexture) {
-              console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+              // Only log missing textures once to avoid spam
+              if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+              if (!this._loggedMissingTextures.has(inputNodeId)) {
+                console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+                this._loggedMissingTextures.add(inputNodeId);
+              }
             }
           }
-        } else if (node && manager.needsInput) {
-          console.log(`[ComputeExecutor] Node ${nodeId} (${node.kind}) needs input but inputs check failed: exists=${!!node.inputs}, isArray=${Array.isArray(node.inputs)}, length=${node.inputs?.length}`);
         }
 
         // Check if inputs have changed (for optimization)
