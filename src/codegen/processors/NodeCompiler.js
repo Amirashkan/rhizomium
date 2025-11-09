@@ -176,8 +176,11 @@ export class NodeCompiler {
       if (result.line) {
         lines.push(result.line);
       }
-      
-      if (node.kind !== "OutputFinal") {
+
+      if (node.kind !== "OutputFinal" && result.outputType !== "skip") {
+        // Skip registering nodes with outputType "skip" (e.g., ComputeFieldMapper)
+        // These nodes don't produce shader variables
+
         // NEW: Check if node has multiple output pins
         if (result.outputPins && Array.isArray(result.outputPins)) {
           this.typeConverter.setNodeOutputPins(
