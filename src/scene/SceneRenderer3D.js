@@ -339,10 +339,15 @@ export class SceneRenderer3D {
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.setVertexBuffer(0, meshNode.geometry.vertexBuffer);
 
-    // Draw
-    const vertexCount = meshNode.geometry.vertexCount || 0;
-    if (vertexCount > 0) {
-      passEncoder.draw(vertexCount);
+    // Draw - check for index buffer
+    if (meshNode.geometry.indexBuffer && meshNode.geometry.indexCount) {
+      passEncoder.setIndexBuffer(meshNode.geometry.indexBuffer, 'uint16');
+      passEncoder.drawIndexed(meshNode.geometry.indexCount);
+    } else {
+      const vertexCount = meshNode.geometry.vertexCount || 0;
+      if (vertexCount > 0) {
+        passEncoder.draw(vertexCount);
+      }
     }
   }
 

@@ -35,6 +35,7 @@ import { Viewport3D } from './src/scene/Viewport3D.js';
 import { ViewportPanel } from './src/ui/ViewportPanel.js';
 import { SceneRenderer3D } from './src/scene/SceneRenderer3D.js';
 import { FieldVisualizerManager } from './src/scene/FieldVisualizerManager.js';
+import { addTestCubeToScene } from './src/scene/helpers/createTestCube.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -2755,6 +2756,33 @@ function showBackupDialog() {
 window.showBackupDialog = showBackupDialog;
 window.createNewProject = createNewProject;
 window.updateStatus = updateStatus;
+
+// Export 3D scene test functions
+window.addTestCube = function() {
+  if (!window.gpuRenderer || !window.gpuRenderer.device) {
+    console.error('GPU device not available');
+    return null;
+  }
+  if (!systemIntegration || !systemIntegration.scene) {
+    console.error('SystemIntegration or Scene not available');
+    return null;
+  }
+
+  const cube = addTestCubeToScene(
+    systemIntegration.scene,
+    window.gpuRenderer.device,
+    'Test Cube'
+  );
+
+  console.log('Test cube added! Press Ctrl+3 to view in 3D viewport');
+
+  // Show viewport if not already visible
+  if (viewportPanel && !viewportPanel.isVisible) {
+    viewportPanel.show();
+  }
+
+  return cube;
+};
 
 // Initialize when DOM is ready
 if (document.readyState === "loading") {
