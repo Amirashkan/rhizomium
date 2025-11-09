@@ -52,6 +52,9 @@ export class SystemIntegration {
     this.eventSystem = new ParameterEventSystem();
     this.scene = new Scene('Main Scene');
 
+    // GPU execution
+    this.computeExecutor = null;
+
     // Status
     this.status = SystemStatus.INITIALIZING;
     this.lastError = null;
@@ -407,19 +410,56 @@ export class SystemIntegration {
   }
 
   /**
-   * Placeholder for actual node execution logic
-   * This would be implemented by the compute executor
+   * Set the compute executor for GPU-based node execution
+   * @param {ComputeExecutor} executor - The compute executor instance
+   */
+  setComputeExecutor(executor) {
+    this.computeExecutor = executor;
+    console.log('[SystemIntegration] ComputeExecutor connected');
+  }
+
+  /**
+   * Execute node logic using ComputeExecutor if available
    * @private
    */
   async _executeNodeLogic(nodeId) {
-    // This is a placeholder - actual implementation would:
-    // 1. Get node data
-    // 2. Compile shader if needed
-    // 3. Dispatch compute shader
-    // 4. Get output texture
-    // 5. Return result
+    const node = this.graph.getNode(nodeId);
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
 
-    return { nodeId, executed: true };
+    // If ComputeExecutor is available and node is a compute node, use GPU execution
+    if (this.computeExecutor && node.type && node.type.startsWith('compute')) {
+      try {
+        // Ensure node is initialized in compute executor
+        if (!this.computeExecutor.computeManagers.has(nodeId)) {
+          await this.computeExecutor.initializeComputeNode(nodeId, node);
+        }
+
+        // Update node parameters/uniforms if needed
+        if (node.params) {
+          for (const [paramName, paramValue] of Object.entries(node.params)) {
+            this.computeExecutor.setUniform(nodeId, paramName, paramValue);
+          }
+        }
+
+        // Get output texture
+        const output = this.computeExecutor.getNodeOutput(nodeId);
+
+        return {
+          nodeId,
+          executed: true,
+          output,
+          type: 'compute'
+        };
+      } catch (error) {
+        console.error(`[SystemIntegration] GPU execution failed for ${nodeId}:`, error);
+        throw error;
+      }
+    }
+
+    // Fallback for non-compute nodes
+    return { nodeId, executed: true, type: 'standard' };
   }
 
   // ============ Event Handling ============
