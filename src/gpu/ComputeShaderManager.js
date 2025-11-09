@@ -23,6 +23,7 @@ export class ComputeShaderManager {
     // Input texture from other compute nodes
     this.inputTexture = null;
     this.fallbackInputTexture = null;
+    this.inputSampler = null;
 
     // Uniform buffers
     this.uniformBuffer = null;
@@ -61,6 +62,16 @@ export class ComputeShaderManager {
 
     // Create fallback input texture if needed
     this.createFallbackInputTexture();
+
+    // Create sampler for input texture if needed
+    if (this.needsInput) {
+      this.inputSampler = this.device.createSampler({
+        magFilter: 'linear',
+        minFilter: 'linear',
+        addressModeU: 'clamp-to-edge',
+        addressModeV: 'clamp-to-edge'
+      });
+    }
 
     // Create storage textures for compute output
     this.createStorageTextures(width, height);
@@ -291,12 +302,18 @@ export class ComputeShaderManager {
           visibility: GPUShaderStage.COMPUTE,
           texture: { sampleType: 'float', viewDimension: '2d' }
         });
+        // Add sampler for input texture
+        entries.push({
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          sampler: { type: 'filtering' }
+        });
       }
 
-      // Add previous frame texture binding for feedback (uses binding 3 if input exists, else binding 2)
+      // Add previous frame texture binding for feedback (uses binding 4 if input exists, else binding 2)
       if (this.supportsFeedback) {
         entries.push({
-          binding: this.needsInput ? 3 : 2,
+          binding: this.needsInput ? 4 : 2,
           visibility: GPUShaderStage.COMPUTE,
           texture: { sampleType: 'float', viewDimension: '2d' }
         });
@@ -380,6 +397,24 @@ export class ComputeShaderManager {
           this.uniformData[7] = this.node.params?.offsetY ?? 0.0;
           break;
 
+        case 'ComputeBlur':
+          // Map quality string to numeric value (0=Low, 1=Medium, 2=High)
+          let qualityValue = 1.0; // Default to Medium
+          if (this.node.params?.quality === 'Low') qualityValue = 0.0;
+          else if (this.node.params?.quality === 'High') qualityValue = 2.0;
+
+          // Map direction string to numeric value (0=Both, 1=Horizontal, 2=Vertical)
+          let directionValue = 0.0; // Default to Both
+          if (this.node.params?.direction === 'Horizontal') directionValue = 1.0;
+          else if (this.node.params?.direction === 'Vertical') directionValue = 2.0;
+
+          this.uniformData[3] = this.node.params?.radius ?? 5.0;
+          this.uniformData[4] = qualityValue;
+          this.uniformData[5] = directionValue;
+          this.uniformData[6] = 0.0; // pad0
+          this.uniformData[7] = 0.0; // pad1
+          break;
+
         default:
           // Unknown node type - use defaults
           this.uniformData[3] = 0.0;
@@ -429,12 +464,14 @@ export class ComputeShaderManager {
     if (this.needsInput) {
       const inputTexture = this.inputTexture || this.fallbackInputTexture;
       entries.push({ binding: 2, resource: inputTexture.createView() });
+      // Binding 3: Input sampler
+      entries.push({ binding: 3, resource: this.inputSampler });
     }
 
-    // Binding 3 (or 2 if no input): Feedback texture (if needed)
+    // Binding 4 (or 2 if no input): Feedback texture (if needed)
     if (this.supportsFeedback) {
       const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
-      entries.push({ binding: this.needsInput ? 3 : 2, resource: readTexture.createView() });
+      entries.push({ binding: this.needsInput ? 4 : 2, resource: readTexture.createView() });
     }
 
     this.bindGroup = this.device.createBindGroup({

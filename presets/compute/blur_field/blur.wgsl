@@ -13,9 +13,9 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var inputTexture: texture_2d<f32>;
-@group(0) @binding(2) var texSampler: sampler;
-@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
 
 // Gaussian weight function
 // sigma = radius / 2.0 for good visual results
