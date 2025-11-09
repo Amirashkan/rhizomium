@@ -30,7 +30,8 @@ export class ComputeNodes {
       'ComputeConvolution',
       'ComputeCellular',
       'ComputeFeedbackField',
-      'ComputeThreshold'
+      'ComputeThreshold',
+      'ComputeColorAdjust'
     ].includes(kind);
   }
 
@@ -136,6 +137,8 @@ export class ComputeNodes {
         return this.generateConvolutionShader(node, getInput);
       case 'ComputeThreshold':
         return this.generateThresholdShader(node, getInput);
+      case 'ComputeColorAdjust':
+        return this.generateColorAdjustShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -944,6 +947,101 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Adaptive': 2
     };
     return modes[mode] || 0;
+  }
+
+  /**
+   * Generate color adjustment shader
+   */
+  generateColorAdjustShader(node, getInput) {
+    const brightness = this.getParamValue(node, 'brightness', 0.0);
+    const contrast = this.getParamValue(node, 'contrast', 1.0);
+    const saturation = this.getParamValue(node, 'saturation', 1.0);
+    const hue = this.getParamValue(node, 'hue', 0.0);
+    const gamma = this.getParamValue(node, 'gamma', 1.0);
+    const exposure = this.getParamValue(node, 'exposure', 0.0);
+
+    const shader = `
+// Compute Color Adjust Shader
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  brightness: f32,
+  contrast: f32,
+  saturation: f32,
+  hue: f32,
+  gamma: f32,
+  exposure: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Convert RGB to HSV
+fn rgb2hsv(c: vec3<f32>) -> vec3<f32> {
+  let K = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  let p = mix(vec4<f32>(c.bg, K.wz), vec4<f32>(c.gb, K.xy), step(c.b, c.g));
+  let q = mix(vec4<f32>(p.xyw, c.r), vec4<f32>(c.r, p.yzx), step(p.x, c.r));
+
+  let d = q.x - min(q.w, q.y);
+  let e = 1.0e-10;
+  return vec3<f32>(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+// Convert HSV to RGB
+fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
+  let K = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  let p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), c.y);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  // Load input color
+  let input = textureLoad(inputTexture, texCoord, 0);
+  var color = input.rgb;
+  let alpha = input.a;
+
+  // Apply exposure first (affects brightness range)
+  color = color * pow(2.0, uniforms.exposure);
+
+  // Apply brightness (additive)
+  color = color + vec3<f32>(uniforms.brightness);
+
+  // Apply contrast (around middle gray 0.5)
+  color = (color - 0.5) * uniforms.contrast + 0.5;
+
+  // Apply saturation and hue adjustments in HSV space
+  var hsv = rgb2hsv(color);
+
+  // Adjust hue (rotate hue by angle in degrees, converted to 0-1 range)
+  hsv.x = fract(hsv.x + uniforms.hue / 360.0);
+
+  // Adjust saturation
+  hsv.y = clamp(hsv.y * uniforms.saturation, 0.0, 1.0);
+
+  // Convert back to RGB
+  color = hsv2rgb(hsv);
+
+  // Apply gamma correction
+  color = pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / uniforms.gamma));
+
+  // Clamp final result to valid range
+  color = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+
+  textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, alpha));
+}`;
+
+    console.log('[ComputeNodes] Generated color adjust shader');
+    return shader;
   }
 
   /**
