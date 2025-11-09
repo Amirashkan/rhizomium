@@ -63,9 +63,9 @@ export class ComputeShaderManager {
     // Create fallback input texture if needed
     this.createFallbackInputTexture();
 
-    // Create sampler for input texture if needed
-    if (this.needsInput) {
-      this.inputSampler = this.device.createSampler({
+    // Create sampler for input/feedback textures if needed
+    if (this.needsInput || this.supportsFeedback) {
+      this.textureSampler = this.device.createSampler({
         magFilter: 'linear',
         minFilter: 'linear',
         addressModeU: 'clamp-to-edge',
@@ -276,8 +276,9 @@ export class ComputeShaderManager {
       // Standard layout:
       // - binding(0): uniforms
       // - binding(1): storage texture (output) - ALWAYS
-      // - binding(2): input texture (if needsInput)
-      // - binding(3): feedback texture (if supportsFeedback)
+      // - binding(2): input texture (if needsInput) OR feedback texture (if supportsFeedback && !needsInput)
+      // - binding(3): sampler (if needsInput || supportsFeedback)
+      // - binding(4): feedback texture (if supportsFeedback && needsInput)
       const entries = [
         {
           binding: 0,
@@ -317,6 +318,14 @@ export class ComputeShaderManager {
           visibility: GPUShaderStage.COMPUTE,
           texture: { sampleType: 'float', viewDimension: '2d' }
         });
+        // Add sampler for feedback texture (binding 3 if no input, binding 5 if input exists)
+        if (!this.needsInput) {
+          entries.push({
+            binding: 3,
+            visibility: GPUShaderStage.COMPUTE,
+            sampler: { type: 'filtering' }
+          });
+        }
       }
 
       // Create bind group layout
@@ -465,13 +474,17 @@ export class ComputeShaderManager {
       const inputTexture = this.inputTexture || this.fallbackInputTexture;
       entries.push({ binding: 2, resource: inputTexture.createView() });
       // Binding 3: Input sampler
-      entries.push({ binding: 3, resource: this.inputSampler });
+      entries.push({ binding: 3, resource: this.textureSampler });
     }
 
     // Binding 4 (or 2 if no input): Feedback texture (if needed)
     if (this.supportsFeedback) {
       const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
       entries.push({ binding: this.needsInput ? 4 : 2, resource: readTexture.createView() });
+      // Binding 3: Feedback sampler (only if no input)
+      if (!this.needsInput) {
+        entries.push({ binding: 3, resource: this.textureSampler });
+      }
     }
 
     this.bindGroup = this.device.createBindGroup({
