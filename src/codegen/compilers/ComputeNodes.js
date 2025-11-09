@@ -131,6 +131,8 @@ export class ComputeNodes {
         return this.generateCellularShader(node, getInput);
       case 'ComputeFeedbackField':
         return this.generateFeedbackFieldShader(node, getInput);
+      case 'ComputeConvolution':
+        return this.generateConvolutionShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -287,6 +289,98 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   color /= totalWeight;
   textureStore(outputTexture, vec2<u32>(texCoord), color);
+}`;
+  }
+
+  /**
+   * Generate compute convolution shader
+   */
+  generateConvolutionShader(node, getInput) {
+    const kernel = this.getParamValue(node, 'kernel', 'Sharpen');
+    const strength = this.getParamValue(node, 'strength', 1.0);
+
+    // Define convolution kernel matrices
+    const kernels = {
+      'Sharpen': [
+        [0, -1, 0],
+        [-1, 5, -1],
+        [0, -1, 0]
+      ],
+      'Edge Detect': [
+        [-1, -1, -1],
+        [-1, 8, -1],
+        [-1, -1, -1]
+      ],
+      'Emboss': [
+        [-2, -1, 0],
+        [-1, 1, 1],
+        [0, 1, 2]
+      ],
+      'Custom': [
+        [0, 0, 0],
+        [0, 1, 0],
+        [0, 0, 0]
+      ]
+    };
+
+    const selectedKernel = kernels[kernel] || kernels['Sharpen'];
+
+    // Format kernel values for WGSL array initialization
+    const kernelRows = selectedKernel.map(row =>
+      `array<f32, 3>(${row.map(v => v + '.0').join(', ')})`
+    ).join(',\n      ');
+
+    return `
+// Compute Convolution Shader
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  strength: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// 3x3 Convolution kernel: ${kernel}
+const kernel = array<array<f32, 3>, 3>(
+  ${kernelRows}
+);
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  var result = vec4<f32>(0.0);
+
+  // Apply 3x3 convolution kernel
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let samplePos = texCoord + vec2<i32>(x, y);
+
+      // Clamp to texture boundaries
+      if (samplePos.x >= 0 && samplePos.x < i32(texSize.x) &&
+          samplePos.y >= 0 && samplePos.y < i32(texSize.y)) {
+
+        let sample = textureLoad(inputTexture, samplePos, 0);
+        let weight = kernel[y + 1][x + 1];
+        result += sample * weight;
+      }
+    }
+  }
+
+  // Apply strength and blend with original
+  let original = textureLoad(inputTexture, texCoord, 0);
+  let convolved = result;
+  let finalColor = mix(original, convolved, uniforms.strength);
+
+  textureStore(outputTexture, vec2<u32>(texCoord), finalColor);
 }`;
   }
 
