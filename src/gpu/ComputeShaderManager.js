@@ -454,6 +454,11 @@ export class ComputeShaderManager {
           this.uniformData[5] = this.node.params?.invertEdges ? 1.0 : 0.0;
           break;
 
+        case 'ComputeMorphology':
+          // Uniforms: strength
+          this.uniformData[3] = this.node.params?.strength ?? 1.0;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;

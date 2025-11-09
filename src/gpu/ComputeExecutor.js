@@ -100,7 +100,8 @@ export class ComputeExecutor {
       // causing WebGPU validation errors like "Binding doesn't exist in BindGroupLayoutInternal"
       const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
                                      'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
-                                     'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect'].includes(node.kind);
+                                     'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect',
+                                     'ComputeMorphology'].includes(node.kind);
       const needsInput = nodeDesignedForInput;
 
       console.log(`[ComputeExecutor] Initializing compute node: ${node.kind} (${nodeId})`);
