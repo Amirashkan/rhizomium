@@ -31,6 +31,7 @@ import { ComputeProfilerOverlay } from './src/ui/ComputeProfilerOverlay.js';
 import { GPUPerformanceMonitor } from './src/utils/GPUPerformanceMonitor.js';
 import { globalResourceRegistry } from './src/gpu/ResourceTracker.js';
 import { SystemIntegration } from './src/core/SystemIntegration.js';
+import { FieldMapperIntegration } from './src/core/FieldMapperIntegration.js';
 import { Viewport3D } from './src/scene/Viewport3D.js';
 import { ViewportPanel } from './src/ui/ViewportPanel.js';
 import { SceneRenderer3D } from './src/scene/SceneRenderer3D.js';
@@ -190,6 +191,7 @@ let viewport3D = null;
 let viewportPanel = null;
 let sceneRenderer3D = null;
 let fieldVisualizerManager = null;
+let fieldMapperIntegration = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -378,6 +380,19 @@ async function initialize() {
           );
           window.fieldVisualizerManager = fieldVisualizerManager;
           console.log("FieldVisualizerManager initialized successfully");
+        }
+
+        // Initialize FieldMapperIntegration
+        if (systemIntegration && systemIntegration.scene && computeExecutor && sceneRenderer3D && viewportPanel) {
+          fieldMapperIntegration = new FieldMapperIntegration(
+            device,
+            systemIntegration.scene,
+            computeExecutor,
+            sceneRenderer3D,
+            viewportPanel
+          );
+          window.fieldMapperIntegration = fieldMapperIntegration;
+          console.log("FieldMapperIntegration initialized successfully");
         }
 
         console.log("3D Viewport available - press Ctrl+3 to toggle");
@@ -2479,6 +2494,15 @@ async function updateShaderFromGraph() {
       console.log('[main] Initializing compute executor before GPU pipeline...');
       await computeExecutor.initialize();
       console.log('[main] Compute executor ready');
+    }
+
+    // Process ComputeFieldMapper nodes for 3D visualization
+    if (fieldMapperIntegration && graph && graph.connections) {
+      try {
+        await fieldMapperIntegration.processFieldMappers(graph.nodes, graph.connections);
+      } catch (error) {
+        console.error('[main] Error processing field mappers:', error);
+      }
     }
 
     const rawWGSL = typeof result.wgsl === "string" ? result.wgsl : String(result.wgsl ?? "");

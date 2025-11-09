@@ -1,10 +1,23 @@
 # 3D Visualization Setup Guide
 
-## Current Issue
+## ✅ Integration Complete!
 
-The ComputeFieldMapper node is showing:
+The ComputeFieldMapper node is now fully integrated! Here's how to use it:
+
+### Quick Start
+
+1. **Create a compute shader node** (e.g., ComputeNoise, ComputeFeedback, etc.)
+2. **Create a ComputeFieldMapper node**
+3. **Connect**: ComputeNoise → ComputeFieldMapper
+4. **Do NOT connect ComputeFieldMapper to OutputFinal** (it outputs 3D geometry, not 2D shader)
+5. **Show 3D viewport**: Press `Ctrl+3` or run `viewportPanel.show()` in console
+6. **See the magic!** Your compute field will be visualized as 3D points or meshes
+
+### Why the Preview Was Black Before
+
+The ComputeFieldMapper node was showing:
 - **Black preview**: Because it outputs 3D geometry, not 2D shader data
-- **Empty 3D viewport**: Because the node isn't integrated with the rendering loop yet
+- **Empty 3D viewport**: Because integration wasn't complete
 
 ## Quick Fix
 
@@ -130,20 +143,22 @@ sceneRenderer3D.render();
 
 ## What Was Completed
 
-The 3D visualization back-end is complete:
+### Phase 1: 3D Visualization Core (Completed)
 - ✅ 3D texture readback from GPU
 - ✅ Point cloud generation from 3D fields
 - ✅ Marching cubes mesh generation
 - ✅ Complete triangle lookup table (256 configurations)
 - ✅ FieldVisualizer with mesh/point cloud modes
 - ✅ ComputeFieldMapperNode implementation
+- ✅ Tested: Generated sphere with 2,904 vertices, 968 triangles
 
-## What Needs Integration
-
-- **Graph Processor**: Detect ComputeFieldMapper nodes and handle them specially
-- **Compute Executor**: Pass output textures to field mappers
-- **Render Loop**: Update 3D scene rendering
-- **Node Compiler**: Skip ComputeFieldMapper in shader generation (don't output to 2D)
+### Phase 2: Graph Integration (NOW COMPLETE!)
+- ✅ **NodeCompiler**: Skip ComputeFieldMapper in shader generation
+- ✅ **FieldMapperIntegration**: New module to handle 3D nodes
+- ✅ **Graph Processor**: Detects and processes ComputeFieldMapper nodes
+- ✅ **Compute Executor**: Passes output textures to field mappers
+- ✅ **Render Loop**: Automatically updates 3D scene
+- ✅ **Main.js**: Integration hooked into updateShaderFromGraph
 
 ## Next Steps
 

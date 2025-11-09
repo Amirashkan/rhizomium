@@ -311,6 +311,15 @@ export class NodeCompiler {
       result = this.compilers.field.compile(node, getInput, getParam);
     } else if (this.compilers.blend.handles(kind)) {
       result = this.compilers.blend.compile(node, getInput, getParam);
+    } else if (kind === 'ComputeFieldMapper') {
+      // ComputeFieldMapper is a 3D visualization node, not a shader node
+      // It outputs 3D geometry to the viewport, not 2D shader data
+      // Skip it in shader compilation - it will be handled by FieldMapperIntegration
+      console.log(`[NodeCompiler] Skipping ComputeFieldMapper node (3D visualization, not shader output)`);
+      result = {
+        line: `// ComputeFieldMapper node_${nodeId} (3D visualization - outputs to viewport)`,
+        outputType: "skip"
+      };
     } else {
       console.log(`UNKNOWN NODE TYPE: "${kind}"`);
       result = {
