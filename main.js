@@ -397,9 +397,10 @@ async function initialize() {
           console.log("FieldMapperIntegration initialized successfully");
         }
 
-        // Expose test functions globally
+        // Expose test functions and helpers globally
         window.test3DVisualization = test3DVisualization;
         window.showTestCube = showTestCube;
+        window.addTestCubeToScene = addTestCubeToScene;
 
         console.log("3D Viewport available - press Ctrl+3 to toggle");
         console.log("Test 3D system: test3DVisualization()");
