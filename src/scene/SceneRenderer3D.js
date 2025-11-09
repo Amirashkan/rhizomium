@@ -207,9 +207,14 @@ export class SceneRenderer3D {
    * Create uniform buffer for matrices
    */
   createUniformBuffer() {
-    // Uniform buffer: viewProjection (64) + modelMatrix (64) + time (4) + padding (12) = 144 bytes
+    // Uniform buffer size with proper alignment:
+    // viewProjection: mat4x4<f32> = 64 bytes (offset 0)
+    // modelMatrix: mat4x4<f32> = 64 bytes (offset 64)
+    // time: f32 = 4 bytes (offset 128)
+    // _padding: vec3<f32> = 12 bytes but aligned to 16 bytes (offset 144)
+    // Total with struct padding = 160 bytes
     this.uniformBuffer = this.device.createBuffer({
-      size: 144,
+      size: 160,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
   }
@@ -363,18 +368,21 @@ export class SceneRenderer3D {
    * Update uniform buffer with matrices
    */
   updateUniforms(viewProjection, modelMatrix, time) {
-    const uniformData = new Float32Array(36); // 144 bytes / 4 = 36 floats
+    const uniformData = new Float32Array(40); // 160 bytes / 4 = 40 floats
 
-    // View-projection matrix (16 floats)
+    // View-projection matrix (16 floats, offset 0)
     uniformData.set(viewProjection, 0);
 
-    // Model matrix (16 floats)
+    // Model matrix (16 floats, offset 16)
     uniformData.set(modelMatrix, 16);
 
-    // Time (1 float)
+    // Time (1 float, offset 32)
     uniformData[32] = time;
 
-    // Padding (3 floats) - already zero
+    // Padding for alignment (7 floats to reach offset 40)
+    // vec3<f32> _padding starts at float index 36 (byte offset 144)
+    // Remaining 4 floats (33-36) pad before vec3, then vec3 takes 3 floats (36-38)
+    // Final float (39) pads to 160 bytes
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
   }
