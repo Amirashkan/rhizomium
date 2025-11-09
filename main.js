@@ -30,6 +30,12 @@ import { ComputeProfiler } from './src/gpu/ComputeProfiler.js';
 import { ComputeProfilerOverlay } from './src/ui/ComputeProfilerOverlay.js';
 import { GPUPerformanceMonitor } from './src/utils/GPUPerformanceMonitor.js';
 import { globalResourceRegistry } from './src/gpu/ResourceTracker.js';
+import { SystemIntegration } from './src/core/SystemIntegration.js';
+import { Viewport3D } from './src/scene/Viewport3D.js';
+import { ViewportPanel } from './src/ui/ViewportPanel.js';
+import { SceneRenderer3D } from './src/scene/SceneRenderer3D.js';
+import { FieldVisualizerManager } from './src/scene/FieldVisualizerManager.js';
+import { addTestCubeToScene } from './src/scene/helpers/createTestCube.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -179,6 +185,11 @@ let computeExecutor = null;
 let computeProfiler = null;
 let profilerOverlay = null;
 let gpuPerformanceMonitor = null;
+let systemIntegration = null;
+let viewport3D = null;
+let viewportPanel = null;
+let sceneRenderer3D = null;
+let fieldVisualizerManager = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -291,6 +302,87 @@ async function initialize() {
         console.log("Profiler overlay available - press Ctrl+P to toggle");
       } catch (error) {
         console.error("Failed to initialize ComputeProfiler:", error);
+      }
+
+      // Initialize SystemIntegration
+      try {
+        systemIntegration = new SystemIntegration({
+          enableAutoValidation: true,
+          enableTypePropagation: true,
+          enableAutoExecution: false
+        });
+
+        // Connect ComputeExecutor to SystemIntegration
+        if (computeExecutor) {
+          systemIntegration.setComputeExecutor(computeExecutor);
+        }
+
+        window.systemIntegration = systemIntegration;
+        console.log("SystemIntegration initialized successfully");
+      } catch (error) {
+        console.error("Failed to initialize SystemIntegration:", error);
+      }
+
+      // Initialize 3D Viewport
+      try {
+        // Create a separate canvas for 3D viewport
+        const viewport3DCanvas = document.createElement('canvas');
+        viewport3DCanvas.id = 'viewport3d-canvas';
+        viewport3DCanvas.width = 400;
+        viewport3DCanvas.height = 400;
+
+        viewport3D = new Viewport3D(viewport3DCanvas, {
+          cameraType: 'perspective',
+          fov: 60,
+          near: 0.1,
+          far: 1000,
+          initialPosition: {
+            target: { x: 0, y: 0, z: 0 },
+            distance: 5,
+            azimuth: 45,
+            elevation: 30
+          }
+        });
+
+        window.viewport3D = viewport3D;
+        console.log("Viewport3D initialized successfully");
+
+        // Create ViewportPanel
+        if (systemIntegration && systemIntegration.scene) {
+          viewportPanel = new ViewportPanel(viewport3D, systemIntegration.scene);
+          viewportPanel.setCanvas(viewport3DCanvas);
+          window.viewportPanel = viewportPanel;
+          console.log("ViewportPanel initialized successfully");
+        }
+
+        // Create SceneRenderer3D
+        if (systemIntegration && systemIntegration.scene) {
+          sceneRenderer3D = new SceneRenderer3D(
+            device,
+            viewport3DCanvas,
+            systemIntegration.scene,
+            viewport3D,
+            computeExecutor
+          );
+          await sceneRenderer3D.initialize();
+          window.sceneRenderer3D = sceneRenderer3D;
+          console.log("SceneRenderer3D initialized successfully");
+        }
+
+        // Initialize FieldVisualizerManager
+        if (systemIntegration && systemIntegration.scene && computeExecutor) {
+          fieldVisualizerManager = new FieldVisualizerManager(
+            systemIntegration.scene,
+            computeExecutor,
+            device
+          );
+          window.fieldVisualizerManager = fieldVisualizerManager;
+          console.log("FieldVisualizerManager initialized successfully");
+        }
+
+        console.log("3D Viewport available - press Ctrl+3 to toggle");
+      } catch (error) {
+        console.error("Failed to initialize 3D viewport:", error);
       }
     }
 
@@ -1906,6 +1998,16 @@ function setupKeyboardShortcuts() {
         }
         break;
 
+      case "3":
+        e.preventDefault();
+        if (viewportPanel) {
+          viewportPanel.toggle();
+          updateStatus(viewportPanel.isVisible ? "3D Viewport opened" : "3D Viewport closed");
+        } else {
+          updateStatus("3D Viewport not available", "warning");
+        }
+        break;
+
       default:
         break;
     }
@@ -2544,6 +2646,16 @@ function handleRenderFrame(frameState) {
     }
   }
 
+  // 3D Viewport rendering
+  if (sceneRenderer3D && viewportPanel && viewportPanel.isVisible) {
+    sceneRenderer3D.render(frameState.simTime);
+  }
+
+  // Update viewport panel
+  if (viewportPanel && viewportPanel.isVisible) {
+    viewportPanel.update();
+  }
+
   // FPS counter - ALWAYS update for performance monitoring
   if (!frameState.manual && floatingPreview?.fpsCounter) {
     floatingPreview.fpsCounter.frame();
@@ -2644,6 +2756,33 @@ function showBackupDialog() {
 window.showBackupDialog = showBackupDialog;
 window.createNewProject = createNewProject;
 window.updateStatus = updateStatus;
+
+// Export 3D scene test functions
+window.addTestCube = function() {
+  if (!window.gpuRenderer || !window.gpuRenderer.device) {
+    console.error('GPU device not available');
+    return null;
+  }
+  if (!systemIntegration || !systemIntegration.scene) {
+    console.error('SystemIntegration or Scene not available');
+    return null;
+  }
+
+  const cube = addTestCubeToScene(
+    systemIntegration.scene,
+    window.gpuRenderer.device,
+    'Test Cube'
+  );
+
+  console.log('Test cube added! Press Ctrl+3 to view in 3D viewport');
+
+  // Show viewport if not already visible
+  if (viewportPanel && !viewportPanel.isVisible) {
+    viewportPanel.show();
+  }
+
+  return cube;
+};
 
 // Initialize when DOM is ready
 if (document.readyState === "loading") {

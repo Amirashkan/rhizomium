@@ -52,6 +52,9 @@ export class SystemIntegration {
     this.eventSystem = new ParameterEventSystem();
     this.scene = new Scene('Main Scene');
 
+    // GPU execution
+    this.computeExecutor = null;
+
     // Status
     this.status = SystemStatus.INITIALIZING;
     this.lastError = null;
@@ -93,12 +96,12 @@ export class SystemIntegration {
    */
   _setupEventListeners() {
     // Listen to parameter changes
-    this.eventSystem.subscribe('PARAMETER_CHANGED', (data) => {
+    this.eventSystem.on('PARAMETER_CHANGED', (data) => {
       this.handleParameterChange(data);
     });
 
     // Listen to node dirty events
-    this.eventSystem.subscribe('NODE_DIRTY', (data) => {
+    this.eventSystem.on('NODE_DIRTY', (data) => {
       this.handleNodeDirty(data);
     });
 
@@ -134,7 +137,7 @@ export class SystemIntegration {
       }
 
       // Emit event
-      this.eventSystem.publish('NODE_ADDED', { nodeId: nodeData.id });
+      this.eventSystem.emit('NODE_ADDED', { nodeId: nodeData.id });
 
       // Auto-validate if enabled
       if (this.options.enableAutoValidation) {
@@ -167,7 +170,7 @@ export class SystemIntegration {
       this.executionQueue.cancelGroup(`node-${nodeId}`);
 
       // Emit event
-      this.eventSystem.publish('NODE_REMOVED', { nodeId });
+      this.eventSystem.emit('NODE_REMOVED', { nodeId });
 
       // Auto-validate if enabled
       if (this.options.enableAutoValidation) {
@@ -229,7 +232,7 @@ export class SystemIntegration {
         }
 
         // Emit event
-        this.eventSystem.publish('CONNECTION_ADDED', {
+        this.eventSystem.emit('CONNECTION_ADDED', {
           fromNodeId, fromPin, toNodeId, toPin
         });
 
@@ -263,7 +266,7 @@ export class SystemIntegration {
 
       if (success) {
         // Emit event
-        this.eventSystem.publish('CONNECTION_REMOVED', {
+        this.eventSystem.emit('CONNECTION_REMOVED', {
           fromNodeId, fromPin, toNodeId, toPin
         });
 
@@ -316,7 +319,7 @@ export class SystemIntegration {
     }
 
     // Emit event
-    this.eventSystem.publish('VALIDATION_COMPLETE', results);
+    this.eventSystem.emit('VALIDATION_COMPLETE', results);
 
     return results;
   }
@@ -355,7 +358,7 @@ export class SystemIntegration {
             this.graph.markNodeClean(nodeId);
 
             // Emit event
-            this.eventSystem.publish('NODE_EXECUTED', { nodeId, result });
+            this.eventSystem.emit('NODE_EXECUTED', { nodeId, result });
 
             return result;
           } catch (error) {
@@ -396,7 +399,7 @@ export class SystemIntegration {
       this.status = SystemStatus.READY;
 
       // Emit event
-      this.eventSystem.publish('GRAPH_EXECUTED', {
+      this.eventSystem.emit('GRAPH_EXECUTED', {
         nodeCount: executionOrder.length
       });
     } catch (error) {
@@ -407,19 +410,56 @@ export class SystemIntegration {
   }
 
   /**
-   * Placeholder for actual node execution logic
-   * This would be implemented by the compute executor
+   * Set the compute executor for GPU-based node execution
+   * @param {ComputeExecutor} executor - The compute executor instance
+   */
+  setComputeExecutor(executor) {
+    this.computeExecutor = executor;
+    console.log('[SystemIntegration] ComputeExecutor connected');
+  }
+
+  /**
+   * Execute node logic using ComputeExecutor if available
    * @private
    */
   async _executeNodeLogic(nodeId) {
-    // This is a placeholder - actual implementation would:
-    // 1. Get node data
-    // 2. Compile shader if needed
-    // 3. Dispatch compute shader
-    // 4. Get output texture
-    // 5. Return result
+    const node = this.graph.getNode(nodeId);
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
 
-    return { nodeId, executed: true };
+    // If ComputeExecutor is available and node is a compute node, use GPU execution
+    if (this.computeExecutor && node.type && node.type.startsWith('compute')) {
+      try {
+        // Ensure node is initialized in compute executor
+        if (!this.computeExecutor.computeManagers.has(nodeId)) {
+          await this.computeExecutor.initializeComputeNode(nodeId, node);
+        }
+
+        // Update node parameters/uniforms if needed
+        if (node.params) {
+          for (const [paramName, paramValue] of Object.entries(node.params)) {
+            this.computeExecutor.setUniform(nodeId, paramName, paramValue);
+          }
+        }
+
+        // Get output texture
+        const output = this.computeExecutor.getNodeOutput(nodeId);
+
+        return {
+          nodeId,
+          executed: true,
+          output,
+          type: 'compute'
+        };
+      } catch (error) {
+        console.error(`[SystemIntegration] GPU execution failed for ${nodeId}:`, error);
+        throw error;
+      }
+    }
+
+    // Fallback for non-compute nodes
+    return { nodeId, executed: true, type: 'standard' };
   }
 
   // ============ Event Handling ============
@@ -552,7 +592,7 @@ export class SystemIntegration {
     this.lastError = null;
 
     // Emit event
-    this.eventSystem.publish('SYSTEM_CLEARED', {});
+    this.eventSystem.emit('SYSTEM_CLEARED', {});
   }
 
   /**
