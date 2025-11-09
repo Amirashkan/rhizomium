@@ -374,12 +374,8 @@ async function initialize() {
         }
 
         // Initialize FieldVisualizerManager
-        if (systemIntegration && systemIntegration.scene && computeExecutor) {
-          fieldVisualizerManager = new FieldVisualizerManager(
-            systemIntegration.scene,
-            computeExecutor,
-            device
-          );
+        if (device) {
+          fieldVisualizerManager = new FieldVisualizerManager(device);
           window.fieldVisualizerManager = fieldVisualizerManager;
           console.log("FieldVisualizerManager initialized successfully");
         }
