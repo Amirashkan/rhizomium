@@ -211,5 +211,293 @@ export const ComputeNodes = {
     ],
     description: "Visualize compute field data as 3D points, surfaces, or volumes",
     workgroupSize: [8, 8, 1]
+  },
+
+  // === IMAGE PROCESSING ===
+
+  ComputeThreshold: {
+    label: "Threshold",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'mode', type: 'select', options: ['Binary', 'Range', 'Adaptive'], default: 'Binary' },
+      { name: 'threshold', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'thresholdMin', type: 'float', default: 0.3, min: 0.0, max: 1.0 },
+      { name: 'thresholdMax', type: 'float', default: 0.7, min: 0.0, max: 1.0 },
+      { name: 'outputLow', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
+      { name: 'outputHigh', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
+    ],
+    description: "Image thresholding operations (binary, range, adaptive)",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeColorAdjust: {
+    label: "Color Adjust",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'brightness', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
+      { name: 'contrast', type: 'float', default: 1.0, min: 0.0, max: 3.0 },
+      { name: 'saturation', type: 'float', default: 1.0, min: 0.0, max: 3.0 },
+      { name: 'hue', type: 'float', default: 0.0, min: -180.0, max: 180.0 },
+      { name: 'gamma', type: 'float', default: 1.0, min: 0.1, max: 3.0 },
+      { name: 'exposure', type: 'float', default: 0.0, min: -3.0, max: 3.0 }
+    ],
+    description: "Adjust brightness, contrast, saturation, hue, gamma, and exposure",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeEdgeDetect: {
+    label: "Edge Detect",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'method', type: 'select', options: ['Sobel', 'Scharr', 'Prewitt', 'Roberts'], default: 'Sobel' },
+      { name: 'threshold', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
+      { name: 'strength', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
+      { name: 'invertEdges', type: 'boolean', default: false }
+    ],
+    description: "Edge detection using various gradient operators",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeMorphology: {
+    label: "Morphology",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'operation', type: 'select', options: ['Dilate', 'Erode', 'Open', 'Close'], default: 'Dilate' },
+      { name: 'kernelSize', type: 'select', options: ['3x3', '5x5', '7x7'], default: '3x3' },
+      { name: 'iterations', type: 'int', default: 1, min: 1, max: 10 },
+      { name: 'strength', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
+    ],
+    description: "Morphological operations (dilate, erode, open, close)",
+    workgroupSize: [8, 8, 1]
+  },
+
+  // === GENERATION ===
+
+  ComputeVoronoi: {
+    label: "Voronoi",
+    cat: "Compute",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'mode', type: 'select', options: ['Cells', 'Distance', 'Borders', 'Worley'], default: 'Cells' },
+      { name: 'scale', type: 'float', default: 8.0, min: 0.1, max: 50.0 },
+      { name: 'pointCount', type: 'int', default: 16, min: 4, max: 64 },
+      { name: 'distanceMetric', type: 'select', options: ['Euclidean', 'Manhattan', 'Chebyshev', 'Minkowski'], default: 'Euclidean' },
+      { name: 'seed', type: 'float', default: 0.0, min: 0.0, max: 100.0 },
+      { name: 'animate', type: 'boolean', default: true },
+      { name: 'speed', type: 'float', default: 0.1, min: 0.0, max: 2.0 }
+    ],
+    description: "Voronoi diagrams and Worley noise patterns",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeGradient: {
+    label: "Gradient",
+    cat: "Compute",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'type', type: 'select', options: ['Linear', 'Radial', 'Angular', 'Diamond'], default: 'Linear' },
+      { name: 'angle', type: 'float', default: 0.0, min: 0.0, max: 360.0 },
+      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0 },
+      { name: 'repeat', type: 'int', default: 1, min: 1, max: 20 },
+      { name: 'reverse', type: 'boolean', default: false }
+    ],
+    description: "Generate linear, radial, angular, and diamond gradients",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputePattern: {
+    label: "Pattern",
+    cat: "Compute",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'type', type: 'select', options: ['Checkerboard', 'Stripes', 'Dots', 'Grid', 'Hexagon', 'Brick'], default: 'Checkerboard' },
+      { name: 'scaleX', type: 'float', default: 8.0, min: 0.1, max: 100.0 },
+      { name: 'scaleY', type: 'float', default: 8.0, min: 0.1, max: 100.0 },
+      { name: 'rotation', type: 'float', default: 0.0, min: 0.0, max: 360.0 },
+      { name: 'thickness', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'smoothness', type: 'float', default: 0.01, min: 0.0, max: 0.5 }
+    ],
+    description: "Procedural patterns (checkerboard, stripes, dots, grid, hexagon, brick)",
+    workgroupSize: [8, 8, 1]
+  },
+
+  // === EFFECTS ===
+
+  ComputeWarp: {
+    label: "Warp",
+    cat: "Compute",
+    inputs: 2,
+    pinsIn: ["Input", "Warp Field"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'mode', type: 'select', options: ['Displace', 'Twist', 'Bulge', 'Pinch', 'Wave'], default: 'Displace' },
+      { name: 'strength', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
+      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0 },
+      { name: 'frequency', type: 'float', default: 4.0, min: 0.1, max: 20.0 },
+      { name: 'phase', type: 'float', default: 0.0, min: 0.0, max: 360.0 }
+    ],
+    description: "UV distortion and displacement effects",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeKaleidoscope: {
+    label: "Kaleidoscope",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'segments', type: 'int', default: 6, min: 2, max: 24 },
+      { name: 'rotation', type: 'float', default: 0.0, min: 0.0, max: 360.0 },
+      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'scale', type: 'float', default: 1.0, min: 0.1, max: 5.0 },
+      { name: 'animate', type: 'boolean', default: false },
+      { name: 'speed', type: 'float', default: 0.5, min: 0.0, max: 5.0 }
+    ],
+    description: "Kaleidoscope symmetry and mirroring effects",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeGlitch: {
+    label: "Glitch",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'type', type: 'select', options: ['RGB Shift', 'Block', 'Scanline', 'Pixelate', 'Corrupt'], default: 'RGB Shift' },
+      { name: 'intensity', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'frequency', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'blockSize', type: 'float', default: 0.05, min: 0.01, max: 0.5 },
+      { name: 'seed', type: 'float', default: 0.0, min: 0.0, max: 100.0 }
+    ],
+    description: "Digital glitch and artifact effects",
+    workgroupSize: [8, 8, 1]
+  },
+
+  // === UTILITY ===
+
+  ComputeMix: {
+    label: "Mix",
+    cat: "Compute",
+    inputs: 2,
+    pinsIn: ["Input A", "Input B"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'mode', type: 'select', options: ['Mix', 'Add', 'Multiply', 'Screen', 'Overlay', 'Difference', 'Exclusion', 'Lighten', 'Darken'], default: 'Mix' },
+      { name: 'amount', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'opacity', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
+    ],
+    description: "Blend and composite multiple textures with various blend modes",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeTransform: {
+    label: "Transform",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'translateX', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
+      { name: 'translateY', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
+      { name: 'rotation', type: 'float', default: 0.0, min: -180.0, max: 180.0 },
+      { name: 'scaleX', type: 'float', default: 1.0, min: 0.1, max: 5.0 },
+      { name: 'scaleY', type: 'float', default: 1.0, min: 0.1, max: 5.0 },
+      { name: 'pivotX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'pivotY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
+      { name: 'wrapMode', type: 'select', options: ['Repeat', 'Clamp', 'Mirror'], default: 'Repeat' }
+    ],
+    description: "Translate, rotate, and scale textures",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeChannels: {
+    label: "Channels",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'operation', type: 'select', options: ['Swap', 'Extract', 'Combine', 'Remap'], default: 'Swap' },
+      { name: 'redSource', type: 'select', options: ['R', 'G', 'B', 'A', '0', '1'], default: 'R' },
+      { name: 'greenSource', type: 'select', options: ['R', 'G', 'B', 'A', '0', '1'], default: 'G' },
+      { name: 'blueSource', type: 'select', options: ['R', 'G', 'B', 'A', '0', '1'], default: 'B' },
+      { name: 'alphaSource', type: 'select', options: ['R', 'G', 'B', 'A', '0', '1'], default: 'A' }
+    ],
+    description: "Channel operations (swap, extract, combine, remap)",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeHSV: {
+    label: "HSV",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'operation', type: 'select', options: ['RGB to HSV', 'HSV to RGB', 'Adjust HSV'], default: 'Adjust HSV' },
+      { name: 'hueShift', type: 'float', default: 0.0, min: -180.0, max: 180.0 },
+      { name: 'saturationMult', type: 'float', default: 1.0, min: 0.0, max: 3.0 },
+      { name: 'valueMult', type: 'float', default: 1.0, min: 0.0, max: 3.0 }
+    ],
+    description: "HSV color space operations and conversions",
+    workgroupSize: [8, 8, 1]
+  },
+
+  // === ANALYSIS ===
+
+  ComputeHistogram: {
+    label: "Histogram",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB"],
+    params: [
+      { name: 'operation', type: 'select', options: ['Equalize', 'Normalize', 'Stretch', 'Visualize'], default: 'Equalize' },
+      { name: 'channel', type: 'select', options: ['RGB', 'R', 'G', 'B', 'Luminance'], default: 'Luminance' },
+      { name: 'bins', type: 'int', default: 256, min: 16, max: 256 },
+      { name: 'strength', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
+    ],
+    description: "Histogram-based image analysis and equalization",
+    workgroupSize: [8, 8, 1]
+  },
+
+  ComputeLuminance: {
+    label: "Luminance",
+    cat: "Compute",
+    inputs: 1,
+    pinsIn: ["Input"],
+    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    params: [
+      { name: 'method', type: 'select', options: ['Rec709', 'Rec601', 'Average', 'Max', 'Min'], default: 'Rec709' },
+      { name: 'outputMode', type: 'select', options: ['Grayscale', 'Preserve Color', 'Isoluminant'], default: 'Grayscale' },
+      { name: 'threshold', type: 'float', default: 0.5, min: 0.0, max: 1.0 }
+    ],
+    description: "Luminance extraction and operations",
+    workgroupSize: [8, 8, 1]
   }
 };
