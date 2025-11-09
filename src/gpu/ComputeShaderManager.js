@@ -22,6 +22,7 @@ export class ComputeShaderManager {
 
     // Input texture from other compute nodes
     this.inputTexture = null;
+    this.fallbackInputTexture = null;
 
     // Uniform buffers
     this.uniformBuffer = null;
@@ -58,6 +59,9 @@ export class ComputeShaderManager {
     this.dispatchSize.x = Math.ceil(width / this.workgroupSize.x);
     this.dispatchSize.y = Math.ceil(height / this.workgroupSize.y);
 
+    // Create fallback input texture if needed
+    this.createFallbackInputTexture();
+
     // Create storage textures for compute output
     this.createStorageTextures(width, height);
 
@@ -74,6 +78,31 @@ export class ComputeShaderManager {
       feedback: supportsFeedback,
       needsInput: needsInput
     });
+  }
+
+  /**
+   * Create fallback input texture (1x1 black texture)
+   */
+  createFallbackInputTexture() {
+    if (!this.needsInput) return;
+
+    const fallbackData = new Uint8Array([0, 0, 0, 255]); // Black pixel
+
+    this.fallbackInputTexture = this.device.createTexture({
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      label: 'Fallback Input Texture'
+    });
+
+    this.device.queue.writeTexture(
+      { texture: this.fallbackInputTexture },
+      fallbackData,
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 }
+    );
+
+    console.log('[ComputeShaderManager] Created fallback input texture');
   }
 
   /**
@@ -397,8 +426,9 @@ export class ComputeShaderManager {
     }
 
     // Binding 2: Input texture (if needed)
-    if (this.needsInput && this.inputTexture) {
-      entries.push({ binding: 2, resource: this.inputTexture.createView() });
+    if (this.needsInput) {
+      const inputTexture = this.inputTexture || this.fallbackInputTexture;
+      entries.push({ binding: 2, resource: inputTexture.createView() });
     }
 
     // Binding 3 (or 2 if no input): Feedback texture (if needed)
@@ -573,6 +603,7 @@ export class ComputeShaderManager {
       this.storageTextureB?.destroy();
       this.outputTexture?.destroy();
       this.uniformBuffer?.destroy();
+      this.fallbackInputTexture?.destroy();
     }
 
     this.computePipeline = null;
@@ -582,6 +613,7 @@ export class ComputeShaderManager {
     this.storageTextureB = null;
     this.outputTexture = null;
     this.uniformBuffer = null;
+    this.fallbackInputTexture = null;
 
     console.log('[ComputeShaderManager] Destroyed');
   }
