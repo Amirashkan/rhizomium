@@ -293,16 +293,158 @@ export class Scene {
      * @returns {Scene}
      */
     static fromJSON(json) {
-        // This is a placeholder for JSON deserialization
-        // Full implementation would require recursive node reconstruction
-        const scene = new Scene(json.name);
-        scene.background = json.background;
-        scene.metadata = json.metadata;
+        const scene = new Scene(json.name || 'Scene');
+        scene.background = json.background || { type: 'color', color: [0, 0, 0, 1] };
+        scene.metadata = json.metadata || {
+            created: Date.now(),
+            modified: Date.now(),
+            author: '',
+            description: ''
+        };
 
-        // TODO: Implement full node tree reconstruction from JSON
-        console.warn('Scene.fromJSON: Full deserialization not yet implemented');
+        // Reconstruct node tree
+        if (json.root) {
+            scene.root = Scene._reconstructNode(json.root);
+        }
+
+        // Find and set active camera
+        if (json.activeCamera) {
+            const camera = scene.findNodeByName(json.activeCamera);
+            if (camera instanceof CameraNode) {
+                scene.activeCamera = camera;
+            }
+        }
+
+        scene._cache.dirty = true;
 
         return scene;
+    }
+
+    /**
+     * Reconstruct a node from JSON (recursive)
+     * @param {Object} nodeData - Node JSON data
+     * @returns {Node}
+     * @private
+     */
+    static _reconstructNode(nodeData) {
+        if (!nodeData || !nodeData.type) {
+            console.warn('Scene._reconstructNode: Invalid node data', nodeData);
+            return new Node('Unknown');
+        }
+
+        let node;
+
+        // Create node based on type
+        switch (nodeData.type) {
+            case 'Node':
+                node = new Node(nodeData.name);
+                break;
+
+            case 'MeshNode':
+                node = new MeshNode(nodeData.name);
+                // Restore geometry and material if present
+                if (nodeData.geometry) {
+                    node.geometry = nodeData.geometry;
+                }
+                if (nodeData.material) {
+                    node.material = nodeData.material;
+                }
+                break;
+
+            case 'CameraNode':
+                node = new CameraNode(nodeData.name);
+                // Restore camera properties
+                if (nodeData.projection) {
+                    node.projection = nodeData.projection;
+                }
+                if (nodeData.fov !== undefined) {
+                    node.fov = nodeData.fov;
+                }
+                if (nodeData.near !== undefined) {
+                    node.near = nodeData.near;
+                }
+                if (nodeData.far !== undefined) {
+                    node.far = nodeData.far;
+                }
+                if (nodeData.orthographicSize !== undefined) {
+                    node.orthographicSize = nodeData.orthographicSize;
+                }
+                break;
+
+            case 'LightNode':
+                node = new LightNode(nodeData.name);
+                // Restore light properties
+                if (nodeData.lightType) {
+                    node.lightType = nodeData.lightType;
+                }
+                if (nodeData.color) {
+                    node.color = nodeData.color;
+                }
+                if (nodeData.intensity !== undefined) {
+                    node.intensity = nodeData.intensity;
+                }
+                break;
+
+            case 'ComputeFieldMapperNode':
+                node = new ComputeFieldMapperNode(nodeData.name);
+                // Restore compute field mapper properties
+                if (nodeData.sourceNodeId) {
+                    node.sourceNodeId = nodeData.sourceNodeId;
+                }
+                if (nodeData.fieldBounds) {
+                    node.fieldBounds = nodeData.fieldBounds;
+                }
+                if (nodeData.resolution) {
+                    node.resolution = nodeData.resolution;
+                }
+                if (nodeData.visualizationMode) {
+                    node.visualizationMode = nodeData.visualizationMode;
+                }
+                if (nodeData.threshold !== undefined) {
+                    node.threshold = nodeData.threshold;
+                }
+                if (nodeData.color) {
+                    node.color = nodeData.color;
+                }
+                break;
+
+            default:
+                console.warn(`Scene._reconstructNode: Unknown node type '${nodeData.type}', creating generic Node`);
+                node = new Node(nodeData.name || 'Unknown');
+                break;
+        }
+
+        // Restore common properties
+        if (nodeData.visible !== undefined) {
+            node.visible = nodeData.visible;
+        }
+
+        if (nodeData.userData) {
+            node.userData = nodeData.userData;
+        }
+
+        // Restore transform
+        if (nodeData.transform) {
+            if (nodeData.transform.position) {
+                node.transform.position.fromArray(nodeData.transform.position);
+            }
+            if (nodeData.transform.rotation) {
+                node.transform.rotation.fromArray(nodeData.transform.rotation);
+            }
+            if (nodeData.transform.scale) {
+                node.transform.scale.fromArray(nodeData.transform.scale);
+            }
+        }
+
+        // Recursively reconstruct children
+        if (nodeData.children && Array.isArray(nodeData.children)) {
+            for (const childData of nodeData.children) {
+                const child = Scene._reconstructNode(childData);
+                node.addChild(child);
+            }
+        }
+
+        return node;
     }
 
     /**
