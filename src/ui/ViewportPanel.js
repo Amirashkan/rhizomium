@@ -352,6 +352,33 @@ export class ViewportPanel {
   }
 
   /**
+   * Reset viewport to default size and position
+   */
+  reset() {
+    this.panelElement.style.width = '400px';
+    this.panelElement.style.height = '400px';
+    this.panelElement.style.top = '50px';
+    this.panelElement.style.right = '10px';
+    this.panelElement.style.left = 'auto';
+    this.panelElement.style.bottom = 'auto';
+
+    // Resize canvas to match container
+    setTimeout(() => {
+      if (this.viewport3D && this.viewport3D.canvas && this.canvasContainer) {
+        const containerWidth = this.canvasContainer.clientWidth;
+        const containerHeight = this.canvasContainer.clientHeight;
+
+        this.viewport3D.canvas.width = containerWidth;
+        this.viewport3D.canvas.height = containerHeight;
+
+        if (this.viewport3D.handleResize) {
+          this.viewport3D.handleResize(containerWidth, containerHeight);
+        }
+      }
+    }, 0);
+  }
+
+  /**
    * Update viewport state
    */
   update() {
