@@ -90,12 +90,19 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
+      // Detect if this node needs input textures from other compute nodes
+      // Check both the node definition (how many inputs it's designed for) and actual connections
+      // Nodes like ComputeBlur and ComputeFeedback are designed to take inputs
+      const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
+                                     'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles'].includes(node.kind);
+      const needsInput = nodeDesignedForInput;
+
       console.log(`[ComputeExecutor] Initializing compute node: ${node.kind} (${nodeId})`);
-      console.log(`[ComputeExecutor] Resolution: ${resolution[0]}x${resolution[1]}, Feedback: ${supportsFeedback}`);
+      console.log(`[ComputeExecutor] Resolution: ${resolution[0]}x${resolution[1]}, Feedback: ${supportsFeedback}, NeedsInput: ${needsInput}`);
 
       // Create compute shader manager with node reference for parameters
       const manager = new ComputeShaderManager(this.device, node);
-      await manager.initialize(wgslCode, resolution[0], resolution[1], supportsFeedback);
+      await manager.initialize(wgslCode, resolution[0], resolution[1], supportsFeedback, needsInput);
 
       // Store manager
       this.computeManagers.set(nodeId, manager);
@@ -260,6 +267,17 @@ export class ComputeExecutor {
         // Get node data to check if it's time-dependent
         const nodeData = window.computeNodeRegistry?.get(nodeId);
         const node = nodeData?.node;
+
+        // Set input texture if this node needs it
+        if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
+          const inputNodeId = node.inputs[0]; // Get first input (most compute nodes have 1 input)
+          if (inputNodeId !== null && inputNodeId !== undefined) {
+            const inputTexture = this.nodeOutputs.get(inputNodeId);
+            if (inputTexture && manager.setInputTexture) {
+              manager.setInputTexture(inputTexture);
+            }
+          }
+        }
 
         // Check if inputs have changed (for optimization)
         const shouldUpdate = this.checkInputsChanged(nodeId);
