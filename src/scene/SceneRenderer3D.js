@@ -371,10 +371,11 @@ export class SceneRenderer3D {
     const uniformData = new Float32Array(40); // 160 bytes / 4 = 40 floats
 
     // View-projection matrix (16 floats, offset 0)
-    uniformData.set(viewProjection, 0);
+    // Mat4 has .elements property which is the array
+    uniformData.set(viewProjection.elements || viewProjection, 0);
 
     // Model matrix (16 floats, offset 16)
-    uniformData.set(modelMatrix, 16);
+    uniformData.set(modelMatrix.elements || modelMatrix, 16);
 
     // Time (1 float, offset 32)
     uniformData[32] = time;
