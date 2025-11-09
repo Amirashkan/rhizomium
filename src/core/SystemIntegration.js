@@ -96,12 +96,12 @@ export class SystemIntegration {
    */
   _setupEventListeners() {
     // Listen to parameter changes
-    this.eventSystem.subscribe('PARAMETER_CHANGED', (data) => {
+    this.eventSystem.on('PARAMETER_CHANGED', (data) => {
       this.handleParameterChange(data);
     });
 
     // Listen to node dirty events
-    this.eventSystem.subscribe('NODE_DIRTY', (data) => {
+    this.eventSystem.on('NODE_DIRTY', (data) => {
       this.handleNodeDirty(data);
     });
 
@@ -137,7 +137,7 @@ export class SystemIntegration {
       }
 
       // Emit event
-      this.eventSystem.publish('NODE_ADDED', { nodeId: nodeData.id });
+      this.eventSystem.emit('NODE_ADDED', { nodeId: nodeData.id });
 
       // Auto-validate if enabled
       if (this.options.enableAutoValidation) {
@@ -170,7 +170,7 @@ export class SystemIntegration {
       this.executionQueue.cancelGroup(`node-${nodeId}`);
 
       // Emit event
-      this.eventSystem.publish('NODE_REMOVED', { nodeId });
+      this.eventSystem.emit('NODE_REMOVED', { nodeId });
 
       // Auto-validate if enabled
       if (this.options.enableAutoValidation) {
@@ -232,7 +232,7 @@ export class SystemIntegration {
         }
 
         // Emit event
-        this.eventSystem.publish('CONNECTION_ADDED', {
+        this.eventSystem.emit('CONNECTION_ADDED', {
           fromNodeId, fromPin, toNodeId, toPin
         });
 
@@ -266,7 +266,7 @@ export class SystemIntegration {
 
       if (success) {
         // Emit event
-        this.eventSystem.publish('CONNECTION_REMOVED', {
+        this.eventSystem.emit('CONNECTION_REMOVED', {
           fromNodeId, fromPin, toNodeId, toPin
         });
 
@@ -319,7 +319,7 @@ export class SystemIntegration {
     }
 
     // Emit event
-    this.eventSystem.publish('VALIDATION_COMPLETE', results);
+    this.eventSystem.emit('VALIDATION_COMPLETE', results);
 
     return results;
   }
@@ -358,7 +358,7 @@ export class SystemIntegration {
             this.graph.markNodeClean(nodeId);
 
             // Emit event
-            this.eventSystem.publish('NODE_EXECUTED', { nodeId, result });
+            this.eventSystem.emit('NODE_EXECUTED', { nodeId, result });
 
             return result;
           } catch (error) {
@@ -399,7 +399,7 @@ export class SystemIntegration {
       this.status = SystemStatus.READY;
 
       // Emit event
-      this.eventSystem.publish('GRAPH_EXECUTED', {
+      this.eventSystem.emit('GRAPH_EXECUTED', {
         nodeCount: executionOrder.length
       });
     } catch (error) {
@@ -592,7 +592,7 @@ export class SystemIntegration {
     this.lastError = null;
 
     // Emit event
-    this.eventSystem.publish('SYSTEM_CLEARED', {});
+    this.eventSystem.emit('SYSTEM_CLEARED', {});
   }
 
   /**
