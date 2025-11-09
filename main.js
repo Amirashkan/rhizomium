@@ -39,6 +39,7 @@ import { FieldVisualizerManager } from './src/scene/FieldVisualizerManager.js';
 import { addTestCubeToScene } from './src/scene/helpers/createTestCube.js';
 import { test3DVisualization } from './test-3d-viewport.js';
 import { showTestCube } from './show-test-cube.js';
+import { Vec3 } from './src/scene/math/Vec3.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -341,10 +342,10 @@ async function initialize() {
           near: 0.1,
           far: 1000,
           initialPosition: {
-            target: { x: 0, y: 0, z: 0 },
+            target: new Vec3(0, 0, 0),
             distance: 5,
-            azimuth: 45,
-            elevation: 30
+            azimuth: Math.PI / 4,  // 45 degrees in radians
+            elevation: Math.PI / 6  // 30 degrees in radians
           }
         });
 
