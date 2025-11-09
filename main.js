@@ -31,11 +31,15 @@ import { ComputeProfilerOverlay } from './src/ui/ComputeProfilerOverlay.js';
 import { GPUPerformanceMonitor } from './src/utils/GPUPerformanceMonitor.js';
 import { globalResourceRegistry } from './src/gpu/ResourceTracker.js';
 import { SystemIntegration } from './src/core/SystemIntegration.js';
+import { FieldMapperIntegration } from './src/core/FieldMapperIntegration.js';
 import { Viewport3D } from './src/scene/Viewport3D.js';
 import { ViewportPanel } from './src/ui/ViewportPanel.js';
 import { SceneRenderer3D } from './src/scene/SceneRenderer3D.js';
 import { FieldVisualizerManager } from './src/scene/FieldVisualizerManager.js';
 import { addTestCubeToScene } from './src/scene/helpers/createTestCube.js';
+import { test3DVisualization } from './test-3d-viewport.js';
+import { showTestCube } from './show-test-cube.js';
+import { Vec3 } from './src/scene/math/Vec3.js';
 
 // Verify timeline imports loaded
 console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
@@ -190,6 +194,7 @@ let viewport3D = null;
 let viewportPanel = null;
 let sceneRenderer3D = null;
 let fieldVisualizerManager = null;
+let fieldMapperIntegration = null;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -337,10 +342,10 @@ async function initialize() {
           near: 0.1,
           far: 1000,
           initialPosition: {
-            target: { x: 0, y: 0, z: 0 },
+            target: new Vec3(0, 0, 0),
             distance: 5,
-            azimuth: 45,
-            elevation: 30
+            azimuth: Math.PI / 4,  // 45 degrees in radians
+            elevation: Math.PI / 6  // 30 degrees in radians
           }
         });
 
@@ -370,17 +375,33 @@ async function initialize() {
         }
 
         // Initialize FieldVisualizerManager
-        if (systemIntegration && systemIntegration.scene && computeExecutor) {
-          fieldVisualizerManager = new FieldVisualizerManager(
-            systemIntegration.scene,
-            computeExecutor,
-            device
-          );
+        if (device) {
+          fieldVisualizerManager = new FieldVisualizerManager(device);
           window.fieldVisualizerManager = fieldVisualizerManager;
           console.log("FieldVisualizerManager initialized successfully");
         }
 
+        // Initialize FieldMapperIntegration
+        if (systemIntegration && systemIntegration.scene && computeExecutor && sceneRenderer3D && viewportPanel) {
+          fieldMapperIntegration = new FieldMapperIntegration(
+            device,
+            systemIntegration.scene,
+            computeExecutor,
+            sceneRenderer3D,
+            viewportPanel
+          );
+          window.fieldMapperIntegration = fieldMapperIntegration;
+          console.log("FieldMapperIntegration initialized successfully");
+        }
+
+        // Expose test functions and helpers globally
+        window.test3DVisualization = test3DVisualization;
+        window.showTestCube = showTestCube;
+        window.addTestCubeToScene = addTestCubeToScene;
+
         console.log("3D Viewport available - press Ctrl+3 to toggle");
+        console.log("Test 3D system: test3DVisualization()");
+        console.log("Show test cube: showTestCube()");
       } catch (error) {
         console.error("Failed to initialize 3D viewport:", error);
       }
@@ -2479,6 +2500,15 @@ async function updateShaderFromGraph() {
       console.log('[main] Initializing compute executor before GPU pipeline...');
       await computeExecutor.initialize();
       console.log('[main] Compute executor ready');
+    }
+
+    // Process ComputeFieldMapper nodes for 3D visualization
+    if (fieldMapperIntegration && graph && graph.nodes) {
+      try {
+        await fieldMapperIntegration.processFieldMappers(graph.nodes, graph.connections || []);
+      } catch (error) {
+        console.error('[main] Error processing field mappers:', error);
+      }
     }
 
     const rawWGSL = typeof result.wgsl === "string" ? result.wgsl : String(result.wgsl ?? "");

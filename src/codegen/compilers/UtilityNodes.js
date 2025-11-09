@@ -121,6 +121,18 @@ export class UtilityNodes {
   
   compileOutputFinal(node, getInput, nodeId) {
     const color = getInput(0, "vec3", "vec3<f32>(0.0)");
+
+    // Check if connected to a ComputeFieldMapper (3D visualization node)
+    if (node.inputs && node.inputs[0]) {
+      const inputNode = window.editor?.graph?.nodes?.find(n => n.id === node.inputs[0]);
+      if (inputNode && inputNode.kind === 'ComputeFieldMapper') {
+        console.warn('[OutputFinal] ⚠️  Connected to ComputeFieldMapper!');
+        console.warn('[OutputFinal] This node outputs 3D geometry, not 2D shader data.');
+        console.warn('[OutputFinal] Please disconnect and connect a different node for the 2D preview.');
+        console.warn('[OutputFinal] The 3D visualization will appear in the 3D viewport (Ctrl+3).');
+      }
+    }
+
     return {
       line: `finalColor = ${color};`,
       outputType: "vec3"

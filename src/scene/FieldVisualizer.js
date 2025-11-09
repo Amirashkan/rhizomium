@@ -279,6 +279,65 @@ export class FieldVisualizer {
     }
 
     /**
+     * Generate mesh from 3D texture using marching cubes
+     * @param {GPUTexture} texture - Input 3D texture
+     * @param {GPUDevice} device - WebGPU device
+     * @returns {Promise<Object>} Geometry data
+     */
+    async generateMeshFromTexture3D(texture, device) {
+        if (!this.initialized) {
+            await this.initialize();
+        }
+
+        const [w, h, d] = this.params.dimensions;
+
+        console.log(`[FieldVisualizer] Reading 3D texture data (${w}x${h}x${d})...`);
+
+        // Import PointCloudGenerator for texture reading utility
+        const { PointCloudGenerator } = await import('./generators/PointCloudGenerator.js');
+
+        // Read texture data
+        const fieldData = await PointCloudGenerator.readTextureData3D(texture, device, [w, h, d]);
+
+        console.log(`[FieldVisualizer] Generating mesh using marching cubes (isoValue: ${this.params.isoValue})...`);
+
+        // Use MarchingCubes to generate mesh
+        const mesh = MarchingCubes.generateMesh(
+            fieldData,
+            [w, h, d],
+            this.params.isoValue,
+            this.params.fieldBounds
+        );
+
+        // Generate colors for vertices (based on position or normal)
+        const colors = new Float32Array(mesh.vertexCount * 4);
+        for (let i = 0; i < mesh.vertexCount; i++) {
+            const color = this.calculateColor(0.5); // Default mid-value
+            colors[i * 4 + 0] = color[0];
+            colors[i * 4 + 1] = color[1];
+            colors[i * 4 + 2] = color[2];
+            colors[i * 4 + 3] = color[3];
+        }
+
+        // Generate UVs for mesh
+        const uvs = this.generateUVs(mesh.positions, mesh.vertexCount);
+
+        this.geometry = {
+            positions: mesh.positions,
+            normals: mesh.normals,
+            colors,
+            uvs,
+            indices: mesh.indices,
+            vertexCount: mesh.vertexCount,
+            indexCount: mesh.indices.length
+        };
+
+        console.log(`[FieldVisualizer] Generated mesh from 3D texture with ${this.geometry.vertexCount} vertices, ${this.geometry.indexCount / 3} triangles`);
+
+        return this.geometry;
+    }
+
+    /**
      * Calculate color based on field value
      * @param {number} value - Field value
      * @returns {number[]} RGBA color

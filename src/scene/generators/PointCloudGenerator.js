@@ -159,4 +159,113 @@ export class PointCloudGenerator {
         // Generate point cloud from field data
         return this.generate(fieldData, [w, h, 1], options);
     }
+
+    /**
+     * Generate point cloud from 3D texture (requires GPU texture readback)
+     * @param {GPUTexture} texture - Input 3D texture
+     * @param {GPUDevice} device - WebGPU device
+     * @param {number[]} dimensions - [width, height, depth]
+     * @param {Object} options - Generation options
+     * @returns {Promise<Object>} Point cloud geometry
+     */
+    static async generateFromTexture3D(texture, device, dimensions, options = {}) {
+        const [w, h, d] = dimensions;
+
+        // For 3D textures, we need to copy each depth slice separately
+        const fieldData = new Float32Array(w * h * d);
+
+        // Create readback buffer for a single slice
+        const bytesPerRow = Math.ceil(w * 4 * 4 / 256) * 256; // RGBA32Float, aligned to 256
+        const buffer = device.createBuffer({
+            size: bytesPerRow * h,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        });
+
+        // Read each depth slice
+        for (let z = 0; z < d; z++) {
+            // Copy this depth slice to buffer
+            const encoder = device.createCommandEncoder();
+            encoder.copyTextureToBuffer(
+                {
+                    texture,
+                    origin: { x: 0, y: 0, z }
+                },
+                { buffer, bytesPerRow },
+                { width: w, height: h, depthOrArrayLayers: 1 }
+            );
+            device.queue.submit([encoder.finish()]);
+
+            // Read data
+            await buffer.mapAsync(GPUMapMode.READ);
+            const sliceData = new Float32Array(buffer.getMappedRange());
+
+            // Extract channel data (use red channel) and place in 3D array
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const srcIdx = (x + y * w) * 4; // RGBA format
+                    const dstIdx = x + y * w + z * w * h; // 3D layout
+                    fieldData[dstIdx] = sliceData[srcIdx]; // Red channel
+                }
+            }
+
+            buffer.unmap();
+        }
+
+        buffer.destroy();
+
+        // Generate point cloud from 3D field data
+        return this.generate(fieldData, [w, h, d], { ...options, is3D: true });
+    }
+
+    /**
+     * Read field data from 3D texture into a Float32Array
+     * @param {GPUTexture} texture - Input 3D texture
+     * @param {GPUDevice} device - WebGPU device
+     * @param {number[]} dimensions - [width, height, depth]
+     * @returns {Promise<Float32Array>} Field data
+     */
+    static async readTextureData3D(texture, device, dimensions) {
+        const [w, h, d] = dimensions;
+        const fieldData = new Float32Array(w * h * d);
+
+        // Create readback buffer for a single slice
+        const bytesPerRow = Math.ceil(w * 4 * 4 / 256) * 256; // RGBA32Float, aligned to 256
+        const buffer = device.createBuffer({
+            size: bytesPerRow * h,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        });
+
+        // Read each depth slice
+        for (let z = 0; z < d; z++) {
+            // Copy this depth slice to buffer
+            const encoder = device.createCommandEncoder();
+            encoder.copyTextureToBuffer(
+                {
+                    texture,
+                    origin: { x: 0, y: 0, z }
+                },
+                { buffer, bytesPerRow },
+                { width: w, height: h, depthOrArrayLayers: 1 }
+            );
+            device.queue.submit([encoder.finish()]);
+
+            // Read data
+            await buffer.mapAsync(GPUMapMode.READ);
+            const sliceData = new Float32Array(buffer.getMappedRange());
+
+            // Extract channel data (use red channel) and place in 3D array
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const srcIdx = (x + y * w) * 4; // RGBA format
+                    const dstIdx = x + y * w + z * w * h; // 3D layout
+                    fieldData[dstIdx] = sliceData[srcIdx]; // Red channel
+                }
+            }
+
+            buffer.unmap();
+        }
+
+        buffer.destroy();
+        return fieldData;
+    }
 }
