@@ -90,6 +90,9 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
+      console.log(`[ComputeExecutor] Initializing compute node: ${node.kind} (${nodeId})`);
+      console.log(`[ComputeExecutor] Resolution: ${resolution[0]}x${resolution[1]}, Feedback: ${supportsFeedback}`);
+
       // Create compute shader manager with node reference for parameters
       const manager = new ComputeShaderManager(this.device, node);
       await manager.initialize(wgslCode, resolution[0], resolution[1], supportsFeedback);
@@ -105,16 +108,27 @@ export class ComputeExecutor {
         addressModeV: 'repeat'
       });
 
+      // Get output texture
+      const outputTexture = manager.getOutputTexture();
+      if (!outputTexture) {
+        throw new Error(`Manager failed to create output texture for ${nodeId}`);
+      }
+
       // Store texture and sampler
       this.computeTextures.set(nodeId, {
-        texture: manager.getOutputTexture(),
+        texture: outputTexture,
         sampler,
         manager
       });
 
       console.log(`[ComputeExecutor] ✓ Initialized compute node: ${node.kind} (${nodeId})`);
+      console.log(`[ComputeExecutor] ✓ Registered compute texture with ID: ${nodeId}`);
+      console.log(`[ComputeExecutor] Current computeTextures keys:`, Array.from(this.computeTextures.keys()));
     } catch (error) {
-      console.error(`[ComputeExecutor] Failed to initialize node ${nodeId}:`, error);
+      console.error(`[ComputeExecutor] ❌ FAILED to initialize node ${nodeId}:`, error);
+      console.error(`[ComputeExecutor] ❌ WGSL shader code that failed:`, nodeData.wgslCode);
+      // Re-throw to make the error more visible
+      throw error;
     }
   }
 
@@ -243,10 +257,22 @@ export class ComputeExecutor {
       }
 
       try {
-        // Check if inputs have changed
+        // Get node data to check if it's time-dependent
+        const nodeData = window.computeNodeRegistry?.get(nodeId);
+        const node = nodeData?.node;
+
+        // Check if inputs have changed (for optimization)
         const shouldUpdate = this.checkInputsChanged(nodeId);
 
-        if (shouldUpdate) {
+        // ALWAYS dispatch time-dependent compute nodes (they animate every frame)
+        // Time-dependent nodes include: ComputeNoise, ComputeReactionDiffusion, etc.
+        const isTimeDependentNode = node?.kind && (
+          node.kind === 'ComputeNoise' ||
+          node.kind === 'ComputeReactionDiffusion' ||
+          node.kind.startsWith('Compute') // Most compute nodes are time-dependent
+        );
+
+        if (shouldUpdate || isTimeDependentNode) {
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time);
