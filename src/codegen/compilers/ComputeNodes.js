@@ -29,7 +29,8 @@ export class ComputeNodes {
       'ComputeFluidSim',
       'ComputeConvolution',
       'ComputeCellular',
-      'ComputeFeedbackField'
+      'ComputeFeedbackField',
+      'ComputeThreshold'
     ].includes(kind);
   }
 
@@ -133,6 +134,8 @@ export class ComputeNodes {
         return this.generateFeedbackFieldShader(node, getInput);
       case 'ComputeConvolution':
         return this.generateConvolutionShader(node, getInput);
+      case 'ComputeThreshold':
+        return this.generateThresholdShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -382,6 +385,128 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   textureStore(outputTexture, vec2<u32>(texCoord), finalColor);
 }`;
+  }
+
+  /**
+   * Generate threshold shader
+   */
+  generateThresholdShader(node, getInput) {
+    const mode = this.getParamValue(node, 'mode', 'Binary');
+    const threshold = this.getParamValue(node, 'threshold', 0.5);
+    const thresholdMin = this.getParamValue(node, 'thresholdMin', 0.3);
+    const thresholdMax = this.getParamValue(node, 'thresholdMax', 0.7);
+    const outputLow = this.getParamValue(node, 'outputLow', 0.0);
+    const outputHigh = this.getParamValue(node, 'outputHigh', 1.0);
+
+    const modeIndex = this.getThresholdModeIndex(mode);
+
+    const shader = `
+// Compute Threshold Shader - Mode: ${mode}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  threshold: f32,
+  thresholdMin: f32,
+  thresholdMax: f32,
+  outputLow: f32,
+  outputHigh: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Convert RGB to luminance (Rec. 709)
+fn luminance(color: vec3<f32>) -> f32 {
+  return dot(color, vec3<f32>(0.299, 0.587, 0.114));
+}
+
+// Binary threshold: output low if below threshold, high if above
+fn binaryThreshold(value: f32, threshold: f32, low: f32, high: f32) -> f32 {
+  if (value < threshold) {
+    return low;
+  } else {
+    return high;
+  }
+}
+
+// Range threshold: output high only if value is within range
+fn rangeThreshold(value: f32, minThresh: f32, maxThresh: f32, low: f32, high: f32) -> f32 {
+  if (value >= minThresh && value <= maxThresh) {
+    return high;
+  } else {
+    return low;
+  }
+}
+
+// Adaptive threshold using local neighborhood average
+fn adaptiveThreshold(coord: vec2<i32>, texSize: vec2<u32>, threshold: f32, low: f32, high: f32) -> f32 {
+  let center = textureLoad(inputTexture, coord, 0);
+  let centerLum = luminance(center.rgb);
+
+  // Compute local average in 5x5 neighborhood
+  var sum = 0.0;
+  var count = 0.0;
+
+  for (var dy = -2; dy <= 2; dy++) {
+    for (var dx = -2; dx <= 2; dx++) {
+      let samplePos = coord + vec2<i32>(dx, dy);
+
+      if (samplePos.x >= 0 && samplePos.x < i32(texSize.x) &&
+          samplePos.y >= 0 && samplePos.y < i32(texSize.y)) {
+        let sample = textureLoad(inputTexture, samplePos, 0);
+        sum += luminance(sample.rgb);
+        count += 1.0;
+      }
+    }
+  }
+
+  let localAvg = sum / count;
+  let adaptiveThresh = localAvg * (1.0 - threshold);
+
+  if (centerLum > adaptiveThresh) {
+    return high;
+  } else {
+    return low;
+  }
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  let input = textureLoad(inputTexture, texCoord, 0);
+  let inputLum = luminance(input.rgb);
+
+  var result: f32;
+
+  // Mode: 0=Binary, 1=Range, 2=Adaptive
+  let modeType = ${modeIndex};
+
+  if (modeType == 0) {
+    // Binary threshold
+    result = binaryThreshold(inputLum, uniforms.threshold, uniforms.outputLow, uniforms.outputHigh);
+  } else if (modeType == 1) {
+    // Range threshold
+    result = rangeThreshold(inputLum, uniforms.thresholdMin, uniforms.thresholdMax, uniforms.outputLow, uniforms.outputHigh);
+  } else {
+    // Adaptive threshold
+    result = adaptiveThreshold(texCoord, texSize, uniforms.threshold, uniforms.outputLow, uniforms.outputHigh);
+  }
+
+  // Output result as grayscale
+  let color = vec4<f32>(result, result, result, input.a);
+  textureStore(outputTexture, vec2<u32>(texCoord), color);
+}`;
+
+    console.log(`[ComputeNodes] Generated threshold shader with mode: ${mode}`);
+    return shader;
   }
 
   /**
@@ -806,6 +931,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Reaction-Diffusion': 1,
       'Accumulate': 2,
       'Custom': 3
+    };
+    return modes[mode] || 0;
+  }
+
+  /**
+   * Convert threshold mode string to index
+   */
+  getThresholdModeIndex(mode) {
+    const modes = {
+      'Binary': 0,
+      'Range': 1,
+      'Adaptive': 2
     };
     return modes[mode] || 0;
   }
