@@ -459,6 +459,51 @@ export class ComputeShaderManager {
           this.uniformData[3] = this.node.params?.strength ?? 1.0;
           break;
 
+        case 'ComputeVoronoi':
+          // Uniforms: scale, seed, speed
+          this.uniformData[3] = this.node.params?.scale ?? 8.0;
+          this.uniformData[4] = this.node.params?.seed ?? 0.0;
+          this.uniformData[5] = this.node.params?.speed ?? 0.1;
+          break;
+
+        case 'ComputeGradient':
+          // Uniforms: angle, center.x, center.y, radius, repeat
+          this.uniformData[3] = this.node.params?.angle ?? 0.0;
+          this.uniformData[4] = this.node.params?.centerX ?? 0.5;
+          this.uniformData[5] = this.node.params?.centerY ?? 0.5;
+          this.uniformData[6] = this.node.params?.radius ?? 0.5;
+          this.uniformData[7] = this.node.params?.repeat ?? 1.0;
+          break;
+
+        case 'ComputePattern':
+          // Uniforms: _padding1, scale.x, scale.y, rotation, thickness, smoothness
+          this.uniformData[3] = 0.0; // _padding1
+          this.uniformData[4] = this.node.params?.scaleX ?? 8.0;
+          this.uniformData[5] = this.node.params?.scaleY ?? 8.0;
+          this.uniformData[6] = this.node.params?.rotation ?? 0.0;
+          this.uniformData[7] = this.node.params?.thickness ?? 0.5;
+          this.uniformData[8] = this.node.params?.smoothness ?? 0.01;
+          break;
+
+        case 'ComputeFeedbackField':
+          // Uniforms: decay, diffusion, feedback, speed, mode
+          this.uniformData[3] = this.node.params?.decay ?? 0.98;
+          this.uniformData[4] = this.node.params?.diffusion ?? 0.1;
+          this.uniformData[5] = this.node.params?.feedback ?? 0.5;
+          this.uniformData[6] = this.node.params?.speed ?? 1.0;
+          // Map mode string to numeric value (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom)
+          let modeValue = 0.0;
+          if (this.node.params?.mode === 'Reaction-Diffusion') modeValue = 1.0;
+          else if (this.node.params?.mode === 'Accumulate') modeValue = 2.0;
+          else if (this.node.params?.mode === 'Custom') modeValue = 3.0;
+          this.uniformData[7] = modeValue;
+          break;
+
+        case 'ComputeCellular':
+          // Uniforms: speed
+          this.uniformData[3] = this.node.params?.speed ?? 1.0;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
