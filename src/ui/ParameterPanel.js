@@ -886,6 +886,32 @@ case 'flip2d':
           });
           break;
 
+        // Compute nodes: Use parameter definitions from NodeDefs
+        case 'computenoise':
+        case 'computeblur':
+        case 'computeparticles':
+        case 'computefeedback':
+        case 'computereactiondiffusion':
+        case 'computefluidsim':
+        case 'computethreshold':
+        case 'computepattern':
+          const computeNodeDef = NodeDefs[node.kind];
+          if (computeNodeDef && computeNodeDef.params && Array.isArray(computeNodeDef.params)) {
+            computeNodeDef.params.forEach(param => {
+              definitions.push({
+                name: param.name,
+                type: param.type === 'bool' ? 'boolean' : param.type,
+                displayName: param.label || param.name.charAt(0).toUpperCase() + param.name.slice(1),
+                default: param.default,
+                min: param.min,
+                max: param.max,
+                options: param.options, // Preserve options array for select parameters
+                description: param.label || param.description || `${param.name} parameter`
+              });
+            });
+          }
+          break;
+
         default:
         if (node.params && Object.keys(node.params).length > 0) {
           Object.keys(node.params).forEach(key => {
