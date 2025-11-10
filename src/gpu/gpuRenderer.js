@@ -752,6 +752,12 @@ export class GPURenderer {
       colorAttachments: [colorAttachment],
     });
 
+    if (!this.pipeline) {
+      console.error('[GPURenderer] Pipeline is null! Cannot render. Shader compilation likely failed.');
+      pass.end();
+      return;
+    }
+
     pass.setPipeline(this.pipeline);
     for (let i = 0; i < this.bindGroups.length; i++) {
       pass.setBindGroup(i, this.bindGroups[i]);

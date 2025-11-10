@@ -285,12 +285,14 @@ export class ComputeExecutor {
         }
 
         // This is a fragment node being used as compute input!
+        console.log(`[ComputeExecutor] Auto-bridging: Rendering fragment node ${inputNodeId} (${inputNode.kind}) to texture for compute node ${nodeId}`);
         try {
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
           const width = resolution[0];
           const height = resolution[1];
 
+          console.log(`[ComputeExecutor] Rendering to ${width}x${height} texture...`);
           // Render the fragment node to a texture
           const texture = await this.fragmentRenderer.renderNodeToTexture(
             inputNodeId,
@@ -304,6 +306,9 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
+            console.log(`[ComputeExecutor] ✓ Auto-bridge complete: Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
+          } else {
+            console.warn(`[ComputeExecutor] ✗ Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
         } catch (error) {
           console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
