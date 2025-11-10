@@ -283,6 +283,10 @@ export class FragmentTextureRenderer {
 
       // Submit commands
       this.device.queue.submit([encoder.finish()]);
+
+      // CRITICAL: Wait for GPU to finish rendering before returning
+      // Without this, compute shaders may try to read from incomplete textures
+      await this.device.queue.onSubmittedWorkDone();
     } catch (error) {
       console.error('[FragmentTextureRenderer] Render error:', error);
       throw error;

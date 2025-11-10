@@ -307,6 +307,7 @@ export class ComputeExecutor {
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
             console.log(`[ComputeExecutor] ✓ Auto-bridge complete: Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
+            console.log(`[ComputeExecutor] 📝 Stored texture in nodeOutputs[${inputNodeId}]: ${texture.width}x${texture.height}, format=${texture.format}, usage=${texture.usage}`);
           } else {
             console.warn(`[ComputeExecutor] ✗ Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
@@ -353,17 +354,25 @@ export class ComputeExecutor {
           const inputNodeId = node.inputs[0];
           if (inputNodeId !== null && inputNodeId !== undefined) {
             const inputTexture = this.nodeOutputs.get(inputNodeId);
-            if (inputTexture && manager.setInputTexture) {
-              manager.setInputTexture(inputTexture);
-              // Recreate bind group with new input texture
-              if (manager.recreateBindGroup) {
-                manager.recreateBindGroup();
+            console.log(`[ComputeExecutor] 🔍 Node ${nodeId} (${node.kind}) looking for input from node ${inputNodeId}`);
+            console.log(`[ComputeExecutor] 📦 nodeOutputs.has(${inputNodeId}): ${this.nodeOutputs.has(inputNodeId)}`);
+            if (inputTexture) {
+              console.log(`[ComputeExecutor] ✓ Found input texture: ${inputTexture.width}x${inputTexture.height}, format=${inputTexture.format}, usage=${inputTexture.usage}`);
+              if (manager.setInputTexture) {
+                manager.setInputTexture(inputTexture);
+                console.log(`[ComputeExecutor] ✓ Called setInputTexture()`);
+                // Recreate bind group with new input texture
+                if (manager.recreateBindGroup) {
+                  manager.recreateBindGroup();
+                  console.log(`[ComputeExecutor] ✓ Called recreateBindGroup()`);
+                }
               }
             } else if (!inputTexture) {
               // Only log missing textures once to avoid spam
               if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
               if (!this._loggedMissingTextures.has(inputNodeId)) {
-                console.warn(`[ComputeExecutor] Input texture not found for ${inputNodeId}, using fallback`);
+                console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+                console.warn(`[ComputeExecutor] ⚠️ Available nodeOutputs keys:`, Array.from(this.nodeOutputs.keys()));
                 this._loggedMissingTextures.add(inputNodeId);
               }
             }
