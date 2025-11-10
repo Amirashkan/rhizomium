@@ -101,7 +101,7 @@ export class ComputeExecutor {
       const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
                                      'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
                                      'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect',
-                                     'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels'].includes(node.kind);
+                                     'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels', 'ComputeHSV'].includes(node.kind);
       const needsInput = nodeDesignedForInput;
 
       console.log(`[ComputeExecutor] Initializing compute node: ${node.kind} (${nodeId})`);
