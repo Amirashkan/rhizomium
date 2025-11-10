@@ -36,7 +36,8 @@ export class ComputeNodes {
       'ComputeMorphology',
       'ComputeVoronoi',
       'ComputeGradient',
-      'ComputePattern'
+      'ComputePattern',
+      'ComputeWarp'
     ].includes(kind);
   }
 
@@ -154,6 +155,8 @@ export class ComputeNodes {
         return this.generateGradientShader(node, getInput);
       case 'ComputePattern':
         return this.generatePatternShader(node, getInput);
+      case 'ComputeWarp':
+        return this.generateWarpShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -1902,6 +1905,182 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Brick': 5
     };
     return types[type] || 0;
+  }
+
+  /**
+   * Generate warp distortion shader
+   */
+  generateWarpShader(node, getInput) {
+    const mode = this.getParamValue(node, 'mode', 'Displace');
+    const strength = this.getParamValue(node, 'strength', 0.1);
+    const centerX = this.getParamValue(node, 'centerX', 0.5);
+    const centerY = this.getParamValue(node, 'centerY', 0.5);
+    const radius = this.getParamValue(node, 'radius', 0.5);
+    const frequency = this.getParamValue(node, 'frequency', 4.0);
+    const phase = this.getParamValue(node, 'phase', 0.0);
+
+    const modeIndex = this.getWarpModeIndex(mode);
+
+    const shader = `
+// Compute Warp Distortion Shader - Mode: ${mode}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  strength: f32,
+  center: vec2<f32>,
+  radius: f32,
+  frequency: f32,
+  phase: f32,
+  _padding: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+@group(0) @binding(4) var warpField: texture_2d<f32>;
+
+const PI = 3.14159265359;
+
+// Sample texture with boundary clamping
+fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>) -> vec4<f32> {
+  let clampedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  return textureSample(tex, texSampler, clampedUV);
+}
+
+// Displace mode: Direct UV displacement based on warp field
+fn applyDisplace(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
+  // Use RG channels as displacement vector
+  let displacement = (warpValue.rg - 0.5) * 2.0; // Remap from [0,1] to [-1,1]
+  return uv + displacement * uniforms.strength;
+}
+
+// Twist mode: Rotate UV around center based on distance
+fn applyTwist(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
+  let offset = uv - uniforms.center;
+  let dist = length(offset);
+
+  // Twist intensity based on distance and warp field
+  let warpIntensity = warpValue.r; // Use red channel
+  let falloff = 1.0 - smoothstep(0.0, uniforms.radius, dist);
+  let angle = warpIntensity * uniforms.strength * falloff * PI * 2.0;
+
+  // Rotate around center
+  let c = cos(angle);
+  let s = sin(angle);
+  let rotated = vec2<f32>(
+    offset.x * c - offset.y * s,
+    offset.x * s + offset.y * c
+  );
+
+  return uniforms.center + rotated;
+}
+
+// Bulge mode: Push outward from center
+fn applyBulge(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
+  let offset = uv - uniforms.center;
+  let dist = length(offset);
+
+  if (dist < 0.001) {
+    return uv;
+  }
+
+  let warpIntensity = warpValue.r;
+  let falloff = 1.0 - smoothstep(0.0, uniforms.radius, dist);
+
+  // Bulge outward (positive strength) or inward (negative strength)
+  let bulgeAmount = warpIntensity * uniforms.strength * falloff;
+  let newDist = dist * (1.0 + bulgeAmount);
+
+  return uniforms.center + normalize(offset) * newDist;
+}
+
+// Pinch mode: Pull inward toward center
+fn applyPinch(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
+  let offset = uv - uniforms.center;
+  let dist = length(offset);
+
+  if (dist < 0.001) {
+    return uv;
+  }
+
+  let warpIntensity = warpValue.r;
+  let falloff = 1.0 - smoothstep(0.0, uniforms.radius, dist);
+
+  // Pinch inward (positive strength pulls toward center)
+  let pinchAmount = warpIntensity * uniforms.strength * falloff;
+  let newDist = dist * (1.0 - pinchAmount);
+
+  return uniforms.center + normalize(offset) * newDist;
+}
+
+// Wave mode: Sinusoidal wave distortion
+fn applyWave(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
+  let warpIntensity = warpValue.r;
+
+  // Create wave pattern based on frequency and phase
+  let phaseRad = uniforms.phase * PI / 180.0;
+  let waveX = sin(uv.y * uniforms.frequency * PI * 2.0 + phaseRad);
+  let waveY = sin(uv.x * uniforms.frequency * PI * 2.0 + phaseRad);
+
+  // Apply wave displacement modulated by warp field
+  let displacement = vec2<f32>(waveX, waveY) * uniforms.strength * warpIntensity;
+
+  return uv + displacement;
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+
+  // Sample warp field at current position
+  let warpValue = sampleTexture(warpField, uv);
+
+  // Apply distortion based on mode
+  var distortedUV: vec2<f32>;
+  let mode = ${modeIndex}; // 0=Displace, 1=Twist, 2=Bulge, 3=Pinch, 4=Wave
+
+  if (mode == 0) {
+    distortedUV = applyDisplace(uv, warpValue);
+  } else if (mode == 1) {
+    distortedUV = applyTwist(uv, warpValue);
+  } else if (mode == 2) {
+    distortedUV = applyBulge(uv, warpValue);
+  } else if (mode == 3) {
+    distortedUV = applyPinch(uv, warpValue);
+  } else {
+    distortedUV = applyWave(uv, warpValue);
+  }
+
+  // Sample input texture at distorted UV coordinates
+  let color = sampleTexture(inputTexture, distortedUV);
+
+  textureStore(outputTexture, vec2<u32>(texCoord), color);
+}`;
+
+    console.log('[ComputeNodes] Generated warp shader with mode:', mode);
+    return shader;
+  }
+
+  /**
+   * Convert warp mode to index
+   */
+  getWarpModeIndex(mode) {
+    const modes = {
+      'Displace': 0,
+      'Twist': 1,
+      'Bulge': 2,
+      'Pinch': 3,
+      'Wave': 4
+    };
+    return modes[mode] || 0;
   }
 
   /**
