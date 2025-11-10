@@ -152,4 +152,17 @@ export const TransformNodes = {
       { name: "scale",    type: "float", default: 1.0, label: "Scale", min: 0.01, max: 5.0 }
     ],
   },
+
+  Displacement: {
+    label: "Displacement",
+    cat: "Transform",
+    inputs: 2,
+    pinsIn: ["UV", "Offset"],
+    pinsOut: [{ label: "out", type: "vec2" }],
+    params: [
+      { name: "strength", type: "float", default: 0.2, label: "Strength" },
+      { name: "centered", type: "boolean", default: true, label: "Center Input" },
+      { name: "wrap", type: "boolean", default: false, label: "Wrap UV" },
+    ],
+  },
 };

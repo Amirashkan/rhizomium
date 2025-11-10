@@ -127,4 +127,45 @@ export const NoiseNodes = {
       { name: "amplitude", type: "float", default: 1.0, label: "Amplitude" },
     ],
   },
+
+  // === CELL-BASED PATTERNS ===
+  Worley: {
+    label: "Worley Noise",
+    cat: "Noise",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [
+      { label: "F1", type: "f32" },
+      { label: "F2", type: "f32" },
+      { label: "Combined", type: "f32" },
+    ],
+    params: [
+      { name: "scale", type: "float", default: 8.0, label: "Scale" },
+      { name: "jitter", type: "float", default: 1.0, label: "Jitter" },
+      {
+        name: "distanceMetric",
+        type: "select",
+        default: "euclidean",
+        options: ["euclidean", "manhattan", "chebyshev", "minkowski"],
+        label: "Distance Metric"
+      },
+      { name: "minkowskiP", type: "float", default: 2.0, label: "Minkowski P" },
+    ],
+  },
+
+  CellNoise: {
+    label: "Cell Noise",
+    cat: "Noise",
+    inputs: 1,
+    pinsIn: ["UV"],
+    pinsOut: [
+      { label: "out", type: "f32" },
+      { label: "cellID", type: "vec2" },
+    ],
+    params: [
+      { name: "scale", type: "float", default: 8.0, label: "Scale" },
+      { name: "randomness", type: "float", default: 1.0, label: "Randomness" },
+      { name: "smooth", type: "bool", default: false, label: "Smooth" },
+    ],
+  },
 };
