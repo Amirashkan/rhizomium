@@ -304,9 +304,12 @@ export class GPURenderer {
       if (computeInfo) {
         // Return appropriate resource based on prefix
         if (prefix.startsWith('sampler_')) {
+          console.log(`[GPURenderer] Returning sampler for ${varName}`);
           return { sampler: computeInfo.sampler };
         } else {
-          return { textureView: computeInfo.texture.createView() };
+          const view = computeInfo.texture.createView();
+          console.log(`[GPURenderer] Created texture view for ${varName}, texture size: ${computeInfo.texture.width}x${computeInfo.texture.height}`);
+          return { textureView: view };
         }
       } else {
         console.warn(`[GPURenderer] ✗ No compute texture found for sanitized ID: ${sanitizedIdToMatch}`);
