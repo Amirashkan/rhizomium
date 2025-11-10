@@ -43,7 +43,8 @@ export class ComputeNodes {
       'ComputeMix',
       'ComputeTransform',
       'ComputeChannels',
-      'ComputeHSV'
+      'ComputeHSV',
+      'ComputeHistogram'
     ].includes(kind);
   }
 
@@ -176,6 +177,8 @@ export class ComputeNodes {
         return this.generateChannelsShader(node, getInput);
       case 'ComputeHSV':
         return this.generateHSVShader(node, getInput);
+      case 'ComputeHistogram':
+        return this.generateHistogramShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -2870,6 +2873,279 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     console.log('[ComputeNodes] Generated HSV shader:',
       `operation=${operation}(${operationIndex})`,
       `hueShift=${hueShift}`, `saturationMult=${saturationMult}`, `valueMult=${valueMult}`);
+    return shader;
+  }
+
+  /**
+   * Generate Histogram shader for histogram-based operations
+   * Supports: Equalize, Normalize, Stretch, Visualize
+   */
+  generateHistogramShader(node, getInput) {
+    const operation = this.getParamValue(node, 'operation', 'Equalize');
+    const channel = this.getParamValue(node, 'channel', 'Luminance');
+    const bins = this.getParamValue(node, 'bins', 256);
+    const strength = this.getParamValue(node, 'strength', 1.0);
+
+    // Convert operation to index: 0=Equalize, 1=Normalize, 2=Stretch, 3=Visualize
+    const operationIndex = operation === 'Equalize' ? 0 : operation === 'Normalize' ? 1 : operation === 'Stretch' ? 2 : 3;
+
+    // Convert channel to index: 0=RGB, 1=R, 2=G, 3=B, 4=Luminance
+    const channelIndex = channel === 'RGB' ? 0 : channel === 'R' ? 1 : channel === 'G' ? 2 : channel === 'B' ? 3 : 4;
+
+    const shader = `
+// Compute Histogram Shader - Histogram equalization, normalization, and visualization
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  operation: f32,
+  channel: f32,
+  bins: f32,
+  strength: f32,
+  _padding: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Calculate luminance
+fn getLuminance(color: vec3<f32>) -> f32 {
+  return dot(color, vec3<f32>(0.299, 0.587, 0.114));
+}
+
+// Sample a region around a pixel to build local histogram
+fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, channel: i32) -> array<f32, 16> {
+  var histogram: array<f32, 16>;
+  var count = 0.0;
+
+  // Build histogram from local neighborhood
+  for (var dy = -radius; dy <= radius; dy++) {
+    for (var dx = -radius; dx <= radius; dx++) {
+      let sampleCoord = texCoord + vec2<i32>(dx, dy);
+
+      // Bounds check
+      if (sampleCoord.x >= 0 && sampleCoord.x < i32(texSize.x) &&
+          sampleCoord.y >= 0 && sampleCoord.y < i32(texSize.y)) {
+
+        let color = textureLoad(inputTexture, sampleCoord, 0);
+        var value: f32;
+
+        // Select channel
+        if (channel == 1) {
+          value = color.r;
+        } else if (channel == 2) {
+          value = color.g;
+        } else if (channel == 3) {
+          value = color.b;
+        } else {
+          value = getLuminance(color.rgb);
+        }
+
+        let binIndex = i32(clamp(value * 15.999, 0.0, 15.999));
+        histogram[binIndex] += 1.0;
+        count += 1.0;
+      }
+    }
+  }
+
+  // Normalize histogram
+  if (count > 0.0) {
+    for (var i = 0; i < 16; i++) {
+      histogram[i] /= count;
+    }
+  }
+
+  return histogram;
+}
+
+// Compute cumulative distribution function
+fn computeCDF(histogram: array<f32, 16>) -> array<f32, 16> {
+  var cdf: array<f32, 16>;
+  cdf[0] = histogram[0];
+
+  for (var i = 1; i < 16; i++) {
+    cdf[i] = cdf[i - 1] + histogram[i];
+  }
+
+  return cdf;
+}
+
+// Apply histogram equalization
+fn equalizeValue(value: f32, cdf: array<f32, 16>) -> f32 {
+  let binIndex = i32(clamp(value * 15.999, 0.0, 15.999));
+  return cdf[binIndex];
+}
+
+// Apply contrast stretch
+fn stretchValue(value: f32, minVal: f32, maxVal: f32) -> f32 {
+  if (maxVal > minVal) {
+    return clamp((value - minVal) / (maxVal - minVal), 0.0, 1.0);
+  }
+  return value;
+}
+
+// Create histogram visualization
+fn visualizeHistogram(uv: vec2<f32>, color: vec4<f32>, histogram: array<f32, 16>) -> vec4<f32> {
+  let barHeight = 0.25; // Height of histogram overlay
+  let barY = 0.85; // Bottom position
+
+  // Check if we're in the histogram region
+  if (uv.y > barY && uv.y < barY + barHeight) {
+    let binIndex = i32(uv.x * 16.0);
+    if (binIndex >= 0 && binIndex < 16) {
+      // Find max histogram value for scaling
+      var maxHist = 0.0;
+      for (var i = 0; i < 16; i++) {
+        maxHist = max(maxHist, histogram[i]);
+      }
+
+      // Scale histogram value
+      let histValue = histogram[binIndex] / max(maxHist, 0.001);
+      let normalizedY = (uv.y - barY) / barHeight;
+
+      // Draw histogram bar
+      if (normalizedY < histValue) {
+        // Color bars based on intensity
+        let intensity = f32(binIndex) / 15.0;
+        return vec4<f32>(intensity, intensity * 0.7, 1.0 - intensity * 0.5, 0.9);
+      } else {
+        // Semi-transparent background
+        return mix(color, vec4<f32>(0.0, 0.0, 0.0, 1.0), 0.5);
+      }
+    }
+  }
+
+  return color;
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  let inputColor = textureLoad(inputTexture, texCoord, 0);
+  var outputColor = inputColor;
+
+  let op = i32(uniforms.operation);
+  let chan = i32(uniforms.channel);
+  let str = uniforms.strength;
+
+  // Compute local histogram for adaptive processing
+  let radius = 16; // Local neighborhood radius
+  let histogram = computeLocalHistogram(texCoord, texSize, radius, chan);
+
+  if (op == 0) {
+    // Equalize - histogram equalization
+    let cdf = computeCDF(histogram);
+
+    if (chan == 0) {
+      // Apply to RGB
+      let newR = mix(inputColor.r, equalizeValue(inputColor.r, cdf), str);
+      let newG = mix(inputColor.g, equalizeValue(inputColor.g, cdf), str);
+      let newB = mix(inputColor.b, equalizeValue(inputColor.b, cdf), str);
+      outputColor = vec4<f32>(newR, newG, newB, inputColor.a);
+    } else if (chan == 1) {
+      // Red channel
+      let newR = mix(inputColor.r, equalizeValue(inputColor.r, cdf), str);
+      outputColor = vec4<f32>(newR, inputColor.g, inputColor.b, inputColor.a);
+    } else if (chan == 2) {
+      // Green channel
+      let newG = mix(inputColor.g, equalizeValue(inputColor.g, cdf), str);
+      outputColor = vec4<f32>(inputColor.r, newG, inputColor.b, inputColor.a);
+    } else if (chan == 3) {
+      // Blue channel
+      let newB = mix(inputColor.b, equalizeValue(inputColor.b, cdf), str);
+      outputColor = vec4<f32>(inputColor.r, inputColor.g, newB, inputColor.a);
+    } else {
+      // Luminance - equalize while preserving color
+      let lum = getLuminance(inputColor.rgb);
+      let newLum = mix(lum, equalizeValue(lum, cdf), str);
+
+      if (lum > 0.001) {
+        let scale = newLum / lum;
+        outputColor = vec4<f32>(inputColor.rgb * scale, inputColor.a);
+      } else {
+        outputColor = vec4<f32>(newLum, newLum, newLum, inputColor.a);
+      }
+    }
+  } else if (op == 1 || op == 2) {
+    // Normalize or Stretch - find min/max and stretch
+    var minVal = 1.0;
+    var maxVal = 0.0;
+
+    // Find local min/max
+    for (var dy = -radius; dy <= radius; dy++) {
+      for (var dx = -radius; dx <= radius; dx++) {
+        let sampleCoord = texCoord + vec2<i32>(dx, dy);
+
+        if (sampleCoord.x >= 0 && sampleCoord.x < i32(texSize.x) &&
+            sampleCoord.y >= 0 && sampleCoord.y < i32(texSize.y)) {
+
+          let color = textureLoad(inputTexture, sampleCoord, 0);
+          var value: f32;
+
+          if (chan == 1) {
+            value = color.r;
+          } else if (chan == 2) {
+            value = color.g;
+          } else if (chan == 3) {
+            value = color.b;
+          } else {
+            value = getLuminance(color.rgb);
+          }
+
+          minVal = min(minVal, value);
+          maxVal = max(maxVal, value);
+        }
+      }
+    }
+
+    // Apply stretch
+    if (chan == 0) {
+      // Apply to RGB
+      let newR = mix(inputColor.r, stretchValue(inputColor.r, minVal, maxVal), str);
+      let newG = mix(inputColor.g, stretchValue(inputColor.g, minVal, maxVal), str);
+      let newB = mix(inputColor.b, stretchValue(inputColor.b, minVal, maxVal), str);
+      outputColor = vec4<f32>(newR, newG, newB, inputColor.a);
+    } else if (chan == 1) {
+      let newR = mix(inputColor.r, stretchValue(inputColor.r, minVal, maxVal), str);
+      outputColor = vec4<f32>(newR, inputColor.g, inputColor.b, inputColor.a);
+    } else if (chan == 2) {
+      let newG = mix(inputColor.g, stretchValue(inputColor.g, minVal, maxVal), str);
+      outputColor = vec4<f32>(inputColor.r, newG, inputColor.b, inputColor.a);
+    } else if (chan == 3) {
+      let newB = mix(inputColor.b, stretchValue(inputColor.b, minVal, maxVal), str);
+      outputColor = vec4<f32>(inputColor.r, inputColor.g, newB, inputColor.a);
+    } else {
+      // Luminance
+      let lum = getLuminance(inputColor.rgb);
+      let newLum = mix(lum, stretchValue(lum, minVal, maxVal), str);
+
+      if (lum > 0.001) {
+        let scale = newLum / lum;
+        outputColor = vec4<f32>(inputColor.rgb * scale, inputColor.a);
+      } else {
+        outputColor = vec4<f32>(newLum, newLum, newLum, inputColor.a);
+      }
+    }
+  } else if (op == 3) {
+    // Visualize - overlay histogram
+    let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+    outputColor = visualizeHistogram(uv, inputColor, histogram);
+  }
+
+  textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
+}`;
+
+    console.log('[ComputeNodes] Generated Histogram shader:',
+      `operation=${operation}(${operationIndex})`,
+      `channel=${channel}(${channelIndex})`,
+      `bins=${bins}`, `strength=${strength}`);
     return shader;
   }
 
