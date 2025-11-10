@@ -625,7 +625,7 @@ export class GPURenderer {
     console.log("[GPURenderer] Texture bindings updated");
   }
 
-  render(config) {
+  async render(config) {
     let options = {};
     if (Array.isArray(config)) {
       options.size = config;
@@ -710,7 +710,7 @@ export class GPURenderer {
       const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
       const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-      window.computeExecutor.execute(encoder, timeValue, {
+      await window.computeExecutor.execute(encoder, timeValue, {
         audioEnvelope,
         audioEnvelopeBass,
         audioEnvelopeMids,

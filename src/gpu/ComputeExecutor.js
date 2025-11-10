@@ -23,6 +23,7 @@
 
 import { ComputeShaderManager } from './ComputeShaderManager.js';
 import { ComputeNodeBase } from './ComputeNodeBase.js';
+import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 
 export class ComputeExecutor {
   constructor(device) {
@@ -55,7 +56,13 @@ export class ComputeExecutor {
     // Profiler reference (injected)
     this.profiler = null;
 
-    console.log('[ComputeExecutor] Created');
+    // Fragment texture renderer for auto-bridging fragment→compute connections
+    this.fragmentRenderer = new FragmentTextureRenderer(device);
+
+    // Track which fragment nodes have been rendered this frame
+    this.renderedFragmentNodes = new Set();
+
+    console.log('[ComputeExecutor] Created with fragment auto-bridging support');
   }
 
   /**
@@ -254,18 +261,100 @@ export class ComputeExecutor {
   }
 
   /**
+   * Render fragment node inputs to textures (auto-bridging)
+   * This enables fragment nodes to be used as inputs to compute nodes
+   * @param {number} time - Current time in seconds
+   * @param {Object} audioContext - Audio envelope values
+   */
+  async _renderFragmentInputs(time, audioContext) {
+    if (!window.graph || !window.graph.nodes) {
+      return;
+    }
+
+    // Clear the rendered set for this frame
+    this.renderedFragmentNodes.clear();
+
+    // Check each compute node for fragment inputs
+    for (const nodeId of this.executionOrder) {
+      const manager = this.computeManagers.get(nodeId);
+      if (!manager) continue;
+
+      // Get the node data
+      const nodeData = window.computeNodeRegistry?.get(nodeId);
+      const node = nodeData?.node;
+      if (!node || !node.inputs || !Array.isArray(node.inputs)) continue;
+
+      // Check each input
+      for (const inputNodeId of node.inputs) {
+        if (inputNodeId === null || inputNodeId === undefined) continue;
+
+        // Skip if already rendered this frame
+        if (this.renderedFragmentNodes.has(inputNodeId)) continue;
+
+        // Check if this input is a fragment node (not a compute node)
+        const isComputeNode = this.computeManagers.has(inputNodeId);
+        if (isComputeNode) continue;
+
+        // Check if the node exists in the graph
+        const inputNode = window.graph.getNode(inputNodeId);
+        if (!inputNode) {
+          console.warn(`[ComputeExecutor] Input node ${inputNodeId} not found in graph`);
+          continue;
+        }
+
+        // This is a fragment node being used as compute input!
+        console.log(`[ComputeExecutor] 🌉 Auto-bridging: Fragment node ${inputNodeId} (${inputNode.kind}) → Compute node ${nodeId}`);
+
+        try {
+          // Use the same resolution as the compute node
+          const resolution = nodeData.resolution || [512, 512];
+          const width = resolution[0];
+          const height = resolution[1];
+
+          // Render the fragment node to a texture
+          const texture = await this.fragmentRenderer.renderNodeToTexture(
+            inputNodeId,
+            width,
+            height,
+            time,
+            audioContext
+          );
+
+          if (texture) {
+            // Store in nodeOutputs so ComputeExecutor can find it
+            this.nodeOutputs.set(inputNodeId, texture);
+            this.renderedFragmentNodes.add(inputNodeId);
+            console.log(`[ComputeExecutor] ✓ Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
+          } else {
+            console.warn(`[ComputeExecutor] Failed to render fragment node ${inputNodeId}`);
+          }
+        } catch (error) {
+          console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
+        }
+      }
+    }
+
+    if (this.renderedFragmentNodes.size > 0) {
+      console.log(`[ComputeExecutor] 🌉 Auto-bridged ${this.renderedFragmentNodes.size} fragment→compute connections`);
+    }
+  }
+
+  /**
    * Execute all compute shaders
    * Should be called before fragment shader execution
    * @param {GPUCommandEncoder} commandEncoder - WebGPU command encoder
    * @param {number} time - Current time in seconds
    * @param {Object} audioContext - Audio envelope values for expression evaluation
    */
-  execute(commandEncoder, time = 0, audioContext = {}) {
+  async execute(commandEncoder, time = 0, audioContext = {}) {
     if (!this.initialized || this.computeManagers.size === 0) {
       return;
     }
 
-    // Execute in topological order (dependencies first)
+    // STEP 1: Render fragment node inputs to textures (auto-bridging)
+    await this._renderFragmentInputs(time, audioContext);
+
+    // STEP 2: Execute compute nodes in topological order (dependencies first)
     for (const nodeId of this.executionOrder) {
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {
