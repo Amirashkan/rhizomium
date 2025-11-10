@@ -351,10 +351,19 @@ export class ComputeExecutor {
         // Set input texture if this node needs it
         if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
           const inputNodeId = node.inputs[0]; // Get first input (most compute nodes have 1 input)
+          console.log(`[ComputeExecutor] Node ${nodeId} (${node.kind}) has input: ${inputNodeId}`);
+          console.log(`[ComputeExecutor] nodeOutputs contains: [${Array.from(this.nodeOutputs.keys()).join(', ')}]`);
           if (inputNodeId !== null && inputNodeId !== undefined) {
             const inputTexture = this.nodeOutputs.get(inputNodeId);
+            console.log(`[ComputeExecutor] Looking up input texture for ${inputNodeId}: ${inputTexture ? 'FOUND' : 'NOT FOUND'}`);
             if (inputTexture && manager.setInputTexture) {
               manager.setInputTexture(inputTexture);
+              console.log(`[ComputeExecutor] ✓ Set input texture for node ${nodeId} from ${inputNodeId}, size: ${inputTexture.width}x${inputTexture.height}`);
+              // Recreate bind group with new input texture
+              if (manager.recreateBindGroup) {
+                manager.recreateBindGroup();
+                console.log(`[ComputeExecutor] ✓ Recreated bind group for node ${nodeId} with updated input`);
+              }
             } else if (!inputTexture) {
               // Only log missing textures once to avoid spam
               if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
