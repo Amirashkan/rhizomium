@@ -243,4 +243,8 @@ fn blendDarken(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
 fn blendLighten(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
   return max(base, blend);
 }
+
+fn blendExclusion(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return base + blend - 2.0 * base * blend;
+}
 `;

@@ -39,7 +39,8 @@ export class ComputeNodes {
       'ComputePattern',
       'ComputeWarp',
       'ComputeKaleidoscope',
-      'ComputeGlitch'
+      'ComputeGlitch',
+      'ComputeMix'
     ].includes(kind);
   }
 
@@ -104,8 +105,8 @@ export class ComputeNodes {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
     // Determine if this node needs feedback (previous frame texture) or multiple inputs
-    // ComputeWarp uses this for its second input (warp field texture)
-    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField', 'ComputeWarp'];
+    // ComputeWarp and ComputeMix use this for their second input texture
+    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField', 'ComputeWarp', 'ComputeMix'];
     const supportsFeedback = feedbackNodes.includes(node.kind);
 
     // Store compute node info for later execution
@@ -164,6 +165,8 @@ export class ComputeNodes {
         return this.generateKaleidoscopeShader(node, getInput);
       case 'ComputeGlitch':
         return this.generateGlitchShader(node, getInput);
+      case 'ComputeMix':
+        return this.generateMixShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -2405,6 +2408,155 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   /**
+   * Generate mix/blend shader - composite two textures with blend modes
+   */
+  generateMixShader(node, getInput) {
+    const mode = this.getParamValue(node, 'mode', 'Mix');
+    const amount = this.getParamValue(node, 'amount', 0.5);
+    const opacity = this.getParamValue(node, 'opacity', 1.0);
+
+    const modeIndex = this.getBlendModeIndex(mode);
+
+    const shader = `
+// Compute Mix/Blend Shader - Mode: ${mode}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  amount: f32,
+  opacity: f32,
+  _padding: vec3<f32>
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTextureA: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+@group(0) @binding(4) var inputTextureB: texture_2d<f32>;
+
+// Sample texture with boundary clamping using textureLoad
+fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  let pixelCoord = vec2<i32>(uv * vec2<f32>(texSize));
+  let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
+  return textureLoad(tex, clampedCoord, 0);
+}
+
+// Blend mode functions
+fn blendMultiply(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return base * blend;
+}
+
+fn blendScreen(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return vec3<f32>(1.0) - (vec3<f32>(1.0) - base) * (vec3<f32>(1.0) - blend);
+}
+
+fn blendOverlay(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  var result: vec3<f32>;
+
+  if (base.r < 0.5) {
+    result.r = 2.0 * base.r * blend.r;
+  } else {
+    result.r = 1.0 - 2.0 * (1.0 - base.r) * (1.0 - blend.r);
+  }
+
+  if (base.g < 0.5) {
+    result.g = 2.0 * base.g * blend.g;
+  } else {
+    result.g = 1.0 - 2.0 * (1.0 - base.g) * (1.0 - blend.g);
+  }
+
+  if (base.b < 0.5) {
+    result.b = 2.0 * base.b * blend.b;
+  } else {
+    result.b = 1.0 - 2.0 * (1.0 - base.b) * (1.0 - blend.b);
+  }
+
+  return result;
+}
+
+fn blendAdd(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return clamp(base + blend, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn blendDifference(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return abs(base - blend);
+}
+
+fn blendExclusion(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return base + blend - 2.0 * base * blend;
+}
+
+fn blendLighten(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return max(base, blend);
+}
+
+fn blendDarken(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  return min(base, blend);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSizeA = textureDimensions(inputTextureA);
+  let texSizeB = textureDimensions(inputTextureB);
+
+  if (texCoord.x >= i32(texSizeA.x) || texCoord.y >= i32(texSizeA.y)) {
+    return;
+  }
+
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSizeA);
+
+  // Sample both input textures
+  let colorA = sampleTexture(inputTextureA, uv, texSizeA);
+  let colorB = sampleTexture(inputTextureB, uv, texSizeB);
+
+  var blendedColor: vec3<f32>;
+  let blendMode = ${modeIndex}; // 0=Mix, 1=Add, 2=Multiply, 3=Screen, 4=Overlay, 5=Difference, 6=Exclusion, 7=Lighten, 8=Darken
+
+  if (blendMode == 0) {
+    // Mix mode - simple linear interpolation
+    blendedColor = mix(colorA.rgb, colorB.rgb, uniforms.amount);
+  } else if (blendMode == 1) {
+    // Add mode
+    blendedColor = blendAdd(colorA.rgb, colorB.rgb);
+  } else if (blendMode == 2) {
+    // Multiply mode
+    blendedColor = blendMultiply(colorA.rgb, colorB.rgb);
+  } else if (blendMode == 3) {
+    // Screen mode
+    blendedColor = blendScreen(colorA.rgb, colorB.rgb);
+  } else if (blendMode == 4) {
+    // Overlay mode
+    blendedColor = blendOverlay(colorA.rgb, colorB.rgb);
+  } else if (blendMode == 5) {
+    // Difference mode
+    blendedColor = blendDifference(colorA.rgb, colorB.rgb);
+  } else if (blendMode == 6) {
+    // Exclusion mode
+    blendedColor = blendExclusion(colorA.rgb, colorB.rgb);
+  } else if (blendMode == 7) {
+    // Lighten mode
+    blendedColor = blendLighten(colorA.rgb, colorB.rgb);
+  } else {
+    // Darken mode
+    blendedColor = blendDarken(colorA.rgb, colorB.rgb);
+  }
+
+  // Apply amount (for non-Mix modes, amount controls blend intensity)
+  if (blendMode != 0) {
+    blendedColor = mix(colorA.rgb, blendedColor, uniforms.amount);
+  }
+
+  // Apply opacity
+  let finalColor = mix(colorA.rgb, blendedColor, uniforms.opacity);
+
+  textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(finalColor, colorA.a));
+}`;
+
+    console.log('[ComputeNodes] Generated mix shader with mode:', mode);
+    return shader;
+  }
+
+  /**
    * Convert warp mode to index
    */
   getWarpModeIndex(mode) {
@@ -2430,6 +2582,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Corrupt': 4
     };
     return types[type] || 0;
+  }
+
+  /**
+   * Convert blend mode to index
+   */
+  getBlendModeIndex(mode) {
+    const modes = {
+      'Mix': 0,
+      'Add': 1,
+      'Multiply': 2,
+      'Screen': 3,
+      'Overlay': 4,
+      'Difference': 5,
+      'Exclusion': 6,
+      'Lighten': 7,
+      'Darken': 8
+    };
+    return modes[mode] || 0;
   }
 
   /**
