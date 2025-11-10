@@ -255,8 +255,18 @@ export class GPURenderer {
         console.warn('[GPURenderer] computeTextures map is empty!');
       }
 
+      // CRITICAL: Look up the CURRENT output texture from nodeOutputs, not the stale reference in computeTextures
+      // The nodeOutputs map is updated every frame after dispatch, while computeTextures is only set at init
+      const currentOutputTexture = computeExecutor.nodeOutputs?.get(sanitizedIdToMatch);
+
       // Try direct lookup first (in case ID doesn't need sanitization)
       let computeInfo = computeExecutor.computeTextures.get(sanitizedIdToMatch);
+
+      // If we have a current output texture, use it instead of the stale texture reference
+      if (currentOutputTexture && computeInfo) {
+        console.log(`[GPURenderer] Using fresh output texture for ${sanitizedIdToMatch} from nodeOutputs`);
+        computeInfo = { ...computeInfo, texture: currentOutputTexture };
+      }
 
       // If not found, iterate through all compute textures and match sanitized IDs
       // This handles the case where node IDs contain characters like dashes that get sanitized
@@ -268,8 +278,15 @@ export class GPURenderer {
           const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
           console.log(`[GPURenderer] Comparing "${nodeSanitizedId}" with "${sanitizedIdToMatch}"`);
           if (nodeSanitizedId === sanitizedIdToMatch) {
-            computeInfo = textureData;
-            console.log(`[GPURenderer] ✓ Match found! Using texture from node ${nodeId}`);
+            // Get fresh texture if available
+            const freshTexture = computeExecutor.nodeOutputs?.get(nodeId);
+            if (freshTexture) {
+              console.log(`[GPURenderer] ✓ Match found! Using FRESH texture from nodeOutputs for node ${nodeId}`);
+              computeInfo = { ...textureData, texture: freshTexture };
+            } else {
+              console.log(`[GPURenderer] ✓ Match found! Using texture from node ${nodeId}`);
+              computeInfo = textureData;
+            }
             break;
           }
         }
