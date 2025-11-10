@@ -2377,8 +2377,8 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   let foldedX = r * cos(foldedAngle);
   let foldedY = r * sin(foldedAngle);
 
-  // Transform back to UV space (add center back)
-  var sampledUV = vec2<f32>(foldedX, foldedY) + center;
+  // Transform back to UV space (scale back up, then add center)
+  var sampledUV = vec2<f32>(foldedX, foldedY) * uniforms.scale + center;
 
   // Wrap coordinates to [0, 1] for seamless tiling
   sampledUV = fract(sampledUV);
