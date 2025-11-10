@@ -2330,12 +2330,6 @@ const PI: f32 = 3.14159265359;
 
 // Apply kaleidoscope effect
 fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
-  // DEBUG: Pass through input texture directly to test if input is being received
-  // TODO: Remove this and restore kaleidoscope algorithm after confirming input works
-  let coord = vec2<i32>(uv * vec2<f32>(texSize));
-  return textureLoad(inputTexture, coord, 0);
-
-  /* ORIGINAL KALEIDOSCOPE - DISABLED FOR DEBUG
   // Center point
   let center = vec2<f32>(uniforms.centerX, uniforms.centerY);
 
@@ -2359,43 +2353,41 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   // Calculate segment angle (the angular width of one wedge)
   let segmentAngle = (2.0 * PI) / uniforms.segments;
 
-  // Fold angle into first segment using modulo
-  // This maps all angles into the range [0, segmentAngle]
-  var foldedAngle = angle % segmentAngle;
-  if (foldedAngle < 0.0) {
-    foldedAngle += segmentAngle;
+  // Normalize angle to [0, 2*PI]
+  var normalizedAngle = angle;
+  if (normalizedAngle < 0.0) {
+    normalizedAngle += 2.0 * PI;
   }
 
-  // Determine which segment we're in (for mirroring)
-  var segmentNum = floor(angle / segmentAngle);
-  if (segmentNum < 0.0) {
-    segmentNum += uniforms.segments;
-  }
+  // Fold angle into first segment [0, segmentAngle]
+  var foldedAngle = normalizedAngle % segmentAngle;
+
+  // Determine which segment we're in
+  let segmentIndex = i32(floor(normalizedAngle / segmentAngle));
 
   // Mirror every other segment for kaleidoscope effect
-  if (i32(segmentNum) % 2 == 1) {
+  if (segmentIndex % 2 == 1) {
     foldedAngle = segmentAngle - foldedAngle;
   }
 
-  // Convert back to Cartesian using the folded angle and scaled radius
-  let scaledR = r / uniforms.scale;
+  // Apply scale to radius
+  let scaledR = r * uniforms.scale;
+
+  // Convert back to Cartesian using the folded angle
   let foldedX = scaledR * cos(foldedAngle);
   let foldedY = scaledR * sin(foldedAngle);
 
-  // Transform back to UV space
-  let sampledUV = vec2<f32>(foldedX, foldedY) + center;
+  // Transform back to UV space (add center back)
+  var sampledUV = vec2<f32>(foldedX, foldedY) + center;
 
-  // Wrap coordinates using modulo for seamless tiling
-  // fract() would work but sampledUV - floor(sampledUV) is more explicit
-  // This maps any coordinate to [0, 1) range (e.g., 1.3 -> 0.3, -0.3 -> 0.7)
-  var wrappedUV = sampledUV - floor(sampledUV);
+  // Wrap coordinates to [0, 1] for seamless tiling
+  sampledUV = sampledUV - floor(sampledUV);
 
-  // Convert to pixel coordinates
-  let pixelCoord = vec2<i32>(wrappedUV * vec2<f32>(texSize));
+  // Convert to pixel coordinates and sample
+  let pixelCoord = vec2<i32>(sampledUV * vec2<f32>(texSize));
   let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
 
   return textureLoad(inputTexture, clampedCoord, 0);
-  */
 }
 
 @compute @workgroup_size(8, 8)
