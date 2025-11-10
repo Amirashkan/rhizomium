@@ -1701,11 +1701,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 struct Uniforms {
   resolution: vec2<f32>,
   time: f32,
+  _padding1: f32,
   scale: vec2<f32>,
   rotation: f32,
   thickness: f32,
   smoothness: f32,
-  padding: f32
+  _padding2: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
