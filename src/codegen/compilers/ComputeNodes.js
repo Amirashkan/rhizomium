@@ -38,6 +38,7 @@ export class ComputeNodes {
       'ComputeGradient',
       'ComputePattern',
       'ComputeWarp',
+      'ComputeKaleidoscope',
       'ComputeGlitch'
     ].includes(kind);
   }
@@ -159,6 +160,8 @@ export class ComputeNodes {
         return this.generatePatternShader(node, getInput);
       case 'ComputeWarp':
         return this.generateWarpShader(node, getInput);
+      case 'ComputeKaleidoscope':
+        return this.generateKaleidoscopeShader(node, getInput);
       case 'ComputeGlitch':
         return this.generateGlitchShader(node, getInput);
       default:
@@ -2284,6 +2287,120 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }`;
 
     console.log('[ComputeNodes] Generated glitch shader with type:', type);
+    return shader;
+  }
+
+  /**
+   * Generate kaleidoscope shader - symmetry and mirroring effects
+   */
+  generateKaleidoscopeShader(node, getInput) {
+    const segments = this.getParamValue(node, 'segments', 6);
+    const rotation = this.getParamValue(node, 'rotation', 0.0);
+    const centerX = this.getParamValue(node, 'centerX', 0.5);
+    const centerY = this.getParamValue(node, 'centerY', 0.5);
+    const scale = this.getParamValue(node, 'scale', 1.0);
+    const animate = this.getParamValue(node, 'animate', false);
+    const speed = this.getParamValue(node, 'speed', 0.5);
+
+    const shader = `
+// Compute Kaleidoscope Shader - ${segments} segments
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  segments: f32,
+  rotation: f32,
+  centerX: f32,
+  centerY: f32,
+  scale: f32,
+  animate: f32,
+  speed: f32,
+  _padding: vec3<f32>
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+const PI: f32 = 3.14159265359;
+
+// NOTE: textureSample() cannot be used in compute shaders (only in fragment shaders).
+// We must use textureLoad() with manual coordinate wrapping for tiling behavior.
+// The sampler binding is required by the bind group layout but not used in compute.
+
+// Apply kaleidoscope effect
+// Based on working fragment shader implementation from FieldNodes.js
+fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  // Normalize to [-1, 1] space (centered at origin)
+  var p = uv * 2.0 - vec2<f32>(1.0, 1.0);
+
+  // Apply offset from center parameters (convert [0,1] center to [-1,1] offset)
+  p -= vec2<f32>(uniforms.centerX - 0.5, uniforms.centerY - 0.5) * 2.0;
+
+  // Apply zoom/scale
+  if (uniforms.scale != 1.0) {
+    p /= uniforms.scale;
+  }
+
+  // Convert to polar coordinates
+  let r = length(p);
+  var angle = atan2(p.y, p.x);
+
+  // Apply rotation (convert degrees to radians)
+  var rotationRad = uniforms.rotation * PI / 180.0;
+
+  // Add animation if enabled
+  if (uniforms.animate > 0.5) {
+    rotationRad += uniforms.time * uniforms.speed;
+  }
+
+  angle += rotationRad;
+
+  // Calculate segment angle
+  let segmentAngle = (2.0 * PI) / uniforms.segments;
+
+  // Fold angle into segment using manual modulo (avoids % operator issues)
+  let k = floor(angle / segmentAngle);
+  var a = angle - k * segmentAngle;
+
+  // Mirror if in second half of segment (key difference from previous attempt!)
+  if (a > segmentAngle * 0.5) {
+    a = segmentAngle - a;
+  }
+
+  // Convert back to Cartesian
+  let x = r * cos(a);
+  let y = r * sin(a);
+
+  // Convert back to [0, 1] UV space
+  var sampledUV = vec2<f32>(x, y) * 0.5 + vec2<f32>(0.5, 0.5);
+
+  // Wrap coordinates for seamless tiling
+  sampledUV = fract(sampledUV);
+
+  // Convert to pixel coordinates and sample
+  let pixelCoord = vec2<i32>(sampledUV * vec2<f32>(texSize));
+  let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
+
+  return textureLoad(inputTexture, clampedCoord, 0);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+  let color = applyKaleidoscope(uv, texSize);
+
+  textureStore(outputTexture, vec2<u32>(texCoord), color);
+}`;
+
+    console.log('[ComputeNodes] Generated kaleidoscope shader with segments:', segments);
     return shader;
   }
 
