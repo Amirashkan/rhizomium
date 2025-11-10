@@ -8,14 +8,18 @@
  * Valid node categories
  */
 export const NodeCategories = {
-  OUTPUT: 'Output',
   INPUT: 'Input',
-  FIELD: 'Field',
+  OUTPUT: 'Output',
   MATH: 'Math',
   VECTOR: 'Vector',
-  UTILITY: 'Utility',
+  PATTERN: 'Pattern',
   NOISE: 'Noise',
+  TRANSFORM: 'Transform',
+  COLOR: 'Color',
+  UTILITY: 'Utility',
+  BLEND: 'Blend',
   TEXTURE: 'Texture',
+  COMPUTE: 'Compute',
 };
 
 /**

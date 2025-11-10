@@ -1,74 +1,10 @@
 // src/data/nodes/VectorNodes.js
 
 /**
- * Vector operation node definitions for 2D/3D math
+ * Vector construction/deconstruction node definitions
  */
 export const VectorNodes = {
-  // Vector Math Operations
-  Dot: {
-    label: "Dot Product",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
-    params: [],
-  },
-
-  Cross: {
-    label: "Cross Product",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  Normalize: {
-    label: "Normalize",
-    cat: "Vector",
-    inputs: 1,
-    pinsIn: ["Vec"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  Length: {
-    label: "Length",
-    cat: "Vector",
-    inputs: 1,
-    pinsIn: ["Vec"],
-    pinsOut: [{ label: "out", type: "f32" }],
-    params: [],
-  },
-
-  Distance: {
-    label: "Distance",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "f32" }],
-    params: [],
-  },
-
-  Reflect: {
-    label: "Reflect",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["I", "N"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  Refract: {
-    label: "Refract",
-    cat: "Vector",
-    inputs: 3,
-    pinsIn: ["I", "N", "eta"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  // Vector Component Operations
+  // === VECTOR COMPONENT OPERATIONS ===
   Split2: {
     label: "Split Vec2",
     cat: "Vector",
@@ -135,53 +71,7 @@ export const VectorNodes = {
     params: [],
   },
 
-  // Vector Arithmetic
-  VectorAdd: {
-    label: "Vector Add",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorSubtract: {
-    label: "Vector Subtract",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorMultiply: {
-    label: "Vector Multiply",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorDivide: {
-    label: "Vector Divide",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorScale: {
-    label: "Vector Scale",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["Vec", "Scale"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  // Swizzle operations
+  // === SWIZZLE OPERATIONS ===
   Swizzle: {
     label: "Swizzle",
     cat: "Vector",

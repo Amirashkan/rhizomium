@@ -1,11 +1,15 @@
 // src/data/NodeDefs.js
 import { InputNodes } from './nodes/InputNodes.js';
 import { OutputNodes } from './nodes/OutputNodes.js';
-import { FieldNodes } from './nodes/FieldNodes.js';
 import { MathNodes } from './nodes/MathNodes.js';
-import { UtilityNodes } from './nodes/UtilityNodes.js';
+import { VectorNodes } from './nodes/VectorNodes.js';
+import { PatternNodes } from './nodes/PatternNodes.js';
+import { NoiseNodes } from './nodes/NoiseNodes.js';
 import { TransformNodes } from './nodes/TransformNodes.js';
+import { ColorNodes } from './nodes/ColorNodes.js';
+import { UtilityNodes } from './nodes/UtilityNodes.js';
 import { BlendNodes } from './nodes/BlendNodes.js';
+import { TextureNodes } from './nodes/TextureNodes.js';
 import { ComputeNodes } from './nodes/ComputeNodes.js';
 
 let _nextId = 1;
@@ -46,24 +50,32 @@ export function updateNodeIdCounter(existingNodes) {
 /**
  * Central registry of all node definitions organized by category
  *
- * Categories:
- * - Input: Constants, runtime data, and textures (13 nodes)
- * - Math: Scalar and vector mathematical operations (43 nodes)
- * - Field: Procedural patterns and noise generation (20 nodes)
- * - Transform: UV coordinate manipulation (11 nodes)
- * - Utility: Data manipulation and component operations (19 nodes)
- * - Blend: Distance field combination operations (7 nodes)
- * - Compute: GPU-accelerated compute shaders (8 nodes)
- * - Output: Final rendering (1 node)
+ * Categories (12 total):
+ * - Input: Constants and runtime data sources
+ * - Output: Final rendering output
+ * - Math: Scalar and vector mathematical operations
+ * - Vector: Vector construction/deconstruction (Split, Combine, Swizzle)
+ * - Pattern: Gradients, shapes, and procedural patterns
+ * - Noise: Procedural noise functions (Perlin, Simplex, Voronoi, etc.)
+ * - Transform: UV coordinate transformations and distortions
+ * - Color: Color manipulation and conversion
+ * - Utility: Data manipulation (Remap, Select, Compare, Expression)
+ * - Blend: SDF blending operations
+ * - Texture: Texture sampling (2D, Cube)
+ * - Compute: GPU-accelerated compute shaders
  */
 export const NodeDefs = {
-  ...OutputNodes,
   ...InputNodes,
-  ...FieldNodes,
+  ...OutputNodes,
   ...MathNodes,
+  ...VectorNodes,
+  ...PatternNodes,
+  ...NoiseNodes,
+  ...TransformNodes,
+  ...ColorNodes,
   ...UtilityNodes,
   ...BlendNodes,
-  ...TransformNodes,
+  ...TextureNodes,
   ...ComputeNodes,
 };
 
