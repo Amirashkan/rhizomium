@@ -1544,13 +1544,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let mode = ${modeIndex}; // 0=Cells, 1=Distance, 2=Borders, 3=Worley
 
   if (mode == 0) {
-    // Cells mode: Color by cell ID
-    let cellHash = hash1(cellId + uniforms.seed);
-    let hue = cellHash;
-    let sat = 0.7;
-    let val = 0.8;
+    // Cells mode: Color by cell ID with varied hues
+    // Generate different hash values for hue, saturation, and value
+    let hash_hue = hash1(cellId + vec2<f32>(uniforms.seed, 0.0));
+    let hash_sat = hash1(cellId + vec2<f32>(uniforms.seed + 1.234, 5.678));
+    let hash_val = hash1(cellId + vec2<f32>(uniforms.seed + 2.345, 6.789));
 
-    // HSV to RGB
+    // Map hash to HSV values
+    let hue = hash_hue; // Already 0-1 from hash
+    let sat = 0.6 + hash_sat * 0.4; // 0.6 to 1.0
+    let val = 0.7 + hash_val * 0.3; // 0.7 to 1.0
+
+    // HSV to RGB conversion
     let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     let p = abs(fract(vec3<f32>(hue) + k.xyz) * 6.0 - k.www);
     color = val * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), sat);
@@ -1725,8 +1730,9 @@ fn rotate2D(uv: vec2<f32>, angle: f32) -> vec2<f32> {
 // Checkerboard pattern
 fn patternCheckerboard(uv: vec2<f32>) -> f32 {
   let cell = floor(uv);
-  let checker = mod(cell.x + cell.y, 2.0);
-  return checker;
+  // Replicate mod(cell.x + cell.y, 2.0) without using mod()
+  // fract(n * 0.5) * 2.0 gives: 0,1,0,1,... for n=0,1,2,3,...
+  return fract((cell.x + cell.y) * 0.5) * 2.0;
 }
 
 // Stripes pattern (horizontal by default, use rotation for vertical/diagonal)
@@ -1787,7 +1793,8 @@ fn patternBrick(uv: vec2<f32>, thickness: f32) -> f32 {
 
   // Offset every other row
   let row = floor(pos.y);
-  pos.x += step(1.0, mod(row, 2.0)) * 0.5;
+  // WGSL doesn't have mod(), use fract for alternating pattern
+  pos.x += step(1.0, fract(row * 0.5) * 2.0) * 0.5;
 
   let cell = fract(pos);
   let mortarWidth = (1.0 - thickness) * 0.1;
