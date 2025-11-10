@@ -409,6 +409,7 @@ export class ComputeExecutor {
 
         if (shouldUpdate || isTimeDependentNode) {
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
+          console.log(`[ComputeExecutor] Dispatching node ${nodeId} (${node?.kind || 'unknown'})`);
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
           } else {
@@ -417,6 +418,9 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
+          console.log(`[ComputeExecutor] ✓ Dispatched and updated output for node ${nodeId}`);
+        } else {
+          console.log(`[ComputeExecutor] Skipping dispatch for node ${nodeId} (no changes)`);
         }
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
@@ -432,6 +436,9 @@ export class ComputeExecutor {
       const outputTexture = manager.getOutputTexture();
       if (outputTexture) {
         this.nodeOutputs.set(nodeId, outputTexture);
+        console.log(`[ComputeExecutor] Updated output texture for node ${nodeId}, size: ${outputTexture.width}x${outputTexture.height}`);
+      } else {
+        console.warn(`[ComputeExecutor] No output texture returned from manager for node ${nodeId}`);
       }
     } catch (error) {
       console.error(`[ComputeExecutor] Error updating output for node ${nodeId}:`, error);

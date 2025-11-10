@@ -735,16 +735,16 @@ export class ComputeShaderManager {
    */
   dispatch(commandEncoder, time, profiler = null, audioContext = {}) {
     if (!this.computePipeline || !this.bindGroup) {
+      console.warn(`[ComputeShaderManager] Dispatch called but not ready: pipeline=${!!this.computePipeline}, bindGroup=${!!this.bindGroup}`);
       return;
     }
 
     // Debug: Log dispatch (throttled)
-    if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 2000) {
+    if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
       const params = this.supportsFeedback ?
         `feedback=true, buffer=${this.currentWriteTexture}` :
         'feedback=false';
-      if (this.node?.kind === 'ComputeReactionDiffusion') {
-      }
+      console.log(`[ComputeShaderManager] Dispatching ${this.node?.kind || 'unknown'}, workgroups=${this.dispatchSize.x}x${this.dispatchSize.y}, ${params}`);
       this._lastDispatchLog = Date.now();
     }
 
