@@ -2324,43 +2324,8 @@ struct Uniforms {
 
 const PI: f32 = 3.14159265359;
 
-// Sample texture with wrapping for kaleidoscope tiling
-fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
-  // Wrap UV coordinates to [0, 1] range for seamless tiling
-  var wrappedUV = fract(uv);
-
-  // fract of negative numbers gives values near 1, but we want them to wrap
-  // This handles the negative case properly
-  if (uv.x < 0.0) {
-    wrappedUV.x = 1.0 - fract(abs(uv.x));
-  }
-  if (uv.y < 0.0) {
-    wrappedUV.y = 1.0 - fract(abs(uv.y));
-  }
-
-  // Convert to pixel coordinates
-  let pixelCoord = vec2<i32>(wrappedUV * vec2<f32>(texSize));
-  // Clamp to texture boundaries (should be unnecessary with wrapping, but safety)
-  let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
-  return textureLoad(tex, clampedCoord, 0);
-}
-
-// Cartesian to polar coordinates
-fn cartesianToPolar(pos: vec2<f32>) -> vec2<f32> {
-  let r = length(pos);
-  let theta = atan2(pos.y, pos.x);
-  return vec2<f32>(r, theta);
-}
-
-// Polar to Cartesian coordinates
-fn polarToCartesian(polar: vec2<f32>) -> vec2<f32> {
-  let r = polar.x;
-  let theta = polar.y;
-  return vec2<f32>(r * cos(theta), r * sin(theta));
-}
-
 // Apply kaleidoscope effect
-fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+fn applyKaleidoscope(uv: vec2<f32>) -> vec4<f32> {
   // Center point
   let center = vec2<f32>(uniforms.centerX, uniforms.centerY);
 
@@ -2410,7 +2375,8 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   // Transform back to UV space
   let sampledUV = vec2<f32>(foldedX, foldedY) + center;
 
-  return sampleTexture(inputTexture, sampledUV, texSize);
+  // Use textureSample with the sampler for proper filtering and wrapping
+  return textureSample(inputTexture, texSampler, sampledUV);
 }
 
 @compute @workgroup_size(8, 8)
@@ -2423,7 +2389,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
-  let color = applyKaleidoscope(uv, texSize);
+  let color = applyKaleidoscope(uv);
 
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
