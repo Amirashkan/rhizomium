@@ -248,9 +248,23 @@ export class GPURenderer {
         return null;
       }
 
-      const actualId = sanitizedId.replace('compute_', '');
+      const sanitizedIdToMatch = sanitizedId.replace('compute_', '');
 
-      const computeInfo = computeExecutor.computeTextures.get(actualId);
+      // Try direct lookup first (in case ID doesn't need sanitization)
+      let computeInfo = computeExecutor.computeTextures.get(sanitizedIdToMatch);
+
+      // If not found, iterate through all compute textures and match sanitized IDs
+      // This handles the case where node IDs contain characters like dashes that get sanitized
+      if (!computeInfo) {
+        for (const [nodeId, textureData] of computeExecutor.computeTextures) {
+          const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+          if (nodeSanitizedId === sanitizedIdToMatch) {
+            computeInfo = textureData;
+            break;
+          }
+        }
+      }
+
       if (computeInfo) {
         // Return appropriate resource based on prefix
         if (prefix.startsWith('sampler_')) {
@@ -259,7 +273,7 @@ export class GPURenderer {
           return { textureView: computeInfo.texture.createView() };
         }
       } else {
-        console.warn(`[GPURenderer] No compute texture found for ID: ${actualId}`);
+        console.warn(`[GPURenderer] No compute texture found for sanitized ID: ${sanitizedIdToMatch}`);
       }
     }
 
