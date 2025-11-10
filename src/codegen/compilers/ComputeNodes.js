@@ -2324,15 +2324,12 @@ struct Uniforms {
 
 const PI: f32 = 3.14159265359;
 
-// Safe texture sampling with wrapping for kaleidoscope
+// Sample texture with boundary clamping using textureLoad
 fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
-  // Wrap UV coordinates using fract for seamless tiling
-  var wrappedUV = fract(uv);
-  // Handle negative values properly
-  if (wrappedUV.x < 0.0) { wrappedUV.x += 1.0; }
-  if (wrappedUV.y < 0.0) { wrappedUV.y += 1.0; }
-  let coord = vec2<i32>(wrappedUV * vec2<f32>(texSize));
-  let clampedCoord = clamp(coord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
+  // Convert UV to pixel coordinates
+  let pixelCoord = vec2<i32>(uv * vec2<f32>(texSize));
+  // Clamp to texture boundaries
+  let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
   return textureLoad(tex, clampedCoord, 0);
 }
 
@@ -2355,19 +2352,15 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   // Center point
   let center = vec2<f32>(uniforms.centerX, uniforms.centerY);
 
-  // Offset from center
-  var offset = uv - center;
+  // Get position relative to center
+  var pos = uv - center;
 
-  // Apply scale
-  offset = offset / uniforms.scale;
+  // Apply scale (larger scale = zoom in, see more detail)
+  pos = pos / uniforms.scale;
 
   // Convert to polar coordinates
-  var polar = cartesianToPolar(offset);
-  var r = polar.x;
-  var theta = polar.y;
-
-  // Normalize theta to [0, 2*PI] range (atan2 returns [-PI, PI])
-  theta = theta + PI;
+  let r = length(pos);
+  var angle = atan2(pos.y, pos.x);
 
   // Apply rotation (convert degrees to radians)
   var rotationRad = uniforms.rotation * PI / 180.0;
@@ -2377,35 +2370,36 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
     rotationRad += uniforms.time * uniforms.speed;
   }
 
-  theta += rotationRad;
+  angle -= rotationRad;
 
-  // Wrap theta to [0, 2*PI]
+  // Normalize angle to [0, 2*PI]
   let twoPi = 2.0 * PI;
-  theta = theta % twoPi;
-  if (theta < 0.0) {
-    theta += twoPi;
+  angle = angle % twoPi;
+  if (angle < 0.0) {
+    angle += twoPi;
   }
 
   // Calculate segment angle
   let segmentAngle = twoPi / uniforms.segments;
 
-  // Fold the angle into one segment
-  var foldedTheta = theta % segmentAngle;
+  // Determine which segment we're in
+  let segmentIndex = floor(angle / segmentAngle);
+
+  // Get angle within the segment [0, segmentAngle]
+  var segmentLocalAngle = angle - segmentIndex * segmentAngle;
 
   // Mirror every other segment for kaleidoscope effect
-  let segmentIndex = floor(theta / segmentAngle);
   if (i32(segmentIndex) % 2 == 1) {
-    foldedTheta = segmentAngle - foldedTheta;
+    segmentLocalAngle = segmentAngle - segmentLocalAngle;
   }
 
-  // Convert back to Cartesian
-  let foldedPolar = vec2<f32>(r, foldedTheta);
-  let foldedOffset = polarToCartesian(foldedPolar);
+  // Convert back to Cartesian using the folded angle
+  let foldedX = r * cos(segmentLocalAngle);
+  let foldedY = r * sin(segmentLocalAngle);
 
-  // Add center back
-  let sampledUV = foldedOffset + center;
+  // Transform back to UV space
+  let sampledUV = vec2<f32>(foldedX, foldedY) + center;
 
-  // Sample with wrapping (handled by sampleTexture)
   return sampleTexture(inputTexture, sampledUV, texSize);
 }
 
