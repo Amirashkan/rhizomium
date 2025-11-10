@@ -2330,6 +2330,12 @@ const PI: f32 = 3.14159265359;
 
 // Apply kaleidoscope effect
 fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  // DEBUG: Pass through input texture directly to test if input is being received
+  // TODO: Remove this and restore kaleidoscope algorithm after confirming input works
+  let coord = vec2<i32>(uv * vec2<f32>(texSize));
+  return textureLoad(inputTexture, coord, 0);
+
+  /* ORIGINAL KALEIDOSCOPE - DISABLED FOR DEBUG
   // Center point
   let center = vec2<f32>(uniforms.centerX, uniforms.centerY);
 
@@ -2389,6 +2395,7 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
 
   return textureLoad(inputTexture, clampedCoord, 0);
+  */
 }
 
 @compute @workgroup_size(8, 8)
