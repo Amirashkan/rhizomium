@@ -416,7 +416,10 @@ export class ComputeExecutor {
           node.kind.startsWith('Compute') // Most compute nodes are time-dependent
         );
 
+        console.log(`[ComputeExecutor] Node ${nodeId} (${node?.kind}): shouldUpdate=${shouldUpdate}, isTimeDependentNode=${isTimeDependentNode}`);
+
         if (shouldUpdate || isTimeDependentNode) {
+          console.log(`[ComputeExecutor] → Dispatching node ${nodeId}`);
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
@@ -426,6 +429,8 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
+        } else {
+          console.log(`[ComputeExecutor] → Skipping dispatch for node ${nodeId}`);
         }
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
