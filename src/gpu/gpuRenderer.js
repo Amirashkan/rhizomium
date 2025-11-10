@@ -258,14 +258,21 @@ export class GPURenderer {
       // CRITICAL: Look up the CURRENT output texture from nodeOutputs, not the stale reference in computeTextures
       // The nodeOutputs map is updated every frame after dispatch, while computeTextures is only set at init
       const currentOutputTexture = computeExecutor.nodeOutputs?.get(sanitizedIdToMatch);
+      console.log(`[GPURenderer] Lookup for ID "${sanitizedIdToMatch}": fresh texture=${!!currentOutputTexture}, nodeOutputs size=${computeExecutor.nodeOutputs?.size || 0}`);
+      if (!currentOutputTexture && computeExecutor.nodeOutputs) {
+        console.log(`[GPURenderer] Available in nodeOutputs:`, Array.from(computeExecutor.nodeOutputs.keys()));
+      }
 
       // Try direct lookup first (in case ID doesn't need sanitization)
       let computeInfo = computeExecutor.computeTextures.get(sanitizedIdToMatch);
+      console.log(`[GPURenderer] computeTextures lookup for "${sanitizedIdToMatch}": found=${!!computeInfo}`);
 
       // If we have a current output texture, use it instead of the stale texture reference
       if (currentOutputTexture && computeInfo) {
-        console.log(`[GPURenderer] Using fresh output texture for ${sanitizedIdToMatch} from nodeOutputs`);
+        console.log(`[GPURenderer] ✓ Using FRESH output texture for ${sanitizedIdToMatch} from nodeOutputs`);
         computeInfo = { ...computeInfo, texture: currentOutputTexture };
+      } else if (!currentOutputTexture && computeInfo) {
+        console.warn(`[GPURenderer] ✗ WARNING: Using STALE texture for ${sanitizedIdToMatch} - no fresh texture in nodeOutputs!`);
       }
 
       // If not found, iterate through all compute textures and match sanitized IDs
