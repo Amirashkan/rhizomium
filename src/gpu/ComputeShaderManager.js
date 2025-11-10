@@ -134,6 +134,7 @@ export class ComputeShaderManager {
     // Create compute pipeline
     await this.createComputePipeline(wgslSource);
 
+    console.log('[ComputeShaderManager] Initialized:', {
       textureSize: `${width}x${height}`,
       workgroupSize: `${this.workgroupSize.x}x${this.workgroupSize.y}`,
       dispatchSize: `${this.dispatchSize.x}x${this.dispatchSize.y}`,
