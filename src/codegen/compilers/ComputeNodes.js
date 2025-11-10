@@ -37,7 +37,8 @@ export class ComputeNodes {
       'ComputeVoronoi',
       'ComputeGradient',
       'ComputePattern',
-      'ComputeWarp'
+      'ComputeWarp',
+      'ComputeGlitch'
     ].includes(kind);
   }
 
@@ -158,6 +159,8 @@ export class ComputeNodes {
         return this.generatePatternShader(node, getInput);
       case 'ComputeWarp':
         return this.generateWarpShader(node, getInput);
+      case 'ComputeGlitch':
+        return this.generateGlitchShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -2076,6 +2079,214 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   /**
+   * Generate glitch effect shader
+   */
+  generateGlitchShader(node, getInput) {
+    const type = this.getParamValue(node, 'type', 'RGB Shift');
+    const intensity = this.getParamValue(node, 'intensity', 0.5);
+    const frequency = this.getParamValue(node, 'frequency', 0.5);
+    const blockSize = this.getParamValue(node, 'blockSize', 0.05);
+    const seed = this.getParamValue(node, 'seed', 0.0);
+
+    const typeIndex = this.getGlitchTypeIndex(type);
+
+    const shader = `
+// Compute Glitch Shader - Type: ${type}
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  intensity: f32,
+  frequency: f32,
+  _padding1: f32,
+  blockSize: f32,
+  seed: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Hash function for pseudo-random values
+fn hash(p: vec2<f32>) -> f32 {
+  var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+// Hash for vec2 output
+fn hash2(p: vec2<f32>) -> vec2<f32> {
+  let p3 = fract(vec3<f32>(p.xyx) * vec3<f32>(0.1031, 0.1030, 0.0973));
+  let p4 = p3 + dot(p3, p3.yzx + 33.33);
+  return fract((p4.xx + p4.yz) * p4.zy);
+}
+
+// Safe texture sampling with clamping
+fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  let clampedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  let coord = vec2<i32>(clampedUV * vec2<f32>(texSize));
+  return textureLoad(tex, coord, 0);
+}
+
+// RGB Shift effect - chromatic aberration
+fn applyRGBShift(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  let shiftAmount = uniforms.intensity * 0.02;
+
+  // Add some randomness based on vertical position and time
+  let rowHash = hash(vec2<f32>(uv.y * 10.0, floor(uniforms.time * 2.0 + uniforms.seed)));
+  let shift = shiftAmount * (1.0 + rowHash * 0.5);
+
+  let r = sampleTexture(inputTexture, uv + vec2<f32>(shift, 0.0), texSize).r;
+  let g = sampleTexture(inputTexture, uv, texSize).g;
+  let b = sampleTexture(inputTexture, uv - vec2<f32>(shift, 0.0), texSize).b;
+
+  return vec4<f32>(r, g, b, 1.0);
+}
+
+// Block glitch effect - horizontal displacement blocks
+fn applyBlockGlitch(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  let blockHeight = uniforms.blockSize;
+  let blockY = floor(uv.y / blockHeight);
+  let blockTime = floor(uniforms.time * 10.0 + uniforms.seed);
+
+  // Generate random value for this block
+  let randVal = hash(vec2<f32>(blockY, blockTime));
+
+  // Apply glitch to random blocks based on frequency
+  var glitchedUV = uv;
+  if (randVal < uniforms.frequency) {
+    // Random horizontal offset
+    let offset = (randVal - 0.5) * uniforms.intensity * 0.3;
+    glitchedUV.x += offset;
+
+    // Occasionally add color corruption
+    if (randVal < uniforms.frequency * 0.3) {
+      let color = sampleTexture(inputTexture, glitchedUV, texSize);
+      let glitchColor = vec3<f32>(color.r, color.b, color.g); // Channel swap
+      return vec4<f32>(glitchColor, 1.0);
+    }
+  }
+
+  return sampleTexture(inputTexture, glitchedUV, texSize);
+}
+
+// Scanline effect - CRT-style horizontal lines
+fn applyScanline(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  let color = sampleTexture(inputTexture, uv, texSize);
+
+  // Create scanline pattern
+  let scanlineFreq = 200.0 * (1.0 + uniforms.frequency * 4.0);
+  let scanline = sin(uv.y * scanlineFreq) * 0.5 + 0.5;
+  let scanlineIntensity = uniforms.intensity * 0.3;
+
+  // Add moving interference lines
+  let interference = sin(uv.y * 50.0 - uniforms.time * 5.0 + uniforms.seed) * 0.5 + 0.5;
+  let interferenceIntensity = uniforms.intensity * 0.2;
+
+  // Combine effects
+  let darkening = 1.0 - (scanlineIntensity * (1.0 - scanline));
+  let brightening = interferenceIntensity * interference * uniforms.frequency;
+
+  let finalColor = color.rgb * darkening + brightening;
+
+  return vec4<f32>(finalColor, color.a);
+}
+
+// Pixelate effect - mosaic/low-resolution
+fn applyPixelate(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  // Calculate pixel size based on block size parameter
+  let pixelSize = max(uniforms.blockSize, 0.01);
+
+  // Add some jitter based on time and frequency
+  let jitter = hash(vec2<f32>(floor(uniforms.time * 5.0 + uniforms.seed), 0.0)) * uniforms.frequency * 0.01;
+
+  // Snap UV to pixel grid
+  let pixelUV = floor(uv / (pixelSize + jitter)) * (pixelSize + jitter) + (pixelSize + jitter) * 0.5;
+
+  // Sample at pixelated position
+  var color = sampleTexture(inputTexture, pixelUV, texSize);
+
+  // Add color quantization for more intense effect
+  if (uniforms.intensity > 0.5) {
+    let colorLevels = mix(256.0, 8.0, (uniforms.intensity - 0.5) * 2.0);
+    color = floor(color * colorLevels) / colorLevels;
+  }
+
+  return color;
+}
+
+// Corrupt effect - data corruption/noise artifacts
+fn applyCorrupt(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  let baseColor = sampleTexture(inputTexture, uv, texSize);
+
+  // Create corruption blocks
+  let blockSize = uniforms.blockSize * 2.0;
+  let blockCoord = floor(uv / blockSize);
+  let blockTime = floor(uniforms.time * 3.0 + uniforms.seed);
+  let blockHash = hash(blockCoord + blockTime);
+
+  // Determine if this block is corrupted
+  if (blockHash < uniforms.frequency) {
+    let corruptType = hash(blockCoord * 2.0 + blockTime);
+
+    if (corruptType < 0.33) {
+      // Complete corruption - random color
+      let randColor = hash2(blockCoord + vec2<f32>(blockTime, uniforms.seed));
+      return vec4<f32>(randColor, hash(randColor), 1.0);
+    } else if (corruptType < 0.66) {
+      // Bit-shift effect - channel displacement
+      let offset = (hash2(blockCoord + blockTime) - 0.5) * uniforms.intensity * 0.1;
+      let r = sampleTexture(inputTexture, uv + offset, texSize).r;
+      let g = sampleTexture(inputTexture, uv - offset, texSize).g;
+      let b = baseColor.b;
+      return vec4<f32>(r, g, b, 1.0);
+    } else {
+      // Color inversion/corruption
+      return vec4<f32>(1.0 - baseColor.rgb, 1.0);
+    }
+  }
+
+  // Add noise overlay
+  let noise = hash(uv * vec2<f32>(texSize) + blockTime) - 0.5;
+  let noisyColor = baseColor.rgb + noise * uniforms.intensity * 0.1;
+
+  return vec4<f32>(noisyColor, baseColor.a);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+
+  var color: vec4<f32>;
+  let glitchType = ${typeIndex}; // 0=RGB Shift, 1=Block, 2=Scanline, 3=Pixelate, 4=Corrupt
+
+  if (glitchType == 0) {
+    color = applyRGBShift(uv, texSize);
+  } else if (glitchType == 1) {
+    color = applyBlockGlitch(uv, texSize);
+  } else if (glitchType == 2) {
+    color = applyScanline(uv, texSize);
+  } else if (glitchType == 3) {
+    color = applyPixelate(uv, texSize);
+  } else {
+    color = applyCorrupt(uv, texSize);
+  }
+
+  textureStore(outputTexture, vec2<u32>(texCoord), color);
+}`;
+
+    console.log('[ComputeNodes] Generated glitch shader with type:', type);
+    return shader;
+  }
+
+  /**
    * Convert warp mode to index
    */
   getWarpModeIndex(mode) {
@@ -2087,6 +2298,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Wave': 4
     };
     return modes[mode] || 0;
+  }
+
+  /**
+   * Convert glitch type to index
+   */
+  getGlitchTypeIndex(type) {
+    const types = {
+      'RGB Shift': 0,
+      'Block': 1,
+      'Scanline': 2,
+      'Pixelate': 3,
+      'Corrupt': 4
+    };
+    return types[type] || 0;
   }
 
   /**
