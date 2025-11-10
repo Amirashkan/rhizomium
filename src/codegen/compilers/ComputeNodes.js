@@ -42,7 +42,8 @@ export class ComputeNodes {
       'ComputeGlitch',
       'ComputeMix',
       'ComputeTransform',
-      'ComputeChannels'
+      'ComputeChannels',
+      'ComputeHSV'
     ].includes(kind);
   }
 
@@ -173,6 +174,8 @@ export class ComputeNodes {
         return this.generateTransformShader(node, getInput);
       case 'ComputeChannels':
         return this.generateChannelsShader(node, getInput);
+      case 'ComputeHSV':
+        return this.generateHSVShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -2770,6 +2773,104 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       '1': 5
     };
     return sources[source] || 0;
+  }
+
+  /**
+   * Generate HSV shader for color space operations
+   * Supports RGB to HSV, HSV to RGB, and Adjust HSV operations
+   */
+  generateHSVShader(node, getInput) {
+    const operation = this.getParamValue(node, 'operation', 'Adjust HSV');
+    const hueShift = this.getParamValue(node, 'hueShift', 0.0);
+    const saturationMult = this.getParamValue(node, 'saturationMult', 1.0);
+    const valueMult = this.getParamValue(node, 'valueMult', 1.0);
+
+    // Convert operation to index: 0=RGB to HSV, 1=HSV to RGB, 2=Adjust HSV
+    const operationIndex = operation === 'RGB to HSV' ? 0 : operation === 'HSV to RGB' ? 1 : 2;
+
+    const shader = `
+// Compute HSV Shader - HSV color space operations and conversions
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  operation: f32,
+  hueShift: f32,
+  saturationMult: f32,
+  valueMult: f32,
+  _padding: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Convert RGB to HSV
+fn rgb2hsv(c: vec3<f32>) -> vec3<f32> {
+  let K = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  let p = mix(vec4<f32>(c.bg, K.wz), vec4<f32>(c.gb, K.xy), step(c.b, c.g));
+  let q = mix(vec4<f32>(p.xyw, c.r), vec4<f32>(c.r, p.yzx), step(p.x, c.r));
+
+  let d = q.x - min(q.w, q.y);
+  let e = 1.0e-10;
+  return vec3<f32>(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+// Convert HSV to RGB
+fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
+  let K = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  let p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), c.y);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  // Sample input color
+  let inputColor = textureLoad(inputTexture, texCoord, 0);
+  var outputColor = inputColor;
+
+  let op = i32(uniforms.operation);
+
+  if (op == 0) {
+    // RGB to HSV conversion
+    let hsv = rgb2hsv(inputColor.rgb);
+    outputColor = vec4<f32>(hsv, inputColor.a);
+  } else if (op == 1) {
+    // HSV to RGB conversion
+    let rgb = hsv2rgb(inputColor.rgb);
+    outputColor = vec4<f32>(rgb, inputColor.a);
+  } else if (op == 2) {
+    // Adjust HSV
+    var hsv = rgb2hsv(inputColor.rgb);
+
+    // Apply hue shift (convert degrees to normalized value)
+    hsv.x = fract(hsv.x + uniforms.hueShift / 360.0);
+
+    // Apply saturation multiplier
+    hsv.y = clamp(hsv.y * uniforms.saturationMult, 0.0, 1.0);
+
+    // Apply value multiplier
+    hsv.z = clamp(hsv.z * uniforms.valueMult, 0.0, 1.0);
+
+    // Convert back to RGB
+    let rgb = hsv2rgb(hsv);
+    outputColor = vec4<f32>(rgb, inputColor.a);
+  }
+
+  textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
+}`;
+
+    console.log('[ComputeNodes] Generated HSV shader:',
+      `operation=${operation}(${operationIndex})`,
+      `hueShift=${hueShift}`, `saturationMult=${saturationMult}`, `valueMult=${valueMult}`);
+    return shader;
   }
 
   /**

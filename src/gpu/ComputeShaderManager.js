@@ -561,6 +561,17 @@ export class ComputeShaderManager {
           this.uniformData[6] = this.getChannelSourceIndex(this.node.params?.alphaSource ?? 'A');
           break;
 
+        case 'ComputeHSV':
+          // Uniforms: operation, hueShift, saturationMult, valueMult
+          // Convert operation string to index: 0=RGB to HSV, 1=HSV to RGB, 2=Adjust HSV
+          let hsvOperation = this.node.params?.operation ?? 'Adjust HSV';
+          let hsvOpIndex = hsvOperation === 'RGB to HSV' ? 0.0 : hsvOperation === 'HSV to RGB' ? 1.0 : 2.0;
+          this.uniformData[3] = hsvOpIndex;
+          this.uniformData[4] = this.node.params?.hueShift ?? 0.0;
+          this.uniformData[5] = this.node.params?.saturationMult ?? 1.0;
+          this.uniformData[6] = this.node.params?.valueMult ?? 1.0;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
