@@ -79,6 +79,11 @@ export class ComputeNodes {
     let node_${nodeId}_rgba = textureSample(${textureId}, sampler_${textureId}, uv_${nodeId});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
+    console.log(`[ComputeNodes] Generated sampling code for node ${node.kind} (${nodeId}):`);
+    console.log(`  Texture: ${textureId}`);
+    console.log(`  Sampler: sampler_${textureId}`);
+    console.log(`  Code:\n${line}`);
+
     // Define output pins for accessing different channels
     const outputPins = [
       { expression: `node_${nodeId}_rgba`, type: "vec4" },     // RGBA
