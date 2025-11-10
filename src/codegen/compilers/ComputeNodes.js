@@ -1545,18 +1545,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   if (mode == 0) {
     // Cells mode: Color by cell ID with varied hues
-    let cellHash = hash1(cellId + uniforms.seed);
+    // Generate different hash values for hue, saturation, and value
+    let hash_hue = hash1(cellId + vec2<f32>(uniforms.seed, 0.0));
+    let hash_sat = hash1(cellId + vec2<f32>(uniforms.seed + 1.234, 5.678));
+    let hash_val = hash1(cellId + vec2<f32>(uniforms.seed + 2.345, 6.789));
 
-    // Generate vibrant, varied colors using hash
-    // Use cellHash to generate hue, but ensure good distribution
-    let hue = fract(cellHash * 6.28318); // Multiply to spread hues across full spectrum
-    let sat = 0.7 + hash1(cellId * 1.234 + uniforms.seed) * 0.3; // Vary saturation
-    let val = 0.6 + hash1(cellId * 2.345 + uniforms.seed) * 0.4; // Vary brightness
+    // Map hash to HSV values
+    let hue = hash_hue; // Already 0-1 from hash
+    let sat = 0.6 + hash_sat * 0.4; // 0.6 to 1.0
+    let val = 0.7 + hash_val * 0.3; // 0.7 to 1.0
 
     // HSV to RGB conversion
     let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     let p = abs(fract(vec3<f32>(hue) + k.xyz) * 6.0 - k.www);
-    color = val * mix(vec3<f32>(1.0), clamp(p - vec3<f32>(1.0), vec3<f32>(0.0), vec3<f32>(1.0)), sat);
+    color = val * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), sat);
   } else if (mode == 1) {
     // Distance mode: Visualize distance field
     let d = clamp(dist1 * 2.0, 0.0, 1.0);
@@ -1728,10 +1730,9 @@ fn rotate2D(uv: vec2<f32>, angle: f32) -> vec2<f32> {
 // Checkerboard pattern
 fn patternCheckerboard(uv: vec2<f32>) -> f32 {
   let cell = floor(uv);
-  // Use fract to ensure we get 0.0 or 1.0 for alternating cells
-  let checker = fract((cell.x + cell.y) * 0.5) * 2.0;
-  // Alternative: step-based approach for clearer black/white
-  return step(0.5, fract((cell.x + cell.y) * 0.5));
+  // Replicate mod(cell.x + cell.y, 2.0) without using mod()
+  // fract(n * 0.5) * 2.0 gives: 0,1,0,1,... for n=0,1,2,3,...
+  return fract((cell.x + cell.y) * 0.5) * 2.0;
 }
 
 // Stripes pattern (horizontal by default, use rotation for vertical/diagonal)
