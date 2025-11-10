@@ -104,10 +104,21 @@ const compatibilityRules = {
   ],
 
   // Textures
+  // UPDATED: Now accepts fragment shader outputs (float, vec3, etc.)
+  // These are automatically rendered to textures via auto-bridging
   [BaseTypes.TEXTURE]: [
     BaseTypes.TEXTURE,
     BaseTypes.TEXTURE_2D,
     BaseTypes.TEXTURE_3D,
+    BaseTypes.FLOAT,
+    BaseTypes.VEC2,
+    BaseTypes.VEC3,
+    BaseTypes.VEC4,
+    BaseTypes.RGB,
+    BaseTypes.RGBA,
+    BaseTypes.COLOR,
+    BaseTypes.FIELD,
+    BaseTypes.VALUE,
     BaseTypes.ANY
   ],
   [BaseTypes.TEXTURE_2D]: [
