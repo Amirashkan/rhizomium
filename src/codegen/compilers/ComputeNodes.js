@@ -2,6 +2,7 @@
 // Compiler for compute shader nodes that generate GPU textures
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
+import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 
 export class ComputeNodes {
   constructor() {
@@ -192,10 +193,10 @@ export class ComputeNodes {
    * Generate compute noise shader
    */
   generateNoiseShader(node, getInput) {
-    const scale = this.getParamValue(node, 'scale', 8.0);
-    const octaves = this.getParamValue(node, 'octaves', 5);
-    const speed = this.getParamValue(node, 'speed', 0.1);
-    const colorize = this.getParamValue(node, 'colorize', true);
+    const scale = this.getParam(node, 'scale', 8.0);
+    const octaves = this.getParam(node, 'octaves', 5);
+    const speed = this.getParam(node, 'speed', 0.1);
+    const colorize = this.getParam(node, 'colorize', true);
 
     const shader = `
 // Compute Noise Shader
@@ -291,7 +292,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate compute blur shader
    */
   generateBlurShader(node, getInput) {
-    const radius = this.getParamValue(node, 'radius', 5.0);
+    const radius = this.getParam(node, 'radius', 5.0);
 
     return `
 // Compute Gaussian Blur Shader
@@ -345,8 +346,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate compute convolution shader
    */
   generateConvolutionShader(node, getInput) {
-    const kernel = this.getParamValue(node, 'kernel', 'Sharpen');
-    const strength = this.getParamValue(node, 'strength', 1.0);
+    const kernel = this.getParam(node, 'kernel', 'Sharpen');
+    const strength = this.getParam(node, 'strength', 1.0);
 
     // Define convolution kernel matrices
     const kernels = {
@@ -437,12 +438,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate threshold shader
    */
   generateThresholdShader(node, getInput) {
-    const mode = this.getParamValue(node, 'mode', 'Binary');
-    const threshold = this.getParamValue(node, 'threshold', 0.5);
-    const thresholdMin = this.getParamValue(node, 'thresholdMin', 0.3);
-    const thresholdMax = this.getParamValue(node, 'thresholdMax', 0.7);
-    const outputLow = this.getParamValue(node, 'outputLow', 0.0);
-    const outputHigh = this.getParamValue(node, 'outputHigh', 1.0);
+    const mode = this.getParam(node, 'mode', 'Binary');
+    const threshold = this.getParam(node, 'threshold', 0.5);
+    const thresholdMin = this.getParam(node, 'thresholdMin', 0.3);
+    const thresholdMax = this.getParam(node, 'thresholdMax', 0.7);
+    const outputLow = this.getParam(node, 'outputLow', 0.0);
+    const outputHigh = this.getParam(node, 'outputHigh', 1.0);
 
     const modeIndex = this.getThresholdModeIndex(mode);
 
@@ -558,8 +559,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate feedback shader
    */
   generateFeedbackShader(node, getInput) {
-    const decay = this.getParamValue(node, 'decay', 0.95);
-    const scale = this.getParamValue(node, 'scale', 1.01);
+    const decay = this.getParam(node, 'decay', 0.95);
+    const scale = this.getParam(node, 'scale', 1.01);
 
     return `
 // Compute Feedback Shader
@@ -621,16 +622,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateReactionDiffusionShader(node, getInput) {
     // Get pattern preset and apply preset parameters
-    const pattern = this.getParamValue(node, 'pattern', 'Coral');
+    const pattern = this.getParam(node, 'pattern', 'Coral');
     const presets = this.getReactionDiffusionPresets();
     const preset = presets[pattern] || presets['Coral'];
 
     // Allow user to override preset values with manual parameters
-    const feedRate = this.getParamValue(node, 'feedRate', preset.feedRate);
-    const killRate = this.getParamValue(node, 'killRate', preset.killRate);
-    const diffusionA = this.getParamValue(node, 'diffusionA', 1.0);
-    const diffusionB = this.getParamValue(node, 'diffusionB', 0.5);
-    const timestep = this.getParamValue(node, 'timestep', 1.0);
+    const feedRate = this.getParam(node, 'feedRate', preset.feedRate);
+    const killRate = this.getParam(node, 'killRate', preset.killRate);
+    const diffusionA = this.getParam(node, 'diffusionA', 1.0);
+    const diffusionB = this.getParam(node, 'diffusionB', 0.5);
+    const timestep = this.getParam(node, 'timestep', 1.0);
 
     const shader = `
 // Reaction-Diffusion (Gray-Scott Model) with Feedback
@@ -816,11 +817,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * This shader uses the FeedbackManager for persistent state
    */
   generateFeedbackFieldShader(node, getInput) {
-    const mode = this.getParamValue(node, 'mode', 'Flow');
-    const decay = this.getParamValue(node, 'decay', 0.98);
-    const diffusion = this.getParamValue(node, 'diffusion', 0.1);
-    const feedback = this.getParamValue(node, 'feedback', 0.5);
-    const speed = this.getParamValue(node, 'speed', 1.0);
+    const mode = this.getParam(node, 'mode', 'Flow');
+    const decay = this.getParam(node, 'decay', 0.98);
+    const diffusion = this.getParam(node, 'diffusion', 0.1);
+    const feedback = this.getParam(node, 'feedback', 0.5);
+    const speed = this.getParam(node, 'speed', 1.0);
 
     return `
 // Feedback Field Shader - Persistent Texture System
@@ -996,12 +997,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate color adjustment shader
    */
   generateColorAdjustShader(node, getInput) {
-    const brightness = this.getParamValue(node, 'brightness', 0.0);
-    const contrast = this.getParamValue(node, 'contrast', 1.0);
-    const saturation = this.getParamValue(node, 'saturation', 1.0);
-    const hue = this.getParamValue(node, 'hue', 0.0);
-    const gamma = this.getParamValue(node, 'gamma', 1.0);
-    const exposure = this.getParamValue(node, 'exposure', 0.0);
+    const brightness = this.getParam(node, 'brightness', 0.0);
+    const contrast = this.getParam(node, 'contrast', 1.0);
+    const saturation = this.getParam(node, 'saturation', 1.0);
+    const hue = this.getParam(node, 'hue', 0.0);
+    const gamma = this.getParam(node, 'gamma', 1.0);
+    const exposure = this.getParam(node, 'exposure', 0.0);
 
     const shader = `
 // Compute Color Adjust Shader
@@ -1091,10 +1092,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate edge detection shader
    */
   generateEdgeDetectShader(node, getInput) {
-    const method = this.getParamValue(node, 'method', 'Sobel');
-    const threshold = this.getParamValue(node, 'threshold', 0.1);
-    const strength = this.getParamValue(node, 'strength', 1.0);
-    const invertEdges = this.getParamValue(node, 'invertEdges', false);
+    const method = this.getParam(node, 'method', 'Sobel');
+    const threshold = this.getParam(node, 'threshold', 0.1);
+    const strength = this.getParam(node, 'strength', 1.0);
+    const invertEdges = this.getParam(node, 'invertEdges', false);
 
     const methodIndex = this.getEdgeDetectMethodIndex(method);
 
@@ -1292,10 +1293,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate morphology shader
    */
   generateMorphologyShader(node, getInput) {
-    const operation = this.getParamValue(node, 'operation', 'Dilate');
-    const kernelSize = this.getParamValue(node, 'kernelSize', '3x3');
-    const iterations = this.getParamValue(node, 'iterations', 1);
-    const strength = this.getParamValue(node, 'strength', 1.0);
+    const operation = this.getParam(node, 'operation', 'Dilate');
+    const kernelSize = this.getParam(node, 'kernelSize', '3x3');
+    const iterations = this.getParam(node, 'iterations', 1);
+    const strength = this.getParam(node, 'strength', 1.0);
 
     const operationIndex = this.getMorphologyOperationIndex(operation);
     const kernelRadius = this.getKernelRadius(kernelSize);
@@ -1434,13 +1435,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate Voronoi diagram shader
    */
   generateVoronoiShader(node, getInput) {
-    const mode = this.getParamValue(node, 'mode', 'Cells');
-    const scale = this.getParamValue(node, 'scale', 8.0);
-    const pointCount = this.getParamValue(node, 'pointCount', 16);
-    const distanceMetric = this.getParamValue(node, 'distanceMetric', 'Euclidean');
-    const seed = this.getParamValue(node, 'seed', 0.0);
-    const animate = this.getParamValue(node, 'animate', true);
-    const speed = this.getParamValue(node, 'speed', 0.1);
+    const mode = this.getParam(node, 'mode', 'Cells');
+    const scale = this.getParam(node, 'scale', 8.0);
+    const pointCount = this.getParam(node, 'pointCount', 16);
+    const distanceMetric = this.getParam(node, 'distanceMetric', 'Euclidean');
+    const seed = this.getParam(node, 'seed', 0.0);
+    const animate = this.getParam(node, 'animate', true);
+    const speed = this.getParam(node, 'speed', 0.1);
 
     const modeIndex = this.getVoronoiModeIndex(mode);
     const metricIndex = this.getDistanceMetricIndex(distanceMetric);
@@ -1613,13 +1614,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate gradient shader
    */
   generateGradientShader(node, getInput) {
-    const type = this.getParamValue(node, 'type', 'Linear');
-    const angle = this.getParamValue(node, 'angle', 0.0);
-    const centerX = this.getParamValue(node, 'centerX', 0.5);
-    const centerY = this.getParamValue(node, 'centerY', 0.5);
-    const radius = this.getParamValue(node, 'radius', 0.5);
-    const repeat = this.getParamValue(node, 'repeat', 1);
-    const reverse = this.getParamValue(node, 'reverse', false);
+    const type = this.getParam(node, 'type', 'Linear');
+    const angle = this.getParam(node, 'angle', 0.0);
+    const centerX = this.getParam(node, 'centerX', 0.5);
+    const centerY = this.getParam(node, 'centerY', 0.5);
+    const radius = this.getParam(node, 'radius', 0.5);
+    const repeat = this.getParam(node, 'repeat', 1);
+    const reverse = this.getParam(node, 'reverse', false);
 
     const typeIndex = this.getGradientTypeIndex(type);
 
@@ -1715,12 +1716,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate pattern shader
    */
   generatePatternShader(node, getInput) {
-    const type = this.getParamValue(node, 'type', 'Checkerboard');
-    const scaleX = this.getParamValue(node, 'scaleX', 8.0);
-    const scaleY = this.getParamValue(node, 'scaleY', 8.0);
-    const rotation = this.getParamValue(node, 'rotation', 0.0);
-    const thickness = this.getParamValue(node, 'thickness', 0.5);
-    const smoothness = this.getParamValue(node, 'smoothness', 0.01);
+    const type = this.getParam(node, 'type', 'Checkerboard');
+    const scaleX = this.getParam(node, 'scaleX', 8.0);
+    const scaleY = this.getParam(node, 'scaleY', 8.0);
+    const rotation = this.getParam(node, 'rotation', 0.0);
+    const thickness = this.getParam(node, 'thickness', 0.5);
+    const smoothness = this.getParam(node, 'smoothness', 0.01);
 
     const typeIndex = this.getPatternTypeIndex(type);
 
@@ -1936,13 +1937,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate warp distortion shader
    */
   generateWarpShader(node, getInput) {
-    const mode = this.getParamValue(node, 'mode', 'Displace');
-    const strength = this.getParamValue(node, 'strength', 0.1);
-    const centerX = this.getParamValue(node, 'centerX', 0.5);
-    const centerY = this.getParamValue(node, 'centerY', 0.5);
-    const radius = this.getParamValue(node, 'radius', 0.5);
-    const frequency = this.getParamValue(node, 'frequency', 4.0);
-    const phase = this.getParamValue(node, 'phase', 0.0);
+    const mode = this.getParam(node, 'mode', 'Displace');
+    const strength = this.getParam(node, 'strength', 0.1);
+    const centerX = this.getParam(node, 'centerX', 0.5);
+    const centerY = this.getParam(node, 'centerY', 0.5);
+    const radius = this.getParam(node, 'radius', 0.5);
+    const frequency = this.getParam(node, 'frequency', 4.0);
+    const phase = this.getParam(node, 'phase', 0.0);
 
     const modeIndex = this.getWarpModeIndex(mode);
 
@@ -2104,11 +2105,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate glitch effect shader
    */
   generateGlitchShader(node, getInput) {
-    const type = this.getParamValue(node, 'type', 'RGB Shift');
-    const intensity = this.getParamValue(node, 'intensity', 0.5);
-    const frequency = this.getParamValue(node, 'frequency', 0.5);
-    const blockSize = this.getParamValue(node, 'blockSize', 0.05);
-    const seed = this.getParamValue(node, 'seed', 0.0);
+    const type = this.getParam(node, 'type', 'RGB Shift');
+    const intensity = this.getParam(node, 'intensity', 0.5);
+    const frequency = this.getParam(node, 'frequency', 0.5);
+    const blockSize = this.getParam(node, 'blockSize', 0.05);
+    const seed = this.getParam(node, 'seed', 0.0);
 
     const typeIndex = this.getGlitchTypeIndex(type);
 
@@ -2312,13 +2313,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate kaleidoscope shader - symmetry and mirroring effects
    */
   generateKaleidoscopeShader(node, getInput) {
-    const segments = this.getParamValue(node, 'segments', 6);
-    const rotation = this.getParamValue(node, 'rotation', 0.0);
-    const centerX = this.getParamValue(node, 'centerX', 0.5);
-    const centerY = this.getParamValue(node, 'centerY', 0.5);
-    const scale = this.getParamValue(node, 'scale', 1.0);
-    const animate = this.getParamValue(node, 'animate', false);
-    const speed = this.getParamValue(node, 'speed', 0.5);
+    const segments = this.getParam(node, 'segments', 6);
+    const rotation = this.getParam(node, 'rotation', 0.0);
+    const centerX = this.getParam(node, 'centerX', 0.5);
+    const centerY = this.getParam(node, 'centerY', 0.5);
+    const scale = this.getParam(node, 'scale', 1.0);
+    const animate = this.getParam(node, 'animate', false);
+    const speed = this.getParam(node, 'speed', 0.5);
 
     const shader = `
 // Compute Kaleidoscope Shader - ${segments} segments
@@ -2426,9 +2427,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate mix/blend shader - composite two textures with blend modes
    */
   generateMixShader(node, getInput) {
-    const mode = this.getParamValue(node, 'mode', 'Mix');
-    const amount = this.getParamValue(node, 'amount', 0.5);
-    const opacity = this.getParamValue(node, 'opacity', 1.0);
+    const mode = this.getParam(node, 'mode', 'Mix');
+    const amount = this.getParam(node, 'amount', 0.5);
+    const opacity = this.getParam(node, 'opacity', 1.0);
 
     const modeIndex = this.getBlendModeIndex(mode);
 
@@ -2575,14 +2576,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate transform shader - translate, rotate, scale with pivot controls
    */
   generateTransformShader(node, getInput) {
-    const translateX = this.getParamValue(node, 'translateX', 0.0);
-    const translateY = this.getParamValue(node, 'translateY', 0.0);
-    const rotation = this.getParamValue(node, 'rotation', 0.0);
-    const scaleX = this.getParamValue(node, 'scaleX', 1.0);
-    const scaleY = this.getParamValue(node, 'scaleY', 1.0);
-    const pivotX = this.getParamValue(node, 'pivotX', 0.5);
-    const pivotY = this.getParamValue(node, 'pivotY', 0.5);
-    const wrapMode = this.getParamValue(node, 'wrapMode', 'Repeat');
+    const translateX = this.getParam(node, 'translateX', 0.0);
+    const translateY = this.getParam(node, 'translateY', 0.0);
+    const rotation = this.getParam(node, 'rotation', 0.0);
+    const scaleX = this.getParam(node, 'scaleX', 1.0);
+    const scaleY = this.getParam(node, 'scaleY', 1.0);
+    const pivotX = this.getParam(node, 'pivotX', 0.5);
+    const pivotY = this.getParam(node, 'pivotY', 0.5);
+    const wrapMode = this.getParam(node, 'wrapMode', 'Repeat');
 
     const wrapModeIndex = this.getWrapModeIndex(wrapMode);
 
@@ -2691,10 +2692,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate channels shader - swap, extract, combine, remap channels
    */
   generateChannelsShader(node, getInput) {
-    const redSource = this.getParamValue(node, 'redSource', 'R');
-    const greenSource = this.getParamValue(node, 'greenSource', 'G');
-    const blueSource = this.getParamValue(node, 'blueSource', 'B');
-    const alphaSource = this.getParamValue(node, 'alphaSource', 'A');
+    const redSource = this.getParam(node, 'redSource', 'R');
+    const greenSource = this.getParam(node, 'greenSource', 'G');
+    const blueSource = this.getParam(node, 'blueSource', 'B');
+    const alphaSource = this.getParam(node, 'alphaSource', 'A');
 
     const redIndex = this.getChannelSourceIndex(redSource);
     const greenIndex = this.getChannelSourceIndex(greenSource);
@@ -2786,10 +2787,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Supports RGB to HSV, HSV to RGB, and Adjust HSV operations
    */
   generateHSVShader(node, getInput) {
-    const operation = this.getParamValue(node, 'operation', 'Adjust HSV');
-    const hueShift = this.getParamValue(node, 'hueShift', 0.0);
-    const saturationMult = this.getParamValue(node, 'saturationMult', 1.0);
-    const valueMult = this.getParamValue(node, 'valueMult', 1.0);
+    const operation = this.getParam(node, 'operation', 'Adjust HSV');
+    const hueShift = this.getParam(node, 'hueShift', 0.0);
+    const saturationMult = this.getParam(node, 'saturationMult', 1.0);
+    const valueMult = this.getParam(node, 'valueMult', 1.0);
 
     // Convert operation to index: 0=RGB to HSV, 1=HSV to RGB, 2=Adjust HSV
     const operationIndex = operation === 'RGB to HSV' ? 0 : operation === 'HSV to RGB' ? 1 : 2;
@@ -2884,10 +2885,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Supports: Equalize, Normalize, Stretch, Visualize
    */
   generateHistogramShader(node, getInput) {
-    const operation = this.getParamValue(node, 'operation', 'Equalize');
-    const channel = this.getParamValue(node, 'channel', 'Luminance');
-    const bins = this.getParamValue(node, 'bins', 256);
-    const strength = this.getParamValue(node, 'strength', 1.0);
+    const operation = this.getParam(node, 'operation', 'Equalize');
+    const channel = this.getParam(node, 'channel', 'Luminance');
+    const bins = this.getParam(node, 'bins', 256);
+    const strength = this.getParam(node, 'strength', 1.0);
 
     // Convert operation to index: 0=Equalize, 1=Normalize, 2=Stretch, 3=Visualize
     const operationIndex = operation === 'Equalize' ? 0 : operation === 'Normalize' ? 1 : operation === 'Stretch' ? 2 : 3;
@@ -3158,9 +3159,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Output modes: Grayscale, Preserve Color, Isoluminant
    */
   generateLuminanceShader(node, getInput) {
-    const method = this.getParamValue(node, 'method', 'Rec709');
-    const outputMode = this.getParamValue(node, 'outputMode', 'Grayscale');
-    const threshold = this.getParamValue(node, 'threshold', 0.5);
+    const method = this.getParam(node, 'method', 'Rec709');
+    const outputMode = this.getParam(node, 'outputMode', 'Grayscale');
+    const threshold = this.getParam(node, 'threshold', 0.5);
 
     // Convert method to index: 0=Rec709, 1=Rec601, 2=Average, 3=Max, 4=Min
     const methodIndex = method === 'Rec709' ? 0 : method === 'Rec601' ? 1 : method === 'Average' ? 2 : method === 'Max' ? 3 : 4;
@@ -3364,15 +3365,82 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   /**
-   * Get parameter value - simple implementation
+   * Get parameter value with expression support
+   * Unified with FieldNodes to support the same parameter capabilities:
+   * - Static values (numeric, boolean)
+   * - Expressions starting with = (e.g., =time*2, =sin(time))
+   * - Node references (e.g., =node_X)
+   * - Shader variables (time, audioEnvelope)
    */
-  getParamValue(node, paramName, defaultValue) {
-    if (!node.params || !(paramName in node.params)) {
-      return defaultValue;
+  getParam(node, paramName, defaultValue) {
+    const rawValue = node.params?.[paramName] ?? defaultValue;
+
+    // Handle expressions with = prefix (like "=node_14" or "=time*2")
+    if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
+      try {
+        return unifiedExpressionSystem.generateShader(rawValue);
+      } catch (error) {
+        console.warn('[ComputeNodes] Failed to generate shader for expression:', rawValue, error);
+        return String(defaultValue);
+      }
     }
 
-    const value = node.params[paramName];
-    return value !== undefined ? value : defaultValue;
+    // USE UNIFIED AST SYSTEM for dynamic expressions
+    // This ensures shader code matches CPU evaluation exactly
+    if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
+      try {
+        return unifiedExpressionSystem.generateShader(rawValue);
+      } catch (error) {
+        console.warn('[ComputeNodes] Failed to generate shader for expression:', rawValue, error);
+        return String(defaultValue);
+      }
+    }
+
+    // Register numeric parameters as uniforms for dynamic updates
+    if (this.uniformManager) {
+      let value = rawValue;
+
+      // Parse string values to numbers
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        value = isNaN(parsed) ? (typeof defaultValue === 'number' ? defaultValue : 0.0) : parsed;
+      }
+
+      // Convert to number
+      if (typeof value !== 'number') {
+        value = typeof defaultValue === 'number' ? defaultValue : 0.0;
+      }
+
+      // Ensure finite value
+      if (!isFinite(value)) {
+        value = 0.0;
+      }
+
+      // Register with uniform manager
+      const paramKey = `${node.id}.${paramName}`;
+      this.uniformManager.uniformValues.set(paramKey, value);
+
+      // Generate uniform reference
+      const sanitizedKey = paramKey.replace(/[^a-zA-Z0-9_]/g, '_');
+      const fieldName = sanitizedKey.startsWith('_') ? sanitizedKey : `_${sanitizedKey}`;
+      return `u_params.${fieldName}`;
+    }
+
+    // Fallback: For static params without uniform manager
+    const result = this.paramHandler.toShaderCode(node.kind, paramName, rawValue, null);
+
+    if (typeof result === 'number') {
+      return result === Math.floor(result) ? `${result}.0` : result.toString();
+    }
+
+    return result;
+  }
+
+  /**
+   * @deprecated Use getParam instead - kept for backwards compatibility
+   */
+  getParamValue(node, paramName, defaultValue) {
+    return this.getParam(node, paramName, defaultValue);
   }
 
   /**
