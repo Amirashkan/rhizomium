@@ -2333,8 +2333,8 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   // Center point
   let center = vec2<f32>(uniforms.centerX, uniforms.centerY);
 
-  // Get position relative to center
-  var pos = uv - center;
+  // Get position relative to center, apply scale by dividing
+  var pos = (uv - center) / uniforms.scale;
 
   // Convert to polar coordinates
   let r = length(pos);
@@ -2355,8 +2355,11 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
 
   // Normalize angle to [0, 2*PI]
   var normalizedAngle = angle;
-  if (normalizedAngle < 0.0) {
+  while (normalizedAngle < 0.0) {
     normalizedAngle += 2.0 * PI;
+  }
+  while (normalizedAngle >= 2.0 * PI) {
+    normalizedAngle -= 2.0 * PI;
   }
 
   // Fold angle into first segment [0, segmentAngle]
@@ -2370,18 +2373,15 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
     foldedAngle = segmentAngle - foldedAngle;
   }
 
-  // Apply scale to radius
-  let scaledR = r * uniforms.scale;
-
-  // Convert back to Cartesian using the folded angle
-  let foldedX = scaledR * cos(foldedAngle);
-  let foldedY = scaledR * sin(foldedAngle);
+  // Convert back to Cartesian using the folded angle and original radius
+  let foldedX = r * cos(foldedAngle);
+  let foldedY = r * sin(foldedAngle);
 
   // Transform back to UV space (add center back)
   var sampledUV = vec2<f32>(foldedX, foldedY) + center;
 
   // Wrap coordinates to [0, 1] for seamless tiling
-  sampledUV = sampledUV - floor(sampledUV);
+  sampledUV = fract(sampledUV);
 
   // Convert to pixel coordinates and sample
   let pixelCoord = vec2<i32>(sampledUV * vec2<f32>(texSize));
