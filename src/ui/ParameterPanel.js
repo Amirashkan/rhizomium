@@ -888,10 +888,10 @@ case 'flip2d':
 
         default:
         // For all other nodes, try to use their NodeDef parameters first
-        const nodeDef = NodeDefs[node.kind];
-        if (nodeDef && nodeDef.params && Array.isArray(nodeDef.params)) {
+        const defaultNodeDef = NodeDefs[node.kind];
+        if (defaultNodeDef && defaultNodeDef.params && Array.isArray(defaultNodeDef.params)) {
           // Use parameter definitions from NodeDefs to preserve options arrays and metadata
-          nodeDef.params.forEach(param => {
+          defaultNodeDef.params.forEach(param => {
             definitions.push({
               name: param.name,
               type: param.type === 'bool' ? 'boolean' : param.type,
