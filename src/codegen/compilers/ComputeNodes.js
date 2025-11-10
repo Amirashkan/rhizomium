@@ -44,7 +44,8 @@ export class ComputeNodes {
       'ComputeTransform',
       'ComputeChannels',
       'ComputeHSV',
-      'ComputeHistogram'
+      'ComputeHistogram',
+      'ComputeLuminance'
     ].includes(kind);
   }
 
@@ -179,6 +180,8 @@ export class ComputeNodes {
         return this.generateHSVShader(node, getInput);
       case 'ComputeHistogram':
         return this.generateHistogramShader(node, getInput);
+      case 'ComputeLuminance':
+        return this.generateLuminanceShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -3146,6 +3149,131 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       `operation=${operation}(${operationIndex})`,
       `channel=${channel}(${channelIndex})`,
       `bins=${bins}`, `strength=${strength}`);
+    return shader;
+  }
+
+  /**
+   * Generate Luminance shader for luminance extraction with multiple methods
+   * Supports: Rec709, Rec601, Average, Max, Min
+   * Output modes: Grayscale, Preserve Color, Isoluminant
+   */
+  generateLuminanceShader(node, getInput) {
+    const method = this.getParamValue(node, 'method', 'Rec709');
+    const outputMode = this.getParamValue(node, 'outputMode', 'Grayscale');
+    const threshold = this.getParamValue(node, 'threshold', 0.5);
+
+    // Convert method to index: 0=Rec709, 1=Rec601, 2=Average, 3=Max, 4=Min
+    const methodIndex = method === 'Rec709' ? 0 : method === 'Rec601' ? 1 : method === 'Average' ? 2 : method === 'Max' ? 3 : 4;
+
+    // Convert outputMode to index: 0=Grayscale, 1=Preserve Color, 2=Isoluminant
+    const outputModeIndex = outputMode === 'Grayscale' ? 0 : outputMode === 'Preserve Color' ? 1 : 2;
+
+    const shader = `
+// Compute Luminance Shader - Luminance extraction with multiple methods
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  method: f32,
+  outputMode: f32,
+  threshold: f32,
+  _padding: vec2<f32>
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Calculate luminance using different methods
+fn calculateLuminance(color: vec3<f32>, method: i32) -> f32 {
+  if (method == 0) {
+    // Rec709 (ITU-R BT.709) - HDTV standard
+    // Optimized for modern displays with emphasis on green
+    return dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
+  } else if (method == 1) {
+    // Rec601 (ITU-R BT.601) - SDTV standard
+    // Traditional NTSC coefficients
+    return dot(color, vec3<f32>(0.299, 0.587, 0.114));
+  } else if (method == 2) {
+    // Average - simple arithmetic mean
+    return (color.r + color.g + color.b) / 3.0;
+  } else if (method == 3) {
+    // Max - maximum of RGB components
+    return max(max(color.r, color.g), color.b);
+  } else {
+    // Min - minimum of RGB components (method == 4)
+    return min(min(color.r, color.g), color.b);
+  }
+}
+
+// Apply isoluminant color adjustment
+// Adjusts the color to match a target luminance while preserving hue and saturation
+fn applyIsoluminant(color: vec3<f32>, targetLuminance: f32, currentLuminance: f32) -> vec3<f32> {
+  if (currentLuminance < 0.001) {
+    // If current luminance is near zero, return gray at target luminance
+    return vec3<f32>(targetLuminance);
+  }
+
+  // Scale the color to match target luminance
+  let scale = targetLuminance / currentLuminance;
+  var result = color * scale;
+
+  // Clamp to valid range while preserving ratios as much as possible
+  let maxComponent = max(max(result.r, result.g), result.b);
+  if (maxComponent > 1.0) {
+    // If any component exceeds 1.0, scale down proportionally
+    result = result / maxComponent;
+  }
+
+  return result;
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  // Sample input color
+  let inputColor = textureLoad(inputTexture, texCoord, 0);
+  var outputColor = inputColor;
+
+  let method = i32(uniforms.method);
+  let mode = i32(uniforms.outputMode);
+  let thresh = uniforms.threshold;
+
+  // Calculate luminance using selected method
+  let luminance = calculateLuminance(inputColor.rgb, method);
+
+  if (mode == 0) {
+    // Grayscale - output luminance to all RGB channels
+    outputColor = vec4<f32>(luminance, luminance, luminance, inputColor.a);
+  } else if (mode == 1) {
+    // Preserve Color - apply threshold to show color or grayscale
+    // Colors above threshold retain their color, below become grayscale
+    if (luminance >= thresh) {
+      outputColor = inputColor;
+    } else {
+      outputColor = vec4<f32>(luminance, luminance, luminance, inputColor.a);
+    }
+  } else if (mode == 2) {
+    // Isoluminant - adjust colors to match threshold luminance
+    // Creates an isoluminant surface where all colors have the same luminance
+    let targetLuminance = thresh;
+    let adjustedColor = applyIsoluminant(inputColor.rgb, targetLuminance, luminance);
+    outputColor = vec4<f32>(adjustedColor, inputColor.a);
+  }
+
+  textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
+}`;
+
+    console.log('[ComputeNodes] Generated Luminance shader:',
+      `method=${method}(${methodIndex})`,
+      `outputMode=${outputMode}(${outputModeIndex})`,
+      `threshold=${threshold}`);
     return shader;
   }
 

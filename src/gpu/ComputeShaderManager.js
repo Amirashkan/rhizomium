@@ -572,6 +572,19 @@ export class ComputeShaderManager {
           this.uniformData[6] = this.node.params?.valueMult ?? 1.0;
           break;
 
+        case 'ComputeLuminance':
+          // Uniforms: method, outputMode, threshold
+          // Convert method string to index: 0=Rec709, 1=Rec601, 2=Average, 3=Max, 4=Min
+          let lumMethod = this.node.params?.method ?? 'Rec709';
+          let lumMethodIndex = lumMethod === 'Rec709' ? 0.0 : lumMethod === 'Rec601' ? 1.0 : lumMethod === 'Average' ? 2.0 : lumMethod === 'Max' ? 3.0 : 4.0;
+          // Convert outputMode string to index: 0=Grayscale, 1=Preserve Color, 2=Isoluminant
+          let lumOutputMode = this.node.params?.outputMode ?? 'Grayscale';
+          let lumOutputModeIndex = lumOutputMode === 'Grayscale' ? 0.0 : lumOutputMode === 'Preserve Color' ? 1.0 : 2.0;
+          this.uniformData[3] = lumMethodIndex;
+          this.uniformData[4] = lumOutputModeIndex;
+          this.uniformData[5] = this.node.params?.threshold ?? 0.5;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
