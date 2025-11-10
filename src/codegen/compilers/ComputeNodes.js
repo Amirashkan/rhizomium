@@ -1942,10 +1942,15 @@ struct Uniforms {
 
 const PI = 3.14159265359;
 
-// Sample texture with boundary clamping
-fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>) -> vec4<f32> {
-  let clampedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  return textureSample(tex, texSampler, clampedUV);
+// Sample texture with boundary clamping using textureLoad (for compute shaders)
+fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  // Convert UV to pixel coordinates
+  let pixelCoord = vec2<i32>(uv * vec2<f32>(texSize));
+
+  // Clamp to texture boundaries
+  let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
+
+  return textureLoad(tex, clampedCoord, 0);
 }
 
 // Displace mode: Direct UV displacement based on warp field
@@ -2033,6 +2038,7 @@ fn applyWave(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let texCoord = vec2<i32>(global_id.xy);
   let texSize = textureDimensions(inputTexture);
+  let warpSize = textureDimensions(warpField);
 
   if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
     return;
@@ -2041,7 +2047,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
 
   // Sample warp field at current position
-  let warpValue = sampleTexture(warpField, uv);
+  let warpValue = sampleTexture(warpField, uv, warpSize);
 
   // Apply distortion based on mode
   var distortedUV: vec2<f32>;
@@ -2060,7 +2066,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   // Sample input texture at distorted UV coordinates
-  let color = sampleTexture(inputTexture, distortedUV);
+  let color = sampleTexture(inputTexture, distortedUV, texSize);
 
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
