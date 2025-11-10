@@ -40,7 +40,8 @@ export class ComputeNodes {
       'ComputeWarp',
       'ComputeKaleidoscope',
       'ComputeGlitch',
-      'ComputeMix'
+      'ComputeMix',
+      'ComputeTransform'
     ].includes(kind);
   }
 
@@ -167,6 +168,8 @@ export class ComputeNodes {
         return this.generateGlitchShader(node, getInput);
       case 'ComputeMix':
         return this.generateMixShader(node, getInput);
+      case 'ComputeTransform':
+        return this.generateTransformShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -2554,6 +2557,134 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     console.log('[ComputeNodes] Generated mix shader with mode:', mode);
     return shader;
+  }
+
+  /**
+   * Generate transform shader - translate, rotate, scale with pivot controls
+   */
+  generateTransformShader(node, getInput) {
+    const translateX = this.getParamValue(node, 'translateX', 0.0);
+    const translateY = this.getParamValue(node, 'translateY', 0.0);
+    const rotation = this.getParamValue(node, 'rotation', 0.0);
+    const scaleX = this.getParamValue(node, 'scaleX', 1.0);
+    const scaleY = this.getParamValue(node, 'scaleY', 1.0);
+    const pivotX = this.getParamValue(node, 'pivotX', 0.5);
+    const pivotY = this.getParamValue(node, 'pivotY', 0.5);
+    const wrapMode = this.getParamValue(node, 'wrapMode', 'Repeat');
+
+    const wrapModeIndex = this.getWrapModeIndex(wrapMode);
+
+    const shader = `
+// Compute Transform Shader - Translate, Rotate, Scale
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  translateX: f32,
+  translateY: f32,
+  rotation: f32,
+  scaleX: f32,
+  scaleY: f32,
+  pivotX: f32,
+  pivotY: f32,
+  _padding: vec2<f32>
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+const PI: f32 = 3.14159265359;
+const WRAP_MODE: i32 = ${wrapModeIndex}; // 0=Repeat, 1=Clamp, 2=Mirror
+
+// Sample texture with wrap mode
+fn sampleTextureWithWrap(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  var wrappedUV = uv;
+
+  // Apply wrap mode
+  if (WRAP_MODE == 0) {
+    // Repeat
+    wrappedUV = fract(uv);
+  } else if (WRAP_MODE == 1) {
+    // Clamp
+    wrappedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+  } else if (WRAP_MODE == 2) {
+    // Mirror
+    wrappedUV.x = abs(fract(uv.x * 0.5) * 2.0 - 1.0);
+    wrappedUV.y = abs(fract(uv.y * 0.5) * 2.0 - 1.0);
+  }
+
+  // Convert to pixel coordinates and sample
+  let pixelCoord = vec2<i32>(wrappedUV * vec2<f32>(texSize));
+  let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
+
+  return textureLoad(tex, clampedCoord, 0);
+}
+
+// Apply 2D transformation
+fn applyTransform(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
+  // Start with UV coordinates
+  var p = uv;
+
+  // 1. Translate to pivot point
+  let pivot = vec2<f32>(uniforms.pivotX, uniforms.pivotY);
+  p -= pivot;
+
+  // 2. Apply scale (inverse, since we're transforming the sampling coordinates)
+  let scale = vec2<f32>(uniforms.scaleX, uniforms.scaleY);
+  if (scale.x != 0.0 && scale.y != 0.0) {
+    p /= scale;
+  }
+
+  // 3. Apply rotation (inverse direction for coordinate transformation)
+  let angle = -uniforms.rotation * PI / 180.0; // Convert degrees to radians and invert
+  let cosA = cos(angle);
+  let sinA = sin(angle);
+  let rotated = vec2<f32>(
+    p.x * cosA - p.y * sinA,
+    p.x * sinA + p.y * cosA
+  );
+  p = rotated;
+
+  // 4. Translate back from pivot
+  p += pivot;
+
+  // 5. Apply translation
+  p -= vec2<f32>(uniforms.translateX, uniforms.translateY);
+
+  // Sample with wrap mode
+  return sampleTextureWithWrap(inputTexture, p, texSize);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+  let color = applyTransform(uv, texSize);
+
+  textureStore(outputTexture, vec2<u32>(texCoord), color);
+}`;
+
+    console.log('[ComputeNodes] Generated transform shader with rotation:', rotation, 'scale:', scaleX, scaleY);
+    return shader;
+  }
+
+  /**
+   * Convert wrap mode to index
+   */
+  getWrapModeIndex(mode) {
+    const modes = {
+      'Repeat': 0,
+      'Clamp': 1,
+      'Mirror': 2
+    };
+    return modes[mode] || 0;
   }
 
   /**

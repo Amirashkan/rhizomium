@@ -530,6 +530,28 @@ export class ComputeShaderManager {
           this.uniformData[4] = this.node.params?.opacity ?? 1.0;
           break;
 
+        case 'ComputeKaleidoscope':
+          // Uniforms: segments, rotation, centerX, centerY, scale, animate, speed
+          this.uniformData[3] = this.node.params?.segments ?? 6.0;
+          this.uniformData[4] = this.node.params?.rotation ?? 0.0;
+          this.uniformData[5] = this.node.params?.centerX ?? 0.5;
+          this.uniformData[6] = this.node.params?.centerY ?? 0.5;
+          this.uniformData[7] = this.node.params?.scale ?? 1.0;
+          this.uniformData[8] = this.node.params?.animate ? 1.0 : 0.0;
+          this.uniformData[9] = this.node.params?.speed ?? 0.5;
+          break;
+
+        case 'ComputeTransform':
+          // Uniforms: translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY
+          this.uniformData[3] = this.node.params?.translateX ?? 0.0;
+          this.uniformData[4] = this.node.params?.translateY ?? 0.0;
+          this.uniformData[5] = this.node.params?.rotation ?? 0.0;
+          this.uniformData[6] = this.node.params?.scaleX ?? 1.0;
+          this.uniformData[7] = this.node.params?.scaleY ?? 1.0;
+          this.uniformData[8] = this.node.params?.pivotX ?? 0.5;
+          this.uniformData[9] = this.node.params?.pivotY ?? 0.5;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
