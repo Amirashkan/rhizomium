@@ -290,9 +290,11 @@ export class FragmentTextureRenderer {
         await this.device.queue.onSubmittedWorkDone();
         console.log(`[FragmentTextureRenderer] GPU work completed for fragment render`);
       } else {
-        console.warn(`[FragmentTextureRenderer] onSubmittedWorkDone not available, using fallback delay`);
-        // Fallback: small delay to give GPU time to finish
-        await new Promise(resolve => setTimeout(resolve, 10));
+        console.warn(`[FragmentTextureRenderer] onSubmittedWorkDone not available, using 100ms fallback delay`);
+        // Fallback: Longer delay to give GPU time to finish
+        // 100ms should be more than enough for most GPUs
+        await new Promise(resolve => setTimeout(resolve, 100));
+        console.log(`[FragmentTextureRenderer] Fallback delay completed`);
       }
 
       // Debug: Log texture details after render
