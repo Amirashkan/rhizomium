@@ -674,6 +674,8 @@ export class ComputeShaderManager {
     // Binding 2: Input texture (if needed)
     if (this.needsInput) {
       const inputTexture = this.inputTexture || this.fallbackInputTexture;
+      const usingFallback = !this.inputTexture;
+      console.log(`[ComputeShaderManager] recreateBindGroup: needsInput=true, usingFallback=${usingFallback}, texture=${inputTexture.width}x${inputTexture.height}`);
       entries.push({ binding: 2, resource: inputTexture.createView() });
       // Binding 3: Input sampler
       entries.push({ binding: 3, resource: this.textureSampler });
@@ -706,6 +708,7 @@ export class ComputeShaderManager {
    * Set input texture from another compute node
    */
   setInputTexture(texture) {
+    console.log(`[ComputeShaderManager] setInputTexture called: size=${texture.width}x${texture.height}, format=${texture.format}, usage=${texture.usage}`);
     this.inputTexture = texture;
   }
 
