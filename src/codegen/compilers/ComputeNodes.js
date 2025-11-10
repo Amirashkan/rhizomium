@@ -41,7 +41,8 @@ export class ComputeNodes {
       'ComputeKaleidoscope',
       'ComputeGlitch',
       'ComputeMix',
-      'ComputeTransform'
+      'ComputeTransform',
+      'ComputeChannels'
     ].includes(kind);
   }
 
@@ -170,6 +171,8 @@ export class ComputeNodes {
         return this.generateMixShader(node, getInput);
       case 'ComputeTransform':
         return this.generateTransformShader(node, getInput);
+      case 'ComputeChannels':
+        return this.generateChannelsShader(node, getInput);
       default:
         console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
         return this.generateFallbackShader(node);
@@ -2673,6 +2676,100 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     console.log('[ComputeNodes] Generated transform shader with rotation:', rotation, 'scale:', scaleX, scaleY);
     return shader;
+  }
+
+  /**
+   * Generate channels shader - swap, extract, combine, remap channels
+   */
+  generateChannelsShader(node, getInput) {
+    const redSource = this.getParamValue(node, 'redSource', 'R');
+    const greenSource = this.getParamValue(node, 'greenSource', 'G');
+    const blueSource = this.getParamValue(node, 'blueSource', 'B');
+    const alphaSource = this.getParamValue(node, 'alphaSource', 'A');
+
+    const redIndex = this.getChannelSourceIndex(redSource);
+    const greenIndex = this.getChannelSourceIndex(greenSource);
+    const blueIndex = this.getChannelSourceIndex(blueSource);
+    const alphaIndex = this.getChannelSourceIndex(alphaSource);
+
+    const shader = `
+// Compute Channels Shader - Swap, Extract, Combine, Remap
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  redSource: f32,
+  greenSource: f32,
+  blueSource: f32,
+  alphaSource: f32,
+  _padding: vec3<f32>
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+
+// Channel indices: 0=R, 1=G, 2=B, 3=A, 4=0, 5=1
+fn getChannelValue(color: vec4<f32>, channelIndex: i32) -> f32 {
+  switch (channelIndex) {
+    case 0: { return color.r; }
+    case 1: { return color.g; }
+    case 2: { return color.b; }
+    case 3: { return color.a; }
+    case 4: { return 0.0; }
+    case 5: { return 1.0; }
+    default: { return 0.0; }
+  }
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let texSize = textureDimensions(inputTexture);
+
+  if (texCoord.x >= i32(texSize.x) || texCoord.y >= i32(texSize.y)) {
+    return;
+  }
+
+  // Sample input color
+  let inputColor = textureLoad(inputTexture, texCoord, 0);
+
+  // Remap channels based on source selections
+  let redIndex = i32(uniforms.redSource);
+  let greenIndex = i32(uniforms.greenSource);
+  let blueIndex = i32(uniforms.blueSource);
+  let alphaIndex = i32(uniforms.alphaSource);
+
+  let outputColor = vec4<f32>(
+    getChannelValue(inputColor, redIndex),
+    getChannelValue(inputColor, greenIndex),
+    getChannelValue(inputColor, blueIndex),
+    getChannelValue(inputColor, alphaIndex)
+  );
+
+  textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
+}`;
+
+    console.log('[ComputeNodes] Generated channels shader with mapping:',
+      `R=${redSource}(${redIndex})`, `G=${greenSource}(${greenIndex})`,
+      `B=${blueSource}(${blueIndex})`, `A=${alphaSource}(${alphaIndex})`);
+    return shader;
+  }
+
+  /**
+   * Convert channel source to index
+   * R=0, G=1, B=2, A=3, 0=4, 1=5
+   */
+  getChannelSourceIndex(source) {
+    const sources = {
+      'R': 0,
+      'G': 1,
+      'B': 2,
+      'A': 3,
+      '0': 4,
+      '1': 5
+    };
+    return sources[source] || 0;
   }
 
   /**

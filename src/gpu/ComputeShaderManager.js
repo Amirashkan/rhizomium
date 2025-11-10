@@ -552,6 +552,15 @@ export class ComputeShaderManager {
           this.uniformData[9] = this.node.params?.pivotY ?? 0.5;
           break;
 
+        case 'ComputeChannels':
+          // Uniforms: redSource, greenSource, blueSource, alphaSource
+          // Convert channel source strings to indices: R=0, G=1, B=2, A=3, 0=4, 1=5
+          this.uniformData[3] = this.getChannelSourceIndex(this.node.params?.redSource ?? 'R');
+          this.uniformData[4] = this.getChannelSourceIndex(this.node.params?.greenSource ?? 'G');
+          this.uniformData[5] = this.getChannelSourceIndex(this.node.params?.blueSource ?? 'B');
+          this.uniformData[6] = this.getChannelSourceIndex(this.node.params?.alphaSource ?? 'A');
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
@@ -773,6 +782,22 @@ export class ComputeShaderManager {
     }
 
     console.log('[ComputeShaderManager] Resized to', `${width}x${height}`);
+  }
+
+  /**
+   * Convert channel source string to index
+   * Used by ComputeChannels node: R=0, G=1, B=2, A=3, 0=4, 1=5
+   */
+  getChannelSourceIndex(source) {
+    const sources = {
+      'R': 0,
+      'G': 1,
+      'B': 2,
+      'A': 3,
+      '0': 4,
+      '1': 5
+    };
+    return sources[source] || 0;
   }
 
   /**
