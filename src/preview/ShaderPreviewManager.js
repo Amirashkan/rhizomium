@@ -25,8 +25,6 @@ export class ShaderPreviewManager {
 
     // Cache for compiled preview shaders
     this.shaderCache = new Map();
-
-    console.log('[ShaderPreviewManager] Initialized');
   }
 
   /**
@@ -36,7 +34,6 @@ export class ShaderPreviewManager {
    */
   requestNodePreview(node, immediate = false) {
     if (!node || !node.id) {
-      console.warn('[ShaderPreviewManager] Invalid node for preview');
       return;
     }
 
@@ -79,13 +76,10 @@ export class ShaderPreviewManager {
     const nodeIds = Array.from(this.pendingNodes);
     this.pendingNodes.clear();
 
-    console.log(`[ShaderPreviewManager] Updating ${nodeIds.length} node previews`);
-
     for (const nodeId of nodeIds) {
       const node = this.editor.graph?.nodes?.find(n => n.id === nodeId);
 
       if (!node) {
-        console.warn(`[ShaderPreviewManager] Node ${nodeId} not found`);
         continue;
       }
 
@@ -151,14 +145,12 @@ export class ShaderPreviewManager {
     const computeExecutor = window.computeExecutor;
 
     if (!computeExecutor || !computeExecutor.computeTextures) {
-      console.warn('[ShaderPreviewManager] ComputeExecutor not available');
       return;
     }
 
     const computeInfo = computeExecutor.computeTextures.get(node.id);
 
     if (!computeInfo || !computeInfo.texture) {
-      console.warn(`[ShaderPreviewManager] No compute texture for ${node.id}`);
       return;
     }
 
@@ -257,18 +249,14 @@ export class ShaderPreviewManager {
       const shaderResult = buildWGSL(previewGraph);
 
       if (!shaderResult || !shaderResult.wgsl) {
-        console.warn(`[ShaderPreviewManager] Failed to build shader for ${node.id}`);
         this.fallbackToLegacyPreview(node);
         return;
       }
-
-      console.log(`[ShaderPreviewManager] Compiled preview shader for ${node.id}`);
 
       // Create render pipeline
       const pipeline = await this.createPreviewPipeline(shaderResult.wgsl, node.id);
 
       if (!pipeline) {
-        console.warn(`[ShaderPreviewManager] Failed to create pipeline for ${node.id}`);
         this.fallbackToLegacyPreview(node);
         return;
       }
@@ -473,8 +461,6 @@ export class ShaderPreviewManager {
         // Just mark that we have a GPU texture (no CPU readback)
         node.__gpuPreview = previewInfo;
       }
-
-      console.log(`[ShaderPreviewManager] Rendered preview for ${node.id}`);
     } catch (error) {
       console.error(`[ShaderPreviewManager] Render error for ${node.id}:`, error);
       this.fallbackToLegacyPreview(node);
@@ -509,17 +495,14 @@ export class ShaderPreviewManager {
   setPreviewMode(options = {}) {
     if (options.enableGPUPreview !== undefined) {
       this.enableGPUPreview = options.enableGPUPreview;
-      console.log(`[ShaderPreviewManager] GPU preview: ${this.enableGPUPreview}`);
     }
 
     if (options.enableCPUReadback !== undefined) {
       this.enableCPUReadback = options.enableCPUReadback;
-      console.log(`[ShaderPreviewManager] CPU readback: ${this.enableCPUReadback}`);
     }
 
     if (options.previewSize !== undefined) {
       this.previewSize = options.previewSize;
-      console.log(`[ShaderPreviewManager] Preview size: ${this.previewSize}`);
     }
   }
 
@@ -538,8 +521,6 @@ export class ShaderPreviewManager {
       case 'compile':
         this.throttler.beginCompile();
         break;
-      default:
-        console.warn(`[ShaderPreviewManager] Unknown interaction type: ${type}`);
     }
   }
 
@@ -558,8 +539,6 @@ export class ShaderPreviewManager {
       case 'compile':
         this.throttler.endCompile();
         break;
-      default:
-        console.warn(`[ShaderPreviewManager] Unknown interaction type: ${type}`);
     }
 
     // Trigger immediate update after interaction ends
@@ -581,7 +560,6 @@ export class ShaderPreviewManager {
     }
     this.shaderCache.delete(nodeId);
     this.pendingNodes.delete(nodeId);
-    console.log(`[ShaderPreviewManager] Destroyed preview for node ${nodeId}`);
   }
 
   /**
@@ -590,7 +568,6 @@ export class ShaderPreviewManager {
   clearCache() {
     this.gpuRenderer.clearCache();
     this.shaderCache.clear();
-    console.log('[ShaderPreviewManager] Cleared all caches');
   }
 
   /**
@@ -601,6 +578,5 @@ export class ShaderPreviewManager {
     this.gpuRenderer.dispose();
     this.shaderCache.clear();
     this.pendingNodes.clear();
-    console.log('[ShaderPreviewManager] Disposed');
   }
 }

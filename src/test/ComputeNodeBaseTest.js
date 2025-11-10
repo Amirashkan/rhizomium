@@ -47,7 +47,6 @@ export async function runTests(device) {
 
   // Test 1: Node creation
   try {
-    console.log('Test 1: Node creation');
     const node = new ComputeNodeBase(device, {
       id: 'test_node_1',
       kind: 'ComputeNoise',
@@ -70,7 +69,6 @@ export async function runTests(device) {
 
   // Test 2: Initialization
   try {
-    console.log('Test 2: Initialization');
     const node = new ComputeNodeBase(device, {
       id: 'test_node_2',
       kind: 'ComputeNoise',
@@ -94,7 +92,6 @@ export async function runTests(device) {
 
   // Test 3: Uniform setting
   try {
-    console.log('Test 3: Uniform setting');
     const node = new ComputeNodeBase(device, {
       id: 'test_node_3',
       kind: 'ComputeNoise',
@@ -120,7 +117,6 @@ export async function runTests(device) {
 
   // Test 4: Serialization
   try {
-    console.log('Test 4: Serialization');
     const node = new ComputeNodeBase(device, {
       id: 'test_node_4',
       kind: 'ComputeNoise',
@@ -147,7 +143,6 @@ export async function runTests(device) {
 
   // Test 5: Deserialization
   try {
-    console.log('Test 5: Deserialization');
     const original = new ComputeNodeBase(device, {
       id: 'test_node_5',
       kind: 'ComputeNoise',

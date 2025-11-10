@@ -32,20 +32,17 @@ export class GPUPerformanceMonitor {
    * Initialize the performance monitor
    */
   initialize(device) {
-    console.log('[GPUPerformanceMonitor] Initializing...');
 
     this.profiler = window.computeProfiler;
     this.overlay = window.profilerOverlay;
 
     if (!this.profiler || !this.overlay) {
-      console.warn('[GPUPerformanceMonitor] Profiler or overlay not found');
       return false;
     }
 
     // Show overlay if auto-show is enabled
     if (this.options.autoShowOverlay) {
       this.overlay.show();
-      console.log('[GPUPerformanceMonitor] Profiler overlay shown (press Ctrl+P to toggle)');
     }
 
     // Setup enhanced keyboard shortcuts
@@ -55,7 +52,6 @@ export class GPUPerformanceMonitor {
     if (device) {
       this.testRunner = new GPUPerformanceTest(device);
       window.gpuPerformanceTest = this.testRunner;
-      console.log('[GPUPerformanceMonitor] Test runner created (use window.gpuPerformanceTest.runAllTests())');
     }
 
     // Setup performance monitoring
@@ -63,7 +59,6 @@ export class GPUPerformanceMonitor {
       this._setupPerformanceWarnings();
     }
 
-    console.log('[GPUPerformanceMonitor] ✓ Initialized successfully');
     return true;
   }
 
@@ -83,7 +78,6 @@ export class GPUPerformanceMonitor {
         e.preventDefault();
         if (this.profiler) {
           this.profiler.reset();
-          console.log('[GPUPerformanceMonitor] Profiler reset');
         }
       }
 
@@ -93,16 +87,10 @@ export class GPUPerformanceMonitor {
         if (this.profiler) {
           const metrics = this.profiler.getMetrics();
           this.profiler.setEnabled(!metrics.enabled);
-          console.log(`[GPUPerformanceMonitor] Profiler ${metrics.enabled ? 'disabled' : 'enabled'}`);
         }
       }
     });
 
-    console.log('[GPUPerformanceMonitor] Keyboard shortcuts registered:');
-    console.log('  Ctrl+P       - Toggle profiler overlay');
-    console.log('  Ctrl+Shift+P - Run performance tests');
-    console.log('  Ctrl+Shift+R - Reset profiler');
-    console.log('  Ctrl+Shift+E - Toggle profiler enabled/disabled');
   }
 
   /**
@@ -146,7 +134,6 @@ export class GPUPerformanceMonitor {
    * Show performance warning
    */
   _showPerformanceWarning(message) {
-    console.warn('[GPUPerformanceMonitor] ⚠️ Performance warning:', message);
 
     // Show overlay if it's hidden
     if (this.overlay && !this.overlay.visible) {
@@ -163,12 +150,10 @@ export class GPUPerformanceMonitor {
       return null;
     }
 
-    console.log('[GPUPerformanceMonitor] Running performance tests...');
     const results = await this.testRunner.runAllTests();
 
     // Generate and save report
     const report = this.testRunner.generateReport();
-    console.log('[GPUPerformanceMonitor] Test report:', report);
 
     return results;
   }

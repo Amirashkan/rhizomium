@@ -31,7 +31,6 @@ export class LiveShaderStream {
 
         // Check browser support
         if (!('BroadcastChannel' in window)) {
-            console.warn('[LiveShaderStream] BroadcastChannel API not supported');
             this.supported = false;
         } else {
             this.supported = true;
@@ -47,13 +46,11 @@ export class LiveShaderStream {
         }
 
         this.channel = new BroadcastChannel(this.channelName);
-        console.log(`[LiveShaderStream] Channel "${this.channelName}" initialized`);
 
         // Listen for shader requests from viewers
         this.channel.onmessage = (event) => {
             const data = event.data;
             if (data.type === 'request_shader') {
-                console.log('[LiveShaderStream] Viewer requested shader, sending current state...');
                 this.sendCurrentState();
             }
         };
@@ -72,7 +69,6 @@ export class LiveShaderStream {
         this.isStreaming = true;
         this.shaderUpdatesSent = 0;
         this.uniformUpdatesSent = 0;
-        console.log('[LiveShaderStream] Started streaming on channel:', this.channel.name);
 
         // Announce streaming start
         this.channel.postMessage({
@@ -89,7 +85,6 @@ export class LiveShaderStream {
      */
     stopStreaming() {
         this.isStreaming = false;
-        console.log('[LiveShaderStream] Stopped streaming');
 
         if (this.channel) {
             this.channel.postMessage({
@@ -107,12 +102,10 @@ export class LiveShaderStream {
      */
     sendShaderUpdate(shaderCode, uniformValues = {}, resolution = null) {
         if (!this.isStreaming || !this.channel) {
-            console.warn('[LiveShaderStream] Cannot send: not streaming or no channel');
             return;
         }
 
         if (!shaderCode || shaderCode.length === 0) {
-            console.warn('[LiveShaderStream] Cannot send: empty shader code');
             return;
         }
 
@@ -130,7 +123,6 @@ export class LiveShaderStream {
             timestamp: Date.now()
         };
 
-        console.log('[LiveShaderStream] 📤 Sending shader update:', {
             codeLength: shaderCode.length,
             uniformCount: Array.isArray(uniformValues) ? uniformValues.length : Object.keys(uniformValues).length,
             uniformValues: uniformValues, // Log actual values for debugging
@@ -141,7 +133,6 @@ export class LiveShaderStream {
         this.channel.postMessage(message);
         this.shaderUpdatesSent++;
 
-        console.log(`[LiveShaderStream] ✅ Sent shader update #${this.shaderUpdatesSent}`);
     }
 
     /**
@@ -166,7 +157,6 @@ export class LiveShaderStream {
 
         // Log every 60th update to avoid spam
         if (this.uniformUpdatesSent % 60 === 0) {
-            console.log(`[LiveShaderStream] Sent ${this.uniformUpdatesSent} uniform updates`);
         }
     }
 
@@ -189,7 +179,6 @@ export class LiveShaderStream {
 
         this.channel.postMessage(message);
 
-        console.log(`[LiveShaderStream] Sent resolution update: ${width}x${height}`);
     }
 
     /**
@@ -214,7 +203,6 @@ export class LiveShaderStream {
 
         // Log every 30th update to avoid spam
         if (this.uniformUpdatesSent % 30 === 0) {
-            console.log(`[LiveShaderStream] Sent ${this.uniformUpdatesSent} parameter updates`);
         }
     }
 
@@ -223,11 +211,9 @@ export class LiveShaderStream {
      */
     sendCurrentState() {
         if (!this.currentShader) {
-            console.warn('[LiveShaderStream] ⚠️ No shader to send yet - viewer will receive shader on next update');
             return;
         }
 
-        console.log('[LiveShaderStream] 📤 Sending current state to new viewer');
         this.sendShaderUpdate(
             this.currentShader,
             this.currentUniforms,
@@ -269,7 +255,6 @@ export class LiveShaderStream {
             this.stopStreaming();
             this.channel.close();
             this.channel = null;
-            console.log('[LiveShaderStream] Channel closed');
         }
     }
 

@@ -75,9 +75,7 @@ export class Editor {
       // Make systems globally available for debugging
       window.expressionSystem = this.expressionSystem;
       window.editor = this;
-      
-      console.log('Editor initialized successfully with expression support');
-      
+
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'editor-construction'
@@ -237,8 +235,6 @@ export class Editor {
 
   setupExpressionIntegrations() {
     try {
-      console.log('Setting up expression system integrations...');
-
       // Create enhanced ParameterPanel with expression support
       this.paramPanel = new ParameterPanel(
         this.eventSystem,
@@ -268,8 +264,6 @@ export class Editor {
       this.setupExpressionEventListeners();
       this.setupOptimizedGPUAnimationLoop();
 
-      console.log('Expression system integrations completed');
-      
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'expression-integration-setup'
@@ -301,7 +295,6 @@ setupOptimizedGPUAnimationLoop() {
 connectGPURenderer(renderFunction) {
   if (typeof renderFunction === 'function') {
     this.gpuRenderFunction = renderFunction;
-    console.log('GPU renderer manually connected to Editor');
   } else {
     console.warn('Invalid GPU render function provided');
   }
@@ -334,19 +327,16 @@ connectGPURenderer(renderFunction) {
 
   // PERFORMANCE OPTIMIZATION: Debounced shader rebuild
   triggerShaderRebuild(reason = 'Unknown') {
-    console.log(`Triggering shader rebuild: ${reason}`);
-    
     // Debounce rebuild calls to prevent spam
     if (this.rebuildTimeout) {
       clearTimeout(this.rebuildTimeout);
     }
-    
+
     this.rebuildTimeout = setTimeout(() => {
       if (window.rebuild && typeof window.rebuild === 'function') {
         try {
           window.rebuild();
-          console.log('Shader rebuild completed');
-          
+
           // Clear time expression cache after rebuild
           this.timeExpressionCache = null;
         } catch (error) {
@@ -877,8 +867,6 @@ connectGPURenderer(renderFunction) {
 
   initializePreviewSystem() {
     try {
-      console.log("Initializing Preview System");
-
       if (!this.graph || !this.graph.nodes) {
         throw new Error("No graph or nodes available for preview system");
       }
@@ -913,8 +901,6 @@ connectGPURenderer(renderFunction) {
 
         this.shaderPreviewManager = new ShaderPreviewManager(this, device, format);
         window.shaderPreviewManager = this.shaderPreviewManager;
-
-        console.log('[Editor] ShaderPreviewManager initialized successfully');
       } else {
         console.warn('[Editor] GPU device not available yet, ShaderPreviewManager will be initialized later');
 
@@ -951,7 +937,6 @@ connectGPURenderer(renderFunction) {
         return;
       }
 
-      console.log('Editor: Starting node movement tracking for undo');
       this.movementState.isMoving = true;
       this.movementState.originalPositions.clear();
       this.movementState.movedNodes.clear();
@@ -984,8 +969,6 @@ connectGPURenderer(renderFunction) {
         return;
       }
 
-      console.log('Editor: Finishing node movement tracking for undo');
-
       let hasMovement = false;
       const movementData = [];
 
@@ -1009,7 +992,6 @@ connectGPURenderer(renderFunction) {
       });
 
       if (hasMovement && window.onNodesMovement && typeof window.onNodesMovement === 'function') {
-        console.log('Editor: Recording node movement for undo:', movementData);
         try {
           window.onNodesMovement(movementData);
         } catch (undoError) {
@@ -1032,7 +1014,6 @@ connectGPURenderer(renderFunction) {
 
   cancelNodeMovement() {
     try {
-      console.log('Editor: Cancelling node movement tracking');
       this.movementState.isMoving = false;
       this.movementState.originalPositions.clear();
       this.movementState.movedNodes.clear();
@@ -1127,9 +1108,7 @@ connectGPURenderer(renderFunction) {
       if (!movementData || !Array.isArray(movementData)) {
         throw new Error('Invalid movement data provided');
       }
-      
-      console.log('Editor: Moving nodes to positions for undo/redo:', movementData);
-      
+
       let movedCount = 0;
       movementData.forEach(({ nodeId, newX, newY }) => {
         const node = this.graph.nodes.find(n => n.id === nodeId);
@@ -1178,7 +1157,6 @@ connectGPURenderer(renderFunction) {
 
       const currentConnection = targetNode.inputs[inputIndex];
       if (currentConnection === null || currentConnection === undefined) {
-        console.log('No connection to delete at specified index');
         return false;
       }
 
@@ -1196,7 +1174,6 @@ connectGPURenderer(renderFunction) {
       };
 
       if (window.onConnectionDeleted && typeof window.onConnectionDeleted === 'function') {
-        console.log('Editor: Recording connection deletion for undo:', connectionData);
         try {
           window.onConnectionDeleted(connectionData);
         } catch (undoError) {
@@ -1207,7 +1184,6 @@ connectGPURenderer(renderFunction) {
       }
 
       targetNode.inputs[inputIndex] = null;
-      console.log(`Connection deleted: input[${inputIndex}] of node ${targetNode.id}`);
 
       this.onChange('Connection Deletion');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Connection Deletion' });
@@ -1239,7 +1215,6 @@ connectGPURenderer(renderFunction) {
       }
 
       if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
-        console.log('Editor: Recording node deletion for undo:', nodeToDelete.kind, nodeToDelete.id);
         try {
           window.onNodeDeleted(nodeToDelete);
         } catch (undoError) {
@@ -1266,18 +1241,12 @@ connectGPURenderer(renderFunction) {
             if (input === nodeToDelete.id || input == nodeToDelete.id) {
               node.inputs[index] = null;
               connectionsRemoved++;
-              console.log(`Removed connection to deleted node from ${node.kind}[${index}]`);
             }
           });
         }
       });
 
       this.graph.nodes.splice(nodeIndex, 1);
-      console.log(`Node ${nodeToDelete.kind}(${nodeToDelete.id}) deleted from graph`);
-
-      if (connectionsRemoved > 0) {
-        console.log(`Removed ${connectionsRemoved} connections to deleted node`);
-      }
 
       // Clean up GPU resources for this node
       this.cleanupNodeResources(nodeToDelete);
@@ -1308,9 +1277,7 @@ connectGPURenderer(renderFunction) {
         console.warn('No nodes provided for group deletion');
         return false;
       }
-      
-      console.log('Editor: Deleting nodes as group:', nodesToDelete.length, 'nodes');
-      
+
       const validNodes = nodesToDelete.filter(node => {
         if (!node) return false;
         const exists = this.graph.nodes.includes(node);
@@ -1324,9 +1291,8 @@ connectGPURenderer(renderFunction) {
         console.warn('No valid nodes found for deletion');
         return false;
       }
-      
+
       if (window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
-        console.log('Editor: Recording group deletion for undo');
         try {
           window.onGroupDeleted(validNodes);
         } catch (undoError) {
@@ -1355,7 +1321,6 @@ connectGPURenderer(renderFunction) {
             if (input !== null && input !== undefined && nodeIdsToDelete.has(input)) {
               node.inputs[index] = null;
               connectionsRemoved++;
-              console.log(`Removed connection to deleted node from ${node.kind}[${index}]`);
             }
           });
         }
@@ -1368,15 +1333,12 @@ connectGPURenderer(renderFunction) {
       
       sortedNodesToDelete.forEach(({ node, index }) => {
         this.graph.nodes.splice(index, 1);
-        console.log(`Node ${node.kind}(${node.id}) deleted from graph`);
       });
 
       // Clean up GPU resources for all deleted nodes
       validNodes.forEach(node => {
         this.cleanupNodeResources(node);
       });
-
-      console.log(`Group deletion completed: ${validNodes.length} nodes, ${connectionsRemoved} connections`);
 
       this.onChange('Group Deletion');
       this.eventSystem.emit('GRAPH_CHANGED', { action: 'Group Deletion' });
@@ -1432,15 +1394,12 @@ connectGPURenderer(renderFunction) {
       }
 
       if (targetNode.inputs[targetInput] == sourceNodeId) {
-        console.log('Connection already exists, skipping creation');
         return true;
       }
 
       targetNode.inputs[targetInput] = sourceNodeId;
-      console.log(`Connection created: ${sourceNode.kind}(${sourceNodeId}) -> ${targetNode.kind}(${targetNodeId})[${targetInput}]`);
 
       if (window.onConnectionCreated && typeof window.onConnectionCreated === 'function') {
-        console.log('Editor: Recording connection creation for undo:', { sourceNodeId, targetNodeId, targetInput });
         try {
           window.onConnectionCreated(sourceNodeId, targetNodeId, targetInput);
         } catch (undoError) {
@@ -1501,10 +1460,8 @@ connectGPURenderer(renderFunction) {
       }
 
       this.graph.nodes.push(newNode);
-      console.log(`Node ${nodeType}(${newNode.id}) created at (${finalX}, ${finalY})`);
 
       if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
-        console.log('Editor: Recording node creation for undo:', newNode.kind, newNode.id);
         try {
           window.onNodeCreated(newNode);
         } catch (undoError) {
@@ -1561,9 +1518,7 @@ connectGPURenderer(renderFunction) {
           const nodesToDelete = selectedNodeIds
             .map(nodeId => this.graph.nodes.find(n => n.id === nodeId))
             .filter(node => node !== undefined);
-          
-          console.log('Deleting selected nodes:', nodesToDelete.length, 'nodes:', nodesToDelete.map(n => n.kind));
-          
+
           if (nodesToDelete.length === 0) {
             console.warn('No valid nodes selected for deletion');
             return true;
@@ -1583,13 +1538,7 @@ connectGPURenderer(renderFunction) {
               console.warn('Error clearing selection after deletion:', clearError);
             }
           }
-          
-          if (deletionSuccess) {
-            console.log(`Successfully deleted ${nodesToDelete.length} nodes`);
-          }
-          
-        } else {
-          console.log('No nodes selected for deletion');
+
         }
         
         return true;
@@ -1621,9 +1570,7 @@ connectGPURenderer(renderFunction) {
       
       const connectionInfo = this.getConnectionAt(canvasX, canvasY);
       if (connectionInfo) {
-        if (this.deleteConnection(connectionInfo.sourceNode, connectionInfo.targetNode, connectionInfo.targetInput)) {
-          console.log('Connection deleted via right click');
-        }
+        this.deleteConnection(connectionInfo.sourceNode, connectionInfo.targetNode, connectionInfo.targetInput);
         return true;
       }
 
@@ -1631,9 +1578,7 @@ connectGPURenderer(renderFunction) {
       if (node) {
         const confirmMessage = `Delete node "${node.kind}"?`;
         if (confirm(confirmMessage)) {
-          if (this.deleteNode(node)) {
-            console.log(`Node "${node.kind}" deleted via right click`);
-          }
+          this.deleteNode(node);
         }
         return true;
       }
@@ -1758,8 +1703,6 @@ connectGPURenderer(renderFunction) {
       const preview = this.nodePreviews.get(nodeId);
       preview.enabled = !preview.enabled;
 
-      console.log(`Preview toggled for node ${nodeId}: ${preview.enabled ? "ON" : "OFF"}`);
-
       if (preview.enabled) {
         const node = this.graph.nodes.find((n) => n.id === nodeId);
         if (node && this.previewIntegration) {
@@ -1802,8 +1745,6 @@ connectGPURenderer(renderFunction) {
       const currentIndex = sizes.indexOf(preview.size);
       preview.size = sizes[(currentIndex + 1) % sizes.length];
 
-      console.log(`Size changed to ${preview.size} for node ${nodeId}`);
-
       if (this.isPreviewEnabled && preview.enabled) {
         const node = this.graph.nodes.find((n) => n.id === nodeId);
         if (node && this.previewIntegration) {
@@ -1837,11 +1778,10 @@ connectGPURenderer(renderFunction) {
           showVisualInfo: true,
         });
       }
-      
+
       const preview = this.nodePreviews.get(nodeId);
       preview.showVisualInfo = !preview.showVisualInfo;
-      console.log(`Visual info toggled for node ${nodeId}: ${preview.showVisualInfo ? 'ON' : 'OFF'}`);
-      
+
       this.safeDraw();
       
     } catch (error) {
@@ -1901,7 +1841,6 @@ connectGPURenderer(renderFunction) {
     try {
       if (this.selection && this.selection.selectAll) {
         this.selection.selectAll();
-        console.log(`Selected ${this.graph.nodes.length} nodes`);
       } else {
         console.warn('Selection manager not available for selectAll');
       }
@@ -1932,7 +1871,6 @@ connectGPURenderer(renderFunction) {
       if (this.selection && this.selection.duplicateSelected) {
         const result = this.selection.duplicateSelected();
         if (result) {
-          console.log('Selected nodes duplicated');
           this.onChange('Duplicate Selection');
           this.triggerShaderRebuild('Duplicate Selection');
           this.safeDraw();
@@ -1958,48 +1896,37 @@ connectGPURenderer(renderFunction) {
     }
 
     const nodeId = node.id;
-    console.log(`[Editor] Cleaning up resources for node: ${node.kind} (${nodeId})`);
 
     try {
       // 1. Clean up compute executor resources
       if (window.computeExecutor && typeof window.computeExecutor.removeComputeNode === 'function') {
         window.computeExecutor.removeComputeNode(nodeId);
-        console.log(`  - Removed compute node from executor`);
       }
 
       // 2. Clean up texture manager resources (for texture nodes)
       if (window.textureManager && typeof window.textureManager.removeTexture === 'function') {
         window.textureManager.removeTexture(nodeId);
-        console.log(`  - Removed texture from texture manager`);
       }
 
       // 3. Clean up preview textures
       if (this.shaderPreviewManager && typeof this.shaderPreviewManager.destroyPreviewTexture === 'function') {
         this.shaderPreviewManager.destroyPreviewTexture(nodeId);
-        console.log(`  - Destroyed preview texture`);
       }
 
       // 4. Clean up GPU preview renderer cache
       if (window.gpuPreviewRenderer && typeof window.gpuPreviewRenderer.destroyPreviewTexture === 'function') {
         window.gpuPreviewRenderer.destroyPreviewTexture(nodeId);
-        console.log(`  - Destroyed GPU preview renderer texture`);
       }
 
       // 5. Clean up from resource tracker registry (if not already cleaned by compute executor)
       if (typeof window.globalResourceRegistry !== 'undefined' && window.globalResourceRegistry) {
-        const stats = window.globalResourceRegistry.destroy(nodeId);
-        if (stats) {
-          console.log(`  - Resource tracker cleanup:`, stats);
-        }
+        window.globalResourceRegistry.destroy(nodeId);
       }
 
       // 6. Remove any preview from the editor's cache
       if (this.nodePreviews && this.nodePreviews.has(nodeId)) {
         this.nodePreviews.delete(nodeId);
-        console.log(`  - Removed from editor preview cache`);
       }
-
-      console.log(`[Editor] Resource cleanup completed for ${nodeId}`);
 
     } catch (error) {
       console.error(`[Editor] Error cleaning up resources for node ${nodeId}:`, error);
@@ -2013,8 +1940,6 @@ connectGPURenderer(renderFunction) {
 
   dispose() {
     try {
-      console.log('Disposing Editor...');
-      
       // Clean up GPU animation loop
       if (this.gpuAnimationLoop) {
         clearInterval(this.gpuAnimationLoop);
@@ -2071,9 +1996,7 @@ connectGPURenderer(renderFunction) {
       this.nodePreviews.clear();
       this.movementState.originalPositions.clear();
       this.movementState.movedNodes.clear();
-      
-      console.log('Editor disposed successfully');
-      
+
     } catch (error) {
       console.error('Error during Editor disposal:', error);
     }

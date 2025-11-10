@@ -1169,57 +1169,37 @@ _renderCompareThumbnail(ctx, size, node) {
   ctx.fillText(symbols[operator] || ">", size / 2, size / 2 + 3);
 }
 _renderOutputThumbnail(ctx, size, color, node) {
-  console.log('=== OUTPUT THUMBNAIL DEBUG ===');
-  console.log('Node:', node);
-  console.log('Node inputs:', node?.inputs);
-  console.log('Input[0]:', node?.inputs?.[0]);
-  
   // If we have a connected input node, try to copy its thumbnail
   if (node && node.inputs && node.inputs[0]) {
     const inputNodeId = node.inputs[0];
-    console.log('Looking for input node ID:', inputNodeId);
-    
+
     // Find the input node
     if (window.editor && window.editor.graph && window.editor.graph.nodes) {
       const inputNode = window.editor.graph.nodes.find(n => n.id === inputNodeId);
-      console.log('Found input node:', inputNode);
-      console.log('Input node __thumb:', inputNode?.__thumb);
-      console.log('__thumb type:', inputNode?.__thumb?.constructor?.name);
-      
+
       if (inputNode && inputNode.__thumb) {
         try {
           if (inputNode.__thumb instanceof HTMLCanvasElement) {
-            console.log('Drawing from canvas');
             ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
           } else if (inputNode.__thumb instanceof ImageData) {
-            console.log('Drawing from ImageData');
             ctx.putImageData(inputNode.__thumb, 0, 0);
           } else {
-            console.log('Unknown thumb type, trying drawImage anyway');
             ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
           }
-          
+
           // Add green border
           ctx.strokeStyle = "rgba(76, 175, 80, 0.6)";
           ctx.lineWidth = 2;
           ctx.strokeRect(1, 1, size - 2, size - 2);
-          console.log('Successfully copied input thumbnail');
           return;
         } catch (err) {
           console.error('Failed to copy input thumbnail:', err);
         }
-      } else {
-        console.log('Input node or __thumb not found');
       }
-    } else {
-      console.log('Editor/graph/nodes not available');
     }
-  } else {
-    console.log('No node or inputs');
   }
-  
+
   // Fallback
-  console.log('Using fallback color rendering');
   this._renderColorThumbnail(ctx, size, color);
   ctx.strokeStyle = "#fff";
   ctx.lineWidth = 2;

@@ -80,7 +80,6 @@ export class BrowserAudioCapture {
      */
     async loadFile(file) {
         try {
-            console.log('[BrowserAudio] Loading file:', file.name);
 
             // Stop current audio if any
             this.stop();
@@ -123,7 +122,6 @@ export class BrowserAudioCapture {
             this.analyser.connect(this.audioContext.destination); // So we can hear it
 
             this._emit('loaded', file.name);
-            console.log('[BrowserAudio] File loaded successfully');
 
         } catch (error) {
             console.error('[BrowserAudio] Failed to load file:', error);
@@ -144,7 +142,6 @@ export class BrowserAudioCapture {
             await this.audioElement.play();
             this.isPlaying = true;
             this._emit('started');
-            console.log('[BrowserAudio] Playing');
         } catch (error) {
             console.error('[BrowserAudio] Failed to play:', error);
             this._emit('error', error);
@@ -160,7 +157,6 @@ export class BrowserAudioCapture {
             this.audioElement.pause();
             this.isPlaying = false;
             this._emit('stopped');
-            console.log('[BrowserAudio] Paused');
         }
     }
 
@@ -180,7 +176,6 @@ export class BrowserAudioCapture {
         this._envelopeValue = 0;
 
         this._emit('stopped');
-        console.log('[BrowserAudio] Stopped');
     }
 
     /**
@@ -375,7 +370,6 @@ export class BrowserAudioCapture {
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {
-            console.log('[Audio] Envelope values:', {
                 main: this._envelopeValue.toFixed(3),
                 bass: this._envelopeBass.toFixed(3),
                 mids: this._envelopeMids.toFixed(3),
@@ -587,9 +581,7 @@ let instance = null;
 export function getBrowserAudioCapture() {
     if (!instance) {
         try {
-            console.log('[getBrowserAudioCapture] Creating new BrowserAudioCapture instance');
             instance = new BrowserAudioCapture();
-            console.log('[getBrowserAudioCapture] Instance created successfully');
         } catch (error) {
             console.error('[getBrowserAudioCapture] Failed to create instance:', error);
             throw error;
@@ -603,11 +595,9 @@ export function getBrowserAudioCapture() {
  */
 export function getAudioEnvelope() {
     if (!instance) {
-        console.log('[getAudioEnvelope] No instance, creating new one');
         instance = new BrowserAudioCapture();
     }
     const value = instance.getValue();
-    console.log('[getAudioEnvelope] Returning value:', value, 'isPlaying:', instance.isPlaying);
     return value;
 }
 

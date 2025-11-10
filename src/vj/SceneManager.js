@@ -18,7 +18,6 @@ export class SceneManager {
     // Scene metadata
     this.sceneOrder = []; // Array of sceneIds for ordering
 
-    console.log('[SceneManager] Initialized');
   }
 
   /**
@@ -43,7 +42,6 @@ export class SceneManager {
       this.sceneOrder.push(sceneId);
     }
 
-    console.log(`[SceneManager] Added scene: ${name} (${sceneId})`);
     return scene;
   }
 
@@ -53,13 +51,11 @@ export class SceneManager {
   removeScene(sceneId) {
     // Allow removing active scene - just clear the active ID
     if (sceneId === this.activeSceneId) {
-      console.log('[SceneManager] Removing active scene, clearing active ID');
       this.activeSceneId = null;
     }
 
     this.scenes.delete(sceneId);
     this.sceneOrder = this.sceneOrder.filter(id => id !== sceneId);
-    console.log(`[SceneManager] Removed scene: ${sceneId}`);
     return true;
   }
 
@@ -110,7 +106,6 @@ export class SceneManager {
       return false;
     }
 
-    console.log(`[SceneManager] Switching to scene: ${scene.name}`);
 
     // Store previous scene
     this.previousSceneId = this.activeSceneId;
@@ -120,7 +115,6 @@ export class SceneManager {
     // Load the scene into the editor
     try {
       await this.saveLoadManager.importProject(scene.data);
-      console.log(`[SceneManager] Scene loaded: ${scene.name}`);
       return true;
     } catch (error) {
       console.error('[SceneManager] Failed to load scene:', error);
@@ -207,7 +201,6 @@ export class SceneManager {
         this.sceneOrder = data.sceneOrder;
       }
 
-      console.log(`[SceneManager] Imported ${data.scenes.length} scenes`);
       return true;
     } catch (error) {
       console.error('[SceneManager] Failed to import scenes:', error);
@@ -222,7 +215,6 @@ export class SceneManager {
     try {
       const data = this.exportScenes();
       localStorage.setItem('rhizomium.vj.scenes', JSON.stringify(data));
-      console.log('[SceneManager] Saved scenes to localStorage');
       return true;
     } catch (error) {
       console.error('[SceneManager] Failed to save scenes:', error);

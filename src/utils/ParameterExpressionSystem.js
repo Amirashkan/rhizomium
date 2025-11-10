@@ -3,19 +3,6 @@
 import { getAudioEnvelope } from '../audio/BrowserAudioCapture.js';
 import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
 
-console.log('=== TRACING PARAMETER CHANGES ===');
-
-// Override ALL possible setValue methods
-['setValue', 'updateNodeParameter', 'setParameter'].forEach(methodName => {
-  if (window.editor?.paramPanel?.valueManager?.[methodName]) {
-    const original = window.editor.paramPanel.valueManager[methodName];
-    window.editor.paramPanel.valueManager[methodName] = function(...args) {
-      console.log(`${methodName} called with:`, args);
-      return original.apply(this, args);
-    };
-  }
-});
-
 export class ParameterExpressionSystem {
   constructor() {
     this.expressionCache = new Map();
@@ -76,13 +63,12 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
   this.undoStack.push(action);
   this.redoStack = []; // Clear redo stack when new action is recorded
-  
+
   // Limit stack size
   if (this.undoStack.length > this.maxUndoSteps) {
     this.undoStack.shift();
   }
 
-  console.log('Recorded parameter change:', action);
   this.updateUI();
 }
   /**

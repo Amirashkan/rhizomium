@@ -66,7 +66,6 @@ export class VercelFrameStream {
             this.connection = new WebSocket(url);
 
             this.connection.onopen = () => {
-                console.log('[VercelFrameStream] Connected to Partykit');
                 if (this.onConnectionCallback) {
                     this.onConnectionCallback(true);
                 }
@@ -93,7 +92,6 @@ export class VercelFrameStream {
             };
 
             this.connection.onclose = () => {
-                console.log('[VercelFrameStream] Disconnected from Partykit');
                 if (this.onConnectionCallback) {
                     this.onConnectionCallback(false);
                 }
@@ -126,7 +124,6 @@ export class VercelFrameStream {
             this.channel = this.connection.subscribe(`private-${this.roomName}`);
 
             this.channel.bind('pusher:subscription_succeeded', () => {
-                console.log('[VercelFrameStream] Connected to Pusher');
                 if (this.onConnectionCallback) {
                     this.onConnectionCallback(true);
                 }
@@ -169,7 +166,6 @@ export class VercelFrameStream {
     async startStreaming() {
         this.isStreaming = true;
         await this.connect();
-        console.log('[VercelFrameStream] Started streaming');
     }
 
     /**
@@ -177,7 +173,6 @@ export class VercelFrameStream {
      */
     stopStreaming() {
         this.isStreaming = false;
-        console.log('[VercelFrameStream] Stopped streaming');
     }
 
     /**
@@ -187,7 +182,6 @@ export class VercelFrameStream {
         this.isReceiving = true;
         this.onFrameCallback = onFrame;
         await this.connect();
-        console.log('[VercelFrameStream] Started receiving');
     }
 
     /**
@@ -195,7 +189,6 @@ export class VercelFrameStream {
      */
     stopReceiving() {
         this.isReceiving = false;
-        console.log('[VercelFrameStream] Stopped receiving');
     }
 
     /**
@@ -276,7 +269,6 @@ export class VercelFrameStream {
         if (this.usePusher && this.channel) {
             // For Pusher, we need to use HTTP API to send events
             // This requires server-side implementation
-            console.warn('[VercelFrameStream] Pusher requires server-side sending');
         } else if (this.connection && this.connection.readyState === WebSocket.OPEN) {
             this.connection.send(JSON.stringify(data));
         }
@@ -348,7 +340,6 @@ export class VercelFrameStream {
             }
 
             this.connection = null;
-            console.log('[VercelFrameStream] Connection closed');
         }
     }
 }

@@ -310,8 +310,6 @@ export class ComputeFieldMapperNode extends Node {
                 this.markNeedsUpdate();
                 break;
 
-            default:
-                console.warn(`[ComputeFieldMapperNode] Unknown parameter: ${paramName}`);
         }
     }
 
@@ -463,8 +461,6 @@ export class ComputeFieldMapperNode extends Node {
             this.visualizationParams.displacementScale,
             this.visualizationParams.displacementAxis
         );
-
-        console.log(`[ComputeFieldMapperNode] Initialized visualizer for ${this.name}`);
     }
 
     /**
@@ -475,7 +471,6 @@ export class ComputeFieldMapperNode extends Node {
      */
     async generateVisualization(fieldTexture, forceUpdate = false) {
         if (!this.visualizer) {
-            console.warn('[ComputeFieldMapperNode] Visualizer not initialized');
             return null;
         }
 
@@ -499,7 +494,6 @@ export class ComputeFieldMapperNode extends Node {
             // Check if the texture is 3D
             if (fieldTexture.dimension === '3d') {
                 // Generate mesh from 3D texture using marching cubes
-                console.log('[ComputeFieldMapperNode] Generating mesh from 3D field data...');
                 // We need the device to read texture data
                 if (!this.device) {
                     console.error('[ComputeFieldMapperNode] Device not available for mesh generation');
@@ -509,7 +503,6 @@ export class ComputeFieldMapperNode extends Node {
                 }
             } else {
                 // 2D texture - generate mesh from heightmap-style data
-                console.log('[ComputeFieldMapperNode] Generating mesh from 2D field data (heightmap mode)...');
                 // Read 2D texture and use marching cubes on extruded data
                 this.geometry = await this.visualizer.generatePointCloud(fieldTexture);
             }

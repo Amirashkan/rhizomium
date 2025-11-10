@@ -78,8 +78,6 @@ export class GPURenderer {
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
         label: "msaa-render-target",
       });
-
-      console.log(`[GPURenderer] ✓ MSAA texture created: ${width}x${height} (${this.sampleCount}x MSAA enabled)`);
     } catch (err) {
       console.error(`[GPURenderer] Failed to create MSAA texture (${this.sampleCount}x), falling back to no MSAA:`, err);
       // Fall back to sampleCount = 1 (no MSAA)
@@ -101,7 +99,6 @@ export class GPURenderer {
       this.canvas.height = targetHeight;
       this._lastAspectWritten = null; // force aspect ratio recalculation
       this._createMSAATexture(); // Recreate MSAA texture for new size
-      console.log(`[GPURenderer] Canvas resized to ${targetWidth}x${targetHeight} (${dpr}x DPR)`);
     }
   }
 
@@ -153,7 +150,6 @@ export class GPURenderer {
           if (uniformManager && uniformManager.uniformValues.size > 0) {
             const numParams = uniformManager.uniformValues.size;
             size = Math.max(16, Math.ceil(numParams * 4 / 16) * 16); // Round up to 16-byte alignment
-            console.log(`[GPURenderer] Creating u_params buffer for ${numParams} parameters, size ${size} bytes`);
           }
         }
         return {
@@ -217,7 +213,6 @@ export class GPURenderer {
     const texManager = typeof window !== "undefined" ? window.textureManager : null;
     if (!texManager || !resource || !resource.varName) return;
 
-    console.log(`[GPURenderer] Looking up texture binding for: ${resource.varName}`);
     const info = this._lookupTextureBinding(texManager, resource.varName);
 
     if (!info) {
@@ -225,15 +220,11 @@ export class GPURenderer {
       return;
     }
 
-    console.log(`[GPURenderer] Found texture for ${resource.varName}:`, info);
-
     if (resource.textureView && info.textureView) {
       resource.textureView = info.textureView;
-      console.log(`[GPURenderer] Applied textureView for ${resource.varName}`);
     }
     if (resource.sampler && info.sampler) {
       resource.sampler = info.sampler;
-      console.log(`[GPURenderer] Applied sampler for ${resource.varName}`);
     }
   }
 
@@ -245,7 +236,6 @@ export class GPURenderer {
 
     // Check compute textures first (for compute shader nodes)
     if (prefix === 'compute_' || prefix === 'sampler_compute_') {
-      console.log(`[GPURenderer] Checking compute textures for varName: ${varName}, prefix: ${prefix}, sanitizedId: ${sanitizedId}`);
       const computeExecutor = typeof window !== 'undefined' ? window.computeExecutor : null;
 
       if (!computeExecutor) {
@@ -258,20 +248,14 @@ export class GPURenderer {
         return null;
       }
 
-      console.log('[GPURenderer] ComputeExecutor.computeTextures keys:', Array.from(computeExecutor.computeTextures.keys()));
-
       const actualId = sanitizedId.replace('compute_', '');
-      console.log(`[GPURenderer] Looking for compute texture with ID: ${actualId}`);
 
       const computeInfo = computeExecutor.computeTextures.get(actualId);
       if (computeInfo) {
-        console.log(`[GPURenderer] Found compute texture for ${actualId}:`, computeInfo);
         // Return appropriate resource based on prefix
         if (prefix.startsWith('sampler_')) {
-          console.log(`[GPURenderer] Returning sampler for ${varName}`);
           return { sampler: computeInfo.sampler };
         } else {
-          console.log(`[GPURenderer] Returning texture view for ${varName}`);
           return { textureView: computeInfo.texture.createView() };
         }
       } else {
@@ -407,7 +391,6 @@ export class GPURenderer {
     const data = new Float32Array([aspect, 0, 0, 0]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
     this._lastAspectWritten = aspect;
-    console.log(`[GPURenderer] aspect uniform <- ${aspect.toFixed(4)} (${width}x${height})`);
   }
 
   _writeAspectForSize(width, height) {
@@ -478,17 +461,6 @@ export class GPURenderer {
       width, height, timeSec, audioEnvelope,
       audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull
     ]);
-
-    // Debug logging (every 2 seconds)
-    if (!this._lastGPUDebugLog || Date.now() - this._lastGPUDebugLog > 2000) {
-      console.log('[GPU] Writing envelope uniforms:', {
-        bass: audioEnvelopeBass.toFixed(3),
-        mids: audioEnvelopeMids.toFixed(3),
-        highs: audioEnvelopeHighs.toFixed(3),
-        full: audioEnvelopeFull.toFixed(3)
-      });
-      this._lastGPUDebugLog = Date.now();
-    }
 
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
@@ -561,7 +533,6 @@ export class GPURenderer {
       }
 
       this.canvas.style.backgroundColor = "";
-      console.log("[GPURenderer] Shader compiled & pipeline created");
     } catch (err) {
       console.error("[GPURenderer] Shader compile/pipeline error:", err);
       this.clear();
@@ -621,8 +592,6 @@ export class GPURenderer {
 
     // Mark that we've updated the bind groups
     texManager.bindGroup = {};
-
-    console.log("[GPURenderer] Texture bindings updated");
   }
 
   async render(config) {

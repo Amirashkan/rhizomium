@@ -8,8 +8,6 @@ export class UndoManager {
     this.redoStack = [];
     this.maxUndoSteps = 50;
     this.onChange = editor ? editor.onChange : null;
-    
-    console.log('UndoManager initialized with graph:', !!graph, 'editor:', !!editor);
   }
 
   setEditor(editor) {
@@ -19,8 +17,6 @@ export class UndoManager {
 
   // Record a connection deletion for undo
   recordConnectionDeletion(connectionData) {
-    console.log('Recording connection deletion:', connectionData);
-    
     // Handle your connection format (sourceNode, targetNode, targetInput)
     let sourceNodeId, targetNodeId, targetInput;
     
@@ -46,7 +42,6 @@ export class UndoManager {
     };
 
     this.pushAction(action);
-    console.log('Connection deletion recorded:', action);
   }
 
   // Record generic actions for custom undo operations
@@ -64,13 +59,12 @@ export class UndoManager {
 
     this.undoStack.push(action);
     this.redoStack = []; // Clear redo stack when new action is recorded
-    
+
     // Limit stack size
     if (this.undoStack.length > this.maxUndoSteps) {
       this.undoStack.shift();
     }
 
-    console.log('Recorded action:', action.type, action);
     this.updateUI();
   }
 
@@ -80,8 +74,6 @@ export class UndoManager {
       console.warn('No nodes provided for group deletion recording');
       return;
     }
-
-    console.log('Recording group deletion:', nodes.length, 'nodes');
 
     const nodeSnapshots = [];
     const allConnections = [];
@@ -160,24 +152,19 @@ export class UndoManager {
     };
 
     this.pushAction(action);
-    console.log('Group deletion recorded:', nodeSnapshots.length, 'nodes with connections');
   }
 
   // Record node deletion with enhanced connection tracking
   recordNodeDeletion(node) {
-    console.log('Recording node deletion:', node.kind, node.id);
-    
     let incomingConnections = [];
     let outgoingConnections = [];
-    
+
     // Check if node has enhanced connection snapshot
     if (node._connectionSnapshot) {
-      console.log('Using enhanced connection snapshot for node', node.id);
       incomingConnections = node._connectionSnapshot.incoming;
       outgoingConnections = node._connectionSnapshot.outgoing;
     } else {
       // Fallback to old method
-      console.log('Using fallback connection detection for node', node.id);
       
       // Find connections TO this node (incoming)
       this.graph.nodes.forEach(otherNode => {
@@ -241,9 +228,6 @@ export class UndoManager {
     };
 
     this.pushAction(action);
-    console.log('Node deletion recorded with', 
-               incomingConnections.length, 'incoming and', 
-               outgoingConnections.length, 'outgoing connections');
   }
 
   // Record node movement
@@ -278,13 +262,12 @@ export class UndoManager {
 
     this.undoStack.push(action);
     this.redoStack = []; // Clear redo stack when new action is recorded
-    
+
     // Limit stack size
     if (this.undoStack.length > this.maxUndoSteps) {
       this.undoStack.shift();
     }
 
-    console.log('Recorded node movement:', action);
     this.updateUI();
   }
 
@@ -306,13 +289,12 @@ export class UndoManager {
 
     this.undoStack.push(action);
     this.redoStack = []; // Clear redo stack when new action is recorded
-    
+
     // Limit stack size
     if (this.undoStack.length > this.maxUndoSteps) {
       this.undoStack.shift();
     }
 
-    console.log('Recorded parameter change:', action);
     this.updateUI();
   }
 
@@ -328,7 +310,6 @@ export class UndoManager {
     };
 
     this.pushAction(action);
-    console.log('Connection creation recorded:', action);
   }
 
   // Record node creation (for when user creates a node)
@@ -350,7 +331,6 @@ export class UndoManager {
     };
 
     this.pushAction(action);
-    console.log('Node creation recorded:', action);
   }
 
   // Record group creation (multiple nodes at once, like paste/duplicate)
@@ -359,8 +339,6 @@ export class UndoManager {
       console.warn('No nodes provided for group creation recording');
       return;
     }
-
-    console.log('Recording group creation:', nodes.length, 'nodes');
 
     const nodeSnapshots = nodes.map(node => {
       const nodeIndex = this.graph.nodes.indexOf(node);
@@ -384,7 +362,6 @@ export class UndoManager {
     };
 
     this.pushAction(action);
-    console.log('Group creation recorded:', action);
   }
 
   // Push action to undo stack
@@ -403,12 +380,10 @@ export class UndoManager {
   // Perform undo
   undo() {
     if (this.undoStack.length === 0) {
-      console.log('Nothing to undo');
       return false;
     }
 
     const action = this.undoStack.pop();
-    console.log('Undoing action:', action.type);
 
     try {
       let success = false;
@@ -515,7 +490,6 @@ export class UndoManager {
             }
           });
 
-          console.log(`Restored ${restoredCount} nodes from group deletion`);
           if (this.onChange) {
             this.onChange(`Undo delete ${restoredCount} nodes`);
           }
@@ -692,7 +666,6 @@ export class UndoManager {
       if (success) {
         this.redoStack.push(action);
         this.refreshEditor();
-        console.log('Undo successful');
         return true;
       } else {
         // Put action back if failed
@@ -711,12 +684,10 @@ export class UndoManager {
   // Perform redo
   redo() {
     if (this.redoStack.length === 0) {
-      console.log('Nothing to redo');
       return false;
     }
 
     const action = this.redoStack.pop();
-    console.log('Redoing action:', action.type);
 
     try {
       let success = false;
@@ -765,7 +736,6 @@ export class UndoManager {
             }
           });
 
-          console.log(`Re-deleted ${deletedCount} nodes from group`);
           if (this.onChange) {
             this.onChange(`Redo delete ${deletedCount} nodes`);
           }
@@ -820,7 +790,6 @@ export class UndoManager {
           // Select recreated nodes
           this.graph.selection = new Set(recreatedNodes.map(n => n.id));
 
-          console.log(`Recreated ${recreatedCount} nodes from group creation`);
           if (this.onChange) {
             this.onChange(`Redo create ${recreatedCount} nodes`);
           }
@@ -941,7 +910,6 @@ export class UndoManager {
       if (success) {
         this.undoStack.push(action);
         this.refreshEditor();
-        console.log('Redo successful');
         return true;
       } else {
         this.redoStack.push(action);
@@ -966,8 +934,6 @@ export class UndoManager {
       return false;
     }
 
-    console.log(`Restoring connection: ${sourceNode.kind}(${sourceNode.id}) -> ${targetNode.kind}(${targetNode.id})[${action.targetInput}]`);
-
     // Restore to node.inputs array
     if (!targetNode.inputs) targetNode.inputs = [];
     while (targetNode.inputs.length <= action.targetInput) {
@@ -989,15 +955,11 @@ export class UndoManager {
       to: { nodeId: targetNode.id, pin: action.targetInput }
     });
 
-    console.log('Connection restored successfully');
     return true;
   }
 
   // Undo node deletion (restore node) - ENHANCED VERSION
   undoNodeDeletion(action) {
-    console.log('Restoring node:', action.node.kind, action.node.id);
-    console.log('With connections - Incoming:', action.incomingConnections?.length, 'Outgoing:', action.outgoingConnections?.length);
-
     // Check if node already exists
     if (this.graph.nodes.find(n => n.id === action.node.id)) {
       console.warn('Node already exists, cannot restore');
@@ -1026,8 +988,6 @@ export class UndoManager {
         }
       });
 
-      console.log('Recreated node object:', restoredNode);
-
       // Add node to graph at original position
       if (action.node.nodeIndex >= 0 && action.node.nodeIndex <= this.graph.nodes.length) {
         this.graph.nodes.splice(action.node.nodeIndex, 0, restoredNode);
@@ -1036,8 +996,6 @@ export class UndoManager {
       }
 
       // Restore ALL connections involving this node
-      console.log('Restoring connections...');
-
       // 1. Restore incoming connections (connections TO this node)
       if (action.incomingConnections) {
         action.incomingConnections.forEach(conn => {
@@ -1063,8 +1021,6 @@ export class UndoManager {
               from: { nodeId: conn.sourceNodeId, pin: 0 },
               to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
             });
-            
-            console.log('Restored incoming connection:', conn);
           }
         });
       }
@@ -1092,12 +1048,9 @@ export class UndoManager {
             from: { nodeId: conn.sourceNodeId, pin: 0 },
             to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
           });
-          
-          console.log('Restored outgoing connection:', conn);
         });
       }
 
-      console.log('Node and all connections restored successfully');
       return true;
 
     } catch (error) {
@@ -1115,8 +1068,6 @@ export class UndoManager {
       return false;
     }
 
-    console.log(`Undoing connection creation: ${action.sourceNodeId} -> ${action.targetNodeId}[${action.targetInput}]`);
-
     // Remove from node.inputs array
     targetNode.inputs[action.targetInput] = null;
 
@@ -1127,7 +1078,6 @@ export class UndoManager {
       );
     }
 
-    console.log('Connection creation undone');
     return true;
   }
 
@@ -1158,7 +1108,6 @@ export class UndoManager {
 
     // Remove the node
     this.graph.nodes.splice(nodeIndex, 1);
-    console.log('Node creation undone');
     return true;
   }
 
@@ -1179,8 +1128,7 @@ export class UndoManager {
         c => !(c.to && c.to.nodeId == action.targetNodeId && c.to.pin == action.targetInput)
       );
     }
-    
-    console.log('Connection re-deleted');
+
     return true;
   }
 
@@ -1210,7 +1158,6 @@ export class UndoManager {
 
     // Remove the node
     this.graph.nodes.splice(nodeIndex, 1);
-    console.log('Node re-deleted');
     return true;
   }
 
@@ -1238,7 +1185,6 @@ export class UndoManager {
       to: { nodeId: action.targetNodeId, pin: action.targetInput }
     });
 
-    console.log('Connection re-created');
     return true;
   }
 
@@ -1263,7 +1209,6 @@ export class UndoManager {
         : this.graph.nodes.length;
 
     this.graph.nodes.splice(insertIndex, 0, restoredNode);
-    console.log('Node creation redone:', restoredNode.id);
     return true;
   }
 
@@ -1337,7 +1282,6 @@ export class UndoManager {
     this.undoStack = [];
     this.redoStack = [];
     this.updateUI();
-    console.log('Undo history cleared');
   }
 
   // Get status for debugging

@@ -4,10 +4,9 @@
  */
 
 async function test3DVisualization() {
-    console.log('=== Testing 3D Visualization System ===\n');
+    console.log('=== Testing 3D Visualization System ===');
 
     // Check prerequisites
-    console.log('1. Checking system components...');
     const checks = {
         'GPURenderer': window.gpuRenderer,
         'Scene': window.systemIntegration?.scene,
@@ -25,35 +24,30 @@ async function test3DVisualization() {
     }
 
     if (!allGood) {
-        console.error('\n❌ Some components are missing. Make sure the editor is fully loaded.');
+        console.error('❌ Some components are missing');
         return;
     }
 
-    console.log('\n2. Showing 3D viewport...');
     window.viewportPanel.show();
 
-    console.log('\n3. Adding test cube to scene...');
     try {
         const device = window.gpuRenderer?.device;
         if (!device) {
             console.error('   ✗ WebGPU device not available');
         } else {
             const cube = await window.addTestCubeToScene(window.systemIntegration.scene, device);
-            console.log(`   ✓ Test cube added with ${cube.geometry.vertexCount} vertices`);
+            console.log(`   ✓ Test cube added (${cube.geometry.vertexCount} vertices)`);
         }
     } catch (error) {
         console.error('   ✗ Failed to add test cube:', error);
     }
 
-    console.log('\n4. Rendering scene...');
     try {
         window.sceneRenderer3D.render();
         console.log('   ✓ Scene rendered');
     } catch (error) {
         console.error('   ✗ Render failed:', error);
     }
-
-    console.log('\n5. Testing marching cubes mesh generation...');
     try {
         const { MarchingCubes } = await import('./src/scene/algorithms/MarchingCubes.js');
 
@@ -84,20 +78,12 @@ async function test3DVisualization() {
             { min: [-1, -1, -1], max: [1, 1, 1] }
         );
 
-        console.log(`   ✓ Generated mesh: ${mesh.vertexCount} vertices, ${mesh.indices.length / 3} triangles`);
+        console.log(`   ✓ Generated mesh (${mesh.vertexCount} vertices, ${mesh.indices.length / 3} triangles)`);
     } catch (error) {
         console.error('   ✗ Marching cubes test failed:', error);
     }
 
-    console.log('\n=== Test Complete ===');
-    console.log('\n✅ If you see a rotating cube in the 3D viewport, the system works!');
-    console.log('\n📋 To use ComputeFieldMapper in your graph:');
-    console.log('   1. DISCONNECT ComputeFieldMapper from OutputFinal');
-    console.log('   2. Create a ComputeNoise (or other compute shader) node');
-    console.log('   3. Connect: ComputeNoise → ComputeFieldMapper');
-    console.log('   4. The 3D visualization will appear automatically!');
-    console.log('\n💡 Tip: Press Ctrl+3 to toggle the 3D viewport');
-    console.log('\n📚 Read QUICK-START-3D.md for complete instructions');
+    console.log('=== Test Complete ===');
 }
 
 // Auto-run if loaded as module

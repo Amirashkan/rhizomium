@@ -36,8 +36,6 @@ export class MIDIParameterBinding {
     this.eventSystem.on('MIDI_CC', (data) => {
       this.handleCCMessage(data);
     });
-
-    console.log('[MIDIParameterBinding] Event listener registered for MIDI_CC');
   }
 
   /**
@@ -82,15 +80,9 @@ export class MIDIParameterBinding {
 
     // Mark this parameter to use a GPU uniform instead of being baked
     this.midiParameters.add(paramKey);
-    console.log(`[MIDI] Marked ${paramKey} for uniform usage`);
-    console.log(`[MIDI] Current MIDI parameters:`, Array.from(this.midiParameters));
-
-    console.log(`Created MIDI binding: CC${cc} (Ch${channel}) → ${node.kind}.${paramName}`);
 
     // Trigger ONE shader recompilation to generate the uniform
     if (window.editor?.onChange) {
-      console.log('[MIDI] Triggering shader recompile to generate uniform');
-      console.log('[MIDI] Node:', node.id, 'Param:', paramName, 'Current value:', node.params[paramName]);
       window.editor.onChange();
     }
 
@@ -111,8 +103,6 @@ export class MIDIParameterBinding {
       this.parameterToMIDI.delete(paramKey);
       this.bindings.delete(midiKey);
 
-      console.log(`Removed MIDI binding: CC${cc} (Ch${channel})`);
-
       this.eventSystem.emit('MIDI_BINDING_REMOVED', binding);
       return true;
     }
@@ -132,7 +122,6 @@ export class MIDIParameterBinding {
       this.bindings.delete(midiKey);
       this.parameterToMIDI.delete(paramKey);
 
-      console.log(`Removed MIDI binding for parameter: ${nodeId}.${paramName}`);
       return true;
     }
 
@@ -148,7 +137,6 @@ export class MIDIParameterBinding {
 
     // Check if we're in learning mode
     if (this.learningMode && this.learningTarget) {
-      console.log(`[MIDIParameterBinding] Learning mode active, assigning CC${cc} to parameter`);
       this.completeLearning(deviceId, channel, cc);
       return;
     }
@@ -156,14 +144,8 @@ export class MIDIParameterBinding {
     // Check if this CC is bound to a parameter
     const binding = this.bindings.get(midiKey);
 
-    console.log(`[MIDI CC${cc}] Key: ${midiKey}, Binding found:`, binding ? `${binding.nodeId}.${binding.paramName}` : 'NONE');
-    console.log(`[MIDI] Total bindings:`, this.bindings.size, 'Keys:', Array.from(this.bindings.keys()));
-
     if (binding && binding.enabled) {
-      console.log(`[MIDI] Updating parameter: ${binding.nodeId}.${binding.paramName} = ${normalizedValue}`);
       this.updateParameter(binding, normalizedValue);
-    } else if (binding && !binding.enabled) {
-      console.log(`[MIDI] Binding exists but is DISABLED`);
     }
 
     // Emit generic MIDI CC update event
@@ -241,9 +223,6 @@ export class MIDIParameterBinding {
     this.learningMode = true;
     this.learningTarget = { nodeId, paramName, callback };
 
-    console.log(`[MIDIParameterBinding] MIDI Learn mode started for ${nodeId}.${paramName}`);
-    console.log('Move any MIDI controller to assign it to this parameter');
-
     if (this.eventSystem) {
       this.eventSystem.emit('MIDI_LEARN_STARTED', {
         nodeId,
@@ -264,8 +243,6 @@ export class MIDIParameterBinding {
     const success = this.createBinding(deviceId, channel, cc, nodeId, paramName);
 
     if (success) {
-      console.log(`MIDI Learn complete: CC${cc} → ${nodeId}.${paramName}`);
-
       if (callback) {
         callback({ deviceId, channel, cc, nodeId, paramName });
       }
@@ -468,7 +445,6 @@ export class MIDIParameterBinding {
   updateUniformValue(nodeId, paramName, value) {
     const uniformManager = window.nodeCompiler?.uniformManager;
     if (!uniformManager) {
-      console.warn('[MIDI] Uniform manager not available');
       return;
     }
 
@@ -508,9 +484,7 @@ export class MIDIParameterBinding {
    * Debug
    */
   debugPrintBindings() {
-    console.log('=== MIDI Parameter Bindings ===');
     this.bindings.forEach((binding, midiKey) => {
-      console.log(`${midiKey} → ${binding.nodeId}.${binding.paramName} [${binding.min}-${binding.max}]`);
     });
   }
 

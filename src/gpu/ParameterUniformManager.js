@@ -18,7 +18,6 @@ export class ParameterUniformManager {
 // In ParameterUniformManager.js
 
 analyzeNode(node) {
-  console.log(`Analyzing node ${node.id}`);
 
   // inside analyzeNode(node)
   for (const [paramName, paramValue] of Object.entries(node.params || {})) {
@@ -43,7 +42,6 @@ analyzeNode(node) {
       const paramKey = `${node.id}.${paramName}`;
       const numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
       this.uniformValues.set(paramKey, numericValue);
-      console.log(`[MIDI→Uniform] ${paramKey} = ${numericValue}`);
     }
   }
 
@@ -53,7 +51,6 @@ analyzeNode(node) {
     .map(key => key.split('.')[1]);
 
   if (dynamicParamsForNode.length > 0) {
-    console.log(`Node ${node.id} has ${dynamicParamsForNode.length} dynamic params:`, dynamicParamsForNode);
   }
 }
 
@@ -112,7 +109,6 @@ evaluateExpression(expr, context = {}) {
       const exprValue = expr.startsWith('=') ? expr : `=${expr}`;
       return window.expressionSystem.evaluateExpression(exprValue, context);
     } catch (error) {
-      console.warn('Failed to evaluate expression:', error);
       return 0;
     }
   }
@@ -127,10 +123,8 @@ evaluateExpression(expr, context = {}) {
         // Add = prefix if not present for expression system
         const exprValue = value.startsWith('=') ? value : `=${value}`;
         const result = window.expressionSystem.evaluateExpression(exprValue, {}, node);
-        console.log(`📊 Evaluated ${node.id} param: ${value} = ${result}`);
         return result;
       } catch (error) {
-        console.warn('Failed to evaluate parameter:', error);
         return 0;
       }
     }
@@ -178,7 +172,6 @@ isDynamicExpression(value) {
   // CRITICAL: Expressions containing 'time' are embedded in shader code directly
   // They don't need CPU-side uniforms because they use the GPU's g.time uniform
   if (/\btime\b/i.test(value)) {
-    console.log(`⏱️ Expression "${value}" contains 'time' - will be embedded as shader code, NOT a uniform`);
     return false;  // NOT dynamic in the sense of needing a parameter uniform
   }
   
@@ -209,7 +202,6 @@ updateValues(graph) {
           this.uniformValues.set(key, evaluated);
         } catch (error) {
           // Keep existing value on error
-          console.warn(`Failed to update ${key}:`, error);
         }
       }
     }
@@ -220,11 +212,8 @@ updateValues(graph) {
    * Generate WGSL uniform struct declaration
    */
 generateUniformStruct() {
-  console.log('[Uniform] generateUniformStruct called, uniformValues.size:', this.uniformValues.size);
-  console.log('[Uniform] uniformValues:', Array.from(this.uniformValues.entries()));
 
   if (this.uniformValues.size === 0) {
-    console.log('[Uniform] No uniform values, returning empty string');
     return '';
   }
 
@@ -237,13 +226,11 @@ generateUniformStruct() {
     const fieldName = sanitizedName.startsWith('_') ? sanitizedName : `_${sanitizedName}`;
 
     structDef += `  ${fieldName}: f32,\n`;
-    console.log('🔧 Generated uniform struct field:', fieldName, '=', value);
   }
 
   structDef += '}\n\n';
   structDef += '@group(0) @binding(2) var<uniform> u_params: ParamUniforms;\n';
 
-  console.log('[Uniform] Generated struct:\n', structDef);
   return structDef;
 }
 

@@ -36,7 +36,6 @@ export class FrameStreamClient {
         this.sendQueue = [];
         this.sending = false;
 
-        console.log('[FrameStreamClient] Initialized with server:', serverUrl);
     }
 
     /**
@@ -52,11 +51,9 @@ export class FrameStreamClient {
             if (response.ok) {
                 const data = await response.json();
                 this.connected = true;
-                console.log('[FrameStreamClient] Server connected:', data);
                 return true;
             }
         } catch (error) {
-            console.warn('[FrameStreamClient] Server not available:', error.message);
             this.connected = false;
         }
         return false;
@@ -75,7 +72,6 @@ export class FrameStreamClient {
         this.frameCount = 0;
         this.lastFrameTime = performance.now();
 
-        console.log('[FrameStreamClient] Streaming started');
     }
 
     /**
@@ -83,7 +79,6 @@ export class FrameStreamClient {
      */
     stopStreaming() {
         this.streaming = false;
-        console.log('[FrameStreamClient] Streaming stopped');
     }
 
     /**
@@ -141,7 +136,6 @@ export class FrameStreamClient {
             // Update FPS
             if (this.frameCount % 30 === 0) {
                 this.fps = 30000 / (now - (this.lastFrameTime - elapsed));
-                console.log(`[FrameStreamClient] Streaming at ${this.fps.toFixed(1)} FPS`);
             }
 
         } catch (error) {
@@ -353,7 +347,6 @@ export class FrameStreamClient {
     setTargetFPS(fps) {
         this.targetFps = Math.max(1, Math.min(60, fps));
         this.minFrameInterval = 1000 / this.targetFps;
-        console.log(`[FrameStreamClient] Target FPS set to ${this.targetFps}`);
     }
 
     /**

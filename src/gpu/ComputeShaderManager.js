@@ -82,7 +82,6 @@ export class ComputeShaderManager {
           const result = unifiedExpressionSystem.evaluateCPU(value, context);
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
-          console.warn('[ComputeShaderManager] Failed to evaluate expression:', value, error);
           return defaultValue;
         }
       }
@@ -135,7 +134,6 @@ export class ComputeShaderManager {
     // Create compute pipeline
     await this.createComputePipeline(wgslSource);
 
-    console.log('[ComputeShaderManager] Initialized:', {
       textureSize: `${width}x${height}`,
       workgroupSize: `${this.workgroupSize.x}x${this.workgroupSize.y}`,
       dispatchSize: `${this.dispatchSize.x}x${this.dispatchSize.y}`,
@@ -166,7 +164,6 @@ export class ComputeShaderManager {
       { width: 1, height: 1 }
     );
 
-    console.log('[ComputeShaderManager] Created fallback input texture');
   }
 
   /**
@@ -199,7 +196,6 @@ export class ComputeShaderManager {
       // Legacy support
       this.storageTexture = this.storageTextureA;
 
-      console.log('[ComputeShaderManager] Ping-pong textures created for feedback');
     } else {
       // Single storage texture (no feedback)
       this.storageTexture = this.device.createTexture({
@@ -210,7 +206,6 @@ export class ComputeShaderManager {
       });
       this.resourceTracker?.trackTexture(this.storageTexture, { width, height, format: 'rgba8unorm', type: 'storage' });
 
-      console.log('[ComputeShaderManager] Storage texture created');
     }
 
     // Output texture (for rendering to fragment shader)
@@ -287,7 +282,6 @@ export class ComputeShaderManager {
       { width, height, depthOrArrayLayers: 1 }
     );
 
-    console.log('[ComputeShaderManager] Reaction-diffusion textures initialized with seed patterns');
   }
 
   /**
@@ -297,7 +291,6 @@ export class ComputeShaderManager {
   resetReactionDiffusion() {
     if (this.node?.kind === 'ComputeReactionDiffusion' && this.supportsFeedback) {
       this.initializeReactionDiffusionTextures(this.textureWidth, this.textureHeight);
-      console.log('[ComputeShaderManager] Reaction-diffusion simulation reset');
     }
   }
 
@@ -311,7 +304,6 @@ export class ComputeShaderManager {
     });
     this.resourceTracker?.trackBuffer(this.uniformBuffer, 64);
 
-    console.log('[ComputeShaderManager] Uniform buffer created');
   }
 
   /**
@@ -409,7 +401,6 @@ export class ComputeShaderManager {
       // Create initial bind group (will be recreated each frame for feedback)
       this.recreateBindGroup();
 
-      console.log('[ComputeShaderManager] Compute pipeline created successfully');
     } catch (error) {
       console.error('[ComputeShaderManager] Failed to create compute pipeline:', error);
       throw error;
@@ -743,7 +734,6 @@ export class ComputeShaderManager {
    */
   dispatch(commandEncoder, time, profiler = null, audioContext = {}) {
     if (!this.computePipeline || !this.bindGroup) {
-      console.warn('[ComputeShaderManager] Cannot dispatch: pipeline not initialized');
       return;
     }
 
@@ -752,9 +742,7 @@ export class ComputeShaderManager {
       const params = this.supportsFeedback ?
         `feedback=true, buffer=${this.currentWriteTexture}` :
         'feedback=false';
-      console.log(`[ComputeShaderManager] Dispatching ${this.node?.kind ?? 'unknown'} at time: ${time.toFixed(2)}s, ${params}`);
       if (this.node?.kind === 'ComputeReactionDiffusion') {
-        console.log(`  RD params: feed=${this.uniformData[3].toFixed(4)}, kill=${this.uniformData[4].toFixed(4)}, diffA=${this.uniformData[5].toFixed(2)}, diffB=${this.uniformData[6].toFixed(2)}, dt=${this.uniformData[7].toFixed(2)}`);
       }
       this._lastDispatchLog = Date.now();
     }
@@ -863,7 +851,6 @@ export class ComputeShaderManager {
       });
     }
 
-    console.log('[ComputeShaderManager] Resized to', `${width}x${height}`);
   }
 
   /**
@@ -908,6 +895,5 @@ export class ComputeShaderManager {
     this.uniformBuffer = null;
     this.fallbackInputTexture = null;
 
-    console.log('[ComputeShaderManager] Destroyed');
   }
 }
