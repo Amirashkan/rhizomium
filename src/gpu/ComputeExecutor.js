@@ -256,8 +256,11 @@ export class ComputeExecutor {
   /**
    * Execute all compute shaders
    * Should be called before fragment shader execution
+   * @param {GPUCommandEncoder} commandEncoder - WebGPU command encoder
+   * @param {number} time - Current time in seconds
+   * @param {Object} audioContext - Audio envelope values for expression evaluation
    */
-  execute(commandEncoder, time = 0) {
+  execute(commandEncoder, time = 0, audioContext = {}) {
     if (!this.initialized || this.computeManagers.size === 0) {
       return;
     }
@@ -342,9 +345,9 @@ export class ComputeExecutor {
         if (shouldUpdate || isTimeDependentNode) {
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
           if (manager instanceof ComputeNodeBase) {
-            manager.dispatch(this.device, commandEncoder, time);
+            manager.dispatch(this.device, commandEncoder, time, audioContext);
           } else {
-            manager.dispatch(commandEncoder, time, this.profiler);
+            manager.dispatch(commandEncoder, time, this.profiler, audioContext);
           }
 
           // Update output dictionary after successful dispatch

@@ -703,7 +703,20 @@ export class GPURenderer {
 
     // Execute compute shaders BEFORE fragment shader
     if (window.computeExecutor && window.computeExecutor.initialized) {
-      window.computeExecutor.execute(encoder, timeValue);
+      // Get audio envelope values for compute shader expressions
+      const audioEnvelope = window._audioEnvelopeValue || 0.0;
+      const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
+      const audioEnvelopeMids = window._audioEnvelopeMids || 0.0;
+      const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
+      const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
+
+      window.computeExecutor.execute(encoder, timeValue, {
+        audioEnvelope,
+        audioEnvelopeBass,
+        audioEnvelopeMids,
+        audioEnvelopeHighs,
+        audioEnvelopeFull
+      });
     }
 
     // Configure render pass based on MSAA support
