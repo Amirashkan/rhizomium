@@ -250,19 +250,31 @@ export class GPURenderer {
 
       const sanitizedIdToMatch = sanitizedId.replace('compute_', '');
 
+      // Debug: log available compute textures
+      if (computeExecutor.computeTextures.size === 0) {
+        console.warn('[GPURenderer] computeTextures map is empty!');
+      }
+
       // Try direct lookup first (in case ID doesn't need sanitization)
       let computeInfo = computeExecutor.computeTextures.get(sanitizedIdToMatch);
 
       // If not found, iterate through all compute textures and match sanitized IDs
       // This handles the case where node IDs contain characters like dashes that get sanitized
       if (!computeInfo) {
+        console.log(`[GPURenderer] Direct lookup failed for "${sanitizedIdToMatch}", trying fuzzy match...`);
+        console.log('[GPURenderer] Available IDs:', Array.from(computeExecutor.computeTextures.keys()));
+
         for (const [nodeId, textureData] of computeExecutor.computeTextures) {
           const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+          console.log(`[GPURenderer] Comparing "${nodeSanitizedId}" with "${sanitizedIdToMatch}"`);
           if (nodeSanitizedId === sanitizedIdToMatch) {
             computeInfo = textureData;
+            console.log(`[GPURenderer] ✓ Match found! Using texture from node ${nodeId}`);
             break;
           }
         }
+      } else {
+        console.log(`[GPURenderer] ✓ Found compute texture for ID: ${sanitizedIdToMatch}`);
       }
 
       if (computeInfo) {
@@ -273,7 +285,8 @@ export class GPURenderer {
           return { textureView: computeInfo.texture.createView() };
         }
       } else {
-        console.warn(`[GPURenderer] No compute texture found for sanitized ID: ${sanitizedIdToMatch}`);
+        console.warn(`[GPURenderer] ✗ No compute texture found for sanitized ID: ${sanitizedIdToMatch}`);
+        console.warn('[GPURenderer] Available compute textures:', Array.from(computeExecutor.computeTextures.keys()));
       }
     }
 

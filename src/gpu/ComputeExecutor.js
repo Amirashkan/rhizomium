@@ -321,8 +321,11 @@ export class ComputeExecutor {
    */
   async execute(commandEncoder, time = 0, audioContext = {}) {
     if (!this.initialized || this.computeManagers.size === 0) {
+      console.log(`[ComputeExecutor] Skipping execute: initialized=${this.initialized}, managers=${this.computeManagers.size}`);
       return;
     }
+
+    console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
 
     // STEP 1: Render fragment node inputs to textures (auto-bridging)
     await this._renderFragmentInputs(time, audioContext);
