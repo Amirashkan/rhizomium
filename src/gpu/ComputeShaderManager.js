@@ -1,4 +1,5 @@
 import { globalResourceRegistry } from './ResourceTracker.js';
+import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 
 /**
  * ComputeShaderManager
@@ -46,6 +47,47 @@ export class ComputeShaderManager {
 
     // Resource tracking
     this.resourceTracker = node?.id ? globalResourceRegistry.getOrCreate(node.id) : null;
+  }
+
+  /**
+   * Evaluate a parameter value - handles expressions, shader variables, and static values
+   * @param {*} value - The parameter value (could be number, string expression, etc.)
+   * @param {number} defaultValue - Default value if evaluation fails
+   * @param {number} time - Current time for expression evaluation
+   * @returns {number} The evaluated numeric value
+   */
+  evaluateParam(value, defaultValue, time) {
+    // If already a number, return it
+    if (typeof value === 'number') {
+      return isFinite(value) ? value : defaultValue;
+    }
+
+    // If it's a string, it might be an expression
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+
+      // Expression starting with =
+      if (trimmed.startsWith('=')) {
+        try {
+          const result = unifiedExpressionSystem.evaluateCPU(value, { time });
+          return isFinite(result) ? result : defaultValue;
+        } catch (error) {
+          console.warn('[ComputeShaderManager] Failed to evaluate expression:', value, error);
+          return defaultValue;
+        }
+      }
+
+      // Try to parse as number
+      const parsed = parseFloat(trimmed);
+      return isNaN(parsed) ? defaultValue : parsed;
+    }
+
+    // Boolean or other types
+    if (typeof value === 'boolean') {
+      return value ? 1.0 : 0.0;
+    }
+
+    return defaultValue;
   }
 
   /**
@@ -387,25 +429,25 @@ export class ComputeShaderManager {
     } else {
       switch (this.node.kind) {
         case 'ComputeNoise':
-          this.uniformData[3] = this.node.params?.scale ?? 8.0;
-          this.uniformData[4] = this.node.params?.octaves ?? 5;
-          this.uniformData[5] = this.node.params?.speed ?? 0.1;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.scale, 8.0, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.octaves, 5, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.speed, 0.1, time);
           break;
 
         case 'ComputeReactionDiffusion':
-          this.uniformData[3] = this.node.params?.feedRate ?? 0.055;
-          this.uniformData[4] = this.node.params?.killRate ?? 0.062;
-          this.uniformData[5] = this.node.params?.diffusionA ?? 1.0;
-          this.uniformData[6] = this.node.params?.diffusionB ?? 0.5;
-          this.uniformData[7] = this.node.params?.timestep ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.feedRate, 0.055, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.killRate, 0.062, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.diffusionA, 1.0, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.diffusionB, 0.5, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.timestep, 1.0, time);
           break;
 
         case 'ComputeFeedback':
-          this.uniformData[3] = this.node.params?.decay ?? 0.95;
-          this.uniformData[4] = this.node.params?.scale ?? 1.01;
-          this.uniformData[5] = this.node.params?.rotation ?? 0.0;
-          this.uniformData[6] = this.node.params?.offsetX ?? 0.0;
-          this.uniformData[7] = this.node.params?.offsetY ?? 0.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.decay, 0.95, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.scale, 1.01, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.rotation, 0.0, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.offsetX, 0.0, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.offsetY, 0.0, time);
           break;
 
         case 'ComputeBlur':
@@ -419,79 +461,79 @@ export class ComputeShaderManager {
           if (this.node.params?.direction === 'Horizontal') directionValue = 1.0;
           else if (this.node.params?.direction === 'Vertical') directionValue = 2.0;
 
-          this.uniformData[3] = this.node.params?.radius ?? 5.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.radius, 5.0, time);
           this.uniformData[4] = qualityValue;
           this.uniformData[5] = directionValue;
           break;
 
         case 'ComputeThreshold':
           // Uniforms: threshold, thresholdMin, thresholdMax, outputLow, outputHigh
-          this.uniformData[3] = this.node.params?.threshold ?? 0.5;
-          this.uniformData[4] = this.node.params?.thresholdMin ?? 0.3;
-          this.uniformData[5] = this.node.params?.thresholdMax ?? 0.7;
-          this.uniformData[6] = this.node.params?.outputLow ?? 0.0;
-          this.uniformData[7] = this.node.params?.outputHigh ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.threshold, 0.5, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.thresholdMin, 0.3, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.thresholdMax, 0.7, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.outputLow, 0.0, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.outputHigh, 1.0, time);
           break;
 
         case 'ComputeColorAdjust':
           // Uniforms: brightness, contrast, saturation, hue, gamma, exposure
-          this.uniformData[3] = this.node.params?.brightness ?? 0.0;
-          this.uniformData[4] = this.node.params?.contrast ?? 1.0;
-          this.uniformData[5] = this.node.params?.saturation ?? 1.0;
-          this.uniformData[6] = this.node.params?.hue ?? 0.0;
-          this.uniformData[7] = this.node.params?.gamma ?? 1.0;
-          this.uniformData[8] = this.node.params?.exposure ?? 0.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.brightness, 0.0, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.contrast, 1.0, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.saturation, 1.0, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.hue, 0.0, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.gamma, 1.0, time);
+          this.uniformData[8] = this.evaluateParam(this.node.params?.exposure, 0.0, time);
           break;
 
         case 'ComputeConvolution':
           // Uniforms: strength
-          this.uniformData[3] = this.node.params?.strength ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.strength, 1.0, time);
           break;
 
         case 'ComputeEdgeDetect':
           // Uniforms: threshold, strength, invertEdges
-          this.uniformData[3] = this.node.params?.threshold ?? 0.1;
-          this.uniformData[4] = this.node.params?.strength ?? 1.0;
-          this.uniformData[5] = this.node.params?.invertEdges ? 1.0 : 0.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.threshold, 0.1, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.strength, 1.0, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.invertEdges, 0.0, time);
           break;
 
         case 'ComputeMorphology':
           // Uniforms: strength
-          this.uniformData[3] = this.node.params?.strength ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.strength, 1.0, time);
           break;
 
         case 'ComputeVoronoi':
           // Uniforms: scale, seed, speed
-          this.uniformData[3] = this.node.params?.scale ?? 8.0;
-          this.uniformData[4] = this.node.params?.seed ?? 0.0;
-          this.uniformData[5] = this.node.params?.speed ?? 0.1;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.scale, 8.0, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.seed, 0.0, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.speed, 0.1, time);
           break;
 
         case 'ComputeGradient':
           // Uniforms: angle, center.x, center.y, radius, repeat
-          this.uniformData[3] = this.node.params?.angle ?? 0.0;
-          this.uniformData[4] = this.node.params?.centerX ?? 0.5;
-          this.uniformData[5] = this.node.params?.centerY ?? 0.5;
-          this.uniformData[6] = this.node.params?.radius ?? 0.5;
-          this.uniformData[7] = this.node.params?.repeat ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.angle, 0.0, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.centerX, 0.5, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.centerY, 0.5, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.radius, 0.5, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.repeat, 1.0, time);
           break;
 
         case 'ComputePattern':
           // Uniforms: _padding1, scale.x, scale.y, rotation, thickness, smoothness
           this.uniformData[3] = 0.0; // _padding1
-          this.uniformData[4] = this.node.params?.scaleX ?? 8.0;
-          this.uniformData[5] = this.node.params?.scaleY ?? 8.0;
-          this.uniformData[6] = this.node.params?.rotation ?? 0.0;
-          this.uniformData[7] = this.node.params?.thickness ?? 0.5;
-          this.uniformData[8] = this.node.params?.smoothness ?? 0.01;
+          this.uniformData[4] = this.evaluateParam(this.node.params?.scaleX, 8.0, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.scaleY, 8.0, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.rotation, 0.0, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.thickness, 0.5, time);
+          this.uniformData[8] = this.evaluateParam(this.node.params?.smoothness, 0.01, time);
           break;
 
         case 'ComputeFeedbackField':
           // Uniforms: decay, diffusion, feedback, speed, mode
-          this.uniformData[3] = this.node.params?.decay ?? 0.98;
-          this.uniformData[4] = this.node.params?.diffusion ?? 0.1;
-          this.uniformData[5] = this.node.params?.feedback ?? 0.5;
-          this.uniformData[6] = this.node.params?.speed ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.decay, 0.98, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.diffusion, 0.1, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.feedback, 0.5, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.speed, 1.0, time);
           // Map mode string to numeric value (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom)
           let modeValue = 0.0;
           if (this.node.params?.mode === 'Reaction-Diffusion') modeValue = 1.0;
@@ -502,54 +544,54 @@ export class ComputeShaderManager {
 
         case 'ComputeCellular':
           // Uniforms: speed
-          this.uniformData[3] = this.node.params?.speed ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.speed, 1.0, time);
           break;
 
         case 'ComputeWarp':
           // Uniforms: strength, center.x, center.y, radius, frequency, phase
-          this.uniformData[3] = this.node.params?.strength ?? 0.5;
-          this.uniformData[4] = this.node.params?.centerX ?? 0.5;
-          this.uniformData[5] = this.node.params?.centerY ?? 0.5;
-          this.uniformData[6] = this.node.params?.radius ?? 0.5;
-          this.uniformData[7] = this.node.params?.frequency ?? 4.0;
-          this.uniformData[8] = this.node.params?.phase ?? 0.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.strength, 0.5, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.centerX, 0.5, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.centerY, 0.5, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.radius, 0.5, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.frequency, 4.0, time);
+          this.uniformData[8] = this.evaluateParam(this.node.params?.phase, 0.0, time);
           break;
 
         case 'ComputeGlitch':
           // Uniforms: intensity, frequency, _padding1, blockSize, seed
-          this.uniformData[3] = this.node.params?.intensity ?? 0.5;
-          this.uniformData[4] = this.node.params?.frequency ?? 0.5;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.intensity, 0.5, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.frequency, 0.5, time);
           this.uniformData[5] = 0.0; // _padding1
-          this.uniformData[6] = this.node.params?.blockSize ?? 0.05;
-          this.uniformData[7] = this.node.params?.seed ?? 0.0;
+          this.uniformData[6] = this.evaluateParam(this.node.params?.blockSize, 0.05, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.seed, 0.0, time);
           break;
 
         case 'ComputeMix':
           // Uniforms: amount, opacity
-          this.uniformData[3] = this.node.params?.amount ?? 0.5;
-          this.uniformData[4] = this.node.params?.opacity ?? 1.0;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.amount, 0.5, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.opacity, 1.0, time);
           break;
 
         case 'ComputeKaleidoscope':
           // Uniforms: segments, rotation, centerX, centerY, scale, animate, speed
-          this.uniformData[3] = this.node.params?.segments ?? 6.0;
-          this.uniformData[4] = this.node.params?.rotation ?? 0.0;
-          this.uniformData[5] = this.node.params?.centerX ?? 0.5;
-          this.uniformData[6] = this.node.params?.centerY ?? 0.5;
-          this.uniformData[7] = this.node.params?.scale ?? 1.0;
-          this.uniformData[8] = this.node.params?.animate ? 1.0 : 0.0;
-          this.uniformData[9] = this.node.params?.speed ?? 0.5;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.segments, 6.0, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.rotation, 0.0, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.centerX, 0.5, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.centerY, 0.5, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.scale, 1.0, time);
+          this.uniformData[8] = this.evaluateParam(this.node.params?.animate, 0.0, time);
+          this.uniformData[9] = this.evaluateParam(this.node.params?.speed, 0.5, time);
           break;
 
         case 'ComputeTransform':
           // Uniforms: translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY
-          this.uniformData[3] = this.node.params?.translateX ?? 0.0;
-          this.uniformData[4] = this.node.params?.translateY ?? 0.0;
-          this.uniformData[5] = this.node.params?.rotation ?? 0.0;
-          this.uniformData[6] = this.node.params?.scaleX ?? 1.0;
-          this.uniformData[7] = this.node.params?.scaleY ?? 1.0;
-          this.uniformData[8] = this.node.params?.pivotX ?? 0.5;
-          this.uniformData[9] = this.node.params?.pivotY ?? 0.5;
+          this.uniformData[3] = this.evaluateParam(this.node.params?.translateX, 0.0, time);
+          this.uniformData[4] = this.evaluateParam(this.node.params?.translateY, 0.0, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.rotation, 0.0, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.scaleX, 1.0, time);
+          this.uniformData[7] = this.evaluateParam(this.node.params?.scaleY, 1.0, time);
+          this.uniformData[8] = this.evaluateParam(this.node.params?.pivotX, 0.5, time);
+          this.uniformData[9] = this.evaluateParam(this.node.params?.pivotY, 0.5, time);
           break;
 
         case 'ComputeChannels':
@@ -567,9 +609,9 @@ export class ComputeShaderManager {
           let hsvOperation = this.node.params?.operation ?? 'Adjust HSV';
           let hsvOpIndex = hsvOperation === 'RGB to HSV' ? 0.0 : hsvOperation === 'HSV to RGB' ? 1.0 : 2.0;
           this.uniformData[3] = hsvOpIndex;
-          this.uniformData[4] = this.node.params?.hueShift ?? 0.0;
-          this.uniformData[5] = this.node.params?.saturationMult ?? 1.0;
-          this.uniformData[6] = this.node.params?.valueMult ?? 1.0;
+          this.uniformData[4] = this.evaluateParam(this.node.params?.hueShift, 0.0, time);
+          this.uniformData[5] = this.evaluateParam(this.node.params?.saturationMult, 1.0, time);
+          this.uniformData[6] = this.evaluateParam(this.node.params?.valueMult, 1.0, time);
           break;
 
         case 'ComputeLuminance':
@@ -582,7 +624,7 @@ export class ComputeShaderManager {
           let lumOutputModeIndex = lumOutputMode === 'Grayscale' ? 0.0 : lumOutputMode === 'Preserve Color' ? 1.0 : 2.0;
           this.uniformData[3] = lumMethodIndex;
           this.uniformData[4] = lumOutputModeIndex;
-          this.uniformData[5] = this.node.params?.threshold ?? 0.5;
+          this.uniformData[5] = this.evaluateParam(this.node.params?.threshold, 0.5, time);
           break;
 
         default:
