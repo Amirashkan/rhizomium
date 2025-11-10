@@ -248,9 +248,33 @@ export class GPURenderer {
         return null;
       }
 
-      const actualId = sanitizedId.replace('compute_', '');
+      const sanitizedIdToMatch = sanitizedId.replace('compute_', '');
 
-      const computeInfo = computeExecutor.computeTextures.get(actualId);
+      // Look up the current output texture from nodeOutputs (updated every frame)
+      const currentOutputTexture = computeExecutor.nodeOutputs?.get(sanitizedIdToMatch);
+
+      // Try direct lookup first
+      let computeInfo = computeExecutor.computeTextures.get(sanitizedIdToMatch);
+
+      // Use fresh texture from nodeOutputs if available
+      if (currentOutputTexture && computeInfo) {
+        computeInfo = { ...computeInfo, texture: currentOutputTexture };
+      }
+
+      // If not found, try fuzzy matching for sanitized IDs
+      if (!computeInfo) {
+        for (const [nodeId, textureData] of computeExecutor.computeTextures) {
+          const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+          if (nodeSanitizedId === sanitizedIdToMatch) {
+            const freshTexture = computeExecutor.nodeOutputs?.get(nodeId);
+            computeInfo = freshTexture
+              ? { ...textureData, texture: freshTexture }
+              : textureData;
+            break;
+          }
+        }
+      }
+
       if (computeInfo) {
         // Return appropriate resource based on prefix
         if (prefix.startsWith('sampler_')) {
@@ -259,7 +283,7 @@ export class GPURenderer {
           return { textureView: computeInfo.texture.createView() };
         }
       } else {
-        console.warn(`[GPURenderer] No compute texture found for ID: ${actualId}`);
+        console.warn(`[GPURenderer] No compute texture found for: ${sanitizedIdToMatch}`);
       }
     }
 
@@ -707,6 +731,12 @@ export class GPURenderer {
     const pass = encoder.beginRenderPass({
       colorAttachments: [colorAttachment],
     });
+
+    if (!this.pipeline) {
+      console.error('[GPURenderer] Pipeline is null! Cannot render. Shader compilation likely failed.');
+      pass.end();
+      return;
+    }
 
     pass.setPipeline(this.pipeline);
     for (let i = 0; i < this.bindGroups.length; i++) {

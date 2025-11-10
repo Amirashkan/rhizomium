@@ -134,6 +134,7 @@ export class ComputeShaderManager {
     // Create compute pipeline
     await this.createComputePipeline(wgslSource);
 
+    console.log('[ComputeShaderManager] Initialized:', {
       textureSize: `${width}x${height}`,
       workgroupSize: `${this.workgroupSize.x}x${this.workgroupSize.y}`,
       dispatchSize: `${this.dispatchSize.x}x${this.dispatchSize.y}`,
@@ -673,6 +674,8 @@ export class ComputeShaderManager {
     // Binding 2: Input texture (if needed)
     if (this.needsInput) {
       const inputTexture = this.inputTexture || this.fallbackInputTexture;
+      const usingFallback = !this.inputTexture;
+      console.log(`[ComputeShaderManager] recreateBindGroup: needsInput=true, usingFallback=${usingFallback}, texture=${inputTexture.width}x${inputTexture.height}`);
       entries.push({ binding: 2, resource: inputTexture.createView() });
       // Binding 3: Input sampler
       entries.push({ binding: 3, resource: this.textureSampler });
@@ -705,6 +708,7 @@ export class ComputeShaderManager {
    * Set input texture from another compute node
    */
   setInputTexture(texture) {
+    console.log(`[ComputeShaderManager] setInputTexture called: size=${texture.width}x${texture.height}, format=${texture.format}, usage=${texture.usage}`);
     this.inputTexture = texture;
   }
 
@@ -734,16 +738,16 @@ export class ComputeShaderManager {
    */
   dispatch(commandEncoder, time, profiler = null, audioContext = {}) {
     if (!this.computePipeline || !this.bindGroup) {
+      console.warn(`[ComputeShaderManager] Dispatch called but not ready: pipeline=${!!this.computePipeline}, bindGroup=${!!this.bindGroup}`);
       return;
     }
 
     // Debug: Log dispatch (throttled)
-    if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 2000) {
+    if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
       const params = this.supportsFeedback ?
         `feedback=true, buffer=${this.currentWriteTexture}` :
         'feedback=false';
-      if (this.node?.kind === 'ComputeReactionDiffusion') {
-      }
+      console.log(`[ComputeShaderManager] Dispatching ${this.node?.kind || 'unknown'}, workgroups=${this.dispatchSize.x}x${this.dispatchSize.y}, ${params}`);
       this._lastDispatchLog = Date.now();
     }
 

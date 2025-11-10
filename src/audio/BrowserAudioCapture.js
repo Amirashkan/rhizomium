@@ -370,6 +370,7 @@ export class BrowserAudioCapture {
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {
+            console.log('Audio envelope:', {
                 main: this._envelopeValue.toFixed(3),
                 bass: this._envelopeBass.toFixed(3),
                 mids: this._envelopeMids.toFixed(3),

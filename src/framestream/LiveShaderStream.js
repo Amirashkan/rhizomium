@@ -123,6 +123,7 @@ export class LiveShaderStream {
             timestamp: Date.now()
         };
 
+        console.log('[LiveShaderStream] Sending shader update:', {
             codeLength: shaderCode.length,
             uniformCount: Array.isArray(uniformValues) ? uniformValues.length : Object.keys(uniformValues).length,
             uniformValues: uniformValues, // Log actual values for debugging

@@ -285,12 +285,14 @@ export class ComputeExecutor {
         }
 
         // This is a fragment node being used as compute input!
+        console.log(`[ComputeExecutor] Auto-bridging: Rendering fragment node ${inputNodeId} (${inputNode.kind}) to texture for compute node ${nodeId}`);
         try {
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
           const width = resolution[0];
           const height = resolution[1];
 
+          console.log(`[ComputeExecutor] Rendering to ${width}x${height} texture...`);
           // Render the fragment node to a texture
           const texture = await this.fragmentRenderer.renderNodeToTexture(
             inputNodeId,
@@ -304,6 +306,9 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
+            console.log(`[ComputeExecutor] ✓ Auto-bridge complete: Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
+          } else {
+            console.warn(`[ComputeExecutor] ✗ Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
         } catch (error) {
           console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
@@ -321,8 +326,11 @@ export class ComputeExecutor {
    */
   async execute(commandEncoder, time = 0, audioContext = {}) {
     if (!this.initialized || this.computeManagers.size === 0) {
+      console.log(`[ComputeExecutor] Skipping execute: initialized=${this.initialized}, managers=${this.computeManagers.size}`);
       return;
     }
+
+    console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
 
     // STEP 1: Render fragment node inputs to textures (auto-bridging)
     await this._renderFragmentInputs(time, audioContext);
@@ -342,16 +350,20 @@ export class ComputeExecutor {
 
         // Set input texture if this node needs it
         if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
-          const inputNodeId = node.inputs[0]; // Get first input (most compute nodes have 1 input)
+          const inputNodeId = node.inputs[0];
           if (inputNodeId !== null && inputNodeId !== undefined) {
             const inputTexture = this.nodeOutputs.get(inputNodeId);
             if (inputTexture && manager.setInputTexture) {
               manager.setInputTexture(inputTexture);
+              // Recreate bind group with new input texture
+              if (manager.recreateBindGroup) {
+                manager.recreateBindGroup();
+              }
             } else if (!inputTexture) {
               // Only log missing textures once to avoid spam
               if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
               if (!this._loggedMissingTextures.has(inputNodeId)) {
-                console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+                console.warn(`[ComputeExecutor] Input texture not found for ${inputNodeId}, using fallback`);
                 this._loggedMissingTextures.add(inputNodeId);
               }
             }
@@ -385,7 +397,7 @@ export class ComputeExecutor {
               } else if (!inputBTexture) {
                 if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
                 if (!this._loggedMissingTextures.has(inputBNodeId)) {
-                  console.warn(`[ComputeExecutor] ⚠️ Input B texture not found for ${inputBNodeId}, using fallback`);
+                  console.warn(`[ComputeExecutor] Input B texture not found for ${inputBNodeId}, using fallback`);
                   this._loggedMissingTextures.add(inputBNodeId);
                 }
               }
@@ -404,7 +416,10 @@ export class ComputeExecutor {
           node.kind.startsWith('Compute') // Most compute nodes are time-dependent
         );
 
+        console.log(`[ComputeExecutor] Node ${nodeId} (${node?.kind}): shouldUpdate=${shouldUpdate}, isTimeDependentNode=${isTimeDependentNode}`);
+
         if (shouldUpdate || isTimeDependentNode) {
+          console.log(`[ComputeExecutor] → Dispatching node ${nodeId}`);
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
@@ -414,6 +429,8 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
+        } else {
+          console.log(`[ComputeExecutor] → Skipping dispatch for node ${nodeId}`);
         }
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
@@ -429,6 +446,8 @@ export class ComputeExecutor {
       const outputTexture = manager.getOutputTexture();
       if (outputTexture) {
         this.nodeOutputs.set(nodeId, outputTexture);
+      } else {
+        console.warn(`[ComputeExecutor] No output texture returned from manager for node ${nodeId}`);
       }
     } catch (error) {
       console.error(`[ComputeExecutor] Error updating output for node ${nodeId}:`, error);
