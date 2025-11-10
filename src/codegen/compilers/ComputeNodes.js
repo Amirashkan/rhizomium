@@ -101,8 +101,9 @@ export class ComputeNodes {
   registerComputeNode(node, getInput, resolution) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
-    // Determine if this node needs feedback (previous frame texture)
-    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField'];
+    // Determine if this node needs feedback (previous frame texture) or multiple inputs
+    // ComputeWarp uses this for its second input (warp field texture)
+    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField', 'ComputeWarp'];
     const supportsFeedback = feedbackNodes.includes(node.kind);
 
     // Store compute node info for later execution
