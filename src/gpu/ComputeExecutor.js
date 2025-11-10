@@ -350,25 +350,20 @@ export class ComputeExecutor {
 
         // Set input texture if this node needs it
         if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
-          const inputNodeId = node.inputs[0]; // Get first input (most compute nodes have 1 input)
-          console.log(`[ComputeExecutor] Node ${nodeId} (${node.kind}) has input: ${inputNodeId}`);
-          console.log(`[ComputeExecutor] nodeOutputs contains: [${Array.from(this.nodeOutputs.keys()).join(', ')}]`);
+          const inputNodeId = node.inputs[0];
           if (inputNodeId !== null && inputNodeId !== undefined) {
             const inputTexture = this.nodeOutputs.get(inputNodeId);
-            console.log(`[ComputeExecutor] Looking up input texture for ${inputNodeId}: ${inputTexture ? 'FOUND' : 'NOT FOUND'}`);
             if (inputTexture && manager.setInputTexture) {
               manager.setInputTexture(inputTexture);
-              console.log(`[ComputeExecutor] ✓ Set input texture for node ${nodeId} from ${inputNodeId}, size: ${inputTexture.width}x${inputTexture.height}`);
               // Recreate bind group with new input texture
               if (manager.recreateBindGroup) {
                 manager.recreateBindGroup();
-                console.log(`[ComputeExecutor] ✓ Recreated bind group for node ${nodeId} with updated input`);
               }
             } else if (!inputTexture) {
               // Only log missing textures once to avoid spam
               if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
               if (!this._loggedMissingTextures.has(inputNodeId)) {
-                console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+                console.warn(`[ComputeExecutor] Input texture not found for ${inputNodeId}, using fallback`);
                 this._loggedMissingTextures.add(inputNodeId);
               }
             }
@@ -402,7 +397,7 @@ export class ComputeExecutor {
               } else if (!inputBTexture) {
                 if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
                 if (!this._loggedMissingTextures.has(inputBNodeId)) {
-                  console.warn(`[ComputeExecutor] ⚠️ Input B texture not found for ${inputBNodeId}, using fallback`);
+                  console.warn(`[ComputeExecutor] Input B texture not found for ${inputBNodeId}, using fallback`);
                   this._loggedMissingTextures.add(inputBNodeId);
                 }
               }
@@ -423,7 +418,6 @@ export class ComputeExecutor {
 
         if (shouldUpdate || isTimeDependentNode) {
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
-          console.log(`[ComputeExecutor] Dispatching node ${nodeId} (${node?.kind || 'unknown'})`);
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
           } else {
@@ -432,9 +426,6 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
-          console.log(`[ComputeExecutor] ✓ Dispatched and updated output for node ${nodeId}`);
-        } else {
-          console.log(`[ComputeExecutor] Skipping dispatch for node ${nodeId} (no changes)`);
         }
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
@@ -450,7 +441,6 @@ export class ComputeExecutor {
       const outputTexture = manager.getOutputTexture();
       if (outputTexture) {
         this.nodeOutputs.set(nodeId, outputTexture);
-        console.log(`[ComputeExecutor] Updated output texture for node ${nodeId}, size: ${outputTexture.width}x${outputTexture.height}`);
       } else {
         console.warn(`[ComputeExecutor] No output texture returned from manager for node ${nodeId}`);
       }

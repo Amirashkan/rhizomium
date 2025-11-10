@@ -787,13 +787,11 @@ export class ComputeShaderManager {
     }
 
     // Copy storage texture to output texture
-    console.log(`[ComputeShaderManager] Copying ${this.textureWidth}x${this.textureHeight} from storage to output texture`);
     commandEncoder.copyTextureToTexture(
       { texture: this.storageTexture },
       { texture: this.outputTexture },
       [this.textureWidth, this.textureHeight, 1]
     );
-    console.log('[ComputeShaderManager] ✓ Copy complete');
 
     // Swap buffers for next frame
     if (this.supportsFeedback) {

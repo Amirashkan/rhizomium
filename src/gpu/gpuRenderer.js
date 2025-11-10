@@ -250,70 +250,40 @@ export class GPURenderer {
 
       const sanitizedIdToMatch = sanitizedId.replace('compute_', '');
 
-      // Debug: log available compute textures
-      if (computeExecutor.computeTextures.size === 0) {
-        console.warn('[GPURenderer] computeTextures map is empty!');
-      }
-
-      // CRITICAL: Look up the CURRENT output texture from nodeOutputs, not the stale reference in computeTextures
-      // The nodeOutputs map is updated every frame after dispatch, while computeTextures is only set at init
+      // Look up the current output texture from nodeOutputs (updated every frame)
       const currentOutputTexture = computeExecutor.nodeOutputs?.get(sanitizedIdToMatch);
-      console.log(`[GPURenderer] Lookup for ID "${sanitizedIdToMatch}": fresh texture=${!!currentOutputTexture}, nodeOutputs size=${computeExecutor.nodeOutputs?.size || 0}`);
-      if (!currentOutputTexture && computeExecutor.nodeOutputs) {
-        console.log(`[GPURenderer] Available in nodeOutputs:`, Array.from(computeExecutor.nodeOutputs.keys()));
-      }
 
-      // Try direct lookup first (in case ID doesn't need sanitization)
+      // Try direct lookup first
       let computeInfo = computeExecutor.computeTextures.get(sanitizedIdToMatch);
-      console.log(`[GPURenderer] computeTextures lookup for "${sanitizedIdToMatch}": found=${!!computeInfo}`);
 
-      // If we have a current output texture, use it instead of the stale texture reference
+      // Use fresh texture from nodeOutputs if available
       if (currentOutputTexture && computeInfo) {
-        console.log(`[GPURenderer] ✓ Using FRESH output texture for ${sanitizedIdToMatch} from nodeOutputs`);
         computeInfo = { ...computeInfo, texture: currentOutputTexture };
-      } else if (!currentOutputTexture && computeInfo) {
-        console.warn(`[GPURenderer] ✗ WARNING: Using STALE texture for ${sanitizedIdToMatch} - no fresh texture in nodeOutputs!`);
       }
 
-      // If not found, iterate through all compute textures and match sanitized IDs
-      // This handles the case where node IDs contain characters like dashes that get sanitized
+      // If not found, try fuzzy matching for sanitized IDs
       if (!computeInfo) {
-        console.log(`[GPURenderer] Direct lookup failed for "${sanitizedIdToMatch}", trying fuzzy match...`);
-        console.log('[GPURenderer] Available IDs:', Array.from(computeExecutor.computeTextures.keys()));
-
         for (const [nodeId, textureData] of computeExecutor.computeTextures) {
           const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
-          console.log(`[GPURenderer] Comparing "${nodeSanitizedId}" with "${sanitizedIdToMatch}"`);
           if (nodeSanitizedId === sanitizedIdToMatch) {
-            // Get fresh texture if available
             const freshTexture = computeExecutor.nodeOutputs?.get(nodeId);
-            if (freshTexture) {
-              console.log(`[GPURenderer] ✓ Match found! Using FRESH texture from nodeOutputs for node ${nodeId}`);
-              computeInfo = { ...textureData, texture: freshTexture };
-            } else {
-              console.log(`[GPURenderer] ✓ Match found! Using texture from node ${nodeId}`);
-              computeInfo = textureData;
-            }
+            computeInfo = freshTexture
+              ? { ...textureData, texture: freshTexture }
+              : textureData;
             break;
           }
         }
-      } else {
-        console.log(`[GPURenderer] ✓ Found compute texture for ID: ${sanitizedIdToMatch}`);
       }
 
       if (computeInfo) {
         // Return appropriate resource based on prefix
         if (prefix.startsWith('sampler_')) {
-          console.log(`[GPURenderer] Returning sampler for ${varName}`);
           return { sampler: computeInfo.sampler };
         } else {
-          const view = computeInfo.texture.createView();
-          console.log(`[GPURenderer] Created texture view for ${varName}, texture size: ${computeInfo.texture.width}x${computeInfo.texture.height}`);
-          return { textureView: view };
+          return { textureView: computeInfo.texture.createView() };
         }
       } else {
-        console.warn(`[GPURenderer] ✗ No compute texture found for sanitized ID: ${sanitizedIdToMatch}`);
-        console.warn('[GPURenderer] Available compute textures:', Array.from(computeExecutor.computeTextures.keys()));
+        console.warn(`[GPURenderer] No compute texture found for: ${sanitizedIdToMatch}`);
       }
     }
 
