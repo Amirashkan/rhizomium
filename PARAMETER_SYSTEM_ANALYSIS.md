@@ -2,12 +2,15 @@
 
 ## Executive Summary
 
-The GLSL node editor has implemented a **unified parameter system** that works across both fragment and compute shaders. While the two shader types have different execution models, they share:
+The GLSL node editor has implemented a **fully unified parameter system** that works identically across both fragment and compute shaders. As of 2025-11-10, both shader types share complete parameter capabilities:
 
-1. **Unified Expression System** - Single AST-based parser for all expressions
-2. **Parameter Handler** - Converts parameters to shader code uniformly
-3. **Uniform Manager** - Centralized management of dynamic uniforms
-4. **Type System** - Compatible type definitions and conversions
+1. **✅ Unified Expression System** - Single AST-based parser for all expressions
+2. **✅ Unified Parameter Handler** - Same `getParam()` method for both shader types
+3. **✅ Uniform Manager** - Centralized management of dynamic uniforms
+4. **✅ Type System** - Compatible type definitions and conversions
+5. **✅ Expression Support** - Both support `=time`, `=sin(time*2)`, `=node_X` references
+
+**Key Achievement:** Compute nodes now support all the same parameter capabilities as fragment nodes, including expressions, shader variables, and node references.
 
 ---
 
@@ -634,32 +637,33 @@ let node_X = mix(node_A, node_B, (sin(g.time) * 0.5 + 0.5));
 
 ## 11. Can Compute Nodes Use Fragment Expressions?
 
-**Short Answer: Not directly, but they can use the same expression parsing.**
+**Short Answer: ✅ YES! As of 2025-11-10, compute nodes now support the same expression capabilities as fragment nodes.**
 
-### Why?
-1. **Fragment expressions** are compiled INTO the fragment shader code at build time
-2. **Compute expressions** would need to be evaluated CPU-side each frame, then passed as uniforms
+### Implementation
+Compute nodes now use the same `getParam()` method as fragment nodes, which:
+1. **Expression parsing** - Handles expressions starting with `=` (e.g., `=time*2`, `=sin(time)`)
+2. **UnifiedExpressionSystem** - Uses the same AST-based parser to generate WGSL code
+3. **Uniform registration** - Registers numeric parameters with the uniform manager for dynamic updates
+4. **Shader variables** - Supports `time`, `audioEnvelope`, and other shader variables
 
-### Workaround (Not Implemented):
+### Example Usage:
 ```javascript
-// Conceptual - would require shader generation changes
-generateComputeWithExpressions(node, getInput) {
-  // Extract expressions from parameters
-  const paramValue = node.params['scale'];  // "=sin(time)*2"
-  
-  // If expression depends on time, could:
-  // Option 1: Bake into shader (if static)
-  // Option 2: Create uniform and update CPU-side each frame
-  
-  if (unifiedExpressionSystem.isDynamic(paramValue)) {
-    // Would need CPU-side evaluation:
-    // let scaleFactor = unifiedExpressionSystem.evaluateCPU(paramValue, {time: currentTime});
-    // Pass to uniform buffer
+// Compute node with expressions
+ComputeNoise: {
+  params: {
+    scale: '=sin(time) * 10 + 10',  // Animated scale
+    octaves: 5,                      // Static value
+    speed: '=time * 0.1'             // Expression with time
   }
 }
+
+// Generated shader code:
+let scale = sin(g.time) * 10.0 + 10.0;  // Expression compiled to WGSL
+let octaves = 5.0;                       // Static value
+let speed = g.time * 0.1;                // Expression compiled to WGSL
 ```
 
-**Current Reality**: Compute nodes use simple parameter values; complex expressions need to be moved to fragment nodes upstream.
+**Current Reality**: Both fragment and compute nodes support the full range of parameter capabilities through the unified parameter system.
 
 ---
 
@@ -710,8 +714,8 @@ resolveParameterValue(paramValue, defaultValue) {
 |---------|---|---|---|
 | **Parameter Types** | float, int, bool, color, select, colorstops | float, int, bool, color, select | Identical support |
 | **Static Values** | ✅ Baked into shader | ✅ Baked into shader code | Compiled at build time |
-| **Expressions (=time)** | ✅ Via UnifiedExpressionSystem | ❌ Not supported | Would need CPU evaluation |
-| **Node References** | ✅ =node_X | ❌ Not supported | Inputs used instead |
+| **Expressions (=time)** | ✅ Via UnifiedExpressionSystem | ✅ Via UnifiedExpressionSystem | **UNIFIED** - Both support expressions now |
+| **Node References** | ✅ =node_X | ✅ =node_X | **UNIFIED** - Both support node references |
 | **Uniforms** | ✅ Parameter Uniform Manager | ✅ ComputeShaderManager uniforms | Dynamic parameters |
 | **Type System** | ✅ TypeSystem.js | ✅ TypeSystem.js | Unified type checking |
 | **Capability Levels** | STATIC_ONLY, EXPRESSION, SHADER_VAR, ALL | STATIC_ONLY, EXPRESSION, SHADER_VAR, ALL | Same definitions |

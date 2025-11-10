@@ -161,15 +161,27 @@ computeNode.dispatch(device, encoder, time);
 
 ## 🔟 Can Compute Nodes Use Expressions?
 
-**❌ Not currently implemented**
+**✅ YES! Compute nodes now support expressions as of 2025-11-10**
 
-**Why?** Fragment expressions compile into shader code at build time. Compute shaders would need CPU-side evaluation each frame.
+**Implementation:** Both fragment and compute nodes use the same `getParam()` method with:
+- Expression parsing (`=time*2`, `=sin(time)`)
+- UnifiedExpressionSystem for WGSL code generation
+- Uniform registration for dynamic updates
+- Shader variable support (`time`, `audioEnvelope`)
 
-**Workaround:** Use fragment nodes upstream, connect output to compute node input.
+**Example:**
+```javascript
+ComputeNoise: {
+  params: {
+    scale: '=sin(time) * 10 + 10',  // ✅ Works!
+    speed: '=time * 0.1'             // ✅ Works!
+  }
+}
+```
 
 ---
 
-## Parameters Are Compatible Between Nodes ✅
+## Parameters Are Fully Unified Between Nodes ✅
 
 Both use:
 - Same `UnifiedExpressionSystem` for expressions
