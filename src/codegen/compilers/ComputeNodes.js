@@ -2324,8 +2324,12 @@ struct Uniforms {
 
 const PI: f32 = 3.14159265359;
 
+// NOTE: textureSample() cannot be used in compute shaders (only in fragment shaders).
+// We must use textureLoad() with manual coordinate wrapping for tiling behavior.
+// The sampler binding is required by the bind group layout but not used in compute.
+
 // Apply kaleidoscope effect
-fn applyKaleidoscope(uv: vec2<f32>) -> vec4<f32> {
+fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   // Center point
   let center = vec2<f32>(uniforms.centerX, uniforms.centerY);
 
@@ -2375,8 +2379,16 @@ fn applyKaleidoscope(uv: vec2<f32>) -> vec4<f32> {
   // Transform back to UV space
   let sampledUV = vec2<f32>(foldedX, foldedY) + center;
 
-  // Use textureSample with the sampler for proper filtering and wrapping
-  return textureSample(inputTexture, texSampler, sampledUV);
+  // Wrap coordinates using modulo for seamless tiling
+  // fract() would work but sampledUV - floor(sampledUV) is more explicit
+  // This maps any coordinate to [0, 1) range (e.g., 1.3 -> 0.3, -0.3 -> 0.7)
+  var wrappedUV = sampledUV - floor(sampledUV);
+
+  // Convert to pixel coordinates
+  let pixelCoord = vec2<i32>(wrappedUV * vec2<f32>(texSize));
+  let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
+
+  return textureLoad(inputTexture, clampedCoord, 0);
 }
 
 @compute @workgroup_size(8, 8)
@@ -2389,7 +2401,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
-  let color = applyKaleidoscope(uv);
+  let color = applyKaleidoscope(uv, texSize);
 
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
