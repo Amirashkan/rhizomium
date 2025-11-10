@@ -246,10 +246,11 @@ export class ComputeExecutor {
   /**
    * Render fragment node inputs to textures (auto-bridging)
    * This enables fragment nodes to be used as inputs to compute nodes
+   * @param {GPUCommandEncoder} commandEncoder - Shared command encoder for synchronization
    * @param {number} time - Current time in seconds
    * @param {Object} audioContext - Audio envelope values
    */
-  async _renderFragmentInputs(time, audioContext) {
+  async _renderFragmentInputs(commandEncoder, time, audioContext) {
     if (!window.graph || !window.graph.nodes) {
       return;
     }
@@ -293,13 +294,15 @@ export class ComputeExecutor {
           const height = resolution[1];
 
           console.log(`[ComputeExecutor] Rendering to ${width}x${height} texture...`);
-          // Render the fragment node to a texture
+          // Render the fragment node to a texture using the SHARED command encoder
+          // This ensures fragment render and compute dispatch are in the same GPU submission
           const texture = await this.fragmentRenderer.renderNodeToTexture(
             inputNodeId,
             width,
             height,
             time,
-            audioContext
+            audioContext,
+            commandEncoder  // CRITICAL: Pass the shared encoder for synchronization!
           );
 
           if (texture) {
@@ -334,7 +337,9 @@ export class ComputeExecutor {
     console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
 
     // STEP 1: Render fragment node inputs to textures (auto-bridging)
-    await this._renderFragmentInputs(time, audioContext);
+    // Pass the shared command encoder so fragment renders and compute dispatches
+    // are in the same GPU command buffer submission (proper synchronization!)
+    await this._renderFragmentInputs(commandEncoder, time, audioContext);
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
     for (const nodeId of this.executionOrder) {
