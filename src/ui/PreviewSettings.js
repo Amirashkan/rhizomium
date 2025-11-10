@@ -477,14 +477,12 @@ async _publishAnimation() {
   _updateResolution() {
     const { width, height } = this.settings.resolution;
     const canvas = this.floatingPreview.gpuCanvas;
-    
+
     if (!canvas) return;
-    
+
     canvas.width = width;
     canvas.height = height;
-    
-    console.log("Resolution updated to:", width, "x", height);
-    
+
     this.floatingPreview.updateSize();
   }
 
@@ -1201,7 +1199,6 @@ _createExportButtons() {
       link.download = `shader-${width}x${height}-${timestamp}.png`;
       link.href = URL.createObjectURL(blob);
       link.click();
-      console.log("Exported PNG:", link.download);
 
       modalManager.toast(`PNG exported: ${link.download}`, 'success', 'Export Complete');
 

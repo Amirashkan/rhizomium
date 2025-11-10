@@ -18,7 +18,6 @@ export class TransitionManager {
     this.toSceneData = null;
     this.transitionStartTime = null;
 
-    console.log('[TransitionManager] Initialized');
   }
 
   /**
@@ -39,7 +38,6 @@ export class TransitionManager {
    */
   async startTransition(targetSceneData, type = 'crossfade', duration = 1.0) {
     if (this.isTransitioning) {
-      console.warn('[TransitionManager] Transition already in progress');
       return false;
     }
 
@@ -49,7 +47,6 @@ export class TransitionManager {
     this.transitionProgress = 0;
     this.transitionStartTime = performance.now();
 
-    console.log(`[TransitionManager] Starting ${type} transition (${duration}s)`);
 
     // Handle instant transitions
     if (type === TransitionManager.TRANSITIONS.CUT || duration === 0) {
@@ -70,7 +67,6 @@ export class TransitionManager {
         break;
 
       default:
-        console.warn(`[TransitionManager] Unknown transition type: ${type}`);
         await this.editor.saveLoadManager.importProject(targetSceneData);
     }
 
@@ -82,11 +78,9 @@ export class TransitionManager {
    * Execute crossfade transition
    */
   async executeCrossfade(targetSceneData) {
-    console.log(`[TransitionManager] Starting crossfade transition (${this.transitionDuration}s)`);
 
     const gpuCanvas = document.getElementById('gpu-canvas');
     if (!gpuCanvas) {
-      console.warn('[TransitionManager] GPU canvas not found, falling back to instant switch');
       await this.editor.saveLoadManager.importProject(targetSceneData);
       return;
     }
@@ -106,11 +100,9 @@ export class TransitionManager {
    */
   async executeFade(targetSceneData, type) {
     const color = type === TransitionManager.TRANSITIONS.FADE_BLACK ? 'black' : 'white';
-    console.log(`[TransitionManager] Starting fade through ${color} (${this.transitionDuration}s)`);
 
     const gpuCanvas = document.getElementById('gpu-canvas');
     if (!gpuCanvas) {
-      console.warn('[TransitionManager] GPU canvas not found, falling back to instant switch');
       await this.editor.saveLoadManager.importProject(targetSceneData);
       return;
     }
@@ -269,7 +261,6 @@ export class TransitionManager {
     this.toSceneData = null;
     this.transitionStartTime = null;
 
-    console.log('[TransitionManager] Transition complete');
   }
 
   /**
@@ -279,7 +270,6 @@ export class TransitionManager {
     if (!this.isTransitioning) return;
 
     this.completeTransition();
-    console.log('[TransitionManager] Transition cancelled');
   }
 
   /**
@@ -287,7 +277,6 @@ export class TransitionManager {
    */
   setTransitionType(type) {
     if (!Object.values(TransitionManager.TRANSITIONS).includes(type)) {
-      console.warn(`[TransitionManager] Invalid transition type: ${type}`);
       return false;
     }
 
@@ -300,7 +289,6 @@ export class TransitionManager {
    */
   setTransitionDuration(duration) {
     if (duration < 0) {
-      console.warn('[TransitionManager] Duration must be positive');
       return false;
     }
 

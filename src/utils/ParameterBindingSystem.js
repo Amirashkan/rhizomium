@@ -51,7 +51,6 @@ export class ParameterBindingSystem {
     const selectedParam = this.getSelectedParameter();
     
     if (!selectedNode || !selectedParam) {
-      console.warn('No parameter selected for copying');
       return false;
     }
 
@@ -65,14 +64,12 @@ export class ParameterBindingSystem {
     // Visual feedback
     this.showCopyFeedback(selectedNode, selectedParam);
     
-    console.log(`Copied parameter reference: ${selectedNode.id}.${selectedParam.name}`);
     return true;
   }
 
   // Paste parameter reference to create binding
   pasteParameterReference() {
     if (!this.clipboard) {
-      console.warn('No parameter reference in clipboard');
       return false;
     }
 
@@ -80,14 +77,12 @@ export class ParameterBindingSystem {
     const targetParam = this.getSelectedParameter();
     
     if (!targetNode || !targetParam) {
-      console.warn('No target parameter selected for pasting');
       return false;
     }
 
     // Don't bind to self
     if (targetNode.id === this.clipboard.nodeId && 
         targetParam.name === this.clipboard.parameterName) {
-      console.warn('Cannot bind parameter to itself');
       return false;
     }
 
@@ -132,7 +127,6 @@ export class ParameterBindingSystem {
       previousBinding.nodeId === sourceNodeId &&
       previousBinding.parameterName === sourceParamName
     ) {
-      console.warn('Binding already exists between parameters');
       return false;
     }
 
@@ -168,7 +162,6 @@ export class ParameterBindingSystem {
 
     // Set initial value (this will evaluate expressions like =audioEnvelope)
     const sourceValue = this.getParameterValue(sourceNode, sourceParamName);
-    console.log(`[ParameterBinding] Initial binding value: ${sourceValue} for ${targetKey}`);
     this.setParameterValue(targetNode, targetParamName, sourceValue);
 
     // Record for undo
@@ -195,7 +188,6 @@ export class ParameterBindingSystem {
       targetParamName
     });
 
-    console.log(`Created binding: ${sourceKey} → ${targetKey}`);
     return true;
   }
 
@@ -252,7 +244,6 @@ export class ParameterBindingSystem {
       });
     }
 
-    console.log(`Removed binding: ${sourceKey} → ${targetKey}`);
     return true;
   }
 
@@ -306,7 +297,6 @@ export class ParameterBindingSystem {
 
       // Skip expensive console.log for MIDI (100+ times/sec)
       if (source !== 'midi') {
-        console.log(`[ParameterBinding] Propagating evaluated value: ${valueToPropagate} (from ${newValue})`);
       }
     }
 
@@ -477,12 +467,10 @@ export class ParameterBindingSystem {
 
   showCopyFeedback(node, param) {
     // Visual feedback when copying - implement based on your UI
-    console.log(`Copied ${node.kind}.${param.name} as reference`);
   }
 
   showBindingCreatedFeedback(sourceNode, sourceParam, targetNode, targetParam) {
     // Visual feedback when binding created - implement based on your UI
-    console.log(`Bound ${targetNode.kind}.${targetParam} to ${sourceNode.kind}.${sourceParam}`);
   }
 
   // Cleanup when node is deleted
@@ -552,11 +540,8 @@ export class ParameterBindingSystem {
 
   // Debug methods
   debugPrintBindings() {
-    console.log('=== Parameter Bindings ===');
     this.bindings.forEach((targets, sourceKey) => {
-      console.log(`${sourceKey} →`);
       targets.forEach(target => {
-        console.log(`  → ${target.nodeId}.${target.parameterName}`);
       });
     });
   }

@@ -144,7 +144,6 @@ export class NodeCompiler {
     // For complex expressions (e.g., sin(time), 2 * PI, etc.), use the expression system
     try {
       const shaderCode = this.shaderExpressionSystem.generateShader(expression);
-      console.log(`Generated shader code for expression "${expression}": ${shaderCode}`);
       return shaderCode;
     } catch (error) {
       console.error(`Failed to generate shader code for expression "${expression}":`, error);
@@ -197,12 +196,7 @@ export class NodeCompiler {
         }
       }
     }
-    
-    // ADD LOGGING HERE:
-    console.log('=== UNIFORM STRUCT ===');
-    console.log(this.uniformManager.generateUniformStruct());
-    console.log('=====================');
-    
+
     return {
       lines,
       types: this.typeConverter.types,
@@ -216,9 +210,7 @@ export class NodeCompiler {
   compileNode(node) {
     const nodeId = this.sanitize(node.id);
     const kind = node.kind;
-    
-    console.log(`Processing node ${nodeId}: kind="${kind}"`);
-    
+
     /**
      * Enhanced getInput function that supports both traditional and type-aware modes
      * FIXED: Now tracks which output pin is connected for multi-output nodes
@@ -252,11 +244,10 @@ export class NodeCompiler {
         const connection = window.editor.graph.connections.find(
           c => c.to.nodeId === node.id && c.to.pin === index
         );
-        
+
         if (connection && connection.from.pin !== undefined && connection.from.pin !== 0) {
           // Append pin index for multi-output nodes (pin 0 is default, no need to append)
           nodeIdWithPin = `${inputId}:${connection.from.pin}`;
-          console.log(`Multi-output detected: Using ${nodeIdWithPin} for channel extraction`);
         }
       }
       
@@ -318,23 +309,17 @@ export class NodeCompiler {
       // ComputeFieldMapper is a 3D visualization node, not a shader node
       // It outputs 3D geometry to the viewport, not 2D shader data
       // Skip it in shader compilation - it will be handled by FieldMapperIntegration
-      console.log(`[NodeCompiler] Skipping ComputeFieldMapper node (3D visualization, not shader output)`);
       result = {
         line: `// ComputeFieldMapper node_${nodeId} (3D visualization - outputs to viewport)`,
         outputType: "skip"
       };
     } else {
-      console.log(`UNKNOWN NODE TYPE: "${kind}"`);
       result = {
         line: `let node_${nodeId} = vec3<f32>(0.0);`,
         outputType: "vec3"
       };
     }
-    
-    if (result && result.line) {
-      console.log(`Generated line for ${kind}: ${result.line}`);
-    }
-    
+
     return result || { line: "", outputType: "vec3" };
   }
   

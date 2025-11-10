@@ -42,8 +42,6 @@ import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
 
 // Verify timeline imports loaded
-console.log('[IMPORT CHECK] TimelineManager:', typeof TimelineManager);
-console.log('[IMPORT CHECK] TimelinePanel:', typeof TimelinePanel);
 
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
@@ -66,25 +64,17 @@ function setupGlobalDragPrevention() {
 
     const dropZone = e.target.closest(".file-drop-zone");
     if (!dropZone) {
-      console.log("Drop ignored - not on a valid drop zone");
       return false;
     }
   });
-
-  console.log("Global drag prevention setup complete");
 }
 
 async function reinitializeWebGPUAfterLoad() {
-  console.log("Reinitializing WebGPU after file load...");
-
   const allCanvases = document.querySelectorAll("#gpu-canvas");
-  console.log(`Found ${allCanvases.length} canvas elements with gpu-canvas id`);
 
   if (allCanvases.length > 1) {
-    console.log("Multiple canvases detected, cleaning up...");
     for (let i = 1; i < allCanvases.length; i++) {
       allCanvases[i].remove();
-      console.log(`Removed duplicate canvas ${i}`);
     }
   }
 
@@ -100,23 +90,20 @@ canvas.height = canvas.clientHeight || window.innerHeight;if (!canvas) {
   }
 
   try {
-    console.log("Reinitializing WebGPU...");
     __deviceReady = false;
-    
+
 const adapter = await navigator.gpu.requestAdapter();
 const device = await adapter.requestDevice();
 window.gpuRenderer = new GPURenderer(device, canvas);
-    
+
     if (device) {
       window.textureManager = new TextureManager();
       await window.textureManager.initialize(device);
-      console.log("TextureManager initialized successfully");
       __deviceReady = true;
 
       // Re-set WebGPU device for WGSL editor after reinitialization
       if (editor?.paramPanel && typeof editor.paramPanel.setDevice === 'function' && window.gpuRenderer?.device) {
         editor.paramPanel.setDevice(window.gpuRenderer.device);
-        console.log("WebGPU device re-set for WGSL editor after reload");
       }
 
       // Reinitialize profiler if it exists
@@ -147,13 +134,9 @@ window.gpuRenderer = new GPURenderer(device, canvas);
       });
       gpuPerformanceMonitor.initialize(device);
       window.gpuPerformanceMonitor = gpuPerformanceMonitor;
-
-      console.log("ComputeProfiler reinitialized");
     }
 
     if (device) {
-      console.log("WebGPU reinitialized successfully");
-      console.log("Testing shader update...");
       await updateShaderFromGraph();
       return true;
     } else {
@@ -245,13 +228,11 @@ async function initialize() {
       const { TextureManager } = await import("./src/core/TextureManager.js");
       window.textureManager = new TextureManager();
       await window.textureManager.initialize(device);
-      console.log("TextureManager initialized successfully");
 
       // Initialize compute shader test
       try {
         computeShaderTest = new ComputeShaderTest(device, canvas);
         window.computeShaderTest = computeShaderTest;
-        console.log("ComputeShaderTest created successfully");
       } catch (error) {
         console.error("Failed to create ComputeShaderTest:", error);
       }
@@ -260,7 +241,6 @@ async function initialize() {
       try {
         computeExecutor = new ComputeExecutor(device);
         window.computeExecutor = computeExecutor;
-        console.log("ComputeExecutor created successfully");
       } catch (error) {
         console.error("Failed to create ComputeExecutor:", error);
       }
@@ -268,7 +248,6 @@ async function initialize() {
       // Initialize global resource tracker registry
       try {
         window.globalResourceRegistry = globalResourceRegistry;
-        console.log("Global resource tracker registry initialized");
       } catch (error) {
         console.error("Failed to initialize global resource registry:", error);
       }
@@ -302,9 +281,6 @@ async function initialize() {
         });
         gpuPerformanceMonitor.initialize(device);
         window.gpuPerformanceMonitor = gpuPerformanceMonitor;
-
-        console.log("ComputeProfiler initialized successfully");
-        console.log("Profiler overlay available - press Ctrl+P to toggle");
       } catch (error) {
         console.error("Failed to initialize ComputeProfiler:", error);
       }
@@ -323,7 +299,6 @@ async function initialize() {
         }
 
         window.systemIntegration = systemIntegration;
-        console.log("SystemIntegration initialized successfully");
       } catch (error) {
         console.error("Failed to initialize SystemIntegration:", error);
       }
@@ -350,14 +325,12 @@ async function initialize() {
         });
 
         window.viewport3D = viewport3D;
-        console.log("Viewport3D initialized successfully");
 
         // Create ViewportPanel
         if (systemIntegration && systemIntegration.scene) {
           viewportPanel = new ViewportPanel(viewport3D, systemIntegration.scene);
           viewportPanel.setCanvas(viewport3DCanvas);
           window.viewportPanel = viewportPanel;
-          console.log("ViewportPanel initialized successfully");
         }
 
         // Create SceneRenderer3D
@@ -371,14 +344,12 @@ async function initialize() {
           );
           await sceneRenderer3D.initialize();
           window.sceneRenderer3D = sceneRenderer3D;
-          console.log("SceneRenderer3D initialized successfully");
         }
 
         // Initialize FieldVisualizerManager
         if (device) {
           fieldVisualizerManager = new FieldVisualizerManager(device);
           window.fieldVisualizerManager = fieldVisualizerManager;
-          console.log("FieldVisualizerManager initialized successfully");
         }
 
         // Initialize FieldMapperIntegration
@@ -391,17 +362,12 @@ async function initialize() {
             viewportPanel
           );
           window.fieldMapperIntegration = fieldMapperIntegration;
-          console.log("FieldMapperIntegration initialized successfully");
         }
 
         // Expose test functions and helpers globally
         window.test3DVisualization = test3DVisualization;
         window.showTestCube = showTestCube;
         window.addTestCubeToScene = addTestCubeToScene;
-
-        console.log("3D Viewport available - press Ctrl+3 to toggle");
-        console.log("Test 3D system: test3DVisualization()");
-        console.log("Show test cube: showTestCube()");
       } catch (error) {
         console.error("Failed to initialize 3D viewport:", error);
       }
@@ -414,15 +380,12 @@ async function initialize() {
 
   try {
     if (typeof window.mountPill === "undefined") {
-      window.mountPill = () => {
-        console.log("RhizomiumLoader mountPill disabled");
-      };
+      window.mountPill = () => {};
     }
 
     const existingPill = document.getElementById("rz-fallback-pill");
     if (existingPill) {
       existingPill.remove();
-      console.log("Removed existing RhizomiumLoader pill");
     }
 
     // Create and populate graph FIRST
@@ -431,11 +394,9 @@ async function initialize() {
     // Create event system AFTER graph is populated
     parameterEventSystem = new ParameterEventSystem();
     window.parameterEventSystem = parameterEventSystem;
-    console.log("ParameterEventSystem created:", parameterEventSystem);
 
     // Create undo manager with event system
     undoManager = new UndoManager(graph, null, parameterEventSystem);
-    console.log("UndoManager created:", undoManager);
     window.undoManager = undoManager;
 
     // Create editor and pass the undo manager to it
@@ -452,73 +413,55 @@ async function initialize() {
     // Set WebGPU device for WGSL editor in ParameterPanel
     if (editor.paramPanel && typeof editor.paramPanel.setDevice === 'function' && window.gpuRenderer && window.gpuRenderer.device) {
       editor.paramPanel.setDevice(window.gpuRenderer.device);
-      console.log("WebGPU device set for WGSL editor");
     } else if (editor.paramPanel && typeof editor.paramPanel.setDevice !== 'function') {
       console.warn("ParameterPanel.setDevice method not available - WGSL editor compilation checking will be disabled");
     }
 
     // Create timeline manager and panel
     try {
-      console.log("Creating TimelineManager...");
       timelineManager = new TimelineManager(editor);
       editor.timelineManager = timelineManager;
       window.timelineManager = timelineManager;
-      console.log("TimelineManager created:", timelineManager);
 
-      console.log("Creating TimelinePanel...");
       timelinePanel = new TimelinePanel(editor);
       window.timelinePanel = timelinePanel;
-      console.log("TimelinePanel created:", timelinePanel);
     } catch (error) {
       console.error("ERROR creating timeline components:", error);
       console.error("Error stack:", error.stack);
     }
 
-    console.log("Creating SaveLoadManager...");
     saveLoadManager = new SaveLoadManager(editor, graph, updateShaderFromGraph);
     saveLoadManager.setTextureManager(window.textureManager);
-    console.log("SaveLoadManager created:", saveLoadManager);
 
     // Set saveLoadManager on editor for VJ panel
     editor.saveLoadManager = saveLoadManager;
 
-    console.log("Creating BackupDialog...");
     backupDialog = new BackupDialog(saveLoadManager);
-    console.log("BackupDialog created:", backupDialog);
 
-    console.log("Creating WelcomeWindow...");
     welcomeWindow = new WelcomeWindow({
       saveLoadManager: saveLoadManager,
       onNewProject: () => {
-        console.log("Starting new project from welcome window");
         createNewProject();
       },
       onOpenProject: () => {
-        console.log("Opening project from welcome window");
         const fileInput = document.getElementById("file-import");
         if (fileInput) {
           fileInput.click();
         }
       },
       onOpenBackups: () => {
-        console.log("Opening backups from welcome window");
         if (backupDialog) {
           backupDialog.show();
         }
       },
-      onClose: () => {
-        console.log("Welcome window closed");
-      },
+      onClose: () => {},
       storageKey: "rhizomium.welcome.dismissed"
     });
-    console.log("WelcomeWindow created:", welcomeWindow);
 
     // Create VJ Control Panel (after SaveLoadManager is ready)
     try {
-      console.log("Creating VJControlPanel...");
       vjControlPanel = new VJControlPanel(editor);
       window.vjControlPanel = vjControlPanel;
-      console.log("VJControlPanel created:", vjControlPanel);
     } catch (error) {
       console.error("ERROR creating VJ control panel:", error);
       console.error("Error stack:", error.stack);
@@ -526,21 +469,17 @@ async function initialize() {
 
     // Create MIDI system
     try {
-      console.log("Creating MIDI system...");
       const midiManager = new MIDIManager(editor.eventSystem);
       window.midiManager = midiManager;
       editor.midiManager = midiManager;
-      console.log("MIDIManager created:", midiManager);
 
       const midiBinding = new MIDIParameterBinding(graph, editor.eventSystem, midiManager);
       window.midiBinding = midiBinding;
       editor.midiBinding = midiBinding;
-      console.log("MIDIParameterBinding created:", midiBinding);
 
       const midiSettingsPanel = getMIDISettingsPanel(midiManager, midiBinding);
       window.midiSettingsPanel = midiSettingsPanel;
       editor.midiSettingsPanel = midiSettingsPanel;
-      console.log("MIDISettingsPanel created:", midiSettingsPanel);
     } catch (error) {
       console.error("ERROR creating MIDI system:", error);
       console.error("Error stack:", error.stack);
@@ -581,21 +520,14 @@ async function initialize() {
     await updateShaderFromGraph();
 
     // Show welcome window at startup if not dismissed
-    console.log("DEBUG: Checking if welcome window should show...");
-    console.log("DEBUG: welcomeWindow exists:", !!welcomeWindow);
     if (welcomeWindow) {
       const shouldShow = welcomeWindow.shouldShow();
-      console.log("DEBUG: welcomeWindow.shouldShow():", shouldShow);
       if (shouldShow) {
-        console.log("Showing welcome window at startup");
         try {
-          const result = welcomeWindow.show();
-          console.log("DEBUG: welcomeWindow.show() returned:", result);
+          welcomeWindow.show();
         } catch (error) {
           console.error("ERROR showing welcome window at startup:", error);
         }
-      } else {
-        console.log("Welcome window was dismissed, not showing at startup");
       }
     } else {
       console.error("ERROR: welcomeWindow not initialized!");
@@ -605,11 +537,8 @@ async function initialize() {
       const pill = document.getElementById("rz-fallback-pill");
       if (pill && pill.style.display !== "none") {
         pill.remove();
-        console.log("Removed late RhizomiumLoader interference");
       }
     }, 2000);
-
-    console.log("GLSL Node Editor initialized successfully");
   } catch (error) {
     errorHandler.handleError(error, { component: 'initialization' });
   }
@@ -617,14 +546,13 @@ async function initialize() {
 
 // Undo callback functions
 function onConnectionDeleted(connection) {
-  console.log("Connection deleted callback:", connection);
   if (undoManager && connection) {
     const connectionData = {
       sourceNode: connection.sourceNode || connection.from,
       targetNode: connection.targetNode || connection.to,
       targetInput: connection.targetInput || connection.inputIndex || 0
     };
-    
+
     undoManager.recordConnectionDeletion(connectionData);
   } else {
     console.warn("UndoManager not available or connection invalid:", { undoManager: !!undoManager, connection });
@@ -632,7 +560,6 @@ function onConnectionDeleted(connection) {
 }
 
 function onNodesMovement(movementData) {
-  console.log("Nodes movement callback:", movementData);
   if (undoManager && movementData) {
     undoManager.recordNodeMovement(movementData);
   } else {
@@ -641,7 +568,6 @@ function onNodesMovement(movementData) {
 }
 
 function onNodeDeleted(node) {
-  console.log("Node deleted callback:", node);
   if (undoManager && node) {
     undoManager.recordNodeDeletion(node);
   } else {
@@ -650,21 +576,18 @@ function onNodeDeleted(node) {
 }
 
 function onConnectionCreated(sourceNodeId, targetNodeId, targetInput, sourceOutput = 0) {
-  console.log("Connection created callback:", { sourceNodeId, targetNodeId, targetInput });
   if (undoManager) {
     undoManager.recordConnectionCreation(sourceNodeId, targetNodeId, targetInput, sourceOutput);
   }
 }
 
 function onNodeCreated(node) {
-  console.log("Node created callback:", node);
   if (undoManager && node) {
     undoManager.recordNodeCreation(node);
   }
 }
 
 function onGroupDeleted(nodesToDelete) {
-  console.log("Group deleted callback:", nodesToDelete);
   if (undoManager && nodesToDelete && nodesToDelete.length > 0) {
     undoManager.recordGroupDeletion(nodesToDelete);
   } else {
@@ -681,8 +604,6 @@ window.onNodeCreated = onNodeCreated;
 window.onNodesMovement = onNodesMovement;
 
 function setupUIEventHandlers() {
-  console.log("Setting up UI event handlers...");
-
   if (!saveLoadManager) {
     console.error("SaveLoadManager not available!");
     return;
@@ -768,28 +689,21 @@ function setupUIEventHandlers() {
         }
       });
     });
-
-    console.log('Menu dropdown system initialized');
   };
 
   setupMenuDropdowns();
 
   // Undo/Redo button handlers
-  console.log("Setting up undo/redo button handlers...");
-
   const undoBtn = removeExistingHandlers("btn-undo");
   if (undoBtn) {
     undoBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("UNDO BUTTON CLICKED");
       if (undoManager) {
-        const success = undoManager.undo();
-        console.log("Undo result:", success);
+        undoManager.undo();
       } else {
         console.error("UndoManager not available");
       }
     });
-    console.log("Undo button handler attached");
   } else {
     console.error("Undo button not found in DOM");
   }
@@ -798,15 +712,12 @@ function setupUIEventHandlers() {
   if (redoBtn) {
     redoBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("REDO BUTTON CLICKED");
       if (undoManager) {
-        const success = undoManager.redo();
-        console.log("Redo result:", success);
+        undoManager.redo();
       } else {
         console.error("UndoManager not available");
       }
     });
-    console.log("Redo button handler attached");
   } else {
     console.error("Redo button not found in DOM");
   }
@@ -866,7 +777,6 @@ function setupUIEventHandlers() {
       snapSizeInput.value = currentSnapSize;
     }
 
-    console.log(`Snap grid size set to ${currentSnapSize}px`);
     return currentSnapSize;
   };
 
@@ -895,10 +805,6 @@ function setupUIEventHandlers() {
         applySnapSize(snapSizeInput?.value ?? currentSnapSize);
       }
     });
-
-    console.log(
-      `Snap toggle handler attached (initial state: ${initialSnapEnabled})`,
-    );
   } else {
     console.warn("Snap toggle checkbox not found in DOM");
   }
@@ -917,7 +823,6 @@ function setupUIEventHandlers() {
         applySnapSize(snapSizeInput.value);
       }
     });
-    console.log("Snap size input handler attached");
   } else {
     console.warn("Snap size input not found in DOM");
   }
@@ -927,10 +832,8 @@ function setupUIEventHandlers() {
   if (saveBtn) {
     saveBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("SAVE BUTTON CLICKED");
       saveLoadManager.saveToFile();
     });
-    console.log("Save button handler attached");
   }
 
   // Load Project button
@@ -938,10 +841,8 @@ function setupUIEventHandlers() {
   if (loadBtn) {
     loadBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("LOAD BUTTON CLICKED");
       triggerFileLoad();
     });
-    console.log("Load button handler attached");
   }
 
   // File input change handler
@@ -950,19 +851,14 @@ function setupUIEventHandlers() {
     fileInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (file) {
-        console.log("FILE SELECTED", file.name);
-
         try {
           await saveLoadManager.loadFromFile(file);
-
 
           // Clear undo history when loading a new project
           if (undoManager) {
             undoManager.clear();
-            console.log("Undo history cleared after load");
           }
 
-          console.log("FORCING NODE RECALCULATION");
           if (graph && graph.nodes) {
             graph.nodes.forEach((node) => {
               delete node.cachedValue;
@@ -970,7 +866,6 @@ function setupUIEventHandlers() {
               node.needsUpdate = true;
             });
 
-            console.log("TRIGGERING PREVIEW REFRESH");
             const nodeWithConnection = graph.nodes.find(
               (node) =>
                 node.inputs && node.inputs.some((input) => input !== null),
@@ -993,7 +888,6 @@ function setupUIEventHandlers() {
               }, 10);
             }
 
-            console.log("REFRESHING NODE PREVIEWS");
             if (editor && editor.nodePreviews) {
               graph.nodes.forEach((node) => {
                 if (editor.nodePreviews.has(node.id)) {
@@ -1023,7 +917,6 @@ function setupUIEventHandlers() {
               }, 100);
             }
 
-            console.log("AUTO-REFRESHING NODE PREVIEWS");
             graph.nodes.forEach((node) => {
               if (node.inputs) {
                 node.inputs.forEach((input, index) => {
@@ -1048,8 +941,6 @@ function setupUIEventHandlers() {
               }
             }, 50);
           }
-
-          console.log("LOAD COMPLETE");
         } catch (error) {
           console.error("Load failed:", error);
         }
@@ -1057,7 +948,6 @@ function setupUIEventHandlers() {
         e.target.value = "";
       }
     });
-    console.log("File input handler attached");
   }
 
   function triggerFileLoad() {
@@ -1075,10 +965,8 @@ function setupUIEventHandlers() {
   if (exportJsonBtn) {
     exportJsonBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("Export JSON clicked");
       saveLoadManager.saveToFile(null, "json");
     });
-    console.log("Export JSON handler attached");
   }
 
   // Export WGSL button
@@ -1086,10 +974,8 @@ function setupUIEventHandlers() {
   if (exportWgslBtn) {
     exportWgslBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("Export WGSL clicked");
       saveLoadManager.saveToFile(null, "wgsl");
     });
-    console.log("Export WGSL handler attached");
   }
 
   // Code console helpers
@@ -1122,7 +1008,6 @@ function setupUIEventHandlers() {
       e.preventDefault();
       setConsoleVisibility(!consoleVisible);
     });
-    console.log("Console toggle handler attached");
   }
 
   if (closeConsoleBtn) {
@@ -1130,7 +1015,6 @@ function setupUIEventHandlers() {
       e.preventDefault();
       setConsoleVisibility(false);
     });
-    console.log("Console close handler attached");
   }
 
   // Floating WGSL toggle button
@@ -1140,21 +1024,17 @@ function setupUIEventHandlers() {
       e.preventDefault();
       setConsoleVisibility(!consoleVisible);
     });
-    console.log("Floating WGSL toggle handler attached");
   }
 
   // Audio Settings Panel - with robust error handling
   const audioSettingsBtn = removeExistingHandlers("btn-audio-settings");
-  console.log('[main.js] Setting up audio settings button, element found:', !!audioSettingsBtn);
 
   if (audioSettingsBtn) {
     audioSettingsBtn.addEventListener("click", (e) => {
-      console.log('[main.js] Audio settings button clicked!');
       e.preventDefault();
 
       try {
         const audioPanel = getAudioSettingsPanel();
-        console.log('[main.js] Audio panel instance:', audioPanel);
 
         if (audioPanel && typeof audioPanel.toggle === 'function') {
           audioPanel.toggle();
@@ -1186,7 +1066,6 @@ function setupUIEventHandlers() {
         }
       }
     });
-    console.log("Audio settings handler attached");
   } else {
     console.error('[main.js] Audio settings button NOT found in DOM! Available buttons:',
       Array.from(document.querySelectorAll('button')).map(b => b.id).filter(Boolean));
@@ -1194,16 +1073,13 @@ function setupUIEventHandlers() {
 
   // MIDI Settings Panel
   const midiSettingsBtn = removeExistingHandlers("btn-midi-settings");
-  console.log('[main.js] Setting up MIDI settings button, element found:', !!midiSettingsBtn);
 
   if (midiSettingsBtn) {
     midiSettingsBtn.addEventListener("click", (e) => {
-      console.log('[main.js] MIDI settings button clicked!');
       e.preventDefault();
 
       try {
         const midiPanel = window.midiSettingsPanel;
-        console.log('[main.js] MIDI panel instance:', midiPanel);
 
         if (midiPanel && typeof midiPanel.toggle === 'function') {
           midiPanel.toggle();
@@ -1235,18 +1111,15 @@ function setupUIEventHandlers() {
         }
       }
     });
-    console.log("MIDI settings handler attached");
   } else {
     console.error('[main.js] MIDI settings button NOT found in DOM!');
   }
 
   // Timeline Panel
   const timelineBtn = removeExistingHandlers("btn-toggle-timeline");
-  console.log('[main.js] Setting up timeline button, element found:', !!timelineBtn);
 
   if (timelineBtn) {
     timelineBtn.addEventListener("click", (e) => {
-      console.log('[main.js] Timeline button clicked!');
       e.preventDefault();
 
       try {
@@ -1280,18 +1153,15 @@ function setupUIEventHandlers() {
         }
       }
     });
-    console.log("Timeline handler attached");
   } else {
     console.error('[main.js] Timeline button NOT found in DOM!');
   }
 
   // VJ Control Panel
   const vjBtn = removeExistingHandlers("btn-toggle-vj");
-  console.log('[main.js] Setting up VJ control button, element found:', !!vjBtn);
 
   if (vjBtn) {
     vjBtn.addEventListener("click", (e) => {
-      console.log('[main.js] VJ control button clicked!');
       e.preventDefault();
 
       try {
@@ -1325,7 +1195,6 @@ function setupUIEventHandlers() {
         }
       }
     });
-    console.log("VJ Control handler attached");
   } else {
     console.error('[main.js] VJ Control button NOT found in DOM!');
   }
@@ -1343,7 +1212,6 @@ function setupUIEventHandlers() {
     }
 
     if (!('getScreenDetails' in window)) {
-      console.log('[main.js] Window Management API not supported in this browser');
       displaySelect.title = 'Window Management API not supported in your browser';
       displaySelect.disabled = false;
       return;
@@ -1352,7 +1220,6 @@ function setupUIEventHandlers() {
     try {
       // Request permission if needed
       const permission = await navigator.permissions.query({ name: 'window-management' });
-      console.log('[main.js] Window Management permission state:', permission.state);
 
       if (permission.state === 'granted' || permission.state === 'prompt') {
         const screenDetails = await window.getScreenDetails();
@@ -1372,13 +1239,10 @@ function setupUIEventHandlers() {
         });
 
         displaySelect.title = `Select which monitor to open viewer on (${availableScreens.length} displays detected)`;
-        console.log(`[main.js] Detected ${availableScreens.length} displays:`, availableScreens.map(s => `${s.width}x${s.height}`));
       } else if (permission.state === 'denied') {
-        console.log('[main.js] Window Management permission denied');
         displaySelect.title = 'Permission denied. Enable Window Management in browser settings.';
       }
     } catch (error) {
-      console.log('[main.js] Error detecting displays:', error.message);
       displaySelect.title = 'Click to request multi-monitor permission';
     }
   }
@@ -1390,7 +1254,6 @@ function setupUIEventHandlers() {
     // Also try to detect when user clicks the dropdown (for permission prompt)
     displaySelect.addEventListener('focus', async () => {
       if (!permissionGranted && 'getScreenDetails' in window) {
-        console.log('[main.js] User focused display selector, attempting to detect displays...');
         await detectDisplays();
       }
     }, { once: true });
@@ -1398,7 +1261,6 @@ function setupUIEventHandlers() {
 
   // Open External Viewer button
   const openViewerBtn = removeExistingHandlers("btn-open-viewer");
-  console.log('[main.js] Setting up external viewer button, element found:', !!openViewerBtn);
 
   if (openViewerBtn) {
     // Check if running on Vercel or other cloud hosting
@@ -1418,14 +1280,12 @@ function setupUIEventHandlers() {
     }
 
     openViewerBtn.addEventListener("click", async (e) => {
-      console.log('[main.js] Open External Viewer button clicked!');
       e.preventDefault();
 
       // Check if running on Vercel/cloud
       if (isCloudHosted) {
         // If already streaming, stop it
         if (frameStreamingEnabled && liveShaderStream) {
-          console.log('[main.js] Stopping LiveShaderStream');
           liveShaderStream.stopStreaming();
           frameStreamingEnabled = false;
 
@@ -1441,7 +1301,6 @@ function setupUIEventHandlers() {
         }
 
         // Use LiveShaderStream for same-origin communication
-        console.log('[main.js] Cloud deployment detected, using LiveShaderStream');
 
         if (!LiveShaderStream.isSupported()) {
           alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
@@ -1454,7 +1313,6 @@ function setupUIEventHandlers() {
             liveShaderStream = new LiveShaderStream();
             liveShaderStream.init();
             window.liveShaderStream = liveShaderStream; // Expose for GPU renderer
-            console.log('[main.js] LiveShaderStream initialized');
           }
 
           // Start streaming
@@ -1469,7 +1327,6 @@ function setupUIEventHandlers() {
             let uniformValues = [];
             if (window.nodeCompiler?.uniformManager?.uniformValues) {
               uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
-              console.log('[main.js] Extracted', uniformValues.length, 'initial parameter values');
             }
 
             liveShaderStream.sendShaderUpdate(
@@ -1477,13 +1334,11 @@ function setupUIEventHandlers() {
               uniformValues,
               { width: canvas?.width || 1920, height: canvas?.height || 1080 }
             );
-            console.log('[main.js] ✅ Sent initial shader to LiveShaderStream');
           } else {
             console.warn('[main.js] ⚠️ No shader available yet - triggering rebuild');
             // Trigger a shader rebuild to generate and send the shader
             if (window.rebuild && typeof window.rebuild === 'function') {
               setTimeout(() => {
-                console.log('[main.js] Running rebuild to generate shader...');
                 window.rebuild();
               }, 100);
             }
@@ -1507,20 +1362,16 @@ function setupUIEventHandlers() {
               const width = Math.min(1920, screen.availWidth);
               const height = Math.min(1080, screen.availHeight);
               windowFeatures = `left=${left},top=${top},width=${width},height=${height}`;
-              console.log(`[main.js] Opening viewer on Display ${parseInt(selectedDisplayIndex) + 1} at ${left},${top}`);
             }
           }
 
           // Open live viewer in new window with auto-fullscreen
           const viewerUrl = window.location.origin + '/viewer-live.html?fullscreen=true&hideui=true';
           window.open(viewerUrl, 'RhizomiumLiveViewer', windowFeatures);
-          console.log('[main.js] Opening live viewer with auto-fullscreen and hidden UI');
 
           if (typeof updateStatus === "function") {
             updateStatus("Streaming shaders to live viewer (60 FPS)");
           }
-
-          console.log('[main.js] LiveShaderStream started');
         } catch (error) {
           console.error('[main.js] Error starting LiveShaderStream:', error);
           alert('❌ Failed to start streaming: ' + error.message);
@@ -1533,7 +1384,6 @@ function setupUIEventHandlers() {
       try {
         // If already streaming, stop it
         if (frameStreamingEnabled && frameStreamClient) {
-          console.log('[main.js] Stopping frame streaming');
           frameStreamClient.stopStreaming();
           frameStreamingEnabled = false;
 
@@ -1551,14 +1401,12 @@ function setupUIEventHandlers() {
         // Initialize frame streaming client if not already done
         if (!frameStreamClient) {
           frameStreamClient = new FrameStreamClient('http://localhost:5000');
-          console.log('[main.js] Frame streaming client initialized');
         }
 
         // Start frame streaming
         try {
           await frameStreamClient.startStreaming();
           frameStreamingEnabled = true;
-          console.log('[main.js] Frame streaming started');
 
           if (typeof updateStatus === "function") {
             updateStatus("Frame streaming started");
@@ -1575,9 +1423,6 @@ function setupUIEventHandlers() {
         });
 
         if (response.ok) {
-          const result = await response.json();
-          console.log('[main.js] External viewer launched successfully:', result);
-
           if (typeof updateStatus === "function") {
             updateStatus("External viewer opened (WebSocket mode)");
           }
@@ -1595,7 +1440,6 @@ function setupUIEventHandlers() {
         }
       } catch (error) {
         console.error('[main.js] Error launching external viewer:', error);
-        console.log('[main.js] External viewer requires backend API at /api/launch-viewer');
 
         // Show helpful message for local setup
         const isLocal = window.location.hostname === 'localhost' ||
@@ -1619,7 +1463,6 @@ function setupUIEventHandlers() {
         }
       }
     });
-    console.log("External viewer button handler attached");
   } else {
     console.error('[main.js] External viewer button NOT found in DOM!');
   }
@@ -1633,7 +1476,6 @@ function setupUIEventHandlers() {
 
       const canvas = document.getElementById('gpu-canvas');
       if (canvas) {
-        console.log(`[main.js] Changing canvas resolution to ${width}x${height}`);
 
         // Update canvas size
         canvas.width = width;
@@ -1660,10 +1502,7 @@ function setupUIEventHandlers() {
     if (canvas) {
       canvas.width = initWidth;
       canvas.height = initHeight;
-      console.log(`[main.js] Initial canvas resolution set to ${initWidth}x${initHeight}`);
     }
-
-    console.log("Resolution selector handler attached");
   } else {
     console.error('[main.js] Resolution selector NOT found in DOM!');
   }
@@ -1691,7 +1530,6 @@ function setupUIEventHandlers() {
         updateStatus("WGSL selected");
       }
     });
-    console.log("Select-all handler attached");
   }
 
   const copyCodeBtn = removeExistingHandlers("btn-copy-code");
@@ -1706,7 +1544,6 @@ function setupUIEventHandlers() {
         "";
 
       if (!text) {
-        console.warn("No WGSL code available to copy");
         if (typeof updateStatus === "function") {
           updateStatus("No WGSL to copy", "error");
         }
@@ -1738,7 +1575,6 @@ function setupUIEventHandlers() {
         }
       }
     });
-    console.log("Copy handler attached");
   }
   setConsoleVisibility(consoleVisible, false);
 
@@ -1747,10 +1583,8 @@ function setupUIEventHandlers() {
   if (importBtn) {
     importBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("Import button clicked");
       triggerFileLoad();
     });
-    console.log("Import button handler attached");
   }
 
   // Backups button
@@ -1758,29 +1592,21 @@ function setupUIEventHandlers() {
   if (backupsBtn && backupDialog) {
     backupsBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("Backups button clicked");
       backupDialog.show();
     });
-    console.log("Backups button handler attached");
   }
 
   // Welcome button
   const welcomeBtn = removeExistingHandlers("btn-welcome");
-  console.log("DEBUG: Welcome button element:", welcomeBtn);
-  console.log("DEBUG: welcomeWindow:", welcomeWindow);
   if (welcomeBtn && welcomeWindow) {
     welcomeBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("Welcome button clicked");
-      console.log("DEBUG: Calling welcomeWindow.show({ force: true })");
       try {
         welcomeWindow.show({ force: true });
-        console.log("DEBUG: welcomeWindow.show() completed");
       } catch (error) {
         console.error("ERROR showing welcome window:", error);
       }
     });
-    console.log("Welcome button handler attached");
   } else {
     if (!welcomeBtn) console.warn("WARNING: Welcome button not found in DOM!");
     if (!welcomeWindow) console.warn("WARNING: welcomeWindow not initialized!");
@@ -1791,13 +1617,9 @@ function setupUIEventHandlers() {
   if (rebuildBtn) {
     rebuildBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      console.log("Rebuild button clicked");
       updateShaderFromGraph();
     });
-    console.log("Rebuild button handler attached");
   }
-
-  console.log("ALL HANDLERS SETUP COMPLETE");
 }
 
 function setupKeyboardShortcuts() {
@@ -2275,7 +2097,6 @@ function createNewProject() {
 
   if (undoManager) {
     undoManager.clear();
-    console.log("Undo history cleared for new project");
   }
 
   if (editor) {
@@ -2448,7 +2269,6 @@ const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
 async function updateShaderFromGraph() {
   try {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
-      console.log("Empty graph - skipping shader update");
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();
         window.gpuRenderer.presentFallbackColor();
@@ -2461,7 +2281,6 @@ async function updateShaderFromGraph() {
     );
 
     if (!outputNode) {
-      console.log("No output node found - skipping shader update");
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();
         window.gpuRenderer.presentFallbackColor();
@@ -2475,7 +2294,6 @@ async function updateShaderFromGraph() {
       outputNode.inputs[0] !== undefined;
 
     if (!hasConnection) {
-      console.log("Output node not connected - skipping shader update");
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();
         window.gpuRenderer.presentFallbackColor();
@@ -2483,7 +2301,6 @@ async function updateShaderFromGraph() {
       return;
     }
 
-    console.log("Graph valid - compiling shader");
     const updateStart = performance.now();
 
     const result = buildWGSL(window.editor.graph);
@@ -2497,9 +2314,7 @@ async function updateShaderFromGraph() {
     // Initialize compute nodes BEFORE setting shader source
     // This ensures compute textures exist when bind groups are created
     if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
-      console.log('[main] Initializing compute executor before GPU pipeline...');
       await computeExecutor.initialize();
-      console.log('[main] Compute executor ready');
     }
 
     // Process ComputeFieldMapper nodes for 3D visualization
@@ -2538,10 +2353,6 @@ async function updateShaderFromGraph() {
         hasTextures: !!result.usesTextures,
         hasUniforms: !!result.usesUniforms,
       });
-      const gpuTime = (performance.now() - gpuStart).toFixed(2);
-      const totalTime = (performance.now() - updateStart).toFixed(2);
-
-      console.log(`[PERF] updateShaderFromGraph: ${totalTime}ms total (build=${buildTime}ms, regex=${regexTime}ms, DOM=${domTime}ms, GPU=${gpuTime}ms)`);
 
       lastUniformUpdate = performance.now();
       if (typeof updateStatus === "function") {
@@ -2556,8 +2367,6 @@ async function updateShaderFromGraph() {
         let uniformValues = [];
         if (result.uniformManager && result.uniformManager.uniformValues) {
           uniformValues = Array.from(result.uniformManager.uniformValues.values());
-          console.log('[main.js] Extracted parameter values:', uniformValues);
-          console.log('[main.js] Parameter count:', uniformValues.length);
         } else {
           console.warn('[main.js] No uniformManager or uniformValues found in result');
         }
@@ -2567,8 +2376,6 @@ async function updateShaderFromGraph() {
           uniformValues,
           { width: canvas?.width || 1920, height: canvas?.height || 1080 }
         );
-
-        console.log('[main.js] Sent shader with', uniformValues.length, 'parameters');
       }
     } else {
       console.warn("GPU renderer not initialized");
@@ -2621,8 +2428,6 @@ function updateStatus(message, type = "info") {
       }, 3000);
     }
   }
-
-  console.log(`[${type.toUpperCase()}] ${message}`);
 }
 
 function handleRenderFrame(frameState) {
@@ -2630,15 +2435,6 @@ function handleRenderFrame(frameState) {
   // When dragging parameters, we don't need to update anything
   // All updates happen once on mouseup
   const isDragging = editor?._parameterDragging || false;
-
-  // PERFORMANCE LOGGING: Verify optimization is working
-  if (isDragging && !window._dragLogShown) {
-    console.log('[PERF] Render loop OPTIMIZED - skipping expensive operations during drag');
-    window._dragLogShown = true;
-  } else if (!isDragging && window._dragLogShown) {
-    console.log('[PERF] Render loop FULL - all operations resumed');
-    window._dragLogShown = false;
-  }
 
   // PERFORMANCE: Skip expensive operations during drag, but keep basic rendering
   // Update timeline manager (only if not dragging)
@@ -2803,8 +2599,6 @@ window.addTestCube = function() {
     window.gpuRenderer.device,
     'Test Cube'
   );
-
-  console.log('Test cube added! Press Ctrl+3 to view in 3D viewport');
 
   // Show viewport if not already visible
   if (viewportPanel && !viewportPanel.isVisible) {

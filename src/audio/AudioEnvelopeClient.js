@@ -36,16 +36,13 @@ class AudioEnvelopeClient {
      */
     connect() {
         if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
-            console.log('[AudioEnvelope] Already connected or connecting');
             return;
         }
 
         try {
-            console.log(`[AudioEnvelope] Connecting to ${this.serverUrl}...`);
             this.ws = new WebSocket(this.serverUrl);
 
             this.ws.onopen = () => {
-                console.log('[AudioEnvelope] Connected');
                 this.connected = true;
                 this.reconnectAttempts = 0;
                 this.reconnectDelay = 1000;
@@ -74,7 +71,6 @@ class AudioEnvelopeClient {
             };
 
             this.ws.onclose = () => {
-                console.log('[AudioEnvelope] Disconnected');
                 this.connected = false;
                 this._emit('disconnected');
                 this._scheduleReconnect();
@@ -92,14 +88,12 @@ class AudioEnvelopeClient {
      */
     _scheduleReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.log('[AudioEnvelope] Max reconnection attempts reached');
             return;
         }
 
         this.reconnectAttempts++;
         const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), this.maxReconnectDelay);
 
-        console.log(`[AudioEnvelope] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
         setTimeout(() => {
             this.connect();
@@ -210,7 +204,6 @@ class AudioEnvelopeClient {
             }
 
             const result = await response.json();
-            console.log('[AudioEnvelope] Configuration updated:', result);
             return result;
         } catch (error) {
             console.error('[AudioEnvelope] Failed to update configuration:', error);

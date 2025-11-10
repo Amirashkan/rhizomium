@@ -152,22 +152,18 @@ export class FileInputHandler {
 
   async _handleFileLoad(node, file, dropZone, param, valueManager, onChange) {
     try {
-      console.log("Loading texture file:", file.name, "for node:", node.id);
-
       if (!window.textureManager) {
         throw new Error("TextureManager not available. Make sure it's initialized.");
       }
 
       this._showLoadingState(dropZone);
-      
+
       // Record the old file for undo if available
       const oldTextureInfo = window.textureManager?.getTexture(node.id);
       const oldFileName = oldTextureInfo?.file?.name || null;
-      
+
       // Load the texture
 await window.textureManager.uploadTexture(node.id, file);
-
-      console.log("✅ Texture loaded successfully");
 
       // Update parameter value through the value manager
       if (valueManager && valueManager.setValue) {
@@ -265,7 +261,6 @@ await window.textureManager.uploadTexture(node.id, file);
 
       // Call the onChange callback
       if (onChange) {
-        console.log("Triggering parameter update callback...");
         onChange(`File loaded for ${node.kind}`);
       }
     } catch (error) {

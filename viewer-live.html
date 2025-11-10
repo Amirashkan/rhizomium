@@ -357,8 +357,6 @@
                         timestamp: Date.now()
                     });
 
-                    console.log('[LiveViewer] Initialized and ready');
-
                 } catch (error) {
                     console.error('[LiveViewer] Initialization error:', error);
                     this.setStatus('WebGPU initialization failed', 'error');
@@ -388,12 +386,6 @@
             handleShaderUpdate(data) {
                 const { shaderCode, uniformValues, resolution } = data;
 
-                console.log('[LiveViewer] Received shader update:', {
-                    codeLength: shaderCode?.length,
-                    uniformCount: Array.isArray(uniformValues) ? uniformValues.length : 0,
-                    resolution
-                });
-
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
                     return;
@@ -411,24 +403,18 @@
                     this.canvas.width = this.currentWidth;
                     this.canvas.height = this.currentHeight;
                     this.updateCanvasDisplaySize();
-                    console.log(`[LiveViewer] Updated resolution to ${this.currentWidth}x${this.currentHeight}`);
                 }
 
                 // Update uniform values (now an array)
                 if (uniformValues && Array.isArray(uniformValues)) {
                     this.uniformValuesArray = uniformValues;
-                    console.log('[LiveViewer] Updated', uniformValues.length, 'parameter values:', uniformValues);
-                } else {
-                    console.warn('[LiveViewer] No uniformValues received or not an array:', uniformValues);
                 }
 
                 // Compile shader
-                console.log('[LiveViewer] Compiling shader...');
                 this.compileShader(shaderCode);
 
                 // Start rendering if not already running
                 if (!this.isRunning) {
-                    console.log('[LiveViewer] Starting render loop...');
                     this.startRendering();
                 }
             }
@@ -468,7 +454,6 @@
 
             compileShader(wgslCode) {
                 try {
-                    console.log('[LiveViewer] Starting shader compilation...');
                     this.currentShader = wgslCode;
 
                     // Clear existing pipeline
@@ -477,30 +462,17 @@
                     this.resources = {};
 
                     // Parse shader bindings
-                    console.log('[LiveViewer] Analyzing bindings...');
                     const bindings = this.analyzeBindings(wgslCode);
-                    console.log('[LiveViewer] Found bindings:', bindings);
 
                     // Create shader module
-                    console.log('[LiveViewer] Creating shader module...');
                     const shaderModule = this.device.createShaderModule({
                         code: wgslCode
                     });
 
-                    // Check for shader compilation errors
-                    shaderModule.getCompilationInfo().then(info => {
-                        if (info.messages.length > 0) {
-                            console.log('[LiveViewer] Shader compilation messages:', info.messages);
-                        }
-                    });
-
                     // Create bind group layouts and resources
-                    console.log('[LiveViewer] Creating bind group layouts...');
                     const bindGroupLayouts = this.createBindGroupLayouts(bindings);
-                    console.log('[LiveViewer] Created', bindGroupLayouts.length, 'bind group layouts');
 
                     // Create pipeline
-                    console.log('[LiveViewer] Creating pipeline...');
                     const pipelineLayout = this.device.createPipelineLayout({
                         bindGroupLayouts
                     });
@@ -522,11 +494,8 @@
                     });
 
                     // Create bind groups
-                    console.log('[LiveViewer] Creating bind groups...');
                     this.createBindGroups(bindings, bindGroupLayouts);
-                    console.log('[LiveViewer] Created', this.bindGroups.length, 'bind groups');
 
-                    console.log('[LiveViewer] ✅ Shader compiled successfully');
                     this.setStatus('Rendering', 'connected');
 
                 } catch (error) {
@@ -689,7 +658,6 @@
                 this.frameCount = 0;
                 this.lastFPSUpdate = this.startTime;
 
-                console.log('[LiveViewer] Starting render loop');
                 this.renderLoop();
             }
 
@@ -754,9 +722,6 @@
                         document.getElementById('render-fps').textContent = this.fps;
                         this.frameCount = 0;
                         this.lastFPSUpdate = now;
-
-                        // Log rendering status
-                        console.log(`[LiveViewer] Rendering at ${this.fps} FPS`);
                     }
 
                 } catch (error) {
@@ -799,19 +764,6 @@
                     // Write parameter values directly from array (matching main renderer)
                     const paramData = new Float32Array(this.uniformValuesArray);
                     this.device.queue.writeBuffer(paramBuffer, 0, paramData);
-
-                    // Log first write for debugging
-                    if (!this._loggedFirstParamWrite) {
-                        console.log('[LiveViewer] Writing', this.uniformValuesArray.length, 'parameters to GPU buffer');
-                        console.log('[LiveViewer] Parameter values:', this.uniformValuesArray);
-                        this._loggedFirstParamWrite = true;
-                    }
-                } else if (this.uniformValuesArray.length > 0 && !paramBuffer) {
-                    if (!this._loggedMissingBuffer) {
-                        console.warn('[LiveViewer] Have', this.uniformValuesArray.length, 'parameter values but no parameter buffer!');
-                        console.warn('[LiveViewer] Available resources:', Object.keys(this.resources));
-                        this._loggedMissingBuffer = true;
-                    }
                 }
             }
 
@@ -868,9 +820,6 @@
 
         // Initialize viewer
         const viewer = new LiveShaderViewer();
-
-        console.log('⚡ Rhizomium Live Shader Viewer initialized');
-        console.log('Real-time 60 FPS WebGPU rendering with local shader compilation');
 
         // Check for auto-fullscreen/hideui URL parameters
         const urlParams = new URLSearchParams(window.location.search);

@@ -4,8 +4,6 @@
  */
 
 async function showTestCube() {
-    console.log('=== Adding Test Cube ===');
-
     // Check prerequisites
     if (!window.systemIntegration?.scene) {
         console.error('❌ Scene not available');
@@ -28,29 +26,19 @@ async function showTestCube() {
     }
 
     try {
-        // Show viewport
-        console.log('1. Showing 3D viewport...');
         window.viewportPanel.show();
 
-        // Get device
         const device = window.gpuRenderer?.device;
         if (!device) {
             console.error('❌ WebGPU device not available');
             return;
         }
 
-        // Add test cube
-        console.log('2. Adding test cube...');
         const cube = await window.addTestCubeToScene(window.systemIntegration.scene, device);
-        console.log(`   ✓ Cube added: ${cube.geometry.vertexCount} vertices`);
+        console.log(`✓ Cube added (${cube.geometry.vertexCount} vertices)`);
 
-        // Render
-        console.log('3. Rendering scene...');
         window.sceneRenderer3D.render();
-        console.log('   ✓ Rendered');
-
-        console.log('\n✅ Done! You should see a rotating cube in the 3D viewport.');
-        console.log('💡 If you don\'t see it, check that the viewport is visible (blue canvas area)');
+        console.log('✓ Rendered');
 
     } catch (error) {
         console.error('❌ Error:', error);

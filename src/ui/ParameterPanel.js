@@ -244,7 +244,6 @@ export class ParameterPanel {
     try {
       localStorage.setItem('glsl-node-editor.parameter-panel.size', JSON.stringify(size));
     } catch (error) {
-      console.warn('Unable to persist parameter panel size:', error);
     }
   }
 
@@ -269,7 +268,6 @@ export class ParameterPanel {
         this.panel.style.height = '';
       }
     } catch (error) {
-      console.warn('Unable to restore parameter panel size:', error);
     }
 
     this.clampPanelSizeToViewport();
@@ -301,16 +299,14 @@ export class ParameterPanel {
 
       // Listen for binding events
       this.eventSystem.on('BINDING_CREATED', (data) => {
-        console.log('Binding created:', data);
-        if (this.selectedNode && 
+        if (this.selectedNode &&
             (this.selectedNode.id === data.sourceNodeId || this.selectedNode.id === data.targetNodeId)) {
           this.renderParameters(this.selectedNode);
         }
       });
 
       this.eventSystem.on('BINDING_REMOVED', (data) => {
-        console.log('Binding removed:', data);
-        if (this.selectedNode && 
+        if (this.selectedNode &&
             (this.selectedNode.id === data.sourceNodeId || this.selectedNode.id === data.targetNodeId)) {
           this.renderParameters(this.selectedNode);
         }
@@ -331,7 +327,6 @@ export class ParameterPanel {
         const paramName = e.target.getAttribute('data-param');
         if (this.selectedNode && paramName) {
           this.lastFocusedParameter = { paramName, node: this.selectedNode };
-          console.log('[ParameterPanel] Focused parameter:', paramName);
         }
       }
     });
@@ -1321,7 +1316,6 @@ case 'flip2d':
       // Update the keyframe button appearance
       this.renderParameters(node);
 
-      console.log(`Added keyframe for ${node.kind}.${param.name}:`, value);
     } catch (error) {
       console.error('Error adding keyframe:', error);
       if (window.updateStatus) {
@@ -1579,8 +1573,6 @@ getInputHandler(param) {
   }
 
 handleParameterUpdate(action) {
-  console.log('Parameter updated:', action);
-
   // Extract fields safely from the action object
   const name = action?.parameterName || action?.name || "";
   const value = action?.newValue ?? action?.value ?? 0;
@@ -1635,28 +1627,21 @@ updateNodePreview(node) {
 
 _processPreviewUpdate(node) {
   try {
-    console.log('Updating preview for node:', node.id);
-    
     if (window.editor?.previewSystem?.canvasManager) {
       window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
-      console.log('Cleared preview cache for node:', node.id);
     }
-    
+
     if (window.editor?.previewIntegration) {
       window.editor.previewIntegration.generateNodePreview(node);
-      console.log('Regenerated preview for node:', node.id);
-      
+
       if (window.editor?.graph?.nodes) {
         // Use expression-aware downstream tracking
         const downstreamNodes = this.graphProcessor.findDownstreamNodes(node.id, window.editor.graph.nodes);
-
-        console.log(`Found ${downstreamNodes.length} downstream nodes for ${node.id} (including expression dependencies)`);
 
         downstreamNodes.forEach(downstreamNode => {
           if (!downstreamNode || downstreamNode.id === node.id) {
             return;
           }
-          console.log('Queuing downstream node update:', downstreamNode.id);
           if (window.editor?.previewSystem?.canvasManager) {
             window.editor.previewSystem.canvasManager.canvasCache.delete(downstreamNode.id);
           }
@@ -1680,9 +1665,8 @@ _processPreviewUpdate(node) {
 
           return downstream.some(n => hasOutputInChain(n.id, visited));
         };
-        
+
         if (hasOutputInChain(node.id) && window.editor.onChange) {
-          console.log('OutputFinal found in downstream chain - scheduling shader recompilation');
           if (this._outputRebuildTimeout) {
             clearTimeout(this._outputRebuildTimeout);
           }
@@ -1703,36 +1687,28 @@ _processPreviewUpdate(node) {
     }
 
   } catch (error) {
-    console.warn(`Error updating preview for node ${node.id}:`, error);
   }
 }
 
   forceEditorUpdate() {
     try {
       if (window.editor) {
-        console.log('Forcing editor update...');
-        
         if (window.editor.previewSystem?.canvasManager?.canvasCache) {
           window.editor.previewSystem.canvasManager.canvasCache.clear();
-          console.log('Cleared all preview caches');
         }
-        
+
         if (window.editor.safeDraw) {
           window.editor.safeDraw();
-          console.log('Called editor.safeDraw()');
         } else if (window.editor.draw) {
           if (window.editor.markDirty) window.editor.markDirty('preview-toggle');
           window.editor.draw();
-          console.log('Called editor.draw()');
         }
-        
+
         if (window.editor.onChange) {
           window.editor.onChange('Parameter Panel Update');
-          console.log('Called editor.onChange()');
         }
       }
     } catch (error) {
-      console.warn('Error forcing editor update:', error);
     }
   }
 

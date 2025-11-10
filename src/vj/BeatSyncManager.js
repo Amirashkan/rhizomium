@@ -28,7 +28,6 @@ export class BeatSyncManager {
     // Animation frame
     this.animationFrame = null;
 
-    console.log('[BeatSyncManager] Initialized');
   }
 
   /**
@@ -55,7 +54,6 @@ export class BeatSyncManager {
     this.startTime = performance.now() - this.pauseTime;
     this.update();
 
-    console.log(`[BeatSyncManager] Started at ${this.bpm} BPM`);
   }
 
   /**
@@ -74,7 +72,6 @@ export class BeatSyncManager {
       this.animationFrame = null;
     }
 
-    console.log('[BeatSyncManager] Stopped');
   }
 
   /**
@@ -91,7 +88,6 @@ export class BeatSyncManager {
       this.animationFrame = null;
     }
 
-    console.log('[BeatSyncManager] Paused');
   }
 
   /**
@@ -104,7 +100,6 @@ export class BeatSyncManager {
     this.startTime = performance.now() - this.pauseTime;
     this.update();
 
-    console.log('[BeatSyncManager] Resumed');
   }
 
   /**
@@ -141,12 +136,10 @@ export class BeatSyncManager {
    */
   setBPM(bpm) {
     if (bpm <= 0 || bpm > 300) {
-      console.warn('[BeatSyncManager] Invalid BPM:', bpm);
       return false;
     }
 
     this.bpm = bpm;
-    console.log(`[BeatSyncManager] BPM set to ${bpm}`);
     return true;
   }
 
@@ -155,7 +148,6 @@ export class BeatSyncManager {
    */
   setBeatsPerMeasure(beats) {
     if (beats <= 0 || beats > 16) {
-      console.warn('[BeatSyncManager] Invalid beats per measure:', beats);
       return false;
     }
 
@@ -190,7 +182,6 @@ export class BeatSyncManager {
       }
     }
 
-    console.log(`[BeatSyncManager] Tap (${this.tapTimes.length} taps, BPM: ${this.bpm})`);
   }
 
   /**

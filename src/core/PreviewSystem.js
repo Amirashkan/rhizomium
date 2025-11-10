@@ -38,8 +38,6 @@ constructor(editor) {
 
       // Don't create integration here - let it be created externally
       this.integration = null;
-
-      console.log('PreviewSystem initialized successfully');
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'preview-system-constructor'
@@ -67,11 +65,9 @@ constructor(editor) {
   setIntegration(integration) {
     try {
       if (!integration) {
-        console.warn('Null integration provided to PreviewSystem');
         return;
       }
       this.integration = integration;
-      console.log('PreviewSystem integration set successfully');
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'preview-integration-set'
@@ -119,7 +115,6 @@ constructor(editor) {
     rendererGroups.forEach((RendererGroup, index) => {
       try {
         if (!RendererGroup) {
-          console.warn(`Renderer group at index ${index} is null/undefined`);
           failedCount++;
           return;
         }
@@ -127,15 +122,13 @@ constructor(editor) {
         const renderers = new RendererGroup(this);
         if (renderers && typeof renderers.register === 'function') {
           renderers.register(this.rendererRegistry);
-                    console.log(`Registered ${RendererGroup.name}:`, Object.keys(this.rendererRegistry.renderers || {}));
-
           registeredCount++;
         } else {
           console.warn(`Renderer group ${RendererGroup.name || 'Unknown'} missing register method`);
           failedCount++;
         }
       } catch (rendererError) {
-        window.errorHandler?.handleError(rendererError, { 
+        window.errorHandler?.handleError(rendererError, {
           component: 'renderer-group-registration',
           rendererGroupIndex: index,
           rendererGroupName: RendererGroup?.name || 'Unknown'
@@ -143,8 +136,6 @@ constructor(editor) {
         failedCount++;
       }
     });
-
-    console.log(`Renderer registration completed: ${registeredCount} successful, ${failedCount} failed`);
   } catch (error) {
     window.errorHandler?.handleError(error, { 
       component: 'renderer-registration'
@@ -215,9 +206,6 @@ generateNodePreview(node) {
     // Get and execute renderer
     const rendererKey = node.kind.toLowerCase();
     const renderer = this.rendererRegistry.getRenderer(rendererKey);
-    if (!renderer) {
-  console.log(`❌ No renderer found for: ${node.kind} (looking for key: ${rendererKey})`);
-}
     if (renderer && typeof renderer === 'function') {
       try {
         renderer(ctx, node);
@@ -226,7 +214,6 @@ generateNodePreview(node) {
         this._renderError(ctx, node, `Renderer: ${rendererError.message}`);
       }
     } else {
-      console.log(`No specific renderer for ${node.kind}, using generic renderer`);
       this._renderGeneric(ctx, node);
     }
 
@@ -257,33 +244,22 @@ updateAllPreviews(nodes) {
   try {
     // Safety check
     if (!nodes || !Array.isArray(nodes)) {
-      console.warn('updateAllPreviews called with invalid nodes:', nodes);
       return;
     }
-
-    console.log('Updating all previews for', nodes.length, 'nodes');
 
     // CRITICAL: Compute all node output values FIRST before generating visual previews
     // This ensures values are available for display on output pins
     if (this.editor?.previewComputer && this.editor?.graph) {
-      console.log('🔢 Computing values for all nodes');
       this.editor.previewComputer.computePreviews(this.editor.graph);
-    } else {
-      console.warn('⚠️ PreviewComputer or graph not available');
     }
 
     // Sort nodes in topological order so dependencies are rendered first
     const sortedNodes = this.topologicalSort(nodes);
-    
-    let successCount = 0;
-    let failCount = 0;
 
     sortedNodes.forEach((node) => {
       try {
         this.generateNodePreview(node);
-        successCount++;
       } catch (error) {
-        failCount++;
         window.errorHandler?.handleError(error, {
           component: 'preview-generation',
           nodeId: node.id,
@@ -291,8 +267,6 @@ updateAllPreviews(nodes) {
         });
       }
     });
-
-    console.log(`Preview update completed: ${successCount} successful, ${failCount} failed`);
   } catch (error) {
     window.errorHandler?.handleError(error, {
       component: 'update-all-previews'
@@ -381,8 +355,6 @@ topologicalSort(nodes) {
         size = this.size;
       }
 
-      console.log("🔍 TEXTURE PREVIEW DEBUG: renderTexture2D called for node", node.id, "size:", size);
-
       const canvas = document.createElement("canvas");
       canvas.width = size;
       canvas.height = size;
@@ -394,7 +366,6 @@ topologicalSort(nodes) {
 
       // Check if texture is loaded
       const textureInfo = window.textureManager?.getTexture(node.id);
-      console.log("Texture info for node", node.id, ":", textureInfo);
 
       if (textureInfo && textureInfo.file) {
         // Try to create image from file
@@ -436,7 +407,6 @@ topologicalSort(nodes) {
         this._renderTexturePlaceholder(ctx, size);
       }
 
-      console.log("🎨 TEXTURE PREVIEW: Returning canvas:", canvas, "dimensions:", canvas.width, "x", canvas.height);
       return canvas;
     } catch (error) {
       window.errorHandler?.handleError(error, { 

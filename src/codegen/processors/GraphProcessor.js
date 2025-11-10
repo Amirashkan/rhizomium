@@ -125,9 +125,7 @@ processGraph(graph) {
       if (outputNode) {
         orderedNodes = this.filterUpstreamNodes(orderedNodes, outputNode, graph);
       }
-      
-      console.log(`Graph processing completed: ${orderedNodes.length} nodes ordered, output node: ${outputNode?.id || 'none'}`);
-      
+
       return { orderedNodes, outputNode };
     } catch (error) {
       window.errorHandler?.handleError(error, { 

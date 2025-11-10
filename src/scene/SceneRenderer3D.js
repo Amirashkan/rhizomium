@@ -53,7 +53,6 @@ export class SceneRenderer3D {
       this.createUniformBuffer();
 
       this.initialized = true;
-      console.log('[SceneRenderer3D] Initialized successfully');
     } catch (error) {
       console.error('[SceneRenderer3D] Initialization failed:', error);
       throw error;
@@ -265,18 +264,8 @@ export class SceneRenderer3D {
     try {
       const meshNodes = this.scene.getMeshNodes();
       if (meshNodes && meshNodes.length > 0) {
-        if (!this._hasLoggedNodes) {
-          console.log(`[SceneRenderer3D] Found ${meshNodes.length} mesh nodes to render`);
-          this._hasLoggedNodes = true;
-        }
         for (const meshNode of meshNodes) {
           this.renderMeshNode(passEncoder, meshNode, time);
-        }
-      } else {
-        if (!this._hasLoggedEmpty) {
-          console.log('[SceneRenderer3D] No mesh nodes found in scene');
-          console.log('[SceneRenderer3D] Scene has', this.scene.root.children.length, 'root children');
-          this._hasLoggedEmpty = true;
         }
       }
     } catch (error) {
@@ -312,14 +301,6 @@ export class SceneRenderer3D {
     // Get matrices from viewport
     const viewProjection = this.viewport3D.getViewProjectionMatrix();
     const modelMatrix = meshNode.getWorldMatrix();
-
-    if (!this._hasLoggedMatrices) {
-      console.log('[SceneRenderer3D] ViewProjection matrix:', viewProjection.elements);
-      console.log('[SceneRenderer3D] Model matrix:', modelMatrix.elements);
-      console.log('[SceneRenderer3D] Mesh position:', meshNode.transform.position);
-      console.log('[SceneRenderer3D] Index count:', meshNode.geometry.indexCount);
-      this._hasLoggedMatrices = true;
-    }
 
     // Update uniforms
     this.updateUniforms(viewProjection, modelMatrix, time);

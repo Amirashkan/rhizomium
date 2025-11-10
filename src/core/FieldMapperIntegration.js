@@ -34,21 +34,14 @@ export class FieldMapperIntegration {
      * @param {Array} connections - All connections
      */
     async processFieldMappers(nodes, connections) {
-        console.log('[FieldMapperIntegration] processFieldMappers called');
-        console.log('[FieldMapperIntegration] nodes:', nodes ? nodes.length : 'null');
-        console.log('[FieldMapperIntegration] connections:', connections ? connections.length : 'null');
-        console.log('[FieldMapperIntegration] device:', !!this.device);
-        console.log('[FieldMapperIntegration] scene:', !!this.scene);
 
         if (!nodes || !this.device || !this.scene) {
-            console.log('[FieldMapperIntegration] Missing required components, aborting');
             return;
         }
 
         // Find all ComputeFieldMapper nodes
         const fieldMapperNodes = nodes.filter(n => n.kind === 'ComputeFieldMapper');
 
-        console.log('[FieldMapperIntegration] Found', fieldMapperNodes.length, 'ComputeFieldMapper nodes');
 
         if (fieldMapperNodes.length === 0) {
             // No field mapper nodes - clean up any existing ones
@@ -56,14 +49,12 @@ export class FieldMapperIntegration {
             return;
         }
 
-        console.log(`[FieldMapperIntegration] Processing ${fieldMapperNodes.length} ComputeFieldMapper node(s)`);
 
         // Track which nodes are still active
         const activeNodeIds = new Set();
 
         for (const node of fieldMapperNodes) {
             activeNodeIds.add(node.id);
-            console.log(`[FieldMapperIntegration] Processing node ${node.id}...`);
 
             try {
                 await this.processFieldMapperNode(node, connections);
@@ -81,7 +72,6 @@ export class FieldMapperIntegration {
 
         // Render the 3D scene if there are active field mappers
         if (this.sceneRenderer3D && activeNodeIds.size > 0) {
-            console.log('[FieldMapperIntegration] Rendering 3D scene...');
             this.sceneRenderer3D.render();
         }
     }
@@ -111,7 +101,6 @@ export class FieldMapperIntegration {
         }
 
         if (!sourceNodeId) {
-            console.warn(`[FieldMapperIntegration] Node ${nodeId} has no input connection`);
             return;
         }
 
@@ -119,7 +108,6 @@ export class FieldMapperIntegration {
         const computeTexture = this.getComputeTexture(sourceNodeId);
 
         if (!computeTexture) {
-            console.warn(`[FieldMapperIntegration] No compute texture available from node ${sourceNodeId}`);
             return;
         }
 
@@ -134,7 +122,6 @@ export class FieldMapperIntegration {
             this.scene.addNode(fieldMapper);
             this.nodesInScene.add(nodeId);
 
-            console.log(`[FieldMapperIntegration] Created field mapper for node ${nodeId}`);
         } else {
             // Update parameters if they changed
             this.updateFieldMapperParams(fieldMapper, node);
@@ -146,7 +133,6 @@ export class FieldMapperIntegration {
 
             const geometry = fieldMapper.getGeometry();
             if (geometry && geometry.vertexCount > 0) {
-                console.log(`[FieldMapperIntegration] Generated ${geometry.vertexCount} vertices for node ${nodeId}`);
             }
         } catch (error) {
             console.error(`[FieldMapperIntegration] Failed to generate visualization for node ${nodeId}:`, error);
@@ -310,7 +296,6 @@ export class FieldMapperIntegration {
             }
 
             this.fieldMappers.delete(nodeId);
-            console.log(`[FieldMapperIntegration] Removed field mapper ${nodeId}`);
         }
     }
 

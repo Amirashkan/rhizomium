@@ -19,7 +19,6 @@ export class PlaylistManager {
     this.currentSceneStartTime = null;
     this.playbackTimer = null;
 
-    console.log('[PlaylistManager] Initialized');
   }
 
   /**
@@ -40,7 +39,6 @@ export class PlaylistManager {
     };
 
     this.playlist.push(playlistItem);
-    console.log(`[PlaylistManager] Added to playlist: ${scene.name}`);
     return true;
   }
 
@@ -96,19 +94,16 @@ export class PlaylistManager {
    */
   async play(startIndex = 0) {
     if (this.playlist.length === 0) {
-      console.warn('[PlaylistManager] Playlist is empty');
       return false;
     }
 
     if (this.isPlaying) {
-      console.warn('[PlaylistManager] Playlist already playing');
       return false;
     }
 
     this.isPlaying = true;
     this.currentIndex = startIndex;
 
-    console.log('[PlaylistManager] Starting playlist playback');
     await this.playCurrentScene();
 
     return true;
@@ -126,7 +121,6 @@ export class PlaylistManager {
       this.playbackTimer = null;
     }
 
-    console.log('[PlaylistManager] Stopped playlist playback');
   }
 
   /**
@@ -141,7 +135,6 @@ export class PlaylistManager {
       this.playbackTimer = null;
     }
 
-    console.log('[PlaylistManager] Paused playlist playback');
   }
 
   /**
@@ -160,7 +153,6 @@ export class PlaylistManager {
       this.next();
     }
 
-    console.log('[PlaylistManager] Resumed playlist playback');
   }
 
   /**
@@ -183,7 +175,6 @@ export class PlaylistManager {
         this.currentIndex = 0;
       } else {
         this.stop();
-        console.log('[PlaylistManager] Playlist finished');
         return;
       }
     }
@@ -236,7 +227,6 @@ export class PlaylistManager {
       return;
     }
 
-    console.log(`[PlaylistManager] Playing scene: ${scene.name} (${item.duration}s)`);
 
     // Perform transition
     await this.transitionManager.startTransition(
@@ -349,7 +339,6 @@ export class PlaylistManager {
       this.loop = data.loop !== undefined ? data.loop : true;
       this.currentIndex = -1;
 
-      console.log(`[PlaylistManager] Imported playlist with ${this.playlist.length} items`);
       return true;
     } catch (error) {
       console.error('[PlaylistManager] Failed to import playlist:', error);

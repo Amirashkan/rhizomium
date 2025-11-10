@@ -258,38 +258,30 @@
 
                 // Bind events
                 this.channel.onmessage = (event) => {
-                    console.log('[Viewer] Received message:', event.data?.type || 'unknown');
                     this.handleMessage(event.data);
                 };
 
                 document.getElementById('btn-hide-ui').addEventListener('click', () => {
-                    console.log('[Viewer] Hide UI button clicked');
                     this.toggleUI();
                 });
                 document.getElementById('btn-fullscreen').addEventListener('click', () => {
-                    console.log('[Viewer] Fullscreen button clicked');
                     this.toggleFullscreen();
                 });
                 document.getElementById('btn-popout').addEventListener('click', () => {
-                    console.log('[Viewer] Pop out button clicked');
                     this.popOutWindow();
                 });
                 document.getElementById('btn-refresh').addEventListener('click', () => location.reload());
 
                 // Keyboard shortcuts
                 document.addEventListener('keydown', (e) => {
-                    console.log('[Viewer] Key pressed:', e.key);
                     if (e.key === 'h' || e.key === 'H') {
                         e.preventDefault();
-                        console.log('[Viewer] H key detected, calling toggleUI()');
                         this.toggleUI();
                     } else if (e.key === 'f' || e.key === 'F') {
                         e.preventDefault();
-                        console.log('[Viewer] F key detected, calling toggleFullscreen()');
                         this.toggleFullscreen();
                     } else if (e.key === 'p' || e.key === 'P') {
                         e.preventDefault();
-                        console.log('[Viewer] P key detected, calling popOutWindow()');
                         this.popOutWindow();
                     }
                 });
@@ -297,15 +289,11 @@
                 // Auto-resize canvas
                 window.addEventListener('resize', () => this.resizeCanvas());
 
-                console.log('[Viewer] Initialized and listening for frames...');
-                console.log('[Viewer] BroadcastChannel name:', this.channel.name);
-
                 // Request a frame
                 this.requestFrame();
 
                 // Send a test ping every 2 seconds to verify channel works
                 setInterval(() => {
-                    console.log('[Viewer] Sending keepalive ping...');
                     this.channel.postMessage({ type: 'viewer_ping', timestamp: Date.now() });
                 }, 2000);
             }
@@ -323,12 +311,10 @@
                 if (type === 'frame') {
                     this.handleFrame(data);
                 } else if (type === 'stream_started') {
-                    console.log('[Viewer] Stream started');
                     document.getElementById('status').textContent = 'Connected';
                     document.getElementById('status').classList.add('connected');
                     document.getElementById('status').classList.remove('pulse');
                 } else if (type === 'stream_stopped') {
-                    console.log('[Viewer] Stream stopped');
                     document.getElementById('status').textContent = 'Stream stopped';
                     document.getElementById('status').classList.remove('connected');
                 }
@@ -338,7 +324,6 @@
                 if (!this.hasReceivedFrame) {
                     this.hasReceivedFrame = true;
                     document.getElementById('overlay').classList.add('hidden');
-                    console.log('[Viewer] First frame received!');
                 }
 
                 const { imageData, metadata } = data;
@@ -352,7 +337,6 @@
                 if (this.canvas.width !== metadata.width || this.canvas.height !== metadata.height) {
                     this.canvas.width = metadata.width;
                     this.canvas.height = metadata.height;
-                    console.log(`[Viewer] Canvas resolution changed to: ${metadata.width}x${metadata.height}`);
 
                     // Update canvas display size to scale properly
                     this.updateCanvasDisplaySize();
@@ -392,11 +376,7 @@
                 const containerWidth = container.clientWidth;
                 const containerHeight = container.clientHeight;
 
-                console.log(`[Viewer] Container size: ${containerWidth}x${containerHeight}`);
-                console.log(`[Viewer] Canvas internal size: ${this.canvas.width}x${this.canvas.height}`);
-
                 if (this.canvas.width === 0 || this.canvas.height === 0) {
-                    console.warn('[Viewer] Canvas has zero dimensions, skipping resize');
                     return;
                 }
 
@@ -424,8 +404,6 @@
                 // Update display size stat
                 document.getElementById('display-size').textContent =
                     `${Math.round(displayWidth)}x${Math.round(displayHeight)}`;
-
-                console.log(`[Viewer] Set display size to: ${Math.round(displayWidth)}x${Math.round(displayHeight)} (aspect: ${frameAspect.toFixed(2)})`);
             }
 
             resizeCanvas() {
@@ -436,22 +414,15 @@
             }
 
             toggleUI() {
-                console.log('[Viewer] toggleUI() called');
                 const isHidden = document.body.classList.contains('ui-hidden');
-                console.log('[Viewer] Current UI state - isHidden:', isHidden);
-                console.log('[Viewer] Body classes before:', document.body.className);
 
                 if (isHidden) {
                     // Show UI
                     document.body.classList.remove('ui-hidden');
-                    console.log('[Viewer] Removed ui-hidden class from body');
                 } else {
                     // Hide UI
                     document.body.classList.add('ui-hidden');
-                    console.log('[Viewer] Added ui-hidden class to body');
                 }
-
-                console.log('[Viewer] Body classes after:', document.body.className);
 
                 // Update canvas display size after UI toggle (viewport size changes)
                 setTimeout(() => {
@@ -476,30 +447,21 @@
                 const url = window.location.href;
                 const features = 'width=1920,height=1080,menubar=no,toolbar=no,location=no,status=no';
                 window.open(url, 'RhizomiumViewer', features);
-                console.log('[Viewer] Opened pop-out window');
             }
         }
 
         // Initialize viewer
         const viewer = new ViewerApp();
 
-        console.log('🌿 Rhizomium Viewer (Vercel Edition) initialized');
-        console.log('Waiting for frames from the editor...');
-        console.log('Make sure the editor tab is open and streaming is active!');
-
         // Check for auto-fullscreen URL parameter
         const urlParams = new URLSearchParams(window.location.search);
         const autoFullscreen = urlParams.get('fullscreen') === 'true';
         const autoHideUI = urlParams.get('hideui') === 'true';
 
-        console.log('[Viewer] URL params - fullscreen:', autoFullscreen, 'hideui:', autoHideUI);
-
         if (autoHideUI) {
             // Hide UI immediately
             setTimeout(() => {
                 document.body.classList.add('ui-hidden');
-                console.log('[Viewer] Auto-hiding UI (from URL parameter)');
-                console.log('[Viewer] Body classes:', document.body.className);
             }, 100);
         }
 
@@ -507,10 +469,7 @@
             // Show fullscreen prompt
             setTimeout(() => {
                 // Try automatic fullscreen first
-                document.documentElement.requestFullscreen().then(() => {
-                    console.log('[Viewer] Auto-entered fullscreen');
-                }).catch(err => {
-                    console.warn(`[Viewer] Auto-fullscreen blocked: ${err.message}`);
+                document.documentElement.requestFullscreen().catch(err => {
 
                     // Show prominent message to user
                     const overlay = document.getElementById('overlay');

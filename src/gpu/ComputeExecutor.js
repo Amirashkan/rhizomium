@@ -61,8 +61,6 @@ export class ComputeExecutor {
 
     // Track which fragment nodes have been rendered this frame
     this.renderedFragmentNodes = new Set();
-
-    console.log('[ComputeExecutor] Created with fragment auto-bridging support');
   }
 
   /**
@@ -70,11 +68,8 @@ export class ComputeExecutor {
    */
   async initialize() {
     if (!window.computeNodeRegistry || window.computeNodeRegistry.size === 0) {
-      console.log('[ComputeExecutor] No compute nodes to initialize');
       return;
     }
-
-    console.log(`[ComputeExecutor] Initializing ${window.computeNodeRegistry.size} compute nodes...`);
 
     // Create fallback texture
     this.createFallbackTexture();
@@ -87,7 +82,6 @@ export class ComputeExecutor {
     this.updateExecutionOrder();
 
     this.initialized = true;
-    console.log('[ComputeExecutor] ✓ Initialization complete');
   }
 
   /**
@@ -110,9 +104,6 @@ export class ComputeExecutor {
                                      'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect',
                                      'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels', 'ComputeHSV', 'ComputeHistogram', 'ComputeLuminance'].includes(node.kind);
       const needsInput = nodeDesignedForInput;
-
-      console.log(`[ComputeExecutor] Initializing compute node: ${node.kind} (${nodeId})`);
-      console.log(`[ComputeExecutor] Resolution: ${resolution[0]}x${resolution[1]}, Feedback: ${supportsFeedback}, NeedsInput: ${needsInput}`);
 
       // Create compute shader manager with node reference for parameters
       const manager = new ComputeShaderManager(this.device, node);
@@ -141,10 +132,6 @@ export class ComputeExecutor {
         sampler,
         manager
       });
-
-      console.log(`[ComputeExecutor] ✓ Initialized compute node: ${node.kind} (${nodeId})`);
-      console.log(`[ComputeExecutor] ✓ Registered compute texture with ID: ${nodeId}`);
-      console.log(`[ComputeExecutor] Current computeTextures keys:`, Array.from(this.computeTextures.keys()));
     } catch (error) {
       console.error(`[ComputeExecutor] ❌ FAILED to initialize node ${nodeId}:`, error);
       console.error(`[ComputeExecutor] ❌ WGSL shader code that failed:`, nodeData.wgslCode);
@@ -172,8 +159,6 @@ export class ComputeExecutor {
       { bytesPerRow: 4 },
       { width: 1, height: 1 }
     );
-
-    console.log('[ComputeExecutor] Created fallback texture');
   }
 
   /**
@@ -245,8 +230,6 @@ export class ComputeExecutor {
       }
 
       this.executionOrder = result;
-      console.log(`[ComputeExecutor] Execution order computed: ${this.executionOrder.length} nodes`);
-      console.log(`[ComputeExecutor] Order: ${this.executionOrder.join(' -> ')}`);
     } catch (error) {
       console.error('[ComputeExecutor] Error computing execution order:', error);
       this.executionOrder = Array.from(this.computeManagers.keys());
@@ -298,13 +281,10 @@ export class ComputeExecutor {
         // Check if the node exists in the graph
         const inputNode = window.graph.getNode(inputNodeId);
         if (!inputNode) {
-          console.warn(`[ComputeExecutor] Input node ${inputNodeId} not found in graph`);
           continue;
         }
 
         // This is a fragment node being used as compute input!
-        console.log(`[ComputeExecutor] 🌉 Auto-bridging: Fragment node ${inputNodeId} (${inputNode.kind}) → Compute node ${nodeId}`);
-
         try {
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
@@ -324,18 +304,11 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
-            console.log(`[ComputeExecutor] ✓ Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
-          } else {
-            console.warn(`[ComputeExecutor] Failed to render fragment node ${inputNodeId}`);
           }
         } catch (error) {
           console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
         }
       }
-    }
-
-    if (this.renderedFragmentNodes.size > 0) {
-      console.log(`[ComputeExecutor] 🌉 Auto-bridged ${this.renderedFragmentNodes.size} fragment→compute connections`);
     }
   }
 
@@ -474,7 +447,6 @@ export class ComputeExecutor {
     }
 
     // Return fallback texture for uncomputed nodes
-    console.warn(`[ComputeExecutor] Node ${nodeId} not computed yet, using fallback`);
     return this.fallbackTexture;
   }
 
@@ -556,15 +528,12 @@ export class ComputeExecutor {
     let wgsl = '\n// Compute Shader Texture Bindings\n';
 
     const bindings = this.getTextureBindings();
-    console.log(`[ComputeExecutor] Generating ${bindings.length} compute texture bindings`);
 
     for (const binding of bindings) {
-      console.log(`[ComputeExecutor] Binding: ${binding.name} at ${binding.textureBinding}, sampler at ${binding.samplerBinding}`);
       wgsl += `@group(0) @binding(${binding.textureBinding}) var ${binding.name}: texture_2d<f32>;\n`;
       wgsl += `@group(0) @binding(${binding.samplerBinding}) var sampler_${binding.name}: sampler;\n`;
     }
 
-    console.log('[ComputeExecutor] Generated bindings:\n', wgsl);
     return wgsl;
   }
 

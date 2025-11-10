@@ -55,15 +55,14 @@ export class BroadcastFrameStream {
         }
 
         this.channel = new BroadcastChannel(this.channelName);
-        console.log(`[BroadcastFrameStream] Channel "${this.channelName}" initialized`);
 
         // Add listener to debug messages from other tabs
         this.channel.onmessage = (event) => {
             const data = event.data;
             if (data.type === 'viewer_ping') {
-                console.log('[BroadcastFrameStream] Received viewer ping from viewer tab');
+                // Viewer ping received
             } else if (data.type === 'request_frame') {
-                console.log('[BroadcastFrameStream] Viewer requested a frame');
+                // Frame requested
             }
         };
 
@@ -80,15 +79,12 @@ export class BroadcastFrameStream {
 
         this.isStreaming = true;
         this.framesSent = 0;
-        console.log('[BroadcastFrameStream] Started streaming on channel:', this.channel.name);
 
         // Announce streaming start
-        const startMsg = {
+        this.channel.postMessage({
             type: 'stream_started',
             timestamp: Date.now()
-        };
-        console.log('[BroadcastFrameStream] Broadcasting stream_started:', startMsg);
-        this.channel.postMessage(startMsg);
+        });
     }
 
     /**
@@ -96,7 +92,6 @@ export class BroadcastFrameStream {
      */
     stopStreaming() {
         this.isStreaming = false;
-        console.log('[BroadcastFrameStream] Stopped streaming');
 
         if (this.channel) {
             this.channel.postMessage({
@@ -125,8 +120,6 @@ export class BroadcastFrameStream {
             this.handleMessage(event.data);
         };
 
-        console.log('[BroadcastFrameStream] Started receiving');
-
         // Request current frame
         this.channel.postMessage({
             type: 'request_frame',
@@ -143,8 +136,6 @@ export class BroadcastFrameStream {
         if (this.channel) {
             this.channel.onmessage = null;
         }
-
-        console.log('[BroadcastFrameStream] Stopped receiving');
     }
 
     /**
@@ -178,9 +169,9 @@ export class BroadcastFrameStream {
                 this.onMetadataCallback(data);
             }
         } else if (type === 'stream_started') {
-            console.log('[BroadcastFrameStream] Stream started');
+            // Stream started
         } else if (type === 'stream_stopped') {
-            console.log('[BroadcastFrameStream] Stream stopped');
+            // Stream stopped
         } else if (type === 'request_frame') {
             // Another viewer is requesting a frame, ignore if we're not streaming
         }
@@ -200,12 +191,6 @@ export class BroadcastFrameStream {
         if (timeSinceLastFrame < this.minFrameInterval) {
             // Skip this frame - too soon
             return;
-        }
-
-        // Log throttling info every 60 frames
-        if (this.framesSent % 60 === 0 && this.framesSent > 0) {
-            const actualFps = 1000 / timeSinceLastFrame;
-            console.log(`[BroadcastFrameStream] Throttling: ${actualFps.toFixed(1)} FPS (target: ${this.targetFps}, interval: ${this.minFrameInterval}ms, delta: ${timeSinceLastFrame.toFixed(1)}ms)`);
         }
 
         this.lastFrameTime = now;
@@ -257,11 +242,6 @@ export class BroadcastFrameStream {
 
             this.framesSent++;
 
-            // Log every 30 frames to avoid spam
-            if (this.framesSent % 30 === 0) {
-                console.log(`[BroadcastFrameStream] Sent ${this.framesSent} frames (${metadata.width}x${metadata.height})`);
-            }
-
         } catch (error) {
             console.error('[BroadcastFrameStream] Error sending frame:', error);
         }
@@ -304,7 +284,6 @@ export class BroadcastFrameStream {
     setTargetFPS(fps) {
         this.targetFps = Math.max(1, Math.min(60, fps));
         this.minFrameInterval = 1000 / this.targetFps;
-        console.log(`[BroadcastFrameStream] Target FPS set to ${this.targetFps}`);
     }
 
     /**
@@ -331,7 +310,6 @@ export class BroadcastFrameStream {
             this.stopReceiving();
             this.channel.close();
             this.channel = null;
-            console.log('[BroadcastFrameStream] Channel closed');
         }
     }
 

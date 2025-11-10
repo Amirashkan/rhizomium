@@ -95,8 +95,6 @@ export class FieldVisualizerManager {
 
         // Mark for initial update
         this.pendingUpdates.add(id);
-
-        console.log(`[FieldVisualizerManager] Registered field mapper: ${id}`);
     }
 
     /**
@@ -112,8 +110,6 @@ export class FieldVisualizerManager {
         this.fieldMappers.delete(id);
         this.computeNodes.delete(id);
         this.pendingUpdates.delete(id);
-
-        console.log(`[FieldVisualizerManager] Unregistered field mapper: ${id}`);
     }
 
     /**

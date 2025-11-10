@@ -30,7 +30,6 @@ export class FragmentTextureRenderer {
     // Cache: nodeId -> shader code (for detecting changes)
     this.shaderCache = new Map();
 
-    console.log('[FragmentTextureRenderer] Initialized');
   }
 
   /**
@@ -59,7 +58,6 @@ export class FragmentTextureRenderer {
 
       // Check if this is actually a compute node (shouldn't happen, but safety check)
       if (nodeDef.cat === 'Compute') {
-        console.warn(`[FragmentTextureRenderer] Node ${nodeId} is a compute node, not a fragment node`);
         return null; // Let ComputeExecutor handle it
       }
 
@@ -78,7 +76,6 @@ export class FragmentTextureRenderer {
       // If shader changed or no cache, rebuild pipeline
       const shaderChanged = this.shaderCache.get(nodeId) !== shaderCode;
       if (shaderChanged || !cached) {
-        console.log(`[FragmentTextureRenderer] Building pipeline for node ${nodeId} (${width}x${height})`);
         cached = await this._buildPipeline(nodeId, shaderCode, width, height);
         this.textureCache.set(cacheKey, cached);
         this.shaderCache.set(nodeId, shaderCode);
@@ -92,7 +89,6 @@ export class FragmentTextureRenderer {
       // Render to the texture
       await this._renderToTexture(cached, time, width, height, audioContext);
 
-      console.log(`[FragmentTextureRenderer] ✓ Rendered node ${nodeId} (${node.kind}) to ${width}x${height} texture`);
 
       return cached.texture;
     } catch (error) {
@@ -124,7 +120,6 @@ export class FragmentTextureRenderer {
       const { wgsl } = buildWGSL(subgraph);
 
       if (!wgsl || wgsl.trim() === '') {
-        console.warn('[FragmentTextureRenderer] Empty shader generated');
         return null;
       }
 
@@ -516,7 +511,6 @@ export class FragmentTextureRenderer {
     }
     this.textureCache.clear();
     this.shaderCache.clear();
-    console.log('[FragmentTextureRenderer] Cache cleared');
   }
 
   /**
@@ -540,6 +534,5 @@ export class FragmentTextureRenderer {
     }
 
     this.shaderCache.delete(nodeId);
-    console.log(`[FragmentTextureRenderer] Invalidated cache for node ${nodeId}`);
   }
 }

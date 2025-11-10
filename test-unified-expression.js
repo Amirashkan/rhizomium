@@ -71,24 +71,13 @@ tests.forEach((test, index) => {
 
     if (cpuMatch && hasShaderCode) {
       console.log(`✅ ${index + 1}. ${test.description}`);
-      console.log(`   Expression: ${test.expr}`);
-      console.log(`   CPU Result: ${cpuResult}`);
-      console.log(`   Shader: ${shaderCode}`);
-      console.log();
       passed++;
     } else {
-      console.log(`❌ ${index + 1}. ${test.description}`);
-      console.log(`   Expression: ${test.expr}`);
-      console.log(`   Expected: ${test.expectedCPU}, Got: ${cpuResult}`);
-      console.log(`   Shader: ${shaderCode}`);
-      console.log();
+      console.log(`❌ ${index + 1}. ${test.description} (Expected: ${test.expectedCPU}, Got: ${cpuResult})`);
       failed++;
     }
   } catch (error) {
-    console.log(`❌ ${index + 1}. ${test.description} - ERROR`);
-    console.log(`   Expression: ${test.expr}`);
-    console.log(`   Error: ${error.message}`);
-    console.log();
+    console.log(`❌ ${index + 1}. ${test.description} - ${error.message}`);
     failed++;
   }
 });
@@ -98,9 +87,9 @@ console.log(`✅ Passed: ${passed}/${tests.length}`);
 console.log(`❌ Failed: ${failed}/${tests.length}`);
 
 if (failed === 0) {
-  console.log('\n🎉 All tests passed! The unified expression system is working correctly.');
+  console.log('✅ All tests passed');
   process.exit(0);
 } else {
-  console.log('\n⚠️  Some tests failed. Please review the output above.');
+  console.log('❌ Some tests failed');
   process.exit(1);
 }

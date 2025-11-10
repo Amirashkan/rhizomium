@@ -336,8 +336,6 @@ export class ParameterValueManager {
   }
 
   _updateConnectedSourceNode(connectedSourceNode, value, onChange, oldValue) {
-    console.log("Updating connected source node:", connectedSourceNode.kind, connectedSourceNode.id);
-
     if (connectedSourceNode.kind === "ConstFloat" || connectedSourceNode.kind === "Float") {
       let processedValue;
       
@@ -362,8 +360,6 @@ export class ParameterValueManager {
       if (!connectedSourceNode.params) connectedSourceNode.params = {};
       connectedSourceNode.params.value = processedValue;
 
-      console.log("Updated source Float node value to:", processedValue);
-
       if (this.expressionSystem.isExpression(value)) {
         this.expressionSystem.updateDependencies(connectedSourceNode.id, 'value', value);
       }
@@ -373,8 +369,6 @@ export class ParameterValueManager {
   }
 
   _updateNodeDirectly(node, paramName, value, onChange, oldValue) {
-    console.log("No connected input - updating node parameter directly");
-
     if (this.undoManager && oldValue !== undefined) {
       this.undoManager.recordParameterChange(node.id, paramName, oldValue, value);
     }

@@ -21,8 +21,6 @@ export class GPUPerformanceTest {
    * Test 1: Verify profiler and overlay are working
    */
   testProfilerDisplay() {
-    console.log('[GPUPerformanceTest] Testing profiler display...');
-
     const profiler = window.computeProfiler;
     const overlay = window.profilerOverlay;
 
@@ -46,7 +44,6 @@ export class GPUPerformanceTest {
     const metrics = profiler.getMetrics();
     if (!metrics.enabled) {
       profiler.setEnabled(true);
-      console.log('[GPUPerformanceTest] Enabled profiler');
     }
 
     // Check if overlay can be toggled
@@ -83,8 +80,6 @@ export class GPUPerformanceTest {
    * Test 2: Verify field data to 3D position mapping
    */
   testFieldToWorldMapping() {
-    console.log('[GPUPerformanceTest] Testing field to world mapping...');
-
     // Create test mapper node
     const { ComputeFieldMapperNode } = window;
     if (!ComputeFieldMapperNode) {

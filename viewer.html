@@ -323,7 +323,6 @@
             }
 
             onOpen() {
-                console.log('WebSocket connected');
                 this.setStatus('Connected', 'connected');
                 this.connected = true;
                 this.btnConnect.classList.add('hidden');
@@ -350,7 +349,6 @@
                 const type = metadata.type;
 
                 if (type === 'welcome') {
-                    console.log('Server version:', metadata.server_version);
                     this.setStatus('Receiving stream...', 'connected');
                 } else if (type === 'frame_meta') {
                     this.currentMetadata = metadata;
@@ -369,7 +367,6 @@
                 if (this.canvas.width !== width || this.canvas.height !== height) {
                     this.canvas.width = width;
                     this.canvas.height = height;
-                    console.log(`Canvas resized to ${width}x${height}`);
                 }
 
                 // Create ImageData from the frame
@@ -430,7 +427,6 @@
             }
 
             onClose() {
-                console.log('WebSocket closed');
                 this.setStatus('Disconnected', 'disconnected');
                 this.resetUI();
             }
@@ -463,9 +459,6 @@
         if (autoConnect === 'true') {
             viewer.connect();
         }
-
-        console.log('Rhizomium Remote Viewer initialized');
-        console.log('Usage: Enter WebSocket URL (e.g., ws://localhost:8766/ws) and click Connect');
     </script>
 </body>
 </html>

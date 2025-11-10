@@ -88,7 +88,6 @@ export class FieldVisualizer {
      */
     async initialize() {
         if (this.initialized) {
-            console.warn('[FieldVisualizer] Already initialized');
             return;
         }
 
@@ -105,7 +104,6 @@ export class FieldVisualizer {
         });
 
         this.initialized = true;
-        console.log('[FieldVisualizer] Initialized');
     }
 
     /**
@@ -225,8 +223,6 @@ export class FieldVisualizer {
             indexCount: 0
         };
 
-        console.log(`[FieldVisualizer] Generated ${this.geometry.vertexCount} points with UVs`);
-
         return this.geometry;
     }
 
@@ -273,8 +269,6 @@ export class FieldVisualizer {
             indexCount: mesh.indices.length
         };
 
-        console.log(`[FieldVisualizer] Generated mesh with ${this.geometry.vertexCount} vertices and UVs`);
-
         return this.geometry;
     }
 
@@ -291,15 +285,11 @@ export class FieldVisualizer {
 
         const [w, h, d] = this.params.dimensions;
 
-        console.log(`[FieldVisualizer] Reading 3D texture data (${w}x${h}x${d})...`);
-
         // Import PointCloudGenerator for texture reading utility
         const { PointCloudGenerator } = await import('./generators/PointCloudGenerator.js');
 
         // Read texture data
         const fieldData = await PointCloudGenerator.readTextureData3D(texture, device, [w, h, d]);
-
-        console.log(`[FieldVisualizer] Generating mesh using marching cubes (isoValue: ${this.params.isoValue})...`);
 
         // Use MarchingCubes to generate mesh
         const mesh = MarchingCubes.generateMesh(
@@ -331,8 +321,6 @@ export class FieldVisualizer {
             vertexCount: mesh.vertexCount,
             indexCount: mesh.indices.length
         };
-
-        console.log(`[FieldVisualizer] Generated mesh from 3D texture with ${this.geometry.vertexCount} vertices, ${this.geometry.indexCount / 3} triangles`);
 
         return this.geometry;
     }
@@ -491,6 +479,5 @@ export class FieldVisualizer {
         };
 
         this.initialized = false;
-        console.log('[FieldVisualizer] Destroyed');
     }
 }
