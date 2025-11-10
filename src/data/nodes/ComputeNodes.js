@@ -351,7 +351,7 @@ export const ComputeNodes = {
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
     params: [
       { name: 'mode', type: 'select', options: ['Displace', 'Twist', 'Bulge', 'Pinch', 'Wave'], default: 'Displace' },
-      { name: 'strength', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
+      { name: 'strength', type: 'float', default: 0.5, min: 0.0, max: 5.0 },
       { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
       { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
       { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0 },

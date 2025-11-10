@@ -1965,10 +1965,10 @@ fn applyTwist(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
   let offset = uv - uniforms.center;
   let dist = length(offset);
 
-  // Twist intensity based on distance and warp field
-  let warpIntensity = warpValue.r; // Use red channel
+  // Twist intensity - warp field adds variation (not multiplies)
+  let warpIntensity = (warpValue.r - 0.5) * 2.0; // Remap to [-1,1]
   let falloff = 1.0 - smoothstep(0.0, uniforms.radius, dist);
-  let angle = warpIntensity * uniforms.strength * falloff * PI * 2.0;
+  let angle = (dist + warpIntensity * 0.5) * uniforms.strength * falloff * PI * 2.0;
 
   // Rotate around center
   let c = cos(angle);
@@ -1990,11 +1990,11 @@ fn applyBulge(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
     return uv;
   }
 
-  let warpIntensity = warpValue.r;
+  let warpIntensity = (warpValue.r - 0.5) * 2.0; // Remap to [-1,1]
   let falloff = 1.0 - smoothstep(0.0, uniforms.radius, dist);
 
-  // Bulge outward (positive strength) or inward (negative strength)
-  let bulgeAmount = warpIntensity * uniforms.strength * falloff;
+  // Bulge outward - warp field adds spatial variation
+  let bulgeAmount = (uniforms.strength + warpIntensity * 0.5) * falloff;
   let newDist = dist * (1.0 + bulgeAmount);
 
   return uniforms.center + normalize(offset) * newDist;
@@ -2009,11 +2009,11 @@ fn applyPinch(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
     return uv;
   }
 
-  let warpIntensity = warpValue.r;
+  let warpIntensity = (warpValue.r - 0.5) * 2.0; // Remap to [-1,1]
   let falloff = 1.0 - smoothstep(0.0, uniforms.radius, dist);
 
-  // Pinch inward (positive strength pulls toward center)
-  let pinchAmount = warpIntensity * uniforms.strength * falloff;
+  // Pinch inward - warp field adds spatial variation
+  let pinchAmount = (uniforms.strength + warpIntensity * 0.5) * falloff;
   let newDist = dist * (1.0 - pinchAmount);
 
   return uniforms.center + normalize(offset) * newDist;
@@ -2021,15 +2021,15 @@ fn applyPinch(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
 
 // Wave mode: Sinusoidal wave distortion
 fn applyWave(uv: vec2<f32>, warpValue: vec4<f32>) -> vec2<f32> {
-  let warpIntensity = warpValue.r;
+  let warpIntensity = (warpValue.r - 0.5) * 2.0; // Remap to [-1,1]
 
   // Create wave pattern based on frequency and phase
   let phaseRad = uniforms.phase * PI / 180.0;
   let waveX = sin(uv.y * uniforms.frequency * PI * 2.0 + phaseRad);
   let waveY = sin(uv.x * uniforms.frequency * PI * 2.0 + phaseRad);
 
-  // Apply wave displacement modulated by warp field
-  let displacement = vec2<f32>(waveX, waveY) * uniforms.strength * warpIntensity;
+  // Apply wave displacement - warp field adds spatial variation
+  let displacement = vec2<f32>(waveX, waveY) * (uniforms.strength + warpIntensity * 0.5) * 0.1;
 
   return uv + displacement;
 }
