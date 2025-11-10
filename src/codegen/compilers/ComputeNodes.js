@@ -1792,7 +1792,8 @@ fn patternBrick(uv: vec2<f32>, thickness: f32) -> f32 {
 
   // Offset every other row
   let row = floor(pos.y);
-  pos.x += step(1.0, mod(row, 2.0)) * 0.5;
+  // WGSL doesn't have mod(), use fract for alternating pattern
+  pos.x += step(1.0, fract(row * 0.5) * 2.0) * 0.5;
 
   let cell = fract(pos);
   let mortarWidth = (1.0 - thickness) * 0.1;
