@@ -886,34 +886,26 @@ case 'flip2d':
           });
           break;
 
-        // Compute nodes: Use parameter definitions from NodeDefs
-        case 'computenoise':
-        case 'computeblur':
-        case 'computeparticles':
-        case 'computefeedback':
-        case 'computereactiondiffusion':
-        case 'computefluidsim':
-        case 'computethreshold':
-        case 'computepattern':
-          const computeNodeDef = NodeDefs[node.kind];
-          if (computeNodeDef && computeNodeDef.params && Array.isArray(computeNodeDef.params)) {
-            computeNodeDef.params.forEach(param => {
-              definitions.push({
-                name: param.name,
-                type: param.type === 'bool' ? 'boolean' : param.type,
-                displayName: param.label || param.name.charAt(0).toUpperCase() + param.name.slice(1),
-                default: param.default,
-                min: param.min,
-                max: param.max,
-                options: param.options, // Preserve options array for select parameters
-                description: param.label || param.description || `${param.name} parameter`
-              });
-            });
-          }
-          break;
-
         default:
-        if (node.params && Object.keys(node.params).length > 0) {
+        // For all other nodes, try to use their NodeDef parameters first
+        const nodeDef = NodeDefs[node.kind];
+        if (nodeDef && nodeDef.params && Array.isArray(nodeDef.params)) {
+          // Use parameter definitions from NodeDefs to preserve options arrays and metadata
+          nodeDef.params.forEach(param => {
+            definitions.push({
+              name: param.name,
+              type: param.type === 'bool' ? 'boolean' : param.type,
+              displayName: param.label || param.name.charAt(0).toUpperCase() + param.name.slice(1),
+              default: param.default,
+              min: param.min,
+              max: param.max,
+              options: param.options, // Preserve options array for select parameters
+              accept: param.accept, // Preserve accept for file inputs
+              description: param.label || param.description || `${param.name} parameter`
+            });
+          });
+        } else if (node.params && Object.keys(node.params).length > 0) {
+          // Fallback: Infer types from values if no NodeDef available
           Object.keys(node.params).forEach(key => {
             const value = node.params[key];
             let inferredType = 'text';
@@ -933,6 +925,7 @@ case 'flip2d':
             });
           });
         } else {
+          // Last resort: Add a generic value parameter
           definitions.push({
             name: 'value',
             type: 'float',
