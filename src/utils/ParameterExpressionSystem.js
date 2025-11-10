@@ -1282,21 +1282,41 @@ setValue(node, paramName, value) {
     // STORE THE ORIGINAL VALUE/EXPRESSION (don't evaluate here)
     node.params[paramName] = value;  // Store "=sin(time)", not 0.123
     console.log("[ParameterExpressionSystem.setValue] STORED on node.params[" + paramName + "]:", node.params[paramName]);
-    
+
     // Record for undo
     if (this.undoManager && oldValue !== value) {
       this.undoManager.recordParameterChange(node.id, paramName, oldValue, value);
     }
-    
+
     // Handle special cases for bound parameters
     this.handleBoundParameters(node, paramName, value);
-    
+
     // Clear expression cache for this parameter change
     this.expressionSystem.updateDependencies(node.id, paramName, value);
-    
-    // UPDATE PREVIEW IMMEDIATELY
-    this.updateNodePreview(node);
-    
+
+    // Check if this is a compute node - they need full shader recompilation
+    const isComputeNode = node.kind && node.kind.toLowerCase().startsWith('compute');
+
+    if (isComputeNode) {
+      // Compute nodes bake parameters into WGSL shader code
+      // Trigger full shader recompilation to regenerate with new parameters
+      console.log(`[ParameterExpressionSystem] Compute node parameter changed, triggering recompilation: ${node.kind}`);
+
+      // Clear the compute node registry entry so it gets regenerated
+      if (window.computeNodeRegistry) {
+        const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
+        window.computeNodeRegistry.delete(nodeId);
+      }
+
+      // Trigger full shader recompilation
+      if (window.editor && window.editor.onChange) {
+        window.editor.onChange(`Compute node parameter change: ${node.kind}.${paramName}`);
+      }
+    } else {
+      // For non-compute nodes, just update preview
+      this.updateNodePreview(node);
+    }
+
     // Emit event
     if (this.eventSystem) {
       this.eventSystem.emit('PARAMETER_CHANGED', {
@@ -1307,7 +1327,7 @@ setValue(node, paramName, value) {
         source: 'user'
       });
     }
-    
+
   } catch (error) {
     console.error(`Error setting parameter ${paramName}:`, error);
   }
