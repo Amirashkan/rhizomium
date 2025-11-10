@@ -291,6 +291,23 @@ export class ComputeExecutor {
               }
             }
           }
+
+          // Special case: ComputeWarp has a second input (warp field)
+          if (node.kind === 'ComputeWarp' && node.inputs.length > 1) {
+            const warpFieldNodeId = node.inputs[1];
+            if (warpFieldNodeId !== null && warpFieldNodeId !== undefined) {
+              const warpFieldTexture = this.nodeOutputs.get(warpFieldNodeId);
+              if (warpFieldTexture && manager.setWarpFieldTexture) {
+                manager.setWarpFieldTexture(warpFieldTexture);
+              } else if (!warpFieldTexture) {
+                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                if (!this._loggedMissingTextures.has(warpFieldNodeId)) {
+                  console.warn(`[ComputeExecutor] ⚠️ Warp field texture not found for ${warpFieldNodeId}, using fallback`);
+                  this._loggedMissingTextures.add(warpFieldNodeId);
+                }
+              }
+            }
+          }
         }
 
         // Check if inputs have changed (for optimization)

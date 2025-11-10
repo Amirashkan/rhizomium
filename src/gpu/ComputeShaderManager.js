@@ -24,6 +24,7 @@ export class ComputeShaderManager {
     this.inputTexture = null;
     this.fallbackInputTexture = null;
     this.inputSampler = null;
+    this.warpFieldTexture = null; // For ComputeWarp's second input
 
     // Uniform buffers
     this.uniformBuffer = null;
@@ -504,6 +505,25 @@ export class ComputeShaderManager {
           this.uniformData[3] = this.node.params?.speed ?? 1.0;
           break;
 
+        case 'ComputeWarp':
+          // Uniforms: strength, center.x, center.y, radius, frequency, phase
+          this.uniformData[3] = this.node.params?.strength ?? 0.5;
+          this.uniformData[4] = this.node.params?.centerX ?? 0.5;
+          this.uniformData[5] = this.node.params?.centerY ?? 0.5;
+          this.uniformData[6] = this.node.params?.radius ?? 0.5;
+          this.uniformData[7] = this.node.params?.frequency ?? 4.0;
+          this.uniformData[8] = this.node.params?.phase ?? 0.0;
+          break;
+
+        case 'ComputeGlitch':
+          // Uniforms: intensity, frequency, _padding1, blockSize, seed
+          this.uniformData[3] = this.node.params?.intensity ?? 0.5;
+          this.uniformData[4] = this.node.params?.frequency ?? 0.5;
+          this.uniformData[5] = 0.0; // _padding1
+          this.uniformData[6] = this.node.params?.blockSize ?? 0.05;
+          this.uniformData[7] = this.node.params?.seed ?? 0.0;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
@@ -552,10 +572,16 @@ export class ComputeShaderManager {
       entries.push({ binding: 3, resource: this.textureSampler });
     }
 
-    // Binding 4 (or 2 if no input): Feedback texture (if needed)
+    // Binding 4 (or 2 if no input): Feedback texture OR warp field (for ComputeWarp)
     if (this.supportsFeedback) {
-      const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
-      entries.push({ binding: this.needsInput ? 4 : 2, resource: readTexture.createView() });
+      // Special case: ComputeWarp uses binding 4 for warp field (second input), not feedback
+      if (this.node?.kind === 'ComputeWarp') {
+        const warpTexture = this.warpFieldTexture || this.fallbackInputTexture;
+        entries.push({ binding: 4, resource: warpTexture.createView() });
+      } else {
+        const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
+        entries.push({ binding: this.needsInput ? 4 : 2, resource: readTexture.createView() });
+      }
       // Binding 3: Feedback sampler (only if no input)
       if (!this.needsInput) {
         entries.push({ binding: 3, resource: this.textureSampler });
@@ -574,6 +600,13 @@ export class ComputeShaderManager {
    */
   setInputTexture(texture) {
     this.inputTexture = texture;
+  }
+
+  /**
+   * Set warp field texture (for ComputeWarp node - second input)
+   */
+  setWarpFieldTexture(texture) {
+    this.warpFieldTexture = texture;
   }
 
   /**
