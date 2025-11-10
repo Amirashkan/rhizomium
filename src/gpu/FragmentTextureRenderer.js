@@ -286,7 +286,17 @@ export class FragmentTextureRenderer {
 
       // CRITICAL: Wait for GPU to finish rendering before returning
       // Without this, compute shaders may try to read from incomplete textures
-      await this.device.queue.onSubmittedWorkDone();
+      if (this.device.queue.onSubmittedWorkDone) {
+        await this.device.queue.onSubmittedWorkDone();
+        console.log(`[FragmentTextureRenderer] GPU work completed for fragment render`);
+      } else {
+        console.warn(`[FragmentTextureRenderer] onSubmittedWorkDone not available, using fallback delay`);
+        // Fallback: small delay to give GPU time to finish
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      // Debug: Log texture details after render
+      console.log(`[FragmentTextureRenderer] Rendered to texture: ${cached.texture.width}x${cached.texture.height}, format=${cached.texture.format}, usage=${cached.texture.usage}`);
     } catch (error) {
       console.error('[FragmentTextureRenderer] Render error:', error);
       throw error;
