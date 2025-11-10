@@ -524,6 +524,12 @@ export class ComputeShaderManager {
           this.uniformData[7] = this.node.params?.seed ?? 0.0;
           break;
 
+        case 'ComputeMix':
+          // Uniforms: amount, opacity
+          this.uniformData[3] = this.node.params?.amount ?? 0.5;
+          this.uniformData[4] = this.node.params?.opacity ?? 1.0;
+          break;
+
         default:
           // Unknown node type - all params already initialized to 0.0
           break;
@@ -572,12 +578,12 @@ export class ComputeShaderManager {
       entries.push({ binding: 3, resource: this.textureSampler });
     }
 
-    // Binding 4 (or 2 if no input): Feedback texture OR warp field (for ComputeWarp)
+    // Binding 4 (or 2 if no input): Feedback texture OR warp field (for ComputeWarp) OR second input (for ComputeMix)
     if (this.supportsFeedback) {
-      // Special case: ComputeWarp uses binding 4 for warp field (second input), not feedback
-      if (this.node?.kind === 'ComputeWarp') {
-        const warpTexture = this.warpFieldTexture || this.fallbackInputTexture;
-        entries.push({ binding: 4, resource: warpTexture.createView() });
+      // Special case: ComputeWarp and ComputeMix use binding 4 for second input texture, not feedback
+      if (this.node?.kind === 'ComputeWarp' || this.node?.kind === 'ComputeMix') {
+        const secondInputTexture = this.warpFieldTexture || this.fallbackInputTexture;
+        entries.push({ binding: 4, resource: secondInputTexture.createView() });
       } else {
         const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
         entries.push({ binding: this.needsInput ? 4 : 2, resource: readTexture.createView() });

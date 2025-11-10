@@ -101,7 +101,7 @@ export class ComputeExecutor {
       const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
                                      'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
                                      'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect',
-                                     'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch'].includes(node.kind);
+                                     'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix'].includes(node.kind);
       const needsInput = nodeDesignedForInput;
 
       console.log(`[ComputeExecutor] Initializing compute node: ${node.kind} (${nodeId})`);
@@ -304,6 +304,24 @@ export class ComputeExecutor {
                 if (!this._loggedMissingTextures.has(warpFieldNodeId)) {
                   console.warn(`[ComputeExecutor] ⚠️ Warp field texture not found for ${warpFieldNodeId}, using fallback`);
                   this._loggedMissingTextures.add(warpFieldNodeId);
+                }
+              }
+            }
+          }
+
+          // Special case: ComputeMix has a second input (Input B for blending)
+          if (node.kind === 'ComputeMix' && node.inputs.length > 1) {
+            const inputBNodeId = node.inputs[1];
+            if (inputBNodeId !== null && inputBNodeId !== undefined) {
+              const inputBTexture = this.nodeOutputs.get(inputBNodeId);
+              if (inputBTexture && manager.setWarpFieldTexture) {
+                // Reuse setWarpFieldTexture for the second input (binding 4)
+                manager.setWarpFieldTexture(inputBTexture);
+              } else if (!inputBTexture) {
+                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                if (!this._loggedMissingTextures.has(inputBNodeId)) {
+                  console.warn(`[ComputeExecutor] ⚠️ Input B texture not found for ${inputBNodeId}, using fallback`);
+                  this._loggedMissingTextures.add(inputBNodeId);
                 }
               }
             }
