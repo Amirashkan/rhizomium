@@ -2324,11 +2324,23 @@ struct Uniforms {
 
 const PI: f32 = 3.14159265359;
 
-// Sample texture with boundary clamping using textureLoad
+// Sample texture with wrapping for kaleidoscope tiling
 fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
-  // Convert UV to pixel coordinates
-  let pixelCoord = vec2<i32>(uv * vec2<f32>(texSize));
-  // Clamp to texture boundaries
+  // Wrap UV coordinates to [0, 1] range for seamless tiling
+  var wrappedUV = fract(uv);
+
+  // fract of negative numbers gives values near 1, but we want them to wrap
+  // This handles the negative case properly
+  if (uv.x < 0.0) {
+    wrappedUV.x = 1.0 - fract(abs(uv.x));
+  }
+  if (uv.y < 0.0) {
+    wrappedUV.y = 1.0 - fract(abs(uv.y));
+  }
+
+  // Convert to pixel coordinates
+  let pixelCoord = vec2<i32>(wrappedUV * vec2<f32>(texSize));
+  // Clamp to texture boundaries (should be unnecessary with wrapping, but safety)
   let clampedCoord = clamp(pixelCoord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
   return textureLoad(tex, clampedCoord, 0);
 }
@@ -2355,9 +2367,6 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   // Get position relative to center
   var pos = uv - center;
 
-  // Apply scale (larger scale = zoom in, see more detail)
-  pos = pos / uniforms.scale;
-
   // Convert to polar coordinates
   let r = length(pos);
   var angle = atan2(pos.y, pos.x);
@@ -2372,30 +2381,31 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
 
   angle -= rotationRad;
 
-  // Normalize angle to [0, 2*PI]
-  let twoPi = 2.0 * PI;
-  angle = angle % twoPi;
-  if (angle < 0.0) {
-    angle += twoPi;
+  // Calculate segment angle (the angular width of one wedge)
+  let segmentAngle = (2.0 * PI) / uniforms.segments;
+
+  // Fold angle into first segment using modulo
+  // This maps all angles into the range [0, segmentAngle]
+  var foldedAngle = angle % segmentAngle;
+  if (foldedAngle < 0.0) {
+    foldedAngle += segmentAngle;
   }
 
-  // Calculate segment angle
-  let segmentAngle = twoPi / uniforms.segments;
-
-  // Determine which segment we're in
-  let segmentIndex = floor(angle / segmentAngle);
-
-  // Get angle within the segment [0, segmentAngle]
-  var segmentLocalAngle = angle - segmentIndex * segmentAngle;
+  // Determine which segment we're in (for mirroring)
+  var segmentNum = floor(angle / segmentAngle);
+  if (segmentNum < 0.0) {
+    segmentNum += uniforms.segments;
+  }
 
   // Mirror every other segment for kaleidoscope effect
-  if (i32(segmentIndex) % 2 == 1) {
-    segmentLocalAngle = segmentAngle - segmentLocalAngle;
+  if (i32(segmentNum) % 2 == 1) {
+    foldedAngle = segmentAngle - foldedAngle;
   }
 
-  // Convert back to Cartesian using the folded angle
-  let foldedX = r * cos(segmentLocalAngle);
-  let foldedY = r * sin(segmentLocalAngle);
+  // Convert back to Cartesian using the folded angle and scaled radius
+  let scaledR = r / uniforms.scale;
+  let foldedX = scaledR * cos(foldedAngle);
+  let foldedY = scaledR * sin(foldedAngle);
 
   // Transform back to UV space
   let sampledUV = vec2<f32>(foldedX, foldedY) + center;
