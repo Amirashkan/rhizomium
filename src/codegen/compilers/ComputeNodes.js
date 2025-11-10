@@ -2324,11 +2324,16 @@ struct Uniforms {
 
 const PI: f32 = 3.14159265359;
 
-// Safe texture sampling with clamping
+// Safe texture sampling with wrapping for kaleidoscope
 fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
-  let clampedUV = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
-  let coord = vec2<i32>(clampedUV * vec2<f32>(texSize));
-  return textureLoad(tex, coord, 0);
+  // Wrap UV coordinates using fract for seamless tiling
+  var wrappedUV = fract(uv);
+  // Handle negative values properly
+  if (wrappedUV.x < 0.0) { wrappedUV.x += 1.0; }
+  if (wrappedUV.y < 0.0) { wrappedUV.y += 1.0; }
+  let coord = vec2<i32>(wrappedUV * vec2<f32>(texSize));
+  let clampedCoord = clamp(coord, vec2<i32>(0), vec2<i32>(texSize) - vec2<i32>(1));
+  return textureLoad(tex, clampedCoord, 0);
 }
 
 // Cartesian to polar coordinates
@@ -2361,6 +2366,9 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   var r = polar.x;
   var theta = polar.y;
 
+  // Normalize theta to [0, 2*PI] range (atan2 returns [-PI, PI])
+  theta = theta + PI;
+
   // Apply rotation (convert degrees to radians)
   var rotationRad = uniforms.rotation * PI / 180.0;
 
@@ -2371,10 +2379,17 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
 
   theta += rotationRad;
 
-  // Calculate segment angle
-  let segmentAngle = (2.0 * PI) / uniforms.segments;
+  // Wrap theta to [0, 2*PI]
+  let twoPi = 2.0 * PI;
+  theta = theta % twoPi;
+  if (theta < 0.0) {
+    theta += twoPi;
+  }
 
-  // Fold the angle into one segment using modulo
+  // Calculate segment angle
+  let segmentAngle = twoPi / uniforms.segments;
+
+  // Fold the angle into one segment
   var foldedTheta = theta % segmentAngle;
 
   // Mirror every other segment for kaleidoscope effect
@@ -2390,11 +2405,8 @@ fn applyKaleidoscope(uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
   // Add center back
   let sampledUV = foldedOffset + center;
 
-  // Sample texture with wrapping for seamless tiling
-  var wrappedUV = sampledUV;
-  wrappedUV = fract(sampledUV);
-
-  return sampleTexture(inputTexture, wrappedUV, texSize);
+  // Sample with wrapping (handled by sampleTexture)
+  return sampleTexture(inputTexture, sampledUV, texSize);
 }
 
 @compute @workgroup_size(8, 8)
