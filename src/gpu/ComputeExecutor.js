@@ -402,7 +402,13 @@ export class ComputeExecutor {
         const node = nodeData?.node;
 
         // Check if inputs have changed (for optimization)
-        const shouldUpdate = this.checkInputsChanged(nodeId);
+        // CRITICAL: If this node has fragment inputs, always update because fragment content may change every frame
+        const hasFragmentInput = node?.inputs && Array.isArray(node.inputs) && node.inputs.some(inputId => {
+          if (inputId === null || inputId === undefined) return false;
+          const inputNode = window.graph?.getNode(inputId);
+          return inputNode && !inputNode.kind.startsWith('Compute');
+        });
+        const shouldUpdate = hasFragmentInput || this.checkInputsChanged(nodeId);
 
         // ONLY dispatch truly time-dependent compute nodes every frame
         // Time-dependent nodes have animation or evolve over time without input changes
