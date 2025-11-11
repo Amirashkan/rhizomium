@@ -392,66 +392,6 @@ export class ComputeExecutor {
         const nodeData = window.computeNodeRegistry?.get(nodeId);
         const node = nodeData?.node;
 
-        // Set input texture if this node needs it
-        if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
-          const inputNodeId = node.inputs[0];
-          if (inputNodeId !== null && inputNodeId !== undefined) {
-            const inputTexture = this.nodeOutputs.get(inputNodeId);
-            if (inputTexture) {
-              if (manager.setInputTexture) {
-                manager.setInputTexture(inputTexture);
-                // Recreate bind group with new input texture
-                if (manager.recreateBindGroup) {
-                  manager.recreateBindGroup();
-                }
-              }
-            } else if (!inputTexture) {
-              // Only log missing textures once to avoid spam
-              if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-              if (!this._loggedMissingTextures.has(inputNodeId)) {
-                console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
-                console.warn(`[ComputeExecutor] ⚠️ Available nodeOutputs keys:`, Array.from(this.nodeOutputs.keys()));
-                this._loggedMissingTextures.add(inputNodeId);
-              }
-            }
-          }
-
-          // Special case: ComputeWarp has a second input (warp field)
-          if (node.kind === 'ComputeWarp' && node.inputs.length > 1) {
-            const warpFieldNodeId = node.inputs[1];
-            if (warpFieldNodeId !== null && warpFieldNodeId !== undefined) {
-              const warpFieldTexture = this.nodeOutputs.get(warpFieldNodeId);
-              if (warpFieldTexture && manager.setWarpFieldTexture) {
-                manager.setWarpFieldTexture(warpFieldTexture);
-              } else if (!warpFieldTexture) {
-                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-                if (!this._loggedMissingTextures.has(warpFieldNodeId)) {
-                  console.warn(`[ComputeExecutor] ⚠️ Warp field texture not found for ${warpFieldNodeId}, using fallback`);
-                  this._loggedMissingTextures.add(warpFieldNodeId);
-                }
-              }
-            }
-          }
-
-          // Special case: ComputeMix has a second input (Input B for blending)
-          if (node.kind === 'ComputeMix' && node.inputs.length > 1) {
-            const inputBNodeId = node.inputs[1];
-            if (inputBNodeId !== null && inputBNodeId !== undefined) {
-              const inputBTexture = this.nodeOutputs.get(inputBNodeId);
-              if (inputBTexture && manager.setWarpFieldTexture) {
-                // Reuse setWarpFieldTexture for the second input (binding 4)
-                manager.setWarpFieldTexture(inputBTexture);
-              } else if (!inputBTexture) {
-                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-                if (!this._loggedMissingTextures.has(inputBNodeId)) {
-                  console.warn(`[ComputeExecutor] Input B texture not found for ${inputBNodeId}, using fallback`);
-                  this._loggedMissingTextures.add(inputBNodeId);
-                }
-              }
-            }
-          }
-        }
-
         // Check if inputs have changed (for optimization)
         const shouldUpdate = this.checkInputsChanged(nodeId);
 
@@ -473,6 +413,66 @@ export class ComputeExecutor {
           if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
             console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}`);
             this._lastDispatchLog = Date.now();
+          }
+
+          // OPTIMIZATION: Only set input textures when we're actually dispatching
+          // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
+          if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
+            const inputNodeId = node.inputs[0];
+            if (inputNodeId !== null && inputNodeId !== undefined) {
+              const inputTexture = this.nodeOutputs.get(inputNodeId);
+              if (inputTexture) {
+                if (manager.setInputTexture) {
+                  manager.setInputTexture(inputTexture);
+                  // Recreate bind group with new input texture
+                  if (manager.recreateBindGroup) {
+                    manager.recreateBindGroup();
+                  }
+                }
+              } else if (!inputTexture) {
+                // Only log missing textures once to avoid spam
+                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                if (!this._loggedMissingTextures.has(inputNodeId)) {
+                  console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+                  this._loggedMissingTextures.add(inputNodeId);
+                }
+              }
+            }
+
+            // Special case: ComputeWarp has a second input (warp field)
+            if (node.kind === 'ComputeWarp' && node.inputs.length > 1) {
+              const warpFieldNodeId = node.inputs[1];
+              if (warpFieldNodeId !== null && warpFieldNodeId !== undefined) {
+                const warpFieldTexture = this.nodeOutputs.get(warpFieldNodeId);
+                if (warpFieldTexture && manager.setWarpFieldTexture) {
+                  manager.setWarpFieldTexture(warpFieldTexture);
+                } else if (!warpFieldTexture) {
+                  if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                  if (!this._loggedMissingTextures.has(warpFieldNodeId)) {
+                    console.warn(`[ComputeExecutor] ⚠️ Warp field texture not found for ${warpFieldNodeId}, using fallback`);
+                    this._loggedMissingTextures.add(warpFieldNodeId);
+                  }
+                }
+              }
+            }
+
+            // Special case: ComputeMix has a second input (Input B for blending)
+            if (node.kind === 'ComputeMix' && node.inputs.length > 1) {
+              const inputBNodeId = node.inputs[1];
+              if (inputBNodeId !== null && inputBNodeId !== undefined) {
+                const inputBTexture = this.nodeOutputs.get(inputBNodeId);
+                if (inputBTexture && manager.setWarpFieldTexture) {
+                  // Reuse setWarpFieldTexture for the second input (binding 4)
+                  manager.setWarpFieldTexture(inputBTexture);
+                } else if (!inputBTexture) {
+                  if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                  if (!this._loggedMissingTextures.has(inputBNodeId)) {
+                    console.warn(`[ComputeExecutor] Input B texture not found for ${inputBNodeId}, using fallback`);
+                    this._loggedMissingTextures.add(inputBNodeId);
+                  }
+                }
+              }
+            }
           }
 
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
