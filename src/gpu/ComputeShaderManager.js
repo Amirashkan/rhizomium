@@ -69,7 +69,7 @@ export class ComputeShaderManager {
       const trimmed = value.trim();
 
       // Check if it's an expression (either starts with = or contains time/audioEnvelope)
-      const isExpression = trimmed.startsWith('=') || /\b(time|audioEnvelope)\b/.test(trimmed);
+      const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
       const isNodeReference = /node_\d+/.test(value);
 
       // Handle expressions (with or without = prefix)
@@ -101,6 +101,15 @@ export class ComputeShaderManager {
             audioEnvelopeFull: audioContext.audioEnvelopeFull || 0.0
           };
           const result = expressionSystem.evaluateExpression(value, context, this.node);
+
+          // Debug logging for time expressions
+          if (/\btime\b/.test(value) && this.node?.kind === 'ComputeTransform') {
+            console.log(`[ComputeShaderManager] Evaluating time expression for ${this.node.kind}:`, {
+              value,
+              time,
+              result
+            });
+          }
 
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
