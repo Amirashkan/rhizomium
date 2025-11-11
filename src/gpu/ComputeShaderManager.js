@@ -80,19 +80,8 @@ export class ComputeShaderManager {
             if (previewComputer && window.editor?.graph) {
               // Only recompute if not already done this frame (within 1ms)
               if (!previewComputer._lastComputeTime || (now - previewComputer._lastComputeTime) > 1) {
-                console.log(`[ComputeShaderManager] Computing previews before evaluating ${value}`);
                 previewComputer.computePreviews(window.editor.graph);
                 previewComputer._lastComputeTime = now;
-
-                // Debug: Check what value the referenced node has after computation
-                const nodeIdMatch = value.match(/node_(\d+)/);
-                if (nodeIdMatch) {
-                  const refNodeId = parseInt(nodeIdMatch[1]);
-                  const refNode = window.editor.graph.nodes.find(n => n.id === refNodeId);
-                  if (refNode) {
-                    console.log(`[ComputeShaderManager] Referenced node ${refNodeId} (${refNode.kind}): __preview=${refNode.__preview}, lastComputed=${previewComputer.lastComputedValues?.get(refNodeId)}`);
-                  }
-                }
               }
             }
           }
@@ -108,11 +97,6 @@ export class ComputeShaderManager {
             audioEnvelopeFull: audioContext.audioEnvelopeFull || 0.0
           };
           const result = expressionSystem.evaluateExpression(value, context, this.node);
-
-          // Debug logging for node references
-          if (/node_\d+/.test(value)) {
-            console.log(`[ComputeShaderManager] Evaluated node reference ${value} = ${result} (default: ${defaultValue})`);
-          }
 
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
