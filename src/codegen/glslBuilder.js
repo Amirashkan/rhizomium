@@ -8,8 +8,11 @@ import { generateShader } from './templates/ShaderTemplate.js';
 /**
  * Main WGSL builder for Rhizomium
  * Compiles node graph into a valid WGSL shader source.
+ * @param {Object} graph - The node graph to compile
+ * @param {Object} options - Build options
+ * @param {boolean} options.skipCacheClear - If true, don't clear global caches (for subgraph compilation)
  */
-export function buildWGSL(graph) {
+export function buildWGSL(graph, options = {}) {
   const processor = new GraphProcessor();
 
   // Shared NodeCompiler instance
@@ -18,18 +21,20 @@ export function buildWGSL(graph) {
   }
   const compiler = window.nodeCompiler;
 
-  // --- Clear all cached state before building ---
-  compiler.uniformManager.clear();
-  console.log('✅ Cleared uniform manager');
-  processor.clearFunctionCollection();
+  // --- Clear all cached state before building (unless this is a subgraph build) ---
+  if (!options.skipCacheClear) {
+    compiler.uniformManager.clear();
+    console.log('✅ Cleared uniform manager');
+    processor.clearFunctionCollection();
 
-  if (compiler.compilers.field && compiler.compilers.field.clearFunctionCache) {
-    compiler.compilers.field.clearFunctionCache();
-    console.log('✅ Cleared field function cache');
-  }
+    if (compiler.compilers.field && compiler.compilers.field.clearFunctionCache) {
+      compiler.compilers.field.clearFunctionCache();
+      console.log('✅ Cleared field function cache');
+    }
 
-  if (compiler.compilers.transform && compiler.compilers.transform.clearHelperCache) {
-    compiler.compilers.transform.clearHelperCache();
+    if (compiler.compilers.transform && compiler.compilers.transform.clearHelperCache) {
+      compiler.compilers.transform.clearHelperCache();
+    }
   }
 
   // --- Process the graph ---
