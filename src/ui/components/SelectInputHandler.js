@@ -110,21 +110,14 @@ export class SelectInputHandler {
 
       const newValue = select.value;
 
-      console.log(`[SelectInputHandler] Dropdown changed: ${node.kind}.${param.name} = ${newValue}`);
-      console.log(`[SelectInputHandler] valueManager available:`, !!valueManager);
-      console.log(`[SelectInputHandler] valueManager.setValue available:`, !!(valueManager && valueManager.setValue));
-
       try {
         // Use the expression-aware value manager
         if (valueManager && valueManager.setValue) {
-          console.log(`[SelectInputHandler] Calling valueManager.setValue()`);
           valueManager.setValue(node, param.name, newValue);
         } else if (valueManager && valueManager.updateNodeParameter) {
-          console.log(`[SelectInputHandler] Calling valueManager.updateNodeParameter()`);
           valueManager.updateNodeParameter(node, param.name, newValue, onChange);
         } else {
           // Fallback: direct parameter update
-          console.log(`[SelectInputHandler] Using fallback direct parameter update`);
           if (!node.params) node.params = {};
 
           // Record for undo if available
