@@ -175,15 +175,15 @@ export class UtilityNodes {
   
   compileRemap(node, getInput, nodeId) {
     const value = getInput(0, "f32", "0.0");
-    const inMin = node.params?.inMin ?? 0.0;
-    const inMax = node.params?.inMax ?? 1.0;
-    const outMin = node.params?.outMin ?? 0.0;
-    const outMax = node.params?.outMax ?? 1.0;
-    const doClamp = node.params?.clamp ?? false;
-    
+    const inMin = this.getShaderParam(node, 'inMin', 0.0);
+    const inMax = this.getShaderParam(node, 'inMax', 1.0);
+    const outMin = this.getShaderParam(node, 'outMin', 0.0);
+    const outMax = this.getShaderParam(node, 'outMax', 1.0);
+    const doClamp = this.getParam(node, 'clamp', false);
+
     const remapped = `(((${value}) - ${inMin}) / max(${inMax} - ${inMin}, 0.0001)) * (${outMax} - ${outMin}) + ${outMin}`;
     const final = doClamp ? `clamp(${remapped}, min(${outMin}, ${outMax}), max(${outMin}, ${outMax}))` : remapped;
-    
+
     return {
       line: `let node_${nodeId} = ${final};`,
       outputType: "f32"
