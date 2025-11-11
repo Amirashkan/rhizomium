@@ -71,6 +71,21 @@ export class ComputeShaderManager {
       // Expression starting with =
       if (trimmed.startsWith('=')) {
         try {
+          // CRITICAL: If this expression contains node references, compute all previews first
+          // to ensure referenced node values are up-to-date
+          // Cache the computation per-frame to avoid redundant recalculations
+          if (/node_\d+/.test(value)) {
+            const now = performance.now();
+            const previewComputer = window.editor?.previewComputer;
+            if (previewComputer && window.editor?.graph) {
+              // Only recompute if not already done this frame (within 1ms)
+              if (!previewComputer._lastComputeTime || (now - previewComputer._lastComputeTime) > 1) {
+                previewComputer.computePreviews(window.editor.graph);
+                previewComputer._lastComputeTime = now;
+              }
+            }
+          }
+
           // Use expressionSystem which includes node references in evaluation context
           // This enables compute nodes to reference Float, Remap, and other node outputs
           const context = {
