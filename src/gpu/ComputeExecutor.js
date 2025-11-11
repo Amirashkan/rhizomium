@@ -407,7 +407,13 @@ export class ComputeExecutor {
         // when those referenced values might have changed
         const hasNodeRefParams = this.hasNodeReferenceParameters(node);
 
-        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams) {
+        // Check if node has compute node inputs
+        // This ensures compute nodes re-dispatch when their compute inputs update
+        // Fixes issue where time-dependent upstream compute nodes don't trigger downstream updates
+        const hasComputeInput = node?.inputs && Array.isArray(node.inputs) &&
+          node.inputs.some(inputId => inputId !== null && inputId !== undefined && this.computeManagers.has(inputId));
+
+        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasComputeInput) {
           // OPTIMIZATION: Only set input textures when we're actually dispatching
           // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
           if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
