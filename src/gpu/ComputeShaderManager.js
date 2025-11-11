@@ -1,5 +1,6 @@
 import { globalResourceRegistry } from './ResourceTracker.js';
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
+import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 
 /**
  * ComputeShaderManager
@@ -70,7 +71,8 @@ export class ComputeShaderManager {
       // Expression starting with =
       if (trimmed.startsWith('=')) {
         try {
-          // Build full context with time and audio envelope values
+          // Use expressionSystem which includes node references in evaluation context
+          // This enables compute nodes to reference Float, Remap, and other node outputs
           const context = {
             time,
             audioEnvelope: audioContext.audioEnvelope || 0.0,
@@ -79,9 +81,10 @@ export class ComputeShaderManager {
             audioEnvelopeHighs: audioContext.audioEnvelopeHighs || 0.0,
             audioEnvelopeFull: audioContext.audioEnvelopeFull || 0.0
           };
-          const result = unifiedExpressionSystem.evaluateCPU(value, context);
+          const result = expressionSystem.evaluateExpression(value, context, this.node);
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
+          console.warn(`[ComputeShaderManager] Failed to evaluate parameter expression: ${value}`, error);
           return defaultValue;
         }
       }
