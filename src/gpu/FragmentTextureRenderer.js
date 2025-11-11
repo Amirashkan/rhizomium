@@ -251,7 +251,9 @@ export class FragmentTextureRenderer {
         uniformBuffers,
         shaderModule,
         width,
-        height
+        height,
+        bindingMap,  // Store for recreating bind groups
+        layouts      // Store layouts for recreating bind groups
       };
     } catch (error) {
 
@@ -260,11 +262,55 @@ export class FragmentTextureRenderer {
   }
 
   /**
+   * Rebuild bind groups with current compute textures
+   * This ensures fragment shaders get the latest compute node outputs
+   * @private
+   */
+  _rebuildBindGroups(cached) {
+    if (!cached.bindingMap || !cached.layouts) {
+      return; // Old cached data, can't rebuild
+    }
+
+    const bindingMap = cached.bindingMap;
+    const groupIndices = Object.keys(bindingMap.groups).map(Number).sort((a, b) => a - b);
+    const newBindGroups = [];
+
+    for (let i = 0; i < groupIndices.length; i++) {
+      const groupIndex = groupIndices[i];
+      const bindings = bindingMap.groups[groupIndex];
+      const resources = [];
+
+      for (const bindingKey of Object.keys(bindings)) {
+        const binding = parseInt(bindingKey, 10);
+        const meta = bindings[binding];
+
+        // Create resource (this will now get current compute textures)
+        const resource = this._createResource(meta, cached.uniformBuffers);
+        resources.push({ binding, resource });
+      }
+
+      // Create new bind group with updated resources
+      const bindGroup = this.device.createBindGroup({
+        layout: cached.layouts[i],
+        entries: resources
+      });
+      newBindGroups.push(bindGroup);
+    }
+
+    // Update cached bind groups
+    cached.bindGroups = newBindGroups;
+  }
+
+  /**
    * Render to texture using the pipeline
    * @private
    */
   async _renderToTexture(cached, time, width, height, audioContext, externalEncoder = null) {
     try {
+      // Rebuild bind groups with current compute textures BEFORE rendering
+      // This ensures we use the latest compute node outputs
+      this._rebuildBindGroups(cached);
+
       // Update uniforms (time, resolution, audio, etc.)
       this._updateUniforms(cached, time, width, height, audioContext);
 
@@ -422,6 +468,12 @@ export class FragmentTextureRenderer {
   _createResource(meta, uniformBuffers) {
     switch (meta.kind) {
       case 'uniform-buffer': {
+        // Reuse existing uniform buffer if available
+        const existingBuffer = uniformBuffers.get(meta.varName);
+        if (existingBuffer) {
+          return { buffer: existingBuffer };
+        }
+
         let size = 64; // Default size
 
         if (meta.varName === 'u') {
