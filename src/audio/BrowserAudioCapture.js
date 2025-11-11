@@ -370,12 +370,6 @@ export class BrowserAudioCapture {
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {
-                main: this._envelopeValue.toFixed(3),
-                bass: this._envelopeBass.toFixed(3),
-                mids: this._envelopeMids.toFixed(3),
-                highs: this._envelopeHighs.toFixed(3),
-                full: this._envelopeFull.toFixed(3)
-            });
             this._lastDebugLog = performance.now();
         }
 

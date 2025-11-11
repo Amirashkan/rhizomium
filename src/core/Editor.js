@@ -709,21 +709,6 @@ connectGPURenderer(renderFunction) {
   debugExpressions() {
 
     
-    if (this.graph) {
-      const nodesWithExpressions = this.graph.nodes.filter(node => {
-        if (!node.params) return false;
-        return Object.values(node.params).some(value => 
-          this.expressionSystem.isExpression(value)
-        );
-      });
-
-      nodesWithExpressions.forEach(node => {
-          Object.entries(node.params).filter(([k, v]) => 
-            this.expressionSystem.isExpression(v)
-          )
-        );
-      });
-    }
   }
 
   // ---- ALL EXISTING EDITOR METHODS (PRESERVED) ----

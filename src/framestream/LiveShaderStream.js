@@ -123,13 +123,6 @@ export class LiveShaderStream {
             timestamp: Date.now()
         };
 
-            codeLength: shaderCode.length,
-            uniformCount: Array.isArray(uniformValues) ? uniformValues.length : Object.keys(uniformValues).length,
-            uniformValues: uniformValues, // Log actual values for debugging
-            resolution: this.currentResolution,
-            shaderPreview: shaderCode.substring(0, 100) + '...'
-        });
-
         this.channel.postMessage(message);
         this.shaderUpdatesSent++;
 

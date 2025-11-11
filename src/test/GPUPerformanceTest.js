@@ -145,16 +145,6 @@ export class GPUPerformanceTest {
 
       if (!passed) {
         allPassed = false;
-          expected: testCase.expected,
-          actual: result,
-          diff: [
-            Math.abs(result[0] - expectedX),
-            Math.abs(result[1] - expectedY),
-            Math.abs(result[2] - expectedZ)
-          ]
-        });
-      } else {
-
       }
     }
 
