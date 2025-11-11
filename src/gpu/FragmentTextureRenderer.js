@@ -427,7 +427,26 @@ export class FragmentTextureRenderer {
   _createResource(meta, uniformBuffers) {
     switch (meta.kind) {
       case 'uniform-buffer': {
-        const size = meta.varName === 'u' ? 16 : (meta.varName === 'g' ? 32 : 64);
+        let size = 64; // Default size
+
+        if (meta.varName === 'u') {
+          // Aspect is a single float; allocate one vec4 (16 bytes) for alignment
+          size = 16;
+        } else if (meta.varName === 'g') {
+          // Globals store resolution.xy, time, and 5 audio envelope values (8 floats total)
+          size = 32;
+        } else if (meta.varName === 'u_params') {
+          // CRITICAL: Calculate parameter buffer size dynamically from uniformManager
+          // This prevents "buffer too small" errors when fragment graphs have many parameters
+          const uniformManager = window.nodeCompiler?.uniformManager;
+          if (uniformManager && uniformManager.uniformValues.size > 0) {
+            const numParams = uniformManager.uniformValues.size;
+            // Round up to 16-byte alignment (WGSL struct alignment requirement)
+            size = Math.max(16, Math.ceil(numParams * 4 / 16) * 16);
+            console.log(`[FragmentTextureRenderer] Allocated ${size} bytes for ${numParams} parameters in u_params buffer`);
+          }
+        }
+
         const buffer = this.device.createBuffer({
           size,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
