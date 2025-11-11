@@ -138,6 +138,9 @@ export class FragmentTextureRenderer {
 
   /**
    * Extract a subgraph containing a node and all its dependencies
+   * CRITICAL: Excludes compute nodes from the subgraph to prevent infinite loops
+   * Compute nodes are rendered separately by ComputeExecutor and should only be
+   * referenced as texture samplers in fragment shaders, not compiled inline.
    * @private
    */
   _extractSubgraph(targetNode) {
@@ -147,6 +150,15 @@ export class FragmentTextureRenderer {
     const addNodeWithDependencies = (node) => {
       if (!node || visited.has(node.id)) return;
       visited.add(node.id);
+
+      // CRITICAL: Check if this is a compute node and skip it
+      // Compute nodes should be executed by ComputeExecutor, not compiled into fragment shaders
+      // Including them causes infinite loops: execute() -> _renderFragmentInputs() -> buildWGSL(compute node) -> side effects -> execute()
+      const isComputeNode = node.kind && node.kind.startsWith('Compute');
+      if (isComputeNode) {
+        console.log(`[FragmentTextureRenderer] Skipping compute node ${node.kind} (${node.id}) in fragment subgraph - will be sampled as texture instead`);
+        return; // Don't add compute nodes to fragment subgraphs
+      }
 
       // Add input dependencies first
       if (node.inputs && Array.isArray(node.inputs)) {
