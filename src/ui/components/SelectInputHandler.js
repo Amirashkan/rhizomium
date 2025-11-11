@@ -107,9 +107,9 @@ export class SelectInputHandler {
 
     select.addEventListener("change", (e) => {
       e.stopPropagation();
-      
+
       const newValue = select.value;
-      
+
       try {
         // Use the expression-aware value manager
         if (valueManager && valueManager.setValue) {
@@ -119,21 +119,21 @@ export class SelectInputHandler {
         } else {
           // Fallback: direct parameter update
           if (!node.params) node.params = {};
-          
+
           // Record for undo if available
           if (this.undoManager && previousValue !== newValue) {
             this.undoManager.recordParameterChange(node.id, param.name, previousValue, newValue);
           }
-          
+
           node.params[param.name] = newValue;
-          
+
           if (onChange) {
             onChange(`Parameter Change: ${param.name}`);
           }
         }
-        
+
         previousValue = newValue;
-        
+
       } catch (error) {
         console.error(`Error updating select parameter ${param.name}:`, error);
         // Revert to previous value on error

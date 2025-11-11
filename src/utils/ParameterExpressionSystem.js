@@ -1289,9 +1289,25 @@ setValue(node, paramName, value) {
       console.log(`[ParameterExpressionSystem] Compute node parameter changed, triggering recompilation: ${node.kind}`);
 
       // Clear the compute node registry entry so it gets regenerated
+      const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
+
       if (window.computeNodeRegistry) {
-        const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
         window.computeNodeRegistry.delete(nodeId);
+      }
+
+      // CRITICAL: Also destroy the existing compute manager so it gets recreated
+      // When the registry entry is deleted and recreated, the ComputeExecutor needs to
+      // destroy the old GPU pipeline and create a new one with the updated shader
+      if (window.computeExecutor && window.computeExecutor.computeManagers) {
+        const manager = window.computeExecutor.computeManagers.get(nodeId);
+        if (manager && manager.destroy) {
+          manager.destroy();
+        }
+        window.computeExecutor.computeManagers.delete(nodeId);
+        window.computeExecutor.computeTextures.delete(nodeId);
+        window.computeExecutor.nodeOutputs.delete(nodeId);
+        window.computeExecutor.inputHashes.delete(nodeId);
+        console.log(`[ParameterExpressionSystem] Cleaned up compute manager for ${nodeId}`);
       }
 
       // Trigger full shader recompilation
