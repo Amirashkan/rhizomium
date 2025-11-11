@@ -61,6 +61,22 @@ export class ComputeExecutor {
 
     // Track which fragment nodes have been rendered this frame
     this.renderedFragmentNodes = new Set();
+
+    // Re-entrancy guard: Prevent execute() from being called while already executing
+    // This prevents infinite loops when auto-bridging or other side effects trigger renders
+    this._isExecuting = false;
+  }
+
+  /**
+   * Clear fragment render cache
+   * Call this when graph structure changes (nodes added/removed, connections changed)
+   */
+  clearFragmentCache() {
+    this.renderedFragmentNodes.clear();
+    if (this.fragmentRenderer && this.fragmentRenderer.textureCache) {
+      this.fragmentRenderer.textureCache.clear();
+      this.fragmentRenderer.shaderCache.clear();
+    }
   }
 
   /**
@@ -255,8 +271,10 @@ export class ComputeExecutor {
       return;
     }
 
-    // Clear the rendered set for this frame
-    this.renderedFragmentNodes.clear();
+    // DON'T clear renderedFragmentNodes - it causes fragment nodes to re-render every frame!
+    // Fragment textures are cached by FragmentTextureRenderer and only rebuild when shaders change
+    // Clearing this set every frame defeats the caching and causes infinite rendering loops
+    // this.renderedFragmentNodes.clear();
 
     // Check each compute node for fragment inputs
     for (const nodeId of this.executionOrder) {
@@ -286,14 +304,19 @@ export class ComputeExecutor {
         }
 
         // This is a fragment node being used as compute input!
-        console.log(`[ComputeExecutor] Auto-bridging: Rendering fragment node ${inputNodeId} (${inputNode.kind}) to texture for compute node ${nodeId}`);
+        // Log only once per node to reduce spam
+        if (!this._loggedAutoBridge) this._loggedAutoBridge = new Set();
+        if (!this._loggedAutoBridge.has(inputNodeId)) {
+          console.log(`[ComputeExecutor] Auto-bridging: Fragment node ${inputNodeId} (${inputNode.kind}) → Compute node ${nodeId}`);
+          this._loggedAutoBridge.add(inputNodeId);
+        }
+
         try {
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
           const width = resolution[0];
           const height = resolution[1];
 
-          console.log(`[ComputeExecutor] Rendering to ${width}x${height} texture...`);
           // Render the fragment node to a texture using the SHARED command encoder
           // This ensures fragment render and compute dispatch are in the same GPU submission
           const texture = await this.fragmentRenderer.renderNodeToTexture(
@@ -309,10 +332,9 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
-            console.log(`[ComputeExecutor] ✓ Auto-bridge complete: Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
-            console.log(`[ComputeExecutor] 📝 Stored texture in nodeOutputs[${inputNodeId}]: ${texture.width}x${texture.height}, format=${texture.format}, usage=${texture.usage}`);
+            // Success - no need to log every frame
           } else {
-            console.warn(`[ComputeExecutor] ✗ Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
+            console.warn(`[ComputeExecutor] Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
         } catch (error) {
           console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
@@ -329,17 +351,33 @@ export class ComputeExecutor {
    * @param {Object} audioContext - Audio envelope values for expression evaluation
    */
   async execute(commandEncoder, time = 0, audioContext = {}) {
+    // CRITICAL: Re-entrancy guard to prevent infinite loops
+    // If execute() is called while already executing (e.g., from auto-bridging side effects),
+    // skip this call to break the infinite loop
+    if (this._isExecuting) {
+      console.warn('[ComputeExecutor] ⚠️ execute() called while already executing - skipping to prevent infinite loop');
+      return;
+    }
+
     if (!this.initialized || this.computeManagers.size === 0) {
       console.log(`[ComputeExecutor] Skipping execute: initialized=${this.initialized}, managers=${this.computeManagers.size}`);
       return;
     }
 
-    console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
+    // Set the executing flag
+    this._isExecuting = true;
 
-    // STEP 1: Render fragment node inputs to textures (auto-bridging)
-    // Pass the shared command encoder so fragment renders and compute dispatches
-    // are in the same GPU command buffer submission (proper synchronization!)
-    await this._renderFragmentInputs(commandEncoder, time, audioContext);
+    try {
+      // Reduce logging spam - only log occasionally
+      if (!this._lastExecuteLog || Date.now() - this._lastExecuteLog > 5000) {
+        console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
+        this._lastExecuteLog = Date.now();
+      }
+
+      // STEP 1: Render fragment node inputs to textures (auto-bridging)
+      // Pass the shared command encoder so fragment renders and compute dispatches
+      // are in the same GPU command buffer submission (proper synchronization!)
+      await this._renderFragmentInputs(commandEncoder, time, audioContext);
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
     for (const nodeId of this.executionOrder) {
@@ -354,86 +392,89 @@ export class ComputeExecutor {
         const nodeData = window.computeNodeRegistry?.get(nodeId);
         const node = nodeData?.node;
 
-        // Set input texture if this node needs it
-        if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
-          const inputNodeId = node.inputs[0];
-          if (inputNodeId !== null && inputNodeId !== undefined) {
-            const inputTexture = this.nodeOutputs.get(inputNodeId);
-            console.log(`[ComputeExecutor] 🔍 Node ${nodeId} (${node.kind}) looking for input from node ${inputNodeId}`);
-            console.log(`[ComputeExecutor] 📦 nodeOutputs.has(${inputNodeId}): ${this.nodeOutputs.has(inputNodeId)}`);
-            if (inputTexture) {
-              console.log(`[ComputeExecutor] ✓ Found input texture: ${inputTexture.width}x${inputTexture.height}, format=${inputTexture.format}, usage=${inputTexture.usage}`);
-              if (manager.setInputTexture) {
-                manager.setInputTexture(inputTexture);
-                console.log(`[ComputeExecutor] ✓ Called setInputTexture()`);
-                // Recreate bind group with new input texture
-                if (manager.recreateBindGroup) {
-                  manager.recreateBindGroup();
-                  console.log(`[ComputeExecutor] ✓ Called recreateBindGroup()`);
-                }
-              }
-            } else if (!inputTexture) {
-              // Only log missing textures once to avoid spam
-              if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-              if (!this._loggedMissingTextures.has(inputNodeId)) {
-                console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
-                console.warn(`[ComputeExecutor] ⚠️ Available nodeOutputs keys:`, Array.from(this.nodeOutputs.keys()));
-                this._loggedMissingTextures.add(inputNodeId);
-              }
-            }
-          }
-
-          // Special case: ComputeWarp has a second input (warp field)
-          if (node.kind === 'ComputeWarp' && node.inputs.length > 1) {
-            const warpFieldNodeId = node.inputs[1];
-            if (warpFieldNodeId !== null && warpFieldNodeId !== undefined) {
-              const warpFieldTexture = this.nodeOutputs.get(warpFieldNodeId);
-              if (warpFieldTexture && manager.setWarpFieldTexture) {
-                manager.setWarpFieldTexture(warpFieldTexture);
-              } else if (!warpFieldTexture) {
-                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-                if (!this._loggedMissingTextures.has(warpFieldNodeId)) {
-                  console.warn(`[ComputeExecutor] ⚠️ Warp field texture not found for ${warpFieldNodeId}, using fallback`);
-                  this._loggedMissingTextures.add(warpFieldNodeId);
-                }
-              }
-            }
-          }
-
-          // Special case: ComputeMix has a second input (Input B for blending)
-          if (node.kind === 'ComputeMix' && node.inputs.length > 1) {
-            const inputBNodeId = node.inputs[1];
-            if (inputBNodeId !== null && inputBNodeId !== undefined) {
-              const inputBTexture = this.nodeOutputs.get(inputBNodeId);
-              if (inputBTexture && manager.setWarpFieldTexture) {
-                // Reuse setWarpFieldTexture for the second input (binding 4)
-                manager.setWarpFieldTexture(inputBTexture);
-              } else if (!inputBTexture) {
-                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-                if (!this._loggedMissingTextures.has(inputBNodeId)) {
-                  console.warn(`[ComputeExecutor] Input B texture not found for ${inputBNodeId}, using fallback`);
-                  this._loggedMissingTextures.add(inputBNodeId);
-                }
-              }
-            }
-          }
-        }
-
         // Check if inputs have changed (for optimization)
         const shouldUpdate = this.checkInputsChanged(nodeId);
 
-        // ALWAYS dispatch time-dependent compute nodes (they animate every frame)
-        // Time-dependent nodes include: ComputeNoise, ComputeReactionDiffusion, etc.
-        const isTimeDependentNode = node?.kind && (
-          node.kind === 'ComputeNoise' ||
-          node.kind === 'ComputeReactionDiffusion' ||
-          node.kind.startsWith('Compute') // Most compute nodes are time-dependent
-        );
-
-        console.log(`[ComputeExecutor] Node ${nodeId} (${node?.kind}): shouldUpdate=${shouldUpdate}, isTimeDependentNode=${isTimeDependentNode}`);
+        // ONLY dispatch truly time-dependent compute nodes every frame
+        // Time-dependent nodes have animation or evolve over time without input changes
+        // Most compute nodes (ColorAdjust, Blur, Threshold, etc.) should ONLY run when inputs change
+        const TIME_DEPENDENT_NODES = [
+          'ComputeNoise',              // Has time parameter
+          'ComputeReactionDiffusion',  // Time-based evolution
+          'ComputeFeedback',           // Needs every-frame feedback
+          'ComputeFeedbackField',      // Needs every-frame feedback
+          'ComputeFluidSim',           // Time-based physics
+          'ComputeParticles'           // Time-based animation
+        ];
+        const isTimeDependentNode = node?.kind && TIME_DEPENDENT_NODES.includes(node.kind);
 
         if (shouldUpdate || isTimeDependentNode) {
-          console.log(`[ComputeExecutor] → Dispatching node ${nodeId}`);
+          // Only log dispatches occasionally to reduce console spam
+          if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
+            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}`);
+            this._lastDispatchLog = Date.now();
+          }
+
+          // OPTIMIZATION: Only set input textures when we're actually dispatching
+          // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
+          if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
+            const inputNodeId = node.inputs[0];
+            if (inputNodeId !== null && inputNodeId !== undefined) {
+              const inputTexture = this.nodeOutputs.get(inputNodeId);
+              if (inputTexture) {
+                if (manager.setInputTexture) {
+                  manager.setInputTexture(inputTexture);
+                  // Recreate bind group with new input texture
+                  if (manager.recreateBindGroup) {
+                    manager.recreateBindGroup();
+                  }
+                }
+              } else if (!inputTexture) {
+                // Only log missing textures once to avoid spam
+                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                if (!this._loggedMissingTextures.has(inputNodeId)) {
+                  console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+                  this._loggedMissingTextures.add(inputNodeId);
+                }
+              }
+            }
+
+            // Special case: ComputeWarp has a second input (warp field)
+            if (node.kind === 'ComputeWarp' && node.inputs.length > 1) {
+              const warpFieldNodeId = node.inputs[1];
+              if (warpFieldNodeId !== null && warpFieldNodeId !== undefined) {
+                const warpFieldTexture = this.nodeOutputs.get(warpFieldNodeId);
+                if (warpFieldTexture && manager.setWarpFieldTexture) {
+                  manager.setWarpFieldTexture(warpFieldTexture);
+                } else if (!warpFieldTexture) {
+                  if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                  if (!this._loggedMissingTextures.has(warpFieldNodeId)) {
+                    console.warn(`[ComputeExecutor] ⚠️ Warp field texture not found for ${warpFieldNodeId}, using fallback`);
+                    this._loggedMissingTextures.add(warpFieldNodeId);
+                  }
+                }
+              }
+            }
+
+            // Special case: ComputeMix has a second input (Input B for blending)
+            if (node.kind === 'ComputeMix' && node.inputs.length > 1) {
+              const inputBNodeId = node.inputs[1];
+              if (inputBNodeId !== null && inputBNodeId !== undefined) {
+                const inputBTexture = this.nodeOutputs.get(inputBNodeId);
+                if (inputBTexture && manager.setWarpFieldTexture) {
+                  // Reuse setWarpFieldTexture for the second input (binding 4)
+                  manager.setWarpFieldTexture(inputBTexture);
+                } else if (!inputBTexture) {
+                  if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
+                  if (!this._loggedMissingTextures.has(inputBNodeId)) {
+                    console.warn(`[ComputeExecutor] Input B texture not found for ${inputBNodeId}, using fallback`);
+                    this._loggedMissingTextures.add(inputBNodeId);
+                  }
+                }
+              }
+            }
+          }
+
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
@@ -443,12 +484,16 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
-        } else {
-          console.log(`[ComputeExecutor] → Skipping dispatch for node ${nodeId}`);
         }
+        // Skipping dispatch is normal behavior when inputs haven't changed
+        // No need to log it every frame
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
       }
+    }
+    } finally {
+      // CRITICAL: Always reset the executing flag, even if there was an error
+      this._isExecuting = false;
     }
   }
 

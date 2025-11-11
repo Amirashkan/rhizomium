@@ -8,8 +8,11 @@ import { generateShader } from './templates/ShaderTemplate.js';
 /**
  * Main WGSL builder for Rhizomium
  * Compiles node graph into a valid WGSL shader source.
+ * @param {Object} graph - The node graph to compile
+ * @param {Object} options - Build options
+ * @param {boolean} options.skipCacheClear - If true, don't clear global caches (for subgraph compilation)
  */
-export function buildWGSL(graph) {
+export function buildWGSL(graph, options = {}) {
   const processor = new GraphProcessor();
 
   // Shared NodeCompiler instance
@@ -18,19 +21,24 @@ export function buildWGSL(graph) {
   }
   const compiler = window.nodeCompiler;
 
-  // --- Clear all cached state before building ---
-  compiler.uniformManager.clear();
-  console.log('✅ Cleared uniform manager');
-  processor.clearFunctionCollection();
+  // --- Clear all cached state before building (unless this is a subgraph build) ---
+  if (!options.skipCacheClear) {
+    compiler.uniformManager.clear();
+    console.log('✅ Cleared uniform manager');
+    processor.clearFunctionCollection();
 
-  if (compiler.compilers.field && compiler.compilers.field.clearFunctionCache) {
-    compiler.compilers.field.clearFunctionCache();
-    console.log('✅ Cleared field function cache');
+    if (compiler.compilers.field && compiler.compilers.field.clearFunctionCache) {
+      compiler.compilers.field.clearFunctionCache();
+      console.log('✅ Cleared field function cache');
+    }
+
+    if (compiler.compilers.transform && compiler.compilers.transform.clearHelperCache) {
+      compiler.compilers.transform.clearHelperCache();
+    }
   }
 
-  if (compiler.compilers.transform && compiler.compilers.transform.clearHelperCache) {
-    compiler.compilers.transform.clearHelperCache();
-  }
+  // Set the compilation mode on the compiler so child compilers can avoid side effects
+  compiler.isSubgraphCompilation = options.skipCacheClear || false;
 
   // --- Process the graph ---
   const result = processor.processGraph(graph);
@@ -45,11 +53,15 @@ export function buildWGSL(graph) {
 
   if (!outputNode || orderedNodes.length === 0) {
     console.warn('⚠️ No output node found or empty graph');
+    compiler.isSubgraphCompilation = false;
     return { wgsl: '', uniformManager: compiler.uniformManager };
   }
 
   // --- Compile all nodes into WGSL lines ---
   const compiledData = compiler.compileNodes(orderedNodes);
+
+  // Reset the flag after compilation
+  compiler.isSubgraphCompilation = false;
   const { lines, uniformStruct, uniformManager, usesNoise } = compiledData;
 
   // --- Collect all function definitions and helpers ---

@@ -117,8 +117,10 @@ export class FragmentTextureRenderer {
       subgraph.nodes.push(outputNode);
 
       // Use the existing buildWGSL infrastructure
+      // CRITICAL: skipCacheClear=true prevents clearing the main shader's caches,
+      // which would trigger infinite rebuild loops during auto-bridging
       const { buildWGSL } = await import('../codegen/glslBuilder.js');
-      const { wgsl } = buildWGSL(subgraph);
+      const { wgsl } = buildWGSL(subgraph, { skipCacheClear: true });
 
       if (!wgsl || wgsl.trim() === '') {
         return null;
