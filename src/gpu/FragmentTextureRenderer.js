@@ -143,9 +143,8 @@ export class FragmentTextureRenderer {
 
   /**
    * Extract a subgraph containing a node and all its dependencies
-   * CRITICAL: Excludes compute nodes from the subgraph to prevent infinite loops
-   * Compute nodes are rendered separately by ComputeExecutor and should only be
-   * referenced as texture samplers in fragment shaders, not compiled inline.
+   * Includes compute nodes so they can be referenced as texture samplers
+   * The skipCacheClear flag prevents infinite loops during compilation
    * @private
    */
   _extractSubgraph(targetNode) {
@@ -155,14 +154,6 @@ export class FragmentTextureRenderer {
     const addNodeWithDependencies = (node) => {
       if (!node || visited.has(node.id)) return;
       visited.add(node.id);
-
-      // CRITICAL: Check if this is a compute node and skip it
-      // Compute nodes should be executed by ComputeExecutor, not compiled into fragment shaders
-      // Including them causes infinite loops: execute() -> _renderFragmentInputs() -> buildWGSL(compute node) -> side effects -> execute()
-      const isComputeNode = node.kind && node.kind.startsWith('Compute');
-      if (isComputeNode) {
-        return; // Don't add compute nodes to fragment subgraphs
-      }
 
       // Add input dependencies first
       if (node.inputs && Array.isArray(node.inputs)) {
@@ -176,7 +167,7 @@ export class FragmentTextureRenderer {
         }
       }
 
-      // Add the node itself
+      // Add the node itself (including compute nodes, which will be compiled as texture samplers)
       subgraphNodes.push(node);
     };
 
@@ -260,7 +251,9 @@ export class FragmentTextureRenderer {
         uniformBuffers,
         shaderModule,
         width,
-        height
+        height,
+        bindingMap,  // Store for recreating bind groups
+        layouts      // Store layouts for recreating bind groups
       };
     } catch (error) {
 
@@ -269,11 +262,55 @@ export class FragmentTextureRenderer {
   }
 
   /**
+   * Rebuild bind groups with current compute textures
+   * This ensures fragment shaders get the latest compute node outputs
+   * @private
+   */
+  _rebuildBindGroups(cached) {
+    if (!cached.bindingMap || !cached.layouts) {
+      return; // Old cached data, can't rebuild
+    }
+
+    const bindingMap = cached.bindingMap;
+    const groupIndices = Object.keys(bindingMap.groups).map(Number).sort((a, b) => a - b);
+    const newBindGroups = [];
+
+    for (let i = 0; i < groupIndices.length; i++) {
+      const groupIndex = groupIndices[i];
+      const bindings = bindingMap.groups[groupIndex];
+      const resources = [];
+
+      for (const bindingKey of Object.keys(bindings)) {
+        const binding = parseInt(bindingKey, 10);
+        const meta = bindings[binding];
+
+        // Create resource (this will now get current compute textures)
+        const resource = this._createResource(meta, cached.uniformBuffers);
+        resources.push({ binding, resource });
+      }
+
+      // Create new bind group with updated resources
+      const bindGroup = this.device.createBindGroup({
+        layout: cached.layouts[i],
+        entries: resources
+      });
+      newBindGroups.push(bindGroup);
+    }
+
+    // Update cached bind groups
+    cached.bindGroups = newBindGroups;
+  }
+
+  /**
    * Render to texture using the pipeline
    * @private
    */
   async _renderToTexture(cached, time, width, height, audioContext, externalEncoder = null) {
     try {
+      // Rebuild bind groups with current compute textures BEFORE rendering
+      // This ensures we use the latest compute node outputs
+      this._rebuildBindGroups(cached);
+
       // Update uniforms (time, resolution, audio, etc.)
       this._updateUniforms(cached, time, width, height, audioContext);
 
@@ -431,6 +468,12 @@ export class FragmentTextureRenderer {
   _createResource(meta, uniformBuffers) {
     switch (meta.kind) {
       case 'uniform-buffer': {
+        // Reuse existing uniform buffer if available
+        const existingBuffer = uniformBuffers.get(meta.varName);
+        if (existingBuffer) {
+          return { buffer: existingBuffer };
+        }
+
         let size = 64; // Default size
 
         if (meta.varName === 'u') {
@@ -469,7 +512,30 @@ export class FragmentTextureRenderer {
       }
       case 'texture-2d':
       case 'texture-cube': {
-        // Create dummy 1x1 texture
+        // Check if this is a compute node texture (format: compute_node_X)
+        if (meta.varName && meta.varName.startsWith('compute_node_')) {
+          // Extract sanitized node ID from variable name (e.g., "compute_node_27" -> "27")
+          // Note: TextureBindings.js already stripped the "node_" prefix, so we get the raw number
+          const nodeId = meta.varName.replace('compute_node_', '');
+
+          // Try to get the actual compute node output texture from ComputeExecutor
+          if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
+            const computeTexture = window.computeExecutor.nodeOutputs.get(nodeId);
+            if (computeTexture) {
+              return computeTexture.createView();
+            }
+          }
+
+          // Fallback: try to get from computeTextures registry
+          if (window.computeExecutor && window.computeExecutor.computeTextures) {
+            const textureData = window.computeExecutor.computeTextures.get(nodeId);
+            if (textureData && textureData.texture) {
+              return textureData.texture.createView();
+            }
+          }
+        }
+
+        // Create dummy 1x1 texture for regular textures or if compute texture not found
         const texture = this.device.createTexture({
           size: [1, 1, 1],
           format: 'rgba8unorm',

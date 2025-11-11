@@ -247,7 +247,9 @@ export class GPURenderer {
         return null;
       }
 
-      const sanitizedIdToMatch = sanitizedId.replace('compute_', '');
+      // Extract node ID from varName (e.g., "node_27" -> "27")
+      // The format is compute_node_X or sampler_compute_node_X
+      const sanitizedIdToMatch = sanitizedId.replace('node_', '');
 
       // Look up the current output texture from nodeOutputs (updated every frame)
       const currentOutputTexture = computeExecutor.nodeOutputs?.get(sanitizedIdToMatch);

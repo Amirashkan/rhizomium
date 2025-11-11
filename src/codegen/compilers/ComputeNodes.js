@@ -55,7 +55,12 @@ export class ComputeNodes {
    * Compute nodes don't generate inline WGSL code - they execute on GPU and return texture references
    */
   compile(node, getInput, getParam) {
-    const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
+    // Sanitize and ensure node_ prefix for consistency
+    let nodeId = String(node.id).replace(/[^a-zA-Z0-9_]/g, "_");
+    // Remove any existing node_ prefix to avoid double-prefixing
+    if (nodeId.startsWith('node_')) {
+      nodeId = nodeId.substring(5); // Remove "node_" prefix
+    }
 
     // Analyze node parameters for uniforms
     if (this.uniformManager) {
@@ -70,7 +75,7 @@ export class ComputeNodes {
 
     // Return texture sampling code (similar to Texture2D node)
     // The actual compute shader will be dispatched before fragment shader runs
-    const textureId = `compute_${nodeId}`;
+    const textureId = `compute_node_${nodeId}`;
 
     // Sample the compute output texture
     const line = `let uv_${nodeId} = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
@@ -119,7 +124,8 @@ export class ComputeNodes {
    * Register a compute node for GPU execution
    */
   registerComputeNode(node, getInput, resolution) {
-    const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
+    // Use node.id directly for registry (maintain original ID for lookups)
+    const registryKey = String(node.id).replace(/[^a-zA-Z0-9_]/g, "_");
 
     // Determine if this node needs feedback (previous frame texture) or multiple inputs
     // ComputeWarp and ComputeMix use this for their second input texture
@@ -131,7 +137,7 @@ export class ComputeNodes {
       window.computeNodeRegistry = new Map();
     }
 
-    window.computeNodeRegistry.set(nodeId, {
+    window.computeNodeRegistry.set(registryKey, {
       node,
       getInput,
       resolution,
