@@ -3375,33 +3375,44 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
 
-    // Handle expressions with = prefix (like "=node_14" or "=time*2")
-    if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
+    // Check if this is a node reference expression (=node_X or contains node_X)
+    // Node references must be evaluated on CPU and passed as uniforms, not generated as shader code
+    const isNodeReference = typeof rawValue === 'string' && /=?\s*node_\d+/.test(rawValue);
+
+    // Handle expressions with = prefix (like "=time*2" or "=audioEnvelope")
+    // BUT NOT node references - those need CPU evaluation
+    if (typeof rawValue === 'string' && rawValue.startsWith('=') && !isNodeReference) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue);
       } catch (error) {
         console.warn('[ComputeNodes] Failed to generate shader for expression:', rawValue, error);
-        return String(defaultValue);
+        // Fall through to uniform registration below
       }
     }
 
-    // USE UNIFIED AST SYSTEM for dynamic expressions
+    // USE UNIFIED AST SYSTEM for dynamic expressions without = prefix
     // This ensures shader code matches CPU evaluation exactly
-    if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
+    if (typeof rawValue === 'string' && !isNodeReference && (/time|audioEnvelope/.test(rawValue))) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue);
       } catch (error) {
         console.warn('[ComputeNodes] Failed to generate shader for expression:', rawValue, error);
-        return String(defaultValue);
+        // Fall through to uniform registration below
       }
     }
 
-    // Register numeric parameters as uniforms for dynamic updates
+    // Register as uniform for:
+    // - Node references (must be CPU-evaluated)
+    // - Failed shader generation
+    // - Numeric parameters that need dynamic updates
     if (this.uniformManager) {
       let value = rawValue;
 
-      // Parse string values to numbers
+      // For node references or failed expressions, store the expression itself
+      // It will be evaluated on the CPU side in ComputeShaderManager.updateUniforms()
       if (typeof value === 'string') {
+        // If it's a node reference or expression that failed shader generation,
+        // just use the default for now - the actual value will be computed at runtime
         const parsed = parseFloat(value);
         value = isNaN(parsed) ? (typeof defaultValue === 'number' ? defaultValue : 0.0) : parsed;
       }

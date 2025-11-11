@@ -82,6 +82,12 @@ export class ComputeShaderManager {
             audioEnvelopeFull: audioContext.audioEnvelopeFull || 0.0
           };
           const result = expressionSystem.evaluateExpression(value, context, this.node);
+
+          // Debug logging for node references
+          if (/node_\d+/.test(value)) {
+            console.log(`[ComputeShaderManager] Evaluated node reference ${value} = ${result} (default: ${defaultValue})`);
+          }
+
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
           console.warn(`[ComputeShaderManager] Failed to evaluate parameter expression: ${value}`, error);
