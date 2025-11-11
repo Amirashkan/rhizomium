@@ -271,11 +271,6 @@ export class ComputeExecutor {
       return;
     }
 
-    // Clear the rendered fragment nodes set each frame
-    // This allows time-dependent fragment nodes (like SimplexNoise) to re-render
-    // and update compute nodes that depend on them
-    this.renderedFragmentNodes.clear();
-
     // Track which compute nodes need their input hashes invalidated
     // (because their fragment inputs were re-rendered with new content)
     const computeNodesToClearHash = new Set();
@@ -507,6 +502,10 @@ export class ComputeExecutor {
     } finally {
       // CRITICAL: Always reset the executing flag, even if there was an error
       this._isExecuting = false;
+
+      // Clear rendered fragment nodes for the next frame
+      // This allows time-dependent fragment nodes (like SimplexNoise) to re-render
+      this.renderedFragmentNodes.clear();
     }
   }
 
