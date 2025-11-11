@@ -2,7 +2,7 @@
 export class TextureBindings {
   /**
    * Generate texture binding code for WGSL
-   * @param {Object} graph 
+   * @param {Object} graph
    * @returns {string} Texture binding declarations
    */
   static generate(graph) {
@@ -16,7 +16,7 @@ export class TextureBindings {
     for (const node of graph.nodes) {
       if (node.kind === "Texture2D") {
         const nodeId = this.sanitize(node.id);
-        
+
         bindingCode += `
 @group(0) @binding(${bindingIndex}) var texture_${nodeId}: texture_2d<f32>;
 @group(0) @binding(${bindingIndex + 1}) var sampler_${nodeId}: sampler;`;
@@ -26,6 +26,18 @@ export class TextureBindings {
         bindingCode += `
 @group(0) @binding(${bindingIndex}) var textureCube_${nodeId}: texture_cube<f32>;
 @group(0) @binding(${bindingIndex + 1}) var samplerCube_${nodeId}: sampler;`;
+        bindingIndex += 2;
+      } else if (node.kind && node.kind.startsWith('Compute')) {
+        // Compute nodes used in fragment shaders need texture bindings
+        let nodeId = this.sanitize(node.id);
+        // Remove node_ prefix if present (consistent with ComputeNodes.js)
+        if (nodeId.startsWith('node_')) {
+          nodeId = nodeId.substring(5);
+        }
+
+        bindingCode += `
+@group(0) @binding(${bindingIndex}) var compute_node_${nodeId}: texture_2d<f32>;
+@group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${nodeId}: sampler;`;
         bindingIndex += 2;
       }
     }
