@@ -68,6 +68,18 @@ export class ComputeExecutor {
   }
 
   /**
+   * Clear fragment render cache
+   * Call this when graph structure changes (nodes added/removed, connections changed)
+   */
+  clearFragmentCache() {
+    this.renderedFragmentNodes.clear();
+    if (this.fragmentRenderer && this.fragmentRenderer.textureCache) {
+      this.fragmentRenderer.textureCache.clear();
+      this.fragmentRenderer.shaderCache.clear();
+    }
+  }
+
+  /**
    * Initialize compute nodes from registry
    */
   async initialize() {
@@ -259,8 +271,10 @@ export class ComputeExecutor {
       return;
     }
 
-    // Clear the rendered set for this frame
-    this.renderedFragmentNodes.clear();
+    // DON'T clear renderedFragmentNodes - it causes fragment nodes to re-render every frame!
+    // Fragment textures are cached by FragmentTextureRenderer and only rebuild when shaders change
+    // Clearing this set every frame defeats the caching and causes infinite rendering loops
+    // this.renderedFragmentNodes.clear();
 
     // Check each compute node for fragment inputs
     for (const nodeId of this.executionOrder) {
