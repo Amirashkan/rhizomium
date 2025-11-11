@@ -103,55 +103,7 @@ export class PreviewComputer {
         try {
           switch (node.kind) {
 
-            
-            case "LinearGradient": {
-  const angleDeg = this._evaluateParam(node.params?.angle, values, 0.0);
-  const angle = angleDeg * Math.PI / 180; // Convert degrees to radians
-  const offset = this._evaluateParam(node.params?.offset, values, 0.0);
-  const scale = this._evaluateParam(node.params?.scale, values, 1.0);
-  const repeat = node.params?.repeat ?? false;
 
-  // Simple UV evaluation at center
-  const uv = [0.5, 0.5];
-  const dir = [Math.cos(angle), Math.sin(angle)];
-  const proj = (uv[0] - 0.5) * dir[0] + (uv[1] - 0.5) * dir[1];
-  const t = proj * scale + offset;
-  result = repeat ? (t - Math.floor(t)) : t;
-  break;
-}
-
-case "RadialGradient": {
-  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
-  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
-  const radius = this._evaluateParam(node.params?.radius, values, 0.5);
-  const falloff = this._evaluateParam(node.params?.falloff, values, 1.0);
-  const invert = node.params?.invert ?? false;
-  
-  const uv = [0.5, 0.5];
-  const dx = uv[0] - centerX;
-  const dy = uv[1] - centerY;
-  const dist = Math.sqrt(dx * dx + dy * dy) / radius;
-  const field = Math.pow(dist, falloff);
-  result = invert ? (1.0 - field) : field;
-  result = Math.max(0, Math.min(1, result));
-  break;
-}
-
-case "AngularGradient": {
-  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
-  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
-  const rotationDeg = this._evaluateParam(node.params?.rotation, values, 0.0);
-  const rotation = rotationDeg * Math.PI / 180; // Convert degrees to radians
-  const repeat = this._evaluateParam(node.params?.repeat, values, 1.0);
-
-  const uv = [0.5, 0.5];
-  const dx = uv[0] - centerX;
-  const dy = uv[1] - centerY;
-  const angle = Math.atan2(dy, dx) + rotation;
-  const t = (angle / (Math.PI * 2)) * repeat;
-  result = t - Math.floor(t);
-  break;
-}
 case "ColorRamp": {
   const t = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0.5;
   const stops = node.params?.stops || [
@@ -929,14 +881,6 @@ _createNodeThumbnail(node, values) {
       case "Expr":
   this._renderExpressionThumbnail(ctx, size, node.expr || "a");
   break;
-case "Stripe":
-  this._renderStripeThumbnail(ctx, size, node);
-  break;
-
-case "Checker":
-  this._renderCheckerThumbnail(ctx, size, node);
-  break;
-
 case "Remap":
   this._renderRemapThumbnail(ctx, size, node);
   break;
@@ -951,26 +895,6 @@ case "ColorToGrayscale":
 
 case "ColorInvert":
   this._renderInvertThumbnail(ctx, size);
-  break;
-
-case "ColorSaturate":
-  this._renderColorSaturateThumbnail(ctx, size);
-  break;
-
-case "ColorContrast":
-  this._renderContrastThumbnail(ctx, size);
-  break;
-
-case "ColorBrightness":
-  this._renderBrightnessThumbnail(ctx, size);
-  break;
-
-case "HSVToRGB":
-  this._renderColorConversionThumbnail(ctx, size, "HSV→RGB");
-  break;
-
-case "RGBToHSV":
-  this._renderColorConversionThumbnail(ctx, size, "RGB→HSV");
   break;
 
 case "Select":

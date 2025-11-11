@@ -48,9 +48,9 @@ export class FieldNodes {
 
   handles(kind) {
     return [
-      'LinearGradient', 'RadialGradient', 'AngularGradient', 'ConicGradient',
-      'ColorRamp', 'Checker', 'Stripe', 'Displacement', 'Circle', 'Rectangle', 'Polygon',
-      'Worley', 'CellNoise', 'Kaleidoscope'
+      'ConicGradient',
+      'ColorRamp', 'Displacement', 'Circle', 'Rectangle', 'Polygon',
+      'Worley', 'CellNoise'
     ].includes(kind);
   }
 
@@ -68,87 +68,17 @@ export class FieldNodes {
     }
     
     switch (node.kind) {
-            case 'Stripe':
-        return this.compileStripe(node, getInput, nodeId);
-      case 'Checker':
-        return this.compileChecker(node, getInput, nodeId);
-
-      case 'LinearGradient':
-        return this.compileLinearGradient(node, getInput, nodeId);
-      case 'RadialGradient':
-        return this.compileRadialGradient(node, getInput, nodeId);
-      case 'AngularGradient':
-        return this.compileAngularGradient(node, getInput, nodeId);
       case 'ConicGradient':
         return this.compileConicGradient(node, getInput, nodeId);
       case 'ColorRamp':
         return this.compileColorRamp(node, getInput, nodeId);
       case 'Displacement':
         return this.compileDisplacement(node, getInput, nodeId);
-        case 'Kaleidoscope':
-  return this.compileKaleidoscope(node, getInput, nodeId);
 
       default:
         return null;
     }
   }
-compileKaleidoscope(node, getInput, nodeId) {
-  // upstream UV (defaults to in.uv if nothing is connected)
-  const uv = getInput(0, "vec2", "in.uv");
-
-  // Use FieldNodes.getParam so uniforms/expressions work correctly
-  // segments can be int in UI; we'll treat it as f32 in WGSL
-  const segments   = this.getParam(node, "segments", 6.0);
-  const rotationDeg = this.getParam(node, "angle", 0.0);
-  const rotation   = this.convertDegToRad(rotationDeg);  // Convert degrees to radians
-  const scale      = this.getParam(node, "scale", 1.0);
-  const mirror     = node.params?.mirror ?? true;
-
-  const fnName = `kaleidoscope_${nodeId}`;
-  const fn = `
-fn ${fnName}(uv: vec2<f32>, segments: f32, rotation: f32, zoom: f32, mirror: bool) -> vec2<f32> {
-  // normalize to [-1,1]
-  var p = uv * 2.0 - vec2<f32>(1.0, 1.0);
-
-  // optional zoom (scale the radius domain)
-  if (zoom != 1.0) {
-    p /= zoom;
-  }
-
-  let r = length(p);
-  let ang = atan2(p.y, p.x) + rotation;
-
-  // stable segment angle (avoid mod on floats)
-  let segAngle = 6.283185307179586 / segments;
-  let k = floor(ang / segAngle);
-  var a = ang - k * segAngle;   // ang % segAngle
-
-  // mirror every other wedge
-  if (mirror && a > segAngle * 0.5) {
-    a = segAngle - a;
-  }
-
-  let x = r * cos(a);
-  let y = r * sin(a);
-
-  // back to [0,1]
-  return vec2<f32>(x, y) * 0.5 + vec2<f32>(0.5, 0.5);
-}`;
-
-  // register function so it’s emitted once
-  this.functionDefinitions.set(fnName, fn);
-
-  // ensure segments is f32 in shader (FieldNodes.getParam can return a string expression already)
-  const segExpr = typeof segments === 'string' ? `(${segments})` : segments;
-  const rotExpr = typeof rotation === 'string' ? `(${rotation})` : rotation;
-  const sclExpr = typeof scale === 'string' ? `(${scale})` : scale;
-
-  const line = `let node_${nodeId} = ${fnName}(${uv}, f32(${segExpr}), ${rotExpr}, ${sclExpr}, ${mirror});`;
-
-  return { line, outputType: "vec2", functionDef: fn, functionName: fnName };
-}
-
-
   compileShapeFunction(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const functionName = `shape_${node.kind.toLowerCase()}_${nodeId}`;
@@ -396,63 +326,6 @@ getParam(node, paramName, defaultValue) {
   return result;
 }
 
-  compileLinearGradient(node, getInput, nodeId) {
-    const uv = getInput(0, "vec2", "in.uv");
-    const angleDeg = this.getParam(node, 'angle', 0.0);
-    const angle = this.convertDegToRad(angleDeg);  // Convert degrees to radians
-    const offset = this.getParam(node, 'offset', 0.0);
-    const scale = this.getParam(node, 'scale', 1.0);
-    const repeat = this.getParam(node, 'repeat', false);
-
-    const line = `
-  var uvAspect_${nodeId} = ${uv};
-  uvAspect_${nodeId}.x *= u.aspect;
-  let dir_${nodeId} = vec2<f32>(cos(${angle}), sin(${angle}));
-  let proj_${nodeId} = dot(uvAspect_${nodeId} - vec2<f32>(0.5 * u.aspect, 0.5), dir_${nodeId}) * ${scale} + ${offset};
-  let node_${nodeId} = ${repeat ? `fract(proj_${nodeId})` : `proj_${nodeId}`};`;
-
-    return { line, outputType: "f32" };
-  }
-
-  compileRadialGradient(node, getInput, nodeId) {
-    const uv = getInput(0, "vec2", "in.uv");
-    const centerX = this.getParam(node, 'centerX', 0.5);
-    const centerY = this.getParam(node, 'centerY', 0.5);
-    const radius = this.getParam(node, 'radius', 0.5);
-    const repeat = this.getParam(node, 'repeat', false);
-
-    const radiusStr = typeof radius === 'string' && /[+\-*/]/.test(radius)
-      ? `(${radius})`
-      : radius;
-
-    const line = `
-  var uvAspect_${nodeId} = ${uv};
-  uvAspect_${nodeId}.x *= u.aspect;
-  let center_${nodeId} = vec2<f32>(${centerX} * u.aspect, ${centerY});
-  let dist_${nodeId} = length(uvAspect_${nodeId} - center_${nodeId}) / ${radiusStr};
-  let node_${nodeId} = ${repeat ? `fract(dist_${nodeId})` : `dist_${nodeId}`};`;
-
-    return { line, outputType: "f32" };
-  }
-
-  compileAngularGradient(node, getInput, nodeId) {
-    const uv = getInput(0, "vec2", "in.uv");
-    const centerX = this.getParam(node, 'centerX', 0.5);
-    const centerY = this.getParam(node, 'centerY', 0.5);
-    const rotationDeg = this.getParam(node, 'rotation', 0.0);
-    const rotation = this.convertDegToRad(rotationDeg);  // Convert degrees to radians
-    const repeat = this.getParam(node, 'repeat', 1.0);
-
-    const line = `
-  var uvAspect_${nodeId} = ${uv};
-  uvAspect_${nodeId}.x *= u.aspect;
-  let dir_${nodeId} = uvAspect_${nodeId} - vec2<f32>(${centerX} * u.aspect, ${centerY});
-  let angle_${nodeId} = atan2(dir_${nodeId}.y, dir_${nodeId}.x) + ${rotation};
-  let node_${nodeId} = fract((angle_${nodeId} / 6.28318530718) * ${repeat});`;
-
-    return { line, outputType: "f32" };
-  }
-
   compileConicGradient(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
     const centerX = this.getParam(node, 'centerX', 0.5);
@@ -562,77 +435,6 @@ getParam(node, paramName, defaultValue) {
   }
 
 
-compileChecker(node, getInput, nodeId) {
-  const uv = getInput(0, "vec2", "in.uv");
-
-  // Proper parameter extraction via FieldNodes.getParam
-  const scaleX = this.getParam(node, "scaleX", 8.0);
-  const scaleY = this.getParam(node, "scaleY", 8.0);
-  const smooth = this.getParam(node, "smoothness", 0.0);
-
-  const fnName = `checker_${nodeId}`;
-  const fn = `
-fn ${fnName}(uv: vec2<f32>, scaleX: f32, scaleY: f32, smoothness: f32) -> f32 {
-  // Apply aspect correction for square checkers
-  var uvAspect = uv;
-  uvAspect.x *= u.aspect;
-  // scaled coordinates
-  let uvScaled = uvAspect * vec2<f32>(scaleX, scaleY);
-  // get fractional part
-  let f = fract(uvScaled);
-  // base pattern
-  let base = step(0.5, f.x) + step(0.5, f.y);
-  // checker alternates 0/1
-  var c = abs(base - 1.0);
-  // optional smooth edges
-  if (smoothness > 0.0) {
-    let edgeX = smoothstep(0.5 - smoothness, 0.5 + smoothness, f.x);
-    let edgeY = smoothstep(0.5 - smoothness, 0.5 + smoothness, f.y);
-    let mixXY = mix(edgeX, 1.0 - edgeX, step(0.5, f.y));
-    c = mix(c, mixXY, smoothness);
-  }
-  return c;
-}`;
-
-  this.functionDefinitions.set(fnName, fn);
-
-  // ensure params become WGSL-compatible expressions
-  const sX = typeof scaleX === 'string' ? `(${scaleX})` : scaleX;
-  const sY = typeof scaleY === 'string' ? `(${scaleY})` : scaleY;
-  const sm = typeof smooth === 'string' ? `(${smooth})` : smooth;
-
-  const line = `let node_${nodeId} = ${fnName}(${uv}, f32(${sX}), f32(${sY}), f32(${sm}));`;
-
-  return { line, outputType: "f32", functionDef: fn, functionName: fnName };
-}
-
-
-
-compileStripe(node, getInput, nodeId) {
-  const uv = getInput(0, "vec2", "in.uv");
-  const freq = this.getParam(node, "frequency", 5.0);
-  const angleDeg = this.getParam(node, "angle", 0.0);
-  const angle = this.convertDegToRad(angleDeg);  // Convert degrees to radians
-  const thickness = this.getParam(node, "thickness", 0.5);
-  const smoothness = this.getParam(node, "smoothness", 0.0);
-
-  const fnName = `stripe_${nodeId}`;
-  const fn = `
-fn ${fnName}(uv: vec2<f32>, freq: f32, angle: f32, thickness: f32, smoothness: f32) -> f32 {
-  // Apply aspect correction for consistent stripe width
-  var uvAspect = uv;
-  uvAspect.x *= u.aspect;
-  let dir = vec2<f32>(cos(angle), sin(angle));
-  let t = dot(uvAspect, dir) * freq;
-  let v = abs(fract(t) - 0.5) * 2.0;
-  return 1.0 - smoothstep(thickness - smoothness, thickness + smoothness, v);
-}`;
-
-  const line = `let node_${nodeId} = ${fnName}(${uv}, ${freq}, ${angle}, ${thickness}, ${smoothness});`;
-
-  this.functionDefinitions.set(fnName, fn);
-  return { line, outputType: "f32", functionDef: fn, functionName: fnName };
-}
 
 
 

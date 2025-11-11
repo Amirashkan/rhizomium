@@ -839,11 +839,16 @@ export class RadialMenu {
     return (
       {
         Input: "#1e40af",
-        Math: "#991b1b",
-        Field: "#047857",
-        Transform: "#c2410c",
-        Utility: "#581c87",
         Output: "#92400e",
+        Math: "#991b1b",
+        Vector: "#7c2d12",
+        Generators: "#047857",
+        Modifiers: "#c2410c",
+        Effects: "#9333ea",
+        Simulation: "#0891b2",
+        Utility: "#581c87",
+        Blend: "#be185d",
+        Texture: "#4338ca",
       }[categoryName] || "#374151"
     );
   }
@@ -852,11 +857,16 @@ export class RadialMenu {
     return (
       {
         Input: "#1e3a8a",
-        Math: "#7f1d1d",
-        Field: "#064e3b",
-        Transform: "#9a3412",
-        Utility: "#4c1d95",
         Output: "#78350f",
+        Math: "#7f1d1d",
+        Vector: "#431407",
+        Generators: "#064e3b",
+        Modifiers: "#9a3412",
+        Effects: "#6b21a8",
+        Simulation: "#0e7490",
+        Utility: "#4c1d95",
+        Blend: "#9f1239",
+        Texture: "#3730a3",
       }[categoryName] || "#2d3748"
     );
   }
@@ -865,11 +875,16 @@ export class RadialMenu {
     return (
       {
         Input: "#2563eb",
-        Math: "#b91c1c",
-        Field: "#065f46",
-        Transform: "#ea580c",
-        Utility: "#6d28d9",
         Output: "#a16207",
+        Math: "#b91c1c",
+        Vector: "#9a3412",
+        Generators: "#065f46",
+        Modifiers: "#ea580c",
+        Effects: "#a855f7",
+        Simulation: "#06b6d4",
+        Utility: "#6d28d9",
+        Blend: "#db2777",
+        Texture: "#4f46e5",
       }[categoryName] || "#374151"
     );
   }

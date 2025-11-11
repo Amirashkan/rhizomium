@@ -102,12 +102,18 @@ export class MenuManager {
     // Convert to array format expected by RadialMenu
     const orderedCategories = [
       "Input",
-      "Math",
-      "Field",
-      "Utility",
       "Output",
+      "Math",
+      "Vector",
+      "Generators",
+      "Modifiers",
+      "Effects",
+      "Simulation",
+      "Utility",
+      "Blend",
+      "Texture",
       ...Array.from(categories.keys()).filter(
-        (c) => !["Input", "Math", "Field", "Utility", "Output"].includes(c),
+        (c) => !["Input", "Output", "Math", "Vector", "Generators", "Modifiers", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
       ),
     ];
 
@@ -269,12 +275,18 @@ export class MenuManager {
     // Render categories in preferred order
     const orderedCategories = [
       "Input",
-      "Math",
-      "Field",
-      "Utility",
       "Output",
+      "Math",
+      "Vector",
+      "Generators",
+      "Modifiers",
+      "Effects",
+      "Simulation",
+      "Utility",
+      "Blend",
+      "Texture",
       ...Array.from(categories.keys()).filter(
-        (c) => !["Input", "Math", "Field", "Utility", "Output"].includes(c),
+        (c) => !["Input", "Output", "Math", "Vector", "Generators", "Modifiers", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
       ),
     ];
 

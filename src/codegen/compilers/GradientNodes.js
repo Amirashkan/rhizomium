@@ -9,7 +9,7 @@ export class GradientNodes {
   }
 
   handles(kind) {
-    return ['LinearGradient', 'RadialGradient', 'AngularGradient', 'ConicGradient'].includes(kind);
+    return ['ConicGradient'].includes(kind);
   }
 
   /**
@@ -77,69 +77,13 @@ export class GradientNodes {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
     switch (node.kind) {
-      case 'LinearGradient':
-        return this.compileLinearGradient(node, getInput, nodeId);
-      case 'RadialGradient':
-        return this.compileRadialGradient(node, getInput, nodeId);
-      case 'AngularGradient':
-        return this.compileAngularGradient(node, getInput, nodeId);
       case 'ConicGradient':
         return this.compileConicGradient(node, getInput, nodeId);
       default:
         return null;
     }
   }
-  
-  compileLinearGradient(node, getInput, nodeId) {
-    const angleDeg = this.getShaderParam(node, 'angle', 0.0);
-    const offset = this.getShaderParam(node, 'offset', 0.0);
-    const scale = this.getShaderParam(node, 'scale', 1.0);
 
-    // Convert angle from degrees to radians
-    const angle = this.convertDegToRad(angleDeg);
-
-    return {
-      line: `
-  let dir_${nodeId} = vec2<f32>(cos(${angle}), sin(${angle}));
-  let proj_${nodeId} = dot(in.uv - vec2<f32>(0.5), dir_${nodeId}) * ${scale} + ${offset};
-  let node_${nodeId} = proj_${nodeId};`,
-      outputType: "f32"
-    };
-  }
-  
-  compileRadialGradient(node, getInput, nodeId) {
-    const centerX = this.getShaderParam(node, 'centerX', 0.5);
-    const centerY = this.getShaderParam(node, 'centerY', 0.5);
-    const radius = this.getShaderParam(node, 'radius', 0.5);
-    const falloff = this.getShaderParam(node, 'falloff', 1.0);
-
-    return {
-      line: `
-  let center_${nodeId} = vec2<f32>(${centerX}, ${centerY});
-  let dist_${nodeId} = length(in.uv - center_${nodeId}) / ${radius};
-  let node_${nodeId} = pow(clamp(dist_${nodeId}, 0.0, 1.0), ${falloff});`,
-      outputType: "f32"
-    };
-  }
-  
-  compileAngularGradient(node, getInput, nodeId) {
-    const centerX = this.getShaderParam(node, 'centerX', 0.5);
-    const centerY = this.getShaderParam(node, 'centerY', 0.5);
-    const rotationDeg = this.getShaderParam(node, 'rotation', 0.0);
-    const repeat = this.getShaderParam(node, 'repeat', 1.0);
-
-    // Convert rotation from degrees to radians
-    const rotation = this.convertDegToRad(rotationDeg);
-
-    return {
-      line: `
-  let center_${nodeId} = vec2<f32>(${centerX}, ${centerY});
-  let angle_${nodeId} = atan2(in.uv.y - center_${nodeId}.y, in.uv.x - center_${nodeId}.x) + ${rotation};
-  let node_${nodeId} = fract((angle_${nodeId} / (3.14159265359 * 2.0) + 0.5) * ${repeat});`,
-      outputType: "f32"
-    };
-  }
-  
   compileConicGradient(node, getInput, nodeId) {
     const centerX = this.getShaderParam(node, 'centerX', 0.5);
     const centerY = this.getShaderParam(node, 'centerY', 0.5);

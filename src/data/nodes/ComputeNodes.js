@@ -3,11 +3,18 @@
 /**
  * Compute shader node definitions for GPU-accelerated effects
  * Each compute node generates its own WGSL compute shader and stores results in a texture
+ *
+ * Categories (function-based):
+ * - Generators: Procedural generation (noise, gradients, patterns)
+ * - Modifiers: Image processing (blur, threshold, edge detect, color adjustment, etc.)
+ * - Effects: Visual effects (warp, kaleidoscope, glitch, feedback)
+ * - Simulation: Physics-based systems (particles, fluids, cellular automata)
+ * - Utility: Compositing and transformation helpers
  */
 export const ComputeNodes = {
   ComputeNoise: {
     label: "Compute Noise",
-    cat: "Compute",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -24,7 +31,7 @@ export const ComputeNodes = {
 
   ComputeBlur: {
     label: "Compute Blur",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -39,7 +46,7 @@ export const ComputeNodes = {
 
   ComputeParticles: {
     label: "Compute Particles",
-    cat: "Compute",
+    cat: "Simulation",
     inputs: 2,
     pinsIn: ["Force Field", "Velocity Field"],
     pinsOut: ["Texture", "RGB"],
@@ -56,7 +63,7 @@ export const ComputeNodes = {
 
   ComputeFeedback: {
     label: "Compute Feedback",
-    cat: "Compute",
+    cat: "Effects",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB"],
@@ -73,7 +80,7 @@ export const ComputeNodes = {
 
   ComputeReactionDiffusion: {
     label: "Reaction Diffusion",
-    cat: "Compute",
+    cat: "Simulation",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB"],
@@ -92,7 +99,7 @@ export const ComputeNodes = {
 
   ComputeFluidSim: {
     label: "Fluid Simulation",
-    cat: "Compute",
+    cat: "Simulation",
     inputs: 1,
     pinsIn: ["Velocity Input"],
     pinsOut: ["Texture", "Velocity", "Pressure"],
@@ -109,7 +116,7 @@ export const ComputeNodes = {
 
   ComputeConvolution: {
     label: "Compute Convolution",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB"],
@@ -123,7 +130,7 @@ export const ComputeNodes = {
 
   ComputeCellular: {
     label: "Cellular Automata",
-    cat: "Compute",
+    cat: "Simulation",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB"],
@@ -139,7 +146,7 @@ export const ComputeNodes = {
 
   ComputeFeedbackField: {
     label: "Feedback Field",
-    cat: "Compute",
+    cat: "Simulation",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -158,7 +165,7 @@ export const ComputeNodes = {
 
   ComputeFieldMapper: {
     label: "3D Field Visualizer",
-    cat: "Compute",
+    cat: "Utility",
     inputs: 1,
     pinsIn: ["Field Input"],
     pinsOut: ["3D Geometry"],
@@ -217,7 +224,7 @@ export const ComputeNodes = {
 
   ComputeThreshold: {
     label: "Threshold",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -235,7 +242,7 @@ export const ComputeNodes = {
 
   ComputeColorAdjust: {
     label: "Color Adjust",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -253,7 +260,7 @@ export const ComputeNodes = {
 
   ComputeEdgeDetect: {
     label: "Edge Detect",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -269,7 +276,7 @@ export const ComputeNodes = {
 
   ComputeMorphology: {
     label: "Morphology",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -287,7 +294,7 @@ export const ComputeNodes = {
 
   ComputeVoronoi: {
     label: "Voronoi",
-    cat: "Compute",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -306,7 +313,7 @@ export const ComputeNodes = {
 
   ComputeGradient: {
     label: "Gradient",
-    cat: "Compute",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -325,7 +332,7 @@ export const ComputeNodes = {
 
   ComputePattern: {
     label: "Pattern",
-    cat: "Compute",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -345,7 +352,7 @@ export const ComputeNodes = {
 
   ComputeWarp: {
     label: "Warp",
-    cat: "Compute",
+    cat: "Effects",
     inputs: 2,
     pinsIn: ["Input", "Warp Field"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -364,7 +371,7 @@ export const ComputeNodes = {
 
   ComputeKaleidoscope: {
     label: "Kaleidoscope",
-    cat: "Compute",
+    cat: "Effects",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -383,7 +390,7 @@ export const ComputeNodes = {
 
   ComputeGlitch: {
     label: "Glitch",
-    cat: "Compute",
+    cat: "Effects",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -402,7 +409,7 @@ export const ComputeNodes = {
 
   ComputeMix: {
     label: "Mix",
-    cat: "Compute",
+    cat: "Utility",
     inputs: 2,
     pinsIn: ["Input A", "Input B"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -417,7 +424,7 @@ export const ComputeNodes = {
 
   ComputeTransform: {
     label: "Transform",
-    cat: "Compute",
+    cat: "Utility",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -437,7 +444,7 @@ export const ComputeNodes = {
 
   ComputeChannels: {
     label: "Channels",
-    cat: "Compute",
+    cat: "Utility",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -454,7 +461,7 @@ export const ComputeNodes = {
 
   ComputeHSV: {
     label: "HSV",
-    cat: "Compute",
+    cat: "Utility",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -472,7 +479,7 @@ export const ComputeNodes = {
 
   ComputeHistogram: {
     label: "Histogram",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB"],
@@ -488,7 +495,7 @@ export const ComputeNodes = {
 
   ComputeLuminance: {
     label: "Luminance",
-    cat: "Compute",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],

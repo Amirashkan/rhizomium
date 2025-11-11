@@ -6,7 +6,7 @@
 export const NoiseNodes = {
   Random: {
     label: "Random",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -18,7 +18,7 @@ export const NoiseNodes = {
 
   ValueNoise: {
     label: "Value Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -32,7 +32,7 @@ export const NoiseNodes = {
 
   PerlinNoise: {
     label: "Perlin Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -45,7 +45,7 @@ export const NoiseNodes = {
 
   SimplexNoise: {
     label: "Simplex Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -60,7 +60,7 @@ export const NoiseNodes = {
 
   FBMNoise: {
     label: "FBM Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -78,7 +78,7 @@ export const NoiseNodes = {
 
   VoronoiNoise: {
     label: "Voronoi Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [
@@ -98,7 +98,7 @@ export const NoiseNodes = {
 
   RidgedNoise: {
     label: "Ridged Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -115,7 +115,7 @@ export const NoiseNodes = {
 
   WarpNoise: {
     label: "Warp Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -131,7 +131,7 @@ export const NoiseNodes = {
   // === CELL-BASED PATTERNS ===
   Worley: {
     label: "Worley Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [
@@ -155,7 +155,7 @@ export const NoiseNodes = {
 
   CellNoise: {
     label: "Cell Noise",
-    cat: "Noise",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [

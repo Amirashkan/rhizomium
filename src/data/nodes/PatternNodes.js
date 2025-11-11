@@ -2,55 +2,16 @@
 
 /**
  * Pattern node definitions for gradients, shapes, and procedural patterns
+ *
+ * Note: Basic patterns (checker, stripes) and common gradients (linear, radial, angular)
+ * have been consolidated into ComputePattern and ComputeGradient nodes for better
+ * performance and flexibility.
  */
 export const PatternNodes = {
   // === GRADIENT PATTERNS ===
-  LinearGradient: {
-    label: "Linear Gradient",
-    cat: "Pattern",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: ["Value"],
-    params: [
-      { name: 'angle', type: 'float', default: 0.0 },
-      { name: 'offset', type: 'float', default: 0.0 },
-      { name: 'scale', type: 'float', default: 1.0 },
-      { name: 'repeat', type: 'boolean', default: false }
-    ]
-  },
-
-  RadialGradient: {
-    label: "Radial Gradient",
-    cat: "Pattern",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: ["Value"],
-    params: [
-      { name: 'centerX', type: 'float', default: 0.5 },
-      { name: 'centerY', type: 'float', default: 0.5 },
-      { name: 'radius', type: 'float', default: 0.5 },
-      { name: 'falloff', type: 'float', default: 1.0 },
-      { name: 'invert', type: 'boolean', default: false }
-    ]
-  },
-
-  AngularGradient: {
-    label: "Angular Gradient",
-    cat: "Pattern",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: ["Value"],
-    params: [
-      { name: 'centerX', type: 'float', default: 0.5 },
-      { name: 'centerY', type: 'float', default: 0.5 },
-      { name: 'rotation', type: 'float', default: 0.0 },
-      { name: 'repeat', type: 'float', default: 1.0 }
-    ]
-  },
-
   ConicGradient: {
     label: "Conic Gradient",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: ["Value"],
@@ -65,7 +26,7 @@ export const PatternNodes = {
 
   ColorRamp: {
     label: "Color Ramp",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["Value"],
     pinsOut: ["Color"],
@@ -87,38 +48,10 @@ export const PatternNodes = {
     ]
   },
 
-  // === REPEATING PATTERNS ===
-  Checker: {
-    label: "Checker",
-    cat: "Pattern",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
-    params: [
-      { name: "scaleX", type: "float", default: 8.0, label: "Scale X" },
-      { name: "scaleY", type: "float", default: 8.0, label: "Scale Y" },
-      { name: "smoothness", type: "float", default: 0.0, label: "Smoothness" },
-    ],
-  },
-
-  Stripe: {
-    label: "Stripe",
-    cat: "Pattern",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "f32" }],
-    params: [
-      { name: "frequency", type: "float", default: 5.0, label: "Frequency" },
-      { name: "angle", type: "float", default: 0.0, label: "Angle" },
-      { name: "thickness", type: "float", default: 0.5, label: "Thickness" },
-      { name: "smoothness", type: "float", default: 0.0, label: "Smoothness" },
-    ],
-  },
-
   // === SHAPE GENERATORS ===
   Circle: {
     label: "Circle",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "f32" }],
@@ -133,7 +66,7 @@ export const PatternNodes = {
 
   Rectangle: {
     label: "Rectangle",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "f32" }],
@@ -150,7 +83,7 @@ export const PatternNodes = {
 
   Polygon: {
     label: "Polygon",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "f32" }],

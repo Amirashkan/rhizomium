@@ -64,12 +64,13 @@ export class SeedGraphBuilder {
     highlightColor.params.y = 0.93;
     highlightColor.params.z = 0.75;
 
-    const gradient = makeNode("LinearGradient", 720, 320);
+    const gradient = makeNode("ConicGradient", 720, 320);
     gradient.inputs[0] = uv.id;
-    gradient.params.angle = 1.2;
-    gradient.params.offset = -0.2;
-    gradient.params.scale = 1.4;
-    gradient.params.repeat = false;
+    gradient.params.centerX = 0.5;
+    gradient.params.centerY = 0.5;
+    gradient.params.startAngle = -1.0;
+    gradient.params.endAngle = 5.28318;
+    gradient.params.smoothness = 0.1;
 
     const gradientRemap = makeNode("Remap", 940, 320);
     gradientRemap.inputs[0] = gradient.id;
