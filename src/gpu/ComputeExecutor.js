@@ -304,14 +304,19 @@ export class ComputeExecutor {
         }
 
         // This is a fragment node being used as compute input!
-        console.log(`[ComputeExecutor] Auto-bridging: Rendering fragment node ${inputNodeId} (${inputNode.kind}) to texture for compute node ${nodeId}`);
+        // Log only once per node to reduce spam
+        if (!this._loggedAutoBridge) this._loggedAutoBridge = new Set();
+        if (!this._loggedAutoBridge.has(inputNodeId)) {
+          console.log(`[ComputeExecutor] Auto-bridging: Fragment node ${inputNodeId} (${inputNode.kind}) → Compute node ${nodeId}`);
+          this._loggedAutoBridge.add(inputNodeId);
+        }
+
         try {
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
           const width = resolution[0];
           const height = resolution[1];
 
-          console.log(`[ComputeExecutor] Rendering to ${width}x${height} texture...`);
           // Render the fragment node to a texture using the SHARED command encoder
           // This ensures fragment render and compute dispatch are in the same GPU submission
           const texture = await this.fragmentRenderer.renderNodeToTexture(
@@ -327,10 +332,9 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
-            console.log(`[ComputeExecutor] ✓ Auto-bridge complete: Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
-            console.log(`[ComputeExecutor] 📝 Stored texture in nodeOutputs[${inputNodeId}]: ${texture.width}x${texture.height}, format=${texture.format}, usage=${texture.usage}`);
+            // Success - no need to log every frame
           } else {
-            console.warn(`[ComputeExecutor] ✗ Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
+            console.warn(`[ComputeExecutor] Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
         } catch (error) {
           console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
@@ -364,7 +368,11 @@ export class ComputeExecutor {
     this._isExecuting = true;
 
     try {
-      console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
+      // Reduce logging spam - only log occasionally
+      if (!this._lastExecuteLog || Date.now() - this._lastExecuteLog > 5000) {
+        console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
+        this._lastExecuteLog = Date.now();
+      }
 
       // STEP 1: Render fragment node inputs to textures (auto-bridging)
       // Pass the shared command encoder so fragment renders and compute dispatches
@@ -389,17 +397,12 @@ export class ComputeExecutor {
           const inputNodeId = node.inputs[0];
           if (inputNodeId !== null && inputNodeId !== undefined) {
             const inputTexture = this.nodeOutputs.get(inputNodeId);
-            console.log(`[ComputeExecutor] 🔍 Node ${nodeId} (${node.kind}) looking for input from node ${inputNodeId}`);
-            console.log(`[ComputeExecutor] 📦 nodeOutputs.has(${inputNodeId}): ${this.nodeOutputs.has(inputNodeId)}`);
             if (inputTexture) {
-              console.log(`[ComputeExecutor] ✓ Found input texture: ${inputTexture.width}x${inputTexture.height}, format=${inputTexture.format}, usage=${inputTexture.usage}`);
               if (manager.setInputTexture) {
                 manager.setInputTexture(inputTexture);
-                console.log(`[ComputeExecutor] ✓ Called setInputTexture()`);
                 // Recreate bind group with new input texture
                 if (manager.recreateBindGroup) {
                   manager.recreateBindGroup();
-                  console.log(`[ComputeExecutor] ✓ Called recreateBindGroup()`);
                 }
               }
             } else if (!inputTexture) {
@@ -452,18 +455,26 @@ export class ComputeExecutor {
         // Check if inputs have changed (for optimization)
         const shouldUpdate = this.checkInputsChanged(nodeId);
 
-        // ALWAYS dispatch time-dependent compute nodes (they animate every frame)
-        // Time-dependent nodes include: ComputeNoise, ComputeReactionDiffusion, etc.
-        const isTimeDependentNode = node?.kind && (
-          node.kind === 'ComputeNoise' ||
-          node.kind === 'ComputeReactionDiffusion' ||
-          node.kind.startsWith('Compute') // Most compute nodes are time-dependent
-        );
-
-        console.log(`[ComputeExecutor] Node ${nodeId} (${node?.kind}): shouldUpdate=${shouldUpdate}, isTimeDependentNode=${isTimeDependentNode}`);
+        // ONLY dispatch truly time-dependent compute nodes every frame
+        // Time-dependent nodes have animation or evolve over time without input changes
+        // Most compute nodes (ColorAdjust, Blur, Threshold, etc.) should ONLY run when inputs change
+        const TIME_DEPENDENT_NODES = [
+          'ComputeNoise',              // Has time parameter
+          'ComputeReactionDiffusion',  // Time-based evolution
+          'ComputeFeedback',           // Needs every-frame feedback
+          'ComputeFeedbackField',      // Needs every-frame feedback
+          'ComputeFluidSim',           // Time-based physics
+          'ComputeParticles'           // Time-based animation
+        ];
+        const isTimeDependentNode = node?.kind && TIME_DEPENDENT_NODES.includes(node.kind);
 
         if (shouldUpdate || isTimeDependentNode) {
-          console.log(`[ComputeExecutor] → Dispatching node ${nodeId}`);
+          // Only log dispatches occasionally to reduce console spam
+          if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
+            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}`);
+            this._lastDispatchLog = Date.now();
+          }
+
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
