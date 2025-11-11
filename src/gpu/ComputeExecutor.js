@@ -343,8 +343,11 @@ export class ComputeExecutor {
   async _dispatchComputeNodeIfNeeded(nodeId, commandEncoder, time, audioContext) {
     // Check if already dispatched during this execute() call
     if (this.dispatchedThisFrame.has(nodeId)) {
+      console.log(`[ComputeExecutor] ${nodeId} already dispatched this frame, skipping`);
       return; // Already dispatched this frame
     }
+
+    console.log(`[ComputeExecutor] Dispatching compute node ${nodeId}`);
 
     const manager = this.computeManagers.get(nodeId);
     if (!manager) return;
@@ -367,11 +370,15 @@ export class ComputeExecutor {
       const inputNodeId = node.inputs[0];
       if (inputNodeId !== null && inputNodeId !== undefined) {
         const inputTexture = this.nodeOutputs.get(inputNodeId);
+        console.log(`[ComputeExecutor] Setting input for ${nodeId}: looking for ${inputNodeId}, found:`, !!inputTexture);
+        console.log('[ComputeExecutor] Available nodeOutputs:', Array.from(this.nodeOutputs.keys()));
         if (inputTexture && manager.setInputTexture) {
           manager.setInputTexture(inputTexture);
           if (manager.recreateBindGroup) {
             manager.recreateBindGroup();
           }
+        } else if (!inputTexture) {
+          console.warn(`[ComputeExecutor] No input texture found for ${nodeId}'s input ${inputNodeId}`);
         }
       }
 
@@ -448,6 +455,8 @@ export class ComputeExecutor {
 
         // This is a fragment node being used as compute input!
         try {
+          console.log(`[ComputeExecutor] Rendering fragment node ${inputNodeId} for compute node ${nodeId}`);
+
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
           const width = resolution[0];
@@ -464,12 +473,15 @@ export class ComputeExecutor {
           );
 
           if (texture) {
+            console.log(`[ComputeExecutor] Successfully rendered fragment node ${inputNodeId}, storing in nodeOutputs`);
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
 
             // Mark this compute node's hash for invalidation
             computeNodesToClearHash.add(nodeId);
+          } else {
+            console.warn(`[ComputeExecutor] Failed to render fragment node ${inputNodeId}`);
           }
         } catch (error) {
           // Silently handle errors
@@ -518,8 +530,11 @@ export class ComputeExecutor {
     for (const nodeId of this.executionOrder) {
       // Skip if already dispatched during _renderFragmentInputs
       if (this.dispatchedThisFrame.has(nodeId)) {
+        console.log(`[ComputeExecutor] Main loop: ${nodeId} already dispatched, skipping`);
         continue;
       }
+
+      console.log(`[ComputeExecutor] Main loop: processing ${nodeId}`);
 
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {
