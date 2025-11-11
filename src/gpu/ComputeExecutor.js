@@ -520,14 +520,17 @@ export class ComputeExecutor {
       await this._renderFragmentInputs(commandEncoder, time, audioContext);
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
+    console.log('[ComputeExecutor] STEP 2: Dispatching compute nodes in order:', this.executionOrder);
     for (const nodeId of this.executionOrder) {
       // Skip if already dispatched during _renderFragmentInputs
       if (this.dispatchedThisFrame.has(nodeId)) {
+        console.log(`[ComputeExecutor] Skipping node ${nodeId} (already dispatched this frame)`);
         continue;
       }
 
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {
+        console.log(`[ComputeExecutor] No manager for node ${nodeId}, skipping`);
         continue;
       }
 
@@ -616,6 +619,7 @@ export class ComputeExecutor {
           }
 
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
+          console.log(`[ComputeExecutor] Dispatching compute node ${nodeId} in main loop`);
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
           } else {
@@ -624,6 +628,8 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
+        } else {
+          console.log(`[ComputeExecutor] Skipping dispatch for node ${nodeId} (inputs unchanged)`);
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
       } catch (error) {
