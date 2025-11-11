@@ -87,6 +87,11 @@ export class ComputeExecutor {
       return;
     }
 
+    // Clean up old resources if reinitializing
+    if (this.initialized) {
+      this.clear();
+    }
+
     // Create fallback texture
     this.createFallbackTexture();
 
@@ -107,6 +112,15 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
+      // Use current canvas resolution to maintain aspect ratio
+      let width = resolution[0];
+      let height = resolution[1];
+      if (window.floatingPreview?.settings?.settings?.resolution) {
+        const canvasRes = window.floatingPreview.settings.settings.resolution;
+        width = canvasRes.width;
+        height = canvasRes.height;
+      }
+
       // Detect if this node needs input textures from other compute nodes
       // Check both the node definition (how many inputs it's designed for) and actual connections
       // Nodes like ComputeBlur and ComputeFeedback are designed to take inputs
@@ -123,7 +137,7 @@ export class ComputeExecutor {
 
       // Create compute shader manager with node reference for parameters
       const manager = new ComputeShaderManager(this.device, node);
-      await manager.initialize(wgslCode, resolution[0], resolution[1], supportsFeedback, needsInput);
+      await manager.initialize(wgslCode, width, height, supportsFeedback, needsInput);
 
       // Store manager
       this.computeManagers.set(nodeId, manager);

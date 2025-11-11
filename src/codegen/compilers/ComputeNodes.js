@@ -92,8 +92,16 @@ export class ComputeNodes {
 
   /**
    * Get resolution for compute shader output texture
+   * Uses canvas resolution to maintain aspect ratio
    */
   getResolution(node) {
+    // Try to get resolution from floating preview settings (maintains aspect ratio)
+    if (window.floatingPreview?.settings?.settings?.resolution) {
+      const { width, height } = window.floatingPreview.settings.settings.resolution;
+      return [width, height];
+    }
+
+    // Fallback to node parameter (square resolution)
     const resParam = node.params?.resolution;
     if (resParam) {
       const size = parseInt(resParam);
