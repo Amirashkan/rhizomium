@@ -102,11 +102,6 @@ export class ComputeShaderManager {
           };
           const result = expressionSystem.evaluateExpression(value, context, this.node);
 
-          // Debug logging for time expressions
-          if (/\btime\b/.test(value) && this.node?.kind === 'ComputeTransform') {
-            console.log(`[ComputeShaderManager] Evaluating time expression for ${this.node.kind}: value="${value}", time=${time}, result=${result}`);
-          }
-
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
           console.warn(`[ComputeShaderManager] Failed to evaluate parameter expression: ${value}`, error);
@@ -624,12 +619,6 @@ export class ComputeShaderManager {
           this.uniformData[7] = this.evaluateParam(this.node.params?.scaleY, 1.0, time, audioContext);
           this.uniformData[8] = this.evaluateParam(this.node.params?.pivotX, 0.5, time, audioContext);
           this.uniformData[9] = this.evaluateParam(this.node.params?.pivotY, 0.5, time, audioContext);
-          console.log(`[ComputeShaderManager] ComputeTransform uniforms at time=${time}:`, {
-            translateX: this.uniformData[3],
-            translateY: this.uniformData[4],
-            rotation: this.uniformData[5],
-            params: this.node.params
-          });
           break;
 
         case 'ComputeChannels':
@@ -708,8 +697,6 @@ export class ComputeShaderManager {
     // Binding 2: Input texture (if needed)
     if (this.needsInput) {
       const inputTexture = this.inputTexture || this.fallbackInputTexture;
-      const usingFallback = !this.inputTexture;
-      console.log(`[ComputeShaderManager] recreateBindGroup: needsInput=true, usingFallback=${usingFallback}, texture=${inputTexture.width}x${inputTexture.height}`);
       entries.push({ binding: 2, resource: inputTexture.createView() });
       // Binding 3: Input sampler
       entries.push({ binding: 3, resource: this.textureSampler });
@@ -742,7 +729,6 @@ export class ComputeShaderManager {
    * Set input texture from another compute node
    */
   setInputTexture(texture) {
-    console.log(`[ComputeShaderManager] setInputTexture called: size=${texture.width}x${texture.height}, format=${texture.format}, usage=${texture.usage}`);
     this.inputTexture = texture;
   }
 
@@ -774,15 +760,6 @@ export class ComputeShaderManager {
     if (!this.computePipeline || !this.bindGroup) {
       console.warn(`[ComputeShaderManager] Dispatch called but not ready: pipeline=${!!this.computePipeline}, bindGroup=${!!this.bindGroup}`);
       return;
-    }
-
-    // Debug: Log dispatch (throttled)
-    if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
-      const params = this.supportsFeedback ?
-        `feedback=true, buffer=${this.currentWriteTexture}` :
-        'feedback=false';
-      console.log(`[ComputeShaderManager] Dispatching ${this.node?.kind || 'unknown'}, workgroups=${this.dispatchSize.x}x${this.dispatchSize.y}, ${params}`);
-      this._lastDispatchLog = Date.now();
     }
 
     // Update uniforms (includes audio envelope values for expression evaluation)

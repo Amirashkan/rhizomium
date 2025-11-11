@@ -433,12 +433,6 @@ export class ComputeExecutor {
         const hasNodeRefParams = this.hasNodeReferenceParameters(node);
 
         if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams) {
-          // Only log dispatches occasionally to reduce console spam
-          if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
-            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}, nodeRefParams=${hasNodeRefParams}, time=${time}`);
-            this._lastDispatchLog = Date.now();
-          }
-
           // OPTIMIZATION: Only set input textures when we're actually dispatching
           // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
           if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
@@ -508,15 +502,8 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
-        } else {
-          // Log when we SKIP dispatching to understand why animation isn't working
-          if (!this._lastSkipLog || Date.now() - this._lastSkipLog > 2000) {
-            console.log(`[ComputeExecutor] ⏭️  SKIPPING ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}, params=`, node?.params);
-            this._lastSkipLog = Date.now();
-          }
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
-        // No need to log it every frame
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
       }
@@ -576,7 +563,6 @@ export class ComputeExecutor {
         const trimmed = value.trim();
         // Check if parameter contains time or audio envelope references
         if (/time|audioEnvelope/i.test(trimmed)) {
-          console.log(`[ComputeExecutor] Found time-dependent param in ${node.kind}: ${key}="${value}"`);
           return true;
         }
       }
