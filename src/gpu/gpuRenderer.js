@@ -636,8 +636,6 @@ export class GPURenderer {
     const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
     if (!computeExecutor || !computeExecutor.initialized) return;
 
-    console.log('[GPURenderer] Updating compute texture bindings after compute execution');
-
     // Track if any compute textures were updated
     let hasComputeTextures = false;
 
@@ -650,7 +648,6 @@ export class GPURenderer {
           (resource.varName.startsWith('compute_') ||
            resource.varName.startsWith('sampler_compute_'))) {
 
-        console.log(`[GPURenderer] Updating compute texture resource: ${resource.varName}`);
         this._applyExternalTextureResource(resource);
         hasComputeTextures = true;
       }
@@ -692,7 +689,6 @@ export class GPURenderer {
       });
     });
 
-    console.log('[GPURenderer] Compute texture bindings updated successfully');
   }
 
   async render(config) {
@@ -773,7 +769,6 @@ export class GPURenderer {
 
     // Execute compute shaders BEFORE fragment shader
     if (window.computeExecutor && window.computeExecutor.initialized) {
-      console.log('[GPURenderer] 🎬 Executing compute shaders...');
       // Get audio envelope values for compute shader expressions
       const audioEnvelope = window._audioEnvelopeValue || 0.0;
       const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
@@ -793,9 +788,6 @@ export class GPURenderer {
       // After compute execution, nodeOutputs has been updated with fresh textures
       // We need to update bind groups BEFORE the fragment render pass begins
       this._updateComputeTextureBindings();
-      console.log('[GPURenderer] ✓ Compute execution complete');
-    } else {
-      console.log('[GPURenderer] No compute executor or not initialized');
     }
 
     // Configure render pass based on MSAA support
@@ -824,10 +816,6 @@ export class GPURenderer {
       return;
     }
 
-    console.log('[GPURenderer] 🎨 Rendering fragment shader to screen...');
-    console.log(`[GPURenderer] Canvas size: ${this.canvas.width}x${this.canvas.height}`);
-    console.log(`[GPURenderer] Bind groups: ${this.bindGroups.length}`);
-
     pass.setPipeline(this.pipeline);
     for (let i = 0; i < this.bindGroups.length; i++) {
       pass.setBindGroup(i, this.bindGroups[i]);
@@ -835,8 +823,6 @@ export class GPURenderer {
 
     pass.draw(3, 1, 0, 0);
     pass.end();
-
-    console.log('[GPURenderer] ✓ Fragment render complete');
 
     // End profiling frame
     if (this.profiler) {
