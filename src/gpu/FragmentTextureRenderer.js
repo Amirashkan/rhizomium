@@ -87,6 +87,9 @@ export class FragmentTextureRenderer {
         return this._createFallbackTexture(width, height);
       }
 
+      // Store node reference for parameter updates
+      cached.node = node;
+
       // Render to the texture (using external encoder if provided)
       await this._renderToTexture(cached, time, width, height, audioContext, externalEncoder);
 
@@ -479,8 +482,38 @@ export class FragmentTextureRenderer {
       this.device.queue.writeBuffer(globalsBuffer, 0, globalsData);
     }
 
-    // Note: parameter uniforms (u_params) would be updated here if needed
-    // For now, fragment nodes used in bridging will use static parameter values
+    // Update parameter uniforms (u_params) - CRITICAL for node parameters like SimplexNoise scale
+    const paramsBuffer = uniformBuffers.get('u_params');
+    if (paramsBuffer && cached.node) {
+      // Get the node to access its parameters
+      const node = cached.node;
+
+      // Build parameter data array based on what the shader expects
+      // The uniform struct in the shader has all parameters in order
+      const paramData = [];
+
+      if (node.params) {
+        // Add all numeric parameters in a consistent order
+        // This matches the UniformManager's parameter ordering
+        for (const [key, value] of Object.entries(node.params)) {
+          if (typeof value === 'number') {
+            paramData.push(value);
+          } else if (typeof value === 'boolean') {
+            paramData.push(value ? 1.0 : 0.0);
+          }
+        }
+      }
+
+      // Pad to vec4 alignment if needed (WGSL struct alignment requirement)
+      while (paramData.length % 4 !== 0) {
+        paramData.push(0.0);
+      }
+
+      if (paramData.length > 0) {
+        const paramsArray = new Float32Array(paramData);
+        this.device.queue.writeBuffer(paramsBuffer, 0, paramsArray);
+      }
+    }
   }
 
   /**
