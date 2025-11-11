@@ -62,6 +62,9 @@ export class ComputeExecutor {
     // Track which fragment nodes have been rendered this frame
     this.renderedFragmentNodes = new Set();
 
+    // Track which compute nodes have been dispatched this frame (during _renderFragmentInputs)
+    this.dispatchedThisFrame = new Set();
+
     // Re-entrancy guard: Prevent execute() from being called while already executing
     // This prevents infinite loops when auto-bridging or other side effects trigger renders
     this._isExecuting = false;
@@ -290,6 +293,119 @@ export class ComputeExecutor {
   }
 
   /**
+   * Render a fragment node to texture, ensuring its compute dependencies are dispatched first
+   * @param {string} fragmentNodeId - Fragment node to render
+   * @param {number} width - Texture width
+   * @param {number} height - Texture height
+   * @param {GPUCommandEncoder} commandEncoder - Shared command encoder
+   * @param {number} time - Current time
+   * @param {Object} audioContext - Audio context
+   * @private
+   */
+  async _renderFragmentNodeWithDependencies(fragmentNodeId, width, height, commandEncoder, time, audioContext) {
+    // Get the fragment node
+    const fragmentNode = window.graph?.getNode(fragmentNodeId);
+    if (!fragmentNode) return null;
+
+    // Check if this fragment node has compute node inputs
+    if (fragmentNode.inputs && Array.isArray(fragmentNode.inputs)) {
+      for (const inputId of fragmentNode.inputs) {
+        if (inputId === null || inputId === undefined) continue;
+
+        // If this input is a compute node, ensure it's been dispatched first
+        if (this.computeManagers.has(inputId)) {
+          await this._dispatchComputeNodeIfNeeded(inputId, commandEncoder, time, audioContext);
+        }
+      }
+    }
+
+    // Now render the fragment node to a texture
+    const texture = await this.fragmentRenderer.renderNodeToTexture(
+      fragmentNodeId,
+      width,
+      height,
+      time,
+      audioContext,
+      commandEncoder
+    );
+
+    return texture;
+  }
+
+  /**
+   * Dispatch a compute node if it hasn't been dispatched yet this frame
+   * @param {string} nodeId - Compute node ID
+   * @param {GPUCommandEncoder} commandEncoder - Command encoder
+   * @param {number} time - Current time
+   * @param {Object} audioContext - Audio context
+   * @private
+   */
+  async _dispatchComputeNodeIfNeeded(nodeId, commandEncoder, time, audioContext) {
+    // Check if already dispatched during this execute() call
+    if (this.dispatchedThisFrame.has(nodeId)) {
+      return; // Already dispatched this frame
+    }
+
+    const manager = this.computeManagers.get(nodeId);
+    if (!manager) return;
+
+    const nodeData = window.computeNodeRegistry?.get(nodeId);
+    const node = nodeData?.node;
+    if (!node) return;
+
+    // Recursively dispatch compute dependencies first
+    if (node.inputs && Array.isArray(node.inputs)) {
+      for (const inputId of node.inputs) {
+        if (inputId !== null && inputId !== undefined && this.computeManagers.has(inputId)) {
+          await this._dispatchComputeNodeIfNeeded(inputId, commandEncoder, time, audioContext);
+        }
+      }
+    }
+
+    // Set input textures if needed
+    if (node.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
+      const inputNodeId = node.inputs[0];
+      if (inputNodeId !== null && inputNodeId !== undefined) {
+        const inputTexture = this.nodeOutputs.get(inputNodeId);
+        if (inputTexture && manager.setInputTexture) {
+          manager.setInputTexture(inputTexture);
+          if (manager.recreateBindGroup) {
+            manager.recreateBindGroup();
+          }
+        }
+      }
+
+      // Handle second input for ComputeWarp and ComputeMix
+      if ((node.kind === 'ComputeWarp' || node.kind === 'ComputeMix') && node.inputs.length > 1) {
+        const secondInputId = node.inputs[1];
+        if (secondInputId !== null && secondInputId !== undefined) {
+          const secondTexture = this.nodeOutputs.get(secondInputId);
+          if (secondTexture && manager.setWarpFieldTexture) {
+            manager.setWarpFieldTexture(secondTexture);
+          }
+        }
+      }
+    }
+
+    // Dispatch the compute node
+    try {
+      if (manager instanceof ComputeNodeBase) {
+        manager.dispatch(this.device, commandEncoder, time, audioContext);
+      } else {
+        manager.dispatch(commandEncoder, time, this.profiler, audioContext);
+      }
+
+      // Update output dictionary
+      this.updateNodeOutput(nodeId, manager);
+
+      // Mark as dispatched this frame
+      this.dispatchedThisFrame.add(nodeId);
+    } catch (error) {
+      // Silently handle errors
+    }
+  }
+
+  /**
    * Render fragment node inputs to textures (auto-bridging)
    * This enables fragment nodes to be used as inputs to compute nodes
    * @param {GPUCommandEncoder} commandEncoder - Shared command encoder for synchronization
@@ -302,7 +418,6 @@ export class ComputeExecutor {
     }
 
     // Track which compute nodes need their input hashes invalidated
-    // (because their fragment inputs were re-rendered with new content)
     const computeNodesToClearHash = new Set();
 
     // Check each compute node for fragment inputs
@@ -310,7 +425,6 @@ export class ComputeExecutor {
       const manager = this.computeManagers.get(nodeId);
       if (!manager) continue;
 
-      // Get the node data
       const nodeData = window.computeNodeRegistry?.get(nodeId);
       const node = nodeData?.node;
       if (!node || !node.inputs || !Array.isArray(node.inputs)) continue;
@@ -339,15 +453,14 @@ export class ComputeExecutor {
           const width = resolution[0];
           const height = resolution[1];
 
-          // Render the fragment node to a texture using the SHARED command encoder
-          // This ensures fragment render and compute dispatch are in the same GPU submission
-          const texture = await this.fragmentRenderer.renderNodeToTexture(
+          // Render the fragment node WITH its compute dependencies dispatched first
+          const texture = await this._renderFragmentNodeWithDependencies(
             inputNodeId,
             width,
             height,
+            commandEncoder,
             time,
-            audioContext,
-            commandEncoder  // CRITICAL: Pass the shared encoder for synchronization!
+            audioContext
           );
 
           if (texture) {
@@ -356,7 +469,6 @@ export class ComputeExecutor {
             this.renderedFragmentNodes.add(inputNodeId);
 
             // Mark this compute node's hash for invalidation
-            // This ensures it will re-dispatch with the updated texture
             computeNodesToClearHash.add(nodeId);
           }
         } catch (error) {
@@ -366,7 +478,6 @@ export class ComputeExecutor {
     }
 
     // Invalidate input hashes for compute nodes that had fragment inputs re-rendered
-    // This forces them to re-dispatch with the new texture content
     for (const nodeId of computeNodesToClearHash) {
       this.inputHashes.delete(nodeId);
     }
@@ -395,6 +506,9 @@ export class ComputeExecutor {
     this._isExecuting = true;
 
     try {
+      // Clear the dispatched-this-frame tracking
+      this.dispatchedThisFrame.clear();
+
       // STEP 1: Render fragment node inputs to textures (auto-bridging)
       // Pass the shared command encoder so fragment renders and compute dispatches
       // are in the same GPU command buffer submission (proper synchronization!)
@@ -402,6 +516,11 @@ export class ComputeExecutor {
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
     for (const nodeId of this.executionOrder) {
+      // Skip if already dispatched during _renderFragmentInputs
+      if (this.dispatchedThisFrame.has(nodeId)) {
+        continue;
+      }
+
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {
         continue;

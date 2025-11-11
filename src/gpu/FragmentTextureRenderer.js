@@ -460,7 +460,29 @@ export class FragmentTextureRenderer {
       }
       case 'texture-2d':
       case 'texture-cube': {
-        // Create dummy 1x1 texture
+        // Check if this is a compute node texture (format: compute_node_X or compute_node_X_Y)
+        if (meta.varName && meta.varName.startsWith('compute_')) {
+          // Extract node ID from variable name (e.g., "compute_node_5" -> "node_5")
+          const nodeId = meta.varName.replace('compute_', '');
+
+          // Try to get the actual compute node output texture from ComputeExecutor
+          if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
+            const computeTexture = window.computeExecutor.nodeOutputs.get(nodeId);
+            if (computeTexture) {
+              return computeTexture.createView();
+            }
+          }
+
+          // Fallback: try to get from computeTextures registry
+          if (window.computeExecutor && window.computeExecutor.computeTextures) {
+            const textureData = window.computeExecutor.computeTextures.get(nodeId);
+            if (textureData && textureData.texture) {
+              return textureData.texture.createView();
+            }
+          }
+        }
+
+        // Create dummy 1x1 texture for regular textures or if compute texture not found
         const texture = this.device.createTexture({
           size: [1, 1, 1],
           format: 'rgba8unorm',
