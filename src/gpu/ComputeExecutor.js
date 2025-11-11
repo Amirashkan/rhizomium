@@ -307,6 +307,8 @@ export class ComputeExecutor {
     const fragmentNode = window.graph?.getNode(fragmentNodeId);
     if (!fragmentNode) return null;
 
+    console.log(`[ComputeExecutor] Rendering fragment node ${fragmentNodeId} with dependencies:`, fragmentNode.inputs);
+
     // Check if this fragment node has compute node inputs
     if (fragmentNode.inputs && Array.isArray(fragmentNode.inputs)) {
       for (const inputId of fragmentNode.inputs) {
@@ -314,12 +316,14 @@ export class ComputeExecutor {
 
         // If this input is a compute node, ensure it's been dispatched first
         if (this.computeManagers.has(inputId)) {
+          console.log(`[ComputeExecutor] Fragment node ${fragmentNodeId} depends on compute node ${inputId}, dispatching it first...`);
           await this._dispatchComputeNodeIfNeeded(inputId, commandEncoder, time, audioContext);
         }
       }
     }
 
     // Now render the fragment node to a texture
+    console.log(`[ComputeExecutor] Now rendering fragment node ${fragmentNodeId} to texture...`);
     const texture = await this.fragmentRenderer.renderNodeToTexture(
       fragmentNodeId,
       width,
@@ -388,6 +392,7 @@ export class ComputeExecutor {
     }
 
     // Dispatch the compute node
+    console.log(`[ComputeExecutor] Dispatching compute node ${nodeId}`);
     try {
       if (manager instanceof ComputeNodeBase) {
         manager.dispatch(this.device, commandEncoder, time, audioContext);
@@ -642,7 +647,10 @@ export class ComputeExecutor {
     try {
       const outputTexture = manager.getOutputTexture();
       if (outputTexture) {
+        console.log(`[ComputeExecutor] Storing output texture for node ${nodeId}`);
         this.nodeOutputs.set(nodeId, outputTexture);
+      } else {
+        console.warn(`[ComputeExecutor] No output texture for node ${nodeId}`);
       }
     } catch (error) {
       // Silently handle errors
