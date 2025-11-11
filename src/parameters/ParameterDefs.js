@@ -430,14 +430,14 @@ export const ParameterDefinitions = {
 export function getDefaultCapabilities(nodeKind) {
   // Gradients and shapes support all capabilities by default
   const allCapabilitiesNodes = [
-    'LinearGradient', 'RadialGradient', 'AngularGradient', 'ConicGradient',
+    'ConicGradient',
     'Circle', 'Rectangle', 'Polygon'
   ];
-  
+
   if (allCapabilitiesNodes.includes(nodeKind)) {
     return ParameterCapabilities.ALL;
   }
-  
+
   // Everything else is static only by default
   return ParameterCapabilities.STATIC_ONLY;
 }
