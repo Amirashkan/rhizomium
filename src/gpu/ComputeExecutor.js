@@ -61,6 +61,10 @@ export class ComputeExecutor {
 
     // Track which fragment nodes have been rendered this frame
     this.renderedFragmentNodes = new Set();
+
+    // Re-entrancy guard: Prevent execute() from being called while already executing
+    // This prevents infinite loops when auto-bridging or other side effects trigger renders
+    this._isExecuting = false;
   }
 
   /**
@@ -329,17 +333,29 @@ export class ComputeExecutor {
    * @param {Object} audioContext - Audio envelope values for expression evaluation
    */
   async execute(commandEncoder, time = 0, audioContext = {}) {
+    // CRITICAL: Re-entrancy guard to prevent infinite loops
+    // If execute() is called while already executing (e.g., from auto-bridging side effects),
+    // skip this call to break the infinite loop
+    if (this._isExecuting) {
+      console.warn('[ComputeExecutor] ⚠️ execute() called while already executing - skipping to prevent infinite loop');
+      return;
+    }
+
     if (!this.initialized || this.computeManagers.size === 0) {
       console.log(`[ComputeExecutor] Skipping execute: initialized=${this.initialized}, managers=${this.computeManagers.size}`);
       return;
     }
 
-    console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
+    // Set the executing flag
+    this._isExecuting = true;
 
-    // STEP 1: Render fragment node inputs to textures (auto-bridging)
-    // Pass the shared command encoder so fragment renders and compute dispatches
-    // are in the same GPU command buffer submission (proper synchronization!)
-    await this._renderFragmentInputs(commandEncoder, time, audioContext);
+    try {
+      console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
+
+      // STEP 1: Render fragment node inputs to textures (auto-bridging)
+      // Pass the shared command encoder so fragment renders and compute dispatches
+      // are in the same GPU command buffer submission (proper synchronization!)
+      await this._renderFragmentInputs(commandEncoder, time, audioContext);
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
     for (const nodeId of this.executionOrder) {
@@ -449,6 +465,10 @@ export class ComputeExecutor {
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
       }
+    }
+    } finally {
+      // CRITICAL: Always reset the executing flag, even if there was an error
+      this._isExecuting = false;
     }
   }
 
