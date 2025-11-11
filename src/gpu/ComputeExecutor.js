@@ -246,10 +246,11 @@ export class ComputeExecutor {
   /**
    * Render fragment node inputs to textures (auto-bridging)
    * This enables fragment nodes to be used as inputs to compute nodes
+   * @param {GPUCommandEncoder} commandEncoder - Shared command encoder for synchronization
    * @param {number} time - Current time in seconds
    * @param {Object} audioContext - Audio envelope values
    */
-  async _renderFragmentInputs(time, audioContext) {
+  async _renderFragmentInputs(commandEncoder, time, audioContext) {
     if (!window.graph || !window.graph.nodes) {
       return;
     }
@@ -293,13 +294,15 @@ export class ComputeExecutor {
           const height = resolution[1];
 
           console.log(`[ComputeExecutor] Rendering to ${width}x${height} texture...`);
-          // Render the fragment node to a texture
+          // Render the fragment node to a texture using the SHARED command encoder
+          // This ensures fragment render and compute dispatch are in the same GPU submission
           const texture = await this.fragmentRenderer.renderNodeToTexture(
             inputNodeId,
             width,
             height,
             time,
-            audioContext
+            audioContext,
+            commandEncoder  // CRITICAL: Pass the shared encoder for synchronization!
           );
 
           if (texture) {
@@ -307,6 +310,7 @@ export class ComputeExecutor {
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
             console.log(`[ComputeExecutor] ✓ Auto-bridge complete: Fragment node ${inputNodeId} rendered to ${width}x${height} texture`);
+            console.log(`[ComputeExecutor] 📝 Stored texture in nodeOutputs[${inputNodeId}]: ${texture.width}x${texture.height}, format=${texture.format}, usage=${texture.usage}`);
           } else {
             console.warn(`[ComputeExecutor] ✗ Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
@@ -333,7 +337,9 @@ export class ComputeExecutor {
     console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
 
     // STEP 1: Render fragment node inputs to textures (auto-bridging)
-    await this._renderFragmentInputs(time, audioContext);
+    // Pass the shared command encoder so fragment renders and compute dispatches
+    // are in the same GPU command buffer submission (proper synchronization!)
+    await this._renderFragmentInputs(commandEncoder, time, audioContext);
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
     for (const nodeId of this.executionOrder) {
@@ -353,17 +359,25 @@ export class ComputeExecutor {
           const inputNodeId = node.inputs[0];
           if (inputNodeId !== null && inputNodeId !== undefined) {
             const inputTexture = this.nodeOutputs.get(inputNodeId);
-            if (inputTexture && manager.setInputTexture) {
-              manager.setInputTexture(inputTexture);
-              // Recreate bind group with new input texture
-              if (manager.recreateBindGroup) {
-                manager.recreateBindGroup();
+            console.log(`[ComputeExecutor] 🔍 Node ${nodeId} (${node.kind}) looking for input from node ${inputNodeId}`);
+            console.log(`[ComputeExecutor] 📦 nodeOutputs.has(${inputNodeId}): ${this.nodeOutputs.has(inputNodeId)}`);
+            if (inputTexture) {
+              console.log(`[ComputeExecutor] ✓ Found input texture: ${inputTexture.width}x${inputTexture.height}, format=${inputTexture.format}, usage=${inputTexture.usage}`);
+              if (manager.setInputTexture) {
+                manager.setInputTexture(inputTexture);
+                console.log(`[ComputeExecutor] ✓ Called setInputTexture()`);
+                // Recreate bind group with new input texture
+                if (manager.recreateBindGroup) {
+                  manager.recreateBindGroup();
+                  console.log(`[ComputeExecutor] ✓ Called recreateBindGroup()`);
+                }
               }
             } else if (!inputTexture) {
               // Only log missing textures once to avoid spam
               if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
               if (!this._loggedMissingTextures.has(inputNodeId)) {
-                console.warn(`[ComputeExecutor] Input texture not found for ${inputNodeId}, using fallback`);
+                console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
+                console.warn(`[ComputeExecutor] ⚠️ Available nodeOutputs keys:`, Array.from(this.nodeOutputs.keys()));
                 this._loggedMissingTextures.add(inputNodeId);
               }
             }

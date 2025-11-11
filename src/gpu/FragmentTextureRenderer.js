@@ -39,9 +39,10 @@ export class FragmentTextureRenderer {
    * @param {number} height - Texture height
    * @param {number} time - Current time in seconds
    * @param {Object} audioContext - Audio envelope values
+   * @param {GPUCommandEncoder} externalEncoder - Optional external command encoder (for synchronization)
    * @returns {GPUTexture} The rendered texture
    */
-  async renderNodeToTexture(nodeId, width, height, time = 0, audioContext = {}) {
+  async renderNodeToTexture(nodeId, width, height, time = 0, audioContext = {}, externalEncoder = null) {
     try {
       // Get the node from the graph
       const node = window.graph?.getNode(nodeId);
@@ -86,8 +87,8 @@ export class FragmentTextureRenderer {
         return this._createFallbackTexture(width, height);
       }
 
-      // Render to the texture
-      await this._renderToTexture(cached, time, width, height, audioContext);
+      // Render to the texture (using external encoder if provided)
+      await this._renderToTexture(cached, time, width, height, audioContext, externalEncoder);
 
 
       return cached.texture;
@@ -250,15 +251,16 @@ export class FragmentTextureRenderer {
    * Render to texture using the pipeline
    * @private
    */
-  async _renderToTexture(cached, time, width, height, audioContext) {
+  async _renderToTexture(cached, time, width, height, audioContext, externalEncoder = null) {
     try {
       // Update uniforms (time, resolution, audio, etc.)
       this._updateUniforms(cached, time, width, height, audioContext);
 
-      // Create command encoder
-      const encoder = this.device.createCommandEncoder({
+      // Use external encoder if provided, otherwise create our own
+      const encoder = externalEncoder || this.device.createCommandEncoder({
         label: 'fragment-texture-render'
       });
+      const shouldSubmit = !externalEncoder; // Only submit if we created the encoder
 
       // Begin render pass
       const pass = encoder.beginRenderPass({
@@ -281,8 +283,28 @@ export class FragmentTextureRenderer {
       pass.draw(3, 1, 0, 0);
       pass.end();
 
-      // Submit commands
-      this.device.queue.submit([encoder.finish()]);
+      // Only submit if we created the encoder ourselves
+      if (shouldSubmit) {
+        this.device.queue.submit([encoder.finish()]);
+
+        // CRITICAL: Wait for GPU to finish rendering before returning
+        // Without this, compute shaders may try to read from incomplete textures
+        if (this.device.queue.onSubmittedWorkDone) {
+          await this.device.queue.onSubmittedWorkDone();
+          console.log(`[FragmentTextureRenderer] GPU work completed for fragment render`);
+        } else {
+          console.warn(`[FragmentTextureRenderer] onSubmittedWorkDone not available, using 100ms fallback delay`);
+          // Fallback: Longer delay to give GPU time to finish
+          // 100ms should be more than enough for most GPUs
+          await new Promise(resolve => setTimeout(resolve, 100));
+          console.log(`[FragmentTextureRenderer] Fallback delay completed`);
+        }
+
+        // Debug: Log texture details after render
+        console.log(`[FragmentTextureRenderer] Rendered to texture: ${cached.texture.width}x${cached.texture.height}, format=${cached.texture.format}, usage=${cached.texture.usage}`);
+      } else {
+        console.log(`[FragmentTextureRenderer] Using external encoder - fragment render added to shared command buffer`);
+      }
     } catch (error) {
       console.error('[FragmentTextureRenderer] Render error:', error);
       throw error;

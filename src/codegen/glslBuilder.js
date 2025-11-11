@@ -36,6 +36,13 @@ export function buildWGSL(graph) {
   const result = processor.processGraph(graph);
   const { orderedNodes, outputNode } = result;
 
+  console.log(`[buildWGSL] 📊 Graph has ${graph.nodes?.length || 0} total nodes`);
+  console.log(`[buildWGSL] 📊 Processing ${orderedNodes.length} nodes for shader`);
+  console.log(`[buildWGSL] 📊 Output node: ${outputNode ? `${outputNode.kind} (id: ${outputNode.id})` : 'NONE'}`);
+  if (orderedNodes.length > 0) {
+    console.log(`[buildWGSL] 📊 Ordered nodes:`, orderedNodes.map(n => `${n.kind}(${n.id})`).join(' → '));
+  }
+
   if (!outputNode || orderedNodes.length === 0) {
     console.warn('⚠️ No output node found or empty graph');
     return { wgsl: '', uniformManager: compiler.uniformManager };

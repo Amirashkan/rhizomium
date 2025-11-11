@@ -540,16 +540,24 @@ export class GPURenderer {
 
   setShaderSource(wgslCode) {
     try {
+      console.log('[GPURenderer] 📝 Compiling new shader...');
+      console.log(`[GPURenderer] Shader length: ${wgslCode.length} characters`);
+
       this.shaderModule = this.device.createShaderModule({ code: wgslCode });
       this.resources = {};
       this._lastAspectWritten = null;
       this._warnedMissingParamBuffer = false; // Reset warning flag on new shader
       const bindingMap = analyzeBindings(wgslCode);
+
+      console.log('[GPURenderer] Binding groups found:', Object.keys(bindingMap.groups).length);
+
       this._buildLayoutsAndBindGroups(bindingMap);
       this._updateAspectUniform();
 
       // Update parameter uniforms if they exist
       this._updateParameterUniforms();
+
+      console.log('[GPURenderer] ✓ Shader compiled and pipeline ready');
 
       // Ensure MSAA texture is created when shader is set
       if (!this.msaaTexture && this.canvas.width > 0 && this.canvas.height > 0) {
@@ -616,6 +624,75 @@ export class GPURenderer {
 
     // Mark that we've updated the bind groups
     texManager.bindGroup = {};
+  }
+
+  /**
+   * Update compute texture bindings after compute shader execution
+   * This ensures fragment shaders sample from the latest compute outputs
+   */
+  _updateComputeTextureBindings() {
+    if (!this.pipeline || !this.bindGroups) return;
+
+    const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
+    if (!computeExecutor || !computeExecutor.initialized) return;
+
+    console.log('[GPURenderer] Updating compute texture bindings after compute execution');
+
+    // Track if any compute textures were updated
+    let hasComputeTextures = false;
+
+    // Update all compute texture resources with fresh texture views from nodeOutputs
+    for (const resourceKey in this.resources) {
+      const resource = this.resources[resourceKey];
+
+      // Check if this is a compute texture or sampler resource
+      if (resource.varName &&
+          (resource.varName.startsWith('compute_') ||
+           resource.varName.startsWith('sampler_compute_'))) {
+
+        console.log(`[GPURenderer] Updating compute texture resource: ${resource.varName}`);
+        this._applyExternalTextureResource(resource);
+        hasComputeTextures = true;
+      }
+    }
+
+    // Only rebuild bind groups if we found compute textures
+    if (!hasComputeTextures) {
+      return;
+    }
+
+    // Rebuild bind groups with updated compute texture resources
+    this.bindGroups = this.bindGroups.map((_, layoutIndex) => {
+      const entries = [];
+
+      // Collect all resources for this group
+      for (const resourceKey in this.resources) {
+        const [groupStr, bindingStr] = resourceKey.split(":");
+        const group = parseInt(groupStr, 10);
+        const binding = parseInt(bindingStr, 10);
+
+        if (group === layoutIndex) {
+          const resource = this.resources[resourceKey];
+          if (resource.buffer) {
+            entries.push({ binding, resource: { buffer: resource.buffer } });
+          } else if (resource.sampler) {
+            entries.push({ binding, resource: resource.sampler });
+          } else if (resource.textureView) {
+            entries.push({ binding, resource: resource.textureView });
+          }
+        }
+      }
+
+      // Sort entries by binding number to ensure correct order
+      entries.sort((a, b) => a.binding - b.binding);
+
+      return this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(layoutIndex),
+        entries,
+      });
+    });
+
+    console.log('[GPURenderer] Compute texture bindings updated successfully');
   }
 
   async render(config) {
@@ -696,6 +773,7 @@ export class GPURenderer {
 
     // Execute compute shaders BEFORE fragment shader
     if (window.computeExecutor && window.computeExecutor.initialized) {
+      console.log('[GPURenderer] 🎬 Executing compute shaders...');
       // Get audio envelope values for compute shader expressions
       const audioEnvelope = window._audioEnvelopeValue || 0.0;
       const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
@@ -710,6 +788,14 @@ export class GPURenderer {
         audioEnvelopeHighs,
         audioEnvelopeFull
       });
+
+      // CRITICAL FIX: Update bind groups with fresh compute texture views
+      // After compute execution, nodeOutputs has been updated with fresh textures
+      // We need to update bind groups BEFORE the fragment render pass begins
+      this._updateComputeTextureBindings();
+      console.log('[GPURenderer] ✓ Compute execution complete');
+    } else {
+      console.log('[GPURenderer] No compute executor or not initialized');
     }
 
     // Configure render pass based on MSAA support
@@ -738,6 +824,10 @@ export class GPURenderer {
       return;
     }
 
+    console.log('[GPURenderer] 🎨 Rendering fragment shader to screen...');
+    console.log(`[GPURenderer] Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+    console.log(`[GPURenderer] Bind groups: ${this.bindGroups.length}`);
+
     pass.setPipeline(this.pipeline);
     for (let i = 0; i < this.bindGroups.length; i++) {
       pass.setBindGroup(i, this.bindGroups[i]);
@@ -745,6 +835,8 @@ export class GPURenderer {
 
     pass.draw(3, 1, 0, 0);
     pass.end();
+
+    console.log('[GPURenderer] ✓ Fragment render complete');
 
     // End profiling frame
     if (this.profiler) {
