@@ -427,10 +427,15 @@ export class ComputeExecutor {
         // This ensures nodes with expressions like "=time" are dispatched every frame
         const hasTimeDependentParams = this.hasTimeDependentParameters(node);
 
-        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams) {
+        // Check if node has node reference parameters (expressions like =node_5 or =node_5.x)
+        // This ensures nodes that reference Float, Remap, or other node outputs are re-dispatched
+        // when those referenced values might have changed
+        const hasNodeRefParams = this.hasNodeReferenceParameters(node);
+
+        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams) {
           // Only log dispatches occasionally to reduce console spam
           if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
-            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}`);
+            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}, nodeRefParams=${hasNodeRefParams}`);
             this._lastDispatchLog = Date.now();
           }
 
@@ -565,6 +570,28 @@ export class ComputeExecutor {
         const trimmed = value.trim();
         // Check if parameter contains time or audio envelope references
         if (/time|audioEnvelope/i.test(trimmed)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a node has node reference parameters (expressions like =node_5 or =node_5.x)
+   * @param {Object} node - The node to check
+   * @returns {boolean} True if node has node reference parameters
+   */
+  hasNodeReferenceParameters(node) {
+    if (!node || !node.params) return false;
+
+    // Check all parameter values for node reference expressions
+    for (const value of Object.values(node.params)) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        // Check if parameter contains node reference (=node_X or =node_X.component)
+        if (/=\s*node_\d+/.test(trimmed)) {
           return true;
         }
       }

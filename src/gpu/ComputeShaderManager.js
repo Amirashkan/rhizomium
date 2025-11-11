@@ -1,5 +1,6 @@
 import { globalResourceRegistry } from './ResourceTracker.js';
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
+import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 
 /**
  * ComputeShaderManager
@@ -70,7 +71,23 @@ export class ComputeShaderManager {
       // Expression starting with =
       if (trimmed.startsWith('=')) {
         try {
-          // Build full context with time and audio envelope values
+          // CRITICAL: If this expression contains node references, compute all previews first
+          // to ensure referenced node values are up-to-date
+          // Cache the computation per-frame to avoid redundant recalculations
+          if (/node_\d+/.test(value)) {
+            const now = performance.now();
+            const previewComputer = window.editor?.previewComputer;
+            if (previewComputer && window.editor?.graph) {
+              // Only recompute if not already done this frame (within 1ms)
+              if (!previewComputer._lastComputeTime || (now - previewComputer._lastComputeTime) > 1) {
+                previewComputer.computePreviews(window.editor.graph);
+                previewComputer._lastComputeTime = now;
+              }
+            }
+          }
+
+          // Use expressionSystem which includes node references in evaluation context
+          // This enables compute nodes to reference Float, Remap, and other node outputs
           const context = {
             time,
             audioEnvelope: audioContext.audioEnvelope || 0.0,
@@ -79,9 +96,11 @@ export class ComputeShaderManager {
             audioEnvelopeHighs: audioContext.audioEnvelopeHighs || 0.0,
             audioEnvelopeFull: audioContext.audioEnvelopeFull || 0.0
           };
-          const result = unifiedExpressionSystem.evaluateCPU(value, context);
+          const result = expressionSystem.evaluateExpression(value, context, this.node);
+
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
+          console.warn(`[ComputeShaderManager] Failed to evaluate parameter expression: ${value}`, error);
           return defaultValue;
         }
       }
