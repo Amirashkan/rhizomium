@@ -89,7 +89,20 @@ export class ComputeExecutor {
 
     // Clean up old resources if reinitializing
     if (this.initialized) {
-      this.clear();
+      // Destroy old managers but keep the registry intact
+      for (const manager of this.computeManagers.values()) {
+        manager.destroy();
+      }
+      if (this.fallbackTexture) {
+        this.fallbackTexture.destroy();
+        this.fallbackTexture = null;
+      }
+      this.computeManagers.clear();
+      this.computeNodes.clear();
+      this.computeTextures.clear();
+      this.inputHashes.clear();
+      this.nodeOutputs.clear();
+      this.executionOrder = [];
     }
 
     // Create fallback texture
@@ -117,8 +130,17 @@ export class ComputeExecutor {
       let height = resolution[1];
       if (window.floatingPreview?.settings?.settings?.resolution) {
         const canvasRes = window.floatingPreview.settings.settings.resolution;
-        width = canvasRes.width;
-        height = canvasRes.height;
+        // Only override if we have valid canvas dimensions
+        if (canvasRes.width > 0 && canvasRes.height > 0) {
+          width = canvasRes.width;
+          height = canvasRes.height;
+        }
+      }
+
+      // Ensure we have valid dimensions before initializing
+      if (!width || !height || width <= 0 || height <= 0) {
+        width = 512;
+        height = 512;
       }
 
       // Detect if this node needs input textures from other compute nodes

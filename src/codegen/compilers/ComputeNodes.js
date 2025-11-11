@@ -98,14 +98,19 @@ export class ComputeNodes {
     // Try to get resolution from floating preview settings (maintains aspect ratio)
     if (window.floatingPreview?.settings?.settings?.resolution) {
       const { width, height } = window.floatingPreview.settings.settings.resolution;
-      return [width, height];
+      // Ensure we have valid dimensions
+      if (width > 0 && height > 0) {
+        return [width, height];
+      }
     }
 
     // Fallback to node parameter (square resolution)
     const resParam = node.params?.resolution;
     if (resParam) {
       const size = parseInt(resParam);
-      return [size, size];
+      if (!isNaN(size) && size > 0) {
+        return [size, size];
+      }
     }
     return [512, 512]; // Default
   }
