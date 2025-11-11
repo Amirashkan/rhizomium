@@ -10,7 +10,7 @@
 export const ColorNodes = {
   ColorToGrayscale: {
     label: "To Grayscale",
-    cat: "Color",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Color"],
     pinsOut: [{ label: "out", type: "f32" }],
@@ -27,7 +27,7 @@ export const ColorNodes = {
 
   ColorInvert: {
     label: "Invert Color",
-    cat: "Color",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Color"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -36,7 +36,7 @@ export const ColorNodes = {
 
   ColorMix: {
     label: "Color Mix",
-    cat: "Color",
+    cat: "Modifiers",
     inputs: 3,
     pinsIn: ["Base", "Blend", "Factor"],
     pinsOut: [{ label: "out", type: "vec3" }],

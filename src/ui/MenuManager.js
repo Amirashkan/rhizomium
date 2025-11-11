@@ -105,18 +105,15 @@ export class MenuManager {
       "Output",
       "Math",
       "Vector",
-      "Pattern",
-      "Noise",
-      "Transform",
-      "Color",
-      "Filters",
+      "Generators",
+      "Modifiers",
       "Effects",
       "Simulation",
       "Utility",
       "Blend",
       "Texture",
       ...Array.from(categories.keys()).filter(
-        (c) => !["Input", "Output", "Math", "Vector", "Pattern", "Noise", "Transform", "Color", "Filters", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
+        (c) => !["Input", "Output", "Math", "Vector", "Generators", "Modifiers", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
       ),
     ];
 
@@ -281,18 +278,15 @@ export class MenuManager {
       "Output",
       "Math",
       "Vector",
-      "Pattern",
-      "Noise",
-      "Transform",
-      "Color",
-      "Filters",
+      "Generators",
+      "Modifiers",
       "Effects",
       "Simulation",
       "Utility",
       "Blend",
       "Texture",
       ...Array.from(categories.keys()).filter(
-        (c) => !["Input", "Output", "Math", "Vector", "Pattern", "Noise", "Transform", "Color", "Filters", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
+        (c) => !["Input", "Output", "Math", "Vector", "Generators", "Modifiers", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
       ),
     ];
 

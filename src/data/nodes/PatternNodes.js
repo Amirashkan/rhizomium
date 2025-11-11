@@ -11,7 +11,7 @@ export const PatternNodes = {
   // === GRADIENT PATTERNS ===
   ConicGradient: {
     label: "Conic Gradient",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: ["Value"],
@@ -26,7 +26,7 @@ export const PatternNodes = {
 
   ColorRamp: {
     label: "Color Ramp",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["Value"],
     pinsOut: ["Color"],
@@ -51,7 +51,7 @@ export const PatternNodes = {
   // === SHAPE GENERATORS ===
   Circle: {
     label: "Circle",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "f32" }],
@@ -66,7 +66,7 @@ export const PatternNodes = {
 
   Rectangle: {
     label: "Rectangle",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "f32" }],
@@ -83,7 +83,7 @@ export const PatternNodes = {
 
   Polygon: {
     label: "Polygon",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "f32" }],

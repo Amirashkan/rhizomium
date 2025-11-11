@@ -4,9 +4,9 @@
  * Compute shader node definitions for GPU-accelerated effects
  * Each compute node generates its own WGSL compute shader and stores results in a texture
  *
- * Categories:
- * - Pattern: Procedural generation (noise, gradients, patterns)
- * - Filters: Image processing (blur, threshold, edge detect, etc.)
+ * Categories (function-based):
+ * - Generators: Procedural generation (noise, gradients, patterns)
+ * - Modifiers: Image processing (blur, threshold, edge detect, color adjustment, etc.)
  * - Effects: Visual effects (warp, kaleidoscope, glitch, feedback)
  * - Simulation: Physics-based systems (particles, fluids, cellular automata)
  * - Utility: Compositing and transformation helpers
@@ -14,7 +14,7 @@
 export const ComputeNodes = {
   ComputeNoise: {
     label: "Compute Noise",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -31,7 +31,7 @@ export const ComputeNodes = {
 
   ComputeBlur: {
     label: "Compute Blur",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -116,7 +116,7 @@ export const ComputeNodes = {
 
   ComputeConvolution: {
     label: "Compute Convolution",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB"],
@@ -224,7 +224,7 @@ export const ComputeNodes = {
 
   ComputeThreshold: {
     label: "Threshold",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -242,7 +242,7 @@ export const ComputeNodes = {
 
   ComputeColorAdjust: {
     label: "Color Adjust",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -260,7 +260,7 @@ export const ComputeNodes = {
 
   ComputeEdgeDetect: {
     label: "Edge Detect",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -276,7 +276,7 @@ export const ComputeNodes = {
 
   ComputeMorphology: {
     label: "Morphology",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -294,7 +294,7 @@ export const ComputeNodes = {
 
   ComputeVoronoi: {
     label: "Voronoi",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -313,7 +313,7 @@ export const ComputeNodes = {
 
   ComputeGradient: {
     label: "Gradient",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -332,7 +332,7 @@ export const ComputeNodes = {
 
   ComputePattern: {
     label: "Pattern",
-    cat: "Pattern",
+    cat: "Generators",
     inputs: 0,
     pinsIn: [],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
@@ -479,7 +479,7 @@ export const ComputeNodes = {
 
   ComputeHistogram: {
     label: "Histogram",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB"],
@@ -495,7 +495,7 @@ export const ComputeNodes = {
 
   ComputeLuminance: {
     label: "Luminance",
-    cat: "Filters",
+    cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
     pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
