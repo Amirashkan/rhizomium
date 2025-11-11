@@ -271,7 +271,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
   let time = uniforms.time * uniforms.speed;
 
-  var noisePos = uv * uniforms.scale;
+  // Apply aspect ratio correction to prevent stretching
+  let aspect = uniforms.resolution.x / uniforms.resolution.y;
+  let uv_corrected = vec2<f32>(uv.x * aspect, uv.y);
+
+  var noisePos = uv_corrected * uniforms.scale;
   noisePos += vec2<f32>(time * 0.1, time * 0.15);
 
   let noiseValue = fbm(noisePos, i32(uniforms.octaves));
@@ -1568,8 +1572,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
 
+  // Apply aspect ratio correction to prevent stretching
+  let aspect = uniforms.resolution.x / uniforms.resolution.y;
+  let uv_corrected = vec2<f32>(uv.x * aspect, uv.y);
+
   let metric = ${metricIndex}; // 0=Euclidean, 1=Manhattan, 2=Chebyshev, 3=Minkowski
-  let voronoiData = voronoi(uv, metric);
+  let voronoiData = voronoi(uv_corrected, metric);
   let dist1 = voronoiData.x;
   let dist2 = voronoiData.y;
   let cellId = voronoiData.zw;
@@ -1687,17 +1695,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
 
+  // Apply aspect ratio correction to prevent stretching in radial/angular gradients
+  let aspect = uniforms.resolution.x / uniforms.resolution.y;
+  let uv_corrected = vec2<f32>(uv.x * aspect - (aspect - 1.0) * 0.5, uv.y);
+  let center_corrected = vec2<f32>(uniforms.center.x * aspect, uniforms.center.y);
+
   var gradient: f32;
   let gradientType = ${typeIndex}; // 0=Linear, 1=Radial, 2=Angular, 3=Diamond
 
   if (gradientType == 0) {
     gradient = gradientLinear(uv, uniforms.angle);
   } else if (gradientType == 1) {
-    gradient = gradientRadial(uv, uniforms.center, uniforms.radius);
+    gradient = gradientRadial(uv_corrected, center_corrected, uniforms.radius);
   } else if (gradientType == 2) {
-    gradient = gradientAngular(uv, uniforms.center, uniforms.angle);
+    gradient = gradientAngular(uv_corrected, center_corrected, uniforms.angle);
   } else {
-    gradient = gradientDiamond(uv, uniforms.center, uniforms.radius);
+    gradient = gradientDiamond(uv_corrected, center_corrected, uniforms.radius);
   }
 
   // Apply repeat
