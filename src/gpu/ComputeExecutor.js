@@ -87,6 +87,24 @@ export class ComputeExecutor {
       return;
     }
 
+    // Clean up old resources if reinitializing
+    if (this.initialized) {
+      // Destroy old managers but keep the registry intact
+      for (const manager of this.computeManagers.values()) {
+        manager.destroy();
+      }
+      if (this.fallbackTexture) {
+        this.fallbackTexture.destroy();
+        this.fallbackTexture = null;
+      }
+      this.computeManagers.clear();
+      this.computeNodes.clear();
+      this.computeTextures.clear();
+      this.inputHashes.clear();
+      this.nodeOutputs.clear();
+      this.executionOrder = [];
+    }
+
     // Create fallback texture
     this.createFallbackTexture();
 
@@ -107,6 +125,24 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
+      // Use current canvas resolution to maintain aspect ratio
+      let width = resolution[0];
+      let height = resolution[1];
+      if (window.floatingPreview?.settings?.settings?.resolution) {
+        const canvasRes = window.floatingPreview.settings.settings.resolution;
+        // Only override if we have valid canvas dimensions
+        if (canvasRes.width > 0 && canvasRes.height > 0) {
+          width = canvasRes.width;
+          height = canvasRes.height;
+        }
+      }
+
+      // Ensure we have valid dimensions before initializing
+      if (!width || !height || width <= 0 || height <= 0) {
+        width = 512;
+        height = 512;
+      }
+
       // Detect if this node needs input textures from other compute nodes
       // Check both the node definition (how many inputs it's designed for) and actual connections
       // Nodes like ComputeBlur and ComputeFeedback are designed to take inputs
@@ -123,7 +159,7 @@ export class ComputeExecutor {
 
       // Create compute shader manager with node reference for parameters
       const manager = new ComputeShaderManager(this.device, node);
-      await manager.initialize(wgslCode, resolution[0], resolution[1], supportsFeedback, needsInput);
+      await manager.initialize(wgslCode, width, height, supportsFeedback, needsInput);
 
       // Store manager
       this.computeManagers.set(nodeId, manager);
