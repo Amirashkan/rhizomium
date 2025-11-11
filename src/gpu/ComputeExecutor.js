@@ -21,12 +21,15 @@
  * - inputHashes: Map<nodeId, string> - Tracks input/parameter changes for selective updates
  */
 
+console.log('[ComputeExecutor] Module loaded');
+
 import { ComputeShaderManager } from './ComputeShaderManager.js';
 import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 
 export class ComputeExecutor {
   constructor(device) {
+    console.log('[ComputeExecutor] Constructor called');
     this.device = device;
 
     // Map of nodeId -> ComputeShaderManager or ComputeNodeBase
