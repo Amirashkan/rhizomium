@@ -364,6 +364,7 @@ export class ComputeExecutor {
     // skip this call to break the infinite loop
     if (this._isExecuting) {
       console.warn('[ComputeExecutor] ⚠️ execute() called while already executing - skipping to prevent infinite loop');
+      console.trace('[ComputeExecutor] Call stack for re-entrant execute() call:');
       return;
     }
 
