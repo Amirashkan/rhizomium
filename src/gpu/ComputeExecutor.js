@@ -484,9 +484,9 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
-        } else {
-          console.log(`[ComputeExecutor] → Skipping dispatch for node ${nodeId}`);
         }
+        // Skipping dispatch is normal behavior when inputs haven't changed
+        // No need to log it every frame
       } catch (error) {
         console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
       }
