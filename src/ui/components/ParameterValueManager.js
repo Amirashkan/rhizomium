@@ -382,9 +382,10 @@ export class ParameterValueManager {
       onChange(); // Trigger shader recompilation
     }
 
-    // PERFORMANCE: Only trigger preview updates if onChange was provided
-    // When onChange is null, we're in a drag operation and should skip expensive operations
-    if (onChange && window.editor?.previewIntegration) {
+    // ALWAYS trigger preview updates, even during drag
+    // PreviewIntegration.onParameterChange handles debouncing and drag optimization
+    // This ensures node reference values are updated in real-time
+    if (window.editor?.previewIntegration) {
       // console.log("Calling onParameterChange for:", node.kind);
       window.editor.previewIntegration.onParameterChange(node);
     }
