@@ -139,7 +139,7 @@ export class FrameStreamClient {
             }
 
         } catch (error) {
-            console.error('[FrameStreamClient] Error sending frame:', error);
+
         }
     }
 
@@ -213,7 +213,7 @@ export class FrameStreamClient {
             this.frameCount++;
 
         } catch (error) {
-            console.error('[FrameStreamClient] Error sending GPU frame:', error);
+
         }
     }
 
@@ -305,11 +305,11 @@ export class FrameStreamClient {
                 });
 
                 if (!response.ok) {
-                    console.error('[FrameStreamClient] Server error:', response.statusText);
+
                 }
 
             } catch (error) {
-                console.error('[FrameStreamClient] Send error:', error);
+
                 // Attempt reconnection
                 this.connected = false;
             }

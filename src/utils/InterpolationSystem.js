@@ -277,7 +277,7 @@ export class InterpolationSystem {
     // Array (vec2, vec3, vec4, color)
     if (Array.isArray(value1) && Array.isArray(value2)) {
       if (value1.length !== value2.length) {
-        console.warn('Cannot interpolate arrays of different lengths');
+
         return value1;
       }
       return value1.map((v, i) => v + (value2[i] - v) * t);

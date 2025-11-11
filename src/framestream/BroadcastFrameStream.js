@@ -39,7 +39,7 @@ export class BroadcastFrameStream {
 
         // Check browser support
         if (!('BroadcastChannel' in window)) {
-            console.warn('[BroadcastFrameStream] BroadcastChannel API not supported');
+
             this.supported = false;
         } else {
             this.supported = true;
@@ -243,7 +243,7 @@ export class BroadcastFrameStream {
             this.framesSent++;
 
         } catch (error) {
-            console.error('[BroadcastFrameStream] Error sending frame:', error);
+
         }
     }
 
@@ -273,7 +273,7 @@ export class BroadcastFrameStream {
             this.framesSent++;
 
         } catch (error) {
-            console.error('[BroadcastFrameStream] Error sending frame:', error);
+
         }
     }
 

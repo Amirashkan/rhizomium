@@ -162,7 +162,7 @@ export class MeshRenderer {
         });
 
         this.initialized = true;
-        console.log('[MeshRenderer] Initialized');
+
     }
 
     /**
@@ -175,7 +175,7 @@ export class MeshRenderer {
      */
     render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix) {
         if (!this.initialized) {
-            console.warn('[MeshRenderer] Not initialized');
+
             return;
         }
 
@@ -402,6 +402,5 @@ export class MeshRenderer {
         this.uniformBuffer = null;
         this.initialized = false;
 
-        console.log('[MeshRenderer] Destroyed');
     }
 }

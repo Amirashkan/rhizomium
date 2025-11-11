@@ -211,7 +211,7 @@ export class FieldVisualizerManager {
                     const geometry = await fieldMapper.generateVisualization(fieldTexture);
                     updatedGeometries.set(id, geometry);
                 } catch (error) {
-                    console.error(`[FieldVisualizerManager] Error generating visualization for ${id}:`, error);
+
                 }
             }
         }
@@ -233,7 +233,7 @@ export class FieldVisualizerManager {
     async forceUpdate(id, time = 0) {
         const fieldMapper = this.fieldMappers.get(id);
         if (!fieldMapper) {
-            console.warn(`[FieldVisualizerManager] Field mapper not found: ${id}`);
+
             return null;
         }
 

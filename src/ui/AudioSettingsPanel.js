@@ -9,16 +9,16 @@ import { makeDraggable } from './utils/draggable.js';
 
 export class AudioSettingsPanel {
     constructor() {
-        console.log('[AudioSettingsPanel] Constructor called');
+
         this.panel = null;
         this.visible = false;
         this.cleanupDraggable = null;
 
         try {
             this.audioClient = getBrowserAudioCapture();
-            console.log('[AudioSettingsPanel] audioClient created:', this.audioClient);
+
         } catch (error) {
-            console.error('[AudioSettingsPanel] Error creating audioClient:', error);
+
             this.audioClient = null;
         }
 
@@ -48,7 +48,7 @@ export class AudioSettingsPanel {
 
         this.createPanel();
         this.setupEventListeners();
-        console.log('[AudioSettingsPanel] Panel created and attached to DOM');
+
     }
 
     createPanel() {
@@ -288,8 +288,7 @@ export class AudioSettingsPanel {
         `;
 
         document.body.appendChild(this.panel);
-        console.log('[AudioSettingsPanel] Panel appended to document.body, element:', this.panel);
-        console.log('[AudioSettingsPanel] Panel initial styles - display:', this.panel.style.display, 'z-index:', this.panel.style.zIndex);
+
 
         // Make panel draggable by its header
         const header = this.panel.querySelector('div[style*="display: flex"]');
@@ -321,7 +320,7 @@ export class AudioSettingsPanel {
                     pauseBtn.disabled = false;
                     stopBtn.disabled = false;
                 } catch (error) {
-                    console.error('Failed to load audio file:', error);
+
                     filenameEl.textContent = 'Error loading file';
                     filenameEl.style.color = '#f44336';
                 }
@@ -333,7 +332,7 @@ export class AudioSettingsPanel {
             try {
                 await this.audioClient.play();
             } catch (error) {
-                console.error('Failed to play audio:', error);
+
             }
         });
 
@@ -465,23 +464,20 @@ export class AudioSettingsPanel {
 
         slider.addEventListener('change', () => {
             this.audioClient.updateConfig(this.config);
-            console.log('[AudioSettings] Configuration updated');
+
         });
     }
 
     show() {
-        console.log('[AudioSettingsPanel] show() called');
         if (this.panel) {
             this.panel.style.display = 'block';
             this.visible = true;
-            console.log('[AudioSettingsPanel] Panel shown, display:', this.panel.style.display);
+
         } else {
-            console.error('[AudioSettingsPanel] show() called but panel is null!');
         }
     }
 
     hide() {
-        console.log('[AudioSettingsPanel] hide() called');
         if (this.panel) {
             this.panel.style.display = 'none';
             this.visible = false;
@@ -489,7 +485,6 @@ export class AudioSettingsPanel {
     }
 
     toggle() {
-        console.log('[AudioSettingsPanel] toggle() called, current visible:', this.visible);
         if (this.visible) {
             this.hide();
         } else {
@@ -504,11 +499,11 @@ let instance = null;
 export function getAudioSettingsPanel() {
     if (!instance) {
         try {
-            console.log('[getAudioSettingsPanel] Creating new AudioSettingsPanel instance');
+
             instance = new AudioSettingsPanel();
-            console.log('[getAudioSettingsPanel] Instance created successfully:', instance);
+
         } catch (error) {
-            console.error('[getAudioSettingsPanel] Failed to create AudioSettingsPanel:', error);
+
             throw error; // Re-throw so caller knows it failed
         }
     }

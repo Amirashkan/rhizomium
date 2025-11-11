@@ -27,7 +27,7 @@ export class PlaylistManager {
   addToPlaylist(sceneId, duration = null, transitionType = 'crossfade', transitionDuration = 1.0) {
     const scene = this.sceneManager.getScene(sceneId);
     if (!scene) {
-      console.error(`[PlaylistManager] Scene not found: ${sceneId}`);
+
       return false;
     }
 
@@ -222,7 +222,7 @@ export class PlaylistManager {
     const scene = this.sceneManager.getScene(item.sceneId);
 
     if (!scene) {
-      console.error(`[PlaylistManager] Scene not found: ${item.sceneId}`);
+
       await this.next();
       return;
     }
@@ -341,7 +341,7 @@ export class PlaylistManager {
 
       return true;
     } catch (error) {
-      console.error('[PlaylistManager] Failed to import playlist:', error);
+
       return false;
     }
   }

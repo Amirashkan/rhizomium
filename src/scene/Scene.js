@@ -182,7 +182,7 @@ export class Scene {
      */
     setActiveCamera(camera) {
         if (!(camera instanceof CameraNode)) {
-            console.warn('Scene.setActiveCamera: Provided node is not a CameraNode');
+
             return this;
         }
         this.activeCamera = camera;
@@ -328,7 +328,7 @@ export class Scene {
      */
     static _reconstructNode(nodeData) {
         if (!nodeData || !nodeData.type) {
-            console.warn('Scene._reconstructNode: Invalid node data', nodeData);
+
             return new Node('Unknown');
         }
 
@@ -409,7 +409,7 @@ export class Scene {
                 break;
 
             default:
-                console.warn(`Scene._reconstructNode: Unknown node type '${nodeData.type}', creating generic Node`);
+
                 node = new Node(nodeData.name || 'Unknown');
                 break;
         }

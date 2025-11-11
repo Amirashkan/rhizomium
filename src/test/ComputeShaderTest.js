@@ -33,11 +33,9 @@ export class ComputeShaderTest {
    */
   async initialize() {
     if (this.isInitialized) {
-      console.log('[ComputeShaderTest] Already initialized');
+
       return;
     }
-
-    console.log('[ComputeShaderTest] Initializing...');
 
     try {
       // Load compute shader source
@@ -54,9 +52,9 @@ export class ComputeShaderTest {
       this.createDebugOverlay();
 
       this.isInitialized = true;
-      console.log('[ComputeShaderTest] ✓ Initialization complete');
+
     } catch (error) {
-      console.error('[ComputeShaderTest] Initialization failed:', error);
+
       throw error;
     }
   }
@@ -71,10 +69,10 @@ export class ComputeShaderTest {
         throw new Error(`Failed to load shader: ${response.statusText}`);
       }
       const source = await response.text();
-      console.log('[ComputeShaderTest] Compute shader loaded:', source.length, 'bytes');
+
       return source;
     } catch (error) {
-      console.error('[ComputeShaderTest] Failed to load compute shader:', error);
+
       throw error;
     }
   }
@@ -178,7 +176,6 @@ export class ComputeShaderTest {
       }
     });
 
-    console.log('[ComputeShaderTest] Display pipeline created');
   }
 
   /**
@@ -212,7 +209,6 @@ export class ComputeShaderTest {
     this.debugOverlay = overlay;
     this.updateDebugOverlay();
 
-    console.log('[ComputeShaderTest] Debug overlay created');
   }
 
   /**
@@ -267,7 +263,6 @@ export class ComputeShaderTest {
     }
     this.updateDebugOverlay();
 
-    console.log('[ComputeShaderTest] ✓ Enabled');
   }
 
   /**
@@ -279,7 +274,6 @@ export class ComputeShaderTest {
       this.debugOverlay.style.display = 'none';
     }
 
-    console.log('[ComputeShaderTest] Disabled');
   }
 
   /**
@@ -344,7 +338,7 @@ export class ComputeShaderTest {
       this.updateFPS();
 
     } catch (error) {
-      console.error('[ComputeShaderTest] Render error:', error);
+
     }
   }
 
@@ -379,6 +373,5 @@ export class ComputeShaderTest {
     this.isEnabled = false;
     this.isInitialized = false;
 
-    console.log('[ComputeShaderTest] Destroyed');
   }
 }

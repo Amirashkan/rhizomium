@@ -18,7 +18,7 @@ export class ParameterValueManager {
 
   _debugLog(message, data = {}) {
     if (this.debugMode) {
-      console.log(`[ParameterValueManager] ${message}`, data);
+
     }
   }
 
@@ -35,7 +35,7 @@ export class ParameterValueManager {
     
     const safeDefault = Number(defaultValue) || 0;
     if (this.debugMode) {
-      console.warn(`Could not convert value to number for ${paramName}:`, { value, type: typeof value, defaultValue: safeDefault });
+
     }
     return safeDefault;
   }
@@ -59,7 +59,7 @@ export class ParameterValueManager {
         const result = this.expressionSystem.evaluateExpression(rawValue, {}, node);
         return this._toSafeNumber(result, `${paramName}(expression)`, defaultValue);
       } catch (error) {
-        console.warn(`Expression evaluation failed for ${paramName}:`, error);
+
         return this._toSafeNumber(defaultValue, `${paramName}(error)`, 0);
       }
     }
@@ -88,7 +88,7 @@ export class ParameterValueManager {
         this._debugLog(`Expression ${rawValue} evaluated to ${numericResult} for shader`);
         return numericResult;
       } catch (error) {
-        console.warn(`Expression evaluation failed for shader compilation of ${paramName}:`, error);
+
         return this._toSafeNumber(defaultValue, `${paramName}(error)`, 0);
       }
     }
@@ -276,7 +276,7 @@ export class ParameterValueManager {
       }
       return false;
     } catch (error) {
-      console.error(`Error re-evaluating expressions for node ${node.id}:`, error);
+
       return false;
     }
   }
@@ -304,7 +304,7 @@ export class ParameterValueManager {
             const result = this.expressionSystem.evaluateExpression(rawValue, {}, node);
             return this._toSafeNumber(result, 'sourceNode.value', 0);
           } catch (error) {
-            console.warn('Expression evaluation failed in source node:', error);
+
             return 0;
           }
         }

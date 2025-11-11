@@ -113,7 +113,6 @@ for (let y = 0; y < height; y++) {
       }, 1000);
 
     } catch (err) {
-      console.error(err);
 
       if (err.message.includes('401') || err.message.includes('Unauthorized')) {
         const shouldSignIn = await modalManager.confirm(
@@ -143,7 +142,7 @@ async _publishAnimation() {
     try {
       await window.initWebGPU(canvas, true);
     } catch (error) {
-      console.warn("initWebGPU failed during animation export:", error);
+
     }
   }
 
@@ -223,7 +222,7 @@ async _publishAnimation() {
           renderer.render();
         }
       } catch (error) {
-        console.warn("Render tick failed during animation export:", error);
+
       }
     }, frameInterval);
   }
@@ -266,7 +265,7 @@ async _publishAnimation() {
   try {
     await recordingPromise;
   } catch (error) {
-    console.error("Animation recording failed:", error);
+
     await modalManager.alert("Animation recording failed: " + error.message, 'Recording Error');
     return;
   } finally {
@@ -317,7 +316,6 @@ async _publishAnimation() {
     }, 1000);
 
   } catch (err) {
-    console.error(err);
 
     if (err.message.includes('401') || err.message.includes('Unauthorized')) {
       const shouldSignIn = await modalManager.confirm(
@@ -1146,7 +1144,7 @@ _createExportButtons() {
       try {
         await window.initWebGPU(canvas, true);
       } catch (error) {
-        console.warn("initWebGPU failed during PNG export:", error);
+
       }
     }
 
@@ -1204,7 +1202,7 @@ _createExportButtons() {
 
       setTimeout(() => URL.revokeObjectURL(link.href), 100);
     } catch (error) {
-      console.error("Export error:", error);
+
       await modalManager.alert("Export failed: " + error.message + "\n\nMake sure the preview is actively rendering.", 'Export Error');
     }
   }
@@ -1224,7 +1222,7 @@ _createExportButtons() {
       try {
         await window.initWebGPU(canvas, true);
       } catch (error) {
-        console.warn("initWebGPU failed during animation export:", error);
+
       }
     }
 
@@ -1304,7 +1302,7 @@ _createExportButtons() {
             renderer.render();
           }
         } catch (error) {
-          console.warn("Render tick failed during animation export:", error);
+
         }
       }, frameInterval);
     }
@@ -1348,7 +1346,7 @@ _createExportButtons() {
     try {
       await recordingPromise;
     } catch (error) {
-      console.error("Animation export failed:", error);
+
       await modalManager.alert("Animation export failed: " + error.message, 'Export Error');
       return;
     } finally {

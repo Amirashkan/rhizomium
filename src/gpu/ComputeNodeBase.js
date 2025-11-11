@@ -74,7 +74,7 @@ export class ComputeNodeBase {
    */
   async initialize(wgslSource, width, height, supportsFeedback = false) {
     if (this.initialized) {
-      console.warn(`[ComputeNodeBase] Node ${this.id} already initialized`);
+
       return;
     }
 
@@ -95,7 +95,6 @@ export class ComputeNodeBase {
 
     this.initialized = true;
 
-    console.log(`[ComputeNodeBase] Initialized ${this.kind} (${this.id}) at ${width}x${height}`);
   }
 
   /**
@@ -106,7 +105,7 @@ export class ComputeNodeBase {
    */
   dispatch(device, encoder, time) {
     if (!this.initialized || !this.shaderManager) {
-      console.warn(`[ComputeNodeBase] Cannot dispatch ${this.id}: not initialized`);
+
       return;
     }
 
@@ -126,7 +125,7 @@ export class ComputeNodeBase {
    */
   getOutputTexture() {
     if (!this.shaderManager) {
-      console.warn(`[ComputeNodeBase] Cannot get output texture: ${this.id} not initialized`);
+
       return null;
     }
 
@@ -141,12 +140,11 @@ export class ComputeNodeBase {
    */
   setUniform(name, value) {
     if (!this.params.hasOwnProperty(name)) {
-      console.warn(`[ComputeNodeBase] Parameter '${name}' not found in ${this.id}`);
+
     }
 
     this.params[name] = value;
 
-    console.log(`[ComputeNodeBase] Set ${this.id}.${name} = ${value}`);
   }
 
   /**
@@ -209,7 +207,6 @@ export class ComputeNodeBase {
     node.height = data.dimensions?.height || 512;
     node.supportsFeedback = data.supportsFeedback || false;
 
-    console.log(`[ComputeNodeBase] Deserialized ${data.kind} (${data.id})`);
 
     return node;
   }
@@ -221,7 +218,7 @@ export class ComputeNodeBase {
    */
   resize(width, height) {
     if (!this.shaderManager) {
-      console.warn(`[ComputeNodeBase] Cannot resize ${this.id}: not initialized`);
+
       return;
     }
 
@@ -229,7 +226,6 @@ export class ComputeNodeBase {
     this.height = height;
     this.shaderManager.resize(width, height);
 
-    console.log(`[ComputeNodeBase] Resized ${this.id} to ${width}x${height}`);
   }
 
   /**
@@ -281,7 +277,6 @@ export class ComputeNodeBase {
 
     this.initialized = false;
 
-    console.log(`[ComputeNodeBase] Destroyed ${this.kind} (${this.id})`);
   }
 
   /**

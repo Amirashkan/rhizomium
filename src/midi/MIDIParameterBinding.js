@@ -28,7 +28,7 @@ export class MIDIParameterBinding {
 
   setupEventListeners() {
     if (!this.eventSystem) {
-      console.error('[MIDIParameterBinding] Event system not available');
+
       return;
     }
 
@@ -47,7 +47,7 @@ export class MIDIParameterBinding {
 
     const node = this.graph.nodes.find(n => n.id === nodeId);
     if (!node) {
-      console.error('Node not found:', nodeId);
+
       return false;
     }
 

@@ -53,7 +53,7 @@ export class FeedbackManager {
    */
   async initialize(initializerFn = null) {
     if (this.isInitialized) {
-      console.warn('FeedbackManager already initialized');
+
       return;
     }
 
@@ -86,7 +86,6 @@ export class FeedbackManager {
     }
 
     this.isInitialized = true;
-    console.log(`FeedbackManager initialized (${this.width}x${this.height})`);
   }
 
   /**
@@ -187,7 +186,6 @@ export class FeedbackManager {
       );
     }
 
-    console.log('FeedbackManager state reset');
   }
 
   /**
@@ -303,7 +301,6 @@ export class FeedbackManager {
     this.history = [];
     this.isInitialized = false;
 
-    console.log('FeedbackManager destroyed');
   }
 }
 

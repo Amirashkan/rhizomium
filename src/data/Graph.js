@@ -152,7 +152,7 @@ export class Graph {
       this.isExecutionOrderDirty = false;
       return this.executionOrder;
     } else {
-      console.error('Failed to compute execution order:', sorted.error);
+
       return [];
     }
   }

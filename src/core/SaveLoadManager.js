@@ -140,7 +140,7 @@ async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
 
         resolve();
       } catch (err) {
-        console.error(`Failed to restore texture for node ${nodeId}:`, err);
+
         reject(err);
       }
     };
@@ -311,7 +311,7 @@ async importProject(projectData, options = {}) {
               // Store the GPU texture
               texInfo.gpuTexture = gpuTexture;
             } catch (error) {
-              console.error(`Failed to create GPU texture for node ${nodeId}:`, error);
+
             }
           }
         }
@@ -345,7 +345,7 @@ async importProject(projectData, options = {}) {
     // Step 2: Force WebGPU reinitialization and capture the device
     let gpuDevice = await this.reinitializeWebGPU();
     if (!gpuDevice) {
-      console.warn("WebGPU reinitialization failed, continuing with shader update...");
+
     }
 
     // Step 3: Wait another frame after WebGPU init
@@ -399,7 +399,7 @@ async importProject(projectData, options = {}) {
         await this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
       }
     } else {
-      console.warn("GPU device or preview system not available for reconnection");
+
     }
 
     // Force several renders to stabilize GPU
@@ -508,12 +508,12 @@ async importProject(projectData, options = {}) {
             renderer(ctx, node);
             node.__thumb = canvas;
           } else {
-            console.warn(`No renderer found for ${node.kind}`);
+
           }
 
           await new Promise(resolve => setTimeout(resolve, 30));
         } catch (error) {
-          console.warn(`Failed to render thumbnail for node ${node.id}:`, error);
+
         }
       }
 
@@ -561,7 +561,7 @@ async importProject(projectData, options = {}) {
 
           this.hasUnsavedChanges = false;    
         } else {
-          console.warn("Main GPU canvas not found for OutputFinal capture");
+
         }
       }
     }
@@ -600,7 +600,7 @@ async reinitializeWebGPU() {
     // Get the remaining canvas
     const canvas = document.getElementById("gpu-canvas");
     if (!canvas) {
-      console.error("No GPU canvas found after cleanup");
+
       return null;
     }
 
@@ -620,7 +620,7 @@ async reinitializeWebGPU() {
 
     return null;
   } catch (error) {
-    console.error("WebGPU reinitialization failed:", error);
+
     window.errorHandler?.handleError(error, { 
       component: 'webgpu-reinitialization',
       context: 'after-file-load'
@@ -699,7 +699,7 @@ async reinitializeWebGPU() {
             await window.updateShader(wgsl);
             return true;
           } catch (error) {
-            console.warn("Manual shader update failed:", error);
+
             return false;
           }
         }
@@ -713,7 +713,7 @@ async reinitializeWebGPU() {
             await window.compileShader(this.graph);
             return true;
           } catch (error) {
-            console.warn("Direct shader compilation failed:", error);
+
             return false;
           }
         }
@@ -730,12 +730,12 @@ async reinitializeWebGPU() {
           break;
         }
       } catch (error) {
-        console.warn("Shader update method failed:", error);
+
       }
     }
 
     if (!success) {
-      console.warn("All shader update methods failed");
+
     }
 
     return success;
@@ -768,7 +768,7 @@ async reinitializeWebGPU() {
         canvas.dispatchEvent(new CustomEvent('forceRefresh'));
       }
     } catch (error) {
-      console.warn("Preview system update failed:", error);
+
       window.errorHandler?.handleError(error, {
         component: 'preview-system-update'
       });
@@ -832,7 +832,7 @@ async reinitializeWebGPU() {
 
       return true;
     } catch (error) {
-      console.warn("Rendering pipeline reinitialization failed:", error);
+
       window.errorHandler?.handleError(error, {
         component: 'rendering-pipeline-reinitialization'
       });
@@ -899,7 +899,7 @@ async reinitializeWebGPU() {
             // Small delay between node renders
             await new Promise(resolve => setTimeout(resolve, 10));
           } catch (error) {
-            console.warn(`Failed to render preview for node ${node.id}:`, error);
+
           }
         }
       }
@@ -957,7 +957,7 @@ async reinitializeWebGPU() {
               this.editor.onNodeChanged(targetNode);
             }
           } catch (error) {
-            console.warn(`Failed to trigger connection event for connection:`, error);
+
           }
         }
       }
@@ -1009,7 +1009,7 @@ async reinitializeWebGPU() {
           try {
             await window[funcName]();
           } catch (error) {
-            console.warn(`${funcName} failed:`, error);
+
           }
         }
       }
@@ -1031,7 +1031,7 @@ async reinitializeWebGPU() {
         }, 300);
       }
     } catch (error) {
-      console.warn("Node preview recomputation failed:", error);
+
       window.errorHandler?.handleError(error, {
         component: 'node-preview-recomputation'
       });
@@ -1644,13 +1644,13 @@ importConnections(connectionData) {
   importTimeline(timelineData) {
     try {
       if (!window.timelineManager) {
-        console.warn('TimelineManager not available for import');
+
         return;
       }
 
       window.timelineManager.fromJSON(timelineData);
     } catch (error) {
-      console.error('Failed to import timeline data:', error);
+
       window.errorHandler?.handleError(error, {
         component: 'timeline-import'
       });
@@ -1663,13 +1663,13 @@ importConnections(connectionData) {
   importMIDIBindings(midiData) {
     try {
       if (!window.midiBinding) {
-        console.warn('MIDIParameterBinding not available for import');
+
         return;
       }
 
       window.midiBinding.deserialize(midiData);
     } catch (error) {
-      console.error('Failed to import MIDI bindings:', error);
+
       window.errorHandler?.handleError(error, {
         component: 'midi-import'
       });
@@ -1733,9 +1733,7 @@ importConnections(connectionData) {
 
       // Version compatibility check
       if (data.version && data.version > 2) {
-        console.warn(
-          "Loading project from newer version - some features may not work correctly",
-        );
+
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 

@@ -178,7 +178,7 @@ export class TexturedMeshRenderer {
         });
 
         this.initialized = true;
-        console.log('[TexturedMeshRenderer] Initialized');
+
     }
 
     /**
@@ -200,7 +200,7 @@ export class TexturedMeshRenderer {
      */
     render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, options = {}) {
         if (!this.initialized) {
-            console.warn('[TexturedMeshRenderer] Not initialized');
+
             return;
         }
 
@@ -209,12 +209,12 @@ export class TexturedMeshRenderer {
         }
 
         if (!geometry.uvs) {
-            console.warn('[TexturedMeshRenderer] Geometry missing UVs, cannot render textured mesh');
+
             return;
         }
 
         if (!this.texture) {
-            console.warn('[TexturedMeshRenderer] No texture set');
+
             return;
         }
 
@@ -438,6 +438,5 @@ export class TexturedMeshRenderer {
         this.texture = null;
         this.initialized = false;
 
-        console.log('[TexturedMeshRenderer] Destroyed');
     }
 }

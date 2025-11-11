@@ -546,7 +546,6 @@ export class EventHandler {
         pos.y >= controlY - 8 &&
         pos.y <= controlY - 8 + buttonHeight
       ) {
-        console.log(`Clicked preview toggle button for node ${node.id}`);
 
         // This toggles the GLOBAL preview state
         this.editor.toggleNodePreview(node.id);

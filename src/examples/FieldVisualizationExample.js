@@ -20,7 +20,6 @@ import { ParameterEventSystem } from '../utils/ParameterEventSystem.js';
  * Example: Visualize a noise field as a point cloud
  */
 export async function exampleNoisePointCloud(device, canvas) {
-    console.log('=== Example: Noise Field Point Cloud ===');
 
     // Create scene
     const scene = new Scene();
@@ -121,8 +120,6 @@ export async function exampleNoisePointCloud(device, canvas) {
     // Add to scene
     scene.addNode(fieldMapper);
 
-    console.log('Scene created with noise field point cloud');
-
     return { scene, camera, computeNode, fieldMapper };
 }
 
@@ -146,8 +143,6 @@ export async function updateFieldVisualization(fieldMapper, computeNode, device,
     // Get geometry for rendering
     const geometry = fieldMapper.getGeometry();
 
-    console.log(`Generated ${geometry.vertexCount} points`);
-
     // Submit command buffer
     device.queue.submit([encoder.finish()]);
 
@@ -158,7 +153,6 @@ export async function updateFieldVisualization(fieldMapper, computeNode, device,
  * Example: Create a mesh visualization from a 3D field
  */
 export async function exampleMeshVisualization(device, canvas) {
-    console.log('=== Example: 3D Field Mesh Visualization ===');
 
     // Create scene
     const scene = new Scene();
@@ -187,8 +181,6 @@ export async function exampleMeshVisualization(device, canvas) {
 
     // Add to scene
     scene.addNode(fieldMapper);
-
-    console.log('Scene created with mesh visualization');
 
     return { scene, camera, fieldMapper };
 }
@@ -263,7 +255,6 @@ export class ReactiveFieldExample {
     }
 
     async initialize() {
-        console.log('=== Reactive Field Example: Real-time Parameter Updates ===');
 
         // Create scene
         this.scene = new Scene();
@@ -365,7 +356,6 @@ export class ReactiveFieldExample {
         // Add to scene
         this.scene.addNode(this.fieldMapper);
 
-        console.log('Reactive field example initialized');
     }
 
     async update(deltaTime) {

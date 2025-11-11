@@ -496,7 +496,7 @@ export class ComputeFieldMapperNode extends Node {
                 // Generate mesh from 3D texture using marching cubes
                 // We need the device to read texture data
                 if (!this.device) {
-                    console.error('[ComputeFieldMapperNode] Device not available for mesh generation');
+
                     this.geometry = null;
                 } else {
                     this.geometry = await this.visualizer.generateMeshFromTexture3D(fieldTexture, this.device);

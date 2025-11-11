@@ -34,13 +34,12 @@ handles(kind) {
    * @returns {Object} { line, outputType }
    */
   compile(node, getInput) {
-    console.log(`🔧 TRANSFORM COMPILER CALLED: ${node.kind} (${node.id})`);
     
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
     
     switch (node.kind) {
       case 'Transform2D':
-        console.log(`🔧 Compiling Transform2D with params:`, node.params);
+
         return this.compileOptimizedTransform2D(node, getInput, nodeId);
       case 'Scale2D':
         return this.compileScale2D(node, getInput, nodeId);
@@ -97,7 +96,7 @@ getShaderParam(node, name, defaultValue) {
     try {
       return unifiedExpressionSystem.generateShader(value);
     } catch (error) {
-      console.warn('Failed to generate shader for expression:', value, error);
+
       return String(defaultValue);
     }
   }
@@ -107,7 +106,7 @@ getShaderParam(node, name, defaultValue) {
     try {
       return unifiedExpressionSystem.generateShader(value);
     } catch (error) {
-      console.warn('Failed to generate shader for expression:', value, error);
+
       return String(defaultValue);
     }
   }
@@ -148,7 +147,6 @@ getShaderParam(node, name, defaultValue) {
    */
   compileOptimizedTransform2D(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");
-    console.log(`🔧 Transform2D input UV: ${uv}`);
 
     const translateX = this.getShaderParam(node, 'translateX', 0.0);
     const translateY = this.getShaderParam(node, 'translateY', 0.0);
@@ -174,8 +172,6 @@ getShaderParam(node, name, defaultValue) {
         rotation = `(${rotationDeg} * ${Math.PI / 180})`;
       }
     }
-
-    console.log(`🔧 Transform2D shader params:`, { translateX, translateY, scaleX, scaleY, rotation, centerX, centerY });
 
     // OPTIMIZATION: Check if rotation is static AND numeric (not a uniform reference)
     const isStaticRotation = !this.isTimeExpression(node.params?.rotation);
@@ -218,7 +214,6 @@ getShaderParam(node, name, defaultValue) {
   let node_${nodeId} = uv_${nodeId} + vec2<f32>(${translateX}, ${translateY});`;
     }
 
-    console.log(`🔧 Generated optimized shader line:`, line);
     return {
       line,
       outputType: "vec2"

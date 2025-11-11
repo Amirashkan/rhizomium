@@ -8,7 +8,7 @@ export function getEvaluatedParam(node, paramName, defaultValue) {
     // If this parameter has a dynamic uniform value, use it
     if (uniformMgr.uniformValues && uniformMgr.uniformValues.has(key)) {
       const evaluated = uniformMgr.uniformValues.get(key);
-      console.log(`📊 Preview using evaluated value for ${key}:`, evaluated);
+
       return evaluated;
     }
   }

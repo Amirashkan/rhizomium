@@ -202,7 +202,7 @@ export class ViewportManager {
       this.offsetX = 0;
       this.offsetY = 0;
       this.stopPan();
-      console.log('Viewport reset to default values');
+
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'viewport-reset'
@@ -228,7 +228,6 @@ export class ViewportManager {
       this.offsetX = offsetX;
       this.offsetY = offsetY;
       
-      console.log(`Viewport set: scale=${this.scale}, offset=(${this.offsetX}, ${this.offsetY})`);
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'viewport-set',
@@ -315,7 +314,6 @@ export class ViewportManager {
       this.offsetX = newOffsetX;
       this.offsetY = newOffsetY;
 
-      console.log(`Fitted to content: scale=${this.scale}, offset=(${this.offsetX}, ${this.offsetY})`);
       return true;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -363,7 +361,7 @@ export class ViewportManager {
       }
 
       if (issues.length > 0) {
-        console.warn('Viewport state validation issues:', issues);
+
         return { valid: false, issues };
       }
 

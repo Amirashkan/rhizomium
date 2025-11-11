@@ -34,7 +34,6 @@ export class VJControlPanel {
     this.attachEventListeners();
     this.loadFromStorage();
 
-    console.log('[VJControlPanel] Initialized');
   }
 
   /**

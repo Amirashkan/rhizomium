@@ -55,20 +55,20 @@ export class PreviewIntegration {
 
   updateAllPreviews() {
     if (!this.previewSystem) {
-      console.warn("PreviewSystem not available for updateAllPreviews");
+
       return;
     }
     // Pass the nodes array to updateAllPreviews
     if (this.editor?.graph?.nodes) {
       this.previewSystem.updateAllPreviews(this.editor.graph.nodes);
     } else {
-      console.warn("Cannot update previews - no nodes available");
+
     }
   }
 
   generateNodePreview(node, skipCompute = false) {
     if (!this.previewSystem) {
-      console.warn("PreviewSystem not available for generateNodePreview");
+
       return;
     }
     // OPTIMIZATION: Allow caller to skip compute if they already computed all values
@@ -241,7 +241,7 @@ updateTimeNodes() {
 
   onGraphCleared() {
     if (!this.previewSystem) {
-      console.warn("PreviewSystem not available for onGraphCleared");
+
       return;
     }
     this.previewSystem.clearCache();
@@ -277,7 +277,7 @@ updateTimeNodes() {
   // Expose preview system methods for backward compatibility
   renderTexture2D(node, size) {
     if (!this.previewSystem) {
-      console.warn("PreviewSystem not available for renderTexture2D");
+
       return null;
     }
 

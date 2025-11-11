@@ -1135,7 +1135,7 @@ case 'flip2d':
           }
         }
       } catch (error) {
-        console.error(`Error creating input for parameter ${param.name}:`, error);
+
         this.createFallbackInput(param, node, inputContainer);
       }
     } else {
@@ -1297,7 +1297,7 @@ case 'flip2d':
 
   addKeyframeForParameter(node, param) {
     if (!window.timelineManager) {
-      console.error('TimelineManager not available');
+
       return;
     }
 
@@ -1317,7 +1317,7 @@ case 'flip2d':
       this.renderParameters(node);
 
     } catch (error) {
-      console.error('Error adding keyframe:', error);
+
       if (window.updateStatus) {
         window.updateStatus(`Error adding keyframe: ${error.message}`, 'error');
       }

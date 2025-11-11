@@ -40,7 +40,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
  * Run all tests
  */
 export async function runTests(device) {
-  console.log('=== ComputeNodeBase Test Suite ===\n');
 
   let passed = 0;
   let failed = 0;
@@ -60,10 +59,10 @@ export async function runTests(device) {
     assert(node.id === 'test_node_1', 'Node ID should match');
     assert(node.kind === 'ComputeNoise', 'Node kind should match');
     assert(node.params.scale === 8.0, 'Params should be set');
-    console.log('✓ Test 1 passed\n');
+
     passed++;
   } catch (error) {
-    console.error('✗ Test 1 failed:', error.message, '\n');
+
     failed++;
   }
 
@@ -83,10 +82,10 @@ export async function runTests(device) {
     assert(node.getOutputTexture() !== null, 'Output texture should exist');
 
     node.destroy();
-    console.log('✓ Test 2 passed\n');
+
     passed++;
   } catch (error) {
-    console.error('✗ Test 2 failed:', error.message, '\n');
+
     failed++;
   }
 
@@ -108,10 +107,9 @@ export async function runTests(device) {
     assert(node.params.octaves === 7, 'Octaves should be updated');
     assert(node.params.speed === 0.5, 'Speed should be updated');
 
-    console.log('✓ Test 3 passed\n');
     passed++;
   } catch (error) {
-    console.error('✗ Test 3 failed:', error.message, '\n');
+
     failed++;
   }
 
@@ -134,10 +132,10 @@ export async function runTests(device) {
     assert(serialized.metadata.label === 'Test Noise', 'Serialized metadata should match');
 
     node.destroy();
-    console.log('✓ Test 4 passed\n');
+
     passed++;
   } catch (error) {
-    console.error('✗ Test 4 failed:', error.message, '\n');
+
     failed++;
   }
 
@@ -162,16 +160,16 @@ export async function runTests(device) {
     assert(restored.supportsFeedback === original.supportsFeedback, 'Restored feedback flag should match');
 
     original.destroy();
-    console.log('✓ Test 5 passed\n');
+
     passed++;
   } catch (error) {
-    console.error('✗ Test 5 failed:', error.message, '\n');
+
     failed++;
   }
 
   // Test 6: ComputeExecutor integration
   try {
-    console.log('Test 6: ComputeExecutor integration');
+
     const executor = new ComputeExecutor(device);
 
     const node1 = new ComputeNodeBase(device, {
@@ -204,16 +202,16 @@ export async function runTests(device) {
     assert(executor.computeNodes.size === 1, 'Node should be removed');
 
     executor.clear();
-    console.log('✓ Test 6 passed\n');
+
     passed++;
   } catch (error) {
-    console.error('✗ Test 6 failed:', error.message, '\n');
+
     failed++;
   }
 
   // Test 7: Dispatch
   try {
-    console.log('Test 7: Dispatch');
+
     const node = new ComputeNodeBase(device, {
       id: 'test_node_7',
       kind: 'ComputeNoise',
@@ -227,16 +225,16 @@ export async function runTests(device) {
 
     // If we get here without errors, dispatch worked
     node.destroy();
-    console.log('✓ Test 7 passed\n');
+
     passed++;
   } catch (error) {
-    console.error('✗ Test 7 failed:', error.message, '\n');
+
     failed++;
   }
 
   // Test 8: Executor serialization
   try {
-    console.log('Test 8: Executor serialization');
+
     const executor = new ComputeExecutor(device);
 
     const node1 = new ComputeNodeBase(device, {
@@ -266,23 +264,21 @@ export async function runTests(device) {
     assert(restored[0].id === 'ser_test_1', 'First restored node should match');
 
     executor.clear();
-    console.log('✓ Test 8 passed\n');
+
     passed++;
   } catch (error) {
-    console.error('✗ Test 8 failed:', error.message, '\n');
+
     failed++;
   }
 
   // Summary
-  console.log('=== Test Summary ===');
-  console.log(`Passed: ${passed}`);
-  console.log(`Failed: ${failed}`);
-  console.log(`Total: ${passed + failed}`);
+
+
+
 
   if (failed === 0) {
-    console.log('\n✓ All tests passed!');
+
   } else {
-    console.log(`\n✗ ${failed} test(s) failed`);
   }
 
   return { passed, failed };
@@ -302,6 +298,6 @@ function assert(condition, message) {
  */
 if (typeof window !== 'undefined' && window.testDevice) {
   runTests(window.testDevice).catch(error => {
-    console.error('Test execution failed:', error);
+
   });
 }

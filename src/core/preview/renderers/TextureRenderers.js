@@ -71,11 +71,10 @@ getParameterValue(node, paramName, defaultValue = 0) {
       const previewTime = Math.PI / 2;
       const safeEval = new Function('time', `return ${rawValue.replace(/\bsin\(/g, 'Math.sin(').replace(/\bcos\(/g, 'Math.cos(').replace(/\btan\(/g, 'Math.tan(')}`);
       const result = safeEval(previewTime);
-      
-      console.log('✅ Evaluated', rawValue, '=', result);
+
       return isNaN(result) ? defaultValue : result;
     } catch (error) {
-      console.warn(`Preview expression evaluation failed for ${paramName}:`, error);
+
       return defaultValue;
     }
   }
@@ -143,7 +142,6 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
   renderTexture2D(ctx, node) {
     const size = ctx.canvas.width;
-    console.log("Texture2D preview for node", node.id, "size:", size);
 
     // Get texture parameters with expression support
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 1.0), 1.0);
@@ -153,7 +151,6 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
     // Check if texture is loaded
     const textureInfo = window.textureManager?.getTexture(node.id);
-    console.log("Texture info for node", node.id, ":", textureInfo);
 
     if (textureInfo && textureInfo.file) {
       // Try to create image from file
@@ -222,7 +219,6 @@ getParameterValue(node, paramName, defaultValue = 0) {
       }
     }
 
-    console.log("Texture2D preview complete:", "dimensions:", size, "x", size);
   }
 
   renderTextureError(ctx, errorText) {
@@ -309,11 +305,11 @@ getParameterValue(node, paramName, defaultValue = 0) {
         if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
           radius = window.editor.paramPanel.expressionSystem.evaluateExpression(radiusParam, {}, node);
         } else {
-          console.warn('Expression system not available for radius parameter, using default: 0.25');
+
           radius = 0.25;
         }
       } catch (error) {
-        console.warn('Expression evaluation failed:', error);
+
         radius = 0.25;
       }
     } else {
@@ -326,11 +322,11 @@ getParameterValue(node, paramName, defaultValue = 0) {
         if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
           epsilon = window.editor.paramPanel.expressionSystem.evaluateExpression(epsilonParam, {}, node);
         } else {
-          console.warn('Expression system not available for epsilon parameter, using default: 0.02');
+
           epsilon = 0.02;
         }
       } catch (error) {
-        console.warn('Expression evaluation failed:', error);
+
         epsilon = 0.02;
       }
     } else {
@@ -380,7 +376,7 @@ renderRectangle(ctx, node) {
   const centerX = this.getParameterValue(node, "centerX", 0.5);
   const centerY = this.getParameterValue(node, "centerY", 0.5);
   const epsilon = this.getParameterValue(node, "epsilon", 0.02);
-console.log('Rectangle render:', {width, height, centerX, centerY, epsilon});
+
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, size, size);
 

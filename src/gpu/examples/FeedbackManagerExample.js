@@ -46,7 +46,6 @@ export class FeedbackManagerExample {
     // Create compute pipeline
     await this.createComputePipeline();
 
-    console.log('FeedbackManagerExample initialized');
   }
 
   /**
@@ -179,7 +178,6 @@ export class FeedbackManagerExample {
       }
     });
 
-    console.log('Compute pipeline created');
   }
 
   /**
@@ -259,7 +257,7 @@ export class FeedbackManagerExample {
     const initializer = createReactionDiffusionInitializer(pattern);
     await this.feedbackManager.reset(initializer);
     this.frameCount = 0;
-    console.log(`Simulation reset to pattern: ${pattern}`);
+
   }
 
   /**

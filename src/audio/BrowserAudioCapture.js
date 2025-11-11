@@ -124,7 +124,7 @@ export class BrowserAudioCapture {
             this._emit('loaded', file.name);
 
         } catch (error) {
-            console.error('[BrowserAudio] Failed to load file:', error);
+
             this._emit('error', error);
             throw error;
         }
@@ -143,7 +143,7 @@ export class BrowserAudioCapture {
             this.isPlaying = true;
             this._emit('started');
         } catch (error) {
-            console.error('[BrowserAudio] Failed to play:', error);
+
             this._emit('error', error);
             throw error;
         }
@@ -370,13 +370,6 @@ export class BrowserAudioCapture {
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {
-            console.log('Audio envelope:', {
-                main: this._envelopeValue.toFixed(3),
-                bass: this._envelopeBass.toFixed(3),
-                mids: this._envelopeMids.toFixed(3),
-                highs: this._envelopeHighs.toFixed(3),
-                full: this._envelopeFull.toFixed(3)
-            });
             this._lastDebugLog = performance.now();
         }
 
@@ -566,7 +559,7 @@ export class BrowserAudioCapture {
                 try {
                     callback(...args);
                 } catch (error) {
-                    console.error(`[BrowserAudio] Error in ${event} listener:`, error);
+
                 }
             });
         }
@@ -584,7 +577,7 @@ export function getBrowserAudioCapture() {
         try {
             instance = new BrowserAudioCapture();
         } catch (error) {
-            console.error('[getBrowserAudioCapture] Failed to create instance:', error);
+
             throw error;
         }
     }

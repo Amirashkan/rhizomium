@@ -10,7 +10,7 @@
  */
 export function makeDraggable(panel, dragHandle) {
   if (!panel || !dragHandle) {
-    console.warn('[makeDraggable] Invalid panel or dragHandle');
+
     return () => {};
   }
 

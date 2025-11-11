@@ -154,11 +154,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       return result;
 
     } catch (error) {
-      console.warn(`Expression evaluation failed: ${error.message}`, {
-        expression,
-        nodeId: node?.id,
-        context
-      });
+
       return this.parseValue(expression.slice(1)); // Return expression without = on error
     }
   }
@@ -243,7 +239,7 @@ buildEvaluationContext(context, node) {
     get frame() { return 0; }, // Can be updated by animation system
     get audioEnvelope() {
       const value = getAudioEnvelope();
-      console.log('[ExpressionSystem] audioEnvelope getter called, value:', value);
+
       return value;
     }, // Real-time audio envelope value
 
@@ -275,7 +271,6 @@ buildEvaluationContext(context, node) {
   // Add node output values from the graph
   this._addNodeOutputReferences(evalContext, node);
 
-  console.log('[ExpressionSystem] Built evalContext, audioEnvelope available:', 'audioEnvelope' in evalContext);
   return evalContext;
 }
 
@@ -465,7 +460,7 @@ isIncompleteExpression(expression) {
       // Notify listeners of dependency changes
       this.notifyDependencyChange(nodeId, paramName, newValue);
     } catch (error) {
-      console.warn('Error updating dependencies:', error);
+
     }
   }
 
@@ -477,7 +472,7 @@ isIncompleteExpression(expression) {
       try {
         listener({ nodeId, paramName, newValue });
       } catch (error) {
-        console.warn('Error in dependency change listener:', error);
+
       }
     });
   }
@@ -604,7 +599,7 @@ create(param, node, div, label, valueManager, onChange) {
 
     return div;
   } catch (error) {
-    console.error('Error creating expression input:', error);
+
     return div;
   }
 }
@@ -764,7 +759,6 @@ isIncomplete(value) {
     if (value && !value.startsWith('=') && this._looksLikeExpression(value)) {
       value = '=' + value;
       wasModified = true;
-      console.log(`[ExpressionInput] Auto-added = prefix: "${rawValue.trim()}" → "${value}"`);
 
       // Update the input element to show the = prefix
       if (inputElement) {
@@ -1240,15 +1234,15 @@ getValue(node, paramName) {
     
     // CRITICAL: Always evaluate expressions when getValue is called
     if (this.expressionSystem.isExpression(rawValue)) {
-      console.log(`🔄 Evaluating expression for ${node.id}.${paramName}: ${rawValue}`);
+
       const result = this.expressionSystem.evaluateExpression(rawValue, {}, node);
-      console.log(`✅ Expression result: ${result}`);
+
       return result;
     }
     
     return this.expressionSystem.parseValue(rawValue);
   } catch (error) {
-    console.warn(`Error getting parameter value for ${paramName}:`, error);
+
     // Return the raw value as fallback
     return node.params?.[paramName];
   }
@@ -1258,16 +1252,14 @@ getValue(node, paramName) {
 // Replace the existing setValue method with this corrected version:
 
 setValue(node, paramName, value) {
-  console.log("[ParameterExpressionSystem.setValue] CALLED:", node.kind, node.id, paramName, "value:", value, "type:", typeof value);
+
   try {
     if (!node.params) node.params = {};
 
     const oldValue = node.params[paramName];
-    console.log("[ParameterExpressionSystem.setValue] oldValue:", oldValue, "newValue:", value);
 
     // STORE THE ORIGINAL VALUE/EXPRESSION (don't evaluate here)
     node.params[paramName] = value;  // Store "=sin(time)", not 0.123
-    console.log("[ParameterExpressionSystem.setValue] STORED on node.params[" + paramName + "]:", node.params[paramName]);
 
     // Record for undo
     if (this.undoManager && oldValue !== value) {
@@ -1286,7 +1278,6 @@ setValue(node, paramName, value) {
     if (isComputeNode) {
       // Compute nodes bake parameters into WGSL shader code
       // Trigger full shader recompilation to regenerate with new parameters
-      console.log(`[ParameterExpressionSystem] Compute node parameter changed, triggering recompilation: ${node.kind}`);
 
       // Clear the compute node registry entry so it gets regenerated
       const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -1307,7 +1298,7 @@ setValue(node, paramName, value) {
         window.computeExecutor.computeTextures.delete(nodeId);
         window.computeExecutor.nodeOutputs.delete(nodeId);
         window.computeExecutor.inputHashes.delete(nodeId);
-        console.log(`[ParameterExpressionSystem] Cleaned up compute manager for ${nodeId}`);
+
       }
 
       // Trigger full shader recompilation
@@ -1331,7 +1322,7 @@ setValue(node, paramName, value) {
     }
 
   } catch (error) {
-    console.error(`Error setting parameter ${paramName}:`, error);
+
   }
 }
 
@@ -1342,19 +1333,17 @@ setValue(node, paramName, value) {
 
 updateNodePreview(node) {
   try {
-    console.log(`🎯 Updating preview for node: ${node.id} (${node.kind})`);
-    console.log(`📊 Current node.params.value:`, node.params?.value, `node.value:`, node.value);
 
     // CRITICAL: Force evaluation of all expressions in this node BEFORE preview
     if (node.params) {
       Object.entries(node.params).forEach(([paramName, value]) => {
         if (this.expressionSystem.isExpression(value)) {
-          console.log(`🔄 Pre-evaluating expression: ${paramName} = ${value}`);
+
           try {
             const result = this.expressionSystem.evaluateExpression(value, {}, node);
-            console.log(`✅ Expression ${paramName} evaluated to: ${result}`);
+
           } catch (error) {
-            console.warn(`❌ Expression evaluation failed for ${paramName}:`, error);
+
           }
         }
       });
@@ -1363,12 +1352,12 @@ updateNodePreview(node) {
     // Clear preview cache for this specific node
     if (window.editor?.previewSystem?.canvasManager) {
       window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
-      console.log(`🗑️ Cleared canvas cache for node: ${node.id}`);
+
     }
     
     // Force immediate preview regeneration
     if (window.editor?.previewIntegration) {
-      console.log(`🚀 Generating preview for node: ${node.id}`);
+
       window.editor.previewIntegration.generateNodePreview(node);
     }
     
@@ -1381,12 +1370,12 @@ updateNodePreview(node) {
       if (window.editor?.draw) {
         if (window.editor.markDirty) window.editor.markDirty('expression-preview-update');
         window.editor.draw();
-        console.log(`🎨 Editor redrawn after preview update for: ${node.id}`);
+
       }
     }, 50); // Batch draws that happen within 50ms
     
   } catch (error) {
-    console.warn(`Error updating preview for node ${node.id}:`, error);
+
   }
 }
   handleBoundParameters(node, paramName, value) {

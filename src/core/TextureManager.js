@@ -14,8 +14,7 @@ export class TextureManager {
  */
 async uploadTexture(nodeId, file) {
   try {
-    console.log(`📤 Uploading texture for node ${nodeId}: ${file.name}`);
-    
+
     // Read file as data URL for saving
     const dataUrl = await this.fileToDataUrl(file);
     
@@ -36,23 +35,21 @@ async uploadTexture(nodeId, file) {
     };
     
     this.textures.set(nodeId, textureInfo);
-    console.log(`✅ Stored texture in map for node ${nodeId}`);
-    
+
     // Upload to GPU if device exists
     if (this.device) {
       await this.uploadToGPU(nodeId, bitmap);
     } else {
-      console.warn("No GPU device available for texture upload");
+
     }
 
     // Invalidate bind group since we have new textures
     this.bindGroup = null;
 
-    console.log(`✅ Uploaded texture: ${file.name} for node ${nodeId}`);
     return textureInfo;
     
   } catch (err) {
-    console.error('Failed to upload texture:', err);
+
     throw err;
   }
 }
@@ -116,7 +113,6 @@ async uploadToGPU(nodeId, bitmap) {
   // Store GPU resources
   this.gpuTextures.set(nodeId, { texture, textureView, sampler });
   
-  console.log(`✅ Uploaded to GPU: ${nodeId} (${bitmap.width}x${bitmap.height})`);
 }
 
 /**
@@ -131,7 +127,7 @@ getTexture(nodeId) {
         throw new Error("WebGPU device is required");
       }
       this.device = device;
-      console.log("TextureManager initialized with device:", device);
+
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'texture-manager-init' 
@@ -151,7 +147,6 @@ getTexture(nodeId) {
     }
 
     try {
-      console.log("Loading texture for node:", nodeId, "file:", imageFile.name);
 
       // Validate file
       if (!imageFile || !imageFile.type.startsWith('image/')) {
@@ -166,12 +161,6 @@ getTexture(nodeId) {
 
       // Create image bitmap from file
       const imageBitmap = await createImageBitmap(imageFile);
-      console.log(
-        "Created image bitmap:",
-        imageBitmap.width,
-        "x",
-        imageBitmap.height,
-      );
 
       // Validate bitmap dimensions
       if (imageBitmap.width > 4096 || imageBitmap.height > 4096) {
@@ -222,7 +211,6 @@ getTexture(nodeId) {
       };
 
       this.textures.set(nodeId, textureInfo);
-      console.log("Successfully loaded texture for node:", nodeId);
 
       // Invalidate bind group since we have new textures
       this.bindGroup = null;
@@ -260,7 +248,6 @@ getTexture(nodeId) {
         // Invalidate bind group
         this.bindGroup = null;
 
-        console.log("Removed texture for node:", nodeId);
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -385,11 +372,6 @@ getTexture(nodeId) {
             bindingIndex += 2;
           } else if (node.kind === "Texture2D" || node.kind === "TextureCube") {
             // Missing texture - create dummy bindings
-            console.warn(
-              "Missing texture for node:",
-              node.id,
-              "creating dummy texture",
-            );
 
             // Create a 1x1 dummy texture
             const dummyTexture = this.createDummyTexture();

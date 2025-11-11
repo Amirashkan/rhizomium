@@ -79,7 +79,7 @@ export class PreviewComputer {
         const result = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
         return typeof result === 'number' ? result : defaultValue;
       } catch (error) {
-        console.error(`[PreviewComputer] Error evaluating param expression "${value}":`, error);
+
         return defaultValue;
       }
     }
@@ -305,8 +305,8 @@ case "ConicGradient": {
                     // Evaluate using UnifiedExpressionSystem (has proper math function support)
                     value = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
                   } catch (error) {
-                    console.error(`[PreviewComputer] Error evaluating expression in ConstFloat:`, error);
-                    console.error(`[PreviewComputer] Expression was:`, value);
+
+
                     value = 0;
                   }
                 } else {
@@ -1193,7 +1193,7 @@ _renderOutputThumbnail(ctx, size, color, node) {
           ctx.strokeRect(1, 1, size - 2, size - 2);
           return;
         } catch (err) {
-          console.error('Failed to copy input thumbnail:', err);
+
         }
       }
     }

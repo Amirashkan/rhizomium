@@ -24,12 +24,12 @@ export function buildWGSL(graph, options = {}) {
   // --- Clear all cached state before building (unless this is a subgraph build) ---
   if (!options.skipCacheClear) {
     compiler.uniformManager.clear();
-    console.log('✅ Cleared uniform manager');
+
     processor.clearFunctionCollection();
 
     if (compiler.compilers.field && compiler.compilers.field.clearFunctionCache) {
       compiler.compilers.field.clearFunctionCache();
-      console.log('✅ Cleared field function cache');
+
     }
 
     if (compiler.compilers.transform && compiler.compilers.transform.clearHelperCache) {
@@ -44,15 +44,12 @@ export function buildWGSL(graph, options = {}) {
   const result = processor.processGraph(graph);
   const { orderedNodes, outputNode } = result;
 
-  console.log(`[buildWGSL] 📊 Graph has ${graph.nodes?.length || 0} total nodes`);
-  console.log(`[buildWGSL] 📊 Processing ${orderedNodes.length} nodes for shader`);
-  console.log(`[buildWGSL] 📊 Output node: ${outputNode ? `${outputNode.kind} (id: ${outputNode.id})` : 'NONE'}`);
+
   if (orderedNodes.length > 0) {
-    console.log(`[buildWGSL] 📊 Ordered nodes:`, orderedNodes.map(n => `${n.kind}(${n.id})`).join(' → '));
   }
 
   if (!outputNode || orderedNodes.length === 0) {
-    console.warn('⚠️ No output node found or empty graph');
+
     compiler.isSubgraphCompilation = false;
     return { wgsl: '', uniformManager: compiler.uniformManager };
   }
@@ -68,7 +65,6 @@ export function buildWGSL(graph, options = {}) {
   const shapeFunctions = compiler.compilers.field?.getAllFunctionDefinitions
     ? compiler.compilers.field.getAllFunctionDefinitions()
     : '';
-  console.log('✅ Injecting shapeFunctions:', shapeFunctions);
 
   const transformHelpers = compiler.compilers.transform?.getHelperFunctions
     ? compiler.compilers.transform.getHelperFunctions()
