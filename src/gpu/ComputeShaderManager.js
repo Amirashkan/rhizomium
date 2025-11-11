@@ -68,13 +68,17 @@ export class ComputeShaderManager {
     if (typeof value === 'string') {
       const trimmed = value.trim();
 
-      // Expression starting with =
-      if (trimmed.startsWith('=')) {
+      // Check if it's an expression (either starts with = or contains time/audioEnvelope)
+      const isExpression = trimmed.startsWith('=') || /\b(time|audioEnvelope)\b/.test(trimmed);
+      const isNodeReference = /node_\d+/.test(value);
+
+      // Handle expressions (with or without = prefix)
+      if (isExpression) {
         try {
           // CRITICAL: If this expression contains node references, compute all previews first
           // to ensure referenced node values are up-to-date
           // Cache the computation per-frame to avoid redundant recalculations
-          if (/node_\d+/.test(value)) {
+          if (isNodeReference) {
             const now = performance.now();
             const previewComputer = window.editor?.previewComputer;
             if (previewComputer && window.editor?.graph) {
