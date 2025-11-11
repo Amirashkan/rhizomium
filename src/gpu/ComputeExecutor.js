@@ -423,10 +423,14 @@ export class ComputeExecutor {
         ];
         const isTimeDependentNode = node?.kind && TIME_DEPENDENT_NODES.includes(node.kind);
 
-        if (shouldUpdate || isTimeDependentNode) {
+        // Check if node has time-dependent parameters (expressions with time or audioEnvelope)
+        // This ensures nodes with expressions like "=time" are dispatched every frame
+        const hasTimeDependentParams = this.hasTimeDependentParameters(node);
+
+        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams) {
           // Only log dispatches occasionally to reduce console spam
           if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
-            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}`);
+            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}`);
             this._lastDispatchLog = Date.now();
           }
 
@@ -545,6 +549,28 @@ export class ComputeExecutor {
 
     // Return fallback texture for uncomputed nodes
     return this.fallbackTexture;
+  }
+
+  /**
+   * Check if a node has time-dependent parameters (expressions with time or audioEnvelope)
+   * @param {Object} node - The node to check
+   * @returns {boolean} True if node has time-dependent parameters
+   */
+  hasTimeDependentParameters(node) {
+    if (!node || !node.params) return false;
+
+    // Check all parameter values for time-dependent expressions
+    for (const value of Object.values(node.params)) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        // Check if parameter contains time or audio envelope references
+        if (/time|audioEnvelope/i.test(trimmed)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
