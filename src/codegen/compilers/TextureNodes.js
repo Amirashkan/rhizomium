@@ -2,9 +2,17 @@
 // Texture nodes that *register global WGSL bindings* (group 0) and only emit sampling code in-line.
 
 export class TextureNodes {
+  constructor() {
+    this.uniformManager = null;
+  }
+
+  setUniformManager(uniformManager) {
+    this.uniformManager = uniformManager;
+  }
+
   /**
    * Check if this compiler handles the given node kind
-   * @param {string} kind 
+   * @param {string} kind
    * @returns {boolean}
    */
   handles(kind) {
@@ -29,7 +37,14 @@ export class TextureNodes {
 
   compileTexture2D(node, getInput, nodeId) {
     this.uniformManager?.analyzeNode?.(node);
-    window.editor?.previewIntegration?.onParameterChange?.(node);
+
+    // CRITICAL: Skip side effects during subgraph compilation (auto-bridging)
+    // This prevents infinite loops where onParameterChange triggers renders
+    // which trigger compute execution which triggers auto-bridging again
+    const isSubgraphCompilation = window.nodeCompiler?.isSubgraphCompilation || false;
+    if (!isSubgraphCompilation) {
+      window.editor?.previewIntegration?.onParameterChange?.(node);
+    }
 
     const uv = getInput(0, "vec2", "in.uv");
     const textureId = nodeId;

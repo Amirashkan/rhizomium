@@ -37,6 +37,9 @@ export function buildWGSL(graph, options = {}) {
     }
   }
 
+  // Set the compilation mode on the compiler so child compilers can avoid side effects
+  compiler.isSubgraphCompilation = options.skipCacheClear || false;
+
   // --- Process the graph ---
   const result = processor.processGraph(graph);
   const { orderedNodes, outputNode } = result;
@@ -50,11 +53,15 @@ export function buildWGSL(graph, options = {}) {
 
   if (!outputNode || orderedNodes.length === 0) {
     console.warn('⚠️ No output node found or empty graph');
+    compiler.isSubgraphCompilation = false;
     return { wgsl: '', uniformManager: compiler.uniformManager };
   }
 
   // --- Compile all nodes into WGSL lines ---
   const compiledData = compiler.compileNodes(orderedNodes);
+
+  // Reset the flag after compilation
+  compiler.isSubgraphCompilation = false;
   const { lines, uniformStruct, uniformManager, usesNoise } = compiledData;
 
   // --- Collect all function definitions and helpers ---
