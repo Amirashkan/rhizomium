@@ -271,10 +271,14 @@ export class ComputeExecutor {
       return;
     }
 
-    // DON'T clear renderedFragmentNodes - it causes fragment nodes to re-render every frame!
-    // Fragment textures are cached by FragmentTextureRenderer and only rebuild when shaders change
-    // Clearing this set every frame defeats the caching and causes infinite rendering loops
-    // this.renderedFragmentNodes.clear();
+    // Clear the rendered fragment nodes set each frame
+    // This allows time-dependent fragment nodes (like SimplexNoise) to re-render
+    // and update compute nodes that depend on them
+    this.renderedFragmentNodes.clear();
+
+    // Track which compute nodes need their input hashes invalidated
+    // (because their fragment inputs were re-rendered with new content)
+    const computeNodesToClearHash = new Set();
 
     // Check each compute node for fragment inputs
     for (const nodeId of this.executionOrder) {
@@ -332,7 +336,10 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
-            // Success - no need to log every frame
+
+            // Mark this compute node's hash for invalidation
+            // This ensures it will re-dispatch with the updated texture
+            computeNodesToClearHash.add(nodeId);
           } else {
             console.warn(`[ComputeExecutor] Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
@@ -340,6 +347,12 @@ export class ComputeExecutor {
           console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
         }
       }
+    }
+
+    // Invalidate input hashes for compute nodes that had fragment inputs re-rendered
+    // This forces them to re-dispatch with the new texture content
+    for (const nodeId of computeNodesToClearHash) {
+      this.inputHashes.delete(nodeId);
     }
   }
 
