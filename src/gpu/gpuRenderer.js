@@ -540,16 +540,24 @@ export class GPURenderer {
 
   setShaderSource(wgslCode) {
     try {
+      console.log('[GPURenderer] 📝 Compiling new shader...');
+      console.log(`[GPURenderer] Shader length: ${wgslCode.length} characters`);
+
       this.shaderModule = this.device.createShaderModule({ code: wgslCode });
       this.resources = {};
       this._lastAspectWritten = null;
       this._warnedMissingParamBuffer = false; // Reset warning flag on new shader
       const bindingMap = analyzeBindings(wgslCode);
+
+      console.log('[GPURenderer] Binding groups found:', Object.keys(bindingMap.groups).length);
+
       this._buildLayoutsAndBindGroups(bindingMap);
       this._updateAspectUniform();
 
       // Update parameter uniforms if they exist
       this._updateParameterUniforms();
+
+      console.log('[GPURenderer] ✓ Shader compiled and pipeline ready');
 
       // Ensure MSAA texture is created when shader is set
       if (!this.msaaTexture && this.canvas.width > 0 && this.canvas.height > 0) {
@@ -765,6 +773,7 @@ export class GPURenderer {
 
     // Execute compute shaders BEFORE fragment shader
     if (window.computeExecutor && window.computeExecutor.initialized) {
+      console.log('[GPURenderer] 🎬 Executing compute shaders...');
       // Get audio envelope values for compute shader expressions
       const audioEnvelope = window._audioEnvelopeValue || 0.0;
       const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
@@ -784,6 +793,9 @@ export class GPURenderer {
       // After compute execution, nodeOutputs has been updated with fresh textures
       // We need to update bind groups BEFORE the fragment render pass begins
       this._updateComputeTextureBindings();
+      console.log('[GPURenderer] ✓ Compute execution complete');
+    } else {
+      console.log('[GPURenderer] No compute executor or not initialized');
     }
 
     // Configure render pass based on MSAA support
@@ -812,6 +824,10 @@ export class GPURenderer {
       return;
     }
 
+    console.log('[GPURenderer] 🎨 Rendering fragment shader to screen...');
+    console.log(`[GPURenderer] Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+    console.log(`[GPURenderer] Bind groups: ${this.bindGroups.length}`);
+
     pass.setPipeline(this.pipeline);
     for (let i = 0; i < this.bindGroups.length; i++) {
       pass.setBindGroup(i, this.bindGroups[i]);
@@ -819,6 +835,8 @@ export class GPURenderer {
 
     pass.draw(3, 1, 0, 0);
     pass.end();
+
+    console.log('[GPURenderer] ✓ Fragment render complete');
 
     // End profiling frame
     if (this.profiler) {
