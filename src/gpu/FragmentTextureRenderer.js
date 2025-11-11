@@ -517,10 +517,15 @@ export class FragmentTextureRenderer {
           // Extract node ID from variable name (e.g., "compute_node_5" -> "node_5")
           const nodeId = meta.varName.replace('compute_', '');
 
+          console.log('[FragmentTextureRenderer] Looking for compute texture:', nodeId);
+          console.log('[FragmentTextureRenderer] Available in nodeOutputs:', window.computeExecutor ? Array.from(window.computeExecutor.nodeOutputs.keys()) : 'no executor');
+          console.log('[FragmentTextureRenderer] Available in computeTextures:', window.computeExecutor ? Array.from(window.computeExecutor.computeTextures.keys()) : 'no executor');
+
           // Try to get the actual compute node output texture from ComputeExecutor
           if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
             const computeTexture = window.computeExecutor.nodeOutputs.get(nodeId);
             if (computeTexture) {
+              console.log('[FragmentTextureRenderer] Found texture in nodeOutputs for', nodeId);
               return computeTexture.createView();
             }
           }
@@ -529,9 +534,12 @@ export class FragmentTextureRenderer {
           if (window.computeExecutor && window.computeExecutor.computeTextures) {
             const textureData = window.computeExecutor.computeTextures.get(nodeId);
             if (textureData && textureData.texture) {
+              console.log('[FragmentTextureRenderer] Found texture in computeTextures for', nodeId);
               return textureData.texture.createView();
             }
           }
+
+          console.warn('[FragmentTextureRenderer] Could not find compute texture for', nodeId, '- using fallback');
         }
 
         // Create dummy 1x1 texture for regular textures or if compute texture not found
