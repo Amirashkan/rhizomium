@@ -504,6 +504,53 @@ export class FragmentTextureRenderer {
         return { buffer };
       }
       case 'sampler': {
+        // Check if this is a sampler for a Texture2D/TextureCube node - look up actual sampler
+        if (meta.varName) {
+          // Extract node ID from sampler variable name (e.g., "sampler_27" or "samplerCube_27")
+          const sanitizedId = meta.varName.replace(/^(sampler_|samplerCube_)/, '');
+
+          // Try to get actual sampler from TextureManager
+          const texManager = window.editor?.textureManager || window.textureManager;
+          if (texManager) {
+            // Try gpuTextures map first
+            if (texManager.gpuTextures?.get) {
+              const gpuInfo = texManager.gpuTextures.get(sanitizedId);
+              if (gpuInfo && gpuInfo.sampler) {
+                return gpuInfo.sampler;
+              }
+            }
+
+            // Try getTexture method
+            if (typeof texManager.getTexture === "function") {
+              const textureInfo = texManager.getTexture(sanitizedId);
+              if (textureInfo && textureInfo.sampler) {
+                return textureInfo.sampler;
+              }
+            }
+
+            // Try iterating through textures map
+            if (texManager.textures) {
+              for (const [nodeId, info] of texManager.textures.entries()) {
+                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+                if (nodeSanitizedId === sanitizedId && info.sampler) {
+                  return info.sampler;
+                }
+              }
+            }
+
+            // Try iterating through gpuTextures map
+            if (texManager.gpuTextures) {
+              for (const [nodeId, info] of texManager.gpuTextures.entries()) {
+                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+                if (nodeSanitizedId === sanitizedId && info.sampler) {
+                  return info.sampler;
+                }
+              }
+            }
+          }
+        }
+
+        // Create default sampler as fallback
         const sampler = this.device.createSampler({
           magFilter: 'linear',
           minFilter: 'linear'
@@ -535,7 +582,53 @@ export class FragmentTextureRenderer {
           }
         }
 
-        // Create dummy 1x1 texture for regular textures or if compute texture not found
+        // Check if this is a regular Texture2D or TextureCube node - look up actual texture
+        if (meta.varName) {
+          // Extract node ID from texture variable name (e.g., "texture_27" -> "27")
+          const sanitizedId = meta.varName.replace(/^(texture_|textureCube_)/, '');
+
+          // Try to get actual texture from TextureManager
+          const texManager = window.editor?.textureManager || window.textureManager;
+          if (texManager) {
+            // Try gpuTextures map first
+            if (texManager.gpuTextures?.get) {
+              const gpuInfo = texManager.gpuTextures.get(sanitizedId);
+              if (gpuInfo && gpuInfo.textureView) {
+                return gpuInfo.textureView;
+              }
+            }
+
+            // Try getTexture method
+            if (typeof texManager.getTexture === "function") {
+              const textureInfo = texManager.getTexture(sanitizedId);
+              if (textureInfo && textureInfo.textureView) {
+                return textureInfo.textureView;
+              }
+            }
+
+            // Try iterating through textures map
+            if (texManager.textures) {
+              for (const [nodeId, info] of texManager.textures.entries()) {
+                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+                if (nodeSanitizedId === sanitizedId && info.textureView) {
+                  return info.textureView;
+                }
+              }
+            }
+
+            // Try iterating through gpuTextures map
+            if (texManager.gpuTextures) {
+              for (const [nodeId, info] of texManager.gpuTextures.entries()) {
+                const nodeSanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
+                if (nodeSanitizedId === sanitizedId && info.textureView) {
+                  return info.textureView;
+                }
+              }
+            }
+          }
+        }
+
+        // Create dummy 1x1 texture as fallback if texture not found
         const texture = this.device.createTexture({
           size: [1, 1, 1],
           format: 'rgba8unorm',
