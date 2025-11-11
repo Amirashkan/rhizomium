@@ -21,15 +21,12 @@
  * - inputHashes: Map<nodeId, string> - Tracks input/parameter changes for selective updates
  */
 
-console.log('[ComputeExecutor] Module loaded');
-
 import { ComputeShaderManager } from './ComputeShaderManager.js';
 import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 
 export class ComputeExecutor {
   constructor(device) {
-    console.log('[ComputeExecutor] Constructor called');
     this.device = device;
 
     // Map of nodeId -> ComputeShaderManager or ComputeNodeBase
@@ -346,11 +343,8 @@ export class ComputeExecutor {
   async _dispatchComputeNodeIfNeeded(nodeId, commandEncoder, time, audioContext) {
     // Check if already dispatched during this execute() call
     if (this.dispatchedThisFrame.has(nodeId)) {
-      console.log(`[ComputeExecutor] ${nodeId} already dispatched this frame, skipping`);
       return; // Already dispatched this frame
     }
-
-    console.log(`[ComputeExecutor] Dispatching compute node ${nodeId}`);
 
     const manager = this.computeManagers.get(nodeId);
     if (!manager) return;
@@ -373,15 +367,11 @@ export class ComputeExecutor {
       const inputNodeId = node.inputs[0];
       if (inputNodeId !== null && inputNodeId !== undefined) {
         const inputTexture = this.nodeOutputs.get(inputNodeId);
-        console.log(`[ComputeExecutor] Setting input for ${nodeId}: looking for ${inputNodeId}, found:`, !!inputTexture);
-        console.log('[ComputeExecutor] Available nodeOutputs:', Array.from(this.nodeOutputs.keys()));
         if (inputTexture && manager.setInputTexture) {
           manager.setInputTexture(inputTexture);
           if (manager.recreateBindGroup) {
             manager.recreateBindGroup();
           }
-        } else if (!inputTexture) {
-          console.warn(`[ComputeExecutor] No input texture found for ${nodeId}'s input ${inputNodeId}`);
         }
       }
 
@@ -423,17 +413,12 @@ export class ComputeExecutor {
    * @param {Object} audioContext - Audio envelope values
    */
   async _renderFragmentInputs(commandEncoder, time, audioContext) {
-    console.log('[ComputeExecutor] _renderFragmentInputs() called');
-
     if (!window.graph || !window.graph.nodes) {
-      console.warn('[ComputeExecutor] No graph or nodes');
       return;
     }
 
     // Track which compute nodes need their input hashes invalidated
     const computeNodesToClearHash = new Set();
-
-    console.log('[ComputeExecutor] Checking', this.executionOrder.length, 'nodes for fragment inputs');
 
     // Check each compute node for fragment inputs
     for (const nodeId of this.executionOrder) {
@@ -444,37 +429,25 @@ export class ComputeExecutor {
       const node = nodeData?.node;
       if (!node || !node.inputs || !Array.isArray(node.inputs)) continue;
 
-      console.log(`[ComputeExecutor] Checking ${nodeId} (${node.kind}) inputs:`, node.inputs);
-
       // Check each input
       for (const inputNodeId of node.inputs) {
         if (inputNodeId === null || inputNodeId === undefined) continue;
 
         // Skip if already rendered this frame
-        if (this.renderedFragmentNodes.has(inputNodeId)) {
-          console.log(`[ComputeExecutor]   Input ${inputNodeId} already rendered this frame`);
-          continue;
-        }
+        if (this.renderedFragmentNodes.has(inputNodeId)) continue;
 
         // Check if this input is a fragment node (not a compute node)
         const isComputeNode = this.computeManagers.has(inputNodeId);
-        console.log(`[ComputeExecutor]   Input ${inputNodeId}: isComputeNode=${isComputeNode}`);
-
         if (isComputeNode) continue;
 
         // Check if the node exists in the graph
         const inputNode = window.graph.getNode(inputNodeId);
         if (!inputNode) {
-          console.warn(`[ComputeExecutor]   Input node ${inputNodeId} not found in graph`);
           continue;
         }
 
-        console.log(`[ComputeExecutor]   Found fragment input ${inputNodeId} (${inputNode.kind}) for compute node ${nodeId}`);
-
         // This is a fragment node being used as compute input!
         try {
-          console.log(`[ComputeExecutor] Rendering fragment node ${inputNodeId} for compute node ${nodeId}`);
-
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
           const width = resolution[0];
@@ -491,15 +464,12 @@ export class ComputeExecutor {
           );
 
           if (texture) {
-            console.log(`[ComputeExecutor] Successfully rendered fragment node ${inputNodeId}, storing in nodeOutputs`);
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
 
             // Mark this compute node's hash for invalidation
             computeNodesToClearHash.add(nodeId);
-          } else {
-            console.warn(`[ComputeExecutor] Failed to render fragment node ${inputNodeId}`);
           }
         } catch (error) {
           // Silently handle errors
@@ -521,22 +491,16 @@ export class ComputeExecutor {
    * @param {Object} audioContext - Audio envelope values for expression evaluation
    */
   async execute(commandEncoder, time = 0, audioContext = {}) {
-    console.log('[ComputeExecutor] execute() called, initialized:', this.initialized, 'managers:', this.computeManagers.size, '_isExecuting:', this._isExecuting);
-
     // CRITICAL: Re-entrancy guard to prevent infinite loops
     // If execute() is called while already executing (e.g., from auto-bridging side effects),
     // skip this call to break the infinite loop
     if (this._isExecuting) {
-      console.warn('[ComputeExecutor] Skipping execute() - already executing (re-entrancy guard)');
       return;
     }
 
     if (!this.initialized || this.computeManagers.size === 0) {
-      console.warn('[ComputeExecutor] Skipping execute() - not initialized or no managers');
       return;
     }
-
-    console.log('[ComputeExecutor] Starting execution, executionOrder:', this.executionOrder);
 
     // Set the executing flag
     this._isExecuting = true;
@@ -554,11 +518,8 @@ export class ComputeExecutor {
     for (const nodeId of this.executionOrder) {
       // Skip if already dispatched during _renderFragmentInputs
       if (this.dispatchedThisFrame.has(nodeId)) {
-        console.log(`[ComputeExecutor] Main loop: ${nodeId} already dispatched, skipping`);
         continue;
       }
-
-      console.log(`[ComputeExecutor] Main loop: processing ${nodeId}`);
 
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {

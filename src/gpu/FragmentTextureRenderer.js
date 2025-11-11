@@ -17,13 +17,10 @@
  * // texture can now be used as compute shader input
  */
 
-console.log('[FragmentTextureRenderer] Module loaded');
-
 import { NodeDefs } from '../data/NodeDefs.js';
 
 export class FragmentTextureRenderer {
   constructor(device) {
-    console.log('[FragmentTextureRenderer] Constructor called');
     this.device = device;
     this.format = 'rgba8unorm'; // Standard texture format
 
@@ -270,48 +267,38 @@ export class FragmentTextureRenderer {
    * @private
    */
   _rebuildBindGroups(cached) {
-    try {
-      console.log('[FragmentTextureRenderer] _rebuildBindGroups called');
-
-      if (!cached.bindingMap || !cached.layouts) {
-        console.warn('[FragmentTextureRenderer] No bindingMap or layouts, skipping rebuild');
-        return; // Old cached data, can't rebuild
-      }
-
-      const bindingMap = cached.bindingMap;
-      const groupIndices = Object.keys(bindingMap.groups).map(Number).sort((a, b) => a - b);
-      const newBindGroups = [];
-
-      console.log('[FragmentTextureRenderer] Rebuilding', groupIndices.length, 'bind groups');
-
-      for (let i = 0; i < groupIndices.length; i++) {
-        const groupIndex = groupIndices[i];
-        const bindings = bindingMap.groups[groupIndex];
-        const resources = [];
-
-        for (const bindingKey of Object.keys(bindings)) {
-          const binding = parseInt(bindingKey, 10);
-          const meta = bindings[binding];
-
-          // Create resource (this will now get current compute textures)
-          const resource = this._createResource(meta, cached.uniformBuffers);
-          resources.push({ binding, resource });
-        }
-
-        // Create new bind group with updated resources
-        const bindGroup = this.device.createBindGroup({
-          layout: cached.layouts[i],
-          entries: resources
-        });
-        newBindGroups.push(bindGroup);
-      }
-
-      // Update cached bind groups
-      cached.bindGroups = newBindGroups;
-      console.log('[FragmentTextureRenderer] Bind groups rebuilt successfully');
-    } catch (error) {
-      console.error('[FragmentTextureRenderer] Error rebuilding bind groups:', error);
+    if (!cached.bindingMap || !cached.layouts) {
+      return; // Old cached data, can't rebuild
     }
+
+    const bindingMap = cached.bindingMap;
+    const groupIndices = Object.keys(bindingMap.groups).map(Number).sort((a, b) => a - b);
+    const newBindGroups = [];
+
+    for (let i = 0; i < groupIndices.length; i++) {
+      const groupIndex = groupIndices[i];
+      const bindings = bindingMap.groups[groupIndex];
+      const resources = [];
+
+      for (const bindingKey of Object.keys(bindings)) {
+        const binding = parseInt(bindingKey, 10);
+        const meta = bindings[binding];
+
+        // Create resource (this will now get current compute textures)
+        const resource = this._createResource(meta, cached.uniformBuffers);
+        resources.push({ binding, resource });
+      }
+
+      // Create new bind group with updated resources
+      const bindGroup = this.device.createBindGroup({
+        layout: cached.layouts[i],
+        entries: resources
+      });
+      newBindGroups.push(bindGroup);
+    }
+
+    // Update cached bind groups
+    cached.bindGroups = newBindGroups;
   }
 
   /**
@@ -530,15 +517,10 @@ export class FragmentTextureRenderer {
           // Extract node ID from variable name (e.g., "compute_node_5" -> "node_5")
           const nodeId = meta.varName.replace('compute_', '');
 
-          console.log('[FragmentTextureRenderer] Looking for compute texture:', nodeId);
-          console.log('[FragmentTextureRenderer] Available in nodeOutputs:', window.computeExecutor ? Array.from(window.computeExecutor.nodeOutputs.keys()) : 'no executor');
-          console.log('[FragmentTextureRenderer] Available in computeTextures:', window.computeExecutor ? Array.from(window.computeExecutor.computeTextures.keys()) : 'no executor');
-
           // Try to get the actual compute node output texture from ComputeExecutor
           if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
             const computeTexture = window.computeExecutor.nodeOutputs.get(nodeId);
             if (computeTexture) {
-              console.log('[FragmentTextureRenderer] Found texture in nodeOutputs for', nodeId);
               return computeTexture.createView();
             }
           }
@@ -547,12 +529,9 @@ export class FragmentTextureRenderer {
           if (window.computeExecutor && window.computeExecutor.computeTextures) {
             const textureData = window.computeExecutor.computeTextures.get(nodeId);
             if (textureData && textureData.texture) {
-              console.log('[FragmentTextureRenderer] Found texture in computeTextures for', nodeId);
               return textureData.texture.createView();
             }
           }
-
-          console.warn('[FragmentTextureRenderer] Could not find compute texture for', nodeId, '- using fallback');
         }
 
         // Create dummy 1x1 texture for regular textures or if compute texture not found
