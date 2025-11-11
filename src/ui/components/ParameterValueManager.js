@@ -386,7 +386,10 @@ export class ParameterValueManager {
     // PreviewIntegration.onParameterChange handles debouncing and drag optimization
     // This ensures node reference values are updated in real-time
     if (window.editor?.previewIntegration) {
-      // console.log("Calling onParameterChange for:", node.kind);
+      // Debug: Log when updating previews during drag
+      if (window.editor?._parameterDragging) {
+        console.log(`[ParameterValueManager] Updating preview during drag for ${node.kind} (${node.id})`);
+      }
       window.editor.previewIntegration.onParameterChange(node);
     }
   }
