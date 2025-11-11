@@ -143,7 +143,6 @@ export async function unifiedApiExample(device) {
 
   // Serialize node state
   const serialized = node.serialize();
-  console.log('Serialized node:', serialized);
 
   // Later: deserialize and recreate
   const restoredNode = ComputeNodeBase.deserialize(device, serialized);
@@ -180,7 +179,6 @@ export function createFromDefinition(device) {
     { scale: 10.0 } // Override default scale
   );
 
-  console.log('Created node from definition:', node.getInfo());
 
   return node;
 }

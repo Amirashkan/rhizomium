@@ -75,9 +75,7 @@ processGraph(graph) {
     if (outputNode) {
       orderedNodes = this.filterUpstreamNodes(orderedNodes, outputNode, graph);
     }
-    
-    console.log(`Graph processing completed: ${orderedNodes.length} nodes ordered, output node: ${outputNode?.id || 'none'}`);
-    
+
     return { 
       orderedNodes, 
       outputNode,
@@ -198,17 +196,17 @@ processGraph(graph) {
       
       for (const node of nodes) {
         if (!node) {
-          console.warn('Null node found in graph');
+
           continue;
         }
         
         if (typeof node.id === 'undefined') {
-          console.warn('Node missing ID:', node);
+
           continue;
         }
         
         if (byId.has(node.id)) {
-          console.warn(`Duplicate node ID found: ${node.id}`);
+
         }
         
         byId.set(node.id, node);
@@ -219,7 +217,7 @@ processGraph(graph) {
           if (!id || visited.has(id)) return;
           
           if (visiting.has(id)) {
-            console.warn(`Circular dependency detected involving node: ${id}`);
+
             return;
           }
           
@@ -227,7 +225,7 @@ processGraph(graph) {
           
           const node = byId.get(id);
           if (!node) {
-            console.warn(`Referenced node not found: ${id}`);
+
             visiting.delete(id);
             return;
           }
@@ -257,8 +255,7 @@ processGraph(graph) {
           visit(node.id);
         }
       }
-      
-      console.log(`Topological sort completed: ${result.length} nodes ordered`);
+
       return result;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -287,13 +284,13 @@ processGraph(graph) {
           const identifier = n.kind || n.type || n.name || "";
           return /OutputFinal/i.test(identifier);
         } catch (error) {
-          console.warn('Error checking node for output pattern:', error);
+
           return false;
         }
       });
       
       if (outputs.length === 0) {
-        console.log('No output nodes found in graph');
+
         return null;
       }
       
@@ -301,7 +298,7 @@ processGraph(graph) {
         try {
           return Array.isArray(o.inputs) && o.inputs[0] !== null && o.inputs[0] !== undefined;
         } catch (error) {
-          console.warn('Error checking output node connections:', error);
+
           return false;
         }
       });
@@ -309,10 +306,10 @@ processGraph(graph) {
       let selectedOutput;
       if (connected.length > 0) {
         selectedOutput = connected[connected.length - 1];
-        console.log(`Selected connected output node: ${selectedOutput.id}`);
+
       } else {
         selectedOutput = outputs[outputs.length - 1];
-        console.log(`Selected unconnected output node: ${selectedOutput.id}`);
+
       }
       
       return selectedOutput;
@@ -335,17 +332,17 @@ processGraph(graph) {
   filterUpstreamNodes(orderedNodes, outputNode, graph) {
     try {
       if (!orderedNodes || !Array.isArray(orderedNodes)) {
-        console.warn('Invalid ordered nodes array for filtering');
+
         return [];
       }
 
       if (!outputNode || !outputNode.id) {
-        console.warn('Invalid output node for filtering');
+
         return orderedNodes;
       }
 
       if (!graph || !graph.nodes) {
-        console.warn('Invalid graph for upstream filtering');
+
         return orderedNodes;
       }
 
@@ -364,13 +361,12 @@ processGraph(graph) {
 
       const filteredNodes = orderedNodes.filter((n) => {
         if (!n || !n.id) {
-          console.warn('Invalid node in ordered nodes list');
+
           return false;
         }
         return expandedIds.has(n.id);
       });
 
-      console.log(`Filtered to ${filteredNodes.length} upstream nodes from ${orderedNodes.length} total (including expression references)`);
 
       // Re-sort to ensure expression-referenced nodes come before nodes that reference them
       const resortedNodes = this.resortWithExpressionDependencies(filteredNodes, byId);
@@ -395,12 +391,12 @@ processGraph(graph) {
   getUpstreamSet(startId, byId) {
     try {
       if (!startId) {
-        console.warn('No start ID provided for upstream search');
+
         return new Set();
       }
       
       if (!byId || !(byId instanceof Map)) {
-        console.warn('Invalid node lookup map for upstream search');
+
         return new Set();
       }
 
@@ -412,7 +408,7 @@ processGraph(graph) {
           if (!id || visited.has(id)) return;
           
           if (visiting.has(id)) {
-            console.warn(`Circular dependency detected in upstream search: ${id}`);
+
             return;
           }
           
@@ -421,7 +417,7 @@ processGraph(graph) {
           
           const node = byId.get(id);
           if (!node) {
-            console.warn(`Node not found in upstream search: ${id}`);
+
             visiting.delete(id);
             return;
           }
@@ -446,8 +442,7 @@ processGraph(graph) {
       };
       
       dfs(startId);
-      
-      console.log(`Found ${visited.size} upstream nodes from ${startId}`);
+
       return visited;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -570,7 +565,6 @@ processGraph(graph) {
                 if (referencedNode) {
                   expanded.add(refId);
                   toProcess.push(refId);
-                  console.log(`✓ Added expression-referenced node ${refId} (${referencedNode.kind || 'unknown'}) from node ${nodeId}.${paramName} = "${paramValue}"`);
 
                   // CRITICAL: Also add all upstream dependencies of this referenced node
                   // When node A references node B in an expression, we need node B AND all of B's inputs
@@ -579,11 +573,9 @@ processGraph(graph) {
                     if (!expanded.has(upstreamId)) {
                       expanded.add(upstreamId);
                       toProcess.push(upstreamId);
-                      console.log(`  ↳ Added upstream dependency ${upstreamId} (${byId.get(upstreamId)?.kind || 'unknown'}) of expression-referenced node ${refId}`);
                     }
                   }
                 } else {
-                  console.warn(`✗ Node ${refId} referenced in expression "${paramValue}" not found in graph (from node ${nodeId}.${paramName})`);
                 }
               }
             }
@@ -592,7 +584,7 @@ processGraph(graph) {
       }
 
       if (expanded.size > currentSet.size) {
-        console.log(`Expression analysis expanded node set from ${currentSet.size} to ${expanded.size} nodes`);
+
       }
 
       return expanded;
@@ -698,7 +690,7 @@ processGraph(graph) {
 
       // Check for cycles
       if (sorted.length !== nodes.length) {
-        console.warn('Circular dependency detected in expression references, using partial sort');
+
         // Add remaining nodes in original order
         for (const node of nodes) {
           if (!sorted.includes(node)) {
@@ -707,7 +699,6 @@ processGraph(graph) {
         }
       }
 
-      console.log(`Re-sorted ${sorted.length} nodes to respect expression dependencies`);
       return sorted;
 
     } catch (error) {
@@ -771,11 +762,11 @@ processGraph(graph) {
    */
   logDebugInfo(graph, orderedNodes) {
     try {
-      console.log("=== DEBUG: All nodes before filtering ===");
+
       if (graph && graph.nodes && Array.isArray(graph.nodes)) {
         graph.nodes.forEach((node, index) => {
           if (!node) {
-            console.log(`Node ${index}: NULL NODE`);
+
             return;
           }
           
@@ -783,28 +774,25 @@ processGraph(graph) {
           const kind = node.kind || 'NO_KIND';
           const type = node.type || 'NO_TYPE';
           const name = node.name || 'NO_NAME';
-          
-          console.log(`Node ${id}: kind="${kind}" type="${type}" name="${name}"`);
+
         });
       } else {
-        console.log("No valid nodes array found in graph");
+
       }
 
-      console.log("=== DEBUG: Ordered nodes ===");
       if (orderedNodes && Array.isArray(orderedNodes)) {
         orderedNodes.forEach((node, index) => {
           if (!node) {
-            console.log(`Ordered ${index}: NULL NODE`);
+
             return;
           }
           
           const id = node.id || 'NO_ID';
           const kind = node.kind || 'NO_KIND';
-          
-          console.log(`Ordered: ${id} -> kind="${kind}"`);
+
         });
       } else {
-        console.log("No valid ordered nodes array");
+
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -895,9 +883,9 @@ processGraph(graph) {
       }
       
       if (issues.length === 0) {
-        console.log(`Graph validation passed: ${graph.nodes.length} nodes, ${nodeIds.size} unique IDs`);
+
       } else {
-        console.warn(`Graph validation found ${issues.length} issues:`, issues);
+
       }
       
       return issues;

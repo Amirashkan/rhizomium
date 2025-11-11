@@ -124,7 +124,7 @@ constructor(editor) {
           renderers.register(this.rendererRegistry);
           registeredCount++;
         } else {
-          console.warn(`Renderer group ${RendererGroup.name || 'Unknown'} missing register method`);
+
           failedCount++;
         }
       } catch (rendererError) {
@@ -148,7 +148,7 @@ constructor(editor) {
       if (canvas) {
         canvas.style.backgroundColor = '#7f7f7f';
       }
-      console.warn('PreviewSystem: presenting neutral fallback preview');
+
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'preview-fallback'
@@ -164,17 +164,17 @@ generateNodePreview(node) {
   }
   try {
     if (!node) {
-      console.warn('Null node provided for preview generation');
+
       return;
     }
 
     if (!node.id) {
-      console.warn('Node missing ID for preview generation');
+
       return;
     }
 
     if (!node.kind) {
-      console.warn(`Node ${node.id} missing kind for preview generation`);
+
       return;
     }
 
@@ -210,7 +210,7 @@ generateNodePreview(node) {
       try {
         renderer(ctx, node);
       } catch (rendererError) {
-        console.warn(`Renderer failed for ${node.kind}:`, rendererError);
+
         this._renderError(ctx, node, `Renderer: ${rendererError.message}`);
       }
     } else {
@@ -236,7 +236,7 @@ generateNodePreview(node) {
         }
       }
     } catch (recoveryError) {
-      console.warn('Failed to render error preview:', recoveryError);
+
     }
   }
 }
@@ -351,7 +351,7 @@ topologicalSort(nodes) {
       }
 
       if (typeof size !== 'number' || size <= 0) {
-        console.warn('Invalid size for texture rendering, using default');
+
         size = this.size;
       }
 
@@ -383,20 +383,20 @@ topologicalSort(nodes) {
             ctx.font = "bold 8px Arial";
             ctx.fillText("2D", 2, 8);
           } catch (drawError) {
-            console.warn('Error drawing loaded texture:', drawError);
+
             this._renderTextureError(ctx, size, 'Draw failed');
           }
         };
 
         img.onerror = () => {
-          console.warn('Failed to load texture image');
+
           this._renderTextureError(ctx, size, 'Load failed');
         };
 
         try {
           img.src = URL.createObjectURL(textureInfo.file);
         } catch (urlError) {
-          console.warn('Failed to create object URL:', urlError);
+
           this._renderTextureError(ctx, size, 'URL failed');
         }
 
@@ -436,7 +436,7 @@ topologicalSort(nodes) {
       ctx.textAlign = "center";
       ctx.fillText("Loading...", size / 2, size / 2);
     } catch (error) {
-      console.warn('Error rendering texture loading state:', error);
+
     }
   }
 
@@ -458,7 +458,7 @@ topologicalSort(nodes) {
       ctx.fillText("2D", size / 2, size / 2 - 4);
       ctx.fillText("TEX", size / 2, size / 2 + 10);
     } catch (error) {
-      console.warn('Error rendering texture placeholder:', error);
+
     }
   }
 
@@ -475,19 +475,19 @@ topologicalSort(nodes) {
         ctx.fillText(message, size / 2, size / 2 + 4);
       }
     } catch (error) {
-      console.warn('Error rendering texture error state:', error);
+
     }
   }
 
   _renderGeneric(ctx, node) {
     try {
       if (!ctx) {
-        console.warn('No context provided for generic rendering');
+
         return;
       }
 
       if (!node || !node.kind) {
-        console.warn('Invalid node for generic rendering');
+
         return;
       }
 
@@ -515,7 +515,7 @@ topologicalSort(nodes) {
   _renderError(ctx, node, message = 'Error') {
     try {
       if (!ctx) {
-        console.warn('No context provided for error rendering');
+
         return;
       }
 
@@ -534,13 +534,13 @@ topologicalSort(nodes) {
         ctx.fillText(message.substring(0, 6), this.size / 2, this.size / 2 + 4);
       }
     } catch (error) {
-      console.warn('Error rendering error preview:', error);
+
       // Ultimate fallback - just fill with red
       try {
         ctx.fillStyle = "#ff4444";
         ctx.fillRect(0, 0, this.size, this.size);
       } catch (finalError) {
-        console.error('Ultimate preview render fallback failed:', finalError);
+
       }
     }
   }
@@ -569,9 +569,9 @@ topologicalSort(nodes) {
     try {
       if (this.canvasManager && typeof this.canvasManager.clearCache === 'function') {
         this.canvasManager.clearCache();
-        console.log('Preview cache cleared successfully');
+
       } else {
-        console.warn('Cannot clear cache: canvasManager not available');
+
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -608,10 +608,10 @@ getParameterValue(node, paramName, defaultValue = 0) {
       }
 
       // If expression system not available and not a time expression, use default
-      console.warn(`Expression system not available for parameter ${paramName}, cannot evaluate: ${rawValue}`);
+
       return defaultValue;
     } catch (error) {
-      console.warn(`Preview expression evaluation failed for ${paramName}:`, error);
+
       return defaultValue;
     }
   }
@@ -628,12 +628,12 @@ getParameter(node, name) {
   computeNodeValue(node, visited = new Set()) {
     try {
       if (!this.nodeValueComputer) {
-        console.warn('NodeValueComputer not available');
+
         return 0;
       }
 
       if (!node) {
-        console.warn('No node provided for value computation');
+
         return 0;
       }
 
@@ -651,12 +651,12 @@ getParameter(node, name) {
   getConnectedInputs(node, visited = new Set()) {
     try {
       if (!this.nodeValueComputer) {
-        console.warn('NodeValueComputer not available');
+
         return [];
       }
 
       if (!node) {
-        console.warn('No node provided for input computation');
+
         return [];
       }
 
@@ -693,8 +693,7 @@ getParameter(node, name) {
 
   dispose() {
     try {
-      console.log('Disposing PreviewSystem...');
-      
+
       // Clear cache
       this.clearCache();
       
@@ -704,8 +703,7 @@ getParameter(node, name) {
       this.nodeValueComputer = null;
       this.rendererRegistry = null;
       this.editor = null;
-      
-      console.log('PreviewSystem disposed successfully');
+
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'preview-system-dispose'

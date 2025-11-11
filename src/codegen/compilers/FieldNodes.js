@@ -19,7 +19,7 @@ export class FieldNodes {
     this.uniformManager = manager;
     // Clear function cache when uniform manager changes
     this.functionDefinitions.clear();
-    console.log('Cleared FieldNodes function cache on uniform manager update');
+
   }
   setExpressionSystem(expressionSystem) {
     this.paramHandler.setExpressionSystem(expressionSystem);
@@ -329,7 +329,7 @@ generateRectangleFunction(node, nodeId, functionName) {
 
 clearFunctionCache() {
   this.functionDefinitions.clear();
-  console.log('🧹 FieldNodes function cache cleared');
+
 }
 
 getParam(node, paramName, defaultValue) {
@@ -340,7 +340,7 @@ getParam(node, paramName, defaultValue) {
     try {
       return unifiedExpressionSystem.generateShader(rawValue);
     } catch (error) {
-      console.warn('Failed to generate shader for expression:', rawValue, error);
+
       return String(defaultValue);
     }
   }
@@ -351,7 +351,7 @@ getParam(node, paramName, defaultValue) {
     try {
       return unifiedExpressionSystem.generateShader(rawValue);
     } catch (error) {
-      console.warn('Failed to generate shader for expression:', rawValue, error);
+
       return String(defaultValue);
     }
   }

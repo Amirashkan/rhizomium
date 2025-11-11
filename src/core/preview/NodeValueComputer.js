@@ -254,7 +254,7 @@ case "rectanglefield": {
           }
         } catch (connError) {
           // Skip individual connection errors, continue processing others
-          console.warn('Error processing connection:', connError);
+
         }
       }
 
@@ -330,13 +330,13 @@ getNodeParameter(node, paramName, defaultValue = 0) {
           return expressionSystem.evaluateExpression(rawValue, {}, node);
         }
       } catch (error) {
-        console.warn(`Expression evaluation failed for ${paramName}:`, error);
+
       }
     }
     
     return typeof rawValue === 'number' ? rawValue : parseFloat(rawValue) || defaultValue;
   } catch (error) {
-    console.warn(`Error getting node parameter ${paramName}:`, error);
+
     return defaultValue;
   }
 }

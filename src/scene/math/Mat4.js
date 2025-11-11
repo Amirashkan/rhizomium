@@ -230,7 +230,6 @@ export class Mat4 {
         const det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
 
         if (det === 0) {
-            console.warn('Mat4.invert(): Cannot invert matrix, determinant is 0');
             return this.identity();
         }
 

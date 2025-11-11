@@ -13,7 +13,6 @@ export class PresetManager {
     this.activePresetId = null;
     this.presetOrder = [];
 
-    console.log('[PresetManager] Initialized');
   }
 
   /**
@@ -49,7 +48,6 @@ export class PresetManager {
       this.presetOrder.push(presetId);
     }
 
-    console.log(`[PresetManager] Captured preset: ${preset.name}`);
     return preset;
   }
 
@@ -61,11 +59,9 @@ export class PresetManager {
   async applyPreset(presetId, transitionTime = 0) {
     const preset = this.presets.get(presetId);
     if (!preset) {
-      console.error(`[PresetManager] Preset not found: ${presetId}`);
+
       return false;
     }
-
-    console.log(`[PresetManager] Applying preset: ${preset.name}`);
 
     if (transitionTime > 0) {
       // Smooth transition using interpolation
@@ -194,7 +190,6 @@ export class PresetManager {
       this.activePresetId = null;
     }
 
-    console.log(`[PresetManager] Deleted preset: ${presetId}`);
     return true;
   }
 
@@ -257,10 +252,9 @@ export class PresetManager {
         this.presetOrder = data.presetOrder;
       }
 
-      console.log(`[PresetManager] Imported ${data.presets.length} presets`);
       return true;
     } catch (error) {
-      console.error('[PresetManager] Failed to import presets:', error);
+
       return false;
     }
   }

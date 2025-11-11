@@ -107,10 +107,7 @@ export class ConnectionManager {
                   ? existingConnection.from.pin
                   : 0,
             };
-            console.log(
-              "ConnectionManager: Recording replaced connection for undo",
-              connectionData,
-            );
+
             window.onConnectionDeleted(connectionData);
           }
 
@@ -141,7 +138,7 @@ export class ConnectionManager {
 
         // Record for undo AFTER successful creation
         if (window.onConnectionCreated && typeof window.onConnectionCreated === 'function') {
-          console.log("ConnectionManager: Recording connection creation for undo");
+
           window.onConnectionCreated(
             outputNode.id,
             inputNode.id,
@@ -156,7 +153,6 @@ export class ConnectionManager {
         // The target node needs to redraw with its new input connection
         if (window.editor?.previewIntegration) {
           try {
-            console.log(`🔄 Connection created: regenerating preview for target node ${inputNode.id}`);
 
             // Regenerate the target node's preview
             // Don't delete canvas cache - preserve existing canvas
@@ -231,7 +227,7 @@ export class ConnectionManager {
             targetInput: inputPin,
             sourceOutput,
           };
-          console.log("ConnectionManager: Recording connection deletion for undo");
+
           window.onConnectionDeleted(connectionData);
         }
       }
@@ -253,8 +249,7 @@ export class ConnectionManager {
         // FIXED: Regenerate preview for the disconnected node
         if (window.editor?.previewIntegration) {
           try {
-            console.log(`🔄 Connection removed: regenerating preview for node ${targetNode.id}`);
-            
+
             // Clear the canvas cache for this node to force regeneration
             if (window.editor.previewSystem?.canvasManager?.canvasCache) {
               window.editor.previewSystem.canvasManager.canvasCache.delete(targetNode.id);

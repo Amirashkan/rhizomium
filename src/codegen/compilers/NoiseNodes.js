@@ -122,7 +122,7 @@ export class NoiseNodes {
       try {
         return unifiedExpressionSystem.generateShader(rawValue);
       } catch (error) {
-        console.warn('Failed to generate shader for expression:', rawValue, error);
+
         return String(defaultValue);
       }
     }
@@ -132,7 +132,7 @@ export class NoiseNodes {
       try {
         return unifiedExpressionSystem.generateShader(rawValue);
       } catch (error) {
-        console.warn(`Expression evaluation failed for ${paramName}:`, error);
+
         const numericValue = parseFloat(rawValue.substring(1));
         return isNaN(numericValue) ? defaultValue : numericValue;
       }
@@ -365,7 +365,6 @@ export class NoiseNodes {
     const uv = getInput(0, "vec2", "in.uv");
     const scale = getParam('scale', 5.0);
 
-    console.warn(`Unknown noise type: ${node.kind}, using generic noise`);
     // Apply aspect ratio correction
     const uvAspect = `uvAspect_${nodeId}`;
     const line = `

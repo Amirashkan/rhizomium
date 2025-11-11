@@ -219,7 +219,7 @@ export class BeatSyncManager {
       try {
         callback(beat, this.currentMeasure);
       } catch (error) {
-        console.error('[BeatSyncManager] Error in beat callback:', error);
+
       }
     });
   }
@@ -232,7 +232,7 @@ export class BeatSyncManager {
       try {
         callback(measure);
       } catch (error) {
-        console.error('[BeatSyncManager] Error in measure callback:', error);
+
       }
     });
   }

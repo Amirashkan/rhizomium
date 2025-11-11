@@ -821,8 +821,8 @@ export class UnifiedExpressionSystem {
       const evaluator = new CPUEvaluator(context);
       return evaluator.evaluate(ast);
     } catch (error) {
-      console.error(`Expression evaluation error: ${error.message}`);
-      console.error(`Expression: ${expressionString}`);
+
+
       return 0; // Fallback to 0 on error
     }
   }
@@ -836,8 +836,8 @@ export class UnifiedExpressionSystem {
       const generator = new ShaderGenerator(variableMapping);
       return generator.generate(ast);
     } catch (error) {
-      console.error(`Shader generation error: ${error.message}`);
-      console.error(`Expression: ${expressionString}`);
+
+
       return '0.0'; // Fallback to 0.0 on error
     }
   }

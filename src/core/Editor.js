@@ -171,7 +171,7 @@ export class Editor {
             try {
               callback(data);
             } catch (error) {
-              console.warn(`Error in event listener for ${event}:`, error);
+
             }
           });
         }
@@ -281,7 +281,7 @@ setupOptimizedGPUAnimationLoop() {
       try {
         window.render();
       } catch (error) {
-        console.warn('GPU render failed:', error);
+
       }
     }
     
@@ -296,7 +296,7 @@ connectGPURenderer(renderFunction) {
   if (typeof renderFunction === 'function') {
     this.gpuRenderFunction = renderFunction;
   } else {
-    console.warn('Invalid GPU render function provided');
+
   }
 }
 
@@ -340,7 +340,7 @@ connectGPURenderer(renderFunction) {
           // Clear time expression cache after rebuild
           this.timeExpressionCache = null;
         } catch (error) {
-          console.error('Error during shader rebuild:', error);
+
         }
       }
       this.rebuildTimeout = null;
@@ -373,13 +373,13 @@ connectGPURenderer(renderFunction) {
           try {
             return this.getNodeParameterValue(node, paramName, defaultValue);
           } catch (error) {
-            console.warn(`Expression evaluation failed for ${paramName}:`, error);
+
             return originalGetParameterValue(node, paramName, defaultValue);
           }
         };
       }
     } catch (error) {
-      console.warn('Error integrating expressions with preview system:', error);
+
     }
   }
 
@@ -393,13 +393,13 @@ connectGPURenderer(renderFunction) {
           try {
             return this.getNodeParameterValue(node, paramName, defaultValue);
           } catch (error) {
-            console.warn(`Expression evaluation failed for ${paramName}:`, error);
+
             return originalGetParameterValue(node, paramName, defaultValue);
           }
         };
       }
     } catch (error) {
-      console.warn('Error integrating expressions with node computer:', error);
+
     }
   }
 
@@ -416,7 +416,7 @@ connectGPURenderer(renderFunction) {
       
       return this.expressionSystem.parseValue(rawValue);
     } catch (error) {
-      console.warn(`Error getting parameter ${paramName} for node ${node.id}:`, error);
+
       return defaultValue;
     }
   }
@@ -484,7 +484,7 @@ connectGPURenderer(renderFunction) {
       
       return context;
     } catch (error) {
-      console.warn('Error building node context:', error);
+
       return {};
     }
   }
@@ -502,7 +502,7 @@ connectGPURenderer(renderFunction) {
       
       return 0;
     } catch (error) {
-      console.warn(`Error getting node output value:`, error);
+
       return 0;
     }
   }
@@ -547,7 +547,7 @@ connectGPURenderer(renderFunction) {
       // Update previews for dependent nodes
       this.updateDependentNodePreviews(node, parameterName);
     } catch (error) {
-      console.warn('Error handling parameter change for expressions:', error);
+
     }
   }
 
@@ -569,7 +569,7 @@ connectGPURenderer(renderFunction) {
       this.pendingMidiDependencyUpdates.clear();
       this.midiPreviewUpdateTimer = null;
     } catch (error) {
-      console.warn('Error processing pending MIDI dependency updates:', error);
+
       this.midiPreviewUpdateTimer = null;
     }
   }
@@ -598,7 +598,7 @@ connectGPURenderer(renderFunction) {
       // Update previews for nodes with expressions
       this.updateNodesWithExpressions();
     } catch (error) {
-      console.warn('Error handling graph change for expressions:', error);
+
     }
   }
 
@@ -610,7 +610,7 @@ connectGPURenderer(renderFunction) {
         this.updateDependentNodePreviews(node, change.paramName);
       }
     } catch (error) {
-      console.warn('Error handling expression dependency change:', error);
+
     }
   }
 
@@ -632,7 +632,7 @@ connectGPURenderer(renderFunction) {
         this.updateNodePreview(node);
       });
     } catch (error) {
-      console.warn('Error updating nodes with expressions:', error);
+
     }
   }
 
@@ -659,7 +659,7 @@ connectGPURenderer(renderFunction) {
         this.updateNodePreview(node);
       });
     } catch (error) {
-      console.warn('Error updating dependent node previews:', error);
+
     }
   }
 
@@ -673,7 +673,7 @@ connectGPURenderer(renderFunction) {
         this.previewIntegration.generateNodePreview(node);
       }
     } catch (error) {
-      console.warn(`Error updating preview for node ${node.id}:`, error);
+
     }
   }
 
@@ -692,7 +692,7 @@ connectGPURenderer(renderFunction) {
       this.expressionSystem.clearCache();
       
     } catch (error) {
-      console.warn('Error updating animation context:', error);
+
     }
   }
 
@@ -707,8 +707,7 @@ connectGPURenderer(renderFunction) {
   }
 
   debugExpressions() {
-    console.log('Expression System Debug Info:');
-    console.log('Cache Stats:', this.expressionSystem.getCacheStats());
+
     
     if (this.graph) {
       const nodesWithExpressions = this.graph.nodes.filter(node => {
@@ -717,10 +716,8 @@ connectGPURenderer(renderFunction) {
           this.expressionSystem.isExpression(value)
         );
       });
-      
-      console.log('Nodes with expressions:', nodesWithExpressions.length);
+
       nodesWithExpressions.forEach(node => {
-        console.log(`Node ${node.id} (${node.kind}):`, 
           Object.entries(node.params).filter(([k, v]) => 
             this.expressionSystem.isExpression(v)
           )
@@ -823,7 +820,7 @@ connectGPURenderer(renderFunction) {
         this.ctx.fillStyle = '#ff0000';
         this.ctx.fillText('Render Error - See notifications', 10, 30);
       } catch (recoveryError) {
-        console.error('Failed to recover from render error:', recoveryError);
+
       }
     }
   }
@@ -902,7 +899,6 @@ connectGPURenderer(renderFunction) {
         this.shaderPreviewManager = new ShaderPreviewManager(this, device, format);
         window.shaderPreviewManager = this.shaderPreviewManager;
       } else {
-        console.warn('[Editor] GPU device not available yet, ShaderPreviewManager will be initialized later');
 
         // Retry initialization when GPU device becomes available
         const checkDevice = setInterval(() => {
@@ -920,7 +916,7 @@ connectGPURenderer(renderFunction) {
         component: 'shader-preview-manager-initialization'
       });
       this.shaderPreviewManager = null;
-      console.warn('[Editor] Failed to initialize ShaderPreviewManager, falling back to CPU previews');
+
     }
   }
 
@@ -933,7 +929,7 @@ connectGPURenderer(renderFunction) {
       }
 
       if (!nodesToMove || nodesToMove.length === 0) {
-        console.warn('No nodes provided for movement tracking');
+
         return;
       }
 
@@ -943,7 +939,7 @@ connectGPURenderer(renderFunction) {
 
       nodesToMove.forEach(node => {
         if (!node || typeof node.id === 'undefined') {
-          console.warn('Invalid node in movement tracking:', node);
+
           return;
         }
         
@@ -974,7 +970,7 @@ connectGPURenderer(renderFunction) {
 
       this.movementState.movedNodes.forEach(node => {
         if (!node || typeof node.id === 'undefined') {
-          console.warn('Invalid node in movement finish:', node);
+
           return;
         }
         
@@ -1118,10 +1114,10 @@ connectGPURenderer(renderFunction) {
             node.y = newY;
             movedCount++;
           } else {
-            console.warn(`Invalid coordinates for node ${nodeId}:`, { newX, newY });
+
           }
         } else {
-          console.warn(`Node not found for movement: ${nodeId}`);
+
         }
       });
 
@@ -1141,17 +1137,17 @@ connectGPURenderer(renderFunction) {
   deleteConnection(sourceNode, targetNode, inputIndex) {
     try {
       if (!targetNode) {
-        console.warn('No target node provided for connection deletion');
+
         return false;
       }
       
       if (!targetNode.inputs || !Array.isArray(targetNode.inputs)) {
-        console.warn('Target node has no inputs array');
+
         return false;
       }
       
       if (inputIndex < 0 || inputIndex >= targetNode.inputs.length) {
-        console.warn(`Invalid input index ${inputIndex} for node with ${targetNode.inputs.length} inputs`);
+
         return false;
       }
 
@@ -1163,7 +1159,7 @@ connectGPURenderer(renderFunction) {
       if (!sourceNode) {
         sourceNode = this.graph.nodes.find(n => n.id == currentConnection);
         if (!sourceNode) {
-          console.warn(`Source node not found for connection: ${currentConnection}`);
+
         }
       }
 
@@ -1204,13 +1200,13 @@ connectGPURenderer(renderFunction) {
   deleteNode(nodeToDelete) {
     try {
       if (!nodeToDelete) {
-        console.warn('No node provided for deletion');
+
         return false;
       }
 
       const nodeIndex = this.graph.nodes.indexOf(nodeToDelete);
       if (nodeIndex === -1) {
-        console.warn(`Node not found in graph: ${nodeToDelete.id}`);
+
         return false;
       }
 
@@ -1274,7 +1270,7 @@ connectGPURenderer(renderFunction) {
   deleteNodesAsGroup(nodesToDelete) {
     try {
       if (!nodesToDelete || nodesToDelete.length === 0) {
-        console.warn('No nodes provided for group deletion');
+
         return false;
       }
 
@@ -1282,13 +1278,13 @@ connectGPURenderer(renderFunction) {
         if (!node) return false;
         const exists = this.graph.nodes.includes(node);
         if (!exists) {
-          console.warn(`Node not found in graph for group deletion: ${node?.id}`);
+
         }
         return exists;
       });
       
       if (validNodes.length === 0) {
-        console.warn('No valid nodes found for deletion');
+
         return false;
       }
 
@@ -1307,7 +1303,7 @@ connectGPURenderer(renderFunction) {
           try {
             this.selection.delete(nodeToDelete);
           } catch (selectionError) {
-            console.warn('Error removing node from selection:', selectionError);
+
           }
         }
       });
@@ -1381,7 +1377,7 @@ connectGPURenderer(renderFunction) {
       }
 
       if (sourceNodeId == targetNodeId) {
-        console.warn('Cannot connect node to itself');
+
         return false;
       }
 
@@ -1520,7 +1516,7 @@ connectGPURenderer(renderFunction) {
             .filter(node => node !== undefined);
 
           if (nodesToDelete.length === 0) {
-            console.warn('No valid nodes selected for deletion');
+
             return true;
           }
           
@@ -1535,7 +1531,7 @@ connectGPURenderer(renderFunction) {
             try {
               this.selection.clear();
             } catch (clearError) {
-              console.warn('Error clearing selection after deletion:', clearError);
+
             }
           }
 
@@ -1712,7 +1708,7 @@ connectGPURenderer(renderFunction) {
             window.errorHandler?.handleError(previewError, 'Generate Node Preview', 'warning');
           }
         } else if (!node) {
-          console.warn(`Node not found for preview: ${nodeId}`);
+
         }
       } else {
         const node = this.graph.nodes.find((n) => n.id === nodeId);
@@ -1754,7 +1750,7 @@ connectGPURenderer(renderFunction) {
             window.errorHandler?.handleError(previewError, 'Update Node Preview Size', 'warning');
           }
         } else if (!node) {
-          console.warn(`Node not found for preview size update: ${nodeId}`);
+
         }
       }
 
@@ -1796,7 +1792,7 @@ connectGPURenderer(renderFunction) {
       if (!node) return false;
       return this.isPreviewEnabled || !!node.__thumb;
     } catch (error) {
-      console.warn('Error checking preview visibility:', error);
+
       return false;
     }
   }
@@ -1807,7 +1803,7 @@ connectGPURenderer(renderFunction) {
       const preview = this.nodePreviews.get(nodeId);
       return preview ? preview.enabled : true;
     } catch (error) {
-      console.warn('Error checking preview enabled state:', error);
+
       return true;
     }
   }
@@ -1818,7 +1814,7 @@ connectGPURenderer(renderFunction) {
       const preview = this.nodePreviews.get(nodeId);
       return preview ? preview.showVisualInfo : true;
     } catch (error) {
-      console.warn('Error checking visual info enabled state:', error);
+
       return true;
     }
   }
@@ -1830,7 +1826,7 @@ connectGPURenderer(renderFunction) {
       const sizeKey = preview?.size || "small";
       return this.previewSizes[sizeKey] || this.previewSizes.small;
     } catch (error) {
-      console.warn('Error getting preview size:', error);
+
       return this.previewSizes.small;
     }
   }
@@ -1842,7 +1838,7 @@ connectGPURenderer(renderFunction) {
       if (this.selection && this.selection.selectAll) {
         this.selection.selectAll();
       } else {
-        console.warn('Selection manager not available for selectAll');
+
       }
     } catch (error) {
       window.errorHandler?.handleError(error, 'Select All', 'warning');
@@ -1859,7 +1855,7 @@ connectGPURenderer(renderFunction) {
         this.selection.moveSelected(dx, dy);
         this.safeDraw();
       } else {
-        console.warn('Selection manager not available for moveSelection');
+
       }
     } catch (error) {
       window.errorHandler?.handleError(error, 'Move Selection', 'warning');
@@ -1876,7 +1872,7 @@ connectGPURenderer(renderFunction) {
           this.safeDraw();
         }
       } else {
-        console.warn('Selection manager not available for duplicateSelected');
+
       }
     } catch (error) {
       window.errorHandler?.handleError(error, 'Duplicate Selection', 'warning');
@@ -1891,7 +1887,7 @@ connectGPURenderer(renderFunction) {
    */
   cleanupNodeResources(node) {
     if (!node || !node.id) {
-      console.warn('Cannot cleanup resources: invalid node');
+
       return;
     }
 
@@ -1929,7 +1925,7 @@ connectGPURenderer(renderFunction) {
       }
 
     } catch (error) {
-      console.error(`[Editor] Error cleaning up resources for node ${nodeId}:`, error);
+
       window.errorHandler?.handleError(error, {
         component: 'cleanup-node-resources',
         nodeId,
@@ -1998,7 +1994,7 @@ connectGPURenderer(renderFunction) {
       this.movementState.movedNodes.clear();
 
     } catch (error) {
-      console.error('Error during Editor disposal:', error);
+
     }
   }
 
@@ -2025,7 +2021,7 @@ connectGPURenderer(renderFunction) {
         }
       };
     } catch (error) {
-      console.warn('Error getting debug info:', error);
+
       return { error: error.message };
     }
   }
@@ -2067,7 +2063,7 @@ connectGPURenderer(renderFunction) {
       });
       
       if (issues.length > 0) {
-        console.warn('Graph integrity issues found:', issues);
+
       }
       
       return issues;

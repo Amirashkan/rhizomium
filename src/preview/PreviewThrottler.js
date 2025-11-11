@@ -29,7 +29,6 @@ export class PreviewThrottler {
   setMode(mode) {
     if (this.intervals[mode] !== undefined) {
       this.mode = mode;
-      console.log(`[PreviewThrottler] Mode changed to: ${mode} (${this.intervals[mode]}ms)`);
     }
   }
 

@@ -79,12 +79,11 @@ export class GPURenderer {
         label: "msaa-render-target",
       });
     } catch (err) {
-      console.error(`[GPURenderer] Failed to create MSAA texture (${this.sampleCount}x), falling back to no MSAA:`, err);
       // Fall back to sampleCount = 1 (no MSAA)
       this.sampleCount = 1;
       this.msaaTexture = null;
       // Will need to recreate pipeline without MSAA
-      console.warn("[GPURenderer] MSAA not supported on this device. Edges may appear jagged.");
+
     }
   }
 
@@ -216,7 +215,7 @@ export class GPURenderer {
     const info = this._lookupTextureBinding(texManager, resource.varName);
 
     if (!info) {
-      console.warn(`[GPURenderer] No texture found for: ${resource.varName}`);
+
       return;
     }
 
@@ -239,12 +238,12 @@ export class GPURenderer {
       const computeExecutor = typeof window !== 'undefined' ? window.computeExecutor : null;
 
       if (!computeExecutor) {
-        console.warn('[GPURenderer] ComputeExecutor not found');
+
         return null;
       }
 
       if (!computeExecutor.computeTextures) {
-        console.warn('[GPURenderer] ComputeExecutor has no computeTextures');
+
         return null;
       }
 
@@ -283,7 +282,7 @@ export class GPURenderer {
           return { textureView: computeInfo.texture.createView() };
         }
       } else {
-        console.warn(`[GPURenderer] No compute texture found for: ${sanitizedIdToMatch}`);
+
       }
     }
 
@@ -436,7 +435,7 @@ export class GPURenderer {
     if (!target?.buffer) {
       // Only warn once per missing buffer
       if (!this._warnedMissingParamBuffer) {
-        console.warn('[GPURenderer] u_params buffer not found but uniforms exist!');
+
         this._warnedMissingParamBuffer = true;
       }
       return;
@@ -540,8 +539,7 @@ export class GPURenderer {
 
   setShaderSource(wgslCode) {
     try {
-      console.log('[GPURenderer] 📝 Compiling new shader...');
-      console.log(`[GPURenderer] Shader length: ${wgslCode.length} characters`);
+
 
       this.shaderModule = this.device.createShaderModule({ code: wgslCode });
       this.resources = {};
@@ -549,15 +547,12 @@ export class GPURenderer {
       this._warnedMissingParamBuffer = false; // Reset warning flag on new shader
       const bindingMap = analyzeBindings(wgslCode);
 
-      console.log('[GPURenderer] Binding groups found:', Object.keys(bindingMap.groups).length);
 
       this._buildLayoutsAndBindGroups(bindingMap);
       this._updateAspectUniform();
 
       // Update parameter uniforms if they exist
       this._updateParameterUniforms();
-
-      console.log('[GPURenderer] ✓ Shader compiled and pipeline ready');
 
       // Ensure MSAA texture is created when shader is set
       if (!this.msaaTexture && this.canvas.width > 0 && this.canvas.height > 0) {
@@ -566,7 +561,7 @@ export class GPURenderer {
 
       this.canvas.style.backgroundColor = "";
     } catch (err) {
-      console.error("[GPURenderer] Shader compile/pipeline error:", err);
+
       this.clear();
       this.presentFallbackColor();
       this.canvas.style.backgroundColor = "#7f7f7f";
@@ -811,7 +806,7 @@ export class GPURenderer {
     });
 
     if (!this.pipeline) {
-      console.error('[GPURenderer] Pipeline is null! Cannot render. Shader compilation likely failed.');
+
       pass.end();
       return;
     }

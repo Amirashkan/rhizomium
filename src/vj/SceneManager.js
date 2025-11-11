@@ -78,7 +78,7 @@ export class SceneManager {
       const scene = this.addScene(sceneId, projectData, name);
       return scene;
     } catch (error) {
-      console.error('[SceneManager] Failed to load scene from file:', error);
+
       throw error;
     }
   }
@@ -102,7 +102,7 @@ export class SceneManager {
   async switchToScene(sceneId, immediate = false) {
     const scene = this.scenes.get(sceneId);
     if (!scene) {
-      console.error(`[SceneManager] Scene not found: ${sceneId}`);
+
       return false;
     }
 
@@ -117,7 +117,7 @@ export class SceneManager {
       await this.saveLoadManager.importProject(scene.data);
       return true;
     } catch (error) {
-      console.error('[SceneManager] Failed to load scene:', error);
+
       return false;
     }
   }
@@ -143,7 +143,7 @@ export class SceneManager {
     // Validate that all IDs exist
     const valid = newOrder.every(id => this.scenes.has(id));
     if (!valid) {
-      console.error('[SceneManager] Invalid scene order');
+
       return false;
     }
 
@@ -182,7 +182,7 @@ export class SceneManager {
    */
   importScenes(data) {
     if (!data || !data.scenes) {
-      console.error('[SceneManager] Invalid scenes data');
+
       return false;
     }
 
@@ -203,7 +203,7 @@ export class SceneManager {
 
       return true;
     } catch (error) {
-      console.error('[SceneManager] Failed to import scenes:', error);
+
       return false;
     }
   }
@@ -217,7 +217,7 @@ export class SceneManager {
       localStorage.setItem('rhizomium.vj.scenes', JSON.stringify(data));
       return true;
     } catch (error) {
-      console.error('[SceneManager] Failed to save scenes:', error);
+
       return false;
     }
   }
@@ -233,7 +233,7 @@ export class SceneManager {
       const data = JSON.parse(json);
       return this.importScenes(data);
     } catch (error) {
-      console.error('[SceneManager] Failed to load scenes:', error);
+
       return false;
     }
   }

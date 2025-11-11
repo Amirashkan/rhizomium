@@ -47,13 +47,13 @@ export class FragmentTextureRenderer {
       // Get the node from the graph
       const node = window.graph?.getNode(nodeId);
       if (!node) {
-        console.error(`[FragmentTextureRenderer] Node ${nodeId} not found`);
+
         return this._createFallbackTexture(width, height);
       }
 
       const nodeDef = NodeDefs[node.kind];
       if (!nodeDef) {
-        console.error(`[FragmentTextureRenderer] Node definition not found for ${node.kind}`);
+
         return this._createFallbackTexture(width, height);
       }
 
@@ -66,7 +66,7 @@ export class FragmentTextureRenderer {
       const compilationResult = await this._compileNodeToShader(node);
 
       if (!compilationResult) {
-        console.error(`[FragmentTextureRenderer] Failed to compile shader for node ${nodeId}`);
+
         return this._createFallbackTexture(width, height);
       }
 
@@ -87,7 +87,7 @@ export class FragmentTextureRenderer {
       }
 
       if (!cached || !cached.pipeline) {
-        console.error(`[FragmentTextureRenderer] Failed to build pipeline for node ${nodeId}`);
+
         return this._createFallbackTexture(width, height);
       }
 
@@ -100,7 +100,7 @@ export class FragmentTextureRenderer {
 
       return cached.texture;
     } catch (error) {
-      console.error(`[FragmentTextureRenderer] Error rendering node ${nodeId}:`, error);
+
       return this._createFallbackTexture(width, height);
     }
   }
@@ -136,7 +136,7 @@ export class FragmentTextureRenderer {
       // Return both WGSL and uniformManager so we can write parameters in the correct order
       return { wgsl, uniformManager };
     } catch (error) {
-      console.error('[FragmentTextureRenderer] Shader compilation error:', error);
+
       return null;
     }
   }
@@ -161,7 +161,6 @@ export class FragmentTextureRenderer {
       // Including them causes infinite loops: execute() -> _renderFragmentInputs() -> buildWGSL(compute node) -> side effects -> execute()
       const isComputeNode = node.kind && node.kind.startsWith('Compute');
       if (isComputeNode) {
-        console.log(`[FragmentTextureRenderer] Skipping compute node ${node.kind} (${node.id}) in fragment subgraph - will be sampled as texture instead`);
         return; // Don't add compute nodes to fragment subgraphs
       }
 
@@ -264,7 +263,7 @@ export class FragmentTextureRenderer {
         height
       };
     } catch (error) {
-      console.error('[FragmentTextureRenderer] Pipeline build error:', error);
+
       return null;
     }
   }
@@ -313,22 +312,22 @@ export class FragmentTextureRenderer {
         // Without this, compute shaders may try to read from incomplete textures
         if (this.device.queue.onSubmittedWorkDone) {
           await this.device.queue.onSubmittedWorkDone();
-          console.log(`[FragmentTextureRenderer] GPU work completed for fragment render`);
+
         } else {
-          console.warn(`[FragmentTextureRenderer] onSubmittedWorkDone not available, using 100ms fallback delay`);
+
           // Fallback: Longer delay to give GPU time to finish
           // 100ms should be more than enough for most GPUs
           await new Promise(resolve => setTimeout(resolve, 100));
-          console.log(`[FragmentTextureRenderer] Fallback delay completed`);
+
         }
 
         // Debug: Log texture details after render
-        console.log(`[FragmentTextureRenderer] Rendered to texture: ${cached.texture.width}x${cached.texture.height}, format=${cached.texture.format}, usage=${cached.texture.usage}`);
+
       } else {
-        console.log(`[FragmentTextureRenderer] Using external encoder - fragment render added to shared command buffer`);
+
       }
     } catch (error) {
-      console.error('[FragmentTextureRenderer] Render error:', error);
+
       throw error;
     }
   }
@@ -449,7 +448,7 @@ export class FragmentTextureRenderer {
             const numParams = uniformManager.uniformValues.size;
             // Each parameter is 4 bytes (f32), round up to 16-byte alignment
             size = Math.max(16, Math.ceil(numParams * 4 / 16) * 16);
-            console.log(`[FragmentTextureRenderer] Allocated ${size} bytes for ${numParams} parameters in u_params buffer`);
+
           }
         }
 

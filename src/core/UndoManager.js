@@ -29,7 +29,7 @@ export class UndoManager {
         : connectionData.targetNode;
       targetInput = connectionData.targetInput || 0;
     } else {
-      console.error('Invalid connection data format:', connectionData);
+
       return;
     }
 
@@ -48,7 +48,7 @@ export class UndoManager {
   recordAction(action) {
     // Validate action object
     if (!action || typeof action !== 'object' || !action.type) {
-      console.warn('Invalid action passed to recordAction:', action);
+
       return;
     }
 
@@ -71,7 +71,7 @@ export class UndoManager {
   // Record group deletion (multiple nodes at once)
   recordGroupDeletion(nodes) {
     if (!nodes || nodes.length === 0) {
-      console.warn('No nodes provided for group deletion recording');
+
       return;
     }
 
@@ -315,7 +315,7 @@ export class UndoManager {
   // Record node creation (for when user creates a node)
   recordNodeCreation(node) {
     if (!node || typeof node.id === 'undefined') {
-      console.warn('Cannot record node creation: invalid node');
+
       return;
     }
 
@@ -336,7 +336,7 @@ export class UndoManager {
   // Record group creation (multiple nodes at once, like paste/duplicate)
   recordGroupCreation(nodes, connections = []) {
     if (!nodes || nodes.length === 0) {
-      console.warn('No nodes provided for group creation recording');
+
       return;
     }
 
@@ -535,7 +535,6 @@ export class UndoManager {
             );
           }
 
-          console.log(`Deleted ${deletedCount} nodes from group creation`);
           if (this.onChange) {
             this.onChange(`Undo create ${deletedCount} nodes`);
           }
@@ -653,11 +652,11 @@ export class UndoManager {
               action.undo();
               success = true;
             } catch (error) {
-              console.error('Error executing custom undo:', error);
+
               return false;
             }
           } else {
-            console.error('Unknown action type:', action.type);
+
             return false;
           }
           break;
@@ -670,12 +669,12 @@ export class UndoManager {
       } else {
         // Put action back if failed
         this.undoStack.push(action);
-        console.error('Undo failed');
+
         return false;
       }
 
     } catch (error) {
-      console.error('Undo error:', error);
+
       this.undoStack.push(action);
       return false;
     }
@@ -897,11 +896,11 @@ export class UndoManager {
               action.redo();
               success = true;
             } catch (error) {
-              console.error('Error executing custom redo:', error);
+
               return false;
             }
           } else {
-            console.error('Unknown redo action type:', action.type);
+
             return false;
           }
           break;
@@ -913,12 +912,12 @@ export class UndoManager {
         return true;
       } else {
         this.redoStack.push(action);
-        console.error('Redo failed');
+
         return false;
       }
 
     } catch (error) {
-      console.error('Redo error:', error);
+
       this.redoStack.push(action);
       return false;
     }
@@ -930,7 +929,7 @@ export class UndoManager {
     const targetNode = this.graph.nodes.find(n => n.id == action.targetNodeId);
 
     if (!sourceNode || !targetNode) {
-      console.error('Cannot restore connection: nodes not found');
+
       return false;
     }
 
@@ -962,7 +961,7 @@ export class UndoManager {
   undoNodeDeletion(action) {
     // Check if node already exists
     if (this.graph.nodes.find(n => n.id === action.node.id)) {
-      console.warn('Node already exists, cannot restore');
+
       return false;
     }
 
@@ -1054,7 +1053,7 @@ export class UndoManager {
       return true;
 
     } catch (error) {
-      console.error('Error restoring node:', error);
+
       return false;
     }
   }
@@ -1064,7 +1063,7 @@ export class UndoManager {
     const targetNode = this.graph.nodes.find(n => n.id == action.targetNodeId);
     
     if (!targetNode || !targetNode.inputs || targetNode.inputs.length <= action.targetInput) {
-      console.error('Cannot undo connection creation: target not found');
+
       return false;
     }
 
@@ -1086,7 +1085,7 @@ export class UndoManager {
     const nodeIndex = this.graph.nodes.findIndex(n => n.id === action.nodeId);
     
     if (nodeIndex === -1) {
-      console.error('Cannot undo node creation: node not found');
+
       return false;
     }
 
@@ -1116,7 +1115,7 @@ export class UndoManager {
     const targetNode = this.graph.nodes.find(n => n.id == action.targetNodeId);
     
     if (!targetNode || !targetNode.inputs || targetNode.inputs.length <= action.targetInput) {
-      console.error('Cannot redo connection deletion');
+
       return false;
     }
 
@@ -1137,7 +1136,7 @@ export class UndoManager {
     const nodeIndex = this.graph.nodes.findIndex(n => n.id === action.node.id);
     
     if (nodeIndex === -1) {
-      console.error('Cannot redo node deletion: node not found');
+
       return false;
     }
 
@@ -1167,7 +1166,7 @@ export class UndoManager {
     const targetNode = this.graph.nodes.find(n => n.id == action.targetNodeId);
     
     if (!sourceNode || !targetNode) {
-      console.error('Cannot redo connection creation: nodes not found');
+
       return false;
     }
 
@@ -1191,12 +1190,12 @@ export class UndoManager {
   // Redo node creation (create node again)
   redoNodeCreation(action) {
     if (!action || !action.nodeData) {
-      console.error('Cannot redo node creation: missing node data');
+
       return false;
     }
 
     if (this.graph.nodes.find(n => n.id === action.nodeId)) {
-      console.warn('Node already exists, skipping recreate');
+
       return false;
     }
 

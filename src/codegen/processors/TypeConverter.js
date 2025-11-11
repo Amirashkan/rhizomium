@@ -55,7 +55,6 @@ export class TypeConverter {
     if (outputPins && outputPins[pinIndex]) {
       expression = outputPins[pinIndex].expression;
       currentType = outputPins[pinIndex].type;
-      console.log(`TypeConverter: Using pin ${pinIndex} of node ${actualNodeId}: ${expression} (${currentType})`);
     } else {
       // Fall back to legacy single-output
       expression = this.expressions.get(actualNodeId) || "vec3<f32>(0.0)";

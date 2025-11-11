@@ -22,8 +22,7 @@ export class ErrorHandler {
     this.createErrorUI();
     this.setupGlobalErrorHandling();
     this.isInitialized = true;
-    
-    console.log('✅ ErrorHandler initialized');
+
   }
 
   /**
@@ -195,7 +194,6 @@ export class ErrorHandler {
    * Main error handling method
    */
   handleError(error, context = '', type = 'error', duration = 5000) {
-    console.error(`[${context}]:`, error);
 
     const errorMessage = this.formatErrorMessage(error);
     const userMessage = this.getUserFriendlyMessage(error, context);
@@ -276,7 +274,7 @@ export class ErrorHandler {
    */
  showNotification({ type, title, message, details, duration = 5000 }) {
   if (!this.errorContainer) {
-    console.warn('Error container not initialized');
+
     return;
   }
 

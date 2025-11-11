@@ -146,7 +146,7 @@ export class GPUPerformanceMonitor {
    */
   async runTests() {
     if (!this.testRunner) {
-      console.error('[GPUPerformanceMonitor] Test runner not initialized');
+
       return null;
     }
 

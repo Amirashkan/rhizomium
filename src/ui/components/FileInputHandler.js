@@ -189,7 +189,7 @@ await window.textureManager.uploadTexture(node.id, file);
       this._triggerUpdates(node, onChange);
 
     } catch (error) {
-      console.error('File load error:', error);
+
       if (window.errorHandler?.handleError) {
         window.errorHandler.handleError(error, { 
           component: 'texture-load', 
@@ -230,8 +230,6 @@ await window.textureManager.uploadTexture(node.id, file);
       dropZone.style.borderColor = "#d9534f";
       dropZone.innerHTML = '<div style="color: #d9534f;">❌ Load failed</div>';
 
-      console.error('File load error:', errorMessage);
-
       setTimeout(() => {
         dropZone.style.borderColor = "#666";
         dropZone.innerHTML = `
@@ -264,7 +262,7 @@ await window.textureManager.uploadTexture(node.id, file);
         onChange(`File loaded for ${node.kind}`);
       }
     } catch (error) {
-      console.warn('Error triggering updates after file load:', error);
+
     }
   }
 }

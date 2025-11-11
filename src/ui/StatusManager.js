@@ -34,7 +34,6 @@ export class StatusManager {
 
   updateStatus(message, type = "info") {
     if (!this.statusElement) {
-      console.log(`[${type.toUpperCase()}] ${message}`);
       return;
     }
 

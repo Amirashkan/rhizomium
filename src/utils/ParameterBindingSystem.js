@@ -108,13 +108,13 @@ export class ParameterBindingSystem {
     const targetNode = this.graph.nodes.find(n => n.id === targetNodeId);
 
     if (!sourceNode || !targetNode) {
-      console.error('Source or target node not found');
+
       return false;
     }
 
     // Check for circular dependencies
     if (this.wouldCreateCircularDependency(sourceNodeId, sourceParamName, targetNodeId, targetParamName)) {
-      console.error('Cannot create binding: would create circular dependency');
+
       return false;
     }
 

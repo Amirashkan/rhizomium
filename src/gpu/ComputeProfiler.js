@@ -53,7 +53,7 @@ export class ComputeProfiler {
     try {
       // Check if timestamp queries are supported
       if (!this.device.features.has('timestamp-query')) {
-        console.warn('[ComputeProfiler] Timestamp queries not supported. Using fallback timing.');
+
         this.supportsTimestamps = false;
         return;
       }
@@ -79,9 +79,8 @@ export class ComputeProfiler {
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
       });
 
-      console.log('[ComputeProfiler] Initialized with timestamp query support');
     } catch (error) {
-      console.error('[ComputeProfiler] Failed to initialize timestamp queries:', error);
+
       this.supportsTimestamps = false;
     }
   }
@@ -156,7 +155,7 @@ export class ComputeProfiler {
       try {
         commandEncoder.writeTimestamp(this.querySet, dispatch.queryIndex);
       } catch (error) {
-        console.warn('[ComputeProfiler] Failed to write timestamp:', error);
+
       }
     }
 
@@ -183,7 +182,7 @@ export class ComputeProfiler {
       try {
         commandEncoder.writeTimestamp(this.querySet, dispatch.queryIndex + 1);
       } catch (error) {
-        console.warn('[ComputeProfiler] Failed to write end timestamp:', error);
+
       }
     }
   }
@@ -239,7 +238,7 @@ export class ComputeProfiler {
         // Schedule async read
         this._scheduleQueryRead(this.currentFrameDispatches.slice());
       } catch (error) {
-        console.warn('[ComputeProfiler] Failed to resolve queries:', error);
+
       }
     }
   }
@@ -275,7 +274,7 @@ export class ComputeProfiler {
 
       this.queryBuffer.unmap();
     } catch (error) {
-      console.warn('[ComputeProfiler] Failed to read query results:', error);
+
       // Buffer might still be mapped, try to unmap
       try {
         this.queryBuffer.unmap();

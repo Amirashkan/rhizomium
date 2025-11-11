@@ -106,7 +106,7 @@ _isValidExpression(value) {
       // Update expression styling
       this._updateExpressionStyling(input, currentValue);
     } catch (error) {
-      console.error('Error setting current value:', error);
+
       input.value = param.default ?? "";
     }
   }
@@ -129,7 +129,7 @@ _isValidExpression(value) {
         input.disabled = true;
       }
     } catch (error) {
-      console.error('Error checking connection state:', error);
+
     }
   }
 
@@ -233,7 +233,7 @@ input.addEventListener("input", (e) => {
         input.style.fontWeight = 'normal';
       }
     } catch (error) {
-      console.error('Error updating expression styling:', error);
+
     }
   }
 
@@ -257,7 +257,7 @@ input.addEventListener("input", (e) => {
         input.title = baseTitle;
       }
     } catch (error) {
-      console.error('Error validating expression:', error);
+
     }
   }
 
@@ -308,7 +308,7 @@ input.addEventListener("input", (e) => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.focus();
       } catch (error) {
-        console.error('Error toggling expression mode:', error);
+
       }
     });
 
@@ -369,7 +369,7 @@ input.addEventListener("input", (e) => {
         resultDiv.textContent = '';
       }
     } catch (error) {
-      console.error('Error updating expression result:', error);
+
     }
   }
 

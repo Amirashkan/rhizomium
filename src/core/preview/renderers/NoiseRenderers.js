@@ -39,7 +39,7 @@ register(registry) {
       // Direct fallback to node parameters or props
       return node.params?.[paramName] ?? node.props?.[paramName] ?? defaultValue;
     } catch (error) {
-      console.warn(`Error getting parameter ${paramName}:`, error);
+
       return defaultValue;
     }
   }

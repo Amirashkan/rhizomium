@@ -72,7 +72,6 @@ export class GPUPerformanceTest {
       }
     };
 
-    console.log('[GPUPerformanceTest] ✓ Profiler test passed:', this.testResults.profilerTest);
     return this.testResults.profilerTest;
   }
 
@@ -146,7 +145,6 @@ export class GPUPerformanceTest {
 
       if (!passed) {
         allPassed = false;
-        console.error(`[GPUPerformanceTest] ✗ Mapping test failed: ${testCase.name}`, {
           expected: testCase.expected,
           actual: result,
           diff: [
@@ -156,7 +154,7 @@ export class GPUPerformanceTest {
           ]
         });
       } else {
-        console.log(`[GPUPerformanceTest] ✓ Mapping test passed: ${testCase.name}`);
+
       }
     }
 
@@ -166,14 +164,12 @@ export class GPUPerformanceTest {
       summary: `${results.filter(r => r.passed).length}/${results.length} tests passed`
     };
 
-    console.log('[GPUPerformanceTest] Mapping test complete:', this.testResults.mappingTest);
   }
 
   /**
    * Test 3: Verify no GPU crashes or stalls during scene graph updates
    */
   async testSceneGraphUpdates() {
-    console.log('[GPUPerformanceTest] Testing scene graph updates for GPU stability...');
 
     if (!this.device) {
       this.testResults.sceneGraphTest = {
@@ -192,22 +188,22 @@ export class GPUPerformanceTest {
 
     try {
       // Test 1: Command buffer synchronization
-      console.log('[GPUPerformanceTest] Testing command buffer synchronization...');
+
       const syncResult = await this._testCommandBufferSync();
       testResults.synchronization = syncResult;
 
       // Test 2: Memory leak detection during updates
-      console.log('[GPUPerformanceTest] Testing for memory leaks...');
+
       const memResult = await this._testMemoryLeaks();
       testResults.memoryLeaks = memResult;
 
       // Test 3: Command buffer stall detection
-      console.log('[GPUPerformanceTest] Testing for command buffer stalls...');
+
       const stallResult = await this._testCommandBufferStalls();
       testResults.commandBufferStalls = stallResult;
 
       // Test 4: Error recovery
-      console.log('[GPUPerformanceTest] Testing error recovery...');
+
       const errorResult = await this._testErrorRecovery();
       testResults.errorRecovery = errorResult;
 
@@ -219,11 +215,10 @@ export class GPUPerformanceTest {
         summary: allPassed ? 'All GPU stability tests passed' : 'Some GPU stability tests failed'
       };
 
-      console.log('[GPUPerformanceTest] Scene graph test complete:', this.testResults.sceneGraphTest);
       return this.testResults.sceneGraphTest;
 
     } catch (error) {
-      console.error('[GPUPerformanceTest] Scene graph test error:', error);
+
       this.testResults.sceneGraphTest = {
         success: false,
         error: error.message,
@@ -261,10 +256,9 @@ export class GPUPerformanceTest {
         timings.push(duration);
 
         if (duration > 100) {
-          console.warn(`[GPUPerformanceTest] Slow sync detected: ${duration.toFixed(2)}ms`);
         }
       } catch (error) {
-        console.error('[GPUPerformanceTest] Sync test failed:', error);
+
         passed = false;
         break;
       }
@@ -345,7 +339,6 @@ export class GPUPerformanceTest {
 
       if (submitTime > stallThreshold) {
         stalls++;
-        console.warn(`[GPUPerformanceTest] Stall detected at iteration ${i}: ${submitTime.toFixed(2)}ms`);
       }
     }
 
@@ -373,7 +366,7 @@ export class GPUPerformanceTest {
         });
       } catch (error) {
         errorCaught = true;
-        console.log('[GPUPerformanceTest] Expected error caught:', error.message);
+
       }
 
       // Verify device still works after error
@@ -398,7 +391,6 @@ export class GPUPerformanceTest {
    * Run all tests
    */
   async runAllTests() {
-    console.log('[GPUPerformanceTest] Running all GPU performance tests...');
 
     this.testProfilerDisplay();
     this.testFieldToWorldMapping();
@@ -408,15 +400,13 @@ export class GPUPerformanceTest {
       result => result && result.success
     );
 
-    console.log('[GPUPerformanceTest] ========================================');
-    console.log('[GPUPerformanceTest] TEST RESULTS SUMMARY');
-    console.log('[GPUPerformanceTest] ========================================');
-    console.log('[GPUPerformanceTest] 1. Profiler Display:', this.testResults.profilerTest?.success ? '✓ PASS' : '✗ FAIL');
-    console.log('[GPUPerformanceTest] 2. Field Mapping:', this.testResults.mappingTest?.success ? '✓ PASS' : '✗ FAIL');
-    console.log('[GPUPerformanceTest] 3. Scene Graph Stability:', this.testResults.sceneGraphTest?.success ? '✓ PASS' : '✗ FAIL');
-    console.log('[GPUPerformanceTest] ========================================');
-    console.log('[GPUPerformanceTest] Overall:', allPassed ? '✓ ALL TESTS PASSED' : '✗ SOME TESTS FAILED');
-    console.log('[GPUPerformanceTest] ========================================');
+
+
+
+
+
+
+
 
     return {
       allPassed,

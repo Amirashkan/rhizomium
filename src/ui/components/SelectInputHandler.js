@@ -78,14 +78,14 @@ export class SelectInputHandler {
         if (optionExists) {
           select.value = currentValue;
         } else {
-          console.warn(`Select value "${currentValue}" not found in options for parameter ${param.name}`);
+
           if (param.default !== undefined) {
             select.value = param.default;
           }
         }
       }
     } catch (error) {
-      console.warn(`Error setting select value for parameter ${param.name}:`, error);
+
       if (param.default !== undefined) {
         select.value = param.default;
       }
@@ -135,7 +135,7 @@ export class SelectInputHandler {
         previousValue = newValue;
 
       } catch (error) {
-        console.error(`Error updating select parameter ${param.name}:`, error);
+
         // Revert to previous value on error
         select.value = previousValue;
       }

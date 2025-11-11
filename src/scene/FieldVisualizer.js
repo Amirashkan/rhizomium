@@ -112,7 +112,7 @@ export class FieldVisualizer {
      */
     setMode(mode) {
         if (mode !== 'points' && mode !== 'mesh') {
-            console.warn(`[FieldVisualizer] Invalid mode: ${mode}`);
+
             return;
         }
         this.params.mode = mode;
@@ -361,7 +361,7 @@ export class FieldVisualizer {
     setUVMode(mode) {
         const validModes = ['planar-xz', 'planar-xy', 'planar-yz', 'spherical', 'cylindrical'];
         if (!validModes.includes(mode)) {
-            console.warn(`[FieldVisualizer] Invalid UV mode: ${mode}`);
+
             return;
         }
         this.uvMode = mode;

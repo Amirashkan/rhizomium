@@ -31,7 +31,7 @@ export class MIDIManager {
                        typeof navigator.requestMIDIAccess === 'function';
 
     if (!this.isSupported) {
-      console.warn('Web MIDI API is not supported in this browser');
+
     }
 
     return this.isSupported;
@@ -49,8 +49,6 @@ export class MIDIManager {
       this.midiAccess = await navigator.requestMIDIAccess();
       this.isEnabled = true;
 
-      console.log('MIDI Access granted');
-
       // Set up device change listeners
       this.midiAccess.addEventListener('statechange', (e) => {
         this.handleStateChange(e);
@@ -66,7 +64,7 @@ export class MIDIManager {
 
       return true;
     } catch (error) {
-      console.error('Failed to get MIDI access:', error);
+
       this.isEnabled = false;
       throw error;
     }
@@ -93,8 +91,6 @@ export class MIDIManager {
       this.addOutput(output);
     }
 
-    console.log(`Found ${this.inputs.size} MIDI inputs and ${this.outputs.size} MIDI outputs`);
-
     this.eventSystem.emit('MIDI_DEVICES_CHANGED', {
       inputs: Array.from(this.inputs.values()).map(input => this.getDeviceInfo(input)),
       outputs: Array.from(this.outputs.values()).map(output => this.getDeviceInfo(output))
@@ -118,7 +114,6 @@ export class MIDIManager {
     // Set up message listener
     input.onmidimessage = (message) => this.handleMIDIMessage(message, input);
 
-    console.log(`Added MIDI input: ${input.name} (${input.manufacturer})`);
   }
 
   /**
@@ -135,7 +130,6 @@ export class MIDIManager {
       type: 'output'
     });
 
-    console.log(`Added MIDI output: ${output.name} (${output.manufacturer})`);
   }
 
   /**
@@ -149,7 +143,6 @@ export class MIDIManager {
       this.outputs.delete(deviceId);
       this.devices.delete(deviceId);
 
-      console.log(`Removed MIDI device: ${device.name}`);
     }
   }
 
@@ -158,8 +151,6 @@ export class MIDIManager {
    */
   handleStateChange(event) {
     const port = event.port;
-
-    console.log(`MIDI device ${port.state}: ${port.name}`);
 
     if (port.state === 'connected') {
       if (port.type === 'input') {
@@ -299,7 +290,6 @@ export class MIDIManager {
       return true;
     }
 
-    console.warn(`Output device ${deviceId} not found`);
     return false;
   }
 
@@ -320,7 +310,6 @@ export class MIDIManager {
       this.midiAccess = null;
       this.isEnabled = false;
 
-      console.log('MIDI disabled');
     }
   }
 

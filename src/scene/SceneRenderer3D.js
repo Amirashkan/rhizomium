@@ -54,7 +54,7 @@ export class SceneRenderer3D {
 
       this.initialized = true;
     } catch (error) {
-      console.error('[SceneRenderer3D] Initialization failed:', error);
+
       throw error;
     }
   }
@@ -269,7 +269,7 @@ export class SceneRenderer3D {
         }
       }
     } catch (error) {
-      console.warn('[SceneRenderer3D] Error rendering mesh nodes:', error);
+
     }
 
     // Render compute field mapper nodes (if any)
@@ -281,7 +281,7 @@ export class SceneRenderer3D {
         }
       }
     } catch (error) {
-      console.warn('[SceneRenderer3D] Error rendering field mapper nodes:', error);
+
     }
 
     passEncoder.end();

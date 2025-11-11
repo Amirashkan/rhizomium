@@ -79,7 +79,6 @@ export class SystemIntegration {
    * @private
    */
   _initialize() {
-    console.log('[SystemIntegration] Initializing...');
 
     // Set up event listeners
     this._setupEventListeners();
@@ -87,7 +86,6 @@ export class SystemIntegration {
     // Initialize subsystems
     this.status = SystemStatus.READY;
 
-    console.log('[SystemIntegration] Ready');
   }
 
   /**
@@ -111,7 +109,7 @@ export class SystemIntegration {
     });
 
     this.executionQueue.on('error', (data) => {
-      console.error('[SystemIntegration] Execution error:', data.error);
+
       this.lastError = data.error;
     });
   }
@@ -146,7 +144,7 @@ export class SystemIntegration {
 
       return nodeData.id;
     } catch (error) {
-      console.error('[SystemIntegration] Error adding node:', error);
+
       this.lastError = error;
       throw error;
     }
@@ -177,7 +175,7 @@ export class SystemIntegration {
         this.validate();
       }
     } catch (error) {
-      console.error('[SystemIntegration] Error removing node:', error);
+
       this.lastError = error;
       throw error;
     }
@@ -246,7 +244,7 @@ export class SystemIntegration {
 
       return result;
     } catch (error) {
-      console.error('[SystemIntegration] Error adding connection:', error);
+
       this.lastError = error;
       return { success: false, error: error.message };
     }
@@ -276,7 +274,7 @@ export class SystemIntegration {
 
       return success;
     } catch (error) {
-      console.error('[SystemIntegration] Error removing connection:', error);
+
       this.lastError = error;
       return false;
     }
@@ -362,7 +360,7 @@ export class SystemIntegration {
 
             return result;
           } catch (error) {
-            console.error(`[SystemIntegration] Error executing node ${nodeId}:`, error);
+
             this.lastError = error;
             throw error;
           }
@@ -415,7 +413,7 @@ export class SystemIntegration {
    */
   setComputeExecutor(executor) {
     this.computeExecutor = executor;
-    console.log('[SystemIntegration] ComputeExecutor connected');
+
   }
 
   /**
@@ -453,7 +451,7 @@ export class SystemIntegration {
           type: 'compute'
         };
       } catch (error) {
-        console.error(`[SystemIntegration] GPU execution failed for ${nodeId}:`, error);
+
         throw error;
       }
     }
@@ -599,13 +597,11 @@ export class SystemIntegration {
    * Dispose of the system
    */
   dispose() {
-    console.log('[SystemIntegration] Disposing...');
 
     this.clear();
     this.executionQueue.dispose();
     this.status = SystemStatus.DISPOSED;
 
-    console.log('[SystemIntegration] Disposed');
   }
 }
 

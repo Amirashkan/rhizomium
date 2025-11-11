@@ -25,7 +25,7 @@ export class Node {
      */
     addChild(child) {
         if (child === this) {
-            console.warn('Node.addChild: Cannot add node as child of itself');
+
             return this;
         }
 

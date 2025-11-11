@@ -57,8 +57,6 @@ export class ComputeNodes {
   compile(node, getInput, getParam) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
-    console.log('[ComputeNodes] Compiling node:', node.kind, nodeId);
-
     // Analyze node parameters for uniforms
     if (this.uniformManager) {
       this.uniformManager.analyzeNode(node);
@@ -129,7 +127,6 @@ export class ComputeNodes {
       lastInputHash: null // For tracking when inputs change
     });
 
-    console.log(`[ComputeNodes] Registered compute node: ${node.kind} (${nodeId}), feedback: ${supportsFeedback}`);
   }
 
   /**
@@ -184,7 +181,7 @@ export class ComputeNodes {
       case 'ComputeLuminance':
         return this.generateLuminanceShader(node, getInput);
       default:
-        console.warn(`[ComputeNodes] No shader generator for ${node.kind}`);
+
         return this.generateFallbackShader(node);
     }
   }
@@ -284,7 +281,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   `}
 }`;
 
-    console.log('[ComputeNodes] Generated noise shader:\n', shader);
     return shader;
   }
 
@@ -745,7 +741,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, 1.0));
 }`;
 
-    console.log('[ComputeNodes] Generated improved reaction-diffusion shader');
     return shader;
   }
 
@@ -1084,7 +1079,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, alpha));
 }`;
 
-    console.log('[ComputeNodes] Generated color adjust shader');
     return shader;
   }
 
@@ -1272,7 +1266,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
 
-    console.log('[ComputeNodes] Generated edge detection shader with method:', method);
     return shader;
   }
 
@@ -1402,7 +1395,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), finalColor);
 }`;
 
-    console.log('[ComputeNodes] Generated morphology shader with operation:', operation, 'kernel:', kernelSize);
     return shader;
   }
 
@@ -1606,7 +1598,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
 }`;
 
-    console.log('[ComputeNodes] Generated Voronoi shader with mode:', mode, 'metric:', distanceMetric);
     return shader;
   }
 
@@ -1708,7 +1699,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
 }`;
 
-    console.log('[ComputeNodes] Generated gradient shader with type:', type);
     return shader;
   }
 
@@ -1875,7 +1865,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
 }`;
 
-    console.log('[ComputeNodes] Generated pattern shader with type:', type);
     return shader;
   }
 
@@ -2097,7 +2086,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
 
-    console.log('[ComputeNodes] Generated warp shader with mode:', mode);
     return shader;
   }
 
@@ -2305,7 +2293,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
 
-    console.log('[ComputeNodes] Generated glitch shader with type:', type);
     return shader;
   }
 
@@ -2419,7 +2406,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
 
-    console.log('[ComputeNodes] Generated kaleidoscope shader with segments:', segments);
     return shader;
   }
 
@@ -2568,7 +2554,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(finalColor, colorA.a));
 }`;
 
-    console.log('[ComputeNodes] Generated mix shader with mode:', mode);
     return shader;
   }
 
@@ -2684,7 +2669,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), color);
 }`;
 
-    console.log('[ComputeNodes] Generated transform shader with rotation:', rotation, 'scale:', scaleX, scaleY);
     return shader;
   }
 
@@ -2760,9 +2744,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
 }`;
 
-    console.log('[ComputeNodes] Generated channels shader with mapping:',
-      `R=${redSource}(${redIndex})`, `G=${greenSource}(${greenIndex})`,
-      `B=${blueSource}(${blueIndex})`, `A=${alphaSource}(${alphaIndex})`);
     return shader;
   }
 
@@ -2874,9 +2855,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
 }`;
 
-    console.log('[ComputeNodes] Generated HSV shader:',
-      `operation=${operation}(${operationIndex})`,
-      `hueShift=${hueShift}`, `saturationMult=${saturationMult}`, `valueMult=${valueMult}`);
     return shader;
   }
 
@@ -3146,10 +3124,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
 }`;
 
-    console.log('[ComputeNodes] Generated Histogram shader:',
-      `operation=${operation}(${operationIndex})`,
-      `channel=${channel}(${channelIndex})`,
-      `bins=${bins}`, `strength=${strength}`);
     return shader;
   }
 
@@ -3271,10 +3245,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
 }`;
 
-    console.log('[ComputeNodes] Generated Luminance shader:',
-      `method=${method}(${methodIndex})`,
-      `outputMode=${outputMode}(${outputModeIndex})`,
-      `threshold=${threshold}`);
     return shader;
   }
 
@@ -3400,7 +3370,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue);
       } catch (error) {
-        console.warn('[ComputeNodes] Failed to generate shader for expression:', rawValue, error);
+
         // Fall through to uniform registration below
       }
     }
@@ -3411,7 +3381,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue);
       } catch (error) {
-        console.warn('[ComputeNodes] Failed to generate shader for expression:', rawValue, error);
+
         // Fall through to uniform registration below
       }
     }

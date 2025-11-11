@@ -61,12 +61,12 @@ class AudioEnvelopeClient {
                         // Handle pong response
                     }
                 } catch (error) {
-                    console.error('[AudioEnvelope] Failed to parse message:', error);
+
                 }
             };
 
             this.ws.onerror = (error) => {
-                console.error('[AudioEnvelope] WebSocket error:', error);
+
                 this._emit('error', error);
             };
 
@@ -77,7 +77,7 @@ class AudioEnvelopeClient {
             };
 
         } catch (error) {
-            console.error('[AudioEnvelope] Connection failed:', error);
+
             this._emit('error', error);
             this._scheduleReconnect();
         }
@@ -179,7 +179,7 @@ class AudioEnvelopeClient {
                 try {
                     callback(...args);
                 } catch (error) {
-                    console.error(`[AudioEnvelope] Error in ${event} listener:`, error);
+
                 }
             });
         }
@@ -206,7 +206,7 @@ class AudioEnvelopeClient {
             const result = await response.json();
             return result;
         } catch (error) {
-            console.error('[AudioEnvelope] Failed to update configuration:', error);
+
             throw error;
         }
     }
@@ -222,7 +222,7 @@ class AudioEnvelopeClient {
             }
             return await response.json();
         } catch (error) {
-            console.error('[AudioEnvelope] Failed to get status:', error);
+
             throw error;
         }
     }

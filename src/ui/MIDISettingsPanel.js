@@ -228,7 +228,7 @@ export class MIDISettingsPanel {
         enableBtn.disabled = true;
         disableBtn.disabled = false;
       } catch (error) {
-        console.error('Failed to enable MIDI:', error);
+
         await modalManager.alert('Failed to enable MIDI: ' + error.message, 'MIDI Error');
       }
     });
@@ -327,11 +327,9 @@ export class MIDISettingsPanel {
     const paramName = selectedParam.name;
     const node = paramPanel.selectedNode;
 
-    console.log(`[MIDI Learn] Starting for ${node.kind}.${paramName}`);
-
     // Start learning
     this.midiBinding.startLearning(node.id, paramName, (result) => {
-      console.log('MIDI Learn completed:', result);
+
     });
   }
 

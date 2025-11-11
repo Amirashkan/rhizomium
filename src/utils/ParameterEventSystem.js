@@ -23,7 +23,7 @@ export class ParameterEventSystem {
   // Emit parameter change events
   emit(eventType, data) {
     if (this.debugMode) {
-      console.log(`🔥 Event emitted: ${eventType}`, data);
+
     }
     
     if (this.listeners.has(eventType)) {
@@ -31,7 +31,7 @@ export class ParameterEventSystem {
         try {
           callback(data);
         } catch (error) {
-          console.error('Parameter event callback error:', error);
+
         }
       });
     }

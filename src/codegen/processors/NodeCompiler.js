@@ -146,7 +146,7 @@ export class NodeCompiler {
       const shaderCode = this.shaderExpressionSystem.generateShader(expression);
       return shaderCode;
     } catch (error) {
-      console.error(`Failed to generate shader code for expression "${expression}":`, error);
+
       return defaultValue;
     }
   }

@@ -149,7 +149,7 @@ export class ResourceTracker {
    */
   destroy() {
     if (this.destroyed) {
-      console.warn(`ResourceTracker for node ${this.nodeId} already destroyed`);
+
       return this.getStats();
     }
 
@@ -165,7 +165,7 @@ export class ResourceTracker {
           destroyedCount++;
         }
       } catch (error) {
-        console.error(`Error destroying texture for node ${this.nodeId}:`, error);
+
         errorCount++;
       }
     }
@@ -178,7 +178,7 @@ export class ResourceTracker {
           destroyedCount++;
         }
       } catch (error) {
-        console.error(`Error destroying buffer for node ${this.nodeId}:`, error);
+
         errorCount++;
       }
     }
@@ -203,8 +203,6 @@ export class ResourceTracker {
       errorCount,
       duration: duration.toFixed(2) + 'ms'
     };
-
-    console.log(`[ResourceTracker] Node ${this.nodeId} cleanup:`, stats);
 
     return stats;
   }
@@ -329,7 +327,6 @@ export class ResourceTrackerRegistry {
     this.trackers.clear();
     stats.totalMemoryMB = stats.totalMemoryMB.toFixed(2);
 
-    console.log('[ResourceTrackerRegistry] Destroyed all trackers:', stats);
     return stats;
   }
 

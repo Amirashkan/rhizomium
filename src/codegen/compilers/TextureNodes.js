@@ -54,9 +54,7 @@ export class TextureNodes {
     const line = `let uv_${nodeId} = vec2<f32>(${uv}.x, 1.0 - ${uv}.y);
     let node_${nodeId}_rgba = textureSample(texture_${textureId}, sampler_${textureId}, uv_${nodeId});
     let node_${nodeId} = node_${nodeId}_rgba;`;
-    
-    console.log(`Texture2D line: ${line}`);
-    
+
     // Define all output pins with proper channel extraction
     // Options: Return vec3 colored channels or f32 grayscale
     const outputPins = [
@@ -78,9 +76,7 @@ export class TextureNodes {
     
     const line = `let node_${nodeId}_rgba = textureSample(textureCube_${textureId}, samplerCube_${textureId}, ${dir});
     let node_${nodeId} = node_${nodeId}_rgba;`;
-    
-    console.log(`TextureCube line: ${line}`);
-    
+
     // Define output pins for cube texture
     const outputPins = [
       { expression: `node_${nodeId}_rgba`, type: "vec4" },

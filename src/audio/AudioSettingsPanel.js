@@ -133,7 +133,6 @@ export class AudioSettingsPanel {
       const file = e.target.files[0];
       if (!file) return;
 
-      console.log('File selected:', file.name);
       this.showStatus('Loading...', 'info');
 
       try {
@@ -148,7 +147,7 @@ export class AudioSettingsPanel {
         this.showControls(true);
 
       } catch (error) {
-        console.error('Failed to load audio file:', error);
+
         this.showStatus(`Error: ${error.message}`, 'error');
         this.showControls(false);
       }

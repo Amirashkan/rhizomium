@@ -33,7 +33,7 @@ export class GradientNodes {
       try {
         return window.unifiedExpressionSystem.generateShader(value);
       } catch (error) {
-        console.warn('Failed to generate shader for expression:', value, error);
+
         return String(defaultValue);
       }
     }
@@ -43,7 +43,7 @@ export class GradientNodes {
       try {
         return window.unifiedExpressionSystem.generateShader(value);
       } catch (error) {
-        console.warn('Failed to generate shader for expression:', value, error);
+
         return String(defaultValue);
       }
     }

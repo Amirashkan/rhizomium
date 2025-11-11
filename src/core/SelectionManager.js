@@ -332,7 +332,7 @@ endDrag() {
 
       // Record for undo if any nodes actually moved
       if (nodeMovements.length > 0) {
-        console.log('Recording node movement for undo:', nodeMovements.length, 'nodes');
+
         this.undoManager.recordNodeMovement(nodeMovements);
       }
     }
@@ -388,21 +388,17 @@ deleteSelected() {
     // Get nodes to delete before removing them
     const nodesToDelete = this.graph.nodes.filter((n) => ids.has(n.id));
 
-    console.log('SelectionManager.deleteSelected called with', nodesToDelete.length, 'nodes');
-
     // USE GROUP DELETION for multiple nodes
     if (nodesToDelete.length > 1 && window.onGroupDeleted && typeof window.onGroupDeleted === 'function') {
-      console.log("SelectionManager: Using group deletion for", nodesToDelete.length, "nodes");
+
       window.onGroupDeleted(nodesToDelete);
     } else if (nodesToDelete.length === 1) {
       // Single node - use individual deletion with connection tracking
       if (window.onNodeDeleted && typeof window.onNodeDeleted === 'function') {
-        console.log("SelectionManager: Recording single node deletion with connections for undo:", nodesToDelete[0].kind, nodesToDelete[0].id);
-        
+
         // Find all connections involving this node BEFORE deletion
         const nodeConnections = this._findAllNodeConnections(nodesToDelete[0]);
-        console.log("Found connections for node", nodesToDelete[0].id, ":", nodeConnections);
-        
+
         // Create enhanced node record with connections
         const enhancedNode = {
           ...nodesToDelete[0],
@@ -568,7 +564,7 @@ deleteSelected() {
 
       // Record for undo if we have an undoManager and nodes were moved
       if (this.undoManager && movements.length > 0) {
-        console.log('Recording keyboard movement for undo:', movements.length, 'nodes');
+
         this.undoManager.recordNodeMovement(movements);
       }
     } catch (error) {

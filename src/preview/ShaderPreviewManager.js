@@ -86,7 +86,7 @@ export class ShaderPreviewManager {
       try {
         await this.updateNodePreview(node);
       } catch (error) {
-        console.error(`[ShaderPreviewManager] Failed to update preview for ${nodeId}:`, error);
+
       }
     }
   }
@@ -114,7 +114,6 @@ export class ShaderPreviewManager {
       // For fragment nodes, compile and render
       await this.updateFragmentNodePreview(node);
     } catch (error) {
-      console.error(`[ShaderPreviewManager] Error updating preview for ${node.id}:`, error);
 
       // Fall back to CPU preview on error
       if (this.editor.previewSystem) {
@@ -169,7 +168,7 @@ export class ShaderPreviewManager {
 
         node.__thumb = canvas;
       } catch (error) {
-        console.error(`[ShaderPreviewManager] Failed to readback compute texture:`, error);
+
       }
     } else {
       // Just mark that we have a GPU texture (no CPU readback)
@@ -276,7 +275,7 @@ export class ShaderPreviewManager {
       await this.renderFragmentPreview(node, pipeline, bindGroups);
 
     } catch (error) {
-      console.error(`[ShaderPreviewManager] Error in fragment preview for ${node.id}:`, error);
+
       this.fallbackToLegacyPreview(node);
     }
   }
@@ -347,7 +346,7 @@ export class ShaderPreviewManager {
       const errors = compilationInfo.messages.filter(m => m.type === 'error');
 
       if (errors.length > 0) {
-        console.error(`[ShaderPreviewManager] Shader compilation errors for ${nodeId}:`, errors);
+
         return null;
       }
 
@@ -373,7 +372,7 @@ export class ShaderPreviewManager {
 
       return pipeline;
     } catch (error) {
-      console.error(`[ShaderPreviewManager] Pipeline creation error for ${nodeId}:`, error);
+
       return null;
     }
   }
@@ -422,7 +421,7 @@ export class ShaderPreviewManager {
         bindGroups.push(bindGroup);
       }
     } catch (error) {
-      console.warn(`[ShaderPreviewManager] Failed to create bind groups for ${node.id}:`, error);
+
     }
 
     return bindGroups;
@@ -462,7 +461,7 @@ export class ShaderPreviewManager {
         node.__gpuPreview = previewInfo;
       }
     } catch (error) {
-      console.error(`[ShaderPreviewManager] Render error for ${node.id}:`, error);
+
       this.fallbackToLegacyPreview(node);
     }
   }

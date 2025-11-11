@@ -83,12 +83,12 @@ export class VercelFrameStream {
                     const data = JSON.parse(event.data);
                     this.handleMessage(data);
                 } catch (error) {
-                    console.error('[VercelFrameStream] Error parsing message:', error);
+
                 }
             };
 
             this.connection.onerror = (error) => {
-                console.error('[VercelFrameStream] WebSocket error:', error);
+
             };
 
             this.connection.onclose = () => {
@@ -103,7 +103,7 @@ export class VercelFrameStream {
             };
 
         } catch (error) {
-            console.error('[VercelFrameStream] Connection error:', error);
+
         }
     }
 
@@ -130,7 +130,7 @@ export class VercelFrameStream {
             });
 
             this.channel.bind('pusher:subscription_error', (error) => {
-                console.error('[VercelFrameStream] Pusher error:', error);
+
             });
 
             this.channel.bind('frame', (data) => {
@@ -138,7 +138,7 @@ export class VercelFrameStream {
             });
 
         } catch (error) {
-            console.error('[VercelFrameStream] Pusher connection error:', error);
+
         }
     }
 
@@ -258,7 +258,7 @@ export class VercelFrameStream {
             this.framesSent++;
 
         } catch (error) {
-            console.error('[VercelFrameStream] Error sending frame:', error);
+
         }
     }
 

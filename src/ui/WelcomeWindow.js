@@ -26,7 +26,7 @@ export class WelcomeWindow {
     try {
       return localStorage.getItem(this.storageKey) !== "true";
     } catch (error) {
-      console.warn("WelcomeWindow: unable to read preference", error);
+
       return true;
     }
   }
@@ -87,7 +87,7 @@ export class WelcomeWindow {
         const age = Date.now() - autosaveEntry.timestamp;
         autosaveAgeText = this.formatAge(age);
       } catch (error) {
-        console.warn("WelcomeWindow: unable to read autosave age", error);
+
       }
     }
 
@@ -96,7 +96,7 @@ export class WelcomeWindow {
       try {
         backups = this.saveLoadManager.getBackups().slice(0, 3);
       } catch (error) {
-        console.warn("WelcomeWindow: unable to read backups", error);
+
       }
     }
 
@@ -117,7 +117,7 @@ export class WelcomeWindow {
       }
       return JSON.parse(stored);
     } catch (error) {
-      console.warn("WelcomeWindow: unable to read autosave entry", error);
+
       return null;
     }
   }
@@ -658,7 +658,7 @@ export class WelcomeWindow {
     try {
       return await this.saveLoadManager.loadFromLocal();
     } catch (error) {
-      console.error("WelcomeWindow: failed to restore autosave", error);
+
       return false;
     }
   }
@@ -671,7 +671,7 @@ export class WelcomeWindow {
       await this.saveLoadManager.restoreBackup(backupId);
       this.hide();
     } catch (error) {
-      console.error("WelcomeWindow: failed to restore backup", error);
+
     }
   }
 
@@ -680,7 +680,7 @@ export class WelcomeWindow {
       try {
         this.saveLoadManager.createBackup("startup");
       } catch (error) {
-        console.warn("WelcomeWindow: unable to create startup backup", error);
+
       }
     }
   }
@@ -704,7 +704,7 @@ export class WelcomeWindow {
         localStorage.removeItem(this.storageKey);
       }
     } catch (error) {
-      console.warn("WelcomeWindow: unable to persist preference", error);
+
     }
   }
 }

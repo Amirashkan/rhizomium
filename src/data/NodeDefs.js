@@ -19,7 +19,7 @@ let _nextId = 1;
  */
 export function resetNodeIdCounter(startFrom = 1) {
   _nextId = startFrom;
-  console.log(`Node ID counter reset to ${_nextId}`);
+
 }
 
 /**
@@ -43,7 +43,7 @@ export function updateNodeIdCounter(existingNodes) {
 
   if (maxId > 0) {
     _nextId = maxId + 1;
-    console.log(`Node ID counter updated to ${_nextId} based on existing nodes`);
+
   }
 }
 

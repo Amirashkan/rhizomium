@@ -136,7 +136,7 @@ export class PointCloudRenderer {
         });
 
         this.initialized = true;
-        console.log('[PointCloudRenderer] Initialized');
+
     }
 
     /**
@@ -149,7 +149,7 @@ export class PointCloudRenderer {
      */
     render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix) {
         if (!this.initialized) {
-            console.warn('[PointCloudRenderer] Not initialized');
+
             return;
         }
 
@@ -292,6 +292,5 @@ export class PointCloudRenderer {
         this.uniformBuffer = null;
         this.initialized = false;
 
-        console.log('[PointCloudRenderer] Destroyed');
     }
 }

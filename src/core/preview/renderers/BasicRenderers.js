@@ -37,7 +37,7 @@ export class BasicRenderers {
       // Direct fallback to node parameters
       return node.params?.[paramName] ?? defaultValue;
     } catch (error) {
-      console.warn(`Error getting parameter ${paramName}:`, error);
+
       return defaultValue;
     }
   }
@@ -227,7 +227,7 @@ renderTime(ctx, node) {
           hasValidPlot = true;
         }
       } catch (e) {
-        console.warn("Expression evaluation failed at x=", x, ":", e);
+
       }
     }
 

@@ -36,7 +36,7 @@ export class TransformRenderers {
         if (window.editor?.paramPanel?.expressionSystem?.evaluateExpression) {
           return window.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
         } else {
-          console.warn(`Expression system not available for parameter ${paramName}, using default:`, defaultValue);
+
           return defaultValue;
         }
       }
@@ -47,7 +47,7 @@ export class TransformRenderers {
       // Return parsed value or default
       return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
     } catch (error) {
-      console.warn(`Error getting parameter ${paramName}:`, error);
+
       return defaultValue;
     }
   }
@@ -81,7 +81,7 @@ export class TransformRenderers {
     try {
       // Check if node has an input connection (usually input[0] for transforms)
       if (!node.inputs || !node.inputs[0]) {
-        console.log(`Transform node ${node.id} has no input connection`);
+
         return null;
       }
 
@@ -89,7 +89,7 @@ export class TransformRenderers {
       const graph = this.previewSystem?.editor?.graph;
 
       if (!graph) {
-        console.warn('No graph available in preview system');
+
         return null;
       }
 
@@ -97,16 +97,14 @@ export class TransformRenderers {
       const inputNode = graph.nodes.find(n => n.id === inputNodeId);
 
       if (!inputNode) {
-        console.warn(`Input node ${inputNodeId} not found in graph`);
+
         return null;
       }
 
-      console.log(`Transform ${node.id} checking input ${inputNode.kind} (${inputNode.id})`);
 
       // If input node doesn't have a preview, trigger generation
       // This handles cases where nodes are connected in new files
       if (!inputNode.__thumb) {
-        console.log(`✗ Input node ${inputNode.kind} has no preview, triggering generation...`);
 
         // Trigger preview generation for the input node
         if (this.previewSystem?.generateNodePreview) {
@@ -116,7 +114,7 @@ export class TransformRenderers {
           // Use a short delay to allow the input preview to be generated first
           setTimeout(() => {
             if (this.previewSystem?.generateNodePreview && inputNode.__thumb) {
-              console.log(`   Input preview ready, re-rendering transform node ${node.id}`);
+
               this.previewSystem.generateNodePreview(node);
               // Trigger editor redraw to show the update
               if (this.previewSystem?.editor?.draw) {
@@ -128,14 +126,13 @@ export class TransformRenderers {
 
         // Still return null this time - the next render will pick up the generated preview
         // This is better than showing incorrect data
-        console.log(`   Preview generation triggered, will update shortly`);
+
         return null;
       }
 
-      console.log(`✓ Got input preview from ${inputNode.kind}, size: ${inputNode.__thumb.width}x${inputNode.__thumb.height}`);
       return inputNode.__thumb;
     } catch (error) {
-      console.warn('Error getting input preview:', error);
+
       return null;
     }
   }
@@ -152,7 +149,7 @@ export class TransformRenderers {
       // Validate input canvas has valid dimensions BEFORE clearing
       // This prevents leaving a black canvas if validation fails
       if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
-        console.warn('Invalid input canvas for transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+
         return false; // Return false to signal failure
       }
 
@@ -198,7 +195,7 @@ export class TransformRenderers {
       // Restore context state
       ctx.restore();
     } catch (error) {
-      console.warn('Error applying image transform:', error);
+
       // Fallback: just draw the input
       const size = ctx.canvas.width;
       ctx.fillStyle = "#141414";
@@ -220,7 +217,7 @@ export class TransformRenderers {
 
       // Validate input canvas has valid dimensions BEFORE clearing
       if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
-        console.warn('Invalid input canvas for tiling, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+
         return false; // Return false to signal failure
       }
 
@@ -251,13 +248,13 @@ export class TransformRenderers {
         ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
       } else {
         // Fallback if pattern creation fails
-        console.warn('Failed to create pattern, using fallback');
+
         ctx.drawImage(inputCanvas, 0, 0, size, size);
       }
 
       ctx.restore();
     } catch (error) {
-      console.warn('Error applying tiling transform:', error);
+
       // Fallback: just draw the input once
       const size = ctx.canvas.width;
       if (inputCanvas && inputCanvas.width && inputCanvas.height) {
@@ -275,7 +272,7 @@ export class TransformRenderers {
 
       // Validate input canvas exists and has valid dimensions BEFORE clearing
       if (!inputCanvas || !inputCanvas.width || !inputCanvas.height) {
-        console.warn('Invalid input canvas for UV transform, dimensions:', inputCanvas?.width, 'x', inputCanvas?.height);
+
         return false; // Return false to signal failure
       }
 
@@ -331,7 +328,7 @@ export class TransformRenderers {
 
       ctx.putImageData(destData, 0, 0);
     } catch (error) {
-      console.warn('Error applying UV transform:', error);
+
       const size = ctx.canvas.width;
       if (inputCanvas && inputCanvas.width && inputCanvas.height) {
         ctx.drawImage(inputCanvas, 0, 0, size, size);
@@ -399,7 +396,7 @@ export class TransformRenderers {
 
     // Validate canvas size
     if (!size || size <= 0) {
-      console.error(`Invalid canvas size for renderUVGrid: ${size}`);
+
       // Draw error indicator
       ctx.fillStyle = "#ff0000";
       ctx.fillRect(0, 0, 48, 48);
@@ -481,14 +478,11 @@ export class TransformRenderers {
       const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
       const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
-      console.log(`[Transform2D] Rendering node ${node.id}, params: tx=${translateX}, ty=${translateY}, sx=${scaleX}, sy=${scaleY}, rot=${rotation}`);
-
       // Check if there's an input to transform
       const inputCanvas = this.getInputPreview(node);
 
     if (inputCanvas) {
-      console.log(`✓ Transform2D rendering with input`);
-      console.log(`   Canvas context: ${ctx.canvas.width}x${ctx.canvas.height}`);
+
 
       // Transform the input image - check if it succeeds
       const success = this.applyImageTransform(ctx, inputCanvas, {
@@ -497,7 +491,6 @@ export class TransformRenderers {
 
       // If transform failed, fall through to show UV grid
       if (success !== false) {
-        console.log(`   Finished drawing transformed input`);
 
         // Add visual indicator that this is showing transformed input
         ctx.save();
@@ -514,12 +507,12 @@ export class TransformRenderers {
         }
         return;
       } else {
-        console.warn(`   Transform failed, falling back to UV grid`);
+
       }
     }
 
     // No input - show UV grid
-    console.log(`Transform2D has no input, showing UV grid`);
+
     const cos_r = Math.cos(rotation);
     const sin_r = Math.sin(rotation);
 
@@ -548,7 +541,7 @@ export class TransformRenderers {
         this.drawExpressionIndicator(ctx);
       }
     } catch (error) {
-      console.error(`[Transform2D] Error rendering node ${node.id}:`, error);
+
       // Draw error indicator
       ctx.fillStyle = "#ff0000";
       ctx.fillRect(0, 0, ctx.canvas.width || 48, ctx.canvas.height || 48);

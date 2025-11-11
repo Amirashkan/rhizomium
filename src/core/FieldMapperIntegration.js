@@ -59,7 +59,7 @@ export class FieldMapperIntegration {
             try {
                 await this.processFieldMapperNode(node, connections);
             } catch (error) {
-                console.error(`[FieldMapperIntegration] Error processing node ${node.id}:`, error);
+
             }
         }
 
@@ -135,7 +135,7 @@ export class FieldMapperIntegration {
             if (geometry && geometry.vertexCount > 0) {
             }
         } catch (error) {
-            console.error(`[FieldMapperIntegration] Failed to generate visualization for node ${nodeId}:`, error);
+
         }
     }
 

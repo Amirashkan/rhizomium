@@ -110,7 +110,7 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
     try {
       return unifiedExpressionSystem.generateShader(value);
     } catch (error) {
-      console.warn('Failed to generate shader code for expression:', value, error);
+
       return def?.default ?? 0;
     }
   }
@@ -140,14 +140,14 @@ isMathExpression(value) {
    */
   evaluateExpression(value) {
     if (!this.expressionSystem) {
-      console.warn('Expression system not available');
+
       return 0;
     }
 
     try {
       return this.expressionSystem.evaluateExpression(value, {}, null);
     } catch (error) {
-      console.warn('Expression evaluation failed:', error);
+
       return 0;
     }
   }
@@ -223,7 +223,7 @@ isMathExpression(value) {
       };
       return unifiedExpressionSystem.generateShader(expr, variableMapping);
     } catch (error) {
-      console.warn('Failed to generate shader expression:', expr, error);
+
       return '(0.0)';
     }
   }

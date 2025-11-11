@@ -63,7 +63,6 @@ export class GPUPreviewRenderer {
     };
 
     this.previewCache.set(nodeId, info);
-    console.log(`[GPUPreviewRenderer] Created preview texture for ${nodeId} (${size}x${size})`);
 
     return info;
   }
@@ -216,7 +215,7 @@ export class GPUPreviewRenderer {
     if (info) {
       info.texture.destroy();
       this.previewCache.delete(nodeId);
-      console.log(`[GPUPreviewRenderer] Destroyed preview texture for ${nodeId}`);
+
     }
   }
 
@@ -228,7 +227,7 @@ export class GPUPreviewRenderer {
       info.texture.destroy();
     }
     this.previewCache.clear();
-    console.log('[GPUPreviewRenderer] Cleared all preview textures');
+
   }
 
   /**
