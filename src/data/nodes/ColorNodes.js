@@ -2,6 +2,10 @@
 
 /**
  * Color manipulation node definitions
+ *
+ * Note: Color adjustments (brightness, contrast, saturation) and HSV conversions
+ * have been consolidated into ComputeColorAdjust and ComputeHSV nodes for better
+ * performance and more comprehensive controls.
  */
 export const ColorNodes = {
   ColorToGrayscale: {
@@ -30,40 +34,6 @@ export const ColorNodes = {
     params: [],
   },
 
-  ColorSaturate: {
-    label: "Saturate Color",
-    cat: "Color",
-    inputs: 1,
-    pinsIn: ["Color"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [
-      { name: "saturation", type: "float", default: 1.0, label: "Saturation" },
-    ],
-  },
-
-  ColorContrast: {
-    label: "Contrast",
-    cat: "Color",
-    inputs: 1,
-    pinsIn: ["Color"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [
-      { name: "contrast", type: "float", default: 1.0, label: "Contrast" },
-      { name: "pivot", type: "float", default: 0.5, label: "Pivot" },
-    ],
-  },
-
-  ColorBrightness: {
-    label: "Brightness",
-    cat: "Color",
-    inputs: 1,
-    pinsIn: ["Color"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [
-      { name: "brightness", type: "float", default: 0.0, label: "Brightness" },
-    ],
-  },
-
   ColorMix: {
     label: "Color Mix",
     cat: "Color",
@@ -90,23 +60,5 @@ export const ColorNodes = {
         label: "Mode",
       },
     ],
-  },
-
-  HSVToRGB: {
-    label: "HSV to RGB",
-    cat: "Color",
-    inputs: 1,
-    pinsIn: ["HSV"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  RGBToHSV: {
-    label: "RGB to HSV",
-    cat: "Color",
-    inputs: 1,
-    pinsIn: ["RGB"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
   },
 };

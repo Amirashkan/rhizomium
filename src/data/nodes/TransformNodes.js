@@ -2,6 +2,9 @@
 
 /**
  * Transform node definitions for UV coordinate manipulation
+ *
+ * Note: Kaleidoscope has been moved to ComputeKaleidoscope for better
+ * performance and additional features (animation support).
  */
 export const TransformNodes = {
   // === BASIC TRANSFORMS ===
@@ -137,19 +140,6 @@ export const TransformNodes = {
       { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
       { name: "strength", type: "float", default: 1.0, label: "Strength" },
       { name: "radius", type: "float", default: 0.5, label: "Radius" },
-    ],
-  },
-
-  Kaleidoscope: {
-    label: "Kaleidoscope",
-    cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: ["UV"],
-    params: [
-      { name: "segments", type: "int",   default: 6,   label: "Segments", min: 1, max: 24 },
-      { name: "angle",    type: "float", default: 0.0, label: "Angle" },
-      { name: "scale",    type: "float", default: 1.0, label: "Scale", min: 0.01, max: 5.0 }
     ],
   },
 
