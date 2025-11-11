@@ -3375,6 +3375,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   getParam(node, paramName, defaultValue) {
     const rawValue = node.params?.[paramName] ?? defaultValue;
 
+    // CRITICAL: For string enum parameters (dropdown selections like "Stripes", "Checkerboard"),
+    // return the string value directly so it can be used for index lookup.
+    // These should be baked into the shader as constants, not passed as uniforms.
+    if (typeof rawValue === 'string') {
+      const isExpression = rawValue.startsWith('=') || /time|audioEnvelope/.test(rawValue);
+      const isNodeReference = /=?\s*node_\d+/.test(rawValue);
+      const isNumericString = !isNaN(parseFloat(rawValue)) && isFinite(parseFloat(rawValue));
+
+      // If it's just a plain string (not an expression, not a node ref, not a number),
+      // return it directly - it's likely a dropdown enum value like "Stripes"
+      if (!isExpression && !isNodeReference && !isNumericString) {
+        return rawValue;
+      }
+    }
+
     // Check if this is a node reference expression (=node_X or contains node_X)
     // Node references must be evaluated on CPU and passed as uniforms, not generated as shader code
     const isNodeReference = typeof rawValue === 'string' && /=?\s*node_\d+/.test(rawValue);
