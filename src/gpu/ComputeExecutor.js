@@ -307,8 +307,6 @@ export class ComputeExecutor {
     const fragmentNode = window.graph?.getNode(fragmentNodeId);
     if (!fragmentNode) return null;
 
-    console.log(`[ComputeExecutor] Rendering fragment node ${fragmentNodeId} with dependencies:`, fragmentNode.inputs);
-
     // Check if this fragment node has compute node inputs
     if (fragmentNode.inputs && Array.isArray(fragmentNode.inputs)) {
       for (const inputId of fragmentNode.inputs) {
@@ -316,14 +314,12 @@ export class ComputeExecutor {
 
         // If this input is a compute node, ensure it's been dispatched first
         if (this.computeManagers.has(inputId)) {
-          console.log(`[ComputeExecutor] Fragment node ${fragmentNodeId} depends on compute node ${inputId}, dispatching it first...`);
           await this._dispatchComputeNodeIfNeeded(inputId, commandEncoder, time, audioContext);
         }
       }
     }
 
     // Now render the fragment node to a texture
-    console.log(`[ComputeExecutor] Now rendering fragment node ${fragmentNodeId} to texture...`);
     const texture = await this.fragmentRenderer.renderNodeToTexture(
       fragmentNodeId,
       width,
@@ -392,7 +388,6 @@ export class ComputeExecutor {
     }
 
     // Dispatch the compute node
-    console.log(`[ComputeExecutor] Dispatching compute node ${nodeId}`);
     try {
       if (manager instanceof ComputeNodeBase) {
         manager.dispatch(this.device, commandEncoder, time, audioContext);
@@ -520,18 +515,14 @@ export class ComputeExecutor {
       await this._renderFragmentInputs(commandEncoder, time, audioContext);
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
-    console.log('[ComputeExecutor] STEP 2: Dispatching compute nodes in order:', this.executionOrder);
-    console.log('[ComputeExecutor] Available textures in nodeOutputs:', Array.from(this.nodeOutputs.keys()));
     for (const nodeId of this.executionOrder) {
       // Skip if already dispatched during _renderFragmentInputs
       if (this.dispatchedThisFrame.has(nodeId)) {
-        console.log(`[ComputeExecutor] Skipping node ${nodeId} (already dispatched this frame)`);
         continue;
       }
 
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {
-        console.log(`[ComputeExecutor] No manager for node ${nodeId}, skipping`);
         continue;
       }
 
@@ -582,10 +573,8 @@ export class ComputeExecutor {
           // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
           if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
             const inputNodeId = node.inputs[0];
-            console.log(`[ComputeExecutor] Node ${nodeId} has input: ${inputNodeId}`);
             if (inputNodeId !== null && inputNodeId !== undefined) {
               const inputTexture = this.nodeOutputs.get(inputNodeId);
-              console.log(`[ComputeExecutor] Input texture for node ${nodeId} from ${inputNodeId}:`, inputTexture ? 'FOUND' : 'NOT FOUND');
               if (inputTexture) {
                 if (manager.setInputTexture) {
                   manager.setInputTexture(inputTexture);
@@ -594,8 +583,6 @@ export class ComputeExecutor {
                     manager.recreateBindGroup();
                   }
                 }
-              } else {
-                console.warn(`[ComputeExecutor] Node ${nodeId} missing input texture from ${inputNodeId}!`);
               }
             }
 
@@ -624,7 +611,6 @@ export class ComputeExecutor {
           }
 
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
-          console.log(`[ComputeExecutor] Dispatching compute node ${nodeId} in main loop`);
           if (manager instanceof ComputeNodeBase) {
             manager.dispatch(this.device, commandEncoder, time, audioContext);
           } else {
@@ -633,8 +619,6 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
-        } else {
-          console.log(`[ComputeExecutor] Skipping dispatch for node ${nodeId} (inputs unchanged)`);
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
       } catch (error) {
@@ -658,10 +642,7 @@ export class ComputeExecutor {
     try {
       const outputTexture = manager.getOutputTexture();
       if (outputTexture) {
-        console.log(`[ComputeExecutor] Storing output texture for node ${nodeId}`);
         this.nodeOutputs.set(nodeId, outputTexture);
-      } else {
-        console.warn(`[ComputeExecutor] No output texture for node ${nodeId}`);
       }
     } catch (error) {
       // Silently handle errors

@@ -518,16 +518,6 @@ export class FragmentTextureRenderer {
           // Note: TextureBindings.js already stripped the "node_" prefix, so we get the raw number
           const nodeId = meta.varName.replace('compute_node_', '');
 
-          // Debug: log what we're looking for
-          if (!window._loggedComputeTextureKeys) {
-            console.log('[FragmentTextureRenderer] Looking for compute texture:', nodeId);
-            console.log('[FragmentTextureRenderer] Available keys in nodeOutputs:',
-              window.computeExecutor?.nodeOutputs ? Array.from(window.computeExecutor.nodeOutputs.keys()) : 'none');
-            console.log('[FragmentTextureRenderer] Available keys in computeTextures:',
-              window.computeExecutor?.computeTextures ? Array.from(window.computeExecutor.computeTextures.keys()) : 'none');
-            window._loggedComputeTextureKeys = true;
-          }
-
           // Try to get the actual compute node output texture from ComputeExecutor
           if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
             const computeTexture = window.computeExecutor.nodeOutputs.get(nodeId);
