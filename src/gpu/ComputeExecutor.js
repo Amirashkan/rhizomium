@@ -521,6 +521,7 @@ export class ComputeExecutor {
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
     console.log('[ComputeExecutor] STEP 2: Dispatching compute nodes in order:', this.executionOrder);
+    console.log('[ComputeExecutor] Available textures in nodeOutputs:', Array.from(this.nodeOutputs.keys()));
     for (const nodeId of this.executionOrder) {
       // Skip if already dispatched during _renderFragmentInputs
       if (this.dispatchedThisFrame.has(nodeId)) {
@@ -581,8 +582,10 @@ export class ComputeExecutor {
           // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
           if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
             const inputNodeId = node.inputs[0];
+            console.log(`[ComputeExecutor] Node ${nodeId} has input: ${inputNodeId}`);
             if (inputNodeId !== null && inputNodeId !== undefined) {
               const inputTexture = this.nodeOutputs.get(inputNodeId);
+              console.log(`[ComputeExecutor] Input texture for node ${nodeId} from ${inputNodeId}:`, inputTexture ? 'FOUND' : 'NOT FOUND');
               if (inputTexture) {
                 if (manager.setInputTexture) {
                   manager.setInputTexture(inputTexture);
@@ -591,6 +594,8 @@ export class ComputeExecutor {
                     manager.recreateBindGroup();
                   }
                 }
+              } else {
+                console.warn(`[ComputeExecutor] Node ${nodeId} missing input texture from ${inputNodeId}!`);
               }
             }
 
