@@ -104,7 +104,6 @@ export class ComputeShaderManager {
 
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
-          console.warn(`[ComputeShaderManager] Failed to evaluate parameter expression: ${value}`, error);
           return defaultValue;
         }
       }
@@ -156,14 +155,6 @@ export class ComputeShaderManager {
 
     // Create compute pipeline
     await this.createComputePipeline(wgslSource);
-
-    console.log('[ComputeShaderManager] Initialized:', {
-      textureSize: `${width}x${height}`,
-      workgroupSize: `${this.workgroupSize.x}x${this.workgroupSize.y}`,
-      dispatchSize: `${this.dispatchSize.x}x${this.dispatchSize.y}`,
-      feedback: supportsFeedback,
-      needsInput: needsInput
-    });
   }
 
   /**
@@ -426,7 +417,6 @@ export class ComputeShaderManager {
       this.recreateBindGroup();
 
     } catch (error) {
-      console.error('[ComputeShaderManager] Failed to create compute pipeline:', error);
       throw error;
     }
   }
@@ -758,7 +748,6 @@ export class ComputeShaderManager {
    */
   dispatch(commandEncoder, time, profiler = null, audioContext = {}) {
     if (!this.computePipeline || !this.bindGroup) {
-      console.warn(`[ComputeShaderManager] Dispatch called but not ready: pipeline=${!!this.computePipeline}, bindGroup=${!!this.bindGroup}`);
       return;
     }
 

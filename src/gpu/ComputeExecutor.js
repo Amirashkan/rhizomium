@@ -149,9 +149,6 @@ export class ComputeExecutor {
         manager
       });
     } catch (error) {
-      console.error(`[ComputeExecutor] ❌ FAILED to initialize node ${nodeId}:`, error);
-      console.error(`[ComputeExecutor] ❌ WGSL shader code that failed:`, nodeData.wgslCode);
-      // Re-throw to make the error more visible
       throw error;
     }
   }
@@ -182,7 +179,6 @@ export class ComputeExecutor {
    */
   updateExecutionOrder() {
     if (!window.graph || !window.graph.nodes) {
-      console.warn('[ComputeExecutor] No graph available for execution order');
       this.executionOrder = Array.from(this.computeManagers.keys());
       return;
     }
@@ -214,7 +210,6 @@ export class ComputeExecutor {
         if (!id || visited.has(id)) return;
 
         if (visiting.has(id)) {
-          console.warn(`[ComputeExecutor] Circular dependency detected involving node: ${id}`);
           return;
         }
 
@@ -247,7 +242,6 @@ export class ComputeExecutor {
 
       this.executionOrder = result;
     } catch (error) {
-      console.error('[ComputeExecutor] Error computing execution order:', error);
       this.executionOrder = Array.from(this.computeManagers.keys());
     }
   }
@@ -303,13 +297,6 @@ export class ComputeExecutor {
         }
 
         // This is a fragment node being used as compute input!
-        // Log only once per node to reduce spam
-        if (!this._loggedAutoBridge) this._loggedAutoBridge = new Set();
-        if (!this._loggedAutoBridge.has(inputNodeId)) {
-          console.log(`[ComputeExecutor] Auto-bridging: Fragment node ${inputNodeId} (${inputNode.kind}) → Compute node ${nodeId}`);
-          this._loggedAutoBridge.add(inputNodeId);
-        }
-
         try {
           // Use the same resolution as the compute node
           const resolution = nodeData.resolution || [512, 512];
@@ -335,11 +322,9 @@ export class ComputeExecutor {
             // Mark this compute node's hash for invalidation
             // This ensures it will re-dispatch with the updated texture
             computeNodesToClearHash.add(nodeId);
-          } else {
-            console.warn(`[ComputeExecutor] Auto-bridge failed: No texture returned for fragment node ${inputNodeId}`);
           }
         } catch (error) {
-          console.error(`[ComputeExecutor] Error rendering fragment input ${inputNodeId}:`, error);
+          // Silently handle errors
         }
       }
     }
@@ -363,13 +348,10 @@ export class ComputeExecutor {
     // If execute() is called while already executing (e.g., from auto-bridging side effects),
     // skip this call to break the infinite loop
     if (this._isExecuting) {
-      console.warn('[ComputeExecutor] ⚠️ execute() called while already executing - skipping to prevent infinite loop');
-      console.trace('[ComputeExecutor] Call stack for re-entrant execute() call:');
       return;
     }
 
     if (!this.initialized || this.computeManagers.size === 0) {
-      console.log(`[ComputeExecutor] Skipping execute: initialized=${this.initialized}, managers=${this.computeManagers.size}`);
       return;
     }
 
@@ -377,12 +359,6 @@ export class ComputeExecutor {
     this._isExecuting = true;
 
     try {
-      // Reduce logging spam - only log occasionally
-      if (!this._lastExecuteLog || Date.now() - this._lastExecuteLog > 5000) {
-        console.log(`[ComputeExecutor] Executing ${this.executionOrder.length} compute nodes`);
-        this._lastExecuteLog = Date.now();
-      }
-
       // STEP 1: Render fragment node inputs to textures (auto-bridging)
       // Pass the shared command encoder so fragment renders and compute dispatches
       // are in the same GPU command buffer submission (proper synchronization!)
@@ -392,7 +368,6 @@ export class ComputeExecutor {
     for (const nodeId of this.executionOrder) {
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {
-        console.warn(`[ComputeExecutor] Node ${nodeId} in execution order but not in managers`);
         continue;
       }
 
@@ -447,13 +422,6 @@ export class ComputeExecutor {
                     manager.recreateBindGroup();
                   }
                 }
-              } else if (!inputTexture) {
-                // Only log missing textures once to avoid spam
-                if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-                if (!this._loggedMissingTextures.has(inputNodeId)) {
-                  console.warn(`[ComputeExecutor] ⚠️ Input texture not found for ${inputNodeId}, using fallback`);
-                  this._loggedMissingTextures.add(inputNodeId);
-                }
               }
             }
 
@@ -464,12 +432,6 @@ export class ComputeExecutor {
                 const warpFieldTexture = this.nodeOutputs.get(warpFieldNodeId);
                 if (warpFieldTexture && manager.setWarpFieldTexture) {
                   manager.setWarpFieldTexture(warpFieldTexture);
-                } else if (!warpFieldTexture) {
-                  if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-                  if (!this._loggedMissingTextures.has(warpFieldNodeId)) {
-                    console.warn(`[ComputeExecutor] ⚠️ Warp field texture not found for ${warpFieldNodeId}, using fallback`);
-                    this._loggedMissingTextures.add(warpFieldNodeId);
-                  }
                 }
               }
             }
@@ -482,12 +444,6 @@ export class ComputeExecutor {
                 if (inputBTexture && manager.setWarpFieldTexture) {
                   // Reuse setWarpFieldTexture for the second input (binding 4)
                   manager.setWarpFieldTexture(inputBTexture);
-                } else if (!inputBTexture) {
-                  if (!this._loggedMissingTextures) this._loggedMissingTextures = new Set();
-                  if (!this._loggedMissingTextures.has(inputBNodeId)) {
-                    console.warn(`[ComputeExecutor] Input B texture not found for ${inputBNodeId}, using fallback`);
-                    this._loggedMissingTextures.add(inputBNodeId);
-                  }
                 }
               }
             }
@@ -505,7 +461,7 @@ export class ComputeExecutor {
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
       } catch (error) {
-        console.error(`[ComputeExecutor] Error executing compute node ${nodeId}:`, error);
+        // Silently handle errors
       }
     }
     } finally {
@@ -526,11 +482,9 @@ export class ComputeExecutor {
       const outputTexture = manager.getOutputTexture();
       if (outputTexture) {
         this.nodeOutputs.set(nodeId, outputTexture);
-      } else {
-        console.warn(`[ComputeExecutor] No output texture returned from manager for node ${nodeId}`);
       }
     } catch (error) {
-      console.error(`[ComputeExecutor] Error updating output for node ${nodeId}:`, error);
+      // Silently handle errors
     }
   }
 
@@ -632,7 +586,6 @@ export class ComputeExecutor {
 
       return changed;
     } catch (error) {
-      console.error(`[ComputeExecutor] Error checking inputs for node ${nodeId}:`, error);
       return true; // Update on error to be safe
     }
   }
@@ -727,8 +680,6 @@ export class ComputeExecutor {
     if (window.computeNodeRegistry) {
       window.computeNodeRegistry.clear();
     }
-
-    console.log('[ComputeExecutor] Cleared all compute nodes');
   }
 
   /**
@@ -737,7 +688,6 @@ export class ComputeExecutor {
   async updateNode(nodeId) {
     const nodeData = window.computeNodeRegistry?.get(nodeId);
     if (!nodeData) {
-      console.warn(`[ComputeExecutor] Node ${nodeId} not found in registry`);
       return;
     }
 
@@ -756,8 +706,6 @@ export class ComputeExecutor {
 
     // Recompute execution order
     this.updateExecutionOrder();
-
-    console.log(`[ComputeExecutor] Updated compute node: ${nodeId}`);
   }
 
   /**
@@ -773,8 +721,6 @@ export class ComputeExecutor {
       if (textureData) {
         textureData.texture = manager.getOutputTexture();
       }
-
-      console.log(`[ComputeExecutor] Resized node ${nodeId} to ${width}x${height}`);
     }
   }
 
@@ -804,10 +750,6 @@ export class ComputeExecutor {
       throw new Error('[ComputeExecutor] addComputeNode requires a ComputeNodeBase instance');
     }
 
-    if (!computeNode.initialized) {
-      console.warn(`[ComputeExecutor] Adding uninitialized node ${computeNode.id}`);
-    }
-
     const nodeId = computeNode.id;
 
     // Store node in both maps
@@ -831,8 +773,6 @@ export class ComputeExecutor {
 
     // Recompute execution order
     this.updateExecutionOrder();
-
-    console.log(`[ComputeExecutor] Added compute node: ${computeNode.kind} (${nodeId})`);
 
     return computeNode;
   }
@@ -859,8 +799,6 @@ export class ComputeExecutor {
 
       // Recompute execution order
       this.updateExecutionOrder();
-
-      console.log(`[ComputeExecutor] Removed compute node: ${nodeId}`);
     }
   }
 
@@ -883,8 +821,6 @@ export class ComputeExecutor {
     const node = this.computeNodes.get(nodeId);
     if (node) {
       node.setUniform(uniformName, value);
-    } else {
-      console.warn(`[ComputeExecutor] Node ${nodeId} not found or not a ComputeNodeBase instance`);
     }
   }
 
