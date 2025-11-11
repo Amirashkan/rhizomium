@@ -435,7 +435,7 @@ export class ComputeExecutor {
         if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams) {
           // Only log dispatches occasionally to reduce console spam
           if (!this._lastDispatchLog || Date.now() - this._lastDispatchLog > 1000) {
-            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}, nodeRefParams=${hasNodeRefParams}`);
+            console.log(`[ComputeExecutor] Dispatching ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}, nodeRefParams=${hasNodeRefParams}, time=${time}`);
             this._lastDispatchLog = Date.now();
           }
 
@@ -508,6 +508,12 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
+        } else {
+          // Log when we SKIP dispatching to understand why animation isn't working
+          if (!this._lastSkipLog || Date.now() - this._lastSkipLog > 2000) {
+            console.log(`[ComputeExecutor] ⏭️  SKIPPING ${node?.kind} (${nodeId}): shouldUpdate=${shouldUpdate}, timeDep=${isTimeDependentNode}, timeDepParams=${hasTimeDependentParams}, params=`, node?.params);
+            this._lastSkipLog = Date.now();
+          }
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
         // No need to log it every frame
@@ -565,11 +571,12 @@ export class ComputeExecutor {
     if (!node || !node.params) return false;
 
     // Check all parameter values for time-dependent expressions
-    for (const value of Object.values(node.params)) {
+    for (const [key, value] of Object.entries(node.params)) {
       if (typeof value === 'string') {
         const trimmed = value.trim();
         // Check if parameter contains time or audio envelope references
         if (/time|audioEnvelope/i.test(trimmed)) {
+          console.log(`[ComputeExecutor] Found time-dependent param in ${node.kind}: ${key}="${value}"`);
           return true;
         }
       }

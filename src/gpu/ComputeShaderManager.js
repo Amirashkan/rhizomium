@@ -68,13 +68,17 @@ export class ComputeShaderManager {
     if (typeof value === 'string') {
       const trimmed = value.trim();
 
-      // Expression starting with =
-      if (trimmed.startsWith('=')) {
+      // Check if it's an expression (either starts with = or contains time/audioEnvelope)
+      const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
+      const isNodeReference = /node_\d+/.test(value);
+
+      // Handle expressions (with or without = prefix)
+      if (isExpression) {
         try {
           // CRITICAL: If this expression contains node references, compute all previews first
           // to ensure referenced node values are up-to-date
           // Cache the computation per-frame to avoid redundant recalculations
-          if (/node_\d+/.test(value)) {
+          if (isNodeReference) {
             const now = performance.now();
             const previewComputer = window.editor?.previewComputer;
             if (previewComputer && window.editor?.graph) {
@@ -97,6 +101,11 @@ export class ComputeShaderManager {
             audioEnvelopeFull: audioContext.audioEnvelopeFull || 0.0
           };
           const result = expressionSystem.evaluateExpression(value, context, this.node);
+
+          // Debug logging for time expressions
+          if (/\btime\b/.test(value) && this.node?.kind === 'ComputeTransform') {
+            console.log(`[ComputeShaderManager] Evaluating time expression for ${this.node.kind}: value="${value}", time=${time}, result=${result}`);
+          }
 
           return isFinite(result) ? result : defaultValue;
         } catch (error) {
@@ -615,6 +624,12 @@ export class ComputeShaderManager {
           this.uniformData[7] = this.evaluateParam(this.node.params?.scaleY, 1.0, time, audioContext);
           this.uniformData[8] = this.evaluateParam(this.node.params?.pivotX, 0.5, time, audioContext);
           this.uniformData[9] = this.evaluateParam(this.node.params?.pivotY, 0.5, time, audioContext);
+          console.log(`[ComputeShaderManager] ComputeTransform uniforms at time=${time}:`, {
+            translateX: this.uniformData[3],
+            translateY: this.uniformData[4],
+            rotation: this.uniformData[5],
+            params: this.node.params
+          });
           break;
 
         case 'ComputeChannels':
