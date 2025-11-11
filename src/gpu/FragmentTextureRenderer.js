@@ -531,6 +531,7 @@ export class FragmentTextureRenderer {
           // Try to get the actual compute node output texture from ComputeExecutor
           if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
             const computeTexture = window.computeExecutor.nodeOutputs.get(nodeId);
+            console.log(`[FragmentTextureRenderer] Lookup '${nodeId}' in nodeOutputs:`, computeTexture ? 'FOUND' : 'NOT FOUND');
             if (computeTexture) {
               return computeTexture.createView();
             }
@@ -539,10 +540,13 @@ export class FragmentTextureRenderer {
           // Fallback: try to get from computeTextures registry
           if (window.computeExecutor && window.computeExecutor.computeTextures) {
             const textureData = window.computeExecutor.computeTextures.get(nodeId);
+            console.log(`[FragmentTextureRenderer] Lookup '${nodeId}' in computeTextures:`, textureData ? 'FOUND' : 'NOT FOUND');
             if (textureData && textureData.texture) {
               return textureData.texture.createView();
             }
           }
+
+          console.warn(`[FragmentTextureRenderer] Falling back to white dummy texture for compute node ${nodeId}`);
         }
 
         // Create dummy 1x1 texture for regular textures or if compute texture not found
