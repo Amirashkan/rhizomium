@@ -63,12 +63,14 @@ export class FragmentTextureRenderer {
       }
 
       // Compile the node and its dependencies to a shader
-      const shaderCode = await this._compileNodeToShader(node);
+      const compilationResult = await this._compileNodeToShader(node);
 
-      if (!shaderCode) {
+      if (!compilationResult) {
         console.error(`[FragmentTextureRenderer] Failed to compile shader for node ${nodeId}`);
         return this._createFallbackTexture(width, height);
       }
+
+      const { wgsl: shaderCode, uniformManager } = compilationResult;
 
       // Check cache for existing resources
       const cacheKey = `${nodeId}_${width}x${height}`;
@@ -78,6 +80,8 @@ export class FragmentTextureRenderer {
       const shaderChanged = this.shaderCache.get(nodeId) !== shaderCode;
       if (shaderChanged || !cached) {
         cached = await this._buildPipeline(nodeId, shaderCode, width, height);
+        // Store the uniformManager with the cached pipeline so we can write parameters correctly
+        cached.uniformManager = uniformManager;
         this.textureCache.set(cacheKey, cached);
         this.shaderCache.set(nodeId, shaderCode);
       }
@@ -123,13 +127,14 @@ export class FragmentTextureRenderer {
       // CRITICAL: skipCacheClear=true prevents clearing the main shader's caches,
       // which would trigger infinite rebuild loops during auto-bridging
       const { buildWGSL } = await import('../codegen/glslBuilder.js');
-      const { wgsl } = buildWGSL(subgraph, { skipCacheClear: true });
+      const { wgsl, uniformManager } = buildWGSL(subgraph, { skipCacheClear: true });
 
       if (!wgsl || wgsl.trim() === '') {
         return null;
       }
 
-      return wgsl;
+      // Return both WGSL and uniformManager so we can write parameters in the correct order
+      return { wgsl, uniformManager };
     } catch (error) {
       console.error('[FragmentTextureRenderer] Shader compilation error:', error);
       return null;
@@ -438,10 +443,11 @@ export class FragmentTextureRenderer {
         } else if (meta.varName === 'u_params') {
           // CRITICAL: Calculate parameter buffer size dynamically from uniformManager
           // This prevents "buffer too small" errors when fragment graphs have many parameters
+          // Use the global uniformManager (which accumulates parameters from subgraph compilation)
           const uniformManager = window.nodeCompiler?.uniformManager;
           if (uniformManager && uniformManager.uniformValues.size > 0) {
             const numParams = uniformManager.uniformValues.size;
-            // Round up to 16-byte alignment (WGSL struct alignment requirement)
+            // Each parameter is 4 bytes (f32), round up to 16-byte alignment
             size = Math.max(16, Math.ceil(numParams * 4 / 16) * 16);
             console.log(`[FragmentTextureRenderer] Allocated ${size} bytes for ${numParams} parameters in u_params buffer`);
           }
@@ -514,36 +520,16 @@ export class FragmentTextureRenderer {
     }
 
     // Update parameter uniforms (u_params) - CRITICAL for node parameters like SimplexNoise scale
+    // Use the uniformManager that was stored when compiling this fragment shader
+    // to ensure parameters are written in the same order the shader expects
     const paramsBuffer = uniformBuffers.get('u_params');
-    if (paramsBuffer && cached.node) {
-      // Get the node to access its parameters
-      const node = cached.node;
+    if (paramsBuffer && cached.uniformManager && cached.uniformManager.uniformValues.size > 0) {
+      // Get parameter values in the order uniformManager assigned them (matching the shader)
+      // This is critical - using Object.entries(node.params) would give wrong order!
+      const values = Array.from(cached.uniformManager.uniformValues.values());
+      const data = new Float32Array(values);
 
-      // Build parameter data array based on what the shader expects
-      // The uniform struct in the shader has all parameters in order
-      const paramData = [];
-
-      if (node.params) {
-        // Add all numeric parameters in a consistent order
-        // This matches the UniformManager's parameter ordering
-        for (const [key, value] of Object.entries(node.params)) {
-          if (typeof value === 'number') {
-            paramData.push(value);
-          } else if (typeof value === 'boolean') {
-            paramData.push(value ? 1.0 : 0.0);
-          }
-        }
-      }
-
-      // Pad to vec4 alignment if needed (WGSL struct alignment requirement)
-      while (paramData.length % 4 !== 0) {
-        paramData.push(0.0);
-      }
-
-      if (paramData.length > 0) {
-        const paramsArray = new Float32Array(paramData);
-        this.device.queue.writeBuffer(paramsBuffer, 0, paramsArray);
-      }
+      this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, data.byteLength);
     }
   }
 
