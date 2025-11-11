@@ -104,11 +104,7 @@ export class ComputeShaderManager {
 
           // Debug logging for time expressions
           if (/\btime\b/.test(value) && this.node?.kind === 'ComputeTransform') {
-            console.log(`[ComputeShaderManager] Evaluating time expression for ${this.node.kind}:`, {
-              value,
-              time,
-              result
-            });
+            console.log(`[ComputeShaderManager] Evaluating time expression for ${this.node.kind}: value="${value}", time=${time}, result=${result}`);
           }
 
           return isFinite(result) ? result : defaultValue;
@@ -628,6 +624,12 @@ export class ComputeShaderManager {
           this.uniformData[7] = this.evaluateParam(this.node.params?.scaleY, 1.0, time, audioContext);
           this.uniformData[8] = this.evaluateParam(this.node.params?.pivotX, 0.5, time, audioContext);
           this.uniformData[9] = this.evaluateParam(this.node.params?.pivotY, 0.5, time, audioContext);
+          console.log(`[ComputeShaderManager] ComputeTransform uniforms at time=${time}:`, {
+            translateX: this.uniformData[3],
+            translateY: this.uniformData[4],
+            rotation: this.uniformData[5],
+            params: this.node.params
+          });
           break;
 
         case 'ComputeChannels':
