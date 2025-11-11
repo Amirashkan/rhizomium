@@ -512,10 +512,11 @@ export class FragmentTextureRenderer {
       }
       case 'texture-2d':
       case 'texture-cube': {
-        // Check if this is a compute node texture (format: compute_node_X or compute_node_X_Y)
-        if (meta.varName && meta.varName.startsWith('compute_')) {
-          // Extract node ID from variable name (e.g., "compute_node_5" -> "node_5")
-          const nodeId = meta.varName.replace('compute_', '');
+        // Check if this is a compute node texture (format: compute_node_X)
+        if (meta.varName && meta.varName.startsWith('compute_node_')) {
+          // Extract sanitized node ID from variable name (e.g., "compute_node_27" -> "27")
+          // Note: TextureBindings.js already stripped the "node_" prefix, so we get the raw number
+          const nodeId = meta.varName.replace('compute_node_', '');
 
           // Try to get the actual compute node output texture from ComputeExecutor
           if (window.computeExecutor && window.computeExecutor.nodeOutputs) {
