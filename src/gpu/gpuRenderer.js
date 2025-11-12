@@ -50,6 +50,7 @@ export class GPURenderer {
     this.shaderModule = null;
     this._lastAspectWritten = null;
     this.msaaTexture = null; // MSAA render target
+    this.msaaTextureSize = { width: 0, height: 0 }; // Track MSAA texture size for validation
     this.profiler = null; // ComputeProfiler instance
     this._currentWgslCode = null; // Store current WGSL code for pipeline recreation
   }
@@ -66,6 +67,8 @@ export class GPURenderer {
   _createMSAATexture() {
     if (this.msaaTexture) {
       this.msaaTexture.destroy();
+      this.msaaTexture = null;
+      this.msaaTextureSize = { width: 0, height: 0 };
     }
 
     const width = Math.max(1, this.canvas.width);
@@ -79,6 +82,9 @@ export class GPURenderer {
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
         label: "msaa-render-target",
       });
+
+      // Store size for validation
+      this.msaaTextureSize = { width, height };
     } catch (err) {
       console.warn('[GPURenderer] MSAA texture creation failed:', err.message);
       console.warn('[GPURenderer] This usually happens when GPU memory is exhausted (too many nodes/textures)');
@@ -88,6 +94,7 @@ export class GPURenderer {
       const oldSampleCount = this.sampleCount;
       this.sampleCount = 1;
       this.msaaTexture = null;
+      this.msaaTextureSize = { width: 0, height: 0 };
 
       // Mark that MSAA is permanently disabled to avoid retry spam
       this._msaaDisabled = true;
@@ -136,17 +143,22 @@ export class GPURenderer {
   _entryFromKind(kind, binding) {
     switch (kind) {
       case "uniform-buffer":
-        return { binding, visibility: STAGES, buffer: { type: "uniform" } };
+        // Uniform buffers can be used in both vertex and fragment stages
+        return { binding, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX, buffer: { type: "uniform" } };
       case "storage-buffer":
-        return { binding, visibility: STAGES, buffer: { type: "read-only-storage" } };
+        // Storage buffers can be used in both stages
+        return { binding, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } };
       case "sampler":
-        return { binding, visibility: STAGES, sampler: {} };
+        // CRITICAL: Samplers should only be in FRAGMENT stage to avoid exceeding per-stage limit
+        return { binding, visibility: GPUShaderStage.FRAGMENT, sampler: {} };
       case "texture-2d":
-        return { binding, visibility: STAGES, texture: {} };
+        // CRITICAL: Textures should only be in FRAGMENT stage to avoid exceeding per-stage limit
+        return { binding, visibility: GPUShaderStage.FRAGMENT, texture: {} };
       case "texture-cube":
-        return { binding, visibility: STAGES, texture: { viewDimension: "cube" } };
+        // CRITICAL: Cube textures should only be in FRAGMENT stage
+        return { binding, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: "cube" } };
       default:
-        return { binding, visibility: STAGES, buffer: { type: "uniform" } };
+        return { binding, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX, buffer: { type: "uniform" } };
     }
   }
 
@@ -772,8 +784,8 @@ export class GPURenderer {
     // Ensure MSAA texture exists and matches canvas size (only if MSAA is supported and not permanently disabled)
     if (this.sampleCount > 1 && !this._msaaDisabled) {
       if (!this.msaaTexture ||
-          this.msaaTexture.width !== this.canvas.width ||
-          this.msaaTexture.height !== this.canvas.height) {
+          this.msaaTextureSize.width !== this.canvas.width ||
+          this.msaaTextureSize.height !== this.canvas.height) {
         this._createMSAATexture();
       }
     }
