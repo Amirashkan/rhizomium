@@ -527,12 +527,24 @@ export class ComputeShaderManager {
           break;
 
         case 'ComputeGradient':
-          // Uniforms: angle, center.x, center.y, radius, repeat
+          // Uniforms: angle, center.x, center.y, radius, repeat, saturation, brightness, colorA (vec3), colorB (vec3)
           this.uniformData[3] = this.evaluateParam(this.node.params?.angle, 0.0, time, audioContext);
           this.uniformData[4] = this.evaluateParam(this.node.params?.centerX, 0.5, time, audioContext);
           this.uniformData[5] = this.evaluateParam(this.node.params?.centerY, 0.5, time, audioContext);
           this.uniformData[6] = this.evaluateParam(this.node.params?.radius, 0.5, time, audioContext);
           this.uniformData[7] = this.evaluateParam(this.node.params?.repeat, 1.0, time, audioContext);
+          this.uniformData[8] = this.evaluateParam(this.node.params?.saturation, 0.8, time, audioContext);
+          this.uniformData[9] = this.evaluateParam(this.node.params?.brightness, 1.0, time, audioContext);
+          // colorA (vec3) + padding
+          this.uniformData[10] = this.evaluateParam(this.node.params?.colorAR, 1.0, time, audioContext);
+          this.uniformData[11] = this.evaluateParam(this.node.params?.colorAG, 0.0, time, audioContext);
+          this.uniformData[12] = this.evaluateParam(this.node.params?.colorAB, 0.0, time, audioContext);
+          this.uniformData[13] = 0.0; // padding
+          // colorB (vec3) + padding
+          this.uniformData[14] = this.evaluateParam(this.node.params?.colorBR, 0.0, time, audioContext);
+          this.uniformData[15] = this.evaluateParam(this.node.params?.colorBG, 0.0, time, audioContext);
+          this.uniformData[16] = this.evaluateParam(this.node.params?.colorBB, 1.0, time, audioContext);
+          this.uniformData[17] = 0.0; // padding
           break;
 
         case 'ComputePattern':

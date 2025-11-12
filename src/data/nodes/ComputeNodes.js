@@ -324,9 +324,18 @@ export const ComputeNodes = {
       { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
       { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0 },
       { name: 'repeat', type: 'int', default: 1, min: 1, max: 20 },
-      { name: 'reverse', type: 'boolean', default: false }
+      { name: 'reverse', type: 'boolean', default: false },
+      { name: 'colorMode', type: 'select', options: ['Grayscale', 'Rainbow', 'TwoColor'], default: 'Grayscale' },
+      { name: 'saturation', type: 'float', default: 0.8, min: 0.0, max: 1.0 },
+      { name: 'brightness', type: 'float', default: 1.0, min: 0.0, max: 2.0 },
+      { name: 'colorAR', type: 'float', default: 1.0, min: 0.0, max: 1.0 },
+      { name: 'colorAG', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
+      { name: 'colorAB', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
+      { name: 'colorBR', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
+      { name: 'colorBG', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
+      { name: 'colorBB', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
     ],
-    description: "Generate linear, radial, angular, and diamond gradients",
+    description: "Generate linear, radial, angular, and diamond gradients with color spectrum support",
     workgroupSize: [8, 8, 1]
   },
 

@@ -1639,24 +1639,47 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     const radius = this.getParam(node, 'radius', 0.5);
     const repeat = this.getParam(node, 'repeat', 1);
     const reverse = this.getParam(node, 'reverse', false);
+    const colorMode = this.getParam(node, 'colorMode', 'Grayscale');
+    const saturation = this.getParam(node, 'saturation', 0.8);
+    const brightness = this.getParam(node, 'brightness', 1.0);
+    const colorAR = this.getParam(node, 'colorAR', 1.0);
+    const colorAG = this.getParam(node, 'colorAG', 0.0);
+    const colorAB = this.getParam(node, 'colorAB', 0.0);
+    const colorBR = this.getParam(node, 'colorBR', 0.0);
+    const colorBG = this.getParam(node, 'colorBG', 0.0);
+    const colorBB = this.getParam(node, 'colorBB', 1.0);
 
     const typeIndex = this.getGradientTypeIndex(type);
+    const colorModeIndex = this.getColorModeIndex(colorMode);
 
     const shader = `
-// Compute Gradient Shader - Type: ${type}
+// Compute Gradient Shader - Type: ${type}, ColorMode: ${colorMode}
 struct Uniforms {
   resolution: vec2<f32>,
   time: f32,
   angle: f32,
   center: vec2<f32>,
   radius: f32,
-  repeat: f32
+  repeat: f32,
+  saturation: f32,
+  brightness: f32,
+  colorA: vec3<f32>,
+  _padding1: f32,
+  colorB: vec3<f32>,
+  _padding2: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 
 const PI = 3.14159265359;
+
+// HSV to RGB conversion
+fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
+  let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  let p = abs(fract(vec3<f32>(h) + k.xyz) * 6.0 - k.www);
+  return v * mix(vec3<f32>(1.0), clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), s);
+}
 
 // Linear gradient
 fn gradientLinear(uv: vec2<f32>, angle: f32) -> f32 {
@@ -1727,7 +1750,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   gradient = 1.0 - gradient;
   ` : ''}
 
-  let color = vec3<f32>(gradient);
+  // Apply color mode
+  var color: vec3<f32>;
+  let colorMode = ${colorModeIndex}; // 0=Grayscale, 1=Rainbow, 2=TwoColor
+
+  if (colorMode == 1) {
+    // Rainbow spectrum
+    color = hsv2rgb(gradient, uniforms.saturation, uniforms.brightness);
+  } else if (colorMode == 2) {
+    // Two-color gradient
+    color = mix(uniforms.colorA, uniforms.colorB, gradient);
+  } else {
+    // Grayscale
+    color = vec3<f32>(gradient * uniforms.brightness);
+  }
+
   textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
 }`;
 
@@ -1937,6 +1974,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Diamond': 3
     };
     return types[type] || 0;
+  }
+
+  /**
+   * Convert color mode to index
+   */
+  getColorModeIndex(mode) {
+    const modes = {
+      'Grayscale': 0,
+      'Rainbow': 1,
+      'TwoColor': 2
+    };
+    return modes[mode] || 0;
   }
 
   /**
