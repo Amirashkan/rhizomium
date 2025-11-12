@@ -475,6 +475,7 @@
                     }
 
                     console.log(`[LiveViewer] Initialized ${computeNodes.length} compute nodes`);
+                    console.log('[LiveViewer] Compute output keys:', Array.from(this.computeOutputs.keys()));
                 } catch (error) {
                     console.error('[LiveViewer] Error initializing compute nodes:', error);
                 }
@@ -786,23 +787,54 @@
                     const entries = [];
 
                     for (const bindingIndex in groupBindings) {
-                        const { kind, varName } = groupBindings[bindingIndex];
+                        const { kind, varName, typeStr } = groupBindings[bindingIndex];
                         const resource = this.createResource(kind, varName);
 
                         if (resource) {
-                            entries.push({
-                                binding: parseInt(bindingIndex),
-                                resource
-                            });
+                            // Validate resource has the expected property
+                            let isValid = false;
+                            if (kind === 'uniform-buffer' || kind === 'storage-buffer') {
+                                isValid = resource.buffer !== undefined;
+                                if (!isValid) {
+                                    console.error(`[LiveViewer] Invalid buffer resource for ${varName}:`, resource);
+                                }
+                            } else if (kind === 'sampler') {
+                                isValid = resource.sampler !== undefined;
+                                if (!isValid) {
+                                    console.error(`[LiveViewer] Invalid sampler resource for ${varName}:`, resource);
+                                }
+                            } else if (kind.includes('texture')) {
+                                isValid = resource.textureView !== undefined;
+                                if (!isValid) {
+                                    console.error(`[LiveViewer] Invalid texture resource for ${varName}:`, resource);
+                                }
+                            }
+
+                            if (isValid) {
+                                entries.push({
+                                    binding: parseInt(bindingIndex),
+                                    resource
+                                });
+                            } else {
+                                console.error(`[LiveViewer] Skipping invalid binding ${bindingIndex} (${kind}/${varName}/${typeStr})`);
+                            }
+                        } else {
+                            console.warn(`[LiveViewer] No resource created for binding ${bindingIndex} (${kind}/${varName}/${typeStr})`);
                         }
                     }
 
                     if (entries.length > 0) {
-                        const bindGroup = this.device.createBindGroup({
-                            layout: layouts[groupIndex],
-                            entries
-                        });
-                        this.bindGroups[groupIndex] = bindGroup;
+                        try {
+                            const bindGroup = this.device.createBindGroup({
+                                layout: layouts[groupIndex],
+                                entries
+                            });
+                            this.bindGroups[groupIndex] = bindGroup;
+                        } catch (error) {
+                            console.error(`[LiveViewer] Error creating bind group ${groupIndex}:`, error);
+                            console.error(`[LiveViewer] Entries:`, entries);
+                            throw error;
+                        }
                     }
                 }
             }
@@ -834,8 +866,25 @@
 
                 } else if (kind === 'sampler') {
                     // Check if this is a compute node sampler
-                    const nodeId = varName.replace(/^sampler_/, '').replace(/^samplerCube_/, '');
-                    const computeOutput = this.computeOutputs.get(nodeId);
+                    // Variable names are like: sampler_compute_node_27
+                    // We need to extract just the node ID (27)
+                    const sanitizedName = varName.replace(/^(sampler_|samplerCube_)/, '');
+
+                    // Try to find matching compute output
+                    // Check both the full name and just the numeric ID
+                    let computeOutput = this.computeOutputs.get(sanitizedName);
+
+                    // If not found, try all keys to find a match
+                    if (!computeOutput) {
+                        for (const [key, value] of this.computeOutputs) {
+                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                                computeOutput = value;
+                                console.log(`[LiveViewer] Matched sampler ${varName} -> ${key}`);
+                                break;
+                            }
+                        }
+                    }
+
                     if (computeOutput && computeOutput.sampler) {
                         return { sampler: computeOutput.sampler };
                     }
@@ -849,15 +898,32 @@
 
                 } else if (kind === 'texture-2d' || kind === 'texture-cube') {
                     // Check if this is a compute node output texture
-                    const nodeId = varName.replace(/^texture_/, '').replace(/^textureCube_/, '');
-                    const computeOutput = this.computeOutputs.get(nodeId);
+                    // Variable names are like: texture_compute_node_27
+                    // We need to extract just the node ID (27)
+                    const sanitizedName = varName.replace(/^(texture_|textureCube_)/, '');
+
+                    // Try to find matching compute output
+                    // Check both the full name and just the numeric ID
+                    let computeOutput = this.computeOutputs.get(sanitizedName);
+
+                    // If not found, try all keys to find a match
+                    if (!computeOutput) {
+                        for (const [key, value] of this.computeOutputs) {
+                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                                computeOutput = value;
+                                console.log(`[LiveViewer] Matched texture ${varName} -> ${key}`);
+                                break;
+                            }
+                        }
+                    }
 
                     if (computeOutput && computeOutput.texture) {
-                        console.log(`[LiveViewer] Using compute output texture for ${nodeId}`);
+                        console.log(`[LiveViewer] Using compute output texture for ${sanitizedName}`);
                         return { textureView: computeOutput.texture.createView() };
                     }
 
                     // Create dummy texture as fallback
+                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (no compute output found)`);
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
