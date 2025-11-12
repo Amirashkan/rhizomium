@@ -258,6 +258,7 @@
             constructor() {
                 this.canvas = document.getElementById('canvas');
                 this.channel = new BroadcastChannel('rhizo-live-shader-stream');
+                console.log('[Viewer] BroadcastChannel created:', this.channel.name);
 
                 // WebGPU state
                 this.device = null;
@@ -316,6 +317,13 @@
                     }
                     this.handleMessage(event.data);
                 };
+                console.log('[Viewer] BroadcastChannel onmessage listener attached to channel:', this.channel.name);
+
+                // DEBUG: Send a test ping to verify channel works in reverse
+                setTimeout(() => {
+                    console.log('[Viewer] Sending test ping to editor...');
+                    this.channel.postMessage({ type: 'viewer_ping', timestamp: Date.now() });
+                }, 2000);
 
                 // UI buttons
                 document.getElementById('btn-hide-ui').addEventListener('click', () => {
