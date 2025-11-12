@@ -271,6 +271,7 @@
                 this.currentShader = null;
                 this.uniformValues = new Map();
                 this.uniformValuesArray = [];
+                this.uniformKeys = []; // Maps array index -> "nodeId.paramName"
 
                 // Compute nodes state
                 this.computeNodes = [];
@@ -403,11 +404,17 @@
             }
 
             handleShaderUpdate(data) {
-                const { shaderCode, uniformValues, resolution, computeNodes, fragmentNodes } = data;
+                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes } = data;
 
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
                     return;
+                }
+
+                // Store uniform keys for mapping array indices to node parameters
+                if (uniformKeys && Array.isArray(uniformKeys)) {
+                    this.uniformKeys = uniformKeys;
+                    console.log('[LiveViewer] Received', uniformKeys.length, 'parameter mappings');
                 }
 
                 // Stop retry timer since we received a shader
@@ -482,6 +489,12 @@
                 // Update parameter values if provided
                 if (uniformValues && Array.isArray(uniformValues)) {
                     this.uniformValuesArray = uniformValues;
+
+                    // DEBUG: Log every 60th update
+                    this.paramUpdateCount = (this.paramUpdateCount || 0) + 1;
+                    if (this.paramUpdateCount % 60 === 0) {
+                        console.log('[Viewer] Received parameter update #', this.paramUpdateCount, 'values:', uniformValues.slice(0, 3));
+                    }
                 }
 
                 // Update synced time if provided
@@ -831,6 +844,24 @@
                     return;
                 }
 
+                // Extract live parameter values from uniformValuesArray for this node
+                const liveParams = this._extractNodeParams(nodeId, params);
+
+                // DEBUG: Log ComputeNoise params to verify extraction
+                if (nodeData.kind === 'ComputeNoise' && this._computeNoiseDebugCount % 60 === 0) {
+                    console.log('[DEBUG] ComputeNoise params:', {
+                        nodeId,
+                        defaultParams: params,
+                        liveParams,
+                        'liveParams.colorize': liveParams.colorize,
+                        'typeof colorize': typeof liveParams.colorize,
+                        'colorize truthy?': !!liveParams.colorize,
+                        uniformKeys: this.uniformKeys,
+                        uniformValuesArray: this.uniformValuesArray
+                    });
+                }
+                this._computeNoiseDebugCount = (this._computeNoiseDebugCount || 0) + 1;
+
                 try {
                     const { shaderModule, outputTexture, uniformBuffer, sampler } = pipelineData;
 
@@ -872,28 +903,41 @@
 
                     // Pack parameters in the correct order based on node kind
                     // Each compute node has a specific uniform struct layout
-                    if (params) {
+                    // Use liveParams (from uniformValuesArray) for real-time updates during drag
+                    if (liveParams) {
                         // Common pattern: node-specific params start at index 3
                         // We need to match the WGSL uniform struct order exactly
 
                         if (nodeData.kind === 'ComputeNoise') {
                             // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, colorize, _padding
-                            uniformData[3] = params.scale !== undefined ? params.scale : 8.0;
-                            uniformData[4] = params.octaves !== undefined ? params.octaves : 5.0;
-                            uniformData[5] = params.speed !== undefined ? params.speed : 0.1;
-                            uniformData[6] = params.colorize !== undefined ? (params.colorize ? 1.0 : 0.0) : 1.0;
+                            uniformData[3] = liveParams.scale !== undefined ? liveParams.scale : 8.0;
+                            uniformData[4] = liveParams.octaves !== undefined ? liveParams.octaves : 5.0;
+                            uniformData[5] = liveParams.speed !== undefined ? liveParams.speed : 0.1;
+                            uniformData[6] = liveParams.colorize !== undefined ? (liveParams.colorize ? 1.0 : 0.0) : 1.0;
                             // padding at [7] (default zero)
+
+                            // DEBUG: Log packed uniforms
+                            if (this._computeNoiseDebugCount % 60 === 1) {
+                                console.log('[DEBUG] ComputeNoise packed uniforms:', {
+                                    resolution: [uniformData[0], uniformData[1]],
+                                    time: uniformData[2],
+                                    scale: uniformData[3],
+                                    octaves: uniformData[4],
+                                    speed: uniformData[5],
+                                    colorize: uniformData[6]
+                                });
+                            }
                         } else if (nodeData.kind === 'ComputeMix') {
                             // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
                             // NOTE: 'mode' is baked into the shader at compile time, not in uniforms
-                            uniformData[3] = params.amount !== undefined ? params.amount : 0.5;
-                            uniformData[4] = params.opacity !== undefined ? params.opacity : 1.0;
+                            uniformData[3] = liveParams.amount !== undefined ? liveParams.amount : 0.5;
+                            uniformData[4] = liveParams.opacity !== undefined ? liveParams.opacity : 1.0;
                             // padding at [5-7] (default zeros)
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             let paramIndex = 3;
-                            for (const key in params) {
-                                const value = params[key];
+                            for (const key in liveParams) {
+                                const value = liveParams[key];
                                 if (typeof value === 'number') {
                                     uniformData[paramIndex++] = value;
                                 } else if (typeof value === 'boolean') {
@@ -913,7 +957,7 @@
 
                     // Use the stored validInputs count to ensure consistency with the layout
                     const validInputs = pipelineData.validInputs || 0;
-                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, validInputs: ${validInputs} (from pipeline data)`);
+                    // console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, validInputs: ${validInputs} (from pipeline data)`);
 
                     // Helper function to get input texture/sampler or create fallback
                     const getInputResources = (inputIndex) => {
@@ -1038,7 +1082,7 @@
                                 resource: sharedSampler
                             });
 
-                            console.log(`[LiveViewer] Added input A (bindings 2 & 3), entries now: ${bindGroupEntries.length}`);
+                            // console.log(`[LiveViewer] Added input A (bindings 2 & 3), entries now: ${bindGroupEntries.length}`);
                         }
 
                         // Get second input if node has 2 inputs (binding 4)
@@ -1049,14 +1093,14 @@
                                     binding: 4,
                                     resource: input1.texture
                                 });
-                                console.log(`[LiveViewer] Added input B (binding 4), entries now: ${bindGroupEntries.length}`);
+                                // console.log(`[LiveViewer] Added input B (binding 4), entries now: ${bindGroupEntries.length}`);
                             }
                         }
                     } else {
-                        console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
+                        // console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
                     }
 
-                    console.log(`[LiveViewer] Bind group for node ${nodeId} has ${bindGroupEntries.length} entries`);
+                    // console.log(`[LiveViewer] Bind group for node ${nodeId} has ${bindGroupEntries.length} entries`);
 
                     // Create bind group
                     const bindGroup = this.device.createBindGroup({
@@ -1105,7 +1149,7 @@
                 const hasBinding4 = /@binding\(4\)/.test(nodeData.wgslCode);
 
                 if (hasBinding2) {
-                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has @binding(2), adding to layout`);
+                    // console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has @binding(2), adding to layout`);
 
                     // binding 2: input texture A
                     entries.push({
@@ -1132,11 +1176,39 @@
                         });
                     }
                 } else {
-                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has no input bindings`);
+                    // console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has no input bindings`);
                 }
 
-                console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
+                // console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
                 return this.device.createBindGroupLayout({ entries });
+            }
+
+            // Extract live parameter values for a specific node from uniformValuesArray
+            _extractNodeParams(nodeId, defaultParams) {
+                const params = {};
+
+                // Copy default values first
+                if (defaultParams) {
+                    Object.assign(params, defaultParams);
+                }
+
+                // If we have uniformKeys mapping, extract live values
+                if (this.uniformKeys && this.uniformKeys.length > 0 && this.uniformValuesArray.length > 0) {
+                    for (let i = 0; i < this.uniformKeys.length; i++) {
+                        const key = this.uniformKeys[i]; // Format: "nodeId.paramName"
+                        const [keyNodeId, paramName] = key.split('.');
+
+                        // If this key belongs to our node, extract the value
+                        if (keyNodeId === String(nodeId)) {
+                            const value = this.uniformValuesArray[i];
+                            if (value !== undefined) {
+                                params[paramName] = value;
+                            }
+                        }
+                    }
+                }
+
+                return params;
             }
 
             // Fragment node helper methods
@@ -1535,9 +1607,9 @@
                     // If not found, try with "node_" prefix (registry keys might have this prefix)
                     if (!computeOutput) {
                         computeOutput = this.computeOutputs.get('node_' + nodeId);
-                        if (computeOutput) {
-                            console.log(`[LiveViewer] Matched sampler ${varName} with node_ prefix: node_${nodeId}`);
-                        }
+                        // if (computeOutput) {
+                        //     console.log(`[LiveViewer] Matched sampler ${varName} with node_ prefix: node_${nodeId}`);
+                        // }
                     }
 
                     // If still not found, try partial matching
@@ -1549,19 +1621,19 @@
                                 varName.includes(key) ||
                                 key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched sampler ${varName} (nodeId: ${nodeId}) -> ${key}`);
+                                // console.log(`[LiveViewer] Matched sampler ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.sampler) {
-                        console.log(`[LiveViewer] Using compute sampler for ${varName} (nodeId: ${nodeId})`);
+                        // console.log(`[LiveViewer] Using compute sampler for ${varName} (nodeId: ${nodeId})`);
                         return { sampler: computeOutput.sampler };
                     }
 
                     // Default sampler
-                    console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute output found)`);
+                    // console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute output found)`);
                     const sampler = this.device.createSampler({
                         magFilter: 'linear',
                         minFilter: 'linear'
@@ -1589,9 +1661,9 @@
                     // If not found, try with "node_" prefix (registry keys might have this prefix)
                     if (!computeOutput) {
                         computeOutput = this.computeOutputs.get('node_' + nodeId);
-                        if (computeOutput) {
-                            console.log(`[LiveViewer] Matched texture ${varName} with node_ prefix: node_${nodeId}`);
-                        }
+                        // if (computeOutput) {
+                        //     console.log(`[LiveViewer] Matched texture ${varName} with node_ prefix: node_${nodeId}`);
+                        // }
                     }
 
                     // If still not found, try partial matching
@@ -1603,20 +1675,20 @@
                                 varName.includes(key) ||
                                 key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched texture ${varName} (nodeId: ${nodeId}) -> ${key}`);
+                                // console.log(`[LiveViewer] Matched texture ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.texture) {
-                        console.log(`[LiveViewer] Using compute output texture for ${varName} (nodeId: ${nodeId})`);
+                        // console.log(`[LiveViewer] Using compute output texture for ${varName} (nodeId: ${nodeId})`);
                         return { textureView: computeOutput.texture.createView() };
                     }
 
                     // Create dummy texture as fallback
-                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute output found)`);
-                    console.log(`[LiveViewer] Available compute outputs:`, Array.from(this.computeOutputs.keys()));
+                    // console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute output found)`);
+                    // console.log(`[LiveViewer] Available compute outputs:`, Array.from(this.computeOutputs.keys()));
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
@@ -1679,15 +1751,28 @@
 
                         // CRITICAL: Recreate bind groups after compute execution
                         // to capture the fresh compute output textures
-                        this.recreateBindGroups();
+                        // ONLY recreate if not done recently to avoid destroyed texture errors
+                        const now = performance.now();
+                        if (!this._lastBindGroupRecreate || (now - this._lastBindGroupRecreate) > 100) {
+                            this.recreateBindGroups();
+                            this._lastBindGroupRecreate = now;
+                        }
                     }
 
                     // Update uniforms
                     this.updateUniforms();
 
-                    // Render pass
+                    // Render pass - wrap in try/catch to handle destroyed texture errors
                     const commandEncoder = this.device.createCommandEncoder();
-                    const textureView = this.context.getCurrentTexture().createView();
+                    let textureView;
+
+                    try {
+                        textureView = this.context.getCurrentTexture().createView();
+                    } catch (texError) {
+                        // Canvas texture was destroyed, skip this frame
+                        console.warn('[LiveViewer] Canvas texture destroyed, skipping frame');
+                        return;
+                    }
 
                     const renderPass = commandEncoder.beginRenderPass({
                         colorAttachments: [{

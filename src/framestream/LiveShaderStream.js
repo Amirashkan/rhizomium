@@ -50,6 +50,7 @@ export class LiveShaderStream {
         // Listen for shader requests from viewers
         this.channel.onmessage = (event) => {
             const data = event.data;
+
             if (data.type === 'request_shader') {
                 // If no shader is available yet, trigger a rebuild
                 if (!this.currentShader && window.rebuild && typeof window.rebuild === 'function') {
@@ -132,10 +133,32 @@ export class LiveShaderStream {
         // Serialize fragment nodes that are inputs to compute nodes
         const fragmentNodes = this._serializeFragmentNodes(computeNodes);
 
+        // Extract parameter keys for mapping array indices back to node parameters
+        const uniformKeys = [];
+        if (window.nodeCompiler?.uniformManager?.uniformValues) {
+            for (const key of window.nodeCompiler.uniformManager.uniformValues.keys()) {
+                uniformKeys.push(key);
+            }
+
+            // DEBUG: Log colorize-related entries
+            const colorizeEntries = [];
+            for (const [key, value] of window.nodeCompiler.uniformManager.uniformValues.entries()) {
+                if (key.includes('colorize')) {
+                    colorizeEntries.push({ key, value });
+                }
+            }
+            if (colorizeEntries.length > 0) {
+                console.log('[LiveShaderStream] Colorize entries in uniformManager:', colorizeEntries);
+                console.log('[LiveShaderStream] uniformKeys:', uniformKeys);
+                console.log('[LiveShaderStream] uniformValues array:', uniformValues);
+            }
+        }
+
         const message = {
             type: 'shader_update',
             shaderCode: shaderCode,
             uniformValues: uniformValues,
+            uniformKeys: uniformKeys, // Map array indices to "nodeId.paramName" keys
             resolution: this.currentResolution,
             computeNodes: computeNodes, // Include compute node data
             fragmentNodes: fragmentNodes, // Include fragment node data for local rendering
@@ -445,7 +468,13 @@ export class LiveShaderStream {
      * @param {number} time - Current time in seconds
      */
     sendParameterUpdate(uniformValues, time) {
-        if (!this.isStreaming || !this.channel) return;
+        if (!this.isStreaming || !this.channel) {
+            // DEBUG: Log why we're not sending
+            if (this.uniformUpdatesSent === 0) {
+                console.warn('[LiveShaderStream] NOT sending parameter update - isStreaming:', this.isStreaming, 'hasChannel:', !!this.channel);
+            }
+            return;
+        }
 
         this.currentUniforms = uniformValues;
 
@@ -459,8 +488,9 @@ export class LiveShaderStream {
         this.channel.postMessage(message);
         this.uniformUpdatesSent++;
 
-        // Log every 30th update to avoid spam
-        if (this.uniformUpdatesSent % 30 === 0) {
+        // Log every 60th update to avoid spam (once per second at 60fps)
+        if (this.uniformUpdatesSent % 60 === 0) {
+            console.log('[LiveShaderStream] Posted message #', this.uniformUpdatesSent, 'to channel:', this.channelName, 'values:', uniformValues.slice(0, 3));
         }
     }
 

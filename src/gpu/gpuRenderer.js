@@ -527,6 +527,20 @@ export class GPURenderer {
     // Get values in order (same as _updateParameterUniforms)
     const values = Array.from(uniformManager.uniformValues.values());
 
+    // DEBUG: Log every 60 frames (once per second at 60fps) during drag
+    if (window.editor?._parameterDragging && this._dragUpdateCount % 60 === 0) {
+      console.log('[gpuRenderer] Sending parameter update during drag');
+      console.log('[gpuRenderer] uniformManager.uniformValues.size:', uniformManager.uniformValues.size);
+      console.log('[gpuRenderer] uniformValues keys:', Array.from(uniformManager.uniformValues.keys()));
+      console.log('[gpuRenderer] values array length:', values.length);
+      console.log('[gpuRenderer] first 5 values:', values.slice(0, 5));
+    }
+    if (window.editor?._parameterDragging) {
+      this._dragUpdateCount = (this._dragUpdateCount || 0) + 1;
+    } else {
+      this._dragUpdateCount = 0;
+    }
+
     // Send to viewer with current time for sync
     window.liveShaderStream.sendParameterUpdate(values, timeSec);
   }

@@ -36,11 +36,43 @@ analyzeNode(node) {
 
     node.params[paramName] = value; // write back normalized value
 
-    // Check if this parameter is MIDI-controlled (needs GPU uniform)
+    // Check if this parameter needs a GPU uniform:
+    // 1. MIDI-controlled parameters always need uniforms
+    // 2. Compute node parameters need uniforms for external viewer streaming
+    //    BUT exclude metadata params like 'resolution' which aren't shader uniforms
     const midiBinding = window.editor?.midiBinding;
-    if (midiBinding && midiBinding.shouldUseUniform(node.id, paramName)) {
+    const isMidiControlled = midiBinding && midiBinding.shouldUseUniform(node.id, paramName);
+    const isComputeNode = node.kind && node.kind.startsWith('Compute');
+
+    // Exclude non-uniform parameters (metadata params that aren't sent to shaders)
+    const nonUniformParams = ['resolution', 'mode']; // mode is baked into shader at compile time
+    const isNonUniform = nonUniformParams.includes(paramName);
+
+    if ((isMidiControlled || isComputeNode) && !isNonUniform) {
       const paramKey = `${node.id}.${paramName}`;
-      const numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+
+      // Convert value to numeric, handling booleans properly
+      let numericValue;
+      if (typeof value === 'number') {
+        numericValue = value;
+      } else if (typeof value === 'boolean') {
+        numericValue = value ? 1.0 : 0.0;
+      } else {
+        numericValue = parseFloat(value) || 0;
+      }
+
+      // DEBUG: Log colorize parameter for ComputeNoise nodes
+      if (node.kind === 'ComputeNoise' && paramName === 'colorize') {
+        console.log('[ParameterUniformManager] ComputeNoise colorize:', {
+          nodeId: node.id,
+          originalValue: paramValue,
+          processedValue: value,
+          typeOfValue: typeof value,
+          numericValue: numericValue,
+          paramKey: paramKey
+        });
+      }
+
       this.uniformValues.set(paramKey, numericValue);
     }
   }
