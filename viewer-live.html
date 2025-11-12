@@ -637,9 +637,41 @@
                                 resource: inputOutput.sampler
                             });
 
-                            console.log(`[LiveViewer] Compute node ${nodeId} using input from node ${inputNodeId}`);
+                            console.log(`[LiveViewer] ✓ Compute node ${nodeId} using input from compute node ${inputNodeId}`);
                         } else {
-                            console.warn(`[LiveViewer] Compute node ${nodeId} expects input from ${inputNodeId} but it's not available`);
+                            console.error(`[LiveViewer] ❌ Compute node ${nodeId} expects input from node ${inputNodeId} but it's not available!`);
+                            console.error(`[LiveViewer] This is likely a FRAGMENT node input, which is not supported in the external viewer.`);
+                            console.error(`[LiveViewer] Fragment→Compute workflows require the auto-bridge system which is only in the main editor.`);
+                            console.error(`[LiveViewer] Workaround: Use pure compute workflows (e.g., ComputeNoise → ComputeBlur → Output)`);
+
+                            // Create black fallback texture to avoid crashes
+                            const fallbackTexture = this.device.createTexture({
+                                size: [resolution[0], resolution[1], 1],
+                                format: 'rgba8unorm',
+                                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                            });
+                            const black = new Uint8Array(resolution[0] * resolution[1] * 4).fill(0);
+                            this.device.queue.writeTexture(
+                                { texture: fallbackTexture },
+                                black,
+                                { bytesPerRow: resolution[0] * 4 },
+                                [resolution[0], resolution[1]]
+                            );
+
+                            const fallbackSampler = this.device.createSampler({
+                                magFilter: 'linear',
+                                minFilter: 'linear'
+                            });
+
+                            bindGroupEntries.push({
+                                binding: 2,
+                                resource: fallbackTexture.createView()
+                            });
+
+                            bindGroupEntries.push({
+                                binding: 3,
+                                resource: fallbackSampler
+                            });
                         }
                     }
 
