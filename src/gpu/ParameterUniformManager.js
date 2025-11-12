@@ -39,11 +39,16 @@ analyzeNode(node) {
     // Check if this parameter needs a GPU uniform:
     // 1. MIDI-controlled parameters always need uniforms
     // 2. Compute node parameters need uniforms for external viewer streaming
+    //    BUT exclude metadata params like 'resolution' which aren't shader uniforms
     const midiBinding = window.editor?.midiBinding;
     const isMidiControlled = midiBinding && midiBinding.shouldUseUniform(node.id, paramName);
     const isComputeNode = node.kind && node.kind.startsWith('Compute');
 
-    if (isMidiControlled || isComputeNode) {
+    // Exclude non-uniform parameters (metadata params that aren't sent to shaders)
+    const nonUniformParams = ['resolution', 'mode']; // mode is baked into shader at compile time
+    const isNonUniform = nonUniformParams.includes(paramName);
+
+    if ((isMidiControlled || isComputeNode) && !isNonUniform) {
       const paramKey = `${node.id}.${paramName}`;
 
       // Convert value to numeric, handling booleans properly
