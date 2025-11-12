@@ -258,7 +258,6 @@
             constructor() {
                 this.canvas = document.getElementById('canvas');
                 this.channel = new BroadcastChannel('rhizo-live-shader-stream');
-                console.log('[Viewer] BroadcastChannel created:', this.channel.name);
 
                 // WebGPU state
                 this.device = null;
@@ -311,19 +310,8 @@
             _setupEventListeners() {
                 // Channel messages
                 this.channel.onmessage = (event) => {
-                    // DEBUG: Log ALL incoming messages to diagnose reception
-                    if (event.data && event.data.type) {
-                        console.log('[Viewer] BroadcastChannel received:', event.data.type);
-                    }
                     this.handleMessage(event.data);
                 };
-                console.log('[Viewer] BroadcastChannel onmessage listener attached to channel:', this.channel.name);
-
-                // DEBUG: Send a test ping to verify channel works in reverse
-                setTimeout(() => {
-                    console.log('[Viewer] Sending test ping to editor...');
-                    this.channel.postMessage({ type: 'viewer_ping', timestamp: Date.now() });
-                }, 2000);
 
                 // UI buttons
                 document.getElementById('btn-hide-ui').addEventListener('click', () => {
@@ -1697,15 +1685,28 @@
 
                         // CRITICAL: Recreate bind groups after compute execution
                         // to capture the fresh compute output textures
-                        this.recreateBindGroups();
+                        // ONLY recreate if not done recently to avoid destroyed texture errors
+                        const now = performance.now();
+                        if (!this._lastBindGroupRecreate || (now - this._lastBindGroupRecreate) > 100) {
+                            this.recreateBindGroups();
+                            this._lastBindGroupRecreate = now;
+                        }
                     }
 
                     // Update uniforms
                     this.updateUniforms();
 
-                    // Render pass
+                    // Render pass - wrap in try/catch to handle destroyed texture errors
                     const commandEncoder = this.device.createCommandEncoder();
-                    const textureView = this.context.getCurrentTexture().createView();
+                    let textureView;
+
+                    try {
+                        textureView = this.context.getCurrentTexture().createView();
+                    } catch (texError) {
+                        // Canvas texture was destroyed, skip this frame
+                        console.warn('[LiveViewer] Canvas texture destroyed, skipping frame');
+                        return;
+                    }
 
                     const renderPass = commandEncoder.beginRenderPass({
                         colorAttachments: [{

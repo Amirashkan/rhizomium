@@ -46,12 +46,10 @@ export class LiveShaderStream {
         }
 
         this.channel = new BroadcastChannel(this.channelName);
-        console.log('[LiveShaderStream] BroadcastChannel created:', this.channelName);
 
         // Listen for shader requests from viewers
         this.channel.onmessage = (event) => {
             const data = event.data;
-            console.log('[LiveShaderStream] Received message from viewer:', data.type);
 
             if (data.type === 'request_shader') {
                 // If no shader is available yet, trigger a rebuild
@@ -61,11 +59,8 @@ export class LiveShaderStream {
                 } else {
                     this.sendCurrentState();
                 }
-            } else if (data.type === 'viewer_ping') {
-                console.log('[LiveShaderStream] ✅ Received viewer_ping! Channel communication works FROM viewer TO editor');
             }
         };
-        console.log('[LiveShaderStream] BroadcastChannel onmessage listener attached');
 
         return this;
     }
