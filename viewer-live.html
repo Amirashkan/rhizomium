@@ -299,6 +299,10 @@
                 this.currentWidth = 1920;
                 this.currentHeight = 1080;
 
+                // Shader request retry mechanism
+                this.shaderRequestRetryCount = 0;
+                this.shaderRequestRetryTimer = null;
+
                 this._setupEventListeners();
                 this._init();
             }
@@ -331,6 +335,14 @@
 
                 // Auto-resize canvas
                 window.addEventListener('resize', () => this.updateCanvasDisplaySize());
+
+                // Cleanup on window unload
+                window.addEventListener('beforeunload', () => {
+                    if (this.shaderRequestRetryTimer) {
+                        clearInterval(this.shaderRequestRetryTimer);
+                        this.shaderRequestRetryTimer = null;
+                    }
+                });
             }
 
             async _init() {
@@ -361,11 +373,8 @@
                     document.getElementById('info').innerHTML =
                         'WebGPU initialized!<br>Waiting for shader from editor...';
 
-                    // Request shader from editor
-                    this.channel.postMessage({
-                        type: 'request_shader',
-                        timestamp: Date.now()
-                    });
+                    // Request shader from editor with retry mechanism
+                    this.requestShaderWithRetry();
 
                 } catch (error) {
                     console.error('[LiveViewer] Initialization error:', error);
@@ -399,6 +408,13 @@
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
                     return;
+                }
+
+                // Stop retry timer since we received a shader
+                if (this.shaderRequestRetryTimer) {
+                    clearInterval(this.shaderRequestRetryTimer);
+                    this.shaderRequestRetryTimer = null;
+                    console.log('[LiveViewer] Shader received, stopped retry timer');
                 }
 
                 if (!this.hasReceivedShader) {
@@ -472,6 +488,45 @@
                 if (typeof time === 'number') {
                     this.syncedTime = time;
                 }
+            }
+
+            requestShaderWithRetry() {
+                // Clear any existing retry timer
+                if (this.shaderRequestRetryTimer) {
+                    clearInterval(this.shaderRequestRetryTimer);
+                }
+
+                // Send initial request immediately
+                console.log('[LiveViewer] Requesting shader from editor...');
+                this.channel.postMessage({
+                    type: 'request_shader',
+                    timestamp: Date.now()
+                });
+
+                // Set up retry timer - request every 2 seconds until shader is received
+                this.shaderRequestRetryCount = 0;
+                this.shaderRequestRetryTimer = setInterval(() => {
+                    if (this.hasReceivedShader) {
+                        clearInterval(this.shaderRequestRetryTimer);
+                        this.shaderRequestRetryTimer = null;
+                        return;
+                    }
+
+                    this.shaderRequestRetryCount++;
+                    console.log(`[LiveViewer] Retrying shader request (attempt ${this.shaderRequestRetryCount})...`);
+
+                    this.channel.postMessage({
+                        type: 'request_shader',
+                        timestamp: Date.now()
+                    });
+
+                    // Update status to show we're still waiting
+                    if (this.shaderRequestRetryCount > 2) {
+                        document.getElementById('info').innerHTML =
+                            'Still waiting for shader from editor...<br>' +
+                            'Make sure the editor is open and click "Open External Viewer"';
+                    }
+                }, 2000);
             }
 
             initializeFragmentNodes(fragmentNodes) {

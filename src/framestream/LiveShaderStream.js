@@ -51,7 +51,13 @@ export class LiveShaderStream {
         this.channel.onmessage = (event) => {
             const data = event.data;
             if (data.type === 'request_shader') {
-                this.sendCurrentState();
+                // If no shader is available yet, trigger a rebuild
+                if (!this.currentShader && window.rebuild && typeof window.rebuild === 'function') {
+                    console.log('[LiveShaderStream] Shader requested but not available - triggering rebuild');
+                    window.rebuild();
+                } else {
+                    this.sendCurrentState();
+                }
             }
         };
 
