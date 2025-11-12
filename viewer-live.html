@@ -877,11 +877,12 @@
                         // We need to match the WGSL uniform struct order exactly
 
                         if (nodeData.kind === 'ComputeNoise') {
-                            // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, padding(vec2)
+                            // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, colorize, _padding
                             uniformData[3] = params.scale !== undefined ? params.scale : 8.0;
                             uniformData[4] = params.octaves !== undefined ? params.octaves : 5.0;
                             uniformData[5] = params.speed !== undefined ? params.speed : 0.1;
-                            // padding at [6-7] (default zeros)
+                            uniformData[6] = params.colorize !== undefined ? (params.colorize ? 1.0 : 0.0) : 1.0;
+                            // padding at [7] (default zero)
                         } else if (nodeData.kind === 'ComputeMix') {
                             // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
                             // NOTE: 'mode' is baked into the shader at compile time, not in uniforms
