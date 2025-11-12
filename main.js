@@ -2621,9 +2621,44 @@ window.addTestCube = function() {
   return cube;
 };
 
+// Page Visibility API - Fix lag when returning to tab
+// When tab becomes visible after being hidden, render a "warmup" frame
+// to prepare GPU resources (MSAA texture, etc.) BEFORE user interaction
+function setupPageVisibilityHandler() {
+  if (typeof document.hidden === 'undefined') {
+    console.warn('[main.js] Page Visibility API not supported');
+    return;
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      // Tab hidden - optional: could pause render loop here to save battery
+      console.log('[main.js] Tab hidden');
+    } else {
+      // Tab visible - render warmup frame to prepare GPU resources
+      console.log('[main.js] Tab visible - rendering warmup frame');
+
+      // Render warmup frame to recreate MSAA texture and other GPU resources
+      // This happens BEFORE user interaction, preventing lag on first action
+      if (window.gpuRenderer && renderLoopController) {
+        try {
+          // Force immediate render to warm up GPU
+          renderLoopController.renderNow({ advance: false });
+        } catch (error) {
+          console.warn('[main.js] Warmup frame failed:', error);
+        }
+      }
+    }
+  });
+}
+
 // Initialize when DOM is ready
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initialize);
+  document.addEventListener("DOMContentLoaded", () => {
+    initialize();
+    setupPageVisibilityHandler();
+  });
 } else {
   initialize();
+  setupPageVisibilityHandler();
 }
