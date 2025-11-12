@@ -6,7 +6,7 @@ export class PreviewSettings {
   constructor(floatingPreview) {
     this.floatingPreview = floatingPreview;
     this.settings = {
-      resolution: { width: 512, height: 512 },
+      resolution: { width: 1024, height: 1024 }, // Increased from 512 to 1024 for sharper compute nodes
       refreshRate: 60,
       timingMode: "vsync",
       wireframe: false,
