@@ -482,9 +482,12 @@
             }
 
             initializeComputeNode(nodeData) {
-                const { nodeId, wgslCode, resolution } = nodeData;
+                const { nodeId, wgslCode, resolution, inputs } = nodeData;
 
                 try {
+                    // Log node info including inputs
+                    console.log(`[LiveViewer] Initializing compute node ${nodeId} with inputs:`, inputs);
+
                     // Create shader module
                     const shaderModule = this.device.createShaderModule({
                         code: wgslCode,
@@ -610,14 +613,40 @@
 
                     this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
+                    // Create bind group entries
+                    const bindGroupEntries = [
+                        { binding: 0, resource: { buffer: uniformBuffer } },
+                        { binding: 1, resource: outputTexture.createView() }
+                    ];
+
+                    // Add input texture if the node has inputs
+                    if (nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null) {
+                        const inputNodeId = nodeData.inputs[0];
+                        const inputOutput = this.computeOutputs.get(inputNodeId);
+
+                        if (inputOutput && inputOutput.texture && inputOutput.sampler) {
+                            // binding 2: input texture
+                            bindGroupEntries.push({
+                                binding: 2,
+                                resource: inputOutput.texture.createView()
+                            });
+
+                            // binding 3: input sampler
+                            bindGroupEntries.push({
+                                binding: 3,
+                                resource: inputOutput.sampler
+                            });
+
+                            console.log(`[LiveViewer] Compute node ${nodeId} using input from node ${inputNodeId}`);
+                        } else {
+                            console.warn(`[LiveViewer] Compute node ${nodeId} expects input from ${inputNodeId} but it's not available`);
+                        }
+                    }
+
                     // Create bind group
                     const bindGroup = this.device.createBindGroup({
                         layout: pipelineData.bindGroupLayout,
-                        entries: [
-                            { binding: 0, resource: { buffer: uniformBuffer } },
-                            { binding: 1, resource: outputTexture.createView() }
-                            // TODO: Add input texture bindings if needed
-                        ]
+                        entries: bindGroupEntries
                     });
 
                     // Dispatch compute shader
@@ -639,22 +668,37 @@
             }
 
             createComputeBindGroupLayout(nodeData) {
-                // Simplified bind group layout for compute shaders
-                return this.device.createBindGroupLayout({
-                    entries: [
-                        {
-                            binding: 0,
-                            visibility: GPUShaderStage.COMPUTE,
-                            buffer: { type: 'uniform' }
-                        },
-                        {
-                            binding: 1,
-                            visibility: GPUShaderStage.COMPUTE,
-                            storageTexture: { access: 'write-only', format: 'rgba8unorm' }
-                        }
-                        // TODO: Add input texture bindings if needed
-                    ]
-                });
+                const entries = [
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.COMPUTE,
+                        buffer: { type: 'uniform' }
+                    },
+                    {
+                        binding: 1,
+                        visibility: GPUShaderStage.COMPUTE,
+                        storageTexture: { access: 'write-only', format: 'rgba8unorm' }
+                    }
+                ];
+
+                // Add input texture bindings if the node has inputs
+                if (nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null) {
+                    // binding 2: input texture
+                    entries.push({
+                        binding: 2,
+                        visibility: GPUShaderStage.COMPUTE,
+                        texture: { sampleType: 'float' }
+                    });
+
+                    // binding 3: input sampler
+                    entries.push({
+                        binding: 3,
+                        visibility: GPUShaderStage.COMPUTE,
+                        sampler: { type: 'filtering' }
+                    });
+                }
+
+                return this.device.createBindGroupLayout({ entries });
             }
 
             compileShader(wgslCode) {
