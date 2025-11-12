@@ -15,6 +15,9 @@ export class SelectionManager {
       enabled: false,
       gridSize: 20,
     };
+    // Performance optimization: throttle selection box updates
+    this._boxSelectUpdateScheduled = false;
+    this._pendingBoxUpdate = null;
   }
 
   // Setter for undoManager (called from Editor)
@@ -182,9 +185,23 @@ export class SelectionManager {
 
       this.boxSelect.x1 = x;
       this.boxSelect.y1 = y;
-      this._updateBoxSelection();
+
+      // Store the pending update position
+      this._pendingBoxUpdate = { x, y };
+
+      // Only schedule one update per animation frame for performance
+      if (!this._boxSelectUpdateScheduled) {
+        this._boxSelectUpdateScheduled = true;
+        requestAnimationFrame(() => {
+          this._boxSelectUpdateScheduled = false;
+          if (this._pendingBoxUpdate) {
+            this._updateBoxSelection();
+            this._pendingBoxUpdate = null;
+          }
+        });
+      }
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'box-selection-update',
         position: { x, y }
       });
@@ -194,12 +211,16 @@ export class SelectionManager {
   endBoxSelect() {
     try {
       if (this.boxSelect) {
+        // Force final update immediately (bypass throttling)
         this._updateBoxSelection();
         this.boxSelect = null;
+        // Clear any pending updates
+        this._pendingBoxUpdate = null;
+        this._boxSelectUpdateScheduled = false;
       }
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'box-selection-end' 
+      window.errorHandler?.handleError(error, {
+        component: 'box-selection-end'
       });
     }
   }
@@ -213,19 +234,40 @@ export class SelectionManager {
       const x1 = Math.max(this.boxSelect.x0, this.boxSelect.x1);
       const y1 = Math.max(this.boxSelect.y0, this.boxSelect.y1);
 
-      this.graph.selection.clear();
-      for (const n of this.graph.nodes) {
-        const overlap =
-          n.x + n.w >= x0 && n.x <= x1 && n.y + n.h >= y0 && n.y <= y1;
-        if (overlap) {
-          this.graph.selection.add(n.id);
-        }
+      // Early exit for very small selection boxes (likely accidental clicks)
+      const width = x1 - x0;
+      const height = y1 - y0;
+      if (width < 5 && height < 5) {
+        this.graph.selection.clear();
+        if (this.onChange) this.onChange();
+        return;
       }
 
-      if (this.onChange) this.onChange();
+      // Build new selection set without clearing first (reduces Set operations)
+      const newSelection = new Set();
+
+      // Optimized overlap check - only iterate through nodes once
+      for (const n of this.graph.nodes) {
+        // Check if node's bounding box intersects with selection box
+        // Using separate comparisons is faster than complex boolean expressions
+        if (n.x + n.w < x0) continue; // Node is entirely to the left
+        if (n.x > x1) continue;        // Node is entirely to the right
+        if (n.y + n.h < y0) continue; // Node is entirely above
+        if (n.y > y1) continue;        // Node is entirely below
+
+        // If we reach here, there's an overlap
+        newSelection.add(n.id);
+      }
+
+      // Only update and trigger onChange if selection actually changed
+      if (newSelection.size !== this.graph.selection.size ||
+          ![...newSelection].every(id => this.graph.selection.has(id))) {
+        this.graph.selection = newSelection;
+        if (this.onChange) this.onChange();
+      }
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
-        component: 'box-selection-calculation' 
+      window.errorHandler?.handleError(error, {
+        component: 'box-selection-calculation'
       });
     }
   }
