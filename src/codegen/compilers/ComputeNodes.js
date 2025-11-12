@@ -1657,6 +1657,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     const colorModeIndex = this.getColorModeIndex(colorMode);
     const interpolationIndex = this.getInterpolationIndex(interpolation);
 
+    // Debug logging
+    console.log('[ComputeGradient Shader Generation]', {
+      colorMode,
+      colorModeIndex,
+      type,
+      typeIndex,
+      interpolation,
+      interpolationIndex,
+      numStops,
+      colorStops: colorStops.slice(0, 2)
+    });
+
     const shader = `
 // Compute Gradient Shader - Type: ${type}, ColorMode: ${colorMode}
 struct ColorStop {

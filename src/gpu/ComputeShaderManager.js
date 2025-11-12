@@ -569,6 +569,14 @@ export class ComputeShaderManager {
           this.uniformData[10] = Math.min(colorStops.length, 8); // numStops
           this.uniformData[11] = 0.0; // padding
 
+          // Debug logging
+          console.log('[ComputeGradient Uniforms]', {
+            colorMode: this.node.params?.colorMode,
+            type: this.node.params?.type,
+            numStops: this.uniformData[10],
+            colorStops: colorStops.slice(0, 2)
+          });
+
           // Update color stops storage buffer
           this.updateColorStopsBuffer(colorStops);
           break;
