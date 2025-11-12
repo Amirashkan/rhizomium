@@ -133,10 +133,19 @@ export class LiveShaderStream {
         // Serialize fragment nodes that are inputs to compute nodes
         const fragmentNodes = this._serializeFragmentNodes(computeNodes);
 
+        // Extract parameter keys for mapping array indices back to node parameters
+        const uniformKeys = [];
+        if (window.nodeCompiler?.uniformManager?.uniformValues) {
+            for (const key of window.nodeCompiler.uniformManager.uniformValues.keys()) {
+                uniformKeys.push(key);
+            }
+        }
+
         const message = {
             type: 'shader_update',
             shaderCode: shaderCode,
             uniformValues: uniformValues,
+            uniformKeys: uniformKeys, // Map array indices to "nodeId.paramName" keys
             resolution: this.currentResolution,
             computeNodes: computeNodes, // Include compute node data
             fragmentNodes: fragmentNodes, // Include fragment node data for local rendering

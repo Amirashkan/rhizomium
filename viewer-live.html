@@ -271,6 +271,7 @@
                 this.currentShader = null;
                 this.uniformValues = new Map();
                 this.uniformValuesArray = [];
+                this.uniformKeys = []; // Maps array index -> "nodeId.paramName"
 
                 // Compute nodes state
                 this.computeNodes = [];
@@ -403,11 +404,17 @@
             }
 
             handleShaderUpdate(data) {
-                const { shaderCode, uniformValues, resolution, computeNodes, fragmentNodes } = data;
+                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes } = data;
 
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
                     return;
+                }
+
+                // Store uniform keys for mapping array indices to node parameters
+                if (uniformKeys && Array.isArray(uniformKeys)) {
+                    this.uniformKeys = uniformKeys;
+                    console.log('[LiveViewer] Received', uniformKeys.length, 'parameter mappings');
                 }
 
                 // Stop retry timer since we received a shader
@@ -837,6 +844,9 @@
                     return;
                 }
 
+                // Extract live parameter values from uniformValuesArray for this node
+                const liveParams = this._extractNodeParams(nodeId, params);
+
                 try {
                     const { shaderModule, outputTexture, uniformBuffer, sampler } = pipelineData;
 
@@ -878,28 +888,29 @@
 
                     // Pack parameters in the correct order based on node kind
                     // Each compute node has a specific uniform struct layout
-                    if (params) {
+                    // Use liveParams (from uniformValuesArray) for real-time updates during drag
+                    if (liveParams) {
                         // Common pattern: node-specific params start at index 3
                         // We need to match the WGSL uniform struct order exactly
 
                         if (nodeData.kind === 'ComputeNoise') {
                             // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, colorize, _padding
-                            uniformData[3] = params.scale !== undefined ? params.scale : 8.0;
-                            uniformData[4] = params.octaves !== undefined ? params.octaves : 5.0;
-                            uniformData[5] = params.speed !== undefined ? params.speed : 0.1;
-                            uniformData[6] = params.colorize !== undefined ? (params.colorize ? 1.0 : 0.0) : 1.0;
+                            uniformData[3] = liveParams.scale !== undefined ? liveParams.scale : 8.0;
+                            uniformData[4] = liveParams.octaves !== undefined ? liveParams.octaves : 5.0;
+                            uniformData[5] = liveParams.speed !== undefined ? liveParams.speed : 0.1;
+                            uniformData[6] = liveParams.colorize !== undefined ? (liveParams.colorize ? 1.0 : 0.0) : 1.0;
                             // padding at [7] (default zero)
                         } else if (nodeData.kind === 'ComputeMix') {
                             // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
                             // NOTE: 'mode' is baked into the shader at compile time, not in uniforms
-                            uniformData[3] = params.amount !== undefined ? params.amount : 0.5;
-                            uniformData[4] = params.opacity !== undefined ? params.opacity : 1.0;
+                            uniformData[3] = liveParams.amount !== undefined ? liveParams.amount : 0.5;
+                            uniformData[4] = liveParams.opacity !== undefined ? liveParams.opacity : 1.0;
                             // padding at [5-7] (default zeros)
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             let paramIndex = 3;
-                            for (const key in params) {
-                                const value = params[key];
+                            for (const key in liveParams) {
+                                const value = liveParams[key];
                                 if (typeof value === 'number') {
                                     uniformData[paramIndex++] = value;
                                 } else if (typeof value === 'boolean') {
@@ -1143,6 +1154,34 @@
 
                 // console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
                 return this.device.createBindGroupLayout({ entries });
+            }
+
+            // Extract live parameter values for a specific node from uniformValuesArray
+            _extractNodeParams(nodeId, defaultParams) {
+                const params = {};
+
+                // Copy default values first
+                if (defaultParams) {
+                    Object.assign(params, defaultParams);
+                }
+
+                // If we have uniformKeys mapping, extract live values
+                if (this.uniformKeys && this.uniformKeys.length > 0 && this.uniformValuesArray.length > 0) {
+                    for (let i = 0; i < this.uniformKeys.length; i++) {
+                        const key = this.uniformKeys[i]; // Format: "nodeId.paramName"
+                        const [keyNodeId, paramName] = key.split('.');
+
+                        // If this key belongs to our node, extract the value
+                        if (keyNodeId === String(nodeId)) {
+                            const value = this.uniformValuesArray[i];
+                            if (value !== undefined) {
+                                params[paramName] = value;
+                            }
+                        }
+                    }
+                }
+
+                return params;
             }
 
             // Fragment node helper methods
