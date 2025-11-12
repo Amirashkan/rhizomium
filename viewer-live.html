@@ -574,6 +574,9 @@
 
                     // Create/get compute pipeline
                     if (!pipelineData.pipeline) {
+                        // Determine if this node has inputs (for bind group layout)
+                        const hasInputs = nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null;
+
                         // Parse shader to determine bind group layout
                         const bindGroupLayout = this.createComputeBindGroupLayout(nodeData);
 
@@ -590,6 +593,9 @@
                         });
 
                         pipelineData.bindGroupLayout = bindGroupLayout;
+                        pipelineData.hasInputs = hasInputs; // Store for consistency
+
+                        console.log(`[LiveViewer] Created compute pipeline for node ${nodeId}, hasInputs: ${hasInputs}, layout expects ${hasInputs ? 4 : 2} bindings`);
                     }
 
                     // Update uniform buffer
@@ -619,10 +625,11 @@
                         { binding: 1, resource: outputTexture.createView() }
                     ];
 
-                    const hasInputs = nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null;
-                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, inputs[0]: ${nodeData.inputs?.[0]}, hasInputs: ${hasInputs}`);
+                    // Use the stored hasInputs flag to ensure consistency with the layout
+                    const hasInputs = pipelineData.hasInputs || false;
+                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, inputs[0]: ${nodeData.inputs?.[0]}, hasInputs: ${hasInputs} (from pipeline data)`);
 
-                    // Add input texture if the node has inputs
+                    // Add input texture if the node has inputs (must match the bind group layout)
                     if (hasInputs) {
                         const inputNodeId = nodeData.inputs[0];
                         const inputOutput = this.computeOutputs.get(inputNodeId);
