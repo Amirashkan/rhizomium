@@ -115,17 +115,50 @@ export class LiveShaderStream {
             this.currentResolution = resolution;
         }
 
+        // Serialize compute nodes from the registry
+        const computeNodes = this._serializeComputeNodes();
+
         const message = {
             type: 'shader_update',
             shaderCode: shaderCode,
             uniformValues: uniformValues,
             resolution: this.currentResolution,
+            computeNodes: computeNodes, // Include compute node data
             timestamp: Date.now()
         };
 
         this.channel.postMessage(message);
         this.shaderUpdatesSent++;
 
+    }
+
+    /**
+     * Serialize compute nodes from the registry for transmission to viewer
+     * @returns {Array} Array of compute node data
+     */
+    _serializeComputeNodes() {
+        const nodes = [];
+
+        if (!window.computeNodeRegistry || window.computeNodeRegistry.size === 0) {
+            return nodes;
+        }
+
+        for (const [nodeId, nodeData] of window.computeNodeRegistry) {
+            const { node, wgslCode, resolution, supportsFeedback } = nodeData;
+
+            // Serialize node data for viewer
+            nodes.push({
+                nodeId: nodeId,
+                kind: node.kind,
+                wgslCode: wgslCode,
+                resolution: resolution,
+                supportsFeedback: supportsFeedback,
+                params: node.params || {},
+                inputs: node.inputs || []
+            });
+        }
+
+        return nodes;
     }
 
     /**

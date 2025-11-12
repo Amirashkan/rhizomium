@@ -272,6 +272,11 @@
                 this.uniformValues = new Map();
                 this.uniformValuesArray = [];
 
+                // Compute nodes state
+                this.computeNodes = [];
+                this.computePipelines = new Map();
+                this.computeOutputs = new Map();
+
                 // Animation state
                 this.animationId = null;
                 this.isRunning = false;
@@ -384,7 +389,7 @@
             }
 
             handleShaderUpdate(data) {
-                const { shaderCode, uniformValues, resolution } = data;
+                const { shaderCode, uniformValues, resolution, computeNodes } = data;
 
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
@@ -408,6 +413,12 @@
                 // Update uniform values (now an array)
                 if (uniformValues && Array.isArray(uniformValues)) {
                     this.uniformValuesArray = uniformValues;
+                }
+
+                // Initialize compute nodes if provided
+                if (computeNodes && Array.isArray(computeNodes)) {
+                    console.log(`[LiveViewer] Received ${computeNodes.length} compute nodes`);
+                    this.initializeComputeNodes(computeNodes);
                 }
 
                 // Compile shader
@@ -450,6 +461,199 @@
                 if (typeof time === 'number') {
                     this.syncedTime = time;
                 }
+            }
+
+            initializeComputeNodes(computeNodes) {
+                try {
+                    this.computeNodes = computeNodes;
+                    this.computePipelines.clear();
+                    this.computeOutputs.clear();
+
+                    // Initialize each compute node
+                    for (const nodeData of computeNodes) {
+                        this.initializeComputeNode(nodeData);
+                    }
+
+                    console.log(`[LiveViewer] Initialized ${computeNodes.length} compute nodes`);
+                } catch (error) {
+                    console.error('[LiveViewer] Error initializing compute nodes:', error);
+                }
+            }
+
+            initializeComputeNode(nodeData) {
+                const { nodeId, wgslCode, resolution } = nodeData;
+
+                try {
+                    // Create shader module
+                    const shaderModule = this.device.createShaderModule({
+                        code: wgslCode,
+                        label: `compute-${nodeId}`
+                    });
+
+                    // Create output texture
+                    const width = resolution[0];
+                    const height = resolution[1];
+
+                    const outputTexture = this.device.createTexture({
+                        size: [width, height, 1],
+                        format: 'rgba8unorm',
+                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+                    });
+
+                    // Create uniform buffer for compute parameters
+                    const uniformBuffer = this.device.createBuffer({
+                        size: 256, // Large enough for parameters
+                        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                    });
+
+                    // Create sampler for input textures
+                    const sampler = this.device.createSampler({
+                        magFilter: 'linear',
+                        minFilter: 'linear',
+                        addressModeU: 'repeat',
+                        addressModeV: 'repeat'
+                    });
+
+                    // Store output texture
+                    this.computeOutputs.set(nodeId, {
+                        texture: outputTexture,
+                        sampler: sampler,
+                        uniformBuffer: uniformBuffer,
+                        width: width,
+                        height: height
+                    });
+
+                    // Create compute pipeline (will be done on first dispatch)
+                    this.computePipelines.set(nodeId, {
+                        shaderModule: shaderModule,
+                        outputTexture: outputTexture,
+                        uniformBuffer: uniformBuffer,
+                        sampler: sampler,
+                        nodeData: nodeData
+                    });
+
+                    console.log(`[LiveViewer] Initialized compute node ${nodeId} (${width}x${height})`);
+                } catch (error) {
+                    console.error(`[LiveViewer] Error initializing compute node ${nodeId}:`, error);
+                }
+            }
+
+            executeComputeNodes(time) {
+                if (this.computeNodes.length === 0) {
+                    return;
+                }
+
+                try {
+                    const encoder = this.device.createCommandEncoder({ label: 'compute-encoder' });
+
+                    // Execute each compute node in order
+                    for (const nodeData of this.computeNodes) {
+                        this.executeComputeNode(encoder, nodeData, time);
+                    }
+
+                    this.device.queue.submit([encoder.finish()]);
+                } catch (error) {
+                    console.error('[LiveViewer] Error executing compute nodes:', error);
+                }
+            }
+
+            executeComputeNode(encoder, nodeData, time) {
+                const { nodeId, resolution, params } = nodeData;
+                const pipelineData = this.computePipelines.get(nodeId);
+
+                if (!pipelineData) {
+                    return;
+                }
+
+                try {
+                    const { shaderModule, outputTexture, uniformBuffer, sampler } = pipelineData;
+
+                    // Create/get compute pipeline
+                    if (!pipelineData.pipeline) {
+                        // Parse shader to determine bind group layout
+                        const bindGroupLayout = this.createComputeBindGroupLayout(nodeData);
+
+                        const pipelineLayout = this.device.createPipelineLayout({
+                            bindGroupLayouts: [bindGroupLayout]
+                        });
+
+                        pipelineData.pipeline = this.device.createComputePipeline({
+                            layout: pipelineLayout,
+                            compute: {
+                                module: shaderModule,
+                                entryPoint: 'main'
+                            }
+                        });
+
+                        pipelineData.bindGroupLayout = bindGroupLayout;
+                    }
+
+                    // Update uniform buffer
+                    const width = resolution[0];
+                    const height = resolution[1];
+                    const uniformData = new Float32Array(64);
+                    uniformData[0] = width;
+                    uniformData[1] = height;
+                    uniformData[2] = time;
+
+                    // Add parameters (simplified - just copy numeric values)
+                    let paramIndex = 3;
+                    if (params) {
+                        for (const key in params) {
+                            const value = params[key];
+                            if (typeof value === 'number') {
+                                uniformData[paramIndex++] = value;
+                            }
+                        }
+                    }
+
+                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+
+                    // Create bind group
+                    const bindGroup = this.device.createBindGroup({
+                        layout: pipelineData.bindGroupLayout,
+                        entries: [
+                            { binding: 0, resource: { buffer: uniformBuffer } },
+                            { binding: 1, resource: outputTexture.createView() }
+                            // TODO: Add input texture bindings if needed
+                        ]
+                    });
+
+                    // Dispatch compute shader
+                    const pass = encoder.beginComputePass({ label: `compute-${nodeId}` });
+                    pass.setPipeline(pipelineData.pipeline);
+                    pass.setBindGroup(0, bindGroup);
+
+                    const workgroupSizeX = 8;
+                    const workgroupSizeY = 8;
+                    const dispatchX = Math.ceil(width / workgroupSizeX);
+                    const dispatchY = Math.ceil(height / workgroupSizeY);
+
+                    pass.dispatchWorkgroups(dispatchX, dispatchY, 1);
+                    pass.end();
+
+                } catch (error) {
+                    console.error(`[LiveViewer] Error executing compute node ${nodeId}:`, error);
+                }
+            }
+
+            createComputeBindGroupLayout(nodeData) {
+                // Simplified bind group layout for compute shaders
+                return this.device.createBindGroupLayout({
+                    entries: [
+                        {
+                            binding: 0,
+                            visibility: GPUShaderStage.COMPUTE,
+                            buffer: { type: 'uniform' }
+                        },
+                        {
+                            binding: 1,
+                            visibility: GPUShaderStage.COMPUTE,
+                            storageTexture: { access: 'write-only', format: 'rgba8unorm' }
+                        }
+                        // TODO: Add input texture bindings if needed
+                    ]
+                });
             }
 
             compileShader(wgslCode) {
@@ -629,6 +833,14 @@
                     return { buffer };
 
                 } else if (kind === 'sampler') {
+                    // Check if this is a compute node sampler
+                    const nodeId = varName.replace(/^sampler_/, '').replace(/^samplerCube_/, '');
+                    const computeOutput = this.computeOutputs.get(nodeId);
+                    if (computeOutput && computeOutput.sampler) {
+                        return { sampler: computeOutput.sampler };
+                    }
+
+                    // Default sampler
                     const sampler = this.device.createSampler({
                         magFilter: 'linear',
                         minFilter: 'linear'
@@ -636,7 +848,16 @@
                     return { sampler };
 
                 } else if (kind === 'texture-2d' || kind === 'texture-cube') {
-                    // Create dummy texture
+                    // Check if this is a compute node output texture
+                    const nodeId = varName.replace(/^texture_/, '').replace(/^textureCube_/, '');
+                    const computeOutput = this.computeOutputs.get(nodeId);
+
+                    if (computeOutput && computeOutput.texture) {
+                        console.log(`[LiveViewer] Using compute output texture for ${nodeId}`);
+                        return { textureView: computeOutput.texture.createView() };
+                    }
+
+                    // Create dummy texture as fallback
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
@@ -685,6 +906,14 @@
                 }
 
                 try {
+                    // Get current time
+                    const time = this.syncedTime !== null ? this.syncedTime : (performance.now() - this.startTime) / 1000;
+
+                    // Execute compute nodes BEFORE rendering fragment shader
+                    if (this.computeNodes.length > 0) {
+                        this.executeComputeNodes(time);
+                    }
+
                     // Update uniforms
                     this.updateUniforms();
 
