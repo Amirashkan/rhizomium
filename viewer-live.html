@@ -1359,6 +1359,10 @@
             createBindGroups(bindings, layouts) {
                 const { groups } = bindings;
 
+                // Store bindings and layouts for recreation
+                this.currentBindings = bindings;
+                this.currentLayouts = layouts;
+
                 for (const groupIndex in groups) {
                     const groupBindings = groups[groupIndex];
                     const entries = [];
@@ -1412,16 +1416,6 @@
 
                     if (entries.length > 0) {
                         try {
-                            // Debug: Log each entry before creating bind group
-                            console.log(`[LiveViewer] Creating bind group ${groupIndex} with ${entries.length} entries:`);
-                            entries.forEach((entry, idx) => {
-                                const resourceType = entry.resource.buffer ? 'buffer' :
-                                                   entry.resource.sampler ? 'sampler' :
-                                                   entry.resource.textureView ? 'textureView' :
-                                                   entry.resource.texture ? 'texture' : 'UNKNOWN';
-                                console.log(`  [${idx}] binding=${entry.binding}, type=${resourceType}`, entry.resource);
-                            });
-
                             const bindGroup = this.device.createBindGroup({
                                 layout: layouts[groupIndex],
                                 entries
@@ -1440,6 +1434,15 @@
                         }
                     }
                 }
+            }
+
+            recreateBindGroups() {
+                // Recreate bind groups to capture fresh compute output textures
+                if (!this.currentBindings || !this.currentLayouts) {
+                    return;
+                }
+
+                this.createBindGroups(this.currentBindings, this.currentLayouts);
             }
 
             createResource(kind, varName) {
@@ -1629,6 +1632,10 @@
                     // Execute compute nodes BEFORE rendering final fragment shader
                     if (this.computeNodes.length > 0) {
                         this.executeComputeNodes(time);
+
+                        // CRITICAL: Recreate bind groups after compute execution
+                        // to capture the fresh compute output textures
+                        this.recreateBindGroups();
                     }
 
                     // Update uniforms
