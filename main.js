@@ -2456,8 +2456,9 @@ function handleRenderFrame(frameState) {
     // Normal rendering
     window.gpuRenderer.render({ timeSec: frameState.simTime });
 
-    // Stream frames to external viewers if enabled (only if not dragging)
-    if (!isDragging && frameStreamingEnabled) {
+    // Stream frames to external viewers if enabled
+    // NOTE: Now streams during parameter drag for real-time external view updates
+    if (frameStreamingEnabled) {
       const canvas = document.getElementById('gpu-canvas');
       if (canvas) {
         // Use BroadcastChannel for Vercel/cloud deployments

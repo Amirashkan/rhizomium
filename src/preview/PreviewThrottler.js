@@ -7,7 +7,7 @@ export class PreviewThrottler {
     this.intervals = {
       idle: 16,      // ~60fps when idle
       edit: 100,     // 10fps during parameter editing
-      drag: 200,     // 5fps during node dragging
+      drag: 50,      // 20fps during parameter dragging (improved for real-time external view)
       compile: 500   // 2fps during shader compilation
     };
 
