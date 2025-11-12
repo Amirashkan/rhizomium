@@ -426,6 +426,15 @@ export class ComputeShaderManager {
       // Store bind group layout for dynamic bind group creation
       this.bindGroupLayout = bindGroupLayout;
 
+      // Initialize color stops buffer for ComputeGradient
+      if (this.node?.kind === 'ComputeGradient') {
+        const defaultColorStops = [
+          { position: 0.0, color: [0, 0, 0, 1] },
+          { position: 1.0, color: [1, 1, 1, 1] }
+        ];
+        this.updateColorStopsBuffer(this.node.params?.colorStops || defaultColorStops);
+      }
+
       // Create initial bind group (will be recreated each frame for feedback)
       this.recreateBindGroup();
 
@@ -462,6 +471,7 @@ export class ComputeShaderManager {
           this.uniformData[3] = this.evaluateParam(this.node.params?.scale, 8.0, time, audioContext);
           this.uniformData[4] = this.evaluateParam(this.node.params?.octaves, 5, time, audioContext);
           this.uniformData[5] = this.evaluateParam(this.node.params?.speed, 0.1, time, audioContext);
+          this.uniformData[6] = this.node.params?.colorize ? 1.0 : 0.0;
           break;
 
         case 'ComputeReactionDiffusion':

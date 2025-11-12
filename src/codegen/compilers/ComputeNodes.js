@@ -222,7 +222,8 @@ struct Uniforms {
   scale: f32,
   octaves: f32,
   speed: f32,
-  padding: vec2<f32>
+  colorize: f32,
+  _padding: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -286,22 +287,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let noiseValue = fbm(noisePos, i32(uniforms.octaves));
 
-  ${colorize ? `
-  // Colorize the noise
-  let hue = noiseValue + time * 0.1;
-  let h = fract(hue);
-  let s = 0.7;
-  let v = 0.8 + noiseValue * 0.2;
+  // Use uniform to determine colorization at runtime
+  if (uniforms.colorize > 0.5) {
+    // Colorize the noise
+    let hue = noiseValue + time * 0.1;
+    let h = fract(hue);
+    let s = 0.7;
+    let v = 0.8 + noiseValue * 0.2;
 
-  let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  let p = abs(fract(vec3<f32>(h) + k.xyz) * 6.0 - k.www);
-  let rgb = v * mix(vec3<f32>(1.0), clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), s);
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(vec3<f32>(h) + k.xyz) * 6.0 - k.www);
+    let rgb = v * mix(vec3<f32>(1.0), clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), s);
 
-  textureStore(outputTexture, texCoord, vec4<f32>(rgb, 1.0));
-  ` : `
-  // Grayscale noise
-  textureStore(outputTexture, texCoord, vec4<f32>(noiseValue, noiseValue, noiseValue, 1.0));
-  `}
+    textureStore(outputTexture, texCoord, vec4<f32>(rgb, 1.0));
+  } else {
+    // Grayscale noise
+    textureStore(outputTexture, texCoord, vec4<f32>(noiseValue, noiseValue, noiseValue, 1.0));
+  }
 }`;
 
     return shader;
