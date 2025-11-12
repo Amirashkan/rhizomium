@@ -29,7 +29,7 @@ export class FrameStreamClient {
         this.fps = 0;
 
         // Throttling
-        this.targetFps = 30; // Target streaming FPS (lower than render FPS)
+        this.targetFps = 60; // Target streaming FPS for smooth parameter drag updates
         this.minFrameInterval = 1000 / this.targetFps;
 
         // Queue for async frame sending
