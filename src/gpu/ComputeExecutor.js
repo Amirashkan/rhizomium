@@ -584,13 +584,28 @@ export class ComputeExecutor {
         // when those referenced values might have changed
         const hasNodeRefParams = this.hasNodeReferenceParameters(node);
 
-        // Check if node has compute node inputs
-        // This ensures compute nodes re-dispatch when their compute inputs update
-        // Fixes issue where time-dependent upstream compute nodes don't trigger downstream updates
-        const hasComputeInput = node?.inputs && Array.isArray(node.inputs) &&
-          node.inputs.some(inputId => inputId !== null && inputId !== undefined && this.computeManagers.has(inputId));
+        // Check if node has TIME-DEPENDENT compute node inputs
+        // CRITICAL FIX: Only re-dispatch if upstream compute nodes are time-dependent or have changed
+        // Previous code re-dispatched ALL nodes with compute inputs every frame, causing FPS drops
+        // Now we check if upstream nodes are actually time-dependent before forcing re-dispatch
+        const hasTimeDependentComputeInput = node?.inputs && Array.isArray(node.inputs) &&
+          node.inputs.some(inputId => {
+            if (inputId === null || inputId === undefined) return false;
+            if (!this.computeManagers.has(inputId)) return false;
 
-        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasComputeInput) {
+            // Check if this upstream compute node is time-dependent
+            const upstreamNodeData = window.computeNodeRegistry?.get(inputId);
+            const upstreamNode = upstreamNodeData?.node;
+            if (!upstreamNode) return false;
+
+            const upstreamIsTimeDependentNode = TIME_DEPENDENT_NODES.includes(upstreamNode.kind);
+            const upstreamHasTimeDependentParams = this.hasTimeDependentParameters(upstreamNode);
+            const upstreamHasNodeRefParams = this.hasNodeReferenceParameters(upstreamNode);
+
+            return upstreamIsTimeDependentNode || upstreamHasTimeDependentParams || upstreamHasNodeRefParams;
+          });
+
+        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasTimeDependentComputeInput) {
           // OPTIMIZATION: Only set input textures when we're actually dispatching
           // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
           if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
