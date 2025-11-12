@@ -118,12 +118,16 @@ export class LiveShaderStream {
         // Serialize compute nodes from the registry
         const computeNodes = this._serializeComputeNodes();
 
+        // Serialize fragment nodes that are inputs to compute nodes
+        const fragmentNodes = this._serializeFragmentNodes(computeNodes);
+
         const message = {
             type: 'shader_update',
             shaderCode: shaderCode,
             uniformValues: uniformValues,
             resolution: this.currentResolution,
             computeNodes: computeNodes, // Include compute node data
+            fragmentNodes: fragmentNodes, // Include fragment node data for local rendering
             timestamp: Date.now()
         };
 
@@ -159,6 +163,166 @@ export class LiveShaderStream {
         }
 
         return nodes;
+    }
+
+    /**
+     * Serialize fragment nodes that are inputs to compute nodes
+     * @param {Array} computeNodes - Array of compute node data
+     * @returns {Array} Array of fragment node data with compiled WGSL
+     */
+    _serializeFragmentNodes(computeNodes) {
+        const fragmentNodes = [];
+        const processedIds = new Set();
+
+        // Collect all unique fragment node IDs from compute node inputs
+        const fragmentNodeIds = new Set();
+        for (const computeNode of computeNodes) {
+            if (computeNode.inputs && Array.isArray(computeNode.inputs)) {
+                for (const inputId of computeNode.inputs) {
+                    if (inputId !== null && inputId !== undefined) {
+                        // Check if this input is NOT a compute node (i.e., it's a fragment node)
+                        const isComputeNode = window.computeNodeRegistry?.has(String(inputId));
+                        if (!isComputeNode && !processedIds.has(inputId)) {
+                            fragmentNodeIds.add(inputId);
+                            processedIds.add(inputId);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (fragmentNodeIds.size === 0) {
+            return fragmentNodes;
+        }
+
+        // Compile each fragment node to WGSL
+        for (const nodeId of fragmentNodeIds) {
+            try {
+                const node = window.graph?.getNode(nodeId);
+                if (!node) {
+                    continue;
+                }
+
+                // Compile node to shader using the same approach as FragmentTextureRenderer
+                const compilationResult = this._compileFragmentNodeToShader(node);
+                if (!compilationResult) {
+                    continue;
+                }
+
+                const { wgsl, uniformManager } = compilationResult;
+
+                // Extract parameter values in the order uniformManager assigned them
+                const parameterValues = uniformManager ? Array.from(uniformManager.uniformValues.values()) : [];
+
+                // Serialize fragment node data
+                fragmentNodes.push({
+                    nodeId: nodeId,
+                    kind: node.kind,
+                    wgslCode: wgsl,
+                    params: node.params || {},
+                    parameterValues: parameterValues, // Ordered parameter values for uniform buffer
+                    inputs: node.inputs || []
+                });
+
+            } catch (error) {
+                console.warn(`[LiveShaderStream] Failed to serialize fragment node ${nodeId}:`, error);
+            }
+        }
+
+        return fragmentNodes;
+    }
+
+    /**
+     * Compile a fragment node to WGSL shader
+     * Uses the same approach as FragmentTextureRenderer
+     * @private
+     */
+    _compileFragmentNodeToShader(targetNode) {
+        try {
+            // Create a minimal subgraph containing just this node and its dependencies
+            const subgraph = this._extractFragmentSubgraph(targetNode);
+
+            // Create a fake OutputFinal node to make buildWGSL happy
+            const outputNode = {
+                id: `output_for_${targetNode.id}`,
+                kind: 'OutputFinal',
+                inputs: [targetNode.id],
+                params: {}
+            };
+            subgraph.nodes.push(outputNode);
+
+            // Use the existing buildWGSL infrastructure
+            // CRITICAL: skipCacheClear=true prevents clearing the main shader's caches
+            if (!window.buildWGSL) {
+                // Try to load buildWGSL if not already available
+                console.warn('[LiveShaderStream] buildWGSL not available globally');
+                return null;
+            }
+
+            const { wgsl, uniformManager } = window.buildWGSL(subgraph, { skipCacheClear: true });
+
+            if (!wgsl || wgsl.trim() === '') {
+                return null;
+            }
+
+            return { wgsl, uniformManager };
+        } catch (error) {
+            console.warn('[LiveShaderStream] Error compiling fragment node:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Extract a subgraph containing a fragment node and all its dependencies
+     * @private
+     */
+    _extractFragmentSubgraph(targetNode) {
+        const subgraphNodes = [];
+        const visited = new Set();
+
+        const addNodeWithDependencies = (node) => {
+            if (!node || visited.has(node.id)) return;
+            visited.add(node.id);
+
+            // Add input dependencies first
+            if (node.inputs && Array.isArray(node.inputs)) {
+                for (const inputId of node.inputs) {
+                    if (inputId !== null && inputId !== undefined) {
+                        const inputNode = window.graph?.getNode(inputId);
+                        if (inputNode) {
+                            addNodeWithDependencies(inputNode);
+                        }
+                    }
+                }
+            }
+
+            // Add the node itself
+            subgraphNodes.push(node);
+        };
+
+        addNodeWithDependencies(targetNode);
+
+        // Create connections array from node inputs
+        const connections = [];
+        for (const node of subgraphNodes) {
+            if (node.inputs && Array.isArray(node.inputs)) {
+                for (let pinIndex = 0; pinIndex < node.inputs.length; pinIndex++) {
+                    const inputId = node.inputs[pinIndex];
+                    if (inputId !== null && inputId !== undefined) {
+                        connections.push({
+                            from: { nodeId: inputId, pin: 0 },
+                            to: { nodeId: node.id, pin: pinIndex }
+                        });
+                    }
+                }
+            }
+        }
+
+        return {
+            nodes: subgraphNodes,
+            connections: connections,
+            getNode: (id) => subgraphNodes.find(n => n.id === id)
+        };
     }
 
     /**
