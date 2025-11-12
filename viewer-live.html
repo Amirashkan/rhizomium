@@ -697,14 +697,26 @@
                     if (validInputs > 0) {
                         // Get first input (binding 2)
                         const input0 = getInputResources(0);
-                        if (input0) {
+
+                        // Special handling for ComputeMix: if input A is missing (fragment node),
+                        // use input B for both A and B to avoid darkening
+                        let actualInput0 = input0;
+                        if (nodeData.kind === 'ComputeMix' && validInputs === 2 && input0 && !input0.isValid) {
+                            const input1 = getInputResources(1);
+                            if (input1 && input1.isValid) {
+                                console.log(`[LiveViewer] ComputeMix: Input A is fragment (missing), using input B for both inputs to avoid darkening`);
+                                actualInput0 = input1;
+                            }
+                        }
+
+                        if (actualInput0) {
                             bindGroupEntries.push({
                                 binding: 2,
-                                resource: input0.texture
+                                resource: actualInput0.texture
                             });
 
-                            // binding 3: shared sampler (use from input0 or create fallback)
-                            const sharedSampler = input0.sampler || this.device.createSampler({
+                            // binding 3: shared sampler (use from actualInput0 or create fallback)
+                            const sharedSampler = actualInput0.sampler || this.device.createSampler({
                                 magFilter: 'linear',
                                 minFilter: 'linear'
                             });
