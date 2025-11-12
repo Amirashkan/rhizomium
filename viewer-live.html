@@ -607,13 +607,34 @@
                     uniformData[1] = height;
                     uniformData[2] = time;
 
-                    // Add parameters (simplified - just copy numeric values)
-                    let paramIndex = 3;
+                    // Pack parameters in the correct order based on node kind
+                    // Each compute node has a specific uniform struct layout
                     if (params) {
-                        for (const key in params) {
-                            const value = params[key];
-                            if (typeof value === 'number') {
-                                uniformData[paramIndex++] = value;
+                        // Common pattern: node-specific params start at index 3
+                        // We need to match the WGSL uniform struct order exactly
+
+                        if (nodeData.kind === 'ComputeNoise') {
+                            // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, padding(vec2)
+                            uniformData[3] = params.scale !== undefined ? params.scale : 8.0;
+                            uniformData[4] = params.octaves !== undefined ? params.octaves : 5.0;
+                            uniformData[5] = params.speed !== undefined ? params.speed : 0.1;
+                            // padding at [6-7] (default zeros)
+                        } else if (nodeData.kind === 'ComputeMix') {
+                            // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
+                            // NOTE: 'mode' is baked into the shader at compile time, not in uniforms
+                            uniformData[3] = params.amount !== undefined ? params.amount : 0.5;
+                            uniformData[4] = params.opacity !== undefined ? params.opacity : 1.0;
+                            // padding at [5-7] (default zeros)
+                        } else {
+                            // Generic fallback: copy all numeric params in order they appear
+                            let paramIndex = 3;
+                            for (const key in params) {
+                                const value = params[key];
+                                if (typeof value === 'number') {
+                                    uniformData[paramIndex++] = value;
+                                } else if (typeof value === 'boolean') {
+                                    uniformData[paramIndex++] = value ? 1.0 : 0.0;
+                                }
                             }
                         }
                     }
