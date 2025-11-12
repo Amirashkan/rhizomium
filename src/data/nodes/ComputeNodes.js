@@ -325,17 +325,20 @@ export const ComputeNodes = {
       { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0 },
       { name: 'repeat', type: 'int', default: 1, min: 1, max: 20 },
       { name: 'reverse', type: 'boolean', default: false },
-      { name: 'colorMode', type: 'select', options: ['Grayscale', 'Rainbow', 'TwoColor'], default: 'Grayscale' },
+      { name: 'colorMode', type: 'select', options: ['Grayscale', 'Rainbow', 'Gradient'], default: 'Grayscale' },
       { name: 'saturation', type: 'float', default: 0.8, min: 0.0, max: 1.0 },
       { name: 'brightness', type: 'float', default: 1.0, min: 0.0, max: 2.0 },
-      { name: 'colorAR', type: 'float', default: 1.0, min: 0.0, max: 1.0 },
-      { name: 'colorAG', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
-      { name: 'colorAB', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
-      { name: 'colorBR', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
-      { name: 'colorBG', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
-      { name: 'colorBB', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
+      {
+        name: 'colorStops',
+        type: 'colorstops',
+        default: [
+          { position: 0.0, color: [0, 0, 0, 1] },
+          { position: 1.0, color: [1, 1, 1, 1] }
+        ]
+      },
+      { name: 'interpolation', type: 'select', options: ['Linear', 'Step', 'Smooth'], default: 'Linear' }
     ],
-    description: "Generate linear, radial, angular, and diamond gradients with color spectrum support",
+    description: "Generate linear, radial, angular, and diamond gradients with visual color picker",
     workgroupSize: [8, 8, 1]
   },
 
