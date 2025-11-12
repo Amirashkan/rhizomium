@@ -709,7 +709,7 @@ export class ComputeShaderManager {
 
       // Track resource
       if (this.resourceTracker) {
-        this.resourceTracker.track(this.colorStopsBuffer, 'colorStopsBuffer');
+        this.resourceTracker.trackBuffer(this.colorStopsBuffer, this.colorStopsData.byteLength);
       }
     }
 
