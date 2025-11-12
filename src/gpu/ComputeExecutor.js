@@ -132,23 +132,34 @@ export class ComputeExecutor {
       // With many nodes (30+), using full canvas resolution (e.g., 1920x1080) can create 60-90 textures
       // at ~8MB each, totaling 480-720MB of GPU memory, which can exceed limits on integrated GPUs
       //
-      // Default to 512x512 (1MB per texture) for memory efficiency
-      // This provides good quality while keeping memory usage reasonable (~30-60MB for 30 nodes)
+      // Default to 1024x1024 (4MB per texture) for better quality in high-res previews
+      // This provides sharp output while keeping memory usage reasonable (~120MB for 30 nodes)
+      // Previous 512x512 caused blur when displayed in floating preview
       //
       // Advanced users can override this per-node in the future by setting node.computeResolution
-      const DEFAULT_COMPUTE_RES = 512;
+      const DEFAULT_COMPUTE_RES = 1024;
 
-      let width = DEFAULT_COMPUTE_RES;
-      let height = DEFAULT_COMPUTE_RES;
+      // Check if preview settings are available and use them as the base resolution
+      let baseWidth = DEFAULT_COMPUTE_RES;
+      let baseHeight = DEFAULT_COMPUTE_RES;
+
+      if (window.floatingPreview?.settings?.settings?.resolution) {
+        const previewRes = window.floatingPreview.settings.settings.resolution;
+        baseWidth = previewRes.width || DEFAULT_COMPUTE_RES;
+        baseHeight = previewRes.height || DEFAULT_COMPUTE_RES;
+      }
+
+      let width = baseWidth;
+      let height = baseHeight;
 
       // If the node has a custom resolution setting, use it
       if (node.computeResolution) {
-        width = node.computeResolution[0] || DEFAULT_COMPUTE_RES;
-        height = node.computeResolution[1] || DEFAULT_COMPUTE_RES;
+        width = node.computeResolution[0] || baseWidth;
+        height = node.computeResolution[1] || baseHeight;
       } else if (resolution && resolution[0] > 0 && resolution[1] > 0) {
-        // Use node's specified resolution, but cap it to prevent memory issues
-        width = Math.min(resolution[0], DEFAULT_COMPUTE_RES);
-        height = Math.min(resolution[1], DEFAULT_COMPUTE_RES);
+        // Use node's specified resolution if provided
+        width = resolution[0];
+        height = resolution[1];
       }
 
       // Ensure we have valid dimensions before initializing

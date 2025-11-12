@@ -13,7 +13,7 @@ export class FloatingGPUPreview {
     this.isDocked = false;
     this.isResizing = false;
     this.position = { x: 20, y: 60 };
-    this.previewScale = 0.5;
+    this.previewScale = 1.0; // Increased from 0.5 to 1.0 for sharper preview (no downscaling)
     this.originalCanvasParent = gpuCanvas.parentNode;
     this.originalCanvasStyles = {
       position: gpuCanvas.style.position,
