@@ -299,6 +299,10 @@
                 this.currentWidth = 1920;
                 this.currentHeight = 1080;
 
+                // Shader request retry mechanism
+                this.shaderRequestRetryCount = 0;
+                this.shaderRequestRetryTimer = null;
+
                 this._setupEventListeners();
                 this._init();
             }
@@ -331,6 +335,14 @@
 
                 // Auto-resize canvas
                 window.addEventListener('resize', () => this.updateCanvasDisplaySize());
+
+                // Cleanup on window unload
+                window.addEventListener('beforeunload', () => {
+                    if (this.shaderRequestRetryTimer) {
+                        clearInterval(this.shaderRequestRetryTimer);
+                        this.shaderRequestRetryTimer = null;
+                    }
+                });
             }
 
             async _init() {
@@ -361,11 +373,8 @@
                     document.getElementById('info').innerHTML =
                         'WebGPU initialized!<br>Waiting for shader from editor...';
 
-                    // Request shader from editor
-                    this.channel.postMessage({
-                        type: 'request_shader',
-                        timestamp: Date.now()
-                    });
+                    // Request shader from editor with retry mechanism
+                    this.requestShaderWithRetry();
 
                 } catch (error) {
                     console.error('[LiveViewer] Initialization error:', error);
@@ -399,6 +408,13 @@
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
                     return;
+                }
+
+                // Stop retry timer since we received a shader
+                if (this.shaderRequestRetryTimer) {
+                    clearInterval(this.shaderRequestRetryTimer);
+                    this.shaderRequestRetryTimer = null;
+                    console.log('[LiveViewer] Shader received, stopped retry timer');
                 }
 
                 if (!this.hasReceivedShader) {
@@ -472,6 +488,45 @@
                 if (typeof time === 'number') {
                     this.syncedTime = time;
                 }
+            }
+
+            requestShaderWithRetry() {
+                // Clear any existing retry timer
+                if (this.shaderRequestRetryTimer) {
+                    clearInterval(this.shaderRequestRetryTimer);
+                }
+
+                // Send initial request immediately
+                console.log('[LiveViewer] Requesting shader from editor...');
+                this.channel.postMessage({
+                    type: 'request_shader',
+                    timestamp: Date.now()
+                });
+
+                // Set up retry timer - request every 2 seconds until shader is received
+                this.shaderRequestRetryCount = 0;
+                this.shaderRequestRetryTimer = setInterval(() => {
+                    if (this.hasReceivedShader) {
+                        clearInterval(this.shaderRequestRetryTimer);
+                        this.shaderRequestRetryTimer = null;
+                        return;
+                    }
+
+                    this.shaderRequestRetryCount++;
+                    console.log(`[LiveViewer] Retrying shader request (attempt ${this.shaderRequestRetryCount})...`);
+
+                    this.channel.postMessage({
+                        type: 'request_shader',
+                        timestamp: Date.now()
+                    });
+
+                    // Update status to show we're still waiting
+                    if (this.shaderRequestRetryCount > 2) {
+                        document.getElementById('info').innerHTML =
+                            'Still waiting for shader from editor...<br>' +
+                            'Make sure the editor is open and click "Open External Viewer"';
+                    }
+                }, 2000);
             }
 
             initializeFragmentNodes(fragmentNodes) {
@@ -781,10 +836,7 @@
 
                     // Create/get compute pipeline
                     if (!pipelineData.pipeline) {
-                        // Count valid (non-null) inputs for bind group layout
-                        const validInputs = nodeData.inputs ? nodeData.inputs.filter(inp => inp !== null).length : 0;
-
-                        // Parse shader to determine bind group layout
+                        // Parse shader to determine bind group layout based on actual WGSL bindings
                         const bindGroupLayout = this.createComputeBindGroupLayout(nodeData);
 
                         const pipelineLayout = this.device.createPipelineLayout({
@@ -800,10 +852,14 @@
                         });
 
                         pipelineData.bindGroupLayout = bindGroupLayout;
-                        pipelineData.validInputs = validInputs; // Store for consistency
 
-                        const expectedBindings = validInputs === 0 ? 2 : (validInputs === 1 ? 4 : 5);
-                        console.log(`[LiveViewer] Created compute pipeline for node ${nodeId}, validInputs: ${validInputs}, layout expects ${expectedBindings} bindings`);
+                        // Determine validInputs from WGSL instead of node.inputs
+                        const hasBinding2 = /@binding\(2\)/.test(nodeData.wgslCode);
+                        const hasBinding4 = /@binding\(4\)/.test(nodeData.wgslCode);
+                        const validInputs = hasBinding4 ? 2 : (hasBinding2 ? 1 : 0);
+                        pipelineData.validInputs = validInputs;
+
+                        console.log(`[LiveViewer] Created compute pipeline for node ${nodeId}, WGSL-detected inputs: ${validInputs}`);
                     }
 
                     // Update uniform buffer
@@ -821,11 +877,12 @@
                         // We need to match the WGSL uniform struct order exactly
 
                         if (nodeData.kind === 'ComputeNoise') {
-                            // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, padding(vec2)
+                            // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, colorize, _padding
                             uniformData[3] = params.scale !== undefined ? params.scale : 8.0;
                             uniformData[4] = params.octaves !== undefined ? params.octaves : 5.0;
                             uniformData[5] = params.speed !== undefined ? params.speed : 0.1;
-                            // padding at [6-7] (default zeros)
+                            uniformData[6] = params.colorize !== undefined ? (params.colorize ? 1.0 : 0.0) : 1.0;
+                            // padding at [7] (default zero)
                         } else if (nodeData.kind === 'ComputeMix') {
                             // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
                             // NOTE: 'mode' is baked into the shader at compile time, not in uniforms
@@ -861,12 +918,49 @@
                     // Helper function to get input texture/sampler or create fallback
                     const getInputResources = (inputIndex) => {
                         if (!nodeData.inputs || inputIndex >= nodeData.inputs.length) {
-                            return null;
+                            // WGSL has bindings but node.inputs is empty/short
+                            // Create black fallback texture
+                            console.log(`[LiveViewer] Node ${nodeId}: WGSL expects input ${inputIndex} but node.inputs is empty/short`);
+                            const fallbackTexture = this.device.createTexture({
+                                size: [resolution[0], resolution[1], 1],
+                                format: 'rgba8unorm',
+                                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                            });
+                            const black = new Uint8Array(resolution[0] * resolution[1] * 4).fill(0);
+                            this.device.queue.writeTexture(
+                                { texture: fallbackTexture },
+                                black,
+                                { bytesPerRow: resolution[0] * 4 },
+                                [resolution[0], resolution[1]]
+                            );
+                            return {
+                                texture: fallbackTexture.createView(),
+                                sampler: null,
+                                isValid: false
+                            };
                         }
 
                         const inputNodeId = nodeData.inputs[inputIndex];
-                        if (inputNodeId === null) {
-                            return null;
+                        if (inputNodeId === null || inputNodeId === undefined) {
+                            // Input slot exists but is null/undefined
+                            console.log(`[LiveViewer] Node ${nodeId}: input ${inputIndex} is null/undefined`);
+                            const fallbackTexture = this.device.createTexture({
+                                size: [resolution[0], resolution[1], 1],
+                                format: 'rgba8unorm',
+                                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                            });
+                            const black = new Uint8Array(resolution[0] * resolution[1] * 4).fill(0);
+                            this.device.queue.writeTexture(
+                                { texture: fallbackTexture },
+                                black,
+                                { bytesPerRow: resolution[0] * 4 },
+                                [resolution[0], resolution[1]]
+                            );
+                            return {
+                                texture: fallbackTexture.createView(),
+                                sampler: null,
+                                isValid: false
+                            };
                         }
 
                         // Try to get from compute outputs first
@@ -1004,11 +1098,14 @@
                     }
                 ];
 
-                // Count valid (non-null) inputs
-                const validInputs = nodeData.inputs ? nodeData.inputs.filter(inp => inp !== null).length : 0;
+                // CRITICAL: Parse WGSL to detect actual input bindings in the shader
+                // Don't rely on node.inputs array as it might not match the compiled shader
+                const hasBinding2 = /@binding\(2\)/.test(nodeData.wgslCode);
+                const hasBinding3 = /@binding\(3\)/.test(nodeData.wgslCode);
+                const hasBinding4 = /@binding\(4\)/.test(nodeData.wgslCode);
 
-                if (validInputs > 0) {
-                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITH ${validInputs} input(s) (inputs: ${JSON.stringify(nodeData.inputs)})`);
+                if (hasBinding2) {
+                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has @binding(2), adding to layout`);
 
                     // binding 2: input texture A
                     entries.push({
@@ -1017,15 +1114,17 @@
                         texture: { sampleType: 'float' }
                     });
 
-                    // binding 3: shared sampler
-                    entries.push({
-                        binding: 3,
-                        visibility: GPUShaderStage.COMPUTE,
-                        sampler: { type: 'filtering' }
-                    });
+                    if (hasBinding3) {
+                        // binding 3: shared sampler
+                        entries.push({
+                            binding: 3,
+                            visibility: GPUShaderStage.COMPUTE,
+                            sampler: { type: 'filtering' }
+                        });
+                    }
 
-                    // binding 4: input texture B (for nodes with 2 inputs like ComputeMix)
-                    if (validInputs >= 2) {
+                    if (hasBinding4) {
+                        // binding 4: input texture B (for nodes with 2 inputs like ComputeMix)
                         entries.push({
                             binding: 4,
                             visibility: GPUShaderStage.COMPUTE,
@@ -1033,7 +1132,7 @@
                         });
                     }
                 } else {
-                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITHOUT input bindings (inputs: ${JSON.stringify(nodeData.inputs)})`);
+                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has no input bindings`);
                 }
 
                 console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
@@ -1304,6 +1403,10 @@
             createBindGroups(bindings, layouts) {
                 const { groups } = bindings;
 
+                // Store bindings and layouts for recreation
+                this.currentBindings = bindings;
+                this.currentLayouts = layouts;
+
                 for (const groupIndex in groups) {
                     const groupBindings = groups[groupIndex];
                     const entries = [];
@@ -1357,16 +1460,6 @@
 
                     if (entries.length > 0) {
                         try {
-                            // Debug: Log each entry before creating bind group
-                            console.log(`[LiveViewer] Creating bind group ${groupIndex} with ${entries.length} entries:`);
-                            entries.forEach((entry, idx) => {
-                                const resourceType = entry.resource.buffer ? 'buffer' :
-                                                   entry.resource.sampler ? 'sampler' :
-                                                   entry.resource.textureView ? 'textureView' :
-                                                   entry.resource.texture ? 'texture' : 'UNKNOWN';
-                                console.log(`  [${idx}] binding=${entry.binding}, type=${resourceType}`, entry.resource);
-                            });
-
                             const bindGroup = this.device.createBindGroup({
                                 layout: layouts[groupIndex],
                                 entries
@@ -1385,6 +1478,15 @@
                         }
                     }
                 }
+            }
+
+            recreateBindGroups() {
+                // Recreate bind groups to capture fresh compute output textures
+                if (!this.currentBindings || !this.currentLayouts) {
+                    return;
+                }
+
+                this.createBindGroups(this.currentBindings, this.currentLayouts);
             }
 
             createResource(kind, varName) {
@@ -1416,28 +1518,50 @@
                     // Check if this is a compute node sampler
                     // Variable names are like: sampler_compute_node_27
                     // We need to extract just the node ID (27)
-                    const sanitizedName = varName.replace(/^(sampler_|samplerCube_)/, '');
+                    let nodeId = varName;
 
-                    // Try to find matching compute output
-                    // Check both the full name and just the numeric ID
-                    let computeOutput = this.computeOutputs.get(sanitizedName);
+                    // Remove common sampler prefixes
+                    nodeId = nodeId.replace(/^sampler_/, '');
+                    nodeId = nodeId.replace(/^samplerCube_/, '');
 
-                    // If not found, try all keys to find a match
+                    // If it's a compute node sampler, extract the ID
+                    if (nodeId.startsWith('compute_node_')) {
+                        nodeId = nodeId.replace(/^compute_node_/, '');
+                    }
+
+                    // Try to find matching compute output by exact ID match first
+                    let computeOutput = this.computeOutputs.get(nodeId);
+
+                    // If not found, try with "node_" prefix (registry keys might have this prefix)
+                    if (!computeOutput) {
+                        computeOutput = this.computeOutputs.get('node_' + nodeId);
+                        if (computeOutput) {
+                            console.log(`[LiveViewer] Matched sampler ${varName} with node_ prefix: node_${nodeId}`);
+                        }
+                    }
+
+                    // If still not found, try partial matching
                     if (!computeOutput) {
                         for (const [key, value] of this.computeOutputs) {
-                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                            // Try matching with the stripped nodeId or with node_ prefix
+                            if (nodeId === key ||
+                                `node_${nodeId}` === key ||
+                                varName.includes(key) ||
+                                key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched sampler ${varName} -> ${key}`);
+                                console.log(`[LiveViewer] Matched sampler ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.sampler) {
+                        console.log(`[LiveViewer] Using compute sampler for ${varName} (nodeId: ${nodeId})`);
                         return { sampler: computeOutput.sampler };
                     }
 
                     // Default sampler
+                    console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute output found)`);
                     const sampler = this.device.createSampler({
                         magFilter: 'linear',
                         minFilter: 'linear'
@@ -1446,32 +1570,53 @@
 
                 } else if (kind === 'texture-2d' || kind === 'texture-cube') {
                     // Check if this is a compute node output texture
-                    // Variable names are like: texture_compute_node_27
+                    // Variable names are like: compute_node_27 (NOT texture_compute_node_27)
                     // We need to extract just the node ID (27)
-                    const sanitizedName = varName.replace(/^(texture_|textureCube_)/, '');
+                    let nodeId = varName;
 
-                    // Try to find matching compute output
-                    // Check both the full name and just the numeric ID
-                    let computeOutput = this.computeOutputs.get(sanitizedName);
+                    // Remove common texture prefixes (though they usually don't exist for compute nodes)
+                    nodeId = nodeId.replace(/^texture_/, '');
+                    nodeId = nodeId.replace(/^textureCube_/, '');
 
-                    // If not found, try all keys to find a match
+                    // If it's a compute node texture, extract the ID
+                    if (nodeId.startsWith('compute_node_')) {
+                        nodeId = nodeId.replace(/^compute_node_/, '');
+                    }
+
+                    // Try to find matching compute output by exact ID match first
+                    let computeOutput = this.computeOutputs.get(nodeId);
+
+                    // If not found, try with "node_" prefix (registry keys might have this prefix)
+                    if (!computeOutput) {
+                        computeOutput = this.computeOutputs.get('node_' + nodeId);
+                        if (computeOutput) {
+                            console.log(`[LiveViewer] Matched texture ${varName} with node_ prefix: node_${nodeId}`);
+                        }
+                    }
+
+                    // If still not found, try partial matching
                     if (!computeOutput) {
                         for (const [key, value] of this.computeOutputs) {
-                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                            // Try matching with the stripped nodeId or with node_ prefix
+                            if (nodeId === key ||
+                                `node_${nodeId}` === key ||
+                                varName.includes(key) ||
+                                key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched texture ${varName} -> ${key}`);
+                                console.log(`[LiveViewer] Matched texture ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.texture) {
-                        console.log(`[LiveViewer] Using compute output texture for ${sanitizedName}`);
+                        console.log(`[LiveViewer] Using compute output texture for ${varName} (nodeId: ${nodeId})`);
                         return { textureView: computeOutput.texture.createView() };
                     }
 
                     // Create dummy texture as fallback
-                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (no compute output found)`);
+                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute output found)`);
+                    console.log(`[LiveViewer] Available compute outputs:`, Array.from(this.computeOutputs.keys()));
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
@@ -1531,6 +1676,10 @@
                     // Execute compute nodes BEFORE rendering final fragment shader
                     if (this.computeNodes.length > 0) {
                         this.executeComputeNodes(time);
+
+                        // CRITICAL: Recreate bind groups after compute execution
+                        // to capture the fresh compute output textures
+                        this.recreateBindGroups();
                     }
 
                     // Update uniforms

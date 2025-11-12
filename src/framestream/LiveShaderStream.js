@@ -51,7 +51,13 @@ export class LiveShaderStream {
         this.channel.onmessage = (event) => {
             const data = event.data;
             if (data.type === 'request_shader') {
-                this.sendCurrentState();
+                // If no shader is available yet, trigger a rebuild
+                if (!this.currentShader && window.rebuild && typeof window.rebuild === 'function') {
+                    console.log('[LiveShaderStream] Shader requested but not available - triggering rebuild');
+                    window.rebuild();
+                } else {
+                    this.sendCurrentState();
+                }
             }
         };
 
@@ -102,12 +108,16 @@ export class LiveShaderStream {
      */
     sendShaderUpdate(shaderCode, uniformValues = {}, resolution = null) {
         if (!this.isStreaming || !this.channel) {
+            console.log('[LiveShaderStream] Not sending update: isStreaming=', this.isStreaming, 'hasChannel=', !!this.channel);
             return;
         }
 
         if (!shaderCode || shaderCode.length === 0) {
+            console.log('[LiveShaderStream] Not sending update: empty shader code');
             return;
         }
+
+        console.log('[LiveShaderStream] Sending shader update, registry size:', window.computeNodeRegistry?.size || 0);
 
         this.currentShader = shaderCode;
         this.currentUniforms = uniformValues;
@@ -117,6 +127,7 @@ export class LiveShaderStream {
 
         // Serialize compute nodes from the registry
         const computeNodes = this._serializeComputeNodes();
+        console.log('[LiveShaderStream] Serialized compute nodes:', computeNodes.length);
 
         // Serialize fragment nodes that are inputs to compute nodes
         const fragmentNodes = this._serializeFragmentNodes(computeNodes);
@@ -150,6 +161,9 @@ export class LiveShaderStream {
         for (const [nodeId, nodeData] of window.computeNodeRegistry) {
             const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
+            // Extract actual input connections from the graph
+            const inputs = this._extractComputeNodeInputs(node);
+
             // Serialize node data for viewer
             nodes.push({
                 nodeId: nodeId,
@@ -158,11 +172,65 @@ export class LiveShaderStream {
                 resolution: resolution,
                 supportsFeedback: supportsFeedback,
                 params: node.params || {},
-                inputs: node.inputs || []
+                inputs: inputs
             });
         }
 
         return nodes;
+    }
+
+    /**
+     * Extract input node IDs connected to a compute node
+     * @param {Object} node - The compute node
+     * @returns {Array} Array of input node IDs (or null for empty slots)
+     */
+    _extractComputeNodeInputs(node) {
+        if (!window.graph || !window.graph.nodes || !node) {
+            console.log('[LiveShaderStream] Cannot extract inputs: missing graph or node');
+            return [];
+        }
+
+        const inputs = [];
+
+        // Find the node in the graph
+        const graphNode = window.graph.nodes.find(n => n && n.id === node.id);
+        if (!graphNode) {
+            console.log('[LiveShaderStream] Node not found in graph:', node.id);
+            return [];
+        }
+
+        console.log('[LiveShaderStream] Extracting inputs for node', node.id, 'inputs:', graphNode.inputs);
+
+        // Check input slots (typically 0 and 1 for nodes with inputs)
+        for (let i = 0; i < 2; i++) {
+            const inputSlot = graphNode.inputs?.[i];
+
+            // Handle loaded file format: inputs[i] is directly a node ID string
+            if (typeof inputSlot === 'string' || typeof inputSlot === 'number') {
+                const cleanId = String(inputSlot).replace(/[^a-zA-Z0-9_]/g, "_");
+                console.log(`[LiveShaderStream]   Input ${i}: loaded format, nodeId="${cleanId}"`);
+                inputs.push(cleanId);
+            }
+            // Handle live LiteGraph format: inputs[i] has .connections[]
+            else if (inputSlot && inputSlot.connections && inputSlot.connections.length > 0) {
+                // Get the first connection (nodes typically have 1 connection per input)
+                const connection = inputSlot.connections[0];
+                if (connection && connection.node) {
+                    // Store the source node ID
+                    const cleanId = String(connection.node).replace(/[^a-zA-Z0-9_]/g, "_");
+                    console.log(`[LiveShaderStream]   Input ${i}: live format, nodeId="${cleanId}"`);
+                    inputs.push(cleanId);
+                } else {
+                    console.log(`[LiveShaderStream]   Input ${i}: live format, but connection invalid`);
+                    inputs.push(null);
+                }
+            } else {
+                console.log(`[LiveShaderStream]   Input ${i}: null/empty`);
+                inputs.push(null);
+            }
+        }
+
+        return inputs;
     }
 
     /**
