@@ -78,16 +78,27 @@ export function buildWGSL(graph, options = {}) {
     ? compiler.compilers.utility.getHelperFunctions()
     : '';
 
-  const textureBindings = TextureBindings.generate(graph);
+  // CRITICAL: Only generate bindings for nodes in the dependency chain
+  // This prevents exceeding the 16-texture-per-stage limit when there are many unused nodes
+  const textureBindings = TextureBindings.generate(graph, orderedNodes);
 
   // Add compute shader texture bindings if compute nodes exist
-  // Generate bindings from registry BEFORE executor initialization
+  // CRITICAL: Only add bindings for compute nodes in the dependency chain (orderedNodes)
+  // to avoid exceeding WebGPU's 16-texture-per-stage limit
   let computeBindings = '';
   if (window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+    // Create a Set of node IDs in the dependency chain for fast lookup
+    const orderedNodeIds = new Set(orderedNodes.map(n => n.id));
+
     computeBindings = '\n// Compute Shader Texture Bindings\n';
     let bindingIndex = 100;
 
     for (const [nodeId, nodeData] of window.computeNodeRegistry) {
+      // Only add bindings for compute nodes that are in the dependency chain
+      if (!orderedNodeIds.has(nodeId)) {
+        continue; // Skip nodes not in the output chain
+      }
+
       const sanitizedId = nodeId.replace(/[^a-zA-Z0-9_]/g, "_");
       const textureName = `compute_${sanitizedId}`;
       const samplerName = `sampler_compute_${sanitizedId}`;

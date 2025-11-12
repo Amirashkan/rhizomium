@@ -2,18 +2,30 @@
 export class TextureBindings {
   /**
    * Generate texture binding code for WGSL
-   * @param {Object} graph
+   * @param {Object} graph - The node graph (or can be an array of nodes for filtered generation)
+   * @param {Array} usedNodes - Optional: array of nodes to include (if provided, only these nodes get bindings)
    * @returns {string} Texture binding declarations
    */
-  static generate(graph) {
+  static generate(graph, usedNodes = null) {
     let bindingCode = "";
     let bindingIndex = 3; // 0:u, 1:g, 2:ParamUniforms (if present)
 
-    if (!graph.nodes) {
+    // If usedNodes is provided, use that; otherwise use all graph nodes
+    const nodesToProcess = usedNodes || (graph.nodes || []);
+
+    if (nodesToProcess.length === 0) {
       return bindingCode;
     }
 
-    for (const node of graph.nodes) {
+    // Create a Set of used node IDs for fast lookup
+    const usedNodeIds = usedNodes ? new Set(usedNodes.map(n => n.id)) : null;
+
+    for (const node of nodesToProcess) {
+      // Skip this node if we have a filter and it's not in the used nodes
+      if (usedNodeIds && !usedNodeIds.has(node.id)) {
+        continue;
+      }
+
       if (node.kind === "Texture2D") {
         const nodeId = this.sanitize(node.id);
 
@@ -28,7 +40,8 @@ export class TextureBindings {
 @group(0) @binding(${bindingIndex + 1}) var samplerCube_${nodeId}: sampler;`;
         bindingIndex += 2;
       } else if (node.kind && node.kind.startsWith('Compute')) {
-        // Compute nodes used in fragment shaders need texture bindings
+        // CRITICAL: Only add compute bindings for nodes actually in the dependency chain
+        // This prevents exceeding the 16-texture-per-stage limit with many unused compute nodes
         let nodeId = this.sanitize(node.id);
         // Remove node_ prefix if present (consistent with ComputeNodes.js)
         if (nodeId.startsWith('node_')) {
