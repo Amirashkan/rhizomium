@@ -647,6 +647,9 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
+
+          // CRITICAL: Mark node as dispatched so downstream nodes know to update
+          this.dispatchedThisFrame.add(nodeId);
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
       } catch (error) {
