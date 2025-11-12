@@ -853,8 +853,11 @@
                         nodeId,
                         defaultParams: params,
                         liveParams,
+                        'liveParams.colorize': liveParams.colorize,
+                        'typeof colorize': typeof liveParams.colorize,
+                        'colorize truthy?': !!liveParams.colorize,
                         uniformKeys: this.uniformKeys,
-                        uniformValuesArray: this.uniformValuesArray.slice(0, 5)
+                        uniformValuesArray: this.uniformValuesArray
                     });
                 }
                 this._computeNoiseDebugCount = (this._computeNoiseDebugCount || 0) + 1;
