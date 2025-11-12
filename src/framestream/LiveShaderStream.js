@@ -195,7 +195,13 @@ export class LiveShaderStream {
         // Check input slots (typically 0 and 1 for nodes with inputs)
         for (let i = 0; i < 2; i++) {
             const inputSlot = graphNode.inputs?.[i];
-            if (inputSlot && inputSlot.connections && inputSlot.connections.length > 0) {
+
+            // Handle loaded file format: inputs[i] is directly a node ID string
+            if (typeof inputSlot === 'string' || typeof inputSlot === 'number') {
+                inputs.push(String(inputSlot).replace(/[^a-zA-Z0-9_]/g, "_"));
+            }
+            // Handle live LiteGraph format: inputs[i] has .connections[]
+            else if (inputSlot && inputSlot.connections && inputSlot.connections.length > 0) {
                 // Get the first connection (nodes typically have 1 connection per input)
                 const connection = inputSlot.connections[0];
                 if (connection && connection.node) {
