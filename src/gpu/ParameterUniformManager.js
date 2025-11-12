@@ -36,9 +36,14 @@ analyzeNode(node) {
 
     node.params[paramName] = value; // write back normalized value
 
-    // Check if this parameter is MIDI-controlled (needs GPU uniform)
+    // Check if this parameter needs a GPU uniform:
+    // 1. MIDI-controlled parameters always need uniforms
+    // 2. Compute node parameters need uniforms for external viewer streaming
     const midiBinding = window.editor?.midiBinding;
-    if (midiBinding && midiBinding.shouldUseUniform(node.id, paramName)) {
+    const isMidiControlled = midiBinding && midiBinding.shouldUseUniform(node.id, paramName);
+    const isComputeNode = node.kind && node.kind.startsWith('Compute');
+
+    if (isMidiControlled || isComputeNode) {
       const paramKey = `${node.id}.${paramName}`;
       const numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
       this.uniformValues.set(paramKey, numericValue);
