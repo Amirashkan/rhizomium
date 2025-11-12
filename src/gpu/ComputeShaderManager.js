@@ -28,6 +28,12 @@ export class ComputeShaderManager {
     this.inputSampler = null;
     this.warpFieldTexture = null; // For ComputeWarp's second input
 
+    // Track previous texture references to avoid unnecessary bind group recreation
+    this._previousInputTexture = null;
+    this._previousWarpFieldTexture = null;
+    this._previousWriteTexture = null;
+    this._bindGroupNeedsUpdate = false;
+
     // Uniform buffers
     this.uniformBuffer = null;
     this.uniformData = new Float32Array(16); // Expanded to support more parameters [resolution.x, resolution.y, time, param1-12, pad0]
@@ -811,6 +817,8 @@ export class ComputeShaderManager {
    */
   setInputTexture(texture) {
     this.inputTexture = texture;
+    // Mark that bind group needs recreation if texture reference changed
+    this._bindGroupNeedsUpdate = (texture !== this._previousInputTexture);
   }
 
   /**
@@ -818,6 +826,8 @@ export class ComputeShaderManager {
    */
   setWarpFieldTexture(texture) {
     this.warpFieldTexture = texture;
+    // Mark that bind group needs recreation if texture reference changed
+    this._bindGroupNeedsUpdate = (texture !== this._previousWarpFieldTexture);
   }
 
   /**
@@ -845,9 +855,18 @@ export class ComputeShaderManager {
     // Update uniforms (includes audio envelope values for expression evaluation)
     this.updateUniforms(time, audioContext);
 
-    // For feedback or input nodes, recreate bind group to use updated textures
-    if (this.supportsFeedback || this.needsInput) {
+    // OPTIMIZATION: Only recreate bind group when textures actually change
+    // Check if we need to recreate bind group (feedback swap or input texture change)
+    const currentWriteTexture = this.currentWriteTexture;
+    const needsRecreate = this.supportsFeedback && (currentWriteTexture !== this._previousWriteTexture) ||
+                         (this.needsInput && this._bindGroupNeedsUpdate);
+
+    if (needsRecreate) {
       this.recreateBindGroup();
+      this._previousInputTexture = this.inputTexture;
+      this._previousWarpFieldTexture = this.warpFieldTexture;
+      this._previousWriteTexture = currentWriteTexture;
+      this._bindGroupNeedsUpdate = false;
     }
 
     // Begin profiling

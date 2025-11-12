@@ -584,13 +584,19 @@ export class ComputeExecutor {
         // when those referenced values might have changed
         const hasNodeRefParams = this.hasNodeReferenceParameters(node);
 
-        // Check if node has compute node inputs
-        // This ensures compute nodes re-dispatch when their compute inputs update
-        // Fixes issue where time-dependent upstream compute nodes don't trigger downstream updates
-        const hasComputeInput = node?.inputs && Array.isArray(node.inputs) &&
-          node.inputs.some(inputId => inputId !== null && inputId !== undefined && this.computeManagers.has(inputId));
+        // Check if node has compute inputs that were DISPATCHED this frame
+        // CRITICAL FIX: Only re-dispatch if upstream compute nodes actually ran this frame
+        // This prevents cascading updates when upstream nodes are static, but allows
+        // propagation when upstream nodes update (even if texture reference stays same)
+        const hasUpdatedComputeInput = node?.inputs && Array.isArray(node.inputs) &&
+          node.inputs.some(inputId => {
+            if (inputId === null || inputId === undefined) return false;
+            if (!this.computeManagers.has(inputId)) return false;
+            // Check if this compute input was dispatched this frame
+            return this.dispatchedThisFrame.has(inputId);
+          });
 
-        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasComputeInput) {
+        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasUpdatedComputeInput) {
           // OPTIMIZATION: Only set input textures when we're actually dispatching
           // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
           if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
@@ -641,6 +647,9 @@ export class ComputeExecutor {
 
           // Update output dictionary after successful dispatch
           this.updateNodeOutput(nodeId, manager);
+
+          // CRITICAL: Mark node as dispatched so downstream nodes know to update
+          this.dispatchedThisFrame.add(nodeId);
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
       } catch (error) {
