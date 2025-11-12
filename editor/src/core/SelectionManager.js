@@ -164,20 +164,27 @@ export class SelectionManager {
         if (this.onChange) this.onChange();
       }
 
+      // PERFORMANCE: Cache node references instead of storing just IDs
+      // This avoids O(n) lookups on every mousemove event
+      const nodes = [];
       const orig = {};
       for (const id of dragIds) {
         const n = this.graph.nodes.find((m) => m.id === id);
-        if (n) orig[id] = { x: n.x, y: n.y };
+        if (n) {
+          nodes.push(n);
+          orig[id] = { x: n.x, y: n.y };
+        }
       }
 
       this.dragging = {
         ids: dragIds,
+        nodes, // Cache node references for fast access
         start: { x: startX, y: startY },
         orig,
         hasMoved: false // Track if any movement has occurred
       };
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'drag-start',
         nodeId,
         position: { x: startX, y: startY }
@@ -197,11 +204,10 @@ export class SelectionManager {
         this.dragging.hasMoved = true;
       }
 
-      for (const id of this.dragging.ids) {
-        const n = this.graph.nodes.find((m) => m.id === id);
-        if (!n) continue;
-
-        const o = this.dragging.orig[id];
+      // PERFORMANCE: Use cached node references instead of repeated find() calls
+      // This eliminates O(n) lookups on every mousemove event
+      for (const n of this.dragging.nodes) {
+        const o = this.dragging.orig[n.id];
         if (!o) continue;
 
         const baseX = Number.isFinite(o.x) ? o.x : 0;
@@ -212,7 +218,7 @@ export class SelectionManager {
         n.y = snapped.y;
       }
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'drag-update',
         position: { x: currentX, y: currentY }
       });
@@ -228,23 +234,21 @@ endDrag() {
     // Only record for undo if there was actual movement
     if (this.dragging.hasMoved && this.undoManager) {
       const nodeMovements = []; // Array format expected by UndoManager
-      
-      for (const id of this.dragging.ids) {
-        const node = this.graph.nodes.find(m => m.id === id);
-        if (node) {
-          const originalPos = this.dragging.orig[id];
-          const currentPos = { x: node.x, y: node.y };
-          
-          // Only record if position actually changed
-          if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
-            nodeMovements.push({
-              nodeId: id,
-              oldX: originalPos.x,
-              oldY: originalPos.y,
-              newX: currentPos.x,
-              newY: currentPos.y
-            });
-          }
+
+      // PERFORMANCE: Use cached node references instead of repeated find() calls
+      for (const node of this.dragging.nodes) {
+        const originalPos = this.dragging.orig[node.id];
+        const currentPos = { x: node.x, y: node.y };
+
+        // Only record if position actually changed
+        if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
+          nodeMovements.push({
+            nodeId: node.id,
+            oldX: originalPos.x,
+            oldY: originalPos.y,
+            newX: currentPos.x,
+            newY: currentPos.y
+          });
         }
       }
 
@@ -257,8 +261,8 @@ endDrag() {
 
     this.dragging = null;
   } catch (error) {
-    window.errorHandler?.handleError(error, { 
-      component: 'drag-end' 
+    window.errorHandler?.handleError(error, {
+      component: 'drag-end'
     });
     // Reset dragging state even if error occurs
     this.dragging = null;

@@ -117,15 +117,44 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
+    // PERFORMANCE: Calculate viewport bounds for connection culling
+    const scale = this.viewport.scale;
+    const offsetX = this.viewport.offsetX;
+    const offsetY = this.viewport.offsetY;
+    const viewLeft = -offsetX / scale;
+    const viewTop = -offsetY / scale;
+    const viewRight = (ctx.canvas.width - offsetX) / scale;
+    const viewBottom = (ctx.canvas.height - offsetY) / scale;
+    const margin = 100; // Larger margin for bezier curve bounds
+
+    let culled = 0;
+    let rendered = 0;
+
     for (const c of connections) {
       // PERFORMANCE: O(1) Map lookup instead of O(n) linear search
       const fromNode = nodeMap.get(c.from.nodeId);
       const toNode = nodeMap.get(c.to.nodeId);
       if (!fromNode || !toNode) continue;
 
+      // PERFORMANCE: Cull connections where both nodes are outside viewport
+      const minX = Math.min(fromNode.x, toNode.x);
+      const maxX = Math.max(fromNode.x + fromNode.w, toNode.x + toNode.w);
+      const minY = Math.min(fromNode.y, toNode.y);
+      const maxY = Math.max(fromNode.y + fromNode.h, toNode.y + toNode.h);
+
+      if (maxX + margin < viewLeft ||
+          minX - margin > viewRight ||
+          maxY + margin < viewTop ||
+          minY - margin > viewBottom) {
+        culled++;
+        continue;
+      }
+
       const fromPos = this._getOutputPinPosition(fromNode, c.from.pin);
       const toPos = this._getInputPinPosition(toNode, c.to.pin);
       if (!fromPos || !toPos) continue;
+
+      rendered++;
 
       // Get wire color based on output type
       const srcType =
@@ -134,6 +163,10 @@ export class Renderer {
 
       ctx.strokeStyle = color;
       this._drawBezierCurve(fromPos.x, fromPos.y, toPos.x, toPos.y);
+    }
+
+    if (culled > 0) {
+      console.debug(`Connection culling: rendered ${rendered}/${connections.length} wires (culled ${culled})`);
     }
   }
 
@@ -156,8 +189,46 @@ export class Renderer {
   }
 
   _renderNodes(nodes, selection) {
+    // PERFORMANCE: Viewport culling - only render nodes that are visible
+    // Calculate visible bounds in canvas coordinates
+    const ctx = this.ctx;
+    const scale = this.viewport.scale;
+    const offsetX = this.viewport.offsetX;
+    const offsetY = this.viewport.offsetY;
+
+    // Calculate viewport bounds in canvas coordinates
+    const viewLeft = -offsetX / scale;
+    const viewTop = -offsetY / scale;
+    const viewRight = (ctx.canvas.width - offsetX) / scale;
+    const viewBottom = (ctx.canvas.height - offsetY) / scale;
+
+    // Add margin for partially visible nodes
+    const margin = 50;
+
+    let culled = 0;
+    let rendered = 0;
+
     for (const node of nodes) {
+      // Check if node is within visible viewport
+      const nodeRight = node.x + node.w;
+      const nodeBottom = node.y + node.h;
+
+      // Skip nodes that are completely outside the viewport
+      if (nodeRight + margin < viewLeft ||
+          node.x - margin > viewRight ||
+          nodeBottom + margin < viewTop ||
+          node.y - margin > viewBottom) {
+        culled++;
+        continue;
+      }
+
+      rendered++;
       this._renderNode(node, selection.has(node.id));
+    }
+
+    // Log culling stats (can be removed in production)
+    if (culled > 0) {
+      console.debug(`Viewport culling: rendered ${rendered}/${nodes.length} nodes (culled ${culled})`);
     }
   }
 
