@@ -156,6 +156,9 @@ export class LiveShaderStream {
         for (const [nodeId, nodeData] of window.computeNodeRegistry) {
             const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
+            // Extract actual input connections from the graph
+            const inputs = this._extractComputeNodeInputs(node);
+
             // Serialize node data for viewer
             nodes.push({
                 nodeId: nodeId,
@@ -164,11 +167,49 @@ export class LiveShaderStream {
                 resolution: resolution,
                 supportsFeedback: supportsFeedback,
                 params: node.params || {},
-                inputs: node.inputs || []
+                inputs: inputs
             });
         }
 
         return nodes;
+    }
+
+    /**
+     * Extract input node IDs connected to a compute node
+     * @param {Object} node - The compute node
+     * @returns {Array} Array of input node IDs (or null for empty slots)
+     */
+    _extractComputeNodeInputs(node) {
+        if (!window.graph || !window.graph.nodes || !node) {
+            return [];
+        }
+
+        const inputs = [];
+
+        // Find the node in the graph
+        const graphNode = window.graph.nodes.find(n => n && n.id === node.id);
+        if (!graphNode) {
+            return [];
+        }
+
+        // Check input slots (typically 0 and 1 for nodes with inputs)
+        for (let i = 0; i < 2; i++) {
+            const inputSlot = graphNode.inputs?.[i];
+            if (inputSlot && inputSlot.connections && inputSlot.connections.length > 0) {
+                // Get the first connection (nodes typically have 1 connection per input)
+                const connection = inputSlot.connections[0];
+                if (connection && connection.node) {
+                    // Store the source node ID
+                    inputs.push(String(connection.node).replace(/[^a-zA-Z0-9_]/g, "_"));
+                } else {
+                    inputs.push(null);
+                }
+            } else {
+                inputs.push(null);
+            }
+        }
+
+        return inputs;
     }
 
     /**
