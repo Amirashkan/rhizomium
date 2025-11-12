@@ -619,10 +619,11 @@
                         { binding: 1, resource: outputTexture.createView() }
                     ];
 
-                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, inputs[0]: ${nodeData.inputs?.[0]}`);
+                    const hasInputs = nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null;
+                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, inputs[0]: ${nodeData.inputs?.[0]}, hasInputs: ${hasInputs}`);
 
                     // Add input texture if the node has inputs
-                    if (nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null) {
+                    if (hasInputs) {
                         const inputNodeId = nodeData.inputs[0];
                         const inputOutput = this.computeOutputs.get(inputNodeId);
 
@@ -724,8 +725,9 @@
                 ];
 
                 // Add input texture bindings if the node has inputs
-                if (nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null) {
-                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITH input bindings (inputs: ${JSON.stringify(nodeData.inputs)})`);
+                const hasInputs = nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null;
+                if (hasInputs) {
+                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITH input bindings (inputs: ${JSON.stringify(nodeData.inputs)}, inputs[0]: ${nodeData.inputs[0]})`);
                     // binding 2: input texture
                     entries.push({
                         binding: 2,
