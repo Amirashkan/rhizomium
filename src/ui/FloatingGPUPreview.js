@@ -89,16 +89,23 @@ _setupAnimationLoop() {
   };
 }
 
-  updateSize() {
+  async updateSize() {
     if (!this.container || this.isFullscreen) return;
 
     const { width, height } = this.settings.settings.resolution;
     const headerHeight = 37;
     const padding = 20;
 
-    // CRITICAL FIX: Set actual canvas rendering size
-    this.gpuCanvas.width = width;
-    this.gpuCanvas.height = height;
+    // CRITICAL FIX: Use synchronized resize to prevent screen tearing
+    // This waits for GPU operations to complete before resizing the canvas
+    const gpuRenderer = window.gpuRenderer;
+    if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+      await gpuRenderer.resizeCanvasSync(width, height);
+    } else {
+      // Fallback to direct resize if gpuRenderer not available
+      this.gpuCanvas.width = width;
+      this.gpuCanvas.height = height;
+    }
 
     if (this.isDocked) {
       const dockedScale = 0.3;
@@ -107,7 +114,7 @@ _setupAnimationLoop() {
 
       this.container.style.width = dockedWidth + padding + "px";
       this.container.style.height = dockedHeight + headerHeight + padding + "px";
-      
+
       // FIX: Set CSS size to maintain aspect ratio
       this.gpuCanvas.style.width = dockedWidth + "px";
       this.gpuCanvas.style.height = dockedHeight + "px";
@@ -117,7 +124,7 @@ _setupAnimationLoop() {
 
       this.container.style.width = displayWidth + padding + "px";
       this.container.style.height = displayHeight + headerHeight + padding + "px";
-      
+
       // FIX: Set CSS size to maintain aspect ratio
       this.gpuCanvas.style.width = displayWidth + "px";
       this.gpuCanvas.style.height = displayHeight + "px";
@@ -135,7 +142,7 @@ _setupAnimationLoop() {
       window.rebuild();
     }
   }
-show() {
+async show() {
   if (this.isVisible) return;
 
   this.container = this._createContainer();
@@ -153,8 +160,16 @@ show() {
     const { width, height } = this.settings.settings.resolution;
     const scale = this.isDocked ? 0.3 : this.previewScale;
 
-    this.gpuCanvas.width = width;
-    this.gpuCanvas.height = height;
+    // CRITICAL FIX: Use synchronized resize to prevent screen tearing
+    const gpuRenderer = window.gpuRenderer;
+    if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+      await gpuRenderer.resizeCanvasSync(width, height);
+    } else {
+      // Fallback to direct resize if gpuRenderer not available
+      this.gpuCanvas.width = width;
+      this.gpuCanvas.height = height;
+    }
+
     this.gpuCanvas.style.width = (width * scale) + "px";
     this.gpuCanvas.style.height = (height * scale) + "px";
     this.gpuCanvas.style.position = "relative";
@@ -163,7 +178,7 @@ show() {
     this.gpuCanvas.style.left = "auto";
     this.gpuCanvas.style.top = "auto";
 
-    this.updateSize();
+    await this.updateSize();
     this._setupDragging();
 
     if (this.isDocked) {
@@ -223,7 +238,7 @@ show() {
     }
   }
 
-  toggleFullscreen() {
+  async toggleFullscreen() {
     if (!this.isVisible || this.isDocked) return;
 
     this.isFullscreen = !this.isFullscreen;
@@ -260,8 +275,16 @@ show() {
         fsHeight = fsWidth / aspectRatio;
       }
 
-      this.gpuCanvas.width = width;
-      this.gpuCanvas.height = height;
+      // CRITICAL FIX: Use synchronized resize to prevent screen tearing
+      const gpuRenderer = window.gpuRenderer;
+      if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+        await gpuRenderer.resizeCanvasSync(width, height);
+      } else {
+        // Fallback to direct resize if gpuRenderer not available
+        this.gpuCanvas.width = width;
+        this.gpuCanvas.height = height;
+      }
+
       this.gpuCanvas.style.width = fsWidth + "px";
       this.gpuCanvas.style.height = fsHeight + "px";
 
@@ -272,8 +295,20 @@ show() {
       // Restore original container and canvas styles
       if (this.originalFullscreenStyles) {
         this.container.style.cssText = this.originalFullscreenStyles.cssText;
-        this.gpuCanvas.width = this.originalFullscreenStyles.canvasWidth;
-        this.gpuCanvas.height = this.originalFullscreenStyles.canvasHeight;
+
+        // CRITICAL FIX: Use synchronized resize to prevent screen tearing
+        const gpuRenderer = window.gpuRenderer;
+        if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+          await gpuRenderer.resizeCanvasSync(
+            this.originalFullscreenStyles.canvasWidth,
+            this.originalFullscreenStyles.canvasHeight
+          );
+        } else {
+          // Fallback to direct resize if gpuRenderer not available
+          this.gpuCanvas.width = this.originalFullscreenStyles.canvasWidth;
+          this.gpuCanvas.height = this.originalFullscreenStyles.canvasHeight;
+        }
+
         this.gpuCanvas.style.width = this.originalFullscreenStyles.canvasStyleWidth;
         this.gpuCanvas.style.height = this.originalFullscreenStyles.canvasStyleHeight;
 
@@ -284,7 +319,7 @@ show() {
       }
 
       btn.textContent = "Fullscreen";
-      this.updateSize();
+      await this.updateSize();
     }
 
     if (window.rebuild) {

@@ -128,6 +128,37 @@ export class GPURenderer {
     }
   }
 
+  // Synchronized canvas resize - waits for GPU to finish before resizing
+  // This prevents screen tearing and visual glitches during resize operations
+  async resizeCanvasSync(width, height) {
+    const targetWidth = Math.max(1, Math.floor(width));
+    const targetHeight = Math.max(1, Math.floor(height));
+
+    if (this.canvas.width === targetWidth && this.canvas.height === targetHeight) {
+      return; // No resize needed
+    }
+
+    // CRITICAL: Wait for all pending GPU operations to complete
+    // This prevents the canvas from being resized mid-render which causes tearing
+    try {
+      await this.device.queue.onSubmittedWorkDone();
+    } catch (err) {
+      console.warn('[GPURenderer] Failed to wait for GPU sync:', err);
+    }
+
+    // Now it's safe to resize the canvas
+    this.canvas.width = targetWidth;
+    this.canvas.height = targetHeight;
+    this._lastAspectWritten = null; // force aspect ratio recalculation
+
+    // Immediately recreate MSAA texture to match new canvas size
+    // This prevents size mismatch errors on the next render
+    this._createMSAATexture();
+
+    // Update aspect ratio uniform for new size
+    this._updateAspectUniform();
+  }
+
   // Create placeholder texture for optional bindings.
   createDummyTexture() {
     const texture = this.device.createTexture({
