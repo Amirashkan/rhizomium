@@ -642,7 +642,7 @@
                                 resource: inputOutput.sampler
                             });
 
-                            console.log(`[LiveViewer] ✓ Compute node ${nodeId} using input from compute node ${inputNodeId}`);
+                            console.log(`[LiveViewer] ✓ Compute node ${nodeId} using input from compute node ${inputNodeId}, entries now: ${bindGroupEntries.length}`);
                         } else {
                             console.error(`[LiveViewer] ❌ Compute node ${nodeId} expects input from node ${inputNodeId} but it's not available!`);
                             console.error(`[LiveViewer] This is likely a FRAGMENT node input, which is not supported in the external viewer.`);
@@ -678,7 +678,7 @@
                                 resource: fallbackSampler
                             });
 
-                            console.log(`[LiveViewer] Added fallback texture/sampler for node ${nodeId} (bindings 2 & 3)`);
+                            console.log(`[LiveViewer] Added fallback texture/sampler for node ${nodeId} (bindings 2 & 3), entries now: ${bindGroupEntries.length}`);
                         }
                     } else {
                         console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
@@ -707,6 +707,8 @@
 
                 } catch (error) {
                     console.error(`[LiveViewer] Error executing compute node ${nodeId}:`, error);
+                    console.error(`[LiveViewer] Stack trace:`, error.stack);
+                    console.error(`[LiveViewer] Node data:`, nodeData);
                 }
             }
 
