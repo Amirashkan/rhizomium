@@ -788,25 +788,35 @@
 
                     for (const bindingIndex in groupBindings) {
                         const { kind, varName, typeStr } = groupBindings[bindingIndex];
-                        const resource = this.createResource(kind, varName);
+                        const resourceWrapper = this.createResource(kind, varName);
 
-                        if (resource) {
-                            // Validate resource has the expected property
+                        if (resourceWrapper) {
+                            // Unwrap resource for WebGPU bind group API
+                            // Buffers stay wrapped: { buffer: GPUBuffer }
+                            // Samplers and textures must be unwrapped: GPUSampler, GPUTextureView
+                            let resource;
                             let isValid = false;
+
                             if (kind === 'uniform-buffer' || kind === 'storage-buffer') {
-                                isValid = resource.buffer !== undefined;
+                                // Buffer resources stay as { buffer: GPUBuffer }
+                                isValid = resourceWrapper.buffer !== undefined;
+                                resource = resourceWrapper; // Keep wrapped
                                 if (!isValid) {
-                                    console.error(`[LiveViewer] Invalid buffer resource for ${varName}:`, resource);
+                                    console.error(`[LiveViewer] Invalid buffer resource for ${varName}:`, resourceWrapper);
                                 }
                             } else if (kind === 'sampler') {
-                                isValid = resource.sampler !== undefined;
+                                // Sampler resources must be unwrapped
+                                isValid = resourceWrapper.sampler !== undefined;
+                                resource = resourceWrapper.sampler; // Unwrap!
                                 if (!isValid) {
-                                    console.error(`[LiveViewer] Invalid sampler resource for ${varName}:`, resource);
+                                    console.error(`[LiveViewer] Invalid sampler resource for ${varName}:`, resourceWrapper);
                                 }
                             } else if (kind.includes('texture')) {
-                                isValid = resource.textureView !== undefined;
+                                // Texture resources must be unwrapped
+                                isValid = resourceWrapper.textureView !== undefined;
+                                resource = resourceWrapper.textureView; // Unwrap!
                                 if (!isValid) {
-                                    console.error(`[LiveViewer] Invalid texture resource for ${varName}:`, resource);
+                                    console.error(`[LiveViewer] Invalid texture resource for ${varName}:`, resourceWrapper);
                                 }
                             }
 
