@@ -1485,10 +1485,22 @@
                     // Try to find matching compute output by exact ID match first
                     let computeOutput = this.computeOutputs.get(nodeId);
 
-                    // If not found, try partial matching
+                    // If not found, try with "node_" prefix (registry keys might have this prefix)
+                    if (!computeOutput) {
+                        computeOutput = this.computeOutputs.get('node_' + nodeId);
+                        if (computeOutput) {
+                            console.log(`[LiveViewer] Matched sampler ${varName} with node_ prefix: node_${nodeId}`);
+                        }
+                    }
+
+                    // If still not found, try partial matching
                     if (!computeOutput) {
                         for (const [key, value] of this.computeOutputs) {
-                            if (nodeId === key || varName.includes(key) || key.includes(nodeId)) {
+                            // Try matching with the stripped nodeId or with node_ prefix
+                            if (nodeId === key ||
+                                `node_${nodeId}` === key ||
+                                varName.includes(key) ||
+                                key.includes(nodeId)) {
                                 computeOutput = value;
                                 console.log(`[LiveViewer] Matched sampler ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
@@ -1527,10 +1539,22 @@
                     // Try to find matching compute output by exact ID match first
                     let computeOutput = this.computeOutputs.get(nodeId);
 
-                    // If not found, try partial matching
+                    // If not found, try with "node_" prefix (registry keys might have this prefix)
+                    if (!computeOutput) {
+                        computeOutput = this.computeOutputs.get('node_' + nodeId);
+                        if (computeOutput) {
+                            console.log(`[LiveViewer] Matched texture ${varName} with node_ prefix: node_${nodeId}`);
+                        }
+                    }
+
+                    // If still not found, try partial matching
                     if (!computeOutput) {
                         for (const [key, value] of this.computeOutputs) {
-                            if (nodeId === key || varName.includes(key) || key.includes(nodeId)) {
+                            // Try matching with the stripped nodeId or with node_ prefix
+                            if (nodeId === key ||
+                                `node_${nodeId}` === key ||
+                                varName.includes(key) ||
+                                key.includes(nodeId)) {
                                 computeOutput = value;
                                 console.log(`[LiveViewer] Matched texture ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
