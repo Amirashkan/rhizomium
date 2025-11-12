@@ -222,7 +222,8 @@ struct Uniforms {
   scale: f32,
   octaves: f32,
   speed: f32,
-  padding: vec2<f32>
+  colorize: f32,
+  _padding: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -286,22 +287,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let noiseValue = fbm(noisePos, i32(uniforms.octaves));
 
-  ${colorize ? `
-  // Colorize the noise
-  let hue = noiseValue + time * 0.1;
-  let h = fract(hue);
-  let s = 0.7;
-  let v = 0.8 + noiseValue * 0.2;
+  // Use uniform to determine colorization at runtime
+  if (uniforms.colorize > 0.5) {
+    // Colorize the noise
+    let hue = noiseValue + time * 0.1;
+    let h = fract(hue);
+    let s = 0.7;
+    let v = 0.8 + noiseValue * 0.2;
 
-  let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  let p = abs(fract(vec3<f32>(h) + k.xyz) * 6.0 - k.www);
-  let rgb = v * mix(vec3<f32>(1.0), clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), s);
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(vec3<f32>(h) + k.xyz) * 6.0 - k.www);
+    let rgb = v * mix(vec3<f32>(1.0), clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), s);
 
-  textureStore(outputTexture, texCoord, vec4<f32>(rgb, 1.0));
-  ` : `
-  // Grayscale noise
-  textureStore(outputTexture, texCoord, vec4<f32>(noiseValue, noiseValue, noiseValue, 1.0));
-  `}
+    textureStore(outputTexture, texCoord, vec4<f32>(rgb, 1.0));
+  } else {
+    // Grayscale noise
+    textureStore(outputTexture, texCoord, vec4<f32>(noiseValue, noiseValue, noiseValue, 1.0));
+  }
 }`;
 
     return shader;
@@ -1639,24 +1641,112 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     const radius = this.getParam(node, 'radius', 0.5);
     const repeat = this.getParam(node, 'repeat', 1);
     const reverse = this.getParam(node, 'reverse', false);
+    const colorMode = this.getParam(node, 'colorMode', 'Grayscale');
+    const saturation = this.getParam(node, 'saturation', 0.8);
+    const brightness = this.getParam(node, 'brightness', 1.0);
+    const interpolation = this.getParam(node, 'interpolation', 'Linear');
 
+    // Get color stops (max 8 stops supported)
+    const colorStops = this.getParam(node, 'colorStops', [
+      { position: 0.0, color: [0, 0, 0, 1] },
+      { position: 1.0, color: [1, 1, 1, 1] }
+    ]);
+
+    const numStops = Math.min(colorStops.length, 8);
     const typeIndex = this.getGradientTypeIndex(type);
+    const colorModeIndex = this.getColorModeIndex(colorMode);
+    const interpolationIndex = this.getInterpolationIndex(interpolation);
+
+    // Debug logging
+    console.log('[ComputeGradient Shader Generation]', {
+      colorMode,
+      colorModeIndex,
+      type,
+      typeIndex,
+      interpolation,
+      interpolationIndex,
+      numStops,
+      colorStops: colorStops.slice(0, 2)
+    });
 
     const shader = `
-// Compute Gradient Shader - Type: ${type}
+// Compute Gradient Shader - Type: ${type}, ColorMode: ${colorMode}
+struct ColorStop {
+  position: f32,
+  color: vec4<f32>
+}
+
 struct Uniforms {
   resolution: vec2<f32>,
   time: f32,
   angle: f32,
   center: vec2<f32>,
   radius: f32,
-  repeat: f32
+  repeat: f32,
+  saturation: f32,
+  brightness: f32,
+  numStops: f32,
+  _padding1: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var<storage, read> colorStops: array<ColorStop, 8>;
 
 const PI = 3.14159265359;
+
+// HSV to RGB conversion
+fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
+  let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  let p = abs(fract(vec3<f32>(h) + k.xyz) * 6.0 - k.www);
+  return v * mix(vec3<f32>(1.0), clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), s);
+}
+
+// Smooth interpolation
+fn smoothInterp(t: f32) -> f32 {
+  return t * t * (3.0 - 2.0 * t);
+}
+
+// Sample color from gradient stops
+fn sampleGradient(t: f32, interpMode: i32) -> vec4<f32> {
+  let numStops = i32(uniforms.numStops);
+
+  if (numStops == 0) {
+    return vec4<f32>(0.0);
+  }
+
+  if (t <= colorStops[0].position) {
+    return colorStops[0].color;
+  }
+
+  if (t >= colorStops[numStops - 1].position) {
+    return colorStops[numStops - 1].color;
+  }
+
+  // Find the two stops to interpolate between
+  for (var i = 0; i < numStops - 1; i++) {
+    let pos0 = colorStops[i].position;
+    let pos1 = colorStops[i + 1].position;
+
+    if (t >= pos0 && t <= pos1) {
+      let localT = (t - pos0) / (pos1 - pos0);
+
+      // Apply interpolation mode
+      var adjustedT = localT;
+      if (interpMode == 1) {
+        // Step interpolation
+        adjustedT = 0.0;
+      } else if (interpMode == 2) {
+        // Smooth interpolation
+        adjustedT = smoothInterp(localT);
+      }
+
+      return mix(colorStops[i].color, colorStops[i + 1].color, adjustedT);
+    }
+  }
+
+  return colorStops[0].color;
+}
 
 // Linear gradient
 fn gradientLinear(uv: vec2<f32>, angle: f32) -> f32 {
@@ -1727,8 +1817,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   gradient = 1.0 - gradient;
   ` : ''}
 
-  let color = vec3<f32>(gradient);
-  textureStore(outputTexture, texCoord, vec4<f32>(color, 1.0));
+  // Apply color mode
+  var color: vec4<f32>;
+  let colorMode = ${colorModeIndex}; // 0=Grayscale, 1=Rainbow, 2=Gradient
+
+  if (colorMode == 1) {
+    // Rainbow spectrum
+    let rgb = hsv2rgb(gradient, uniforms.saturation, uniforms.brightness);
+    color = vec4<f32>(rgb, 1.0);
+  } else if (colorMode == 2) {
+    // Gradient with color stops
+    color = sampleGradient(gradient, ${interpolationIndex});
+  } else {
+    // Grayscale
+    let gray = gradient * uniforms.brightness;
+    color = vec4<f32>(gray, gray, gray, 1.0);
+  }
+
+  textureStore(outputTexture, texCoord, color);
 }`;
 
     return shader;
@@ -1937,6 +2043,30 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       'Diamond': 3
     };
     return types[type] || 0;
+  }
+
+  /**
+   * Convert color mode to index
+   */
+  getColorModeIndex(mode) {
+    const modes = {
+      'Grayscale': 0,
+      'Rainbow': 1,
+      'Gradient': 2
+    };
+    return modes[mode] || 0;
+  }
+
+  /**
+   * Convert interpolation mode to index
+   */
+  getInterpolationIndex(mode) {
+    const modes = {
+      'Linear': 0,
+      'Step': 1,
+      'Smooth': 2
+    };
+    return modes[mode] || 0;
   }
 
   /**

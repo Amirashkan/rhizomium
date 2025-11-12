@@ -32,6 +32,12 @@ export class ComputeShaderManager {
     this.uniformBuffer = null;
     this.uniformData = new Float32Array(16); // Expanded to support more parameters [resolution.x, resolution.y, time, param1-12, pad0]
 
+    // Storage buffers
+    this.colorStopsBuffer = null; // For gradient color stops
+    // WebGPU requires storage buffers to be at least 256 bytes
+    // 8 stops * 5 floats = 160 bytes, so we need to pad to 256 bytes = 64 floats
+    this.colorStopsData = new Float32Array(64); // Padded to 256 bytes minimum
+
     // Workgroup configuration
     this.workgroupSize = { x: 8, y: 8, z: 1 };
     this.dispatchSize = { x: 0, y: 0, z: 1 };
@@ -336,7 +342,7 @@ export class ComputeShaderManager {
       // Standard layout:
       // - binding(0): uniforms
       // - binding(1): storage texture (output) - ALWAYS
-      // - binding(2): input texture (if needsInput) OR feedback texture (if supportsFeedback && !needsInput)
+      // - binding(2): color stops storage buffer (ComputeGradient only) OR input texture (if needsInput) OR feedback texture (if supportsFeedback && !needsInput)
       // - binding(3): sampler (if needsInput || supportsFeedback)
       // - binding(4): feedback texture (if supportsFeedback && needsInput)
       const entries = [
@@ -355,6 +361,15 @@ export class ComputeShaderManager {
           }
         }
       ];
+
+      // Add color stops storage buffer for ComputeGradient
+      if (this.node?.kind === 'ComputeGradient') {
+        entries.push({
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: 'read-only-storage' }
+        });
+      }
 
       // Add input texture binding for nodes that take inputs from other compute nodes
       if (this.needsInput) {
@@ -413,6 +428,15 @@ export class ComputeShaderManager {
       // Store bind group layout for dynamic bind group creation
       this.bindGroupLayout = bindGroupLayout;
 
+      // Initialize color stops buffer for ComputeGradient
+      if (this.node?.kind === 'ComputeGradient') {
+        const defaultColorStops = [
+          { position: 0.0, color: [0, 0, 0, 1] },
+          { position: 1.0, color: [1, 1, 1, 1] }
+        ];
+        this.updateColorStopsBuffer(this.node.params?.colorStops || defaultColorStops);
+      }
+
       // Create initial bind group (will be recreated each frame for feedback)
       this.recreateBindGroup();
 
@@ -449,6 +473,7 @@ export class ComputeShaderManager {
           this.uniformData[3] = this.evaluateParam(this.node.params?.scale, 8.0, time, audioContext);
           this.uniformData[4] = this.evaluateParam(this.node.params?.octaves, 5, time, audioContext);
           this.uniformData[5] = this.evaluateParam(this.node.params?.speed, 0.1, time, audioContext);
+          this.uniformData[6] = this.node.params?.colorize ? 1.0 : 0.0;
           break;
 
         case 'ComputeReactionDiffusion':
@@ -527,12 +552,33 @@ export class ComputeShaderManager {
           break;
 
         case 'ComputeGradient':
-          // Uniforms: angle, center.x, center.y, radius, repeat
+          // Uniforms: angle, center.x, center.y, radius, repeat, saturation, brightness, numStops, _padding
           this.uniformData[3] = this.evaluateParam(this.node.params?.angle, 0.0, time, audioContext);
           this.uniformData[4] = this.evaluateParam(this.node.params?.centerX, 0.5, time, audioContext);
           this.uniformData[5] = this.evaluateParam(this.node.params?.centerY, 0.5, time, audioContext);
           this.uniformData[6] = this.evaluateParam(this.node.params?.radius, 0.5, time, audioContext);
           this.uniformData[7] = this.evaluateParam(this.node.params?.repeat, 1.0, time, audioContext);
+          this.uniformData[8] = this.evaluateParam(this.node.params?.saturation, 0.8, time, audioContext);
+          this.uniformData[9] = this.evaluateParam(this.node.params?.brightness, 1.0, time, audioContext);
+
+          // Get color stops and set numStops
+          const colorStops = this.node.params?.colorStops || [
+            { position: 0.0, color: [0, 0, 0, 1] },
+            { position: 1.0, color: [1, 1, 1, 1] }
+          ];
+          this.uniformData[10] = Math.min(colorStops.length, 8); // numStops
+          this.uniformData[11] = 0.0; // padding
+
+          // Debug logging
+          console.log('[ComputeGradient Uniforms]', {
+            colorMode: this.node.params?.colorMode,
+            type: this.node.params?.type,
+            numStops: this.uniformData[10],
+            colorStops: colorStops.slice(0, 2)
+          });
+
+          // Update color stops storage buffer
+          this.updateColorStopsBuffer(colorStops);
           break;
 
         case 'ComputePattern':
@@ -660,6 +706,46 @@ export class ComputeShaderManager {
   }
 
   /**
+   * Update color stops storage buffer for gradient nodes
+   */
+  updateColorStopsBuffer(colorStops) {
+    if (!this.colorStopsBuffer) {
+      // Create color stops buffer on first use
+      this.colorStopsBuffer = this.device.createBuffer({
+        label: 'Color Stops Storage Buffer',
+        size: this.colorStopsData.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+
+      // Track resource
+      if (this.resourceTracker) {
+        this.resourceTracker.trackBuffer(this.colorStopsBuffer, this.colorStopsData.byteLength);
+      }
+    }
+
+    // Fill color stops data: each stop is 5 floats (position + vec4 color)
+    const numStops = Math.min(colorStops.length, 8);
+    for (let i = 0; i < numStops; i++) {
+      const stop = colorStops[i];
+      const offset = i * 5;
+      this.colorStopsData[offset] = stop.position || 0.0;
+      this.colorStopsData[offset + 1] = stop.color?.[0] || 0.0; // R
+      this.colorStopsData[offset + 2] = stop.color?.[1] || 0.0; // G
+      this.colorStopsData[offset + 3] = stop.color?.[2] || 0.0; // B
+      this.colorStopsData[offset + 4] = stop.color?.[3] || 1.0; // A
+    }
+
+    // Write to GPU buffer
+    this.device.queue.writeBuffer(
+      this.colorStopsBuffer,
+      0,
+      this.colorStopsData.buffer,
+      0,
+      this.colorStopsData.byteLength
+    );
+  }
+
+  /**
    * Recreate bind group (for ping-pong buffering)
    */
   recreateBindGroup() {
@@ -684,7 +770,12 @@ export class ComputeShaderManager {
       entries.push({ binding: 1, resource: this.storageTexture.createView() });
     }
 
-    // Binding 2: Input texture (if needed)
+    // Binding 2: Color stops storage buffer (for ComputeGradient)
+    if (this.node?.kind === 'ComputeGradient' && this.colorStopsBuffer) {
+      entries.push({ binding: 2, resource: { buffer: this.colorStopsBuffer } });
+    }
+
+    // Binding 2: Input texture (if needed and not ComputeGradient)
     if (this.needsInput) {
       const inputTexture = this.inputTexture || this.fallbackInputTexture;
       entries.push({ binding: 2, resource: inputTexture.createView() });
@@ -887,6 +978,7 @@ export class ComputeShaderManager {
       this.storageTextureB?.destroy();
       this.outputTexture?.destroy();
       this.uniformBuffer?.destroy();
+      this.colorStopsBuffer?.destroy();
       this.fallbackInputTexture?.destroy();
     }
 
@@ -897,6 +989,7 @@ export class ComputeShaderManager {
     this.storageTextureB = null;
     this.outputTexture = null;
     this.uniformBuffer = null;
+    this.colorStopsBuffer = null;
     this.fallbackInputTexture = null;
 
   }
