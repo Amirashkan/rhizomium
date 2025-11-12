@@ -310,6 +310,10 @@
             _setupEventListeners() {
                 // Channel messages
                 this.channel.onmessage = (event) => {
+                    // DEBUG: Log ALL incoming messages to diagnose reception
+                    if (event.data && event.data.type) {
+                        console.log('[Viewer] BroadcastChannel received:', event.data.type);
+                    }
                     this.handleMessage(event.data);
                 };
 

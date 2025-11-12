@@ -445,7 +445,13 @@ export class LiveShaderStream {
      * @param {number} time - Current time in seconds
      */
     sendParameterUpdate(uniformValues, time) {
-        if (!this.isStreaming || !this.channel) return;
+        if (!this.isStreaming || !this.channel) {
+            // DEBUG: Log why we're not sending
+            if (this.uniformUpdatesSent === 0) {
+                console.warn('[LiveShaderStream] NOT sending parameter update - isStreaming:', this.isStreaming, 'hasChannel:', !!this.channel);
+            }
+            return;
+        }
 
         this.currentUniforms = uniformValues;
 
@@ -461,7 +467,7 @@ export class LiveShaderStream {
 
         // Log every 60th update to avoid spam (once per second at 60fps)
         if (this.uniformUpdatesSent % 60 === 0) {
-            console.log('[LiveShaderStream] Sent', this.uniformUpdatesSent, 'parameter updates, latest values:', uniformValues.slice(0, 3));
+            console.log('[LiveShaderStream] Posted message #', this.uniformUpdatesSent, 'to channel:', this.channelName, 'values:', uniformValues.slice(0, 3));
         }
     }
 
