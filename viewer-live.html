@@ -919,7 +919,7 @@
 
                     // Use the stored validInputs count to ensure consistency with the layout
                     const validInputs = pipelineData.validInputs || 0;
-                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, validInputs: ${validInputs} (from pipeline data)`);
+                    // console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, validInputs: ${validInputs} (from pipeline data)`);
 
                     // Helper function to get input texture/sampler or create fallback
                     const getInputResources = (inputIndex) => {
@@ -1044,7 +1044,7 @@
                                 resource: sharedSampler
                             });
 
-                            console.log(`[LiveViewer] Added input A (bindings 2 & 3), entries now: ${bindGroupEntries.length}`);
+                            // console.log(`[LiveViewer] Added input A (bindings 2 & 3), entries now: ${bindGroupEntries.length}`);
                         }
 
                         // Get second input if node has 2 inputs (binding 4)
@@ -1055,14 +1055,14 @@
                                     binding: 4,
                                     resource: input1.texture
                                 });
-                                console.log(`[LiveViewer] Added input B (binding 4), entries now: ${bindGroupEntries.length}`);
+                                // console.log(`[LiveViewer] Added input B (binding 4), entries now: ${bindGroupEntries.length}`);
                             }
                         }
                     } else {
-                        console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
+                        // console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
                     }
 
-                    console.log(`[LiveViewer] Bind group for node ${nodeId} has ${bindGroupEntries.length} entries`);
+                    // console.log(`[LiveViewer] Bind group for node ${nodeId} has ${bindGroupEntries.length} entries`);
 
                     // Create bind group
                     const bindGroup = this.device.createBindGroup({
@@ -1111,7 +1111,7 @@
                 const hasBinding4 = /@binding\(4\)/.test(nodeData.wgslCode);
 
                 if (hasBinding2) {
-                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has @binding(2), adding to layout`);
+                    // console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has @binding(2), adding to layout`);
 
                     // binding 2: input texture A
                     entries.push({
@@ -1138,10 +1138,10 @@
                         });
                     }
                 } else {
-                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has no input bindings`);
+                    // console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has no input bindings`);
                 }
 
-                console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
+                // console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
                 return this.device.createBindGroupLayout({ entries });
             }
 
@@ -1541,9 +1541,9 @@
                     // If not found, try with "node_" prefix (registry keys might have this prefix)
                     if (!computeOutput) {
                         computeOutput = this.computeOutputs.get('node_' + nodeId);
-                        if (computeOutput) {
-                            console.log(`[LiveViewer] Matched sampler ${varName} with node_ prefix: node_${nodeId}`);
-                        }
+                        // if (computeOutput) {
+                        //     console.log(`[LiveViewer] Matched sampler ${varName} with node_ prefix: node_${nodeId}`);
+                        // }
                     }
 
                     // If still not found, try partial matching
@@ -1555,19 +1555,19 @@
                                 varName.includes(key) ||
                                 key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched sampler ${varName} (nodeId: ${nodeId}) -> ${key}`);
+                                // console.log(`[LiveViewer] Matched sampler ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.sampler) {
-                        console.log(`[LiveViewer] Using compute sampler for ${varName} (nodeId: ${nodeId})`);
+                        // console.log(`[LiveViewer] Using compute sampler for ${varName} (nodeId: ${nodeId})`);
                         return { sampler: computeOutput.sampler };
                     }
 
                     // Default sampler
-                    console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute output found)`);
+                    // console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute output found)`);
                     const sampler = this.device.createSampler({
                         magFilter: 'linear',
                         minFilter: 'linear'
@@ -1595,9 +1595,9 @@
                     // If not found, try with "node_" prefix (registry keys might have this prefix)
                     if (!computeOutput) {
                         computeOutput = this.computeOutputs.get('node_' + nodeId);
-                        if (computeOutput) {
-                            console.log(`[LiveViewer] Matched texture ${varName} with node_ prefix: node_${nodeId}`);
-                        }
+                        // if (computeOutput) {
+                        //     console.log(`[LiveViewer] Matched texture ${varName} with node_ prefix: node_${nodeId}`);
+                        // }
                     }
 
                     // If still not found, try partial matching
@@ -1609,20 +1609,20 @@
                                 varName.includes(key) ||
                                 key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched texture ${varName} (nodeId: ${nodeId}) -> ${key}`);
+                                // console.log(`[LiveViewer] Matched texture ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.texture) {
-                        console.log(`[LiveViewer] Using compute output texture for ${varName} (nodeId: ${nodeId})`);
+                        // console.log(`[LiveViewer] Using compute output texture for ${varName} (nodeId: ${nodeId})`);
                         return { textureView: computeOutput.texture.createView() };
                     }
 
                     // Create dummy texture as fallback
-                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute output found)`);
-                    console.log(`[LiveViewer] Available compute outputs:`, Array.from(this.computeOutputs.keys()));
+                    // console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute output found)`);
+                    // console.log(`[LiveViewer] Available compute outputs:`, Array.from(this.computeOutputs.keys()));
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
