@@ -1471,28 +1471,38 @@
                     // Check if this is a compute node sampler
                     // Variable names are like: sampler_compute_node_27
                     // We need to extract just the node ID (27)
-                    const sanitizedName = varName.replace(/^(sampler_|samplerCube_)/, '');
+                    let nodeId = varName;
 
-                    // Try to find matching compute output
-                    // Check both the full name and just the numeric ID
-                    let computeOutput = this.computeOutputs.get(sanitizedName);
+                    // Remove common sampler prefixes
+                    nodeId = nodeId.replace(/^sampler_/, '');
+                    nodeId = nodeId.replace(/^samplerCube_/, '');
 
-                    // If not found, try all keys to find a match
+                    // If it's a compute node sampler, extract the ID
+                    if (nodeId.startsWith('compute_node_')) {
+                        nodeId = nodeId.replace(/^compute_node_/, '');
+                    }
+
+                    // Try to find matching compute output by exact ID match first
+                    let computeOutput = this.computeOutputs.get(nodeId);
+
+                    // If not found, try partial matching
                     if (!computeOutput) {
                         for (const [key, value] of this.computeOutputs) {
-                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                            if (nodeId === key || varName.includes(key) || key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched sampler ${varName} -> ${key}`);
+                                console.log(`[LiveViewer] Matched sampler ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.sampler) {
+                        console.log(`[LiveViewer] Using compute sampler for ${varName} (nodeId: ${nodeId})`);
                         return { sampler: computeOutput.sampler };
                     }
 
                     // Default sampler
+                    console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute output found)`);
                     const sampler = this.device.createSampler({
                         magFilter: 'linear',
                         minFilter: 'linear'
@@ -1501,32 +1511,41 @@
 
                 } else if (kind === 'texture-2d' || kind === 'texture-cube') {
                     // Check if this is a compute node output texture
-                    // Variable names are like: texture_compute_node_27
+                    // Variable names are like: compute_node_27 (NOT texture_compute_node_27)
                     // We need to extract just the node ID (27)
-                    const sanitizedName = varName.replace(/^(texture_|textureCube_)/, '');
+                    let nodeId = varName;
 
-                    // Try to find matching compute output
-                    // Check both the full name and just the numeric ID
-                    let computeOutput = this.computeOutputs.get(sanitizedName);
+                    // Remove common texture prefixes (though they usually don't exist for compute nodes)
+                    nodeId = nodeId.replace(/^texture_/, '');
+                    nodeId = nodeId.replace(/^textureCube_/, '');
 
-                    // If not found, try all keys to find a match
+                    // If it's a compute node texture, extract the ID
+                    if (nodeId.startsWith('compute_node_')) {
+                        nodeId = nodeId.replace(/^compute_node_/, '');
+                    }
+
+                    // Try to find matching compute output by exact ID match first
+                    let computeOutput = this.computeOutputs.get(nodeId);
+
+                    // If not found, try partial matching
                     if (!computeOutput) {
                         for (const [key, value] of this.computeOutputs) {
-                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                            if (nodeId === key || varName.includes(key) || key.includes(nodeId)) {
                                 computeOutput = value;
-                                console.log(`[LiveViewer] Matched texture ${varName} -> ${key}`);
+                                console.log(`[LiveViewer] Matched texture ${varName} (nodeId: ${nodeId}) -> ${key}`);
                                 break;
                             }
                         }
                     }
 
                     if (computeOutput && computeOutput.texture) {
-                        console.log(`[LiveViewer] Using compute output texture for ${sanitizedName}`);
+                        console.log(`[LiveViewer] Using compute output texture for ${varName} (nodeId: ${nodeId})`);
                         return { textureView: computeOutput.texture.createView() };
                     }
 
                     // Create dummy texture as fallback
-                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (no compute output found)`);
+                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute output found)`);
+                    console.log(`[LiveViewer] Available compute outputs:`, Array.from(this.computeOutputs.keys()));
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
