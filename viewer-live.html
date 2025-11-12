@@ -482,6 +482,12 @@
                 // Update parameter values if provided
                 if (uniformValues && Array.isArray(uniformValues)) {
                     this.uniformValuesArray = uniformValues;
+
+                    // DEBUG: Log every 60th update
+                    this.paramUpdateCount = (this.paramUpdateCount || 0) + 1;
+                    if (this.paramUpdateCount % 60 === 0) {
+                        console.log('[Viewer] Received parameter update #', this.paramUpdateCount, 'values:', uniformValues.slice(0, 3));
+                    }
                 }
 
                 // Update synced time if provided

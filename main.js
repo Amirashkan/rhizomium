@@ -511,6 +511,18 @@ async function initialize() {
       const numValue = parseFloat(value);
       if (!isNaN(numValue)) {
         window.nodeCompiler.uniformManager.uniformValues.set(paramKey, numValue);
+
+        // DEBUG: Log parameter updates during drag (first 5 only to avoid spam)
+        if (window.editor?._parameterDragging) {
+          window._dragParamUpdateCount = (window._dragParamUpdateCount || 0) + 1;
+          if (window._dragParamUpdateCount <= 5) {
+            console.log('[updateUniformsOnly] Drag update #' + window._dragParamUpdateCount + ':', paramKey, '=', numValue);
+          } else if (window._dragParamUpdateCount === 6) {
+            console.log('[updateUniformsOnly] (suppressing further drag logs...)');
+          }
+        } else {
+          window._dragParamUpdateCount = 0;
+        }
       }
     };
 

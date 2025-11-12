@@ -459,8 +459,9 @@ export class LiveShaderStream {
         this.channel.postMessage(message);
         this.uniformUpdatesSent++;
 
-        // Log every 30th update to avoid spam
-        if (this.uniformUpdatesSent % 30 === 0) {
+        // Log every 60th update to avoid spam (once per second at 60fps)
+        if (this.uniformUpdatesSent % 60 === 0) {
+            console.log('[LiveShaderStream] Sent', this.uniformUpdatesSent, 'parameter updates, latest values:', uniformValues.slice(0, 3));
         }
     }
 
