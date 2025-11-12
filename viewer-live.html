@@ -272,6 +272,16 @@
                 this.uniformValues = new Map();
                 this.uniformValuesArray = [];
 
+                // Compute nodes state
+                this.computeNodes = [];
+                this.computePipelines = new Map();
+                this.computeOutputs = new Map();
+
+                // Fragment nodes state (for fragment→compute workflows)
+                this.fragmentNodes = [];
+                this.fragmentPipelines = new Map();
+                this.fragmentOutputs = new Map();
+
                 // Animation state
                 this.animationId = null;
                 this.isRunning = false;
@@ -384,7 +394,7 @@
             }
 
             handleShaderUpdate(data) {
-                const { shaderCode, uniformValues, resolution } = data;
+                const { shaderCode, uniformValues, resolution, computeNodes, fragmentNodes } = data;
 
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
@@ -408,6 +418,18 @@
                 // Update uniform values (now an array)
                 if (uniformValues && Array.isArray(uniformValues)) {
                     this.uniformValuesArray = uniformValues;
+                }
+
+                // Initialize fragment nodes if provided (BEFORE compute nodes!)
+                if (fragmentNodes && Array.isArray(fragmentNodes)) {
+                    console.log(`[LiveViewer] Received ${fragmentNodes.length} fragment nodes`);
+                    this.initializeFragmentNodes(fragmentNodes);
+                }
+
+                // Initialize compute nodes if provided
+                if (computeNodes && Array.isArray(computeNodes)) {
+                    console.log(`[LiveViewer] Received ${computeNodes.length} compute nodes`);
+                    this.initializeComputeNodes(computeNodes);
                 }
 
                 // Compile shader
@@ -449,6 +471,711 @@
                 // Update synced time if provided
                 if (typeof time === 'number') {
                     this.syncedTime = time;
+                }
+            }
+
+            initializeFragmentNodes(fragmentNodes) {
+                try {
+                    this.fragmentNodes = fragmentNodes;
+                    this.fragmentPipelines.clear();
+                    this.fragmentOutputs.clear();
+
+                    // Initialize each fragment node
+                    for (const nodeData of fragmentNodes) {
+                        this.initializeFragmentNode(nodeData);
+                    }
+
+                    console.log(`[LiveViewer] Initialized ${fragmentNodes.length} fragment nodes`);
+                    console.log('[LiveViewer] Fragment output keys:', Array.from(this.fragmentOutputs.keys()));
+                } catch (error) {
+                    console.error('[LiveViewer] Error initializing fragment nodes:', error);
+                }
+            }
+
+            initializeFragmentNode(nodeData) {
+                const { nodeId, wgslCode, params, parameterValues } = nodeData;
+
+                try {
+                    console.log(`[LiveViewer] Initializing fragment node ${nodeId}`);
+
+                    // Create shader module
+                    const shaderModule = this.device.createShaderModule({
+                        code: wgslCode,
+                        label: `fragment-${nodeId}`
+                    });
+
+                    // Create output texture (use current resolution)
+                    const width = this.currentWidth;
+                    const height = this.currentHeight;
+
+                    const outputTexture = this.device.createTexture({
+                        size: [width, height, 1],
+                        format: 'rgba8unorm',
+                        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+                    });
+
+                    // Analyze bindings from shader (similar to FragmentTextureRenderer)
+                    const bindingMap = this.analyzeFragmentBindings(wgslCode);
+
+                    // Create bind group resources
+                    const { layouts, bindGroups, uniformBuffers } = this.createFragmentBindResources(
+                        bindingMap,
+                        parameterValues
+                    );
+
+                    // Create pipeline layout
+                    const pipelineLayout = this.device.createPipelineLayout({
+                        bindGroupLayouts: layouts
+                    });
+
+                    // Create render pipeline
+                    const pipeline = this.device.createRenderPipeline({
+                        layout: pipelineLayout,
+                        vertex: {
+                            module: shaderModule,
+                            entryPoint: 'vs_main'
+                        },
+                        fragment: {
+                            module: shaderModule,
+                            entryPoint: 'fs_main',
+                            targets: [{ format: 'rgba8unorm' }]
+                        },
+                        primitive: {
+                            topology: 'triangle-list'
+                        }
+                    });
+
+                    // Create sampler for this texture
+                    const sampler = this.device.createSampler({
+                        magFilter: 'linear',
+                        minFilter: 'linear',
+                        addressModeU: 'repeat',
+                        addressModeV: 'repeat'
+                    });
+
+                    // Store pipeline and output texture
+                    this.fragmentPipelines.set(nodeId, {
+                        pipeline: pipeline,
+                        bindGroups: bindGroups,
+                        uniformBuffers: uniformBuffers,
+                        bindingMap: bindingMap,
+                        layouts: layouts,
+                        nodeData: nodeData
+                    });
+
+                    this.fragmentOutputs.set(nodeId, {
+                        texture: outputTexture,
+                        sampler: sampler,
+                        width: width,
+                        height: height
+                    });
+
+                    console.log(`[LiveViewer] Initialized fragment node ${nodeId} (${width}x${height})`);
+                } catch (error) {
+                    console.error(`[LiveViewer] Error initializing fragment node ${nodeId}:`, error);
+                    console.error(`[LiveViewer] WGSL code:`, wgslCode);
+                }
+            }
+
+            initializeComputeNodes(computeNodes) {
+                try {
+                    this.computeNodes = computeNodes;
+                    this.computePipelines.clear();
+                    this.computeOutputs.clear();
+
+                    // Initialize each compute node
+                    for (const nodeData of computeNodes) {
+                        this.initializeComputeNode(nodeData);
+                    }
+
+                    console.log(`[LiveViewer] Initialized ${computeNodes.length} compute nodes`);
+                    console.log('[LiveViewer] Compute output keys:', Array.from(this.computeOutputs.keys()));
+                } catch (error) {
+                    console.error('[LiveViewer] Error initializing compute nodes:', error);
+                }
+            }
+
+            initializeComputeNode(nodeData) {
+                const { nodeId, wgslCode, resolution, inputs } = nodeData;
+
+                try {
+                    // Log node info including inputs
+                    console.log(`[LiveViewer] Initializing compute node ${nodeId} with inputs:`, inputs);
+
+                    // Create shader module
+                    const shaderModule = this.device.createShaderModule({
+                        code: wgslCode,
+                        label: `compute-${nodeId}`
+                    });
+
+                    // Create output texture
+                    const width = resolution[0];
+                    const height = resolution[1];
+
+                    const outputTexture = this.device.createTexture({
+                        size: [width, height, 1],
+                        format: 'rgba8unorm',
+                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+                    });
+
+                    // Create uniform buffer for compute parameters
+                    const uniformBuffer = this.device.createBuffer({
+                        size: 256, // Large enough for parameters
+                        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+                    });
+
+                    // Create sampler for input textures
+                    const sampler = this.device.createSampler({
+                        magFilter: 'linear',
+                        minFilter: 'linear',
+                        addressModeU: 'repeat',
+                        addressModeV: 'repeat'
+                    });
+
+                    // Store output texture
+                    this.computeOutputs.set(nodeId, {
+                        texture: outputTexture,
+                        sampler: sampler,
+                        uniformBuffer: uniformBuffer,
+                        width: width,
+                        height: height
+                    });
+
+                    // Create compute pipeline (will be done on first dispatch)
+                    this.computePipelines.set(nodeId, {
+                        shaderModule: shaderModule,
+                        outputTexture: outputTexture,
+                        uniformBuffer: uniformBuffer,
+                        sampler: sampler,
+                        nodeData: nodeData
+                    });
+
+                    console.log(`[LiveViewer] Initialized compute node ${nodeId} (${width}x${height})`);
+                } catch (error) {
+                    console.error(`[LiveViewer] Error initializing compute node ${nodeId}:`, error);
+                }
+            }
+
+            executeFragmentNodes(time) {
+                if (this.fragmentNodes.length === 0) {
+                    return;
+                }
+
+                try {
+                    const encoder = this.device.createCommandEncoder({ label: 'fragment-encoder' });
+
+                    // Execute each fragment node in order
+                    for (const nodeData of this.fragmentNodes) {
+                        this.executeFragmentNode(encoder, nodeData, time);
+                    }
+
+                    this.device.queue.submit([encoder.finish()]);
+                } catch (error) {
+                    console.error('[LiveViewer] Error executing fragment nodes:', error);
+                }
+            }
+
+            executeFragmentNode(encoder, nodeData, time) {
+                const { nodeId } = nodeData;
+                const pipelineData = this.fragmentPipelines.get(nodeId);
+                const outputData = this.fragmentOutputs.get(nodeId);
+
+                if (!pipelineData || !outputData) {
+                    return;
+                }
+
+                try {
+                    const { pipeline, bindGroups, uniformBuffers } = pipelineData;
+                    const { texture, width, height } = outputData;
+
+                    // Update uniform buffers before rendering
+                    this.updateFragmentUniforms(uniformBuffers, time, width, height, nodeData);
+
+                    // Begin render pass
+                    const pass = encoder.beginRenderPass({
+                        colorAttachments: [{
+                            view: texture.createView(),
+                            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                            loadOp: 'clear',
+                            storeOp: 'store'
+                        }]
+                    });
+
+                    pass.setPipeline(pipeline);
+
+                    // Bind all bind groups
+                    for (let i = 0; i < bindGroups.length; i++) {
+                        pass.setBindGroup(i, bindGroups[i]);
+                    }
+
+                    // Draw fullscreen triangle
+                    pass.draw(3, 1, 0, 0);
+                    pass.end();
+
+                } catch (error) {
+                    console.error(`[LiveViewer] Error executing fragment node ${nodeId}:`, error);
+                }
+            }
+
+            updateFragmentUniforms(uniformBuffers, time, width, height, nodeData) {
+                // Update aspect uniform (u)
+                const aspectBuffer = uniformBuffers.get('u');
+                if (aspectBuffer) {
+                    const aspectData = new Float32Array([width / height, 0, 0, 0]);
+                    this.device.queue.writeBuffer(aspectBuffer, 0, aspectData);
+                }
+
+                // Update globals uniform (g)
+                const globalsBuffer = uniformBuffers.get('g');
+                if (globalsBuffer) {
+                    const globalsData = new Float32Array([
+                        width,
+                        height,
+                        time,
+                        0, // audioEnvelope
+                        0, // audioEnvelopeBass
+                        0, // audioEnvelopeMids
+                        0, // audioEnvelopeHighs
+                        0  // audioEnvelopeFull
+                    ]);
+                    this.device.queue.writeBuffer(globalsBuffer, 0, globalsData);
+                }
+
+                // Update parameter uniforms (u_params)
+                const paramsBuffer = uniformBuffers.get('u_params');
+                if (paramsBuffer && nodeData.parameterValues && nodeData.parameterValues.length > 0) {
+                    const data = new Float32Array(nodeData.parameterValues);
+                    this.device.queue.writeBuffer(paramsBuffer, 0, data);
+                }
+            }
+
+            executeComputeNodes(time) {
+                if (this.computeNodes.length === 0) {
+                    return;
+                }
+
+                try {
+                    const encoder = this.device.createCommandEncoder({ label: 'compute-encoder' });
+
+                    // Execute each compute node in order
+                    for (const nodeData of this.computeNodes) {
+                        this.executeComputeNode(encoder, nodeData, time);
+                    }
+
+                    this.device.queue.submit([encoder.finish()]);
+                } catch (error) {
+                    console.error('[LiveViewer] Error executing compute nodes:', error);
+                }
+            }
+
+            executeComputeNode(encoder, nodeData, time) {
+                const { nodeId, resolution, params } = nodeData;
+                const pipelineData = this.computePipelines.get(nodeId);
+
+                if (!pipelineData) {
+                    return;
+                }
+
+                try {
+                    const { shaderModule, outputTexture, uniformBuffer, sampler } = pipelineData;
+
+                    // Create/get compute pipeline
+                    if (!pipelineData.pipeline) {
+                        // Count valid (non-null) inputs for bind group layout
+                        const validInputs = nodeData.inputs ? nodeData.inputs.filter(inp => inp !== null).length : 0;
+
+                        // Parse shader to determine bind group layout
+                        const bindGroupLayout = this.createComputeBindGroupLayout(nodeData);
+
+                        const pipelineLayout = this.device.createPipelineLayout({
+                            bindGroupLayouts: [bindGroupLayout]
+                        });
+
+                        pipelineData.pipeline = this.device.createComputePipeline({
+                            layout: pipelineLayout,
+                            compute: {
+                                module: shaderModule,
+                                entryPoint: 'main'
+                            }
+                        });
+
+                        pipelineData.bindGroupLayout = bindGroupLayout;
+                        pipelineData.validInputs = validInputs; // Store for consistency
+
+                        const expectedBindings = validInputs === 0 ? 2 : (validInputs === 1 ? 4 : 5);
+                        console.log(`[LiveViewer] Created compute pipeline for node ${nodeId}, validInputs: ${validInputs}, layout expects ${expectedBindings} bindings`);
+                    }
+
+                    // Update uniform buffer
+                    const width = resolution[0];
+                    const height = resolution[1];
+                    const uniformData = new Float32Array(64);
+                    uniformData[0] = width;
+                    uniformData[1] = height;
+                    uniformData[2] = time;
+
+                    // Pack parameters in the correct order based on node kind
+                    // Each compute node has a specific uniform struct layout
+                    if (params) {
+                        // Common pattern: node-specific params start at index 3
+                        // We need to match the WGSL uniform struct order exactly
+
+                        if (nodeData.kind === 'ComputeNoise') {
+                            // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, padding(vec2)
+                            uniformData[3] = params.scale !== undefined ? params.scale : 8.0;
+                            uniformData[4] = params.octaves !== undefined ? params.octaves : 5.0;
+                            uniformData[5] = params.speed !== undefined ? params.speed : 0.1;
+                            // padding at [6-7] (default zeros)
+                        } else if (nodeData.kind === 'ComputeMix') {
+                            // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
+                            // NOTE: 'mode' is baked into the shader at compile time, not in uniforms
+                            uniformData[3] = params.amount !== undefined ? params.amount : 0.5;
+                            uniformData[4] = params.opacity !== undefined ? params.opacity : 1.0;
+                            // padding at [5-7] (default zeros)
+                        } else {
+                            // Generic fallback: copy all numeric params in order they appear
+                            let paramIndex = 3;
+                            for (const key in params) {
+                                const value = params[key];
+                                if (typeof value === 'number') {
+                                    uniformData[paramIndex++] = value;
+                                } else if (typeof value === 'boolean') {
+                                    uniformData[paramIndex++] = value ? 1.0 : 0.0;
+                                }
+                            }
+                        }
+                    }
+
+                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+
+                    // Create bind group entries
+                    const bindGroupEntries = [
+                        { binding: 0, resource: { buffer: uniformBuffer } },
+                        { binding: 1, resource: outputTexture.createView() }
+                    ];
+
+                    // Use the stored validInputs count to ensure consistency with the layout
+                    const validInputs = pipelineData.validInputs || 0;
+                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, validInputs: ${validInputs} (from pipeline data)`);
+
+                    // Helper function to get input texture/sampler or create fallback
+                    const getInputResources = (inputIndex) => {
+                        if (!nodeData.inputs || inputIndex >= nodeData.inputs.length) {
+                            return null;
+                        }
+
+                        const inputNodeId = nodeData.inputs[inputIndex];
+                        if (inputNodeId === null) {
+                            return null;
+                        }
+
+                        // Try to get from compute outputs first
+                        const computeOutput = this.computeOutputs.get(inputNodeId);
+                        if (computeOutput && computeOutput.texture && computeOutput.sampler) {
+                            console.log(`[LiveViewer] ✓ Node ${nodeId} input ${inputIndex} from compute node ${inputNodeId}`);
+                            return {
+                                texture: computeOutput.texture.createView(),
+                                sampler: computeOutput.sampler,
+                                isValid: true
+                            };
+                        }
+
+                        // Try to get from fragment outputs
+                        const fragmentOutput = this.fragmentOutputs.get(inputNodeId);
+                        if (fragmentOutput && fragmentOutput.texture && fragmentOutput.sampler) {
+                            console.log(`[LiveViewer] ✓ Node ${nodeId} input ${inputIndex} from fragment node ${inputNodeId}`);
+                            return {
+                                texture: fragmentOutput.texture.createView(),
+                                sampler: fragmentOutput.sampler,
+                                isValid: true
+                            };
+                        }
+
+                        console.error(`[LiveViewer] ❌ Node ${nodeId} input ${inputIndex} from node ${inputNodeId} not available`);
+                        // Create black fallback texture
+                        const fallbackTexture = this.device.createTexture({
+                            size: [resolution[0], resolution[1], 1],
+                            format: 'rgba8unorm',
+                            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                        });
+                        const black = new Uint8Array(resolution[0] * resolution[1] * 4).fill(0);
+                        this.device.queue.writeTexture(
+                            { texture: fallbackTexture },
+                            black,
+                            { bytesPerRow: resolution[0] * 4 },
+                            [resolution[0], resolution[1]]
+                        );
+                        return {
+                            texture: fallbackTexture.createView(),
+                            sampler: null, // Will use shared sampler
+                            isValid: false
+                        };
+                    };
+
+                    // Add input bindings based on validInputs count
+                    if (validInputs > 0) {
+                        // Get first input (binding 2)
+                        const input0 = getInputResources(0);
+
+                        // Special handling for ComputeMix: if input A is missing (fragment node),
+                        // use input B for both A and B to avoid darkening
+                        let actualInput0 = input0;
+                        if (nodeData.kind === 'ComputeMix' && validInputs === 2 && input0 && !input0.isValid) {
+                            const input1 = getInputResources(1);
+                            if (input1 && input1.isValid) {
+                                console.log(`[LiveViewer] ComputeMix: Input A is fragment (missing), using input B for both inputs to avoid darkening`);
+                                actualInput0 = input1;
+                            }
+                        }
+
+                        if (actualInput0) {
+                            bindGroupEntries.push({
+                                binding: 2,
+                                resource: actualInput0.texture
+                            });
+
+                            // binding 3: shared sampler (use from actualInput0 or create fallback)
+                            const sharedSampler = actualInput0.sampler || this.device.createSampler({
+                                magFilter: 'linear',
+                                minFilter: 'linear'
+                            });
+                            bindGroupEntries.push({
+                                binding: 3,
+                                resource: sharedSampler
+                            });
+
+                            console.log(`[LiveViewer] Added input A (bindings 2 & 3), entries now: ${bindGroupEntries.length}`);
+                        }
+
+                        // Get second input if node has 2 inputs (binding 4)
+                        if (validInputs >= 2) {
+                            const input1 = getInputResources(1);
+                            if (input1) {
+                                bindGroupEntries.push({
+                                    binding: 4,
+                                    resource: input1.texture
+                                });
+                                console.log(`[LiveViewer] Added input B (binding 4), entries now: ${bindGroupEntries.length}`);
+                            }
+                        }
+                    } else {
+                        console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
+                    }
+
+                    console.log(`[LiveViewer] Bind group for node ${nodeId} has ${bindGroupEntries.length} entries`);
+
+                    // Create bind group
+                    const bindGroup = this.device.createBindGroup({
+                        layout: pipelineData.bindGroupLayout,
+                        entries: bindGroupEntries
+                    });
+
+                    // Dispatch compute shader
+                    const pass = encoder.beginComputePass({ label: `compute-${nodeId}` });
+                    pass.setPipeline(pipelineData.pipeline);
+                    pass.setBindGroup(0, bindGroup);
+
+                    const workgroupSizeX = 8;
+                    const workgroupSizeY = 8;
+                    const dispatchX = Math.ceil(width / workgroupSizeX);
+                    const dispatchY = Math.ceil(height / workgroupSizeY);
+
+                    pass.dispatchWorkgroups(dispatchX, dispatchY, 1);
+                    pass.end();
+
+                } catch (error) {
+                    console.error(`[LiveViewer] Error executing compute node ${nodeId}:`, error);
+                    console.error(`[LiveViewer] Stack trace:`, error.stack);
+                    console.error(`[LiveViewer] Node data:`, nodeData);
+                }
+            }
+
+            createComputeBindGroupLayout(nodeData) {
+                const entries = [
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.COMPUTE,
+                        buffer: { type: 'uniform' }
+                    },
+                    {
+                        binding: 1,
+                        visibility: GPUShaderStage.COMPUTE,
+                        storageTexture: { access: 'write-only', format: 'rgba8unorm' }
+                    }
+                ];
+
+                // Count valid (non-null) inputs
+                const validInputs = nodeData.inputs ? nodeData.inputs.filter(inp => inp !== null).length : 0;
+
+                if (validInputs > 0) {
+                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITH ${validInputs} input(s) (inputs: ${JSON.stringify(nodeData.inputs)})`);
+
+                    // binding 2: input texture A
+                    entries.push({
+                        binding: 2,
+                        visibility: GPUShaderStage.COMPUTE,
+                        texture: { sampleType: 'float' }
+                    });
+
+                    // binding 3: shared sampler
+                    entries.push({
+                        binding: 3,
+                        visibility: GPUShaderStage.COMPUTE,
+                        sampler: { type: 'filtering' }
+                    });
+
+                    // binding 4: input texture B (for nodes with 2 inputs like ComputeMix)
+                    if (validInputs >= 2) {
+                        entries.push({
+                            binding: 4,
+                            visibility: GPUShaderStage.COMPUTE,
+                            texture: { sampleType: 'float' }
+                        });
+                    }
+                } else {
+                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITHOUT input bindings (inputs: ${JSON.stringify(nodeData.inputs)})`);
+                }
+
+                console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
+                return this.device.createBindGroupLayout({ entries });
+            }
+
+            // Fragment node helper methods
+            analyzeFragmentBindings(wgsl) {
+                const groups = {};
+                const re = /@group\((\d+)\)\s*@binding\((\d+)\)\s*var(?:<(\w+)>)?\s+([\w_]+)\s*:\s*([^;]+);/g;
+
+                let match;
+                while ((match = re.exec(wgsl)) !== null) {
+                    const groupIndex = parseInt(match[1], 10);
+                    const bindingIndex = parseInt(match[2], 10);
+                    const varName = match[4];
+                    const typeStr = match[5].trim();
+
+                    let kind = 'uniform-buffer';
+                    if (/^sampler/.test(typeStr)) kind = 'sampler';
+                    else if (/^texture_2d/.test(typeStr)) kind = 'texture-2d';
+                    else if (/^texture_cube/.test(typeStr)) kind = 'texture-cube';
+
+                    if (!groups[groupIndex]) groups[groupIndex] = {};
+                    groups[groupIndex][bindingIndex] = { kind, varName, typeStr };
+                }
+
+                return { groups };
+            }
+
+            createFragmentBindResources(bindingMap, parameterValues) {
+                const groupIndices = Object.keys(bindingMap.groups).map(Number).sort((a, b) => a - b);
+
+                const layouts = [];
+                const bindGroups = [];
+                const uniformBuffers = new Map();
+
+                for (const groupIndex of groupIndices) {
+                    const bindings = bindingMap.groups[groupIndex];
+                    const entries = [];
+                    const resources = [];
+
+                    for (const bindingKey of Object.keys(bindings)) {
+                        const binding = parseInt(bindingKey, 10);
+                        const meta = bindings[binding];
+
+                        // Create layout entry
+                        const layoutEntry = this.createFragmentLayoutEntry(meta.kind, binding);
+                        entries.push(layoutEntry);
+
+                        // Create resource
+                        const resource = this.createFragmentResource(meta, uniformBuffers, parameterValues);
+                        resources.push({ binding, resource });
+                    }
+
+                    // Create layout
+                    const layout = this.device.createBindGroupLayout({ entries });
+                    layouts.push(layout);
+
+                    // Create bind group
+                    const bindGroup = this.device.createBindGroup({
+                        layout,
+                        entries: resources
+                    });
+                    bindGroups.push(bindGroup);
+                }
+
+                return { layouts, bindGroups, uniformBuffers };
+            }
+
+            createFragmentLayoutEntry(kind, binding) {
+                const stages = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
+
+                switch (kind) {
+                    case 'uniform-buffer':
+                        return { binding, visibility: stages, buffer: { type: 'uniform' } };
+                    case 'sampler':
+                        return { binding, visibility: stages, sampler: {} };
+                    case 'texture-2d':
+                        return { binding, visibility: stages, texture: {} };
+                    case 'texture-cube':
+                        return { binding, visibility: stages, texture: { viewDimension: 'cube' } };
+                    default:
+                        return { binding, visibility: stages, buffer: { type: 'uniform' } };
+                }
+            }
+
+            createFragmentResource(meta, uniformBuffers, parameterValues) {
+                switch (meta.kind) {
+                    case 'uniform-buffer': {
+                        let size = 64; // Default size
+
+                        if (meta.varName === 'u') {
+                            // Aspect ratio
+                            size = 16;
+                        } else if (meta.varName === 'g') {
+                            // Globals (resolution, time, audio)
+                            size = 32;
+                        } else if (meta.varName === 'u_params') {
+                            // Parameters - use provided size if available
+                            if (parameterValues && parameterValues.length > 0) {
+                                size = Math.max(16, Math.ceil(parameterValues.length * 4 / 16) * 16);
+                            }
+                        }
+
+                        const buffer = this.device.createBuffer({
+                            size,
+                            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                            label: `uniform-${meta.varName}`
+                        });
+                        uniformBuffers.set(meta.varName, buffer);
+
+                        // Initialize parameter buffer if we have values
+                        if (meta.varName === 'u_params' && parameterValues && parameterValues.length > 0) {
+                            const data = new Float32Array(parameterValues);
+                            this.device.queue.writeBuffer(buffer, 0, data);
+                        }
+
+                        return { buffer };
+                    }
+                    case 'sampler': {
+                        // Create default sampler
+                        const sampler = this.device.createSampler({
+                            magFilter: 'linear',
+                            minFilter: 'linear'
+                        });
+                        return sampler;
+                    }
+                    case 'texture-2d':
+                    case 'texture-cube': {
+                        // Create dummy 1x1 white texture as fallback
+                        const texture = this.device.createTexture({
+                            size: [1, 1, 1],
+                            format: 'rgba8unorm',
+                            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                        });
+                        const color = new Uint8Array([255, 255, 255, 255]);
+                        this.device.queue.writeTexture({ texture }, color, { bytesPerRow: 4 }, [1, 1]);
+                        return texture.createView();
+                    }
+                    default:
+                        throw new Error(`Unknown resource kind: ${meta.kind}`);
                 }
             }
 
@@ -582,23 +1309,80 @@
                     const entries = [];
 
                     for (const bindingIndex in groupBindings) {
-                        const { kind, varName } = groupBindings[bindingIndex];
-                        const resource = this.createResource(kind, varName);
+                        const { kind, varName, typeStr } = groupBindings[bindingIndex];
+                        const resourceWrapper = this.createResource(kind, varName);
 
-                        if (resource) {
-                            entries.push({
-                                binding: parseInt(bindingIndex),
-                                resource
-                            });
+                        if (resourceWrapper) {
+                            // Unwrap resource for WebGPU bind group API
+                            // Buffers stay wrapped: { buffer: GPUBuffer }
+                            // Samplers and textures must be unwrapped: GPUSampler, GPUTextureView
+                            let resource;
+                            let isValid = false;
+
+                            if (kind === 'uniform-buffer' || kind === 'storage-buffer') {
+                                // Buffer resources stay as { buffer: GPUBuffer }
+                                isValid = resourceWrapper.buffer !== undefined;
+                                resource = resourceWrapper; // Keep wrapped
+                                if (!isValid) {
+                                    console.error(`[LiveViewer] Invalid buffer resource for ${varName}:`, resourceWrapper);
+                                }
+                            } else if (kind === 'sampler') {
+                                // Sampler resources must be unwrapped
+                                isValid = resourceWrapper.sampler !== undefined;
+                                resource = resourceWrapper.sampler; // Unwrap!
+                                if (!isValid) {
+                                    console.error(`[LiveViewer] Invalid sampler resource for ${varName}:`, resourceWrapper);
+                                }
+                            } else if (kind.includes('texture')) {
+                                // Texture resources must be unwrapped
+                                isValid = resourceWrapper.textureView !== undefined;
+                                resource = resourceWrapper.textureView; // Unwrap!
+                                if (!isValid) {
+                                    console.error(`[LiveViewer] Invalid texture resource for ${varName}:`, resourceWrapper);
+                                }
+                            }
+
+                            if (isValid) {
+                                entries.push({
+                                    binding: parseInt(bindingIndex),
+                                    resource
+                                });
+                            } else {
+                                console.error(`[LiveViewer] Skipping invalid binding ${bindingIndex} (${kind}/${varName}/${typeStr})`);
+                            }
+                        } else {
+                            console.warn(`[LiveViewer] No resource created for binding ${bindingIndex} (${kind}/${varName}/${typeStr})`);
                         }
                     }
 
                     if (entries.length > 0) {
-                        const bindGroup = this.device.createBindGroup({
-                            layout: layouts[groupIndex],
-                            entries
-                        });
-                        this.bindGroups[groupIndex] = bindGroup;
+                        try {
+                            // Debug: Log each entry before creating bind group
+                            console.log(`[LiveViewer] Creating bind group ${groupIndex} with ${entries.length} entries:`);
+                            entries.forEach((entry, idx) => {
+                                const resourceType = entry.resource.buffer ? 'buffer' :
+                                                   entry.resource.sampler ? 'sampler' :
+                                                   entry.resource.textureView ? 'textureView' :
+                                                   entry.resource.texture ? 'texture' : 'UNKNOWN';
+                                console.log(`  [${idx}] binding=${entry.binding}, type=${resourceType}`, entry.resource);
+                            });
+
+                            const bindGroup = this.device.createBindGroup({
+                                layout: layouts[groupIndex],
+                                entries
+                            });
+                            this.bindGroups[groupIndex] = bindGroup;
+                        } catch (error) {
+                            console.error(`[LiveViewer] Error creating bind group ${groupIndex}:`, error);
+                            console.error(`[LiveViewer] Failed entries:`, JSON.stringify(entries.map(e => ({
+                                binding: e.binding,
+                                hasBuffer: !!e.resource?.buffer,
+                                hasSampler: !!e.resource?.sampler,
+                                hasTextureView: !!e.resource?.textureView,
+                                resource: e.resource
+                            })), null, 2));
+                            throw error;
+                        }
                     }
                 }
             }
@@ -629,6 +1413,31 @@
                     return { buffer };
 
                 } else if (kind === 'sampler') {
+                    // Check if this is a compute node sampler
+                    // Variable names are like: sampler_compute_node_27
+                    // We need to extract just the node ID (27)
+                    const sanitizedName = varName.replace(/^(sampler_|samplerCube_)/, '');
+
+                    // Try to find matching compute output
+                    // Check both the full name and just the numeric ID
+                    let computeOutput = this.computeOutputs.get(sanitizedName);
+
+                    // If not found, try all keys to find a match
+                    if (!computeOutput) {
+                        for (const [key, value] of this.computeOutputs) {
+                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                                computeOutput = value;
+                                console.log(`[LiveViewer] Matched sampler ${varName} -> ${key}`);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (computeOutput && computeOutput.sampler) {
+                        return { sampler: computeOutput.sampler };
+                    }
+
+                    // Default sampler
                     const sampler = this.device.createSampler({
                         magFilter: 'linear',
                         minFilter: 'linear'
@@ -636,7 +1445,33 @@
                     return { sampler };
 
                 } else if (kind === 'texture-2d' || kind === 'texture-cube') {
-                    // Create dummy texture
+                    // Check if this is a compute node output texture
+                    // Variable names are like: texture_compute_node_27
+                    // We need to extract just the node ID (27)
+                    const sanitizedName = varName.replace(/^(texture_|textureCube_)/, '');
+
+                    // Try to find matching compute output
+                    // Check both the full name and just the numeric ID
+                    let computeOutput = this.computeOutputs.get(sanitizedName);
+
+                    // If not found, try all keys to find a match
+                    if (!computeOutput) {
+                        for (const [key, value] of this.computeOutputs) {
+                            if (sanitizedName.includes(key) || key.includes(sanitizedName)) {
+                                computeOutput = value;
+                                console.log(`[LiveViewer] Matched texture ${varName} -> ${key}`);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (computeOutput && computeOutput.texture) {
+                        console.log(`[LiveViewer] Using compute output texture for ${sanitizedName}`);
+                        return { textureView: computeOutput.texture.createView() };
+                    }
+
+                    // Create dummy texture as fallback
+                    console.log(`[LiveViewer] Creating dummy texture for ${varName} (no compute output found)`);
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
@@ -685,6 +1520,19 @@
                 }
 
                 try {
+                    // Get current time
+                    const time = this.syncedTime !== null ? this.syncedTime : (performance.now() - this.startTime) / 1000;
+
+                    // Execute fragment nodes FIRST (their outputs feed into compute nodes)
+                    if (this.fragmentNodes.length > 0) {
+                        this.executeFragmentNodes(time);
+                    }
+
+                    // Execute compute nodes BEFORE rendering final fragment shader
+                    if (this.computeNodes.length > 0) {
+                        this.executeComputeNodes(time);
+                    }
+
                     // Update uniforms
                     this.updateUniforms();
 
