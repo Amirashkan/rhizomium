@@ -825,6 +825,16 @@
 
                     if (entries.length > 0) {
                         try {
+                            // Debug: Log each entry before creating bind group
+                            console.log(`[LiveViewer] Creating bind group ${groupIndex} with ${entries.length} entries:`);
+                            entries.forEach((entry, idx) => {
+                                const resourceType = entry.resource.buffer ? 'buffer' :
+                                                   entry.resource.sampler ? 'sampler' :
+                                                   entry.resource.textureView ? 'textureView' :
+                                                   entry.resource.texture ? 'texture' : 'UNKNOWN';
+                                console.log(`  [${idx}] binding=${entry.binding}, type=${resourceType}`, entry.resource);
+                            });
+
                             const bindGroup = this.device.createBindGroup({
                                 layout: layouts[groupIndex],
                                 entries
@@ -832,7 +842,13 @@
                             this.bindGroups[groupIndex] = bindGroup;
                         } catch (error) {
                             console.error(`[LiveViewer] Error creating bind group ${groupIndex}:`, error);
-                            console.error(`[LiveViewer] Entries:`, entries);
+                            console.error(`[LiveViewer] Failed entries:`, JSON.stringify(entries.map(e => ({
+                                binding: e.binding,
+                                hasBuffer: !!e.resource?.buffer,
+                                hasSampler: !!e.resource?.sampler,
+                                hasTextureView: !!e.resource?.textureView,
+                                resource: e.resource
+                            })), null, 2));
                             throw error;
                         }
                     }
