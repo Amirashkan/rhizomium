@@ -619,10 +619,14 @@
                         { binding: 1, resource: outputTexture.createView() }
                     ];
 
+                    console.log(`[LiveViewer] Creating bind group for node ${nodeId}, inputs: ${JSON.stringify(nodeData.inputs)}, inputs[0]: ${nodeData.inputs?.[0]}`);
+
                     // Add input texture if the node has inputs
                     if (nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null) {
                         const inputNodeId = nodeData.inputs[0];
                         const inputOutput = this.computeOutputs.get(inputNodeId);
+
+                        console.log(`[LiveViewer] Node ${nodeId} checking for input from node ${inputNodeId}, found: ${!!inputOutput}`);
 
                         if (inputOutput && inputOutput.texture && inputOutput.sampler) {
                             // binding 2: input texture
@@ -672,8 +676,14 @@
                                 binding: 3,
                                 resource: fallbackSampler
                             });
+
+                            console.log(`[LiveViewer] Added fallback texture/sampler for node ${nodeId} (bindings 2 & 3)`);
                         }
+                    } else {
+                        console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
                     }
+
+                    console.log(`[LiveViewer] Bind group for node ${nodeId} has ${bindGroupEntries.length} entries (expected: ${pipelineData.bindGroupLayout ? 'from layout' : 'unknown'})`);
 
                     // Create bind group
                     const bindGroup = this.device.createBindGroup({
@@ -715,6 +725,7 @@
 
                 // Add input texture bindings if the node has inputs
                 if (nodeData.inputs && nodeData.inputs.length > 0 && nodeData.inputs[0] !== null) {
+                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITH input bindings (inputs: ${JSON.stringify(nodeData.inputs)})`);
                     // binding 2: input texture
                     entries.push({
                         binding: 2,
@@ -728,8 +739,11 @@
                         visibility: GPUShaderStage.COMPUTE,
                         sampler: { type: 'filtering' }
                     });
+                } else {
+                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITHOUT input bindings (inputs: ${JSON.stringify(nodeData.inputs)})`);
                 }
 
+                console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
                 return this.device.createBindGroupLayout({ entries });
             }
 
