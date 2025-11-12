@@ -433,6 +433,7 @@ export class ComputeShaderManager {
           { position: 1.0, color: [1, 1, 1, 1] }
         ];
         this.updateColorStopsBuffer(this.node.params?.colorStops || defaultColorStops);
+        console.log('[ComputeGradient] Color stops buffer initialized:', this.colorStopsBuffer);
       }
 
       // Create initial bind group (will be recreated each frame for feedback)
@@ -566,6 +567,17 @@ export class ComputeShaderManager {
           ];
           this.uniformData[10] = Math.min(colorStops.length, 8); // numStops
           this.uniformData[11] = 0.0; // padding
+
+          console.log('[ComputeGradient] Uniforms:', {
+            angle: this.uniformData[3],
+            center: [this.uniformData[4], this.uniformData[5]],
+            radius: this.uniformData[6],
+            repeat: this.uniformData[7],
+            saturation: this.uniformData[8],
+            brightness: this.uniformData[9],
+            numStops: this.uniformData[10],
+            colorMode: this.node.params?.colorMode
+          });
 
           // Update color stops storage buffer
           this.updateColorStopsBuffer(colorStops);
@@ -762,7 +774,10 @@ export class ComputeShaderManager {
 
     // Binding 2: Color stops storage buffer (for ComputeGradient)
     if (this.node?.kind === 'ComputeGradient' && this.colorStopsBuffer) {
+      console.log('[ComputeGradient] Adding color stops buffer to bind group');
       entries.push({ binding: 2, resource: { buffer: this.colorStopsBuffer } });
+    } else if (this.node?.kind === 'ComputeGradient') {
+      console.warn('[ComputeGradient] Color stops buffer not available yet!');
     }
 
     // Binding 2: Input texture (if needed and not ComputeGradient)
