@@ -836,10 +836,7 @@
 
                     // Create/get compute pipeline
                     if (!pipelineData.pipeline) {
-                        // Count valid (non-null) inputs for bind group layout
-                        const validInputs = nodeData.inputs ? nodeData.inputs.filter(inp => inp !== null).length : 0;
-
-                        // Parse shader to determine bind group layout
+                        // Parse shader to determine bind group layout based on actual WGSL bindings
                         const bindGroupLayout = this.createComputeBindGroupLayout(nodeData);
 
                         const pipelineLayout = this.device.createPipelineLayout({
@@ -855,10 +852,14 @@
                         });
 
                         pipelineData.bindGroupLayout = bindGroupLayout;
-                        pipelineData.validInputs = validInputs; // Store for consistency
 
-                        const expectedBindings = validInputs === 0 ? 2 : (validInputs === 1 ? 4 : 5);
-                        console.log(`[LiveViewer] Created compute pipeline for node ${nodeId}, validInputs: ${validInputs}, layout expects ${expectedBindings} bindings`);
+                        // Determine validInputs from WGSL instead of node.inputs
+                        const hasBinding2 = /@binding\(2\)/.test(nodeData.wgslCode);
+                        const hasBinding4 = /@binding\(4\)/.test(nodeData.wgslCode);
+                        const validInputs = hasBinding4 ? 2 : (hasBinding2 ? 1 : 0);
+                        pipelineData.validInputs = validInputs;
+
+                        console.log(`[LiveViewer] Created compute pipeline for node ${nodeId}, WGSL-detected inputs: ${validInputs}`);
                     }
 
                     // Update uniform buffer
@@ -916,12 +917,49 @@
                     // Helper function to get input texture/sampler or create fallback
                     const getInputResources = (inputIndex) => {
                         if (!nodeData.inputs || inputIndex >= nodeData.inputs.length) {
-                            return null;
+                            // WGSL has bindings but node.inputs is empty/short
+                            // Create black fallback texture
+                            console.log(`[LiveViewer] Node ${nodeId}: WGSL expects input ${inputIndex} but node.inputs is empty/short`);
+                            const fallbackTexture = this.device.createTexture({
+                                size: [resolution[0], resolution[1], 1],
+                                format: 'rgba8unorm',
+                                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                            });
+                            const black = new Uint8Array(resolution[0] * resolution[1] * 4).fill(0);
+                            this.device.queue.writeTexture(
+                                { texture: fallbackTexture },
+                                black,
+                                { bytesPerRow: resolution[0] * 4 },
+                                [resolution[0], resolution[1]]
+                            );
+                            return {
+                                texture: fallbackTexture.createView(),
+                                sampler: null,
+                                isValid: false
+                            };
                         }
 
                         const inputNodeId = nodeData.inputs[inputIndex];
-                        if (inputNodeId === null) {
-                            return null;
+                        if (inputNodeId === null || inputNodeId === undefined) {
+                            // Input slot exists but is null/undefined
+                            console.log(`[LiveViewer] Node ${nodeId}: input ${inputIndex} is null/undefined`);
+                            const fallbackTexture = this.device.createTexture({
+                                size: [resolution[0], resolution[1], 1],
+                                format: 'rgba8unorm',
+                                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+                            });
+                            const black = new Uint8Array(resolution[0] * resolution[1] * 4).fill(0);
+                            this.device.queue.writeTexture(
+                                { texture: fallbackTexture },
+                                black,
+                                { bytesPerRow: resolution[0] * 4 },
+                                [resolution[0], resolution[1]]
+                            );
+                            return {
+                                texture: fallbackTexture.createView(),
+                                sampler: null,
+                                isValid: false
+                            };
                         }
 
                         // Try to get from compute outputs first
@@ -1059,11 +1097,14 @@
                     }
                 ];
 
-                // Count valid (non-null) inputs
-                const validInputs = nodeData.inputs ? nodeData.inputs.filter(inp => inp !== null).length : 0;
+                // CRITICAL: Parse WGSL to detect actual input bindings in the shader
+                // Don't rely on node.inputs array as it might not match the compiled shader
+                const hasBinding2 = /@binding\(2\)/.test(nodeData.wgslCode);
+                const hasBinding3 = /@binding\(3\)/.test(nodeData.wgslCode);
+                const hasBinding4 = /@binding\(4\)/.test(nodeData.wgslCode);
 
-                if (validInputs > 0) {
-                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITH ${validInputs} input(s) (inputs: ${JSON.stringify(nodeData.inputs)})`);
+                if (hasBinding2) {
+                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has @binding(2), adding to layout`);
 
                     // binding 2: input texture A
                     entries.push({
@@ -1072,15 +1113,17 @@
                         texture: { sampleType: 'float' }
                     });
 
-                    // binding 3: shared sampler
-                    entries.push({
-                        binding: 3,
-                        visibility: GPUShaderStage.COMPUTE,
-                        sampler: { type: 'filtering' }
-                    });
+                    if (hasBinding3) {
+                        // binding 3: shared sampler
+                        entries.push({
+                            binding: 3,
+                            visibility: GPUShaderStage.COMPUTE,
+                            sampler: { type: 'filtering' }
+                        });
+                    }
 
-                    // binding 4: input texture B (for nodes with 2 inputs like ComputeMix)
-                    if (validInputs >= 2) {
+                    if (hasBinding4) {
+                        // binding 4: input texture B (for nodes with 2 inputs like ComputeMix)
                         entries.push({
                             binding: 4,
                             visibility: GPUShaderStage.COMPUTE,
@@ -1088,7 +1131,7 @@
                         });
                     }
                 } else {
-                    console.log(`[LiveViewer] Creating bind group layout for node ${nodeData.nodeId} WITHOUT input bindings (inputs: ${JSON.stringify(nodeData.inputs)})`);
+                    console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has no input bindings`);
                 }
 
                 console.log(`[LiveViewer] Bind group layout for node ${nodeData.nodeId} has ${entries.length} entries`);
