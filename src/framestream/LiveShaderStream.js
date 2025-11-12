@@ -139,6 +139,19 @@ export class LiveShaderStream {
             for (const key of window.nodeCompiler.uniformManager.uniformValues.keys()) {
                 uniformKeys.push(key);
             }
+
+            // DEBUG: Log colorize-related entries
+            const colorizeEntries = [];
+            for (const [key, value] of window.nodeCompiler.uniformManager.uniformValues.entries()) {
+                if (key.includes('colorize')) {
+                    colorizeEntries.push({ key, value });
+                }
+            }
+            if (colorizeEntries.length > 0) {
+                console.log('[LiveShaderStream] Colorize entries in uniformManager:', colorizeEntries);
+                console.log('[LiveShaderStream] uniformKeys:', uniformKeys);
+                console.log('[LiveShaderStream] uniformValues array:', uniformValues);
+            }
         }
 
         const message = {
