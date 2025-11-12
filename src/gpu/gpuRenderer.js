@@ -50,7 +50,9 @@ export class GPURenderer {
     this.shaderModule = null;
     this._lastAspectWritten = null;
     this.msaaTexture = null; // MSAA render target
+    this.msaaTextureSize = { width: 0, height: 0 }; // Track MSAA texture size for validation
     this.profiler = null; // ComputeProfiler instance
+    this._currentWgslCode = null; // Store current WGSL code for pipeline recreation
   }
 
   clear() {
@@ -65,6 +67,8 @@ export class GPURenderer {
   _createMSAATexture() {
     if (this.msaaTexture) {
       this.msaaTexture.destroy();
+      this.msaaTexture = null;
+      this.msaaTextureSize = { width: 0, height: 0 };
     }
 
     const width = Math.max(1, this.canvas.width);
@@ -78,12 +82,35 @@ export class GPURenderer {
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
         label: "msaa-render-target",
       });
+
+      // Store size for validation
+      this.msaaTextureSize = { width, height };
     } catch (err) {
+      console.warn('[GPURenderer] MSAA texture creation failed:', err.message);
+      console.warn('[GPURenderer] This usually happens when GPU memory is exhausted (too many nodes/textures)');
+      console.warn('[GPURenderer] Falling back to no MSAA (sampleCount = 1)');
+
       // Fall back to sampleCount = 1 (no MSAA)
+      const oldSampleCount = this.sampleCount;
       this.sampleCount = 1;
       this.msaaTexture = null;
-      // Will need to recreate pipeline without MSAA
+      this.msaaTextureSize = { width: 0, height: 0 };
 
+      // Mark that MSAA is permanently disabled to avoid retry spam
+      this._msaaDisabled = true;
+
+      // CRITICAL: If we have a pipeline with the old sample count, we need to recreate it
+      // This prevents a mismatch between pipeline MSAA settings and render pass settings
+      if (this.pipeline && oldSampleCount !== this.sampleCount && this._currentWgslCode) {
+        console.warn('[GPURenderer] Recreating pipeline with sampleCount = 1');
+        try {
+          const currentBindingMap = analyzeBindings(this._currentWgslCode);
+          this._buildLayoutsAndBindGroups(currentBindingMap);
+        } catch (pipelineErr) {
+          console.error('[GPURenderer] Failed to recreate pipeline:', pipelineErr);
+          this.pipeline = null;
+        }
+      }
     }
   }
 
@@ -116,17 +143,22 @@ export class GPURenderer {
   _entryFromKind(kind, binding) {
     switch (kind) {
       case "uniform-buffer":
-        return { binding, visibility: STAGES, buffer: { type: "uniform" } };
+        // Uniform buffers can be used in both vertex and fragment stages
+        return { binding, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX, buffer: { type: "uniform" } };
       case "storage-buffer":
-        return { binding, visibility: STAGES, buffer: { type: "read-only-storage" } };
+        // Storage buffers can be used in both stages
+        return { binding, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } };
       case "sampler":
-        return { binding, visibility: STAGES, sampler: {} };
+        // CRITICAL: Samplers should only be in FRAGMENT stage to avoid exceeding per-stage limit
+        return { binding, visibility: GPUShaderStage.FRAGMENT, sampler: {} };
       case "texture-2d":
-        return { binding, visibility: STAGES, texture: {} };
+        // CRITICAL: Textures should only be in FRAGMENT stage to avoid exceeding per-stage limit
+        return { binding, visibility: GPUShaderStage.FRAGMENT, texture: {} };
       case "texture-cube":
-        return { binding, visibility: STAGES, texture: { viewDimension: "cube" } };
+        // CRITICAL: Cube textures should only be in FRAGMENT stage
+        return { binding, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: "cube" } };
       default:
-        return { binding, visibility: STAGES, buffer: { type: "uniform" } };
+        return { binding, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX, buffer: { type: "uniform" } };
     }
   }
 
@@ -541,7 +573,8 @@ export class GPURenderer {
 
   setShaderSource(wgslCode) {
     try {
-
+      // Store WGSL code for potential pipeline recreation
+      this._currentWgslCode = wgslCode;
 
       this.shaderModule = this.device.createShaderModule({ code: wgslCode });
       this.resources = {};
@@ -748,11 +781,11 @@ export class GPURenderer {
     // CRITICAL: Update texture bindings when new files are loaded
     this._updateTextureBindings();
 
-    // Ensure MSAA texture exists and matches canvas size (only if MSAA is supported)
-    if (this.sampleCount > 1) {
+    // Ensure MSAA texture exists and matches canvas size (only if MSAA is supported and not permanently disabled)
+    if (this.sampleCount > 1 && !this._msaaDisabled) {
       if (!this.msaaTexture ||
-          this.msaaTexture.width !== this.canvas.width ||
-          this.msaaTexture.height !== this.canvas.height) {
+          this.msaaTextureSize.width !== this.canvas.width ||
+          this.msaaTextureSize.height !== this.canvas.height) {
         this._createMSAATexture();
       }
     }
@@ -794,13 +827,21 @@ export class GPURenderer {
       storeOp: "store",
     };
 
-    if (this.sampleCount > 1 && this.msaaTexture) {
-      // MSAA enabled - render to MSAA texture and resolve to canvas
-      colorAttachment.view = this.msaaTexture.createView();
-      colorAttachment.resolveTarget = this.context.getCurrentTexture().createView();
-    } else {
-      // No MSAA - render directly to canvas
-      colorAttachment.view = this.context.getCurrentTexture().createView();
+    try {
+      if (this.sampleCount > 1 && this.msaaTexture) {
+        // MSAA enabled - render to MSAA texture and resolve to canvas
+        colorAttachment.view = this.msaaTexture.createView();
+        colorAttachment.resolveTarget = this.context.getCurrentTexture().createView();
+      } else {
+        // No MSAA - render directly to canvas
+        colorAttachment.view = this.context.getCurrentTexture().createView();
+      }
+    } catch (textureErr) {
+      console.error('[GPURenderer] Failed to get canvas texture:', textureErr);
+      console.error('[GPURenderer] This likely means GPU memory is exhausted');
+      // Show a fallback color to indicate error
+      this.presentFallbackColor({ r: 0.2, g: 0, b: 0, a: 1 });
+      return;
     }
 
     const pass = encoder.beginRenderPass({
@@ -826,7 +867,12 @@ export class GPURenderer {
       this.profiler.endFrame(encoder);
     }
 
-    this.device.queue.submit([encoder.finish()]);
+    try {
+      this.device.queue.submit([encoder.finish()]);
+    } catch (submitErr) {
+      console.error('[GPURenderer] Failed to submit command buffer:', submitErr);
+      console.error('[GPURenderer] This likely means GPU memory is exhausted or the device was lost');
+    }
   }
 
   async captureFrame(options = {}) {

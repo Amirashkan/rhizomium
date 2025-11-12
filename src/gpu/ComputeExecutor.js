@@ -128,22 +128,33 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
-      // Use current canvas resolution to maintain aspect ratio
-      let width = resolution[0];
-      let height = resolution[1];
-      if (window.floatingPreview?.settings?.settings?.resolution) {
-        const canvasRes = window.floatingPreview.settings.settings.resolution;
-        // Only override if we have valid canvas dimensions
-        if (canvasRes.width > 0 && canvasRes.height > 0) {
-          width = canvasRes.width;
-          height = canvasRes.height;
-        }
+      // CRITICAL: Use a reasonable default resolution for compute textures to avoid GPU memory exhaustion
+      // With many nodes (30+), using full canvas resolution (e.g., 1920x1080) can create 60-90 textures
+      // at ~8MB each, totaling 480-720MB of GPU memory, which can exceed limits on integrated GPUs
+      //
+      // Default to 512x512 (1MB per texture) for memory efficiency
+      // This provides good quality while keeping memory usage reasonable (~30-60MB for 30 nodes)
+      //
+      // Advanced users can override this per-node in the future by setting node.computeResolution
+      const DEFAULT_COMPUTE_RES = 512;
+
+      let width = DEFAULT_COMPUTE_RES;
+      let height = DEFAULT_COMPUTE_RES;
+
+      // If the node has a custom resolution setting, use it
+      if (node.computeResolution) {
+        width = node.computeResolution[0] || DEFAULT_COMPUTE_RES;
+        height = node.computeResolution[1] || DEFAULT_COMPUTE_RES;
+      } else if (resolution && resolution[0] > 0 && resolution[1] > 0) {
+        // Use node's specified resolution, but cap it to prevent memory issues
+        width = Math.min(resolution[0], DEFAULT_COMPUTE_RES);
+        height = Math.min(resolution[1], DEFAULT_COMPUTE_RES);
       }
 
       // Ensure we have valid dimensions before initializing
       if (!width || !height || width <= 0 || height <= 0) {
-        width = 512;
-        height = 512;
+        width = DEFAULT_COMPUTE_RES;
+        height = DEFAULT_COMPUTE_RES;
       }
 
       // Detect if this node needs input textures from other compute nodes

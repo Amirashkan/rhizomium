@@ -157,7 +157,9 @@ export function buildWGSL(graph) {
     ? compiler.compilers.utility.getHelperFunctions()
     : '';
 
-  const textureBindings = TextureBindings.generate(graph);
+  // CRITICAL: Only generate bindings for nodes in the dependency chain
+  // This prevents exceeding the 16-texture-per-stage limit when there are many unused nodes
+  const textureBindings = TextureBindings.generate(graph, orderedNodes);
 
   // --- Build the final shader using the WGSL template ---
   const wgsl = generateShader(
