@@ -45,7 +45,17 @@ analyzeNode(node) {
 
     if (isMidiControlled || isComputeNode) {
       const paramKey = `${node.id}.${paramName}`;
-      const numericValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+
+      // Convert value to numeric, handling booleans properly
+      let numericValue;
+      if (typeof value === 'number') {
+        numericValue = value;
+      } else if (typeof value === 'boolean') {
+        numericValue = value ? 1.0 : 0.0;
+      } else {
+        numericValue = parseFloat(value) || 0;
+      }
+
       this.uniformValues.set(paramKey, numericValue);
     }
   }
