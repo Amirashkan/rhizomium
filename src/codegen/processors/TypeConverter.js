@@ -156,7 +156,7 @@ export class TypeConverter {
   toF32(expr, fromType) {
     switch (fromType) {
       case "f32": return expr;
-      case "vec4": return `${expr}.w`; // Extract alpha
+      case "vec4": return `dot(vec3<f32>(${expr}.x, ${expr}.y, ${expr}.z), vec3<f32>(0.299, 0.587, 0.114))`; // RGB luminance
       case "vec2": return `(${expr}.x + ${expr}.y) * 0.5`;
       case "vec3": return `(${expr}.x + ${expr}.y + ${expr}.z) / 3.0`;
       default: return expr;
