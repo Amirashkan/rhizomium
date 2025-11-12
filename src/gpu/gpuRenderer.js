@@ -529,7 +529,11 @@ export class GPURenderer {
 
     // DEBUG: Log every 60 frames (once per second at 60fps) during drag
     if (window.editor?._parameterDragging && this._dragUpdateCount % 60 === 0) {
-      console.log('[gpuRenderer] Sending parameter update during drag, first 3 values:', values.slice(0, 3));
+      console.log('[gpuRenderer] Sending parameter update during drag');
+      console.log('[gpuRenderer] uniformManager.uniformValues.size:', uniformManager.uniformValues.size);
+      console.log('[gpuRenderer] uniformValues keys:', Array.from(uniformManager.uniformValues.keys()));
+      console.log('[gpuRenderer] values array length:', values.length);
+      console.log('[gpuRenderer] first 5 values:', values.slice(0, 5));
     }
     if (window.editor?._parameterDragging) {
       this._dragUpdateCount = (this._dragUpdateCount || 0) + 1;
