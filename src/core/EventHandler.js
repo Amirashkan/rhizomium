@@ -29,6 +29,9 @@ export class EventHandler {
     // Performance optimization: throttle node/wire drag updates to max 60fps
     this._dragUpdateScheduled = false;
     this._pendingDragEvent = null;
+    // Track user activity to detect inactivity and warm up GPU
+    this._lastInteractionTime = Date.now();
+    this._inactivityThreshold = 10000; // 10 seconds
 
     this._setupEvents();
   }
@@ -71,6 +74,29 @@ export class EventHandler {
       this._pendingFrame = null;
       this.onDraw();
     });
+  }
+
+  // Check for inactivity and warm up GPU if needed
+  // Call this at the START of any user interaction to prevent lag
+  _checkAndWarmupAfterInactivity() {
+    const now = Date.now();
+    const timeSinceLastInteraction = now - this._lastInteractionTime;
+
+    // If inactive for more than threshold, warm up GPU synchronously
+    if (timeSinceLastInteraction > this._inactivityThreshold) {
+      // Force immediate synchronous render to warm up GPU resources
+      // This prevents lag on first action after inactivity
+      if (this.editor?.renderLoopController) {
+        try {
+          this.editor.renderLoopController.renderNow({ advance: false });
+        } catch (error) {
+          console.warn('[EventHandler] GPU warmup after inactivity failed:', error);
+        }
+      }
+    }
+
+    // Update last interaction time
+    this._lastInteractionTime = now;
   }
 
   _setupPanEvents() {
@@ -147,6 +173,9 @@ export class EventHandler {
     this.canvas.addEventListener(
       "wheel",
       (e) => {
+        // Warm up GPU if user has been inactive for >10 seconds
+        this._checkAndWarmupAfterInactivity();
+
         const rect = this.canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -256,6 +285,10 @@ export class EventHandler {
     document.addEventListener("contextmenu", suppressDefaultContext, true);
 
     this.canvas.addEventListener("mousedown", (e) => {
+      // Warm up GPU if user has been inactive for >10 seconds
+      // This prevents lag on first action after inactivity
+      this._checkAndWarmupAfterInactivity();
+
       const pos = this._getCanvasPosition(e);
 
       if (this.checkPreviewControlClick(pos)) {
@@ -514,6 +547,9 @@ export class EventHandler {
 
   _setupKeyboardEvents() {
     window.addEventListener("keydown", (e) => {
+      // Warm up GPU if user has been inactive for >10 seconds
+      this._checkAndWarmupAfterInactivity();
+
       if (e.key === "Escape") {
         this.menu.hide();
         this.paramPanel.hide();
