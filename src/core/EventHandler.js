@@ -23,6 +23,15 @@ export class EventHandler {
     // Performance optimization: throttle rendering with requestAnimationFrame
     this._pendingFrame = null;
     this._needsRender = false;
+    // Performance optimization: throttle pan updates to max 60fps
+    this._panUpdateScheduled = false;
+    this._pendingPanUpdate = null;
+    // Performance optimization: throttle node/wire drag updates to max 60fps
+    this._dragUpdateScheduled = false;
+    this._pendingDragEvent = null;
+    // Track user activity to detect inactivity and warm up GPU
+    this._lastInteractionTime = Date.now();
+    this._inactivityThreshold = 10000; // 10 seconds
 
     this._setupEvents();
   }
@@ -67,11 +76,38 @@ export class EventHandler {
     });
   }
 
+  // Check for inactivity and warm up GPU if needed
+  // Call this at the START of any user interaction to prevent lag
+  _checkAndWarmupAfterInactivity() {
+    const now = Date.now();
+    const timeSinceLastInteraction = now - this._lastInteractionTime;
+
+    // If inactive for more than threshold, warm up GPU synchronously
+    if (timeSinceLastInteraction > this._inactivityThreshold) {
+      // Force immediate synchronous render to warm up GPU resources
+      // This prevents lag on first action after inactivity
+      if (this.editor?.renderLoopController) {
+        try {
+          this.editor.renderLoopController.renderNow({ advance: false });
+        } catch (error) {
+          console.warn('[EventHandler] GPU warmup after inactivity failed:', error);
+        }
+      }
+    }
+
+    // Update last interaction time
+    this._lastInteractionTime = now;
+  }
+
   _setupPanEvents() {
     window.addEventListener(
       "mouseup",
       (e) => {
         this.viewport.stopPan();
+        // Clear any pending pan updates
+        this._pendingPanUpdate = null;
+        this._panUpdateScheduled = false;
+
         if (this._panCandidate && e.button === 0) {
           if (!this._panCandidate.moved) {
             const currentSelection = this.selection?.graph?.selection;
@@ -96,7 +132,12 @@ export class EventHandler {
     window.addEventListener(
       "mousemove",
       (e) => {
-        if (this.viewport.updatePan(e.clientX, e.clientY)) {
+        // Check if we're currently panning
+        if (this.viewport.isPanning()) {
+          // Store the pending pan update position
+          this._pendingPanUpdate = { clientX: e.clientX, clientY: e.clientY };
+
+          // Track movement for click vs drag detection
           if (this._panCandidate) {
             const dx = Math.abs(e.clientX - this._panCandidate.startClientX);
             const dy = Math.abs(e.clientY - this._panCandidate.startClientY);
@@ -104,7 +145,22 @@ export class EventHandler {
               this._panCandidate.moved = true;
             }
           }
-          this._requestDraw('pan');
+
+          // Only schedule one update per animation frame for performance
+          if (!this._panUpdateScheduled) {
+            this._panUpdateScheduled = true;
+            requestAnimationFrame(() => {
+              this._panUpdateScheduled = false;
+              if (this._pendingPanUpdate) {
+                const { clientX, clientY } = this._pendingPanUpdate;
+                if (this.viewport.updatePan(clientX, clientY)) {
+                  this._requestDraw('pan');
+                }
+                this._pendingPanUpdate = null;
+              }
+            });
+          }
+
           e.preventDefault();
           e.stopPropagation();
         }
@@ -117,6 +173,9 @@ export class EventHandler {
     this.canvas.addEventListener(
       "wheel",
       (e) => {
+        // Warm up GPU if user has been inactive for >10 seconds
+        this._checkAndWarmupAfterInactivity();
+
         const rect = this.canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -226,6 +285,10 @@ export class EventHandler {
     document.addEventListener("contextmenu", suppressDefaultContext, true);
 
     this.canvas.addEventListener("mousedown", (e) => {
+      // Warm up GPU if user has been inactive for >10 seconds
+      // This prevents lag on first action after inactivity
+      this._checkAndWarmupAfterInactivity();
+
       const pos = this._getCanvasPosition(e);
 
       if (this.checkPreviewControlClick(pos)) {
@@ -368,35 +431,66 @@ export class EventHandler {
         }
       }
 
-      const pos = this._getCanvasPosition(e);
+      // Check if we're in any drag state that needs throttling
+      const isDraggingWire = this.connections.getDragWire();
+      const isDraggingNodes = this.selection.getDragging();
+      const isBoxSelecting = this.selection.getBoxSelect();
 
-      // Track cursor position for paste/duplicate operations
-      this.lastCanvasPos = { x: pos.x, y: pos.y };
+      if (isDraggingWire || isDraggingNodes || isBoxSelecting) {
+        // Store the pending event for throttled processing
+        this._pendingDragEvent = e;
 
-      // Handle wire dragging
-      if (this.connections.getDragWire()) {
-        this.connections.updateWireDrag(pos);
-        this._requestDraw('wire-drag-update');
-        return;
-      }
+        // Only schedule one update per animation frame for performance
+        if (!this._dragUpdateScheduled) {
+          this._dragUpdateScheduled = true;
+          requestAnimationFrame(() => {
+            this._dragUpdateScheduled = false;
+            if (this._pendingDragEvent) {
+              const pendingEvent = this._pendingDragEvent;
+              this._pendingDragEvent = null;
 
-      // Handle box selection
-      if (this.selection.getBoxSelect()) {
-        this.selection.updateBoxSelect(pos.x, pos.y);
-        this._requestDraw('box-select-update');
-        return;
-      }
+              // Calculate canvas position once per frame
+              const pos = this._getCanvasPosition(pendingEvent);
 
-      // Handle node dragging
-      if (this.selection.getDragging()) {
-        this.selection.updateDrag(pos.x, pos.y);
-        this._requestDraw('node-drag-update');
+              // Track cursor position for paste/duplicate operations
+              this.lastCanvasPos = { x: pos.x, y: pos.y };
+
+              // Handle wire dragging
+              if (this.connections.getDragWire()) {
+                this.connections.updateWireDrag(pos);
+                this._requestDraw('wire-drag-update');
+                return;
+              }
+
+              // Handle box selection
+              if (this.selection.getBoxSelect()) {
+                this.selection.updateBoxSelect(pos.x, pos.y);
+                this._requestDraw('box-select-update');
+                return;
+              }
+
+              // Handle node dragging
+              if (this.selection.getDragging()) {
+                this.selection.updateDrag(pos.x, pos.y);
+                this._requestDraw('node-drag-update');
+              }
+            }
+          });
+        }
+      } else {
+        // Not dragging anything - still need to track cursor for paste/duplicate
+        const pos = this._getCanvasPosition(e);
+        this.lastCanvasPos = { x: pos.x, y: pos.y };
       }
     });
 
-    // Mouse up - end interactions 
+    // Mouse up - end interactions
     window.addEventListener("mouseup", (e) => {
       this._zoomDragState = null;
+      // Clear any pending drag updates
+      this._pendingDragEvent = null;
+      this._dragUpdateScheduled = false;
+
       const pos = this._getCanvasPosition(e);
 
       // End wire drag - support bidirectional connections
@@ -453,6 +547,9 @@ export class EventHandler {
 
   _setupKeyboardEvents() {
     window.addEventListener("keydown", (e) => {
+      // Warm up GPU if user has been inactive for >10 seconds
+      this._checkAndWarmupAfterInactivity();
+
       if (e.key === "Escape") {
         this.menu.hide();
         this.paramPanel.hide();
