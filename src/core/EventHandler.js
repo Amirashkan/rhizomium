@@ -23,6 +23,9 @@ export class EventHandler {
     // Performance optimization: throttle rendering with requestAnimationFrame
     this._pendingFrame = null;
     this._needsRender = false;
+    // Performance optimization: throttle pan updates to max 60fps
+    this._panUpdateScheduled = false;
+    this._pendingPanUpdate = null;
 
     this._setupEvents();
   }
@@ -72,6 +75,10 @@ export class EventHandler {
       "mouseup",
       (e) => {
         this.viewport.stopPan();
+        // Clear any pending pan updates
+        this._pendingPanUpdate = null;
+        this._panUpdateScheduled = false;
+
         if (this._panCandidate && e.button === 0) {
           if (!this._panCandidate.moved) {
             const currentSelection = this.selection?.graph?.selection;
@@ -96,7 +103,12 @@ export class EventHandler {
     window.addEventListener(
       "mousemove",
       (e) => {
-        if (this.viewport.updatePan(e.clientX, e.clientY)) {
+        // Check if we're currently panning
+        if (this.viewport.isPanning()) {
+          // Store the pending pan update position
+          this._pendingPanUpdate = { clientX: e.clientX, clientY: e.clientY };
+
+          // Track movement for click vs drag detection
           if (this._panCandidate) {
             const dx = Math.abs(e.clientX - this._panCandidate.startClientX);
             const dy = Math.abs(e.clientY - this._panCandidate.startClientY);
@@ -104,7 +116,22 @@ export class EventHandler {
               this._panCandidate.moved = true;
             }
           }
-          this._requestDraw('pan');
+
+          // Only schedule one update per animation frame for performance
+          if (!this._panUpdateScheduled) {
+            this._panUpdateScheduled = true;
+            requestAnimationFrame(() => {
+              this._panUpdateScheduled = false;
+              if (this._pendingPanUpdate) {
+                const { clientX, clientY } = this._pendingPanUpdate;
+                if (this.viewport.updatePan(clientX, clientY)) {
+                  this._requestDraw('pan');
+                }
+                this._pendingPanUpdate = null;
+              }
+            });
+          }
+
           e.preventDefault();
           e.stopPropagation();
         }
