@@ -26,6 +26,9 @@ export class EventHandler {
     // Performance optimization: throttle pan updates to max 60fps
     this._panUpdateScheduled = false;
     this._pendingPanUpdate = null;
+    // Performance optimization: throttle node/wire drag updates to max 60fps
+    this._dragUpdateScheduled = false;
+    this._pendingDragEvent = null;
 
     this._setupEvents();
   }
@@ -395,35 +398,66 @@ export class EventHandler {
         }
       }
 
-      const pos = this._getCanvasPosition(e);
+      // Check if we're in any drag state that needs throttling
+      const isDraggingWire = this.connections.getDragWire();
+      const isDraggingNodes = this.selection.getDragging();
+      const isBoxSelecting = this.selection.getBoxSelect();
 
-      // Track cursor position for paste/duplicate operations
-      this.lastCanvasPos = { x: pos.x, y: pos.y };
+      if (isDraggingWire || isDraggingNodes || isBoxSelecting) {
+        // Store the pending event for throttled processing
+        this._pendingDragEvent = e;
 
-      // Handle wire dragging
-      if (this.connections.getDragWire()) {
-        this.connections.updateWireDrag(pos);
-        this._requestDraw('wire-drag-update');
-        return;
-      }
+        // Only schedule one update per animation frame for performance
+        if (!this._dragUpdateScheduled) {
+          this._dragUpdateScheduled = true;
+          requestAnimationFrame(() => {
+            this._dragUpdateScheduled = false;
+            if (this._pendingDragEvent) {
+              const pendingEvent = this._pendingDragEvent;
+              this._pendingDragEvent = null;
 
-      // Handle box selection
-      if (this.selection.getBoxSelect()) {
-        this.selection.updateBoxSelect(pos.x, pos.y);
-        this._requestDraw('box-select-update');
-        return;
-      }
+              // Calculate canvas position once per frame
+              const pos = this._getCanvasPosition(pendingEvent);
 
-      // Handle node dragging
-      if (this.selection.getDragging()) {
-        this.selection.updateDrag(pos.x, pos.y);
-        this._requestDraw('node-drag-update');
+              // Track cursor position for paste/duplicate operations
+              this.lastCanvasPos = { x: pos.x, y: pos.y };
+
+              // Handle wire dragging
+              if (this.connections.getDragWire()) {
+                this.connections.updateWireDrag(pos);
+                this._requestDraw('wire-drag-update');
+                return;
+              }
+
+              // Handle box selection
+              if (this.selection.getBoxSelect()) {
+                this.selection.updateBoxSelect(pos.x, pos.y);
+                this._requestDraw('box-select-update');
+                return;
+              }
+
+              // Handle node dragging
+              if (this.selection.getDragging()) {
+                this.selection.updateDrag(pos.x, pos.y);
+                this._requestDraw('node-drag-update');
+              }
+            }
+          });
+        }
+      } else {
+        // Not dragging anything - still need to track cursor for paste/duplicate
+        const pos = this._getCanvasPosition(e);
+        this.lastCanvasPos = { x: pos.x, y: pos.y };
       }
     });
 
-    // Mouse up - end interactions 
+    // Mouse up - end interactions
     window.addEventListener("mouseup", (e) => {
       this._zoomDragState = null;
+      // Clear any pending drag updates
+      this._pendingDragEvent = null;
+      this._dragUpdateScheduled = false;
+
       const pos = this._getCanvasPosition(e);
 
       // End wire drag - support bidirectional connections
