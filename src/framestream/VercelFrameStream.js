@@ -228,7 +228,7 @@ export class VercelFrameStream {
     /**
      * Send frame from canvas
      */
-    sendFrameFromCanvas(canvas) {
+    async sendFrameFromCanvas(canvas) {
         if (!this.isStreaming || !this.connection) return;
 
         // Throttle frame rate
@@ -239,6 +239,13 @@ export class VercelFrameStream {
         this.lastFrameTime = now;
 
         try {
+            // CRITICAL: Wait for GPU frame to be presented before capturing
+            // This ensures compute shaders have finished and the frame is ready
+            const gpuRenderer = window.gpuRenderer;
+            if (gpuRenderer && typeof gpuRenderer.waitForFrame === 'function') {
+                await gpuRenderer.waitForFrame();
+            }
+
             // Convert canvas to base64
             const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
             const base64 = dataUrl.split(',')[1];
@@ -258,7 +265,7 @@ export class VercelFrameStream {
             this.framesSent++;
 
         } catch (error) {
-
+            // Silently handle errors to avoid spamming console
         }
     }
 

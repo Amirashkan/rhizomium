@@ -181,7 +181,7 @@ export class BroadcastFrameStream {
      * Send a frame from a canvas
      * @param {HTMLCanvasElement} canvas - Source canvas
      */
-    sendFrameFromCanvas(canvas) {
+    async sendFrameFromCanvas(canvas) {
         if (!this.isStreaming || !this.channel) return;
 
         // Throttle to 60 FPS to prevent overwhelming the viewer
@@ -196,6 +196,13 @@ export class BroadcastFrameStream {
         this.lastFrameTime = now;
 
         try {
+            // CRITICAL: Wait for GPU frame to be presented before capturing
+            // This ensures compute shaders have finished and the frame is ready
+            const gpuRenderer = window.gpuRenderer;
+            if (gpuRenderer && typeof gpuRenderer.waitForFrame === 'function') {
+                await gpuRenderer.waitForFrame();
+            }
+
             // For WebGPU canvases, we need to use an offscreen 2D canvas
             // to read the pixels (WebGPU canvases don't have getContext('2d'))
 
@@ -243,7 +250,7 @@ export class BroadcastFrameStream {
             this.framesSent++;
 
         } catch (error) {
-
+            // Silently handle errors to avoid spamming console
         }
     }
 

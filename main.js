@@ -2465,22 +2465,29 @@ function handleRenderFrame(frameState) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
   } else if (window.gpuRenderer) {
-    // Normal rendering
-    window.gpuRenderer.render({ timeSec: frameState.simTime });
+    // Normal rendering - render() is async and handles compute shaders
+    const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
 
     // Stream frames to external viewers if enabled
     // NOTE: Now streams during parameter drag for real-time external view updates
+    // CRITICAL: Frame capture happens asynchronously after render completes
+    // This ensures compute shaders have finished and the frame is ready
     if (frameStreamingEnabled) {
       const canvas = document.getElementById('gpu-canvas');
       if (canvas) {
-        // Use BroadcastChannel for Vercel/cloud deployments
-        if (broadcastFrameStream) {
-          broadcastFrameStream.sendFrameFromCanvas(canvas);
-        }
-        // Use HTTP streaming for local development
-        else if (frameStreamClient) {
-          frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-        }
+        // Wait for render to complete, then capture frame
+        renderPromise.then(() => {
+          // Use BroadcastChannel for Vercel/cloud deployments
+          if (broadcastFrameStream) {
+            broadcastFrameStream.sendFrameFromCanvas(canvas);
+          }
+          // Use HTTP streaming for local development
+          else if (frameStreamClient) {
+            frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+          }
+        }).catch(err => {
+          // Silently handle errors to avoid breaking render loop
+        });
       }
     }
   }
