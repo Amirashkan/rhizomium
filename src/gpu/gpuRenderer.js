@@ -914,9 +914,27 @@ export class GPURenderer {
 
     try {
       this.device.queue.submit([encoder.finish()]);
+      
+      // Store promise for frame presentation - allows frame capture to wait for GPU work
+      this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
     } catch (submitErr) {
       console.error('[GPURenderer] Failed to submit command buffer:', submitErr);
       console.error('[GPURenderer] This likely means GPU memory is exhausted or the device was lost');
+      this._lastFramePromise = Promise.resolve();
+    }
+  }
+  
+  /**
+   * Wait for the last rendered frame to be presented
+   * This should be called before capturing the canvas to ensure the frame is ready
+   */
+  async waitForFrame() {
+    if (this._lastFramePromise) {
+      try {
+        await this._lastFramePromise;
+      } catch (err) {
+        // Ignore errors - frame might already be presented
+      }
     }
   }
 

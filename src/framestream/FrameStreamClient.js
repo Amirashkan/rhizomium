@@ -100,18 +100,54 @@ export class FrameStreamClient {
         }
 
         try {
-            // Get ImageData from canvas
-            const ctx = canvas.getContext('2d', { willReadFrequently: true }) ||
-                       canvas.getContext('webgl2') ||
-                       canvas.getContext('webgl');
+            // CRITICAL: Wait for GPU frame to be presented before capturing
+            // This ensures compute shaders have finished and the frame is ready
+            const gpuRenderer = window.gpuRenderer;
+            if (gpuRenderer && typeof gpuRenderer.waitForFrame === 'function') {
+                await gpuRenderer.waitForFrame();
+            }
 
+            // For WebGPU canvases, we need to use an offscreen 2D canvas
+            // to read the pixels (WebGPU canvases don't have getContext('2d'))
             let imageData;
-            if (ctx.constructor.name.includes('WebGL')) {
-                // WebGL context - read pixels directly
-                imageData = this.readWebGLPixels(ctx, canvas.width, canvas.height);
+            
+            // Check if this is a WebGPU canvas (no 2D context available)
+            const isWebGPU = !canvas.getContext('2d', { willReadFrequently: true });
+            
+            if (isWebGPU) {
+                // WebGPU canvas - use offscreen 2D canvas to capture
+                if (!this._offscreenCanvas) {
+                    this._offscreenCanvas = document.createElement('canvas');
+                    this._offscreenCtx = this._offscreenCanvas.getContext('2d', {
+                        willReadFrequently: true
+                    });
+                }
+
+                // Resize offscreen canvas if needed
+                if (this._offscreenCanvas.width !== canvas.width ||
+                    this._offscreenCanvas.height !== canvas.height) {
+                    this._offscreenCanvas.width = canvas.width;
+                    this._offscreenCanvas.height = canvas.height;
+                }
+
+                // Copy WebGPU canvas to 2D canvas using drawImage
+                this._offscreenCtx.drawImage(canvas, 0, 0);
+
+                // Read pixels from 2D canvas
+                imageData = this._offscreenCtx.getImageData(0, 0, canvas.width, canvas.height);
             } else {
-                // 2D context
-                imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                // Get ImageData from canvas (2D or WebGL)
+                const ctx = canvas.getContext('2d', { willReadFrequently: true }) ||
+                           canvas.getContext('webgl2') ||
+                           canvas.getContext('webgl');
+
+                if (ctx.constructor.name.includes('WebGL')) {
+                    // WebGL context - read pixels directly
+                    imageData = this.readWebGLPixels(ctx, canvas.width, canvas.height);
+                } else {
+                    // 2D context
+                    imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                }
             }
 
             // Convert to RGB if needed
@@ -139,7 +175,7 @@ export class FrameStreamClient {
             }
 
         } catch (error) {
-
+            // Silently handle errors to avoid spamming console
         }
     }
 
