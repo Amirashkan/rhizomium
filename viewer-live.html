@@ -1600,6 +1600,10 @@
                     if (nodeId.startsWith('compute_node_')) {
                         nodeId = nodeId.replace(/^compute_node_/, '');
                     }
+                    // If it's a fragment node sampler, extract the ID
+                    if (nodeId.startsWith('fragment_node_')) {
+                        nodeId = nodeId.replace(/^fragment_node_/, '');
+                    }
 
                     // Try to find matching compute output by exact ID match first
                     let computeOutput = this.computeOutputs.get(nodeId);
@@ -1611,7 +1615,7 @@
                         //     console.log(`[LiveViewer] Matched sampler ${varName} with node_ prefix: node_${nodeId}`);
                         // }
                     }
-
+ 
                     // If still not found, try partial matching
                     if (!computeOutput) {
                         for (const [key, value] of this.computeOutputs) {
@@ -1632,8 +1636,35 @@
                         return { sampler: computeOutput.sampler };
                     }
 
+                    // Try to find matching fragment output by exact ID match first
+                    let fragmentOutput = this.fragmentOutputs.get(nodeId);
+
+                    // If not found, try with "node_" prefix (registry keys might have this prefix)
+                    if (!fragmentOutput) {
+                        fragmentOutput = this.fragmentOutputs.get('node_' + nodeId);
+                    }
+
+                    // If still not found, try partial matching
+                    if (!fragmentOutput) {
+                        for (const [key, value] of this.fragmentOutputs) {
+                            // Try matching with the stripped nodeId or with node_ prefix
+                            if (nodeId === key ||
+                                `node_${nodeId}` === key ||
+                                varName.includes(key) ||
+                                key.includes(nodeId)) {
+                                fragmentOutput = value;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (fragmentOutput && fragmentOutput.sampler) {
+                        // console.log(`[LiveViewer] Using fragment sampler for ${varName} (nodeId: ${nodeId})`);
+                        return { sampler: fragmentOutput.sampler };
+                    }
+
                     // Default sampler
-                    // console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute output found)`);
+                    // console.log(`[LiveViewer] Creating default sampler for ${varName} (no compute/fragment output found)`);
                     const sampler = this.device.createSampler({
                         magFilter: 'linear',
                         minFilter: 'linear'
@@ -1653,6 +1684,10 @@
                     // If it's a compute node texture, extract the ID
                     if (nodeId.startsWith('compute_node_')) {
                         nodeId = nodeId.replace(/^compute_node_/, '');
+                    }
+                    // If it's a fragment node texture, extract the ID
+                    if (nodeId.startsWith('fragment_node_')) {
+                        nodeId = nodeId.replace(/^fragment_node_/, '');
                     }
 
                     // Try to find matching compute output by exact ID match first
@@ -1686,9 +1721,37 @@
                         return { textureView: computeOutput.texture.createView() };
                     }
 
+                    // Try to find matching fragment output by exact ID match first
+                    let fragmentOutput = this.fragmentOutputs.get(nodeId);
+
+                    // If not found, try with "node_" prefix (registry keys might have this prefix)
+                    if (!fragmentOutput) {
+                        fragmentOutput = this.fragmentOutputs.get('node_' + nodeId);
+                    }
+
+                    // If still not found, try partial matching
+                    if (!fragmentOutput) {
+                        for (const [key, value] of this.fragmentOutputs) {
+                            // Try matching with the stripped nodeId or with node_ prefix
+                            if (nodeId === key ||
+                                `node_${nodeId}` === key ||
+                                varName.includes(key) ||
+                                key.includes(nodeId)) {
+                                fragmentOutput = value;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (fragmentOutput && fragmentOutput.texture) {
+                        // console.log(`[LiveViewer] Using fragment output texture for ${varName} (nodeId: ${nodeId})`);
+                        return { textureView: fragmentOutput.texture.createView() };
+                    }
+
                     // Create dummy texture as fallback
-                    // console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute output found)`);
+                    // console.log(`[LiveViewer] Creating dummy texture for ${varName} (nodeId: ${nodeId}, no compute/fragment output found)`);
                     // console.log(`[LiveViewer] Available compute outputs:`, Array.from(this.computeOutputs.keys()));
+                    // console.log(`[LiveViewer] Available fragment outputs:`, Array.from(this.fragmentOutputs.keys()));
                     const texture = this.device.createTexture({
                         size: [1, 1, 1],
                         format: 'rgba8unorm',
@@ -1743,6 +1806,15 @@
                     // Execute fragment nodes FIRST (their outputs feed into compute nodes)
                     if (this.fragmentNodes.length > 0) {
                         this.executeFragmentNodes(time);
+
+                        // CRITICAL: Recreate bind groups after fragment execution
+                        // to capture the fresh fragment output textures for compute nodes and final shader
+                        // ONLY recreate if not done recently to avoid destroyed texture errors
+                        const now = performance.now();
+                        if (!this._lastBindGroupRecreate || (now - this._lastBindGroupRecreate) > 100) {
+                            this.recreateBindGroups();
+                            this._lastBindGroupRecreate = now;
+                        }
                     }
 
                     // Execute compute nodes BEFORE rendering final fragment shader
