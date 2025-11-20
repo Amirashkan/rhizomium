@@ -48,6 +48,12 @@ class RhizomiumViewer(mglw.WindowConfig):
         self.mode = "websocket" if self.use_websocket else "ipc"
         print(f"[rhizo_viewer] Initializing in {self.mode.upper()} mode")
 
+        # Frame dimension tracking (separate from window size)
+        self.frame_width = None
+        self.frame_height = None
+        self.frame_aspect_ratio = None
+        self.frame_components = 3  # RGB by default
+
         # IPC channel setup
         self.channel = None
         self.channel_ready = False
@@ -66,12 +72,11 @@ class RhizomiumViewer(mglw.WindowConfig):
         else:
             self._try_connect_channel()
 
-        # Create fullscreen quad
+        # Create fullscreen quad with aspect ratio support
         self._create_fullscreen_quad()
 
-        # Create texture for received frames
-        self.texture = self.ctx.texture(self.window_size, 3)
-        self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        # Texture will be created lazily when first frame arrives
+        self.texture = None
 
         # Waiting message state
         self.waiting_message = f"Waiting for {self.mode.upper()} stream..."
@@ -196,7 +201,8 @@ class RhizomiumViewer(mglw.WindowConfig):
 
     def _create_fullscreen_quad(self):
         """Create a fullscreen quad for rendering the texture."""
-        # Vertex shader
+        # Vertex shader - simple fullscreen quad
+        # Aspect ratio is handled via viewport, not shader scaling
         vertex_shader = """
         #version 330
         in vec2 in_position;
@@ -244,7 +250,17 @@ class RhizomiumViewer(mglw.WindowConfig):
 
     def render(self, time_val: float, frame_time: float):
         """Main render loop - handles both IPC and WebSocket modes"""
+        # Clear to black (will show letterboxing/pillarboxing as black bars)
         self.ctx.clear(0.0, 0.0, 0.0)
+        
+        # Set viewport for aspect ratio preservation
+        if self.frame_aspect_ratio and self.wnd:
+            vp_x, vp_y, vp_w, vp_h = self._calculate_viewport()
+            self.ctx.viewport = (vp_x, vp_y, vp_w, vp_h)
+        else:
+            # No aspect ratio yet, use full window
+            if self.wnd:
+                self.ctx.viewport = (0, 0, self.wnd.width, self.wnd.height)
 
         if self.use_websocket:
             self._render_websocket_mode()
@@ -269,9 +285,76 @@ class RhizomiumViewer(mglw.WindowConfig):
                 # Update texture with received data
                 # Note: GPUCanvas sends RGB data (3 components)
                 if data is not None and len(data) > 0:
+                    # Infer frame dimensions from data size if not known
+                    # Assuming RGB format (3 components)
+                    data_size = len(data)
+                    components = 3
+                    expected_size = 0
+                    
+                    if self.frame_width and self.frame_height:
+                        # Validate data size matches expected dimensions
+                        expected_size = self.frame_width * self.frame_height * components
+                        if data_size != expected_size:
+                            # Dimensions may have changed, try to infer new dimensions
+                            # Try common aspect ratios
+                            possible_dims = self._infer_dimensions_from_size(data_size, components)
+                            if possible_dims:
+                                width, height = possible_dims
+                                print(f"[rhizo_viewer] Detected dimension change: {width}x{height} (from data size)")
+                                self._update_texture_size(width, height, components)
+                    else:
+                        # First frame - infer dimensions from data size
+                        possible_dims = self._infer_dimensions_from_size(data_size, components)
+                        if possible_dims:
+                            width, height = possible_dims
+                            print(f"[rhizo_viewer] Inferred frame dimensions: {width}x{height} (from data size)")
+                            self._update_texture_size(width, height, components)
+                        else:
+                            # Fallback: assume square or common resolution
+                            # Try to find reasonable dimensions
+                            pixels = data_size // components
+                            # Try common aspect ratios: 16:9, 4:3, 1:1
+                            for aspect_w, aspect_h in [(16, 9), (4, 3), (1, 1)]:
+                                height = int(np.sqrt(pixels * aspect_h / aspect_w))
+                                width = int(height * aspect_w / aspect_h)
+                                if width * height * components == data_size:
+                                    print(f"[rhizo_viewer] Inferred frame dimensions: {width}x{height} (aspect {aspect_w}:{aspect_h})")
+                                    self._update_texture_size(width, height, components)
+                                    break
+                            else:
+                                # Last resort: assume square
+                                side = int(np.sqrt(pixels))
+                                if side * side * components == data_size:
+                                    print(f"[rhizo_viewer] Inferred square frame: {side}x{side}")
+                                    self._update_texture_size(side, side, components)
+                                else:
+                                    print(f"[rhizo_viewer] Warning: Could not infer dimensions from data size {data_size}")
+                                    self._render_waiting_message()
+                                    return
+
+                    # Validate texture exists and size matches
+                    if self.texture is None:
+                        print(f"[rhizo_viewer] Error: Texture not initialized")
+                        self._render_waiting_message()
+                        return
+
+                    expected_size = self.frame_width * self.frame_height * self.frame_components
+                    if data_size != expected_size:
+                        print(f"[rhizo_viewer] Warning: Data size {data_size} doesn't match expected {expected_size} for {self.frame_width}x{self.frame_height}")
+                        # Try to update texture size
+                        possible_dims = self._infer_dimensions_from_size(data_size, components)
+                        if possible_dims:
+                            width, height = possible_dims
+                            self._update_texture_size(width, height, components)
+                        else:
+                            self._render_waiting_message()
+                            return
+
+                    # Update texture with frame data
                     self.texture.write(data.tobytes())
 
                     # Render fullscreen quad with texture
+                    # Viewport is set in render() method for aspect ratio preservation
                     self.program['tex'].value = 0
                     self.texture.use(location=0)
                     self.vao.render(moderngl.TRIANGLE_STRIP)
@@ -280,6 +363,8 @@ class RhizomiumViewer(mglw.WindowConfig):
 
             except Exception as e:
                 print(f"[rhizo_viewer] Error receiving/rendering frame: {e}")
+                import traceback
+                traceback.print_exc()
                 self._render_waiting_message()
         else:
             self._render_waiting_message()
@@ -299,21 +384,31 @@ class RhizomiumViewer(mglw.WindowConfig):
                 metadata = frame_data['metadata']
                 data = frame_data['data']
 
-                # Check if texture size needs updating
+                # Get frame dimensions from metadata
                 width = metadata['width']
                 height = metadata['height']
                 format_type = metadata['format']
                 components = 3 if format_type == 'rgb' else 4
 
-                if (width, height) != self.texture.size or self.texture.components != components:
-                    print(f"[rhizo_viewer] Updating texture size: {width}x{height} ({format_type})")
-                    self.texture = self.ctx.texture((width, height), components)
-                    self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+                # Validate frame data size
+                expected_size = width * height * components
+                if len(data) != expected_size:
+                    print(f"[rhizo_viewer] Warning: Frame data size {len(data)} doesn't match expected {expected_size} for {width}x{height}")
+                    # Try to continue anyway, but log the mismatch
+
+                # Update texture size if dimensions changed
+                self._update_texture_size(width, height, components)
+
+                if self.texture is None:
+                    print(f"[rhizo_viewer] Error: Texture not initialized")
+                    self._render_waiting_message()
+                    return
 
                 # Update texture with frame data
                 self.texture.write(data)
 
                 # Render fullscreen quad with texture
+                # Viewport is set in render() method for aspect ratio preservation
                 self.program['tex'].value = 0
                 self.texture.use(location=0)
                 self.vao.render(moderngl.TRIANGLE_STRIP)
@@ -323,7 +418,87 @@ class RhizomiumViewer(mglw.WindowConfig):
 
         except Exception as e:
             print(f"[rhizo_viewer] Error rendering WebSocket frame: {e}")
+            import traceback
+            traceback.print_exc()
             self._render_waiting_message()
+
+    def _update_texture_size(self, width: int, height: int, components: int):
+        """Update texture size if frame dimensions changed."""
+        if (self.texture is None or 
+            self.frame_width != width or 
+            self.frame_height != height or 
+            self.frame_components != components):
+            
+            # Release old texture if it exists
+            if self.texture:
+                self.texture.release()
+            
+            # Create new texture with frame dimensions
+            self.texture = self.ctx.texture((width, height), components)
+            self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            
+            # Update frame dimension tracking
+            self.frame_width = width
+            self.frame_height = height
+            self.frame_components = components
+            self.frame_aspect_ratio = width / height if height > 0 else None
+            
+            print(f"[rhizo_viewer] Texture updated: {width}x{height} ({components} components, aspect {self.frame_aspect_ratio:.3f})")
+
+    def _calculate_viewport(self):
+        """Calculate viewport with letterboxing/pillarboxing to maintain aspect ratio."""
+        if not self.frame_aspect_ratio or not self.wnd:
+            return 0, 0, self.wnd.width if self.wnd else 1920, self.wnd.height if self.wnd else 1080
+        
+        window_width = self.wnd.width
+        window_height = self.wnd.height
+        window_aspect = window_width / window_height if window_height > 0 else 1.0
+        
+        if window_aspect > self.frame_aspect_ratio:
+            # Window is wider than frame - add pillarboxing (black bars on sides)
+            viewport_width = int(window_height * self.frame_aspect_ratio)
+            viewport_height = window_height
+            viewport_x = (window_width - viewport_width) // 2
+            viewport_y = 0
+        else:
+            # Window is taller than frame - add letterboxing (black bars top/bottom)
+            viewport_width = window_width
+            viewport_height = int(window_width / self.frame_aspect_ratio)
+            viewport_x = 0
+            viewport_y = (window_height - viewport_height) // 2
+        
+        return viewport_x, viewport_y, viewport_width, viewport_height
+
+
+    def _infer_dimensions_from_size(self, data_size: int, components: int) -> Optional[tuple]:
+        """Try to infer frame dimensions from data size.
+        
+        Returns (width, height) if a reasonable match is found, None otherwise.
+        """
+        pixels = data_size // components
+        if pixels * components != data_size:
+            return None  # Data size doesn't divide evenly
+        
+        # Try common resolutions
+        common_resolutions = [
+            (1920, 1080), (1280, 720), (3840, 2160), (2560, 1440),
+            (1600, 900), (1366, 768), (1024, 768), (800, 600),
+            (640, 480), (320, 240)
+        ]
+        
+        for width, height in common_resolutions:
+            if width * height == pixels:
+                return (width, height)
+        
+        # Try to find a reasonable aspect ratio match
+        # Common aspect ratios: 16:9, 4:3, 21:9, 1:1
+        for aspect_w, aspect_h in [(16, 9), (4, 3), (21, 9), (1, 1)]:
+            height = int(np.sqrt(pixels * aspect_h / aspect_w))
+            width = int(height * aspect_w / aspect_h)
+            if width * height == pixels and width > 0 and height > 0:
+                return (width, height)
+        
+        return None
 
     def _render_waiting_message(self):
         """Render a waiting message when no stream is available."""
@@ -347,11 +522,11 @@ class RhizomiumViewer(mglw.WindowConfig):
                 self.wnd.close()
 
     def resize(self, width: int, height: int):
-        """Handle window resize."""
-        # Update texture size if needed
-        if (width, height) != self.texture.size:
-            self.texture = self.ctx.texture((width, height), 3)
-            self.texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        """Handle window resize - only update viewport, not texture size."""
+        # Window resize should NOT change texture size
+        # Texture size is based on frame dimensions, not window size
+        # The aspect ratio preservation will handle the display correctly
+        pass
 
     def close(self):
         """Clean up resources on exit."""
