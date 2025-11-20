@@ -37,6 +37,9 @@
         #canvas {
             display: block;
             image-rendering: auto;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
         }
 
         #overlay {
@@ -435,6 +438,17 @@
                     this.currentHeight = resolution.height;
                     this.canvas.width = this.currentWidth;
                     this.canvas.height = this.currentHeight;
+                    
+                    // Reconfigure WebGPU context to match new canvas size
+                    if (this.context && this.device) {
+                        this.context.configure({
+                            device: this.device,
+                            format: this.format,
+                            alphaMode: 'premultiplied',
+                            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+                        });
+                    }
+                    
                     this.updateCanvasDisplaySize();
                 }
 
@@ -475,6 +489,17 @@
                 this.currentHeight = height;
                 this.canvas.width = width;
                 this.canvas.height = height;
+                
+                // Reconfigure WebGPU context to match new canvas size
+                if (this.context && this.device) {
+                    this.context.configure({
+                        device: this.device,
+                        format: this.format,
+                        alphaMode: 'premultiplied',
+                        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+                    });
+                }
+                
                 this.updateCanvasDisplaySize();
 
                 // Recompile shader with new resolution
@@ -1934,9 +1959,11 @@
                 let displayWidth, displayHeight;
 
                 if (frameAspect > containerAspect) {
+                    // Frame is wider than container - fit to width
                     displayWidth = containerWidth;
                     displayHeight = containerWidth / frameAspect;
                 } else {
+                    // Frame is taller than container - fit to height
                     displayHeight = containerHeight;
                     displayWidth = containerHeight * frameAspect;
                 }
