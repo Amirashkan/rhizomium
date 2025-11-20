@@ -533,18 +533,26 @@
                     
                     // Force immediate render to ensure real-time updates during parameter drag
                     // This ensures parameter changes are visible immediately, not just on next frame
+                    // CRITICAL: For compute nodes, we need to ensure compute execution happens immediately
                     if (this.isRunning) {
                         // Cancel any pending render to avoid duplicate renders
                         if (this._renderScheduled) {
                             cancelAnimationFrame(this._scheduledRenderId);
+                            this._renderScheduled = false;
                         }
                         
-                        // Schedule immediate render
+                        // Schedule immediate render - use requestAnimationFrame for proper timing
+                        // but mark it so we know a render is pending
                         this._renderScheduled = true;
                         this._scheduledRenderId = requestAnimationFrame(() => {
                             this._renderScheduled = false;
                             if (this.isRunning) {
                                 // Force render with latest parameter values
+                                // This will execute compute nodes with the updated parameters
+                                // The render() function will:
+                                // 1. Execute fragment nodes
+                                // 2. Execute compute nodes (which will use the updated uniformValuesArray)
+                                // 3. Render the final shader
                                 this.render();
                             }
                         });
@@ -924,36 +932,40 @@
                 // DEBUG: Log parameter extraction for ComputeTransform to verify real-time updates
                 if (nodeData.kind === 'ComputeTransform') {
                     this._transformExtractCount = (this._transformExtractCount || 0) + 1;
-                    // Log more frequently during drag to debug
+                    // Show first few uniformKeys to see the format
+                    const sampleKeys = this.uniformKeys?.slice(0, 10) || [];
+                    const matchingKeys = this.uniformKeys?.filter(k => {
+                        if (!k || typeof k !== 'string') return false;
+                        const dotIndex = k.indexOf('.');
+                        if (dotIndex === -1) return false;
+                        const keyNodeId = k.substring(0, dotIndex);
+                        const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
+                    }) || [];
+                    
+                    // Log more frequently during drag to debug, but always log if no matches found
                     const shouldLog = (this._transformExtractCount % 10 === 0) || 
-                                     (this._transformExtractCount <= 5);
+                                     (this._transformExtractCount <= 5) ||
+                                     (matchingKeys.length === 0 && this._transformExtractCount % 30 === 0);
                     if (shouldLog) {
-                        // Show first few uniformKeys to see the format
-                        const sampleKeys = this.uniformKeys?.slice(0, 5) || [];
-                        const matchingKeys = this.uniformKeys?.filter(k => {
-                            if (!k || typeof k !== 'string') return false;
-                            const dotIndex = k.indexOf('.');
-                            if (dotIndex === -1) return false;
-                            const keyNodeId = k.substring(0, dotIndex);
-                            const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
-                            const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
-                            return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
-                        }) || [];
                         console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
                             nodeId,
                             'nodeId type': typeof nodeId,
                             'normalizedNodeId': String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_'),
                             'uniformValuesArray.length': this.uniformValuesArray.length,
                             'uniformKeys.length': this.uniformKeys?.length || 0,
-                            'sampleKeys (first 5)': sampleKeys,
+                            'sampleKeys (first 10)': sampleKeys,
                             'all uniformKeys': this.uniformKeys,
                             'matchingKeys': matchingKeys,
+                            'matchingKeys.length': matchingKeys.length,
                             'liveParams': liveParams,
                             'defaultParams': params,
                             'defaultParams.rotation': params?.rotation,
                             'liveParams.rotation': liveParams.rotation,
                             'liveParams.translateX': liveParams.translateX,
-                            'liveParams.scaleX': liveParams.scaleX
+                            'liveParams.scaleX': liveParams.scaleX,
+                            'hasLiveParams': Object.keys(liveParams).length > 0
                         });
                     }
                 }
