@@ -1352,14 +1352,27 @@
                         } else if (nodeData.kind === 'ComputeTransform') {
                             // ComputeTransform uniforms: resolution(vec2), time, translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY, _padding(vec2)
                             // CRITICAL: Evaluate expressions for all transform parameters (especially rotation with time expressions)
+                            // CRITICAL: For compute nodes, always prefer params over liveParams for expressions (liveParams only has numeric values from uniformValuesArray)
                             const oldRotation = uniformData[5]; // Store old value for comparison
-                            uniformData[3] = this._evaluateParam(liveParams.translateX !== undefined ? liveParams.translateX : params?.translateX, 0.0, time);
-                            uniformData[4] = this._evaluateParam(liveParams.translateY !== undefined ? liveParams.translateY : params?.translateY, 0.0, time);
-                            uniformData[5] = this._evaluateParam(liveParams.rotation !== undefined ? liveParams.rotation : params?.rotation, 0.0, time); // degrees
-                            uniformData[6] = this._evaluateParam(liveParams.scaleX !== undefined ? liveParams.scaleX : params?.scaleX, 1.0, time);
-                            uniformData[7] = this._evaluateParam(liveParams.scaleY !== undefined ? liveParams.scaleY : params?.scaleY, 1.0, time);
-                            uniformData[8] = this._evaluateParam(liveParams.pivotX !== undefined ? liveParams.pivotX : (liveParams.centerX !== undefined ? liveParams.centerX : (params?.pivotX || params?.centerX)), 0.5, time);
-                            uniformData[9] = this._evaluateParam(liveParams.pivotY !== undefined ? liveParams.pivotY : (liveParams.centerY !== undefined ? liveParams.centerY : (params?.pivotY || params?.centerY)), 0.5, time);
+                            const getParamValue = (liveKey, paramKey, defaultValue) => {
+                                // For compute nodes: params contain the expression strings, liveParams only has numeric values
+                                // So prioritize params for expression evaluation, but allow liveParams numeric override
+                                if (params && params[paramKey] !== undefined && (typeof params[paramKey] === 'string' || typeof params[paramKey] === 'number')) {
+                                    return params[paramKey];
+                                }
+                                if (liveParams && liveParams[liveKey] !== undefined) {
+                                    return liveParams[liveKey];
+                                }
+                                return undefined;
+                            };
+                            
+                            uniformData[3] = this._evaluateParam(getParamValue('translateX', 'translateX'), 0.0, time);
+                            uniformData[4] = this._evaluateParam(getParamValue('translateY', 'translateY'), 0.0, time);
+                            uniformData[5] = this._evaluateParam(getParamValue('rotation', 'rotation'), 0.0, time); // degrees
+                            uniformData[6] = this._evaluateParam(getParamValue('scaleX', 'scaleX'), 1.0, time);
+                            uniformData[7] = this._evaluateParam(getParamValue('scaleY', 'scaleY'), 1.0, time);
+                            uniformData[8] = this._evaluateParam(getParamValue('pivotX', 'pivotX') || getParamValue('centerX', 'centerX'), 0.5, time);
+                            uniformData[9] = this._evaluateParam(getParamValue('pivotY', 'pivotY') || getParamValue('centerY', 'centerY'), 0.5, time);
                             // padding at [10-11] (default zeros)
                             
                             // DEBUG: Log transform params when rotation changes (for real-time debugging)
@@ -1374,6 +1387,9 @@
                                     pivotX: uniformData[8],
                                     pivotY: uniformData[9],
                                     'liveParams.rotation': liveParams.rotation,
+                                    'params.rotation': params?.rotation,
+                                    'params.rotation type': typeof params?.rotation,
+                                    'time': time,
                                     'from uniformValuesArray': this.uniformValuesArray
                                 });
                             }
