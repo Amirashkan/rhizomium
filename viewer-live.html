@@ -1057,15 +1057,22 @@
                 // Update globals uniform (g)
                 const globalsBuffer = uniformBuffers.get('g');
                 if (globalsBuffer) {
+                    // Get all audio envelope values from window (set by BrowserAudioCapture)
+                    const audioEnvelope = window._audioEnvelopeValue || 0.0;
+                    const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
+                    const audioEnvelopeMids = window._audioEnvelopeMids || 0.0;
+                    const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
+                    const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
+                    
                     const globalsData = new Float32Array([
                         width,
                         height,
                         time,
-                        0, // audioEnvelope
-                        0, // audioEnvelopeBass
-                        0, // audioEnvelopeMids
-                        0, // audioEnvelopeHighs
-                        0  // audioEnvelopeFull
+                        audioEnvelope,
+                        audioEnvelopeBass,
+                        audioEnvelopeMids,
+                        audioEnvelopeHighs,
+                        audioEnvelopeFull
                     ]);
                     this.device.queue.writeBuffer(globalsBuffer, 0, globalsData);
                 }
@@ -1237,13 +1244,20 @@
                             expression = this._resolveNodeReferences(expression);
 
                             // Build evaluation context with time and node outputs
+                            // Get all audio envelope values from window (set by BrowserAudioCapture)
+                            const audioEnvelope = window._audioEnvelopeValue || 0.0;
+                            const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
+                            const audioEnvelopeMids = window._audioEnvelopeMids || 0.0;
+                            const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
+                            const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
+                            
                             const context = {
                                 time: time,
-                                audioEnvelope: 0.0, // Not available in external viewer yet
-                                audioEnvelopeBass: 0.0,
-                                audioEnvelopeMids: 0.0,
-                                audioEnvelopeHighs: 0.0,
-                                audioEnvelopeFull: 0.0
+                                audioEnvelope: audioEnvelope,
+                                audioEnvelopeBass: audioEnvelopeBass,
+                                audioEnvelopeMids: audioEnvelopeMids,
+                                audioEnvelopeHighs: audioEnvelopeHighs,
+                                audioEnvelopeFull: audioEnvelopeFull
                             };
 
                             // Replace sin, cos, tan, etc. with Math.sin, Math.cos, Math.tan, etc.
@@ -3082,15 +3096,22 @@
 
                 // Update globals uniform
                 if (this.resources['g']) {
+                    // Get all audio envelope values from window (set by BrowserAudioCapture)
+                    const audioEnvelope = window._audioEnvelopeValue || 0.0;
+                    const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;
+                    const audioEnvelopeMids = window._audioEnvelopeMids || 0.0;
+                    const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
+                    const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
+                    
                     const globalsData = new Float32Array([
                         this.canvas.width,
                         this.canvas.height,
                         time,
-                        0, // audioEnvelope
-                        0, // audioEnvelopeBass
-                        0, // audioEnvelopeMids
-                        0, // audioEnvelopeHighs
-                        0, // audioEnvelopeFull
+                        audioEnvelope,
+                        audioEnvelopeBass,
+                        audioEnvelopeMids,
+                        audioEnvelopeHighs,
+                        audioEnvelopeFull
                     ]);
                     this.device.queue.writeBuffer(this.resources['g'], 0, globalsData);
                 }
