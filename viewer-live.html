@@ -1096,6 +1096,12 @@
                     // This is especially important for nodes like ComputeWarp that have multiple inputs
                     const executionOrder = this._topologicalSortComputeNodes(this.computeNodes);
                     
+                    // Log execution order for debugging
+                    if (executionOrder.length > 1) {
+                        const orderIds = executionOrder.map(n => `${n.nodeId}(${n.kind})`).join(' -> ');
+                        console.log(`[LiveViewer] Compute node execution order: ${orderIds}`);
+                    }
+                    
                     // Execute each compute node in dependency order
                     for (const nodeData of executionOrder) {
                         this.executeComputeNode(encoder, nodeData, time);
@@ -1503,6 +1509,31 @@
                             uniformData[3] = this._evaluateParam(liveParams.amount !== undefined ? liveParams.amount : params?.amount, 0.5, time);
                             uniformData[4] = this._evaluateParam(liveParams.opacity !== undefined ? liveParams.opacity : params?.opacity, 1.0, time);
                             // padding at [5-7] (default zeros)
+                        } else if (nodeData.kind === 'ComputeWarp') {
+                            // ComputeWarp uniforms: resolution(vec2), time, strength, center.x, center.y, radius, frequency, phase, _padding
+                            // CRITICAL: Match the WGSL struct order exactly: strength, centerX, centerY, radius, frequency, phase
+                            // CRITICAL: Evaluate expressions for all parameters
+                            uniformData[3] = this._evaluateParam(liveParams.strength !== undefined ? liveParams.strength : params?.strength, 0.5, time);
+                            uniformData[4] = this._evaluateParam(liveParams.centerX !== undefined ? liveParams.centerX : params?.centerX, 0.5, time);
+                            uniformData[5] = this._evaluateParam(liveParams.centerY !== undefined ? liveParams.centerY : params?.centerY, 0.5, time);
+                            uniformData[6] = this._evaluateParam(liveParams.radius !== undefined ? liveParams.radius : params?.radius, 0.5, time);
+                            uniformData[7] = this._evaluateParam(liveParams.frequency !== undefined ? liveParams.frequency : params?.frequency, 4.0, time);
+                            uniformData[8] = this._evaluateParam(liveParams.phase !== undefined ? liveParams.phase : params?.phase, 0.0, time);
+                            // padding at [9] (default zero)
+                            
+                            // DEBUG: Log warp params occasionally
+                            this._warpDebugCount = (this._warpDebugCount || 0) + 1;
+                            if (this._warpDebugCount <= 3 || this._warpDebugCount % 120 === 0) {
+                                console.log('[LiveViewer] ComputeWarp packed uniforms:', {
+                                    strength: uniformData[3],
+                                    centerX: uniformData[4],
+                                    centerY: uniformData[5],
+                                    radius: uniformData[6],
+                                    frequency: uniformData[7],
+                                    phase: uniformData[8],
+                                    mode: params?.mode || liveParams?.mode || 'Displace'
+                                });
+                            }
                         } else if (nodeData.kind === 'ComputeTransform') {
                             // ComputeTransform uniforms: resolution(vec2), time, translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY, _padding(vec2)
                             // CRITICAL: Evaluate expressions for all transform parameters (especially rotation with time expressions)
@@ -1595,7 +1626,15 @@
                     } else {
                         // If no liveParams, use default params from nodeData
                         // This ensures the buffer is always written with valid data
-                        if (nodeData.kind === 'ComputeTransform' && params) {
+                        if (nodeData.kind === 'ComputeWarp' && params) {
+                            // CRITICAL: Evaluate expressions for all warp parameters
+                            uniformData[3] = this._evaluateParam(params.strength, 0.5, time);
+                            uniformData[4] = this._evaluateParam(params.centerX, 0.5, time);
+                            uniformData[5] = this._evaluateParam(params.centerY, 0.5, time);
+                            uniformData[6] = this._evaluateParam(params.radius, 0.5, time);
+                            uniformData[7] = this._evaluateParam(params.frequency, 4.0, time);
+                            uniformData[8] = this._evaluateParam(params.phase, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeTransform' && params) {
                             // CRITICAL: Evaluate expressions for all transform parameters
                             uniformData[3] = this._evaluateParam(params.translateX, 0.0, time);
                             uniformData[4] = this._evaluateParam(params.translateY, 0.0, time);
