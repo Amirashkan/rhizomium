@@ -154,6 +154,10 @@ export class LiveShaderStream {
             }
         }
 
+        // Compute node output values for nodes that produce simple numeric outputs
+        // This enables parameter references like =node_14 to work in the viewer
+        const nodeOutputValues = this._computeNodeOutputValues();
+
         const message = {
             type: 'shader_update',
             shaderCode: shaderCode,
@@ -162,6 +166,7 @@ export class LiveShaderStream {
             resolution: this.currentResolution,
             computeNodes: computeNodes, // Include compute node data
             fragmentNodes: fragmentNodes, // Include fragment node data for local rendering
+            nodeOutputValues: nodeOutputValues, // Node output values for parameter reference evaluation
             timestamp: Date.now()
         };
 
@@ -544,6 +549,76 @@ export class LiveShaderStream {
             currentResolution: this.currentResolution,
             hasShader: !!this.currentShader
         };
+    }
+
+    /**
+     * Compute node output values for nodes that produce simple numeric outputs
+     * This enables parameter references like =node_14 to work in the viewer
+     * @returns {Map<string, number|Array>} Map of node ID -> output value
+     */
+    _computeNodeOutputValues() {
+        const outputValues = {};
+        
+        if (!window.graph || !window.graph.nodes) {
+            return outputValues;
+        }
+
+        // Get preview computer for node value computation
+        const previewComputer = window.editor?.previewComputer;
+        const nodeValueComputer = window.editor?.nodeValueComputer;
+
+        // Process all nodes in the graph
+        for (const node of window.graph.nodes) {
+            if (!node || !node.id) continue;
+
+            // Only compute values for nodes that produce simple numeric outputs
+            // These are typically input nodes like Float, Vec2, etc.
+            const simpleOutputKinds = [
+                'Float', 'ConstFloat',
+                'Vec2', 'ConstVec2',
+                'Vec3', 'ConstVec3',
+                'Vec4', 'ConstVec4',
+                'Time', 'UV', 'Mouse'
+            ];
+
+            const isSimpleOutput = simpleOutputKinds.some(kind => 
+                node.kind && node.kind.toLowerCase().includes(kind.toLowerCase())
+            );
+
+            if (!isSimpleOutput) continue;
+
+            try {
+                let nodeValue = null;
+
+                // Try to get from preview computer (cached computed values)
+                if (previewComputer && previewComputer.lastComputedValues) {
+                    nodeValue = previewComputer.lastComputedValues.get(node.id);
+                }
+
+                // Fallback: compute value directly
+                if (nodeValue === undefined || nodeValue === null) {
+                    if (nodeValueComputer) {
+                        nodeValue = nodeValueComputer.computeNodeValue(node);
+                    } else if (window.editor) {
+                        nodeValue = window.editor.getNodeOutputValue(node);
+                    }
+                }
+
+                // If we got a valid value, store it
+                if (nodeValue !== undefined && nodeValue !== null) {
+                    // Normalize node ID for lookup (handle different ID formats)
+                    const normalizedId = String(node.id).replace(/[^a-zA-Z0-9_]/g, '_');
+                    outputValues[normalizedId] = nodeValue;
+                    // Also store with original ID format
+                    outputValues[String(node.id)] = nodeValue;
+                }
+            } catch (error) {
+                // Silently skip nodes that can't be computed
+                console.debug(`[LiveShaderStream] Could not compute output value for node ${node.id}:`, error);
+            }
+        }
+
+        return outputValues;
     }
 
     /**
