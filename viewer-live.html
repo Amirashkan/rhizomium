@@ -1248,10 +1248,14 @@
                                     octaves: uniformData[4],
                                     speed: uniformData[5],
                                     colorize: uniformData[6],
-                                    'liveParams.colorize': liveParams.colorize,
-                                    'liveParams.colorize type': typeof liveParams.colorize,
+                                    'final colorizeValue': colorizeValue,
+                                    'colorizeInUniformKeys': colorizeInUniformKeys,
+                                    'liveParams.colorize': liveParams?.colorize,
+                                    'liveParams.colorize type': typeof liveParams?.colorize,
                                     'params.colorize': params?.colorize,
-                                    'params.colorize type': typeof params?.colorize
+                                    'params.colorize type': typeof params?.colorize,
+                                    'uniformKeys (all)': this.uniformKeys,
+                                    'uniformKeys with colorize': this.uniformKeys?.filter(k => k && k.includes('colorize'))
                                 });
                             }
                         } else if (nodeData.kind === 'ComputeMix') {
