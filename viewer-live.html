@@ -602,18 +602,41 @@
                                     nodeData.params = {};
                                 }
                                 // Merge the new params, ensuring numeric values
+                                // CRITICAL: Handle boolean parameters (like colorize) correctly
                                 let updatedCount = 0;
                                 for (const [paramName, value] of Object.entries(computeNodeParams.params)) {
-                                    const numValue = typeof value === 'number' ? value : parseFloat(value);
-                                    if (!isNaN(numValue)) {
-                                        const oldValue = nodeData.params[paramName];
-                                        nodeData.params[paramName] = numValue;
-                                        updatedCount++;
-                                        
-                                        // DEBUG: Log first few updates for ComputeTransform
-                                        if (nodeData.kind === 'ComputeTransform' && this.paramUpdateCount <= 3) {
-                                            console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName} from computeNodeParams: ${oldValue} -> ${numValue}`);
+                                    let processedValue;
+                                    
+                                    // Handle boolean parameters (preserve as boolean, will be converted to 1.0/0.0 when packing uniforms)
+                                    if (typeof value === 'boolean') {
+                                        processedValue = value;
+                                    } else if (typeof value === 'number') {
+                                        processedValue = value;
+                                    } else if (typeof value === 'string') {
+                                        // Try to parse as number first
+                                        const parsed = parseFloat(value);
+                                        if (!isNaN(parsed)) {
+                                            processedValue = parsed;
+                                        } else {
+                                            // Handle boolean strings
+                                            const str = value.toLowerCase().trim();
+                                            if (str === 'true' || str === 'false') {
+                                                processedValue = str === 'true';
+                                            } else {
+                                                processedValue = value; // Keep as string if can't parse
+                                            }
                                         }
+                                    } else {
+                                        processedValue = value; // Keep original value
+                                    }
+                                    
+                                    const oldValue = nodeData.params[paramName];
+                                    nodeData.params[paramName] = processedValue;
+                                    updatedCount++;
+                                    
+                                    // DEBUG: Log first few updates
+                                    if (this.paramUpdateCount <= 3) {
+                                        console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName} from computeNodeParams: ${oldValue} -> ${processedValue} (type: ${typeof processedValue})`);
                                     }
                                 }
                                 
@@ -1171,18 +1194,44 @@
                             uniformData[3] = liveParams.scale !== undefined ? liveParams.scale : 8.0;
                             uniformData[4] = liveParams.octaves !== undefined ? liveParams.octaves : 5.0;
                             uniformData[5] = liveParams.speed !== undefined ? liveParams.speed : 0.1;
-                            uniformData[6] = liveParams.colorize !== undefined ? (liveParams.colorize ? 1.0 : 0.0) : 1.0;
+                            
+                            // CRITICAL: Handle colorize parameter - it can be boolean, number (1.0/0.0), or string
+                            let colorizeValue = 1.0; // Default to colorized
+                            if (liveParams.colorize !== undefined) {
+                                if (typeof liveParams.colorize === 'boolean') {
+                                    colorizeValue = liveParams.colorize ? 1.0 : 0.0;
+                                } else if (typeof liveParams.colorize === 'number') {
+                                    colorizeValue = liveParams.colorize > 0.5 ? 1.0 : 0.0;
+                                } else if (typeof liveParams.colorize === 'string') {
+                                    // Handle string values like "true", "false", "1", "0"
+                                    const str = liveParams.colorize.toLowerCase().trim();
+                                    colorizeValue = (str === 'true' || str === '1' || str === 'yes') ? 1.0 : 0.0;
+                                }
+                            } else if (params && params.colorize !== undefined) {
+                                // Fallback to default params if liveParams doesn't have colorize
+                                if (typeof params.colorize === 'boolean') {
+                                    colorizeValue = params.colorize ? 1.0 : 0.0;
+                                } else if (typeof params.colorize === 'number') {
+                                    colorizeValue = params.colorize > 0.5 ? 1.0 : 0.0;
+                                }
+                            }
+                            uniformData[6] = colorizeValue;
                             // padding at [7] (default zero)
 
-                            // DEBUG: Log packed uniforms
-                            if (this._computeNoiseDebugCount % 60 === 1) {
-                                console.log('[DEBUG] ComputeNoise packed uniforms:', {
+                            // DEBUG: Log packed uniforms (more frequently to catch the issue)
+                            this._computeNoiseDebugCount = (this._computeNoiseDebugCount || 0) + 1;
+                            if (this._computeNoiseDebugCount <= 5 || this._computeNoiseDebugCount % 60 === 0) {
+                                console.log('[LiveViewer] ComputeNoise packed uniforms:', {
                                     resolution: [uniformData[0], uniformData[1]],
                                     time: uniformData[2],
                                     scale: uniformData[3],
                                     octaves: uniformData[4],
                                     speed: uniformData[5],
-                                    colorize: uniformData[6]
+                                    colorize: uniformData[6],
+                                    'liveParams.colorize': liveParams.colorize,
+                                    'liveParams.colorize type': typeof liveParams.colorize,
+                                    'params.colorize': params?.colorize,
+                                    'params.colorize type': typeof params?.colorize
                                 });
                             }
                         } else if (nodeData.kind === 'ComputeMix') {
