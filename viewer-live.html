@@ -920,17 +920,24 @@
                     const shouldLog = (this._transformExtractCount % 10 === 0) || 
                                      (this._transformExtractCount <= 5);
                     if (shouldLog) {
+                        // Show first few uniformKeys to see the format
+                        const sampleKeys = this.uniformKeys?.slice(0, 5) || [];
                         const matchingKeys = this.uniformKeys?.filter(k => {
-                            const [keyNodeId] = k.split('.');
+                            if (!k || typeof k !== 'string') return false;
+                            const dotIndex = k.indexOf('.');
+                            if (dotIndex === -1) return false;
+                            const keyNodeId = k.substring(0, dotIndex);
                             const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
                             const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
                             return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
                         }) || [];
                         console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
                             nodeId,
+                            'nodeId type': typeof nodeId,
                             'normalizedNodeId': String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_'),
                             'uniformValuesArray.length': this.uniformValuesArray.length,
                             'uniformKeys.length': this.uniformKeys?.length || 0,
+                            'sampleKeys (first 5)': sampleKeys,
                             'matchingKeys': matchingKeys,
                             'liveParams': liveParams,
                             'defaultParams.rotation': params?.rotation,
@@ -1083,8 +1090,14 @@
 
                     // CRITICAL: Write uniform buffer EVERY frame to ensure latest values are used
                     // WebGPU will automatically synchronize this with the compute pass
-                    // Write the full buffer (64 floats = 256 bytes) even though ComputeTransform only uses 12 floats
-                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer, 0, uniformData.byteLength);
+                    // Write only the data we actually have (uniformData.byteLength bytes)
+                    // Make sure we don't exceed the buffer size
+                    const writeSize = Math.min(uniformData.byteLength, uniformBuffer.size);
+                    if (writeSize > 0) {
+                        this.device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer, 0, writeSize);
+                    } else {
+                        console.warn(`[LiveViewer] Cannot write uniform buffer: writeSize=${writeSize}, bufferSize=${uniformBuffer.size}, dataSize=${uniformData.byteLength}`);
+                    }
 
                     // Create bind group entries (create new bind group every frame to ensure fresh buffer reference)
                     // The bind group references the buffer, and WebGPU will ensure the write completes before the compute pass uses it
@@ -1335,16 +1348,39 @@
                     // Normalize nodeId for comparison (handle both raw and sanitized IDs)
                     const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
                     
+                    // Try multiple matching strategies since nodeId formats might differ
+                    const nodeIdVariants = [
+                        String(nodeId),                    // Original format
+                        normalizedNodeId,                  // Normalized
+                        nodeId.toString(),                 // String conversion
+                        String(nodeId).trim()              // Trimmed
+                    ];
+                    
                     for (let i = 0; i < this.uniformKeys.length; i++) {
                         const key = this.uniformKeys[i]; // Format: "nodeId.paramName"
-                        const [keyNodeId, paramName] = key.split('.');
+                        if (!key || typeof key !== 'string') continue;
+                        
+                        const dotIndex = key.indexOf('.');
+                        if (dotIndex === -1) continue; // Skip invalid keys
+                        
+                        const keyNodeId = key.substring(0, dotIndex);
+                        const paramName = key.substring(dotIndex + 1);
                         
                         // Normalize keyNodeId for comparison
                         const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
 
+                        // Try multiple matching strategies
+                        let matches = false;
+                        for (const variant of nodeIdVariants) {
+                            const normalizedVariant = String(variant).replace(/[^a-zA-Z0-9_]/g, '_');
+                            if (keyNodeId === variant || normalizedKeyNodeId === normalizedVariant) {
+                                matches = true;
+                                break;
+                            }
+                        }
+
                         // If this key belongs to our node, extract the value
-                        // Compare both raw and normalized versions to handle ID mismatches
-                        if (keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId) {
+                        if (matches) {
                             const value = this.uniformValuesArray[i];
                             if (value !== undefined) {
                                 // CRITICAL: Always use the live value from uniformValuesArray
