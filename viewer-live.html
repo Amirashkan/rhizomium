@@ -899,7 +899,10 @@
 
                 try {
                     // Log node info including inputs
-                    console.log(`[LiveViewer] Initializing compute node ${nodeId} with inputs:`, inputs);
+                    console.log(`[LiveViewer] Initializing compute node ${nodeId} (${nodeData.kind}) with inputs:`, inputs);
+                    if (nodeData.kind === 'ComputeWarp' && inputs && inputs.length >= 2) {
+                        console.log(`[LiveViewer] ComputeWarp node ${nodeId}: Input 0 (texture) = ${inputs[0]}, Input 1 (warp field) = ${inputs[1]}`);
+                    }
 
                     // CRITICAL: Ensure default params are set correctly for compute nodes
                     // Some parameters like 'colorize' have defaults that must be preserved
@@ -1089,8 +1092,12 @@
                 try {
                     const encoder = this.device.createCommandEncoder({ label: 'compute-encoder' });
 
-                    // Execute each compute node in order
-                    for (const nodeData of this.computeNodes) {
+                    // CRITICAL: Topologically sort compute nodes to ensure dependencies execute first
+                    // This is especially important for nodes like ComputeWarp that have multiple inputs
+                    const executionOrder = this._topologicalSortComputeNodes(this.computeNodes);
+                    
+                    // Execute each compute node in dependency order
+                    for (const nodeData of executionOrder) {
                         this.executeComputeNode(encoder, nodeData, time);
                     }
 
@@ -1098,6 +1105,85 @@
                 } catch (error) {
                     console.error('[LiveViewer] Error executing compute nodes:', error);
                 }
+            }
+
+            /**
+             * Topologically sort compute nodes to ensure dependencies execute before dependents
+             * This ensures that nodes like ComputeWarp's second input (warp field) are executed first
+             */
+            _topologicalSortComputeNodes(computeNodes) {
+                if (computeNodes.length <= 1) {
+                    return computeNodes;
+                }
+
+                // Build a map of nodeId -> nodeData for quick lookup
+                const nodeMap = new Map();
+                for (const nodeData of computeNodes) {
+                    nodeMap.set(String(nodeData.nodeId), nodeData);
+                }
+
+                // Build dependency graph: nodeId -> Set of dependency nodeIds
+                const dependencies = new Map();
+                for (const nodeData of computeNodes) {
+                    const nodeId = String(nodeData.nodeId);
+                    const deps = new Set();
+                    
+                    // Check all inputs (including second input for nodes like ComputeWarp)
+                    if (nodeData.inputs && Array.isArray(nodeData.inputs)) {
+                        for (const inputId of nodeData.inputs) {
+                            if (inputId !== null && inputId !== undefined) {
+                                const inputNodeId = String(inputId);
+                                // Only add as dependency if it's a compute node
+                                if (nodeMap.has(inputNodeId)) {
+                                    deps.add(inputNodeId);
+                                }
+                            }
+                        }
+                    }
+                    
+                    dependencies.set(nodeId, deps);
+                }
+
+                // Topological sort using DFS
+                const visited = new Set();
+                const visiting = new Set();
+                const result = [];
+
+                const visit = (nodeId) => {
+                    if (visited.has(nodeId)) {
+                        return;
+                    }
+
+                    if (visiting.has(nodeId)) {
+                        // Circular dependency detected, skip
+                        console.warn(`[LiveViewer] Circular dependency detected for compute node ${nodeId}`);
+                        return;
+                    }
+
+                    visiting.add(nodeId);
+                    
+                    // Visit dependencies first
+                    const deps = dependencies.get(nodeId) || new Set();
+                    for (const depId of deps) {
+                        visit(depId);
+                    }
+                    
+                    visiting.delete(nodeId);
+                    visited.add(nodeId);
+                    
+                    // Add to result
+                    const nodeData = nodeMap.get(nodeId);
+                    if (nodeData) {
+                        result.push(nodeData);
+                    }
+                };
+
+                // Visit all nodes
+                for (const nodeData of computeNodes) {
+                    visit(String(nodeData.nodeId));
+                }
+
+                return result;
             }
 
             /**
@@ -1670,6 +1756,7 @@
                         }
 
                         // Get second input if node has 2 inputs (binding 4)
+                        // CRITICAL: This is needed for ComputeWarp (warp field) and ComputeMix (input B)
                         if (validInputs >= 2) {
                             const input1 = getInputResources(1);
                             if (input1) {
@@ -1677,7 +1764,11 @@
                                     binding: 4,
                                     resource: input1.texture
                                 });
-                                // console.log(`[LiveViewer] Added input B (binding 4), entries now: ${bindGroupEntries.length}`);
+                                if (nodeData.kind === 'ComputeWarp') {
+                                    console.log(`[LiveViewer] ComputeWarp node ${nodeId}: Added warp field (binding 4) from input ${nodeData.inputs?.[1]}, isValid: ${input1.isValid}`);
+                                }
+                            } else {
+                                console.warn(`[LiveViewer] Node ${nodeId} (${nodeData.kind}) expects 2 inputs but second input is missing`);
                             }
                         }
                     } else {
