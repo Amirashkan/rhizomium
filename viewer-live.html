@@ -37,6 +37,9 @@
         #canvas {
             display: block;
             image-rendering: auto;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
         }
 
         #overlay {
@@ -435,6 +438,17 @@
                     this.currentHeight = resolution.height;
                     this.canvas.width = this.currentWidth;
                     this.canvas.height = this.currentHeight;
+                    
+                    // Reconfigure WebGPU context to match new canvas size
+                    if (this.context && this.device) {
+                        this.context.configure({
+                            device: this.device,
+                            format: this.format,
+                            alphaMode: 'premultiplied',
+                            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+                        });
+                    }
+                    
                     this.updateCanvasDisplaySize();
                 }
 
@@ -475,6 +489,17 @@
                 this.currentHeight = height;
                 this.canvas.width = width;
                 this.canvas.height = height;
+                
+                // Reconfigure WebGPU context to match new canvas size
+                if (this.context && this.device) {
+                    this.context.configure({
+                        device: this.device,
+                        format: this.format,
+                        alphaMode: 'premultiplied',
+                        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+                    });
+                }
+                
                 this.updateCanvasDisplaySize();
 
                 // Recompile shader with new resolution
@@ -488,13 +513,23 @@
 
                 // Update parameter values if provided
                 if (uniformValues && Array.isArray(uniformValues)) {
+                    // Check if values actually changed (for debugging)
+                    const valuesChanged = this.uniformValuesArray.length !== uniformValues.length || 
+                                         !this.uniformValuesArray.every((val, idx) => val === uniformValues[idx]);
+                    
                     this.uniformValuesArray = uniformValues;
 
-                    // DEBUG: Log every 60th update
+                    // DEBUG: Log updates during drag to verify they're being received
                     this.paramUpdateCount = (this.paramUpdateCount || 0) + 1;
-                    if (this.paramUpdateCount % 60 === 0) {
-                        console.log('[Viewer] Received parameter update #', this.paramUpdateCount, 'values:', uniformValues.slice(0, 3));
+                    if (this.paramUpdateCount <= 5 || this.paramUpdateCount % 60 === 0) {
+                        console.log('[Viewer] Received parameter update #', this.paramUpdateCount, 
+                                   'changed:', valuesChanged, 'values:', uniformValues.slice(0, 3));
                     }
+                    
+                    // CRITICAL: Parameter updates are now in uniformValuesArray
+                    // The render loop (running at 60fps) will pick them up on the next frame
+                    // executeComputeNodes() uses _extractNodeParams() which reads from uniformValuesArray
+                    // So updates should appear within 1 frame (~16ms at 60fps)
                 }
 
                 // Update synced time if provided
@@ -845,7 +880,21 @@
                 }
 
                 // Extract live parameter values from uniformValuesArray for this node
+                // CRITICAL: This reads from uniformValuesArray which is updated every frame via handleParameterUpdate
                 const liveParams = this._extractNodeParams(nodeId, params);
+
+                // DEBUG: Log parameter extraction for ComputeTransform to verify real-time updates
+                if (nodeData.kind === 'ComputeTransform' && (this._transformExtractCount || 0) % 60 === 0) {
+                    console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
+                        nodeId,
+                        'uniformValuesArray.length': this.uniformValuesArray.length,
+                        'uniformKeys.length': this.uniformKeys?.length || 0,
+                        'liveParams.rotation': liveParams.rotation,
+                        'defaultParams.rotation': params?.rotation,
+                        'uniformKeys for this node': this.uniformKeys?.filter(k => k.startsWith(nodeId + '.'))
+                    });
+                }
+                this._transformExtractCount = (this._transformExtractCount || 0) + 1;
 
                 // DEBUG: Log ComputeNoise params to verify extraction
                 if (nodeData.kind === 'ComputeNoise' && this._computeNoiseDebugCount % 60 === 0) {
@@ -904,6 +953,7 @@
                     // Pack parameters in the correct order based on node kind
                     // Each compute node has a specific uniform struct layout
                     // Use liveParams (from uniformValuesArray) for real-time updates during drag
+                    // CRITICAL: Always pack params, even if liveParams is empty, to ensure buffer is written
                     if (liveParams) {
                         // Common pattern: node-specific params start at index 3
                         // We need to match the WGSL uniform struct order exactly
@@ -933,6 +983,33 @@
                             uniformData[3] = liveParams.amount !== undefined ? liveParams.amount : 0.5;
                             uniformData[4] = liveParams.opacity !== undefined ? liveParams.opacity : 1.0;
                             // padding at [5-7] (default zeros)
+                        } else if (nodeData.kind === 'ComputeTransform') {
+                            // ComputeTransform uniforms: resolution(vec2), time, translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY, _padding(vec2)
+                            const oldRotation = uniformData[5]; // Store old value for comparison
+                            uniformData[3] = liveParams.translateX !== undefined ? liveParams.translateX : 0.0;
+                            uniformData[4] = liveParams.translateY !== undefined ? liveParams.translateY : 0.0;
+                            uniformData[5] = liveParams.rotation !== undefined ? liveParams.rotation : 0.0; // degrees
+                            uniformData[6] = liveParams.scaleX !== undefined ? liveParams.scaleX : 1.0;
+                            uniformData[7] = liveParams.scaleY !== undefined ? liveParams.scaleY : 1.0;
+                            uniformData[8] = liveParams.pivotX !== undefined ? liveParams.pivotX : (liveParams.centerX !== undefined ? liveParams.centerX : 0.5);
+                            uniformData[9] = liveParams.pivotY !== undefined ? liveParams.pivotY : (liveParams.centerY !== undefined ? liveParams.centerY : 0.5);
+                            // padding at [10-11] (default zeros)
+                            
+                            // DEBUG: Log transform params when rotation changes (for real-time debugging)
+                            this._transformDebugCount = (this._transformDebugCount || 0) + 1;
+                            if (Math.abs(uniformData[5] - oldRotation) > 0.01 || this._transformDebugCount % 60 === 0) {
+                                console.log('[LiveViewer] ComputeTransform params (rotation changed):', {
+                                    translateX: uniformData[3],
+                                    translateY: uniformData[4],
+                                    rotation: uniformData[5],
+                                    scaleX: uniformData[6],
+                                    scaleY: uniformData[7],
+                                    pivotX: uniformData[8],
+                                    pivotY: uniformData[9],
+                                    'liveParams.rotation': liveParams.rotation,
+                                    'from uniformValuesArray': this.uniformValuesArray
+                                });
+                            }
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             let paramIndex = 3;
@@ -945,11 +1022,27 @@
                                 }
                             }
                         }
+                    } else {
+                        // If no liveParams, use default params from nodeData
+                        // This ensures the buffer is always written with valid data
+                        if (nodeData.kind === 'ComputeTransform' && params) {
+                            uniformData[3] = params.translateX !== undefined ? params.translateX : 0.0;
+                            uniformData[4] = params.translateY !== undefined ? params.translateY : 0.0;
+                            uniformData[5] = params.rotation !== undefined ? params.rotation : 0.0;
+                            uniformData[6] = params.scaleX !== undefined ? params.scaleX : 1.0;
+                            uniformData[7] = params.scaleY !== undefined ? params.scaleY : 1.0;
+                            uniformData[8] = params.pivotX !== undefined ? params.pivotX : (params.centerX !== undefined ? params.centerX : 0.5);
+                            uniformData[9] = params.pivotY !== undefined ? params.pivotY : (params.centerY !== undefined ? params.centerY : 0.5);
+                        }
                     }
 
-                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+                    // CRITICAL: Write uniform buffer EVERY frame to ensure latest values are used
+                    // WebGPU will automatically synchronize this with the compute pass
+                    // Write the full buffer (64 floats = 256 bytes) even though ComputeTransform only uses 12 floats
+                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer, 0, uniformData.byteLength);
 
-                    // Create bind group entries
+                    // Create bind group entries (create new bind group every frame to ensure fresh buffer reference)
+                    // The bind group references the buffer, and WebGPU will ensure the write completes before the compute pass uses it
                     const bindGroupEntries = [
                         { binding: 0, resource: { buffer: uniformBuffer } },
                         { binding: 1, resource: outputTexture.createView() }
@@ -1202,6 +1295,8 @@
                         if (keyNodeId === String(nodeId)) {
                             const value = this.uniformValuesArray[i];
                             if (value !== undefined) {
+                                // CRITICAL: Always use the live value from uniformValuesArray
+                                // This ensures real-time updates during parameter drag
                                 params[paramName] = value;
                             }
                         }
@@ -1809,12 +1904,8 @@
 
                         // CRITICAL: Recreate bind groups after fragment execution
                         // to capture the fresh fragment output textures for compute nodes and final shader
-                        // ONLY recreate if not done recently to avoid destroyed texture errors
-                        const now = performance.now();
-                        if (!this._lastBindGroupRecreate || (now - this._lastBindGroupRecreate) > 100) {
-                            this.recreateBindGroups();
-                            this._lastBindGroupRecreate = now;
-                        }
+                        // Recreate every frame to ensure latest fragment outputs are used
+                        this.recreateBindGroups();
                     }
 
                     // Execute compute nodes BEFORE rendering final fragment shader
@@ -1823,12 +1914,9 @@
 
                         // CRITICAL: Recreate bind groups after compute execution
                         // to capture the fresh compute output textures
-                        // ONLY recreate if not done recently to avoid destroyed texture errors
-                        const now = performance.now();
-                        if (!this._lastBindGroupRecreate || (now - this._lastBindGroupRecreate) > 100) {
-                            this.recreateBindGroups();
-                            this._lastBindGroupRecreate = now;
-                        }
+                        // Recreate every frame to ensure latest compute outputs are used in final shader
+                        // This is necessary for real-time parameter updates during drag
+                        this.recreateBindGroups();
                     }
 
                     // Update uniforms
@@ -1934,9 +2022,11 @@
                 let displayWidth, displayHeight;
 
                 if (frameAspect > containerAspect) {
+                    // Frame is wider than container - fit to width
                     displayWidth = containerWidth;
                     displayHeight = containerWidth / frameAspect;
                 } else {
+                    // Frame is taller than container - fit to height
                     displayHeight = containerHeight;
                     displayWidth = containerHeight * frameAspect;
                 }
