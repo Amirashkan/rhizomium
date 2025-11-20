@@ -553,15 +553,30 @@
                                         nodeData.params = {};
                                     }
                                     const oldValue = nodeData.params[paramName];
-                                    // Ensure value is a number (not a string)
-                                    const numValue = typeof value === 'number' ? value : parseFloat(value);
-                                    if (!isNaN(numValue)) {
-                                        nodeData.params[paramName] = numValue;
-                                        computeNodeUpdates++;
-                                        
-                                        // DEBUG: Log first few updates for ComputeTransform
-                                        if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
-                                            console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${numValue}`);
+                                    
+                                    // CRITICAL: Don't overwrite expression strings with numeric values from uniformValuesArray
+                                    // Expression strings like "=time*20" must be preserved for evaluation each frame
+                                    const isExpression = typeof oldValue === 'string' && 
+                                        (oldValue.trim().startsWith('=') || /\btime\b/.test(oldValue) || /\baudioEnvelope/.test(oldValue));
+                                    
+                                    if (!isExpression) {
+                                        // Safe to update with numeric value (not overwriting an expression)
+                                        // Ensure value is a number (not a string)
+                                        const numValue = typeof value === 'number' ? value : parseFloat(value);
+                                        if (!isNaN(numValue)) {
+                                            nodeData.params[paramName] = numValue;
+                                            computeNodeUpdates++;
+                                            
+                                            // DEBUG: Log first few updates for ComputeTransform
+                                            if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
+                                                console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${numValue}`);
+                                            }
+                                        }
+                                    } else {
+                                        // Preserve expression string - don't overwrite with numeric value from uniformValuesArray
+                                        // The expression will be evaluated in executeComputeNode using _evaluateParam
+                                        if (this.paramUpdateCount <= 3) {
+                                            console.log(`[LiveViewer] Preserved expression for ${nodeData.nodeId}.${paramName}: "${oldValue}" (ignoring numeric update: ${value})`);
                                         }
                                     }
                                 }
