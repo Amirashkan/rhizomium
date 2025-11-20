@@ -914,17 +914,32 @@
                 const liveParams = this._extractNodeParams(nodeId, params);
 
                 // DEBUG: Log parameter extraction for ComputeTransform to verify real-time updates
-                if (nodeData.kind === 'ComputeTransform' && (this._transformExtractCount || 0) % 60 === 0) {
-                    console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
-                        nodeId,
-                        'uniformValuesArray.length': this.uniformValuesArray.length,
-                        'uniformKeys.length': this.uniformKeys?.length || 0,
-                        'liveParams.rotation': liveParams.rotation,
-                        'defaultParams.rotation': params?.rotation,
-                        'uniformKeys for this node': this.uniformKeys?.filter(k => k.startsWith(nodeId + '.'))
-                    });
+                if (nodeData.kind === 'ComputeTransform') {
+                    this._transformExtractCount = (this._transformExtractCount || 0) + 1;
+                    // Log more frequently during drag to debug
+                    const shouldLog = (this._transformExtractCount % 10 === 0) || 
+                                     (this._transformExtractCount <= 5);
+                    if (shouldLog) {
+                        const matchingKeys = this.uniformKeys?.filter(k => {
+                            const [keyNodeId] = k.split('.');
+                            const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
+                        }) || [];
+                        console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
+                            nodeId,
+                            'normalizedNodeId': String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_'),
+                            'uniformValuesArray.length': this.uniformValuesArray.length,
+                            'uniformKeys.length': this.uniformKeys?.length || 0,
+                            'matchingKeys': matchingKeys,
+                            'liveParams': liveParams,
+                            'defaultParams.rotation': params?.rotation,
+                            'liveParams.rotation': liveParams.rotation,
+                            'liveParams.translateX': liveParams.translateX,
+                            'liveParams.scaleX': liveParams.scaleX
+                        });
+                    }
                 }
-                this._transformExtractCount = (this._transformExtractCount || 0) + 1;
 
                 // DEBUG: Log ComputeNoise params to verify extraction
                 if (nodeData.kind === 'ComputeNoise' && this._computeNoiseDebugCount % 60 === 0) {
