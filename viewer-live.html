@@ -958,6 +958,30 @@
                             uniformData[3] = liveParams.amount !== undefined ? liveParams.amount : 0.5;
                             uniformData[4] = liveParams.opacity !== undefined ? liveParams.opacity : 1.0;
                             // padding at [5-7] (default zeros)
+                        } else if (nodeData.kind === 'ComputeTransform') {
+                            // ComputeTransform uniforms: resolution(vec2), time, translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY, _padding(vec2)
+                            uniformData[3] = liveParams.translateX !== undefined ? liveParams.translateX : 0.0;
+                            uniformData[4] = liveParams.translateY !== undefined ? liveParams.translateY : 0.0;
+                            uniformData[5] = liveParams.rotation !== undefined ? liveParams.rotation : 0.0; // degrees
+                            uniformData[6] = liveParams.scaleX !== undefined ? liveParams.scaleX : 1.0;
+                            uniformData[7] = liveParams.scaleY !== undefined ? liveParams.scaleY : 1.0;
+                            uniformData[8] = liveParams.pivotX !== undefined ? liveParams.pivotX : (liveParams.centerX !== undefined ? liveParams.centerX : 0.5);
+                            uniformData[9] = liveParams.pivotY !== undefined ? liveParams.pivotY : (liveParams.centerY !== undefined ? liveParams.centerY : 0.5);
+                            // padding at [10-11] (default zeros)
+                            
+                            // DEBUG: Log transform params occasionally
+                            if ((this._transformDebugCount || 0) % 60 === 0) {
+                                console.log('[LiveViewer] ComputeTransform params:', {
+                                    translateX: uniformData[3],
+                                    translateY: uniformData[4],
+                                    rotation: uniformData[5],
+                                    scaleX: uniformData[6],
+                                    scaleY: uniformData[7],
+                                    pivotX: uniformData[8],
+                                    pivotY: uniformData[9]
+                                });
+                            }
+                            this._transformDebugCount = (this._transformDebugCount || 0) + 1;
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             let paramIndex = 3;
