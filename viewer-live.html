@@ -1621,6 +1621,14 @@
                             const animateValue = liveParams.animate !== undefined ? liveParams.animate : params?.animate;
                             uniformData[8] = (typeof animateValue === 'boolean' ? (animateValue ? 1.0 : 0.0) : (animateValue ? 1.0 : 0.0));
                             uniformData[9] = this._evaluateParam(liveParams.speed !== undefined ? liveParams.speed : params?.speed, 0.5, time);
+                        } else if (nodeData.kind === 'ComputeThreshold') {
+                            // ComputeThreshold uniforms: resolution(vec2), time, threshold, thresholdMin, thresholdMax, outputLow, outputHigh
+                            // CRITICAL: Match the WGSL struct order exactly
+                            uniformData[3] = this._evaluateParam(liveParams.threshold !== undefined ? liveParams.threshold : params?.threshold, 0.5, time);
+                            uniformData[4] = this._evaluateParam(liveParams.thresholdMin !== undefined ? liveParams.thresholdMin : params?.thresholdMin, 0.3, time);
+                            uniformData[5] = this._evaluateParam(liveParams.thresholdMax !== undefined ? liveParams.thresholdMax : params?.thresholdMax, 0.7, time);
+                            uniformData[6] = this._evaluateParam(liveParams.outputLow !== undefined ? liveParams.outputLow : params?.outputLow, 0.0, time);
+                            uniformData[7] = this._evaluateParam(liveParams.outputHigh !== undefined ? liveParams.outputHigh : params?.outputHigh, 1.0, time);
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             // CRITICAL: Evaluate expressions for all parameters in generic fallback
@@ -1678,6 +1686,13 @@
                             uniformData[7] = this._evaluateParam(params.scaleY, 1.0, time);
                             uniformData[8] = this._evaluateParam(params.pivotX || params.centerX, 0.5, time);
                             uniformData[9] = this._evaluateParam(params.pivotY || params.centerY, 0.5, time);
+                        } else if (nodeData.kind === 'ComputeThreshold' && params) {
+                            // CRITICAL: Evaluate expressions for all threshold parameters
+                            uniformData[3] = this._evaluateParam(params.threshold, 0.5, time);
+                            uniformData[4] = this._evaluateParam(params.thresholdMin, 0.3, time);
+                            uniformData[5] = this._evaluateParam(params.thresholdMax, 0.7, time);
+                            uniformData[6] = this._evaluateParam(params.outputLow, 0.0, time);
+                            uniformData[7] = this._evaluateParam(params.outputHigh, 1.0, time);
                         }
                     }
 
