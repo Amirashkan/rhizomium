@@ -1195,26 +1195,39 @@
                             uniformData[4] = liveParams.octaves !== undefined ? liveParams.octaves : 5.0;
                             uniformData[5] = liveParams.speed !== undefined ? liveParams.speed : 0.1;
                             
-                            // CRITICAL: Handle colorize parameter - it can be boolean, number (1.0/0.0), or string
-                            let colorizeValue = 1.0; // Default to colorized
-                            if (liveParams.colorize !== undefined) {
+                            // CRITICAL: Handle colorize parameter - default is true (1.0) for colorized output
+                            // The parameter can be boolean, number (1.0/0.0), or string
+                            // IMPORTANT: If colorize is 0 or false, it might be explicitly set, but we need to check
+                            // if it's actually in the params. If it's missing, default to true (1.0)
+                            let colorizeValue = 1.0; // Default to colorized (true) - this is the node's default
+                            
+                            // Check if colorize is explicitly set in params (not just extracted as 0)
+                            const hasColorizeInParams = params && (params.hasOwnProperty('colorize') || 'colorize' in params);
+                            const hasColorizeInLiveParams = liveParams && (liveParams.hasOwnProperty('colorize') || 'colorize' in liveParams);
+                            
+                            // Only use the extracted value if colorize is explicitly set
+                            if (hasColorizeInLiveParams && liveParams.colorize !== undefined && liveParams.colorize !== null) {
                                 if (typeof liveParams.colorize === 'boolean') {
                                     colorizeValue = liveParams.colorize ? 1.0 : 0.0;
                                 } else if (typeof liveParams.colorize === 'number') {
                                     colorizeValue = liveParams.colorize > 0.5 ? 1.0 : 0.0;
                                 } else if (typeof liveParams.colorize === 'string') {
-                                    // Handle string values like "true", "false", "1", "0"
                                     const str = liveParams.colorize.toLowerCase().trim();
                                     colorizeValue = (str === 'true' || str === '1' || str === 'yes') ? 1.0 : 0.0;
                                 }
-                            } else if (params && params.colorize !== undefined) {
+                            } else if (hasColorizeInParams && params.colorize !== undefined && params.colorize !== null) {
                                 // Fallback to default params if liveParams doesn't have colorize
                                 if (typeof params.colorize === 'boolean') {
                                     colorizeValue = params.colorize ? 1.0 : 0.0;
                                 } else if (typeof params.colorize === 'number') {
                                     colorizeValue = params.colorize > 0.5 ? 1.0 : 0.0;
+                                } else if (typeof params.colorize === 'string') {
+                                    const str = String(params.colorize).toLowerCase().trim();
+                                    colorizeValue = (str === 'true' || str === '1' || str === 'yes') ? 1.0 : 0.0;
                                 }
                             }
+                            // If colorize is not explicitly set in either liveParams or params, use default 1.0 (already set above)
+                            
                             uniformData[6] = colorizeValue;
                             // padding at [7] (default zero)
 
@@ -1590,6 +1603,9 @@
                             if (value !== undefined) {
                                 // CRITICAL: Always use the live value from uniformValuesArray
                                 // This ensures real-time updates during parameter drag
+                                // However, for boolean parameters like 'colorize', we need to preserve
+                                // the type information. If the default is a boolean, keep it as a number
+                                // representation (1.0/0.0) but the extraction will handle it correctly
                                 params[paramName] = value;
                             }
                         }
