@@ -525,14 +525,23 @@ async function initialize() {
         }
 
         // CRITICAL: Send parameter update to external viewer immediately during drag
-        // This ensures real-time updates instead of waiting for the next render frame
+        // Throttle to ~60fps to avoid overwhelming the channel
         if (window.editor?._parameterDragging && window.liveShaderStream?.isStreaming) {
-          const uniformManager = window.nodeCompiler.uniformManager;
-          if (uniformManager && uniformManager.uniformValues.size > 0) {
-            const values = Array.from(uniformManager.uniformValues.values());
-            const timeSec = performance.now() * 0.001;
-            window.liveShaderStream.sendParameterUpdate(values, timeSec);
+          const now = performance.now();
+          const lastUpdateTime = window._lastParameterUpdateTime || 0;
+          const UPDATE_THROTTLE_MS = 16; // ~60fps max update rate
+          
+          if (now - lastUpdateTime >= UPDATE_THROTTLE_MS) {
+            window._lastParameterUpdateTime = now;
+            const uniformManager = window.nodeCompiler.uniformManager;
+            if (uniformManager && uniformManager.uniformValues.size > 0) {
+              const values = Array.from(uniformManager.uniformValues.values());
+              const timeSec = performance.now() * 0.001;
+              window.liveShaderStream.sendParameterUpdate(values, timeSec);
+            }
           }
+        } else {
+          window._lastParameterUpdateTime = 0;
         }
       }
     };

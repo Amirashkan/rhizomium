@@ -530,6 +530,18 @@
                     // The render loop (running at 60fps) will pick them up on the next frame
                     // executeComputeNodes() uses _extractNodeParams() which reads from uniformValuesArray
                     // So updates should appear within 1 frame (~16ms at 60fps)
+                    
+                    // Force immediate render if not already scheduled to ensure real-time updates
+                    // This ensures parameter changes are visible immediately during drag
+                    if (this.isRunning && !this._renderScheduled) {
+                        this._renderScheduled = true;
+                        requestAnimationFrame(() => {
+                            this._renderScheduled = false;
+                            if (this.isRunning) {
+                                this.render();
+                            }
+                        });
+                    }
                 }
 
                 // Update synced time if provided
