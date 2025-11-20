@@ -519,6 +519,50 @@
                     
                     this.uniformValuesArray = uniformValues;
 
+                    // CRITICAL: Update compute node params directly from uniformValuesArray
+                    // Compute nodes use their own uniform buffer, not u_params, so their parameters
+                    // need to be updated directly in the nodeData.params object
+                    if (this.uniformKeys && this.uniformKeys.length > 0 && uniformValues.length > 0) {
+                        let computeNodeUpdates = 0;
+                        for (let i = 0; i < Math.min(this.uniformKeys.length, uniformValues.length); i++) {
+                            const key = this.uniformKeys[i];
+                            if (!key || typeof key !== 'string') continue;
+                            
+                            const dotIndex = key.indexOf('.');
+                            if (dotIndex === -1) continue;
+                            
+                            const keyNodeId = key.substring(0, dotIndex);
+                            const paramName = key.substring(dotIndex + 1);
+                            const value = uniformValues[i];
+                            
+                            // Update compute node params if this key belongs to a compute node
+                            for (const nodeData of this.computeNodes) {
+                                const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                const normalizedNodeId = String(nodeData.nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                
+                                if (keyNodeId === String(nodeData.nodeId) || normalizedKeyNodeId === normalizedNodeId) {
+                                    // Update the node's params object directly
+                                    if (!nodeData.params) {
+                                        nodeData.params = {};
+                                    }
+                                    const oldValue = nodeData.params[paramName];
+                                    nodeData.params[paramName] = value;
+                                    computeNodeUpdates++;
+                                    
+                                    // DEBUG: Log first few updates for ComputeTransform
+                                    if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
+                                        console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${value}`);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // DEBUG: Log if we found compute node parameters to update
+                        if (computeNodeUpdates > 0 && this.paramUpdateCount <= 3) {
+                            console.log(`[LiveViewer] Updated ${computeNodeUpdates} compute node parameters from uniformValuesArray`);
+                        }
+                    }
+
                     // DEBUG: Log updates during drag to verify they're being received
                     this.paramUpdateCount = (this.paramUpdateCount || 0) + 1;
                     if (this.paramUpdateCount <= 5 || this.paramUpdateCount % 60 === 0) {
@@ -926,8 +970,35 @@
                 }
 
                 // Extract live parameter values from uniformValuesArray for this node
-                // CRITICAL: This reads from uniformValuesArray which is updated every frame via handleParameterUpdate
-                const liveParams = this._extractNodeParams(nodeId, params);
+                // CRITICAL: For compute nodes, parameters are NOT in uniformKeys (they use their own uniform buffer)
+                // So we update nodeData.params directly in handleParameterUpdate, and use it here
+                // For fragment nodes, parameters ARE in uniformKeys, so we extract from uniformValuesArray
+                let liveParams;
+                if (nodeData.kind && nodeData.kind.startsWith('Compute')) {
+                    // Compute nodes: use nodeData.params directly (updated in handleParameterUpdate)
+                    // _extractNodeParams will still try to extract, but will fall back to params if no matches
+                    liveParams = this._extractNodeParams(nodeId, params);
+                    
+                    // If extraction found no matching keys (expected for compute nodes), use nodeData.params directly
+                    // Check if we got any live updates from uniformValuesArray
+                    const matchingKeys = this.uniformKeys?.filter(k => {
+                        if (!k || typeof k !== 'string') return false;
+                        const dotIndex = k.indexOf('.');
+                        if (dotIndex === -1) return false;
+                        const keyNodeId = k.substring(0, dotIndex);
+                        const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
+                    }) || [];
+                    
+                    // If no matching keys found, use nodeData.params directly (which is updated in handleParameterUpdate)
+                    if (matchingKeys.length === 0 && params) {
+                        liveParams = { ...params };
+                    }
+                } else {
+                    // Fragment nodes: extract from uniformValuesArray using uniformKeys
+                    liveParams = this._extractNodeParams(nodeId, params);
+                }
 
                 // DEBUG: Log parameter extraction for ComputeTransform to verify real-time updates
                 if (nodeData.kind === 'ComputeTransform') {
