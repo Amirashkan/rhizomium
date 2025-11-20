@@ -1176,12 +1176,13 @@
                 // For fragment nodes, parameters ARE in uniformKeys, so we extract from uniformValuesArray
                 let liveParams;
                 if (nodeData.kind && nodeData.kind.startsWith('Compute')) {
-                    // Compute nodes: use nodeData.params directly (updated in handleParameterUpdate)
-                    // _extractNodeParams will still try to extract, but will fall back to params if no matches
-                    liveParams = this._extractNodeParams(nodeId, params);
+                    // Compute nodes: CRITICAL - preserve expression strings from params!
+                    // Start with params (which may contain expression strings like "=time*20")
+                    // Then overlay numeric values from uniformValuesArray for real-time updates during drag
+                    // But NEVER overwrite expression strings with numeric values
+                    liveParams = { ...params }; // Start with original params (preserves expression strings)
                     
-                    // If extraction found no matching keys (expected for compute nodes), use nodeData.params directly
-                    // Check if we got any live updates from uniformValuesArray
+                    // Check if we have matching keys in uniformKeys (for real-time numeric updates during drag)
                     const matchingKeys = this.uniformKeys?.filter(k => {
                         if (!k || typeof k !== 'string') return false;
                         const dotIndex = k.indexOf('.');
@@ -1192,9 +1193,35 @@
                         return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
                     }) || [];
                     
-                    // If no matching keys found, use nodeData.params directly (which is updated in handleParameterUpdate)
-                    if (matchingKeys.length === 0 && params) {
-                        liveParams = { ...params };
+                    // Overlay numeric values from uniformValuesArray, but ONLY if params doesn't have an expression string
+                    if (matchingKeys.length > 0 && this.uniformValuesArray && this.uniformValuesArray.length > 0) {
+                        for (let i = 0; i < this.uniformKeys.length; i++) {
+                            const key = this.uniformKeys[i];
+                            if (!key || typeof key !== 'string') continue;
+                            
+                            const dotIndex = key.indexOf('.');
+                            if (dotIndex === -1) continue;
+                            
+                            const keyNodeId = key.substring(0, dotIndex);
+                            const paramName = key.substring(dotIndex + 1);
+                            const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            
+                            // Check if this key belongs to our node
+                            if (keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId) {
+                                const value = this.uniformValuesArray[i];
+                                // CRITICAL: Only overlay numeric value if params doesn't have an expression string
+                                const existingValue = params?.[paramName];
+                                const isExpression = typeof existingValue === 'string' && 
+                                    (existingValue.trim().startsWith('=') || /\btime\b/.test(existingValue) || /\baudioEnvelope/.test(existingValue));
+                                
+                                if (!isExpression && value !== undefined) {
+                                    // Safe to overlay numeric value (no expression to preserve)
+                                    liveParams[paramName] = value;
+                                }
+                                // If isExpression, keep the expression string from params (don't overwrite)
+                            }
+                        }
                     }
                 } else {
                     // Fragment nodes: extract from uniformValuesArray using uniformKeys
