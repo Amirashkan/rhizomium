@@ -513,13 +513,23 @@
 
                 // Update parameter values if provided
                 if (uniformValues && Array.isArray(uniformValues)) {
+                    // Check if values actually changed (for debugging)
+                    const valuesChanged = this.uniformValuesArray.length !== uniformValues.length || 
+                                         !this.uniformValuesArray.every((val, idx) => val === uniformValues[idx]);
+                    
                     this.uniformValuesArray = uniformValues;
 
-                    // DEBUG: Log every 60th update
+                    // DEBUG: Log updates during drag to verify they're being received
                     this.paramUpdateCount = (this.paramUpdateCount || 0) + 1;
-                    if (this.paramUpdateCount % 60 === 0) {
-                        console.log('[Viewer] Received parameter update #', this.paramUpdateCount, 'values:', uniformValues.slice(0, 3));
+                    if (this.paramUpdateCount <= 5 || this.paramUpdateCount % 60 === 0) {
+                        console.log('[Viewer] Received parameter update #', this.paramUpdateCount, 
+                                   'changed:', valuesChanged, 'values:', uniformValues.slice(0, 3));
                     }
+                    
+                    // CRITICAL: Parameter updates are now in uniformValuesArray
+                    // The render loop (running at 60fps) will pick them up on the next frame
+                    // executeComputeNodes() uses _extractNodeParams() which reads from uniformValuesArray
+                    // So updates should appear within 1 frame (~16ms at 60fps)
                 }
 
                 // Update synced time if provided
