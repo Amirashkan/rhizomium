@@ -1654,7 +1654,7 @@
                             };
                         }
 
-                        const inputNodeId = nodeData.inputs[inputIndex];
+                        let inputNodeId = nodeData.inputs[inputIndex];
                         if (inputNodeId === null || inputNodeId === undefined) {
                             // Input slot exists but is null/undefined
                             console.log(`[LiveViewer] Node ${nodeId}: input ${inputIndex} is null/undefined`);
@@ -1676,9 +1676,28 @@
                                 isValid: false
                             };
                         }
+                        
+                        // Normalize input node ID to string and clean it
+                        inputNodeId = String(inputNodeId).trim();
 
                         // Try to get from compute outputs first
-                        const computeOutput = this.computeOutputs.get(inputNodeId);
+                        // Try multiple ID formats for matching
+                        let computeOutput = this.computeOutputs.get(inputNodeId);
+                        if (!computeOutput) {
+                            // Try with "node_" prefix
+                            computeOutput = this.computeOutputs.get('node_' + inputNodeId);
+                        }
+                        if (!computeOutput) {
+                            // Try normalized ID (remove special characters)
+                            const normalizedId = String(inputNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            computeOutput = this.computeOutputs.get(normalizedId);
+                        }
+                        if (!computeOutput && String(inputNodeId).includes('_')) {
+                            // Try without underscores or with different separators
+                            const altId = String(inputNodeId).replace(/_/g, '');
+                            computeOutput = this.computeOutputs.get(altId);
+                        }
+                        
                         if (computeOutput && computeOutput.texture && computeOutput.sampler) {
                             console.log(`[LiveViewer] ✓ Node ${nodeId} input ${inputIndex} from compute node ${inputNodeId}`);
                             return {
@@ -1688,8 +1707,20 @@
                             };
                         }
 
-                        // Try to get from fragment outputs
-                        const fragmentOutput = this.fragmentOutputs.get(inputNodeId);
+                        // Try to get from fragment outputs (same ID matching logic)
+                        let fragmentOutput = this.fragmentOutputs.get(inputNodeId);
+                        if (!fragmentOutput) {
+                            fragmentOutput = this.fragmentOutputs.get('node_' + inputNodeId);
+                        }
+                        if (!fragmentOutput) {
+                            const normalizedId = String(inputNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            fragmentOutput = this.fragmentOutputs.get(normalizedId);
+                        }
+                        if (!fragmentOutput && String(inputNodeId).includes('_')) {
+                            const altId = String(inputNodeId).replace(/_/g, '');
+                            fragmentOutput = this.fragmentOutputs.get(altId);
+                        }
+                        
                         if (fragmentOutput && fragmentOutput.texture && fragmentOutput.sampler) {
                             console.log(`[LiveViewer] ✓ Node ${nodeId} input ${inputIndex} from fragment node ${inputNodeId}`);
                             return {
@@ -1699,7 +1730,7 @@
                             };
                         }
 
-                        console.error(`[LiveViewer] ❌ Node ${nodeId} input ${inputIndex} from node ${inputNodeId} not available`);
+                        console.error(`[LiveViewer] ❌ Node ${nodeId} input ${inputIndex} from node ${inputNodeId} not available. Available compute nodes: ${Array.from(this.computeOutputs.keys()).join(', ')}, Available fragment nodes: ${Array.from(this.fragmentOutputs.keys()).join(', ')}`);
                         // Create black fallback texture
                         const fallbackTexture = this.device.createTexture({
                             size: [resolution[0], resolution[1], 1],
