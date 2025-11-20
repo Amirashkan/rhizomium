@@ -79,6 +79,23 @@ handleParameterUpdate(data) {
 }
 ```
 
+## ComputeWarp Node Fix (2024)
+
+### Problem
+The `ComputeWarp` node was not displaying its distortion effect in the external viewer, even though it worked correctly in the floating preview.
+
+### Root Causes
+1. **Missing Topological Sorting:** Compute nodes executed in arbitrary order, so the warp field (second input) might not be ready when the warp node executed.
+2. **Incorrect Parameter Packing:** Parameters were packed using generic fallback (arbitrary key order) instead of matching the WGSL struct order.
+3. **Input ID Matching:** Input node IDs in different formats weren't being matched correctly.
+
+### Fixes Applied
+1. Added `_topologicalSortComputeNodes()` to ensure dependencies execute before dependents.
+2. Added explicit parameter packing for `ComputeWarp` matching WGSL struct order.
+3. Improved input node ID matching to handle multiple ID formats.
+
+**See:** `EXTERNAL_VIEWER_COMPUTE_WARP_FIX.md` for detailed documentation.
+
 ## Known Issues and Fixes Needed
 
 ### Issue 1: ComputeNoise → ComputeTransform Color Loss

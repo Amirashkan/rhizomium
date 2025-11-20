@@ -899,7 +899,10 @@
 
                 try {
                     // Log node info including inputs
-                    console.log(`[LiveViewer] Initializing compute node ${nodeId} with inputs:`, inputs);
+                    console.log(`[LiveViewer] Initializing compute node ${nodeId} (${nodeData.kind}) with inputs:`, inputs);
+                    if (nodeData.kind === 'ComputeWarp' && inputs && inputs.length >= 2) {
+                        console.log(`[LiveViewer] ComputeWarp node ${nodeId}: Input 0 (texture) = ${inputs[0]}, Input 1 (warp field) = ${inputs[1]}`);
+                    }
 
                     // CRITICAL: Ensure default params are set correctly for compute nodes
                     // Some parameters like 'colorize' have defaults that must be preserved
@@ -1089,8 +1092,18 @@
                 try {
                     const encoder = this.device.createCommandEncoder({ label: 'compute-encoder' });
 
-                    // Execute each compute node in order
-                    for (const nodeData of this.computeNodes) {
+                    // CRITICAL: Topologically sort compute nodes to ensure dependencies execute first
+                    // This is especially important for nodes like ComputeWarp that have multiple inputs
+                    const executionOrder = this._topologicalSortComputeNodes(this.computeNodes);
+                    
+                    // Log execution order for debugging
+                    if (executionOrder.length > 1) {
+                        const orderIds = executionOrder.map(n => `${n.nodeId}(${n.kind})`).join(' -> ');
+                        console.log(`[LiveViewer] Compute node execution order: ${orderIds}`);
+                    }
+                    
+                    // Execute each compute node in dependency order
+                    for (const nodeData of executionOrder) {
                         this.executeComputeNode(encoder, nodeData, time);
                     }
 
@@ -1098,6 +1111,85 @@
                 } catch (error) {
                     console.error('[LiveViewer] Error executing compute nodes:', error);
                 }
+            }
+
+            /**
+             * Topologically sort compute nodes to ensure dependencies execute before dependents
+             * This ensures that nodes like ComputeWarp's second input (warp field) are executed first
+             */
+            _topologicalSortComputeNodes(computeNodes) {
+                if (computeNodes.length <= 1) {
+                    return computeNodes;
+                }
+
+                // Build a map of nodeId -> nodeData for quick lookup
+                const nodeMap = new Map();
+                for (const nodeData of computeNodes) {
+                    nodeMap.set(String(nodeData.nodeId), nodeData);
+                }
+
+                // Build dependency graph: nodeId -> Set of dependency nodeIds
+                const dependencies = new Map();
+                for (const nodeData of computeNodes) {
+                    const nodeId = String(nodeData.nodeId);
+                    const deps = new Set();
+                    
+                    // Check all inputs (including second input for nodes like ComputeWarp)
+                    if (nodeData.inputs && Array.isArray(nodeData.inputs)) {
+                        for (const inputId of nodeData.inputs) {
+                            if (inputId !== null && inputId !== undefined) {
+                                const inputNodeId = String(inputId);
+                                // Only add as dependency if it's a compute node
+                                if (nodeMap.has(inputNodeId)) {
+                                    deps.add(inputNodeId);
+                                }
+                            }
+                        }
+                    }
+                    
+                    dependencies.set(nodeId, deps);
+                }
+
+                // Topological sort using DFS
+                const visited = new Set();
+                const visiting = new Set();
+                const result = [];
+
+                const visit = (nodeId) => {
+                    if (visited.has(nodeId)) {
+                        return;
+                    }
+
+                    if (visiting.has(nodeId)) {
+                        // Circular dependency detected, skip
+                        console.warn(`[LiveViewer] Circular dependency detected for compute node ${nodeId}`);
+                        return;
+                    }
+
+                    visiting.add(nodeId);
+                    
+                    // Visit dependencies first
+                    const deps = dependencies.get(nodeId) || new Set();
+                    for (const depId of deps) {
+                        visit(depId);
+                    }
+                    
+                    visiting.delete(nodeId);
+                    visited.add(nodeId);
+                    
+                    // Add to result
+                    const nodeData = nodeMap.get(nodeId);
+                    if (nodeData) {
+                        result.push(nodeData);
+                    }
+                };
+
+                // Visit all nodes
+                for (const nodeData of computeNodes) {
+                    visit(String(nodeData.nodeId));
+                }
+
+                return result;
             }
 
             /**
@@ -1417,6 +1509,31 @@
                             uniformData[3] = this._evaluateParam(liveParams.amount !== undefined ? liveParams.amount : params?.amount, 0.5, time);
                             uniformData[4] = this._evaluateParam(liveParams.opacity !== undefined ? liveParams.opacity : params?.opacity, 1.0, time);
                             // padding at [5-7] (default zeros)
+                        } else if (nodeData.kind === 'ComputeWarp') {
+                            // ComputeWarp uniforms: resolution(vec2), time, strength, center.x, center.y, radius, frequency, phase, _padding
+                            // CRITICAL: Match the WGSL struct order exactly: strength, centerX, centerY, radius, frequency, phase
+                            // CRITICAL: Evaluate expressions for all parameters
+                            uniformData[3] = this._evaluateParam(liveParams.strength !== undefined ? liveParams.strength : params?.strength, 0.5, time);
+                            uniformData[4] = this._evaluateParam(liveParams.centerX !== undefined ? liveParams.centerX : params?.centerX, 0.5, time);
+                            uniformData[5] = this._evaluateParam(liveParams.centerY !== undefined ? liveParams.centerY : params?.centerY, 0.5, time);
+                            uniformData[6] = this._evaluateParam(liveParams.radius !== undefined ? liveParams.radius : params?.radius, 0.5, time);
+                            uniformData[7] = this._evaluateParam(liveParams.frequency !== undefined ? liveParams.frequency : params?.frequency, 4.0, time);
+                            uniformData[8] = this._evaluateParam(liveParams.phase !== undefined ? liveParams.phase : params?.phase, 0.0, time);
+                            // padding at [9] (default zero)
+                            
+                            // DEBUG: Log warp params occasionally
+                            this._warpDebugCount = (this._warpDebugCount || 0) + 1;
+                            if (this._warpDebugCount <= 3 || this._warpDebugCount % 120 === 0) {
+                                console.log('[LiveViewer] ComputeWarp packed uniforms:', {
+                                    strength: uniformData[3],
+                                    centerX: uniformData[4],
+                                    centerY: uniformData[5],
+                                    radius: uniformData[6],
+                                    frequency: uniformData[7],
+                                    phase: uniformData[8],
+                                    mode: params?.mode || liveParams?.mode || 'Displace'
+                                });
+                            }
                         } else if (nodeData.kind === 'ComputeTransform') {
                             // ComputeTransform uniforms: resolution(vec2), time, translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY, _padding(vec2)
                             // CRITICAL: Evaluate expressions for all transform parameters (especially rotation with time expressions)
@@ -1484,9 +1601,30 @@
                                     'from uniformValuesArray': this.uniformValuesArray
                                 });
                             }
+                        } else if (nodeData.kind === 'ComputeGlitch') {
+                            // ComputeGlitch uniforms: resolution(vec2), time, intensity, frequency, _padding1, blockSize, seed
+                            // CRITICAL: Match the WGSL struct order exactly
+                            uniformData[3] = this._evaluateParam(liveParams.intensity !== undefined ? liveParams.intensity : params?.intensity, 0.5, time);
+                            uniformData[4] = this._evaluateParam(liveParams.frequency !== undefined ? liveParams.frequency : params?.frequency, 0.5, time);
+                            uniformData[5] = 0.0; // _padding1
+                            uniformData[6] = this._evaluateParam(liveParams.blockSize !== undefined ? liveParams.blockSize : params?.blockSize, 0.05, time);
+                            uniformData[7] = this._evaluateParam(liveParams.seed !== undefined ? liveParams.seed : params?.seed, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeKaleidoscope') {
+                            // ComputeKaleidoscope uniforms: resolution(vec2), time, segments, rotation, centerX, centerY, scale, animate, speed
+                            // CRITICAL: Match the WGSL struct order exactly
+                            uniformData[3] = this._evaluateParam(liveParams.segments !== undefined ? liveParams.segments : params?.segments, 6.0, time);
+                            uniformData[4] = this._evaluateParam(liveParams.rotation !== undefined ? liveParams.rotation : params?.rotation, 0.0, time);
+                            uniformData[5] = this._evaluateParam(liveParams.centerX !== undefined ? liveParams.centerX : params?.centerX, 0.5, time);
+                            uniformData[6] = this._evaluateParam(liveParams.centerY !== undefined ? liveParams.centerY : params?.centerY, 0.5, time);
+                            uniformData[7] = this._evaluateParam(liveParams.scale !== undefined ? liveParams.scale : params?.scale, 1.0, time);
+                            // animate is boolean - convert to 1.0/0.0
+                            const animateValue = liveParams.animate !== undefined ? liveParams.animate : params?.animate;
+                            uniformData[8] = (typeof animateValue === 'boolean' ? (animateValue ? 1.0 : 0.0) : (animateValue ? 1.0 : 0.0));
+                            uniformData[9] = this._evaluateParam(liveParams.speed !== undefined ? liveParams.speed : params?.speed, 0.5, time);
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             // CRITICAL: Evaluate expressions for all parameters in generic fallback
+                            // WARNING: This may not match WGSL struct order for nodes with complex parameter layouts
                             let paramIndex = 3;
                             for (const key in liveParams) {
                                 const value = liveParams[key];
@@ -1509,7 +1647,29 @@
                     } else {
                         // If no liveParams, use default params from nodeData
                         // This ensures the buffer is always written with valid data
-                        if (nodeData.kind === 'ComputeTransform' && params) {
+                        if (nodeData.kind === 'ComputeWarp' && params) {
+                            // CRITICAL: Evaluate expressions for all warp parameters
+                            uniformData[3] = this._evaluateParam(params.strength, 0.5, time);
+                            uniformData[4] = this._evaluateParam(params.centerX, 0.5, time);
+                            uniformData[5] = this._evaluateParam(params.centerY, 0.5, time);
+                            uniformData[6] = this._evaluateParam(params.radius, 0.5, time);
+                            uniformData[7] = this._evaluateParam(params.frequency, 4.0, time);
+                            uniformData[8] = this._evaluateParam(params.phase, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeGlitch' && params) {
+                            uniformData[3] = this._evaluateParam(params.intensity, 0.5, time);
+                            uniformData[4] = this._evaluateParam(params.frequency, 0.5, time);
+                            uniformData[5] = 0.0; // _padding1
+                            uniformData[6] = this._evaluateParam(params.blockSize, 0.05, time);
+                            uniformData[7] = this._evaluateParam(params.seed, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeKaleidoscope' && params) {
+                            uniformData[3] = this._evaluateParam(params.segments, 6.0, time);
+                            uniformData[4] = this._evaluateParam(params.rotation, 0.0, time);
+                            uniformData[5] = this._evaluateParam(params.centerX, 0.5, time);
+                            uniformData[6] = this._evaluateParam(params.centerY, 0.5, time);
+                            uniformData[7] = this._evaluateParam(params.scale, 1.0, time);
+                            uniformData[8] = (typeof params.animate === 'boolean' ? (params.animate ? 1.0 : 0.0) : 0.0);
+                            uniformData[9] = this._evaluateParam(params.speed, 0.5, time);
+                        } else if (nodeData.kind === 'ComputeTransform' && params) {
                             // CRITICAL: Evaluate expressions for all transform parameters
                             uniformData[3] = this._evaluateParam(params.translateX, 0.0, time);
                             uniformData[4] = this._evaluateParam(params.translateY, 0.0, time);
@@ -1568,7 +1728,7 @@
                             };
                         }
 
-                        const inputNodeId = nodeData.inputs[inputIndex];
+                        let inputNodeId = nodeData.inputs[inputIndex];
                         if (inputNodeId === null || inputNodeId === undefined) {
                             // Input slot exists but is null/undefined
                             console.log(`[LiveViewer] Node ${nodeId}: input ${inputIndex} is null/undefined`);
@@ -1590,9 +1750,28 @@
                                 isValid: false
                             };
                         }
+                        
+                        // Normalize input node ID to string and clean it
+                        inputNodeId = String(inputNodeId).trim();
 
                         // Try to get from compute outputs first
-                        const computeOutput = this.computeOutputs.get(inputNodeId);
+                        // Try multiple ID formats for matching
+                        let computeOutput = this.computeOutputs.get(inputNodeId);
+                        if (!computeOutput) {
+                            // Try with "node_" prefix
+                            computeOutput = this.computeOutputs.get('node_' + inputNodeId);
+                        }
+                        if (!computeOutput) {
+                            // Try normalized ID (remove special characters)
+                            const normalizedId = String(inputNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            computeOutput = this.computeOutputs.get(normalizedId);
+                        }
+                        if (!computeOutput && String(inputNodeId).includes('_')) {
+                            // Try without underscores or with different separators
+                            const altId = String(inputNodeId).replace(/_/g, '');
+                            computeOutput = this.computeOutputs.get(altId);
+                        }
+                        
                         if (computeOutput && computeOutput.texture && computeOutput.sampler) {
                             console.log(`[LiveViewer] ✓ Node ${nodeId} input ${inputIndex} from compute node ${inputNodeId}`);
                             return {
@@ -1602,8 +1781,20 @@
                             };
                         }
 
-                        // Try to get from fragment outputs
-                        const fragmentOutput = this.fragmentOutputs.get(inputNodeId);
+                        // Try to get from fragment outputs (same ID matching logic)
+                        let fragmentOutput = this.fragmentOutputs.get(inputNodeId);
+                        if (!fragmentOutput) {
+                            fragmentOutput = this.fragmentOutputs.get('node_' + inputNodeId);
+                        }
+                        if (!fragmentOutput) {
+                            const normalizedId = String(inputNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            fragmentOutput = this.fragmentOutputs.get(normalizedId);
+                        }
+                        if (!fragmentOutput && String(inputNodeId).includes('_')) {
+                            const altId = String(inputNodeId).replace(/_/g, '');
+                            fragmentOutput = this.fragmentOutputs.get(altId);
+                        }
+                        
                         if (fragmentOutput && fragmentOutput.texture && fragmentOutput.sampler) {
                             console.log(`[LiveViewer] ✓ Node ${nodeId} input ${inputIndex} from fragment node ${inputNodeId}`);
                             return {
@@ -1613,7 +1804,7 @@
                             };
                         }
 
-                        console.error(`[LiveViewer] ❌ Node ${nodeId} input ${inputIndex} from node ${inputNodeId} not available`);
+                        console.error(`[LiveViewer] ❌ Node ${nodeId} input ${inputIndex} from node ${inputNodeId} not available. Available compute nodes: ${Array.from(this.computeOutputs.keys()).join(', ')}, Available fragment nodes: ${Array.from(this.fragmentOutputs.keys()).join(', ')}`);
                         // Create black fallback texture
                         const fallbackTexture = this.device.createTexture({
                             size: [resolution[0], resolution[1], 1],
@@ -1670,6 +1861,7 @@
                         }
 
                         // Get second input if node has 2 inputs (binding 4)
+                        // CRITICAL: This is needed for ComputeWarp (warp field) and ComputeMix (input B)
                         if (validInputs >= 2) {
                             const input1 = getInputResources(1);
                             if (input1) {
@@ -1677,7 +1869,11 @@
                                     binding: 4,
                                     resource: input1.texture
                                 });
-                                // console.log(`[LiveViewer] Added input B (binding 4), entries now: ${bindGroupEntries.length}`);
+                                if (nodeData.kind === 'ComputeWarp') {
+                                    console.log(`[LiveViewer] ComputeWarp node ${nodeId}: Added warp field (binding 4) from input ${nodeData.inputs?.[1]}, isValid: ${input1.isValid}`);
+                                }
+                            } else {
+                                console.warn(`[LiveViewer] Node ${nodeId} (${nodeData.kind}) expects 2 inputs but second input is missing`);
                             }
                         }
                     } else {
