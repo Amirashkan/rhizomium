@@ -1228,7 +1228,28 @@
                             };
 
                             // Remove = prefix if present
-                            const expression = trimmed.startsWith('=') ? trimmed.slice(1).trim() : trimmed;
+                            let expression = trimmed.startsWith('=') ? trimmed.slice(1).trim() : trimmed;
+
+                            // Replace sin, cos, tan, etc. with Math.sin, Math.cos, Math.tan, etc.
+                            // This allows expressions like "sin(time)" to work correctly
+                            expression = expression
+                                .replace(/\bsin\(/g, 'Math.sin(')
+                                .replace(/\bcos\(/g, 'Math.cos(')
+                                .replace(/\btan\(/g, 'Math.tan(')
+                                .replace(/\basin\(/g, 'Math.asin(')
+                                .replace(/\bacos\(/g, 'Math.acos(')
+                                .replace(/\batan\(/g, 'Math.atan(')
+                                .replace(/\batan2\(/g, 'Math.atan2(')
+                                .replace(/\bsqrt\(/g, 'Math.sqrt(')
+                                .replace(/\bpow\(/g, 'Math.pow(')
+                                .replace(/\bexp\(/g, 'Math.exp(')
+                                .replace(/\blog\(/g, 'Math.log(')
+                                .replace(/\bfloor\(/g, 'Math.floor(')
+                                .replace(/\bceil\(/g, 'Math.ceil(')
+                                .replace(/\bround\(/g, 'Math.round(')
+                                .replace(/\babs\(/g, 'Math.abs(')
+                                .replace(/\bmin\(/g, 'Math.min(')
+                                .replace(/\bmax\(/g, 'Math.max(');
 
                             // Create a safe evaluation function
                             // Only allow safe math operations and built-in functions
