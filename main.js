@@ -523,6 +523,65 @@ async function initialize() {
         } else {
           window._dragParamUpdateCount = 0;
         }
+
+        // CRITICAL: Send parameter update to external viewer immediately during drag
+        // Throttle to ~60fps to avoid overwhelming the channel
+        if (window.editor?._parameterDragging && window.liveShaderStream?.isStreaming) {
+          const now = performance.now();
+          const lastUpdateTime = window._lastParameterUpdateTime || 0;
+          const UPDATE_THROTTLE_MS = 16; // ~60fps max update rate
+          
+          if (now - lastUpdateTime >= UPDATE_THROTTLE_MS) {
+            window._lastParameterUpdateTime = now;
+            const uniformManager = window.nodeCompiler.uniformManager;
+            if (uniformManager && uniformManager.uniformValues.size > 0) {
+              const values = Array.from(uniformManager.uniformValues.values());
+              const timeSec = performance.now() * 0.001;
+              
+              // CRITICAL: For compute nodes, also include the node's current params
+              // since compute node parameters may not be in uniformKeys
+              const graph = window.editor?.graph;
+              let computeNodeParams = null;
+              if (graph) {
+                // Graph class uses getNode(id), not getNodeById(id)
+                let node = null;
+                if (typeof graph.getNode === 'function') {
+                  node = graph.getNode(nodeId) || graph.getNode(String(nodeId));
+                } else if (graph.nodes) {
+                  // Fallback: search in graph.nodes array
+                  node = graph.nodes.find(n => String(n.id) === String(nodeId));
+                }
+                
+                if (node && node.kind && node.kind.startsWith('Compute')) {
+                  // Include all params for this compute node
+                  computeNodeParams = {
+                    nodeId: String(nodeId),
+                    params: { ...node.params }
+                  };
+                  
+                  // DEBUG: Log compute node params being sent
+                  if (window._dragParamUpdateCount <= 3) {
+                    console.log('[updateUniformsOnly] Sending computeNodeParams for', nodeId, ':', computeNodeParams);
+                  }
+                } else if (window._dragParamUpdateCount <= 3) {
+                  // DEBUG: Log if node not found or not a compute node
+                  console.log('[updateUniformsOnly] Node lookup:', {
+                    nodeId,
+                    found: !!node,
+                    kind: node?.kind,
+                    isCompute: node?.kind?.startsWith('Compute'),
+                    graphHasGetNode: typeof graph.getNode === 'function',
+                    graphNodesLength: graph.nodes?.length
+                  });
+                }
+              }
+              
+              window.liveShaderStream.sendParameterUpdate(values, timeSec, computeNodeParams);
+            }
+          }
+        } else {
+          window._lastParameterUpdateTime = 0;
+        }
       }
     };
 

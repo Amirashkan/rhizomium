@@ -3564,9 +3564,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         value = isNaN(parsed) ? (typeof defaultValue === 'number' ? defaultValue : 0.0) : parsed;
       }
 
-      // Convert to number
-      if (typeof value !== 'number') {
-        value = typeof defaultValue === 'number' ? defaultValue : 0.0;
+      // CRITICAL: Handle boolean parameters before converting to number
+      // Booleans should be converted to 1.0 (true) or 0.0 (false)
+      if (typeof value === 'boolean') {
+        value = value ? 1.0 : 0.0;
+      } else if (typeof value !== 'number') {
+        // For other non-number types, try to use the default value
+        // If default is boolean, convert it; if it's a number, use it; otherwise use 0.0
+        if (typeof defaultValue === 'boolean') {
+          value = defaultValue ? 1.0 : 0.0;
+        } else if (typeof defaultValue === 'number') {
+          value = defaultValue;
+        } else {
+          value = 0.0;
+        }
       }
 
       // Ensure finite value

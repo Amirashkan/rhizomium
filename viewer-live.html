@@ -509,7 +509,12 @@
             }
 
             handleParameterUpdate(data) {
-                const { uniformValues, time } = data;
+                const { uniformValues, uniformKeys, computeNodeParams, time } = data;
+
+                // Update uniformKeys if provided (they may change if new parameters are added)
+                if (uniformKeys && Array.isArray(uniformKeys)) {
+                    this.uniformKeys = uniformKeys;
+                }
 
                 // Update parameter values if provided
                 if (uniformValues && Array.isArray(uniformValues)) {
@@ -518,6 +523,133 @@
                                          !this.uniformValuesArray.every((val, idx) => val === uniformValues[idx]);
                     
                     this.uniformValuesArray = uniformValues;
+
+                    // CRITICAL: Update compute node params directly from uniformValuesArray
+                    // Compute nodes use their own uniform buffer, not u_params, so their parameters
+                    // need to be updated directly in the nodeData.params object
+                    // Use uniformKeys from the message (if provided) or fall back to stored uniformKeys
+                    const keysToUse = uniformKeys || this.uniformKeys;
+                    if (keysToUse && keysToUse.length > 0 && uniformValues.length > 0) {
+                        let computeNodeUpdates = 0;
+                        for (let i = 0; i < Math.min(keysToUse.length, uniformValues.length); i++) {
+                            const key = keysToUse[i];
+                            if (!key || typeof key !== 'string') continue;
+                            
+                            const dotIndex = key.indexOf('.');
+                            if (dotIndex === -1) continue;
+                            
+                            const keyNodeId = key.substring(0, dotIndex);
+                            const paramName = key.substring(dotIndex + 1);
+                            const value = uniformValues[i];
+                            
+                            // Update compute node params if this key belongs to a compute node
+                            for (const nodeData of this.computeNodes) {
+                                const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                const normalizedNodeId = String(nodeData.nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                
+                                if (keyNodeId === String(nodeData.nodeId) || normalizedKeyNodeId === normalizedNodeId) {
+                                    // Update the node's params object directly
+                                    if (!nodeData.params) {
+                                        nodeData.params = {};
+                                    }
+                                    const oldValue = nodeData.params[paramName];
+                                    // Ensure value is a number (not a string)
+                                    const numValue = typeof value === 'number' ? value : parseFloat(value);
+                                    if (!isNaN(numValue)) {
+                                        nodeData.params[paramName] = numValue;
+                                        computeNodeUpdates++;
+                                        
+                                        // DEBUG: Log first few updates for ComputeTransform
+                                        if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
+                                            console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${numValue}`);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // DEBUG: Log if we found compute node parameters to update
+                        if (computeNodeUpdates > 0 && this.paramUpdateCount <= 3) {
+                            console.log(`[LiveViewer] Updated ${computeNodeUpdates} compute node parameters from uniformValuesArray`);
+                        } else if (this.paramUpdateCount <= 3) {
+                            // DEBUG: Log if no compute node parameters were found (to diagnose the issue)
+                            const computeNodeIds = this.computeNodes.map(n => n.nodeId);
+                            const computeNodeKeys = keysToUse.filter(k => {
+                                if (!k || typeof k !== 'string') return false;
+                                const dotIndex = k.indexOf('.');
+                                if (dotIndex === -1) return false;
+                                const keyNodeId = k.substring(0, dotIndex);
+                                return computeNodeIds.includes(String(keyNodeId));
+                            });
+                            if (computeNodeKeys.length === 0 && this.computeNodes.length > 0) {
+                                console.warn(`[LiveViewer] No compute node parameters found in uniformKeys. Compute nodes: ${computeNodeIds.join(', ')}, uniformKeys: ${keysToUse.slice(0, 5).join(', ')}...`);
+                            }
+                        }
+                    }
+                    
+                    // CRITICAL: Update compute node params directly from computeNodeParams if provided
+                    // This handles the case where compute node parameters aren't in uniformKeys
+                    if (computeNodeParams && computeNodeParams.nodeId && computeNodeParams.params) {
+                        // DEBUG: Log receipt of computeNodeParams
+                        if (this.paramUpdateCount <= 3) {
+                            console.log('[LiveViewer] Received computeNodeParams:', computeNodeParams);
+                        }
+                        
+                        for (const nodeData of this.computeNodes) {
+                            if (String(nodeData.nodeId) === String(computeNodeParams.nodeId)) {
+                                // Update the node's params object directly
+                                if (!nodeData.params) {
+                                    nodeData.params = {};
+                                }
+                                // Merge the new params, ensuring numeric values
+                                // CRITICAL: Handle boolean parameters (like colorize) correctly
+                                let updatedCount = 0;
+                                for (const [paramName, value] of Object.entries(computeNodeParams.params)) {
+                                    let processedValue;
+                                    
+                                    // Handle boolean parameters (preserve as boolean, will be converted to 1.0/0.0 when packing uniforms)
+                                    if (typeof value === 'boolean') {
+                                        processedValue = value;
+                                    } else if (typeof value === 'number') {
+                                        processedValue = value;
+                                    } else if (typeof value === 'string') {
+                                        // Try to parse as number first
+                                        const parsed = parseFloat(value);
+                                        if (!isNaN(parsed)) {
+                                            processedValue = parsed;
+                                        } else {
+                                            // Handle boolean strings
+                                            const str = value.toLowerCase().trim();
+                                            if (str === 'true' || str === 'false') {
+                                                processedValue = str === 'true';
+                                            } else {
+                                                processedValue = value; // Keep as string if can't parse
+                                            }
+                                        }
+                                    } else {
+                                        processedValue = value; // Keep original value
+                                    }
+                                    
+                                    const oldValue = nodeData.params[paramName];
+                                    nodeData.params[paramName] = processedValue;
+                                    updatedCount++;
+                                    
+                                    // DEBUG: Log first few updates
+                                    if (this.paramUpdateCount <= 3) {
+                                        console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName} from computeNodeParams: ${oldValue} -> ${processedValue} (type: ${typeof processedValue})`);
+                                    }
+                                }
+                                
+                                if (updatedCount > 0 && this.paramUpdateCount <= 3) {
+                                    console.log(`[LiveViewer] Updated ${updatedCount} params for compute node ${nodeData.nodeId}`);
+                                }
+                                break;
+                            }
+                        }
+                    } else if (this.paramUpdateCount <= 3 && this.computeNodes.length > 0) {
+                        // DEBUG: Log if computeNodeParams not received but compute nodes exist
+                        console.log('[LiveViewer] No computeNodeParams received, compute nodes:', this.computeNodes.map(n => n.nodeId));
+                    }
 
                     // DEBUG: Log updates during drag to verify they're being received
                     this.paramUpdateCount = (this.paramUpdateCount || 0) + 1;
@@ -530,6 +662,33 @@
                     // The render loop (running at 60fps) will pick them up on the next frame
                     // executeComputeNodes() uses _extractNodeParams() which reads from uniformValuesArray
                     // So updates should appear within 1 frame (~16ms at 60fps)
+                    
+                    // Force immediate render to ensure real-time updates during parameter drag
+                    // This ensures parameter changes are visible immediately, not just on next frame
+                    // CRITICAL: For compute nodes, we need to ensure compute execution happens immediately
+                    if (this.isRunning) {
+                        // Cancel any pending render to avoid duplicate renders
+                        if (this._renderScheduled) {
+                            cancelAnimationFrame(this._scheduledRenderId);
+                            this._renderScheduled = false;
+                        }
+                        
+                        // Schedule immediate render - use requestAnimationFrame for proper timing
+                        // but mark it so we know a render is pending
+                        this._renderScheduled = true;
+                        this._scheduledRenderId = requestAnimationFrame(() => {
+                            this._renderScheduled = false;
+                            if (this.isRunning) {
+                                // Force render with latest parameter values
+                                // This will execute compute nodes with the updated parameters
+                                // The render() function will:
+                                // 1. Execute fragment nodes
+                                // 2. Execute compute nodes (which will use the updated uniformValuesArray)
+                                // 3. Render the final shader
+                                this.render();
+                            }
+                        });
+                    }
                 }
 
                 // Update synced time if provided
@@ -705,6 +864,20 @@
                     // Log node info including inputs
                     console.log(`[LiveViewer] Initializing compute node ${nodeId} with inputs:`, inputs);
 
+                    // CRITICAL: Ensure default params are set correctly for compute nodes
+                    // Some parameters like 'colorize' have defaults that must be preserved
+                    if (!nodeData.params) {
+                        nodeData.params = {};
+                    }
+                    
+                    // Set default values for specific node types if params are missing
+                    if (nodeData.kind === 'ComputeNoise') {
+                        // ComputeNoise default: colorize should be true (colorized)
+                        if (nodeData.params.colorize === undefined || nodeData.params.colorize === null) {
+                            nodeData.params.colorize = true;
+                        }
+                    }
+
                     // Create shader module
                     const shaderModule = this.device.createShaderModule({
                         code: wgslCode,
@@ -845,10 +1018,29 @@
                 }
 
                 // Update parameter uniforms (u_params)
+                // CRITICAL: Use uniformValuesArray for real-time parameter updates during drag
+                // This ensures fragment node parameters update immediately, not just on shader recompile
                 const paramsBuffer = uniformBuffers.get('u_params');
-                if (paramsBuffer && nodeData.parameterValues && nodeData.parameterValues.length > 0) {
-                    const data = new Float32Array(nodeData.parameterValues);
-                    this.device.queue.writeBuffer(paramsBuffer, 0, data);
+                if (paramsBuffer) {
+                    // Try to use live values from uniformValuesArray first (for real-time updates)
+                    if (this.uniformValuesArray && this.uniformValuesArray.length > 0 && 
+                        this.uniformKeys && this.uniformKeys.length > 0) {
+                        // Use live parameter values from uniformValuesArray
+                        const data = new Float32Array(this.uniformValuesArray);
+                        const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                        if (writeSize > 0) {
+                            this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                        } else {
+                            console.warn(`[LiveViewer] Fragment u_params buffer too small: need ${data.byteLength} bytes, have ${paramsBuffer.size} bytes`);
+                        }
+                    } else if (nodeData.parameterValues && nodeData.parameterValues.length > 0) {
+                        // Fallback to static parameterValues if uniformValuesArray not available
+                        const data = new Float32Array(nodeData.parameterValues);
+                        const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                        if (writeSize > 0) {
+                            this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                        }
+                    }
                 }
             }
 
@@ -880,21 +1072,74 @@
                 }
 
                 // Extract live parameter values from uniformValuesArray for this node
-                // CRITICAL: This reads from uniformValuesArray which is updated every frame via handleParameterUpdate
-                const liveParams = this._extractNodeParams(nodeId, params);
+                // CRITICAL: For compute nodes, parameters are NOT in uniformKeys (they use their own uniform buffer)
+                // So we update nodeData.params directly in handleParameterUpdate, and use it here
+                // For fragment nodes, parameters ARE in uniformKeys, so we extract from uniformValuesArray
+                let liveParams;
+                if (nodeData.kind && nodeData.kind.startsWith('Compute')) {
+                    // Compute nodes: use nodeData.params directly (updated in handleParameterUpdate)
+                    // _extractNodeParams will still try to extract, but will fall back to params if no matches
+                    liveParams = this._extractNodeParams(nodeId, params);
+                    
+                    // If extraction found no matching keys (expected for compute nodes), use nodeData.params directly
+                    // Check if we got any live updates from uniformValuesArray
+                    const matchingKeys = this.uniformKeys?.filter(k => {
+                        if (!k || typeof k !== 'string') return false;
+                        const dotIndex = k.indexOf('.');
+                        if (dotIndex === -1) return false;
+                        const keyNodeId = k.substring(0, dotIndex);
+                        const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
+                    }) || [];
+                    
+                    // If no matching keys found, use nodeData.params directly (which is updated in handleParameterUpdate)
+                    if (matchingKeys.length === 0 && params) {
+                        liveParams = { ...params };
+                    }
+                } else {
+                    // Fragment nodes: extract from uniformValuesArray using uniformKeys
+                    liveParams = this._extractNodeParams(nodeId, params);
+                }
 
                 // DEBUG: Log parameter extraction for ComputeTransform to verify real-time updates
-                if (nodeData.kind === 'ComputeTransform' && (this._transformExtractCount || 0) % 60 === 0) {
-                    console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
-                        nodeId,
-                        'uniformValuesArray.length': this.uniformValuesArray.length,
-                        'uniformKeys.length': this.uniformKeys?.length || 0,
-                        'liveParams.rotation': liveParams.rotation,
-                        'defaultParams.rotation': params?.rotation,
-                        'uniformKeys for this node': this.uniformKeys?.filter(k => k.startsWith(nodeId + '.'))
-                    });
+                if (nodeData.kind === 'ComputeTransform') {
+                    this._transformExtractCount = (this._transformExtractCount || 0) + 1;
+                    // Show first few uniformKeys to see the format
+                    const sampleKeys = this.uniformKeys?.slice(0, 10) || [];
+                    const matchingKeys = this.uniformKeys?.filter(k => {
+                        if (!k || typeof k !== 'string') return false;
+                        const dotIndex = k.indexOf('.');
+                        if (dotIndex === -1) return false;
+                        const keyNodeId = k.substring(0, dotIndex);
+                        const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
+                    }) || [];
+                    
+                    // Log more frequently during drag to debug, but always log if no matches found
+                    const shouldLog = (this._transformExtractCount % 10 === 0) || 
+                                     (this._transformExtractCount <= 5) ||
+                                     (matchingKeys.length === 0 && this._transformExtractCount % 30 === 0);
+                    if (shouldLog) {
+                        // Log keys as separate strings so they're always visible (not collapsed in console)
+                        console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:');
+                        console.log('  nodeId:', nodeId, 'type:', typeof nodeId);
+                        console.log('  normalizedNodeId:', String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_'));
+                        console.log('  uniformValuesArray.length:', this.uniformValuesArray.length);
+                        console.log('  uniformKeys.length:', this.uniformKeys?.length || 0);
+                        console.log('  sampleKeys (first 10):', sampleKeys);
+                        console.log('  all uniformKeys:', this.uniformKeys);
+                        console.log('  matchingKeys:', matchingKeys);
+                        console.log('  matchingKeys.length:', matchingKeys.length);
+                        console.log('  liveParams:', liveParams);
+                        console.log('  defaultParams.rotation:', params?.rotation);
+                        console.log('  liveParams.rotation:', liveParams.rotation);
+                        console.log('  liveParams.translateX:', liveParams.translateX);
+                        console.log('  liveParams.scaleX:', liveParams.scaleX);
+                        console.log('  hasLiveParams:', Object.keys(liveParams).length > 0);
+                    }
                 }
-                this._transformExtractCount = (this._transformExtractCount || 0) + 1;
 
                 // DEBUG: Log ComputeNoise params to verify extraction
                 if (nodeData.kind === 'ComputeNoise' && this._computeNoiseDebugCount % 60 === 0) {
@@ -963,19 +1208,61 @@
                             uniformData[3] = liveParams.scale !== undefined ? liveParams.scale : 8.0;
                             uniformData[4] = liveParams.octaves !== undefined ? liveParams.octaves : 5.0;
                             uniformData[5] = liveParams.speed !== undefined ? liveParams.speed : 0.1;
-                            uniformData[6] = liveParams.colorize !== undefined ? (liveParams.colorize ? 1.0 : 0.0) : 1.0;
+                            
+                            // CRITICAL: Handle colorize parameter - default is true (1.0) for colorized output
+                            // The parameter can be boolean, number (1.0/0.0), or string
+                            // IMPORTANT: Check if colorize is in uniformKeys - if not, it wasn't registered, so use default
+                            const colorizeKey = `${nodeId}.colorize`;
+                            const colorizeInUniformKeys = this.uniformKeys && this.uniformKeys.some(k => {
+                                if (!k || typeof k !== 'string') return false;
+                                const dotIndex = k.indexOf('.');
+                                if (dotIndex === -1) return false;
+                                const keyNodeId = k.substring(0, dotIndex);
+                                const keyParamName = k.substring(dotIndex + 1);
+                                return (keyNodeId === String(nodeId) || keyNodeId === String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_')) && keyParamName === 'colorize';
+                            });
+                            
+                            let colorizeValue = 1.0; // Default to colorized (true) - this is the node's default
+                            
+                            // CRITICAL: Only use extracted value if colorize is explicitly registered in uniformKeys
+                            // If it's not in uniformKeys, it means it wasn't registered, so ALWAYS use default true (1.0)
+                            // This is important because _extractNodeParams might copy false/0 from defaultParams,
+                            // but the node definition says the default is true
+                            if (colorizeInUniformKeys && liveParams && liveParams.colorize !== undefined && liveParams.colorize !== null) {
+                                // colorize is registered in uniformKeys, so use the extracted value
+                                if (typeof liveParams.colorize === 'boolean') {
+                                    colorizeValue = liveParams.colorize ? 1.0 : 0.0;
+                                } else if (typeof liveParams.colorize === 'number') {
+                                    colorizeValue = liveParams.colorize > 0.5 ? 1.0 : 0.0;
+                                } else if (typeof liveParams.colorize === 'string') {
+                                    const str = liveParams.colorize.toLowerCase().trim();
+                                    colorizeValue = (str === 'true' || str === '1' || str === 'yes') ? 1.0 : 0.0;
+                                }
+                            } else {
+                                // colorize is NOT in uniformKeys, so it wasn't registered
+                                // ALWAYS use default true (1.0) regardless of what's in params
+                                // This ensures the node's default behavior (colorized) is preserved
+                                colorizeValue = 1.0;
+                            }
+                            // Note: We don't check params.colorize if it's not in uniformKeys because
+                            // the node definition says the default is true, and we want to preserve that
+                            
+                            uniformData[6] = colorizeValue;
                             // padding at [7] (default zero)
 
-                            // DEBUG: Log packed uniforms
-                            if (this._computeNoiseDebugCount % 60 === 1) {
-                                console.log('[DEBUG] ComputeNoise packed uniforms:', {
-                                    resolution: [uniformData[0], uniformData[1]],
-                                    time: uniformData[2],
-                                    scale: uniformData[3],
-                                    octaves: uniformData[4],
-                                    speed: uniformData[5],
-                                    colorize: uniformData[6]
-                                });
+                            // DEBUG: Log packed uniforms (more frequently to catch the issue)
+                            this._computeNoiseDebugCount = (this._computeNoiseDebugCount || 0) + 1;
+                            if (this._computeNoiseDebugCount <= 5 || this._computeNoiseDebugCount % 60 === 0) {
+                                // Log key values separately so they're always visible (not collapsed)
+                                console.log('[LiveViewer] ComputeNoise packed uniforms:');
+                                console.log('  colorize (final):', uniformData[6]);
+                                console.log('  colorizeValue (computed):', colorizeValue);
+                                console.log('  colorizeInUniformKeys:', colorizeInUniformKeys);
+                                console.log('  liveParams.colorize:', liveParams?.colorize, '(type:', typeof liveParams?.colorize + ')');
+                                console.log('  params.colorize:', params?.colorize, '(type:', typeof params?.colorize + ')');
+                                console.log('  uniformKeys with colorize:', this.uniformKeys?.filter(k => k && k.includes('colorize')));
+                                console.log('  all uniformKeys:', this.uniformKeys);
+                                console.log('  resolution:', [uniformData[0], uniformData[1]], 'time:', uniformData[2], 'scale:', uniformData[3], 'octaves:', uniformData[4], 'speed:', uniformData[5]);
                             }
                         } else if (nodeData.kind === 'ComputeMix') {
                             // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
@@ -1038,8 +1325,14 @@
 
                     // CRITICAL: Write uniform buffer EVERY frame to ensure latest values are used
                     // WebGPU will automatically synchronize this with the compute pass
-                    // Write the full buffer (64 floats = 256 bytes) even though ComputeTransform only uses 12 floats
-                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer, 0, uniformData.byteLength);
+                    // Write only the data we actually have (uniformData.byteLength bytes)
+                    // Make sure we don't exceed the buffer size
+                    const writeSize = Math.min(uniformData.byteLength, uniformBuffer.size);
+                    if (writeSize > 0) {
+                        this.device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer, 0, writeSize);
+                    } else {
+                        console.warn(`[LiveViewer] Cannot write uniform buffer: writeSize=${writeSize}, bufferSize=${uniformBuffer.size}, dataSize=${uniformData.byteLength}`);
+                    }
 
                     // Create bind group entries (create new bind group every frame to ensure fresh buffer reference)
                     // The bind group references the buffer, and WebGPU will ensure the write completes before the compute pass uses it
@@ -1287,16 +1580,50 @@
 
                 // If we have uniformKeys mapping, extract live values
                 if (this.uniformKeys && this.uniformKeys.length > 0 && this.uniformValuesArray.length > 0) {
+                    // Normalize nodeId for comparison (handle both raw and sanitized IDs)
+                    const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                    
+                    // Try multiple matching strategies since nodeId formats might differ
+                    const nodeIdVariants = [
+                        String(nodeId),                    // Original format
+                        normalizedNodeId,                  // Normalized
+                        nodeId.toString(),                 // String conversion
+                        String(nodeId).trim()              // Trimmed
+                    ];
+                    
                     for (let i = 0; i < this.uniformKeys.length; i++) {
                         const key = this.uniformKeys[i]; // Format: "nodeId.paramName"
-                        const [keyNodeId, paramName] = key.split('.');
+                        if (!key || typeof key !== 'string') continue;
+                        
+                        const dotIndex = key.indexOf('.');
+                        if (dotIndex === -1) continue; // Skip invalid keys
+                        
+                        const keyNodeId = key.substring(0, dotIndex);
+                        const paramName = key.substring(dotIndex + 1);
+                        
+                        // Normalize keyNodeId for comparison
+                        const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+
+                        // Try multiple matching strategies
+                        let matches = false;
+                        for (const variant of nodeIdVariants) {
+                            const normalizedVariant = String(variant).replace(/[^a-zA-Z0-9_]/g, '_');
+                            if (keyNodeId === variant || normalizedKeyNodeId === normalizedVariant) {
+                                matches = true;
+                                break;
+                            }
+                        }
 
                         // If this key belongs to our node, extract the value
-                        if (keyNodeId === String(nodeId)) {
+                        if (matches) {
                             const value = this.uniformValuesArray[i];
                             if (value !== undefined) {
                                 // CRITICAL: Always use the live value from uniformValuesArray
                                 // This ensures real-time updates during parameter drag
+                                // However, for boolean parameters with default true (like 'colorize'),
+                                // if the value is 0 and the default is true, we need to check if it's
+                                // actually explicitly set. For now, we'll use the value as-is and let
+                                // the uniform packing logic handle the default.
                                 params[paramName] = value;
                             }
                         }
@@ -1400,8 +1727,15 @@
                             size = 32;
                         } else if (meta.varName === 'u_params') {
                             // Parameters - use provided size if available
-                            if (parameterValues && parameterValues.length > 0) {
-                                size = Math.max(16, Math.ceil(parameterValues.length * 4 / 16) * 16);
+                            // CRITICAL: Make sure buffer is large enough for all parameters
+                            // Use uniformValuesArray length if available (for real-time updates)
+                            const paramCount = this.uniformValuesArray?.length || (parameterValues?.length || 0);
+                            if (paramCount > 0) {
+                                // Round up to 16-byte alignment (WebGPU requirement)
+                                size = Math.max(16, Math.ceil(paramCount * 4 / 16) * 16);
+                            } else {
+                                // Default size if no parameters yet
+                                size = 256; // Enough for 64 float parameters
                             }
                         }
 
@@ -1413,9 +1747,18 @@
                         uniformBuffers.set(meta.varName, buffer);
 
                         // Initialize parameter buffer if we have values
-                        if (meta.varName === 'u_params' && parameterValues && parameterValues.length > 0) {
-                            const data = new Float32Array(parameterValues);
-                            this.device.queue.writeBuffer(buffer, 0, data);
+                        // CRITICAL: Use uniformValuesArray if available (for real-time updates), otherwise use parameterValues
+                        if (meta.varName === 'u_params') {
+                            const valuesToUse = this.uniformValuesArray && this.uniformValuesArray.length > 0 
+                                ? this.uniformValuesArray 
+                                : (parameterValues || []);
+                            if (valuesToUse.length > 0) {
+                                const data = new Float32Array(valuesToUse);
+                                const writeSize = Math.min(data.byteLength, buffer.size);
+                                if (writeSize > 0) {
+                                    this.device.queue.writeBuffer(buffer, 0, data.buffer, 0, writeSize);
+                                }
+                            }
                         }
 
                         return { buffer };
