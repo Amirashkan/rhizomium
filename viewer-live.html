@@ -855,6 +855,20 @@
 
                     // Initialize each compute node
                     for (const nodeData of computeNodes) {
+                        // CRITICAL: Preserve expression strings in params - they come from the editor
+                        // The params object should contain expression strings like "time*20" or "=time*20"
+                        // Check and log expression params for debugging
+                        if (nodeData.params) {
+                            for (const [paramName, paramValue] of Object.entries(nodeData.params)) {
+                                if (typeof paramValue === 'string') {
+                                    const trimmed = paramValue.trim();
+                                    const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
+                                    if (isExpression && (nodeData.kind === 'ComputeTransform' || nodeData.nodeId === '28')) {
+                                        console.log(`[LiveViewer] Initializing ${nodeData.nodeId}.${paramName} with expression: "${paramValue}"`);
+                                    }
+                                }
+                            }
+                        }
                         this.initializeComputeNode(nodeData);
                     }
 
@@ -1219,10 +1233,14 @@
                         console.log('  matchingKeys.length:', matchingKeys.length);
                         console.log('  liveParams:', liveParams);
                         console.log('  defaultParams.rotation:', params?.rotation);
+                        console.log('  defaultParams.rotation type:', typeof params?.rotation);
                         console.log('  liveParams.rotation:', liveParams.rotation);
+                        console.log('  liveParams.rotation type:', typeof liveParams.rotation);
                         console.log('  liveParams.translateX:', liveParams.translateX);
                         console.log('  liveParams.scaleX:', liveParams.scaleX);
                         console.log('  hasLiveParams:', Object.keys(liveParams).length > 0);
+                        console.log('  all params keys:', params ? Object.keys(params) : 'no params');
+                        console.log('  all params:', params);
                     }
                 }
 
@@ -1404,6 +1422,7 @@
                             // DEBUG: Log transform params when rotation changes (for real-time debugging)
                             this._transformDebugCount = (this._transformDebugCount || 0) + 1;
                             if (Math.abs(uniformData[5] - oldRotation) > 0.01 || this._transformDebugCount % 60 === 0) {
+                                const rotationParamValue = getParamValue('rotation', 'rotation');
                                 console.log('[LiveViewer] ComputeTransform params (rotation changed):', {
                                     translateX: uniformData[3],
                                     translateY: uniformData[4],
@@ -1413,8 +1432,12 @@
                                     pivotX: uniformData[8],
                                     pivotY: uniformData[9],
                                     'liveParams.rotation': liveParams.rotation,
+                                    'liveParams.rotation type': typeof liveParams.rotation,
                                     'params.rotation': params?.rotation,
                                     'params.rotation type': typeof params?.rotation,
+                                    'getParamValue(rotation)': rotationParamValue,
+                                    'getParamValue(rotation) type': typeof rotationParamValue,
+                                    'evaluated rotation': uniformData[5],
                                     'time': time,
                                     'from uniformValuesArray': this.uniformValuesArray
                                 });
