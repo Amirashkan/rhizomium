@@ -286,6 +286,10 @@
                 this.fragmentPipelines = new Map();
                 this.fragmentOutputs = new Map();
 
+                // Node output values for parameter reference evaluation (e.g., =node_14)
+                // Maps node ID -> output value (number or array)
+                this.nodeOutputValues = new Map();
+
                 // Animation state
                 this.animationId = null;
                 this.isRunning = false;
@@ -407,7 +411,7 @@
             }
 
             handleShaderUpdate(data) {
-                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes } = data;
+                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes, nodeOutputValues } = data;
 
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
@@ -418,6 +422,15 @@
                 if (uniformKeys && Array.isArray(uniformKeys)) {
                     this.uniformKeys = uniformKeys;
                     console.log('[LiveViewer] Received', uniformKeys.length, 'parameter mappings');
+                }
+
+                // Store node output values for parameter reference evaluation (e.g., =node_14)
+                if (nodeOutputValues && typeof nodeOutputValues === 'object') {
+                    this.nodeOutputValues.clear();
+                    for (const [nodeId, value] of Object.entries(nodeOutputValues)) {
+                        this.nodeOutputValues.set(nodeId, value);
+                    }
+                    console.log('[LiveViewer] Received', this.nodeOutputValues.size, 'node output values for parameter references');
                 }
 
                 // Stop retry timer since we received a shader
@@ -1210,14 +1223,20 @@
                 if (typeof value === 'string') {
                     const trimmed = value.trim();
 
-                    // Check if it's an expression (either starts with = or contains time/audioEnvelope)
-                    const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
+                    // Check if it's an expression (either starts with = or contains time/audioEnvelope/node references)
+                    const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed) || /node_\d+/.test(trimmed);
 
                     // Handle expressions (with or without = prefix)
                     if (isExpression) {
                         try {
-                            // Simple expression evaluation for external viewer
-                            // Build evaluation context with time
+                            // Remove = prefix if present
+                            let expression = trimmed.startsWith('=') ? trimmed.slice(1).trim() : trimmed;
+
+                            // CRITICAL: Handle node references (e.g., node_14, node_14_x, node_14_y)
+                            // Replace node references with their actual output values
+                            expression = this._resolveNodeReferences(expression);
+
+                            // Build evaluation context with time and node outputs
                             const context = {
                                 time: time,
                                 audioEnvelope: 0.0, // Not available in external viewer yet
@@ -1226,9 +1245,6 @@
                                 audioEnvelopeHighs: 0.0,
                                 audioEnvelopeFull: 0.0
                             };
-
-                            // Remove = prefix if present
-                            let expression = trimmed.startsWith('=') ? trimmed.slice(1).trim() : trimmed;
 
                             // Replace sin, cos, tan, etc. with Math.sin, Math.cos, Math.tan, etc.
                             // This allows expressions like "sin(time)" to work correctly
@@ -1288,6 +1304,70 @@
                 }
 
                 return defaultValue;
+            }
+
+            /**
+             * Resolve node references in an expression (e.g., node_14, node_14_x, node_14_y)
+             * Replaces node references with their actual output values from nodeOutputValues map
+             * @param {string} expression - The expression string
+             * @returns {string} Expression with node references replaced by their values
+             */
+            _resolveNodeReferences(expression) {
+                // Match patterns like: node_14, node_14_x, node_14_y, node_14_z, node_14_w
+                // Also handle node IDs with underscores or other characters
+                const nodeRefPattern = /node_(\w+)(?:_([xyzw]))?/g;
+                
+                return expression.replace(nodeRefPattern, (match, nodeId, component) => {
+                    // Try to find the node output value
+                    let nodeValue = this.nodeOutputValues.get(nodeId);
+                    
+                    // Also try normalized node ID (handle different ID formats)
+                    if (nodeValue === undefined) {
+                        const normalizedId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                        // Try all variants
+                        for (const [key, value] of this.nodeOutputValues.entries()) {
+                            const normalizedKey = String(key).replace(/[^a-zA-Z0-9_]/g, '_');
+                            if (normalizedKey === normalizedId) {
+                                nodeValue = value;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (nodeValue === undefined) {
+                        // Node output not found - log warning and return 0
+                        if (!this._nodeRefWarnings || !this._nodeRefWarnings.has(nodeId)) {
+                            console.warn(`[LiveViewer] Node reference "${match}" not found in nodeOutputValues. Available nodes:`, Array.from(this.nodeOutputValues.keys()));
+                            if (!this._nodeRefWarnings) this._nodeRefWarnings = new Set();
+                            this._nodeRefWarnings.add(nodeId);
+                        }
+                        return '0';
+                    }
+                    
+                    // Handle component access (e.g., node_14_x -> nodeValue.x)
+                    if (component) {
+                        if (Array.isArray(nodeValue)) {
+                            const componentIndex = { x: 0, y: 1, z: 2, w: 3 }[component];
+                            const componentValue = nodeValue[componentIndex] !== undefined ? nodeValue[componentIndex] : 0;
+                            return String(componentValue);
+                        } else if (typeof nodeValue === 'number') {
+                            // For single numbers, only 'x' makes sense (or just return the number)
+                            return component === 'x' ? String(nodeValue) : '0';
+                        }
+                        return '0';
+                    }
+                    
+                    // Handle full node output (e.g., node_14 -> entire value)
+                    if (typeof nodeValue === 'number') {
+                        return String(nodeValue);
+                    } else if (Array.isArray(nodeValue) && nodeValue.length > 0) {
+                        // For arrays, return the first component (x) by default
+                        // Users can explicitly access .x, .y, etc. for other components
+                        return String(nodeValue[0]);
+                    }
+                    
+                    return '0';
+                });
             }
 
             executeComputeNode(encoder, nodeData, time) {
