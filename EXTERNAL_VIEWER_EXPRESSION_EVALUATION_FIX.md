@@ -120,9 +120,72 @@ uniformData[4] = this._evaluateParam(liveParams.opacity !== undefined ? livePara
 - `amount` - Can now use expressions like `=sin(time)*0.5+0.5`
 - `opacity` - Can now use expressions like `=abs(sin(time))`
 
-### 5. Fixed Generic Fallback for Other Compute Nodes
+### 5. Fixed Expression String Preservation in Parameter Updates
 
-**Location**: `viewer-live.html` lines ~1380-1401
+**Location**: `viewer-live.html` lines ~550-575
+
+**Problem**: When parameter updates came from `uniformValuesArray` (during parameter dragging), numeric values were overwriting expression strings in `nodeData.params`, causing expressions to be lost.
+
+**Solution**: Added check to preserve expression strings when updating from `uniformValuesArray`:
+
+```javascript
+// BEFORE (INCORRECT)
+if (!isNaN(numValue)) {
+    nodeData.params[paramName] = numValue; // Overwrites expression string!
+}
+
+// AFTER (CORRECT)
+const isExpression = typeof oldValue === 'string' && 
+    (oldValue.trim().startsWith('=') || /\btime\b/.test(oldValue) || /\baudioEnvelope/.test(oldValue));
+
+if (!isExpression) {
+    // Safe to update with numeric value (not overwriting an expression)
+    if (!isNaN(numValue)) {
+        nodeData.params[paramName] = numValue;
+    }
+} else {
+    // Preserve expression string - don't overwrite with numeric value
+    // The expression will be evaluated in executeComputeNode using _evaluateParam
+}
+```
+
+**Critical**: This ensures expression strings like `"=time*20"` are preserved even when parameter updates come from `uniformValuesArray`, preventing them from being overwritten with numeric values (typically 0.0).
+
+### 6. Fixed Parameter Extraction for Compute Nodes
+
+**Location**: `viewer-live.html` lines ~1178-1225
+
+**Problem**: When extracting parameters from `uniformValuesArray` for compute nodes, expression strings were being overwritten with numeric values.
+
+**Solution**: Modified parameter extraction to preserve expression strings:
+
+```javascript
+// For compute nodes, start with params (preserves expression strings)
+liveParams = { ...params }; // Start with original params (preserves expression strings)
+
+// Overlay numeric values from uniformValuesArray, but ONLY if params doesn't have an expression string
+if (matchingKeys.length > 0 && this.uniformValuesArray && this.uniformValuesArray.length > 0) {
+    for (let i = 0; i < this.uniformKeys.length; i++) {
+        const key = this.uniformKeys[i];
+        const paramName = key.substring(dotIndex + 1);
+        
+        // CRITICAL: Only overlay numeric value if params doesn't have an expression string
+        const existingValue = params?.[paramName];
+        const isExpression = typeof existingValue === 'string' && 
+            (existingValue.trim().startsWith('=') || /\btime\b/.test(existingValue) || /\baudioEnvelope/.test(existingValue));
+        
+        if (!isExpression && value !== undefined) {
+            // Safe to overlay numeric value (no expression to preserve)
+            liveParams[paramName] = value;
+        }
+        // If isExpression, keep the expression string from params (don't overwrite)
+    }
+}
+```
+
+### 7. Fixed Generic Fallback for Other Compute Nodes
+
+**Location**: `viewer-live.html` lines ~1495-1518
 
 **Changed**: Generic fallback now evaluates expressions for any compute node not explicitly handled:
 
@@ -153,14 +216,18 @@ uniformData[4] = this._evaluateParam(liveParams.opacity !== undefined ? livePara
 ```
 
 **Affected Nodes**: All compute nodes not explicitly handled, including:
-- `ComputeKaleidoscope` (rotation, segments, speed, etc.)
-- `ComputeFeedback` (rotation, decay, scale, etc.)
-- `ComputeWarp` (strength, frequency, phase, etc.)
-- `ComputeGlitch` (amount, speed, etc.)
-- `ComputePattern` (rotation, scale, etc.)
-- `ComputeFeedbackField` (speed, decay, etc.)
-- `ComputeCellular` (speed, etc.)
-- And any other compute nodes
+- `ComputeBlur` (radius, quality, direction) - ✅ Fixed via generic fallback
+- `ComputeKaleidoscope` (rotation, segments, speed, centerX, centerY, scale, animate) - ✅ Fixed via generic fallback
+- `ComputeFeedback` (rotation, decay, scale, etc.) - ✅ Fixed via generic fallback
+- `ComputeWarp` (strength, frequency, phase, radius, centerX, centerY) - ✅ Fixed via generic fallback
+- `ComputeGlitch` (intensity, frequency, blockSize, seed) - ✅ Fixed via generic fallback
+- `ComputePattern` (rotation, scale, etc.) - ✅ Fixed via generic fallback
+- `ComputeFeedbackField` (speed, decay, etc.) - ✅ Fixed via generic fallback
+- `ComputeCellular` (speed, etc.) - ✅ Fixed via generic fallback
+- `ComputeParticles` (speed, size, lifetime, etc.) - ✅ Fixed via generic fallback
+- Any other compute nodes - ✅ Fixed via generic fallback
+
+**Note**: All compute nodes benefit from expression evaluation, whether explicitly handled or through the generic fallback.
 
 ## Supported Expression Syntax
 
@@ -212,10 +279,12 @@ The expression evaluator supports:
 
 ### Key Sections
 1. **Expression Evaluator**: Lines ~1066-1141
-2. **ComputeTransform Fix**: Lines ~1350-1363, ~1393-1401
-3. **ComputeNoise Fix**: Lines ~1283-1287
-4. **ComputeMix Fix**: Lines ~1344-1348
-5. **Generic Fallback Fix**: Lines ~1380-1401
+2. **Expression String Preservation in Updates**: Lines ~550-575
+3. **Parameter Extraction Fix**: Lines ~1178-1225
+4. **ComputeTransform Fix**: Lines ~1420-1463
+5. **ComputeNoise Fix**: Lines ~1351-1412
+6. **ComputeMix Fix**: Lines ~1413-1419
+7. **Generic Fallback Fix**: Lines ~1495-1518
 
 ## Related Issues
 
@@ -248,5 +317,17 @@ Potential improvements:
 - The fix maintains backward compatibility: numeric values work as before
 - Expression evaluation happens on every frame, which is correct for time-dependent expressions
 - The evaluator uses a safe `Function()` constructor with restricted scope (only Math and constants)
-- All compute nodes benefit from this fix, even those not explicitly handled
+- All compute nodes benefit from this fix, whether explicitly handled or through the generic fallback
+- Expression strings are preserved even when parameter updates come from `uniformValuesArray`
+- The fix ensures expression strings are never overwritten by numeric values during parameter updates
+
+## Summary
+
+The complete fix consists of three key components:
+
+1. **Expression Evaluation**: Added `_evaluateParam()` helper to evaluate expressions like `"=time*20"` into numeric values
+2. **Expression Preservation**: Prevent numeric values from overwriting expression strings during parameter updates
+3. **Parameter Extraction**: Preserve expression strings when extracting parameters from `uniformValuesArray`
+
+All compute node parameters now support expressions in the external viewer, matching the functionality of the internal editor.
 
