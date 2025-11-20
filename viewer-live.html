@@ -880,7 +880,21 @@
                 }
 
                 // Extract live parameter values from uniformValuesArray for this node
+                // CRITICAL: This reads from uniformValuesArray which is updated every frame via handleParameterUpdate
                 const liveParams = this._extractNodeParams(nodeId, params);
+
+                // DEBUG: Log parameter extraction for ComputeTransform to verify real-time updates
+                if (nodeData.kind === 'ComputeTransform' && (this._transformExtractCount || 0) % 60 === 0) {
+                    console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
+                        nodeId,
+                        'uniformValuesArray.length': this.uniformValuesArray.length,
+                        'uniformKeys.length': this.uniformKeys?.length || 0,
+                        'liveParams.rotation': liveParams.rotation,
+                        'defaultParams.rotation': params?.rotation,
+                        'uniformKeys for this node': this.uniformKeys?.filter(k => k.startsWith(nodeId + '.'))
+                    });
+                }
+                this._transformExtractCount = (this._transformExtractCount || 0) + 1;
 
                 // DEBUG: Log ComputeNoise params to verify extraction
                 if (nodeData.kind === 'ComputeNoise' && this._computeNoiseDebugCount % 60 === 0) {
@@ -939,6 +953,7 @@
                     // Pack parameters in the correct order based on node kind
                     // Each compute node has a specific uniform struct layout
                     // Use liveParams (from uniformValuesArray) for real-time updates during drag
+                    // CRITICAL: Always pack params, even if liveParams is empty, to ensure buffer is written
                     if (liveParams) {
                         // Common pattern: node-specific params start at index 3
                         // We need to match the WGSL uniform struct order exactly
@@ -970,6 +985,7 @@
                             // padding at [5-7] (default zeros)
                         } else if (nodeData.kind === 'ComputeTransform') {
                             // ComputeTransform uniforms: resolution(vec2), time, translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY, _padding(vec2)
+                            const oldRotation = uniformData[5]; // Store old value for comparison
                             uniformData[3] = liveParams.translateX !== undefined ? liveParams.translateX : 0.0;
                             uniformData[4] = liveParams.translateY !== undefined ? liveParams.translateY : 0.0;
                             uniformData[5] = liveParams.rotation !== undefined ? liveParams.rotation : 0.0; // degrees
@@ -979,19 +995,21 @@
                             uniformData[9] = liveParams.pivotY !== undefined ? liveParams.pivotY : (liveParams.centerY !== undefined ? liveParams.centerY : 0.5);
                             // padding at [10-11] (default zeros)
                             
-                            // DEBUG: Log transform params occasionally
-                            if ((this._transformDebugCount || 0) % 60 === 0) {
-                                console.log('[LiveViewer] ComputeTransform params:', {
+                            // DEBUG: Log transform params when rotation changes (for real-time debugging)
+                            this._transformDebugCount = (this._transformDebugCount || 0) + 1;
+                            if (Math.abs(uniformData[5] - oldRotation) > 0.01 || this._transformDebugCount % 60 === 0) {
+                                console.log('[LiveViewer] ComputeTransform params (rotation changed):', {
                                     translateX: uniformData[3],
                                     translateY: uniformData[4],
                                     rotation: uniformData[5],
                                     scaleX: uniformData[6],
                                     scaleY: uniformData[7],
                                     pivotX: uniformData[8],
-                                    pivotY: uniformData[9]
+                                    pivotY: uniformData[9],
+                                    'liveParams.rotation': liveParams.rotation,
+                                    'from uniformValuesArray': this.uniformValuesArray
                                 });
                             }
-                            this._transformDebugCount = (this._transformDebugCount || 0) + 1;
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             let paramIndex = 3;
@@ -1004,11 +1022,27 @@
                                 }
                             }
                         }
+                    } else {
+                        // If no liveParams, use default params from nodeData
+                        // This ensures the buffer is always written with valid data
+                        if (nodeData.kind === 'ComputeTransform' && params) {
+                            uniformData[3] = params.translateX !== undefined ? params.translateX : 0.0;
+                            uniformData[4] = params.translateY !== undefined ? params.translateY : 0.0;
+                            uniformData[5] = params.rotation !== undefined ? params.rotation : 0.0;
+                            uniformData[6] = params.scaleX !== undefined ? params.scaleX : 1.0;
+                            uniformData[7] = params.scaleY !== undefined ? params.scaleY : 1.0;
+                            uniformData[8] = params.pivotX !== undefined ? params.pivotX : (params.centerX !== undefined ? params.centerX : 0.5);
+                            uniformData[9] = params.pivotY !== undefined ? params.pivotY : (params.centerY !== undefined ? params.centerY : 0.5);
+                        }
                     }
 
-                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+                    // CRITICAL: Write uniform buffer EVERY frame to ensure latest values are used
+                    // WebGPU will automatically synchronize this with the compute pass
+                    // Write the full buffer (64 floats = 256 bytes) even though ComputeTransform only uses 12 floats
+                    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer, 0, uniformData.byteLength);
 
-                    // Create bind group entries
+                    // Create bind group entries (create new bind group every frame to ensure fresh buffer reference)
+                    // The bind group references the buffer, and WebGPU will ensure the write completes before the compute pass uses it
                     const bindGroupEntries = [
                         { binding: 0, resource: { buffer: uniformBuffer } },
                         { binding: 1, resource: outputTexture.createView() }
@@ -1261,6 +1295,8 @@
                         if (keyNodeId === String(nodeId)) {
                             const value = this.uniformValuesArray[i];
                             if (value !== undefined) {
+                                // CRITICAL: Always use the live value from uniformValuesArray
+                                // This ensures real-time updates during parameter drag
                                 params[paramName] = value;
                             }
                         }
@@ -1868,12 +1904,8 @@
 
                         // CRITICAL: Recreate bind groups after fragment execution
                         // to capture the fresh fragment output textures for compute nodes and final shader
-                        // ONLY recreate if not done recently to avoid destroyed texture errors
-                        const now = performance.now();
-                        if (!this._lastBindGroupRecreate || (now - this._lastBindGroupRecreate) > 100) {
-                            this.recreateBindGroups();
-                            this._lastBindGroupRecreate = now;
-                        }
+                        // Recreate every frame to ensure latest fragment outputs are used
+                        this.recreateBindGroups();
                     }
 
                     // Execute compute nodes BEFORE rendering final fragment shader
@@ -1882,12 +1914,9 @@
 
                         // CRITICAL: Recreate bind groups after compute execution
                         // to capture the fresh compute output textures
-                        // ONLY recreate if not done recently to avoid destroyed texture errors
-                        const now = performance.now();
-                        if (!this._lastBindGroupRecreate || (now - this._lastBindGroupRecreate) > 100) {
-                            this.recreateBindGroups();
-                            this._lastBindGroupRecreate = now;
-                        }
+                        // Recreate every frame to ensure latest compute outputs are used in final shader
+                        // This is necessary for real-time parameter updates during drag
+                        this.recreateBindGroups();
                     }
 
                     // Update uniforms
