@@ -594,6 +594,35 @@
                                     }
                                 }
                             }
+                            
+                            // CRITICAL: Also preserve expression strings for fragment nodes
+                            // Fragment nodes need expression strings preserved so they can be re-evaluated each frame
+                            for (const nodeData of this.fragmentNodes) {
+                                const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                const normalizedNodeId = String(nodeData.nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                
+                                if (keyNodeId === String(nodeData.nodeId) || normalizedKeyNodeId === normalizedNodeId) {
+                                    // Ensure params object exists
+                                    if (!nodeData.params) {
+                                        nodeData.params = {};
+                                    }
+                                    const oldValue = nodeData.params[paramName];
+                                    
+                                    // CRITICAL: Don't overwrite expression strings with numeric values
+                                    const isExpression = typeof oldValue === 'string' && 
+                                        (oldValue.trim().startsWith('=') || /\btime\b/.test(oldValue) || /\baudioEnvelope/.test(oldValue));
+                                    
+                                    if (isExpression) {
+                                        // Preserve expression string - it will be re-evaluated each frame in updateFragmentUniforms
+                                        if (this.paramUpdateCount <= 3) {
+                                            console.log(`[LiveViewer] Preserved fragment expression for ${nodeData.nodeId}.${paramName}: "${oldValue}"`);
+                                        }
+                                    }
+                                    // Note: We don't update fragment node params with numeric values here
+                                    // because fragment nodes use uniformValuesArray directly in updateFragmentUniforms
+                                    // The expression strings just need to be preserved so they can be detected and re-evaluated
+                                }
+                            }
                         }
                         
                         // DEBUG: Log if we found compute node parameters to update
@@ -1091,6 +1120,15 @@
                         return false;
                     });
                     
+                    // DEBUG: Log expression detection
+                    if (hasExpressions && (!this._fragmentExpressionDebug || this._fragmentExpressionDebug < 5)) {
+                        this._fragmentExpressionDebug = (this._fragmentExpressionDebug || 0) + 1;
+                        const expressionParams = Object.entries(nodeData.params || {}).filter(([k, v]) => 
+                            typeof v === 'string' && (v.trim().startsWith('=') || /\btime\b/.test(v) || /\baudioEnvelope/.test(v))
+                        );
+                        console.log(`[LiveViewer] Fragment node ${nodeData.nodeId} has expressions:`, expressionParams);
+                    }
+                    
                     if (hasExpressions) {
                         // Re-evaluate expressions each frame using nodeData.params
                         // CRITICAL: Preserve original expression strings from nodeData.params
@@ -1131,9 +1169,24 @@
                                         paramValue = this.uniformValuesArray[i];
                                     }
                                     
+                                    // DEBUG: Log expression evaluation
+                                    if (isExpression && (!this._fragmentEvalDebug || this._fragmentEvalDebug < 10)) {
+                                        this._fragmentEvalDebug = (this._fragmentEvalDebug || 0) + 1;
+                                        const audioEnv = window._audioEnvelopeValue || 0.0;
+                                        console.log(`[LiveViewer] Evaluating fragment expression ${nodeData.nodeId}.${paramName}: "${paramValue}", audioEnvelope=${audioEnv.toFixed(3)}`);
+                                    }
+                                    
                                     const defaultValue = typeof paramValue === 'number' ? paramValue : 0.0;
                                     // Re-evaluate expression each frame (or use numeric value if not expression)
-                                    evaluatedValues.push(this._evaluateParam(paramValue, defaultValue, time));
+                                    const evaluated = this._evaluateParam(paramValue, defaultValue, time);
+                                    
+                                    // DEBUG: Log evaluation result
+                                    if (isExpression && (!this._fragmentEvalResultDebug || this._fragmentEvalResultDebug < 10)) {
+                                        this._fragmentEvalResultDebug = (this._fragmentEvalResultDebug || 0) + 1;
+                                        console.log(`[LiveViewer] Expression result: ${evaluated}`);
+                                    }
+                                    
+                                    evaluatedValues.push(evaluated);
                                 } else {
                                     // Use value from uniformValuesArray for other nodes
                                     evaluatedValues.push(this.uniformValuesArray && this.uniformValuesArray[i] !== undefined ? this.uniformValuesArray[i] : 0);
