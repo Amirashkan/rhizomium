@@ -1241,22 +1241,16 @@
                             // DEBUG: Log packed uniforms (more frequently to catch the issue)
                             this._computeNoiseDebugCount = (this._computeNoiseDebugCount || 0) + 1;
                             if (this._computeNoiseDebugCount <= 5 || this._computeNoiseDebugCount % 60 === 0) {
-                                console.log('[LiveViewer] ComputeNoise packed uniforms:', {
-                                    resolution: [uniformData[0], uniformData[1]],
-                                    time: uniformData[2],
-                                    scale: uniformData[3],
-                                    octaves: uniformData[4],
-                                    speed: uniformData[5],
-                                    colorize: uniformData[6],
-                                    'final colorizeValue': colorizeValue,
-                                    'colorizeInUniformKeys': colorizeInUniformKeys,
-                                    'liveParams.colorize': liveParams?.colorize,
-                                    'liveParams.colorize type': typeof liveParams?.colorize,
-                                    'params.colorize': params?.colorize,
-                                    'params.colorize type': typeof params?.colorize,
-                                    'uniformKeys (all)': this.uniformKeys,
-                                    'uniformKeys with colorize': this.uniformKeys?.filter(k => k && k.includes('colorize'))
-                                });
+                                // Log key values separately so they're always visible (not collapsed)
+                                console.log('[LiveViewer] ComputeNoise packed uniforms:');
+                                console.log('  colorize (final):', uniformData[6]);
+                                console.log('  colorizeValue (computed):', colorizeValue);
+                                console.log('  colorizeInUniformKeys:', colorizeInUniformKeys);
+                                console.log('  liveParams.colorize:', liveParams?.colorize, '(type:', typeof liveParams?.colorize + ')');
+                                console.log('  params.colorize:', params?.colorize, '(type:', typeof params?.colorize + ')');
+                                console.log('  uniformKeys with colorize:', this.uniformKeys?.filter(k => k && k.includes('colorize')));
+                                console.log('  all uniformKeys:', this.uniformKeys);
+                                console.log('  resolution:', [uniformData[0], uniformData[1]], 'time:', uniformData[2], 'scale:', uniformData[3], 'octaves:', uniformData[4], 'speed:', uniformData[5]);
                             }
                         } else if (nodeData.kind === 'ComputeMix') {
                             // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
