@@ -1197,16 +1197,23 @@
                             
                             // CRITICAL: Handle colorize parameter - default is true (1.0) for colorized output
                             // The parameter can be boolean, number (1.0/0.0), or string
-                            // IMPORTANT: If colorize is 0 or false, it might be explicitly set, but we need to check
-                            // if it's actually in the params. If it's missing, default to true (1.0)
+                            // IMPORTANT: Check if colorize is in uniformKeys - if not, it wasn't registered, so use default
+                            const colorizeKey = `${nodeId}.colorize`;
+                            const colorizeInUniformKeys = this.uniformKeys && this.uniformKeys.some(k => {
+                                if (!k || typeof k !== 'string') return false;
+                                const dotIndex = k.indexOf('.');
+                                if (dotIndex === -1) return false;
+                                const keyNodeId = k.substring(0, dotIndex);
+                                const keyParamName = k.substring(dotIndex + 1);
+                                return (keyNodeId === String(nodeId) || keyNodeId === String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_')) && keyParamName === 'colorize';
+                            });
+                            
                             let colorizeValue = 1.0; // Default to colorized (true) - this is the node's default
                             
-                            // Check if colorize is explicitly set in params (not just extracted as 0)
-                            const hasColorizeInParams = params && (params.hasOwnProperty('colorize') || 'colorize' in params);
-                            const hasColorizeInLiveParams = liveParams && (liveParams.hasOwnProperty('colorize') || 'colorize' in liveParams);
-                            
-                            // Only use the extracted value if colorize is explicitly set
-                            if (hasColorizeInLiveParams && liveParams.colorize !== undefined && liveParams.colorize !== null) {
+                            // Only use extracted value if colorize is explicitly registered in uniformKeys
+                            // If it's not in uniformKeys, it means it wasn't set, so use default true (1.0)
+                            if (colorizeInUniformKeys && liveParams && liveParams.colorize !== undefined && liveParams.colorize !== null) {
+                                // colorize is registered, so use the extracted value
                                 if (typeof liveParams.colorize === 'boolean') {
                                     colorizeValue = liveParams.colorize ? 1.0 : 0.0;
                                 } else if (typeof liveParams.colorize === 'number') {
@@ -1215,8 +1222,8 @@
                                     const str = liveParams.colorize.toLowerCase().trim();
                                     colorizeValue = (str === 'true' || str === '1' || str === 'yes') ? 1.0 : 0.0;
                                 }
-                            } else if (hasColorizeInParams && params.colorize !== undefined && params.colorize !== null) {
-                                // Fallback to default params if liveParams doesn't have colorize
+                            } else if (params && params.colorize !== undefined && params.colorize !== null) {
+                                // Not in uniformKeys, but check if it's in default params
                                 if (typeof params.colorize === 'boolean') {
                                     colorizeValue = params.colorize ? 1.0 : 0.0;
                                 } else if (typeof params.colorize === 'number') {
@@ -1226,7 +1233,7 @@
                                     colorizeValue = (str === 'true' || str === '1' || str === 'yes') ? 1.0 : 0.0;
                                 }
                             }
-                            // If colorize is not explicitly set in either liveParams or params, use default 1.0 (already set above)
+                            // If colorize is not in uniformKeys and not in params, use default 1.0 (already set above)
                             
                             uniformData[6] = colorizeValue;
                             // padding at [7] (default zero)
@@ -1603,9 +1610,10 @@
                             if (value !== undefined) {
                                 // CRITICAL: Always use the live value from uniformValuesArray
                                 // This ensures real-time updates during parameter drag
-                                // However, for boolean parameters like 'colorize', we need to preserve
-                                // the type information. If the default is a boolean, keep it as a number
-                                // representation (1.0/0.0) but the extraction will handle it correctly
+                                // However, for boolean parameters with default true (like 'colorize'),
+                                // if the value is 0 and the default is true, we need to check if it's
+                                // actually explicitly set. For now, we'll use the value as-is and let
+                                // the uniform packing logic handle the default.
                                 params[paramName] = value;
                             }
                         }
