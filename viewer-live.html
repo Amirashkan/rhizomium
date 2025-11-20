@@ -1629,6 +1629,141 @@
                             uniformData[5] = this._evaluateParam(liveParams.thresholdMax !== undefined ? liveParams.thresholdMax : params?.thresholdMax, 0.7, time);
                             uniformData[6] = this._evaluateParam(liveParams.outputLow !== undefined ? liveParams.outputLow : params?.outputLow, 0.0, time);
                             uniformData[7] = this._evaluateParam(liveParams.outputHigh !== undefined ? liveParams.outputHigh : params?.outputHigh, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeBlur') {
+                            // ComputeBlur uniforms: resolution(vec2), time, radius, quality, direction
+                            // Map quality string to numeric value (0=Low, 1=Medium, 2=High)
+                            let qualityValue = 1.0; // Default to Medium
+                            const quality = liveParams.quality !== undefined ? liveParams.quality : params?.quality;
+                            if (quality === 'Low') qualityValue = 0.0;
+                            else if (quality === 'High') qualityValue = 2.0;
+                            // Map direction string to numeric value (0=Both, 1=Horizontal, 2=Vertical)
+                            let directionValue = 0.0; // Default to Both
+                            const direction = liveParams.direction !== undefined ? liveParams.direction : params?.direction;
+                            if (direction === 'Horizontal') directionValue = 1.0;
+                            else if (direction === 'Vertical') directionValue = 2.0;
+                            uniformData[3] = this._evaluateParam(liveParams.radius !== undefined ? liveParams.radius : params?.radius, 5.0, time);
+                            uniformData[4] = qualityValue;
+                            uniformData[5] = directionValue;
+                        } else if (nodeData.kind === 'ComputeColorAdjust') {
+                            // ComputeColorAdjust uniforms: resolution(vec2), time, brightness, contrast, saturation, hue, gamma, exposure
+                            uniformData[3] = this._evaluateParam(liveParams.brightness !== undefined ? liveParams.brightness : params?.brightness, 0.0, time);
+                            uniformData[4] = this._evaluateParam(liveParams.contrast !== undefined ? liveParams.contrast : params?.contrast, 1.0, time);
+                            uniformData[5] = this._evaluateParam(liveParams.saturation !== undefined ? liveParams.saturation : params?.saturation, 1.0, time);
+                            uniformData[6] = this._evaluateParam(liveParams.hue !== undefined ? liveParams.hue : params?.hue, 0.0, time);
+                            uniformData[7] = this._evaluateParam(liveParams.gamma !== undefined ? liveParams.gamma : params?.gamma, 1.0, time);
+                            uniformData[8] = this._evaluateParam(liveParams.exposure !== undefined ? liveParams.exposure : params?.exposure, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeEdgeDetect') {
+                            // ComputeEdgeDetect uniforms: resolution(vec2), time, threshold, strength, invertEdges
+                            uniformData[3] = this._evaluateParam(liveParams.threshold !== undefined ? liveParams.threshold : params?.threshold, 0.1, time);
+                            uniformData[4] = this._evaluateParam(liveParams.strength !== undefined ? liveParams.strength : params?.strength, 1.0, time);
+                            const invertEdges = liveParams.invertEdges !== undefined ? liveParams.invertEdges : params?.invertEdges;
+                            uniformData[5] = (typeof invertEdges === 'boolean' ? (invertEdges ? 1.0 : 0.0) : (invertEdges ? 1.0 : 0.0));
+                        } else if (nodeData.kind === 'ComputeMorphology') {
+                            // ComputeMorphology uniforms: resolution(vec2), time, strength
+                            uniformData[3] = this._evaluateParam(liveParams.strength !== undefined ? liveParams.strength : params?.strength, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeVoronoi') {
+                            // ComputeVoronoi uniforms: resolution(vec2), time, scale, seed, speed
+                            uniformData[3] = this._evaluateParam(liveParams.scale !== undefined ? liveParams.scale : params?.scale, 8.0, time);
+                            uniformData[4] = this._evaluateParam(liveParams.seed !== undefined ? liveParams.seed : params?.seed, 0.0, time);
+                            uniformData[5] = this._evaluateParam(liveParams.speed !== undefined ? liveParams.speed : params?.speed, 0.1, time);
+                        } else if (nodeData.kind === 'ComputeConvolution') {
+                            // ComputeConvolution uniforms: resolution(vec2), time, strength
+                            uniformData[3] = this._evaluateParam(liveParams.strength !== undefined ? liveParams.strength : params?.strength, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeFeedback') {
+                            // ComputeFeedback uniforms: resolution(vec2), time, decay, scale, rotation, offsetX, offsetY
+                            uniformData[3] = this._evaluateParam(liveParams.decay !== undefined ? liveParams.decay : params?.decay, 0.95, time);
+                            uniformData[4] = this._evaluateParam(liveParams.scale !== undefined ? liveParams.scale : params?.scale, 1.01, time);
+                            uniformData[5] = this._evaluateParam(liveParams.rotation !== undefined ? liveParams.rotation : params?.rotation, 0.0, time);
+                            uniformData[6] = this._evaluateParam(liveParams.offsetX !== undefined ? liveParams.offsetX : params?.offsetX, 0.0, time);
+                            uniformData[7] = this._evaluateParam(liveParams.offsetY !== undefined ? liveParams.offsetY : params?.offsetY, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeReactionDiffusion') {
+                            // ComputeReactionDiffusion uniforms: resolution(vec2), time, feedRate, killRate, diffusionA, diffusionB, timestep
+                            uniformData[3] = this._evaluateParam(liveParams.feedRate !== undefined ? liveParams.feedRate : params?.feedRate, 0.055, time);
+                            uniformData[4] = this._evaluateParam(liveParams.killRate !== undefined ? liveParams.killRate : params?.killRate, 0.062, time);
+                            uniformData[5] = this._evaluateParam(liveParams.diffusionA !== undefined ? liveParams.diffusionA : params?.diffusionA, 1.0, time);
+                            uniformData[6] = this._evaluateParam(liveParams.diffusionB !== undefined ? liveParams.diffusionB : params?.diffusionB, 0.5, time);
+                            uniformData[7] = this._evaluateParam(liveParams.timestep !== undefined ? liveParams.timestep : params?.timestep, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeCellular') {
+                            // ComputeCellular uniforms: resolution(vec2), time, speed
+                            uniformData[3] = this._evaluateParam(liveParams.speed !== undefined ? liveParams.speed : params?.speed, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeFeedbackField') {
+                            // ComputeFeedbackField uniforms: resolution(vec2), time, decay, diffusion, feedback, speed, mode
+                            uniformData[3] = this._evaluateParam(liveParams.decay !== undefined ? liveParams.decay : params?.decay, 0.98, time);
+                            uniformData[4] = this._evaluateParam(liveParams.diffusion !== undefined ? liveParams.diffusion : params?.diffusion, 0.1, time);
+                            uniformData[5] = this._evaluateParam(liveParams.feedback !== undefined ? liveParams.feedback : params?.feedback, 0.5, time);
+                            uniformData[6] = this._evaluateParam(liveParams.speed !== undefined ? liveParams.speed : params?.speed, 1.0, time);
+                            // Map mode string to numeric value (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom)
+                            let modeValue = 0.0;
+                            const mode = liveParams.mode !== undefined ? liveParams.mode : params?.mode;
+                            if (mode === 'Reaction-Diffusion') modeValue = 1.0;
+                            else if (mode === 'Accumulate') modeValue = 2.0;
+                            else if (mode === 'Custom') modeValue = 3.0;
+                            uniformData[7] = modeValue;
+                        } else if (nodeData.kind === 'ComputePattern') {
+                            // ComputePattern uniforms: resolution(vec2), time, _padding1, scaleX, scaleY, rotation, thickness, smoothness
+                            uniformData[3] = 0.0; // _padding1
+                            uniformData[4] = this._evaluateParam(liveParams.scaleX !== undefined ? liveParams.scaleX : params?.scaleX, 8.0, time);
+                            uniformData[5] = this._evaluateParam(liveParams.scaleY !== undefined ? liveParams.scaleY : params?.scaleY, 8.0, time);
+                            uniformData[6] = this._evaluateParam(liveParams.rotation !== undefined ? liveParams.rotation : params?.rotation, 0.0, time);
+                            uniformData[7] = this._evaluateParam(liveParams.thickness !== undefined ? liveParams.thickness : params?.thickness, 0.5, time);
+                            uniformData[8] = this._evaluateParam(liveParams.smoothness !== undefined ? liveParams.smoothness : params?.smoothness, 0.01, time);
+                        } else if (nodeData.kind === 'ComputeGradient') {
+                            // ComputeGradient uniforms: resolution(vec2), time, angle, centerX, centerY, radius, repeat, saturation, brightness, numStops
+                            uniformData[3] = this._evaluateParam(liveParams.angle !== undefined ? liveParams.angle : params?.angle, 0.0, time);
+                            uniformData[4] = this._evaluateParam(liveParams.centerX !== undefined ? liveParams.centerX : params?.centerX, 0.5, time);
+                            uniformData[5] = this._evaluateParam(liveParams.centerY !== undefined ? liveParams.centerY : params?.centerY, 0.5, time);
+                            uniformData[6] = this._evaluateParam(liveParams.radius !== undefined ? liveParams.radius : params?.radius, 0.5, time);
+                            uniformData[7] = this._evaluateParam(liveParams.repeat !== undefined ? liveParams.repeat : params?.repeat, 1.0, time);
+                            uniformData[8] = this._evaluateParam(liveParams.saturation !== undefined ? liveParams.saturation : params?.saturation, 0.8, time);
+                            uniformData[9] = this._evaluateParam(liveParams.brightness !== undefined ? liveParams.brightness : params?.brightness, 1.0, time);
+                            // numStops - get from colorStops array if available
+                            const colorStops = liveParams.colorStops || params?.colorStops || [];
+                            uniformData[10] = Math.min(colorStops.length, 8);
+                            uniformData[11] = 0.0; // padding
+                        } else if (nodeData.kind === 'ComputeChannels') {
+                            // ComputeChannels uniforms: resolution(vec2), time, redSource, greenSource, blueSource, alphaSource
+                            // Convert channel source strings to indices: R=0, G=1, B=2, A=3, 0=4, 1=5
+                            const getChannelIndex = (source) => {
+                                if (source === 'R') return 0.0;
+                                if (source === 'G') return 1.0;
+                                if (source === 'B') return 2.0;
+                                if (source === 'A') return 3.0;
+                                if (source === '0') return 4.0;
+                                if (source === '1') return 5.0;
+                                return 0.0;
+                            };
+                            uniformData[3] = getChannelIndex(liveParams.redSource !== undefined ? liveParams.redSource : params?.redSource || 'R');
+                            uniformData[4] = getChannelIndex(liveParams.greenSource !== undefined ? liveParams.greenSource : params?.greenSource || 'G');
+                            uniformData[5] = getChannelIndex(liveParams.blueSource !== undefined ? liveParams.blueSource : params?.blueSource || 'B');
+                            uniformData[6] = getChannelIndex(liveParams.alphaSource !== undefined ? liveParams.alphaSource : params?.alphaSource || 'A');
+                        } else if (nodeData.kind === 'ComputeHSV') {
+                            // ComputeHSV uniforms: resolution(vec2), time, operation, hueShift, saturationMult, valueMult
+                            // Convert operation string to index: 0=RGB to HSV, 1=HSV to RGB, 2=Adjust HSV
+                            const operation = liveParams.operation !== undefined ? liveParams.operation : params?.operation || 'Adjust HSV';
+                            let opIndex = 2.0;
+                            if (operation === 'RGB to HSV') opIndex = 0.0;
+                            else if (operation === 'HSV to RGB') opIndex = 1.0;
+                            uniformData[3] = opIndex;
+                            uniformData[4] = this._evaluateParam(liveParams.hueShift !== undefined ? liveParams.hueShift : params?.hueShift, 0.0, time);
+                            uniformData[5] = this._evaluateParam(liveParams.saturationMult !== undefined ? liveParams.saturationMult : params?.saturationMult, 1.0, time);
+                            uniformData[6] = this._evaluateParam(liveParams.valueMult !== undefined ? liveParams.valueMult : params?.valueMult, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeLuminance') {
+                            // ComputeLuminance uniforms: resolution(vec2), time, method, outputMode, threshold
+                            // Convert method string to index: 0=Rec709, 1=Rec601, 2=Average, 3=Max, 4=Min
+                            const method = liveParams.method !== undefined ? liveParams.method : params?.method || 'Rec709';
+                            let methodIndex = 0.0;
+                            if (method === 'Rec601') methodIndex = 1.0;
+                            else if (method === 'Average') methodIndex = 2.0;
+                            else if (method === 'Max') methodIndex = 3.0;
+                            else if (method === 'Min') methodIndex = 4.0;
+                            // Convert outputMode string to index: 0=Grayscale, 1=Preserve Color, 2=Isoluminant
+                            const outputMode = liveParams.outputMode !== undefined ? liveParams.outputMode : params?.outputMode || 'Grayscale';
+                            let outputModeIndex = 0.0;
+                            if (outputMode === 'Preserve Color') outputModeIndex = 1.0;
+                            else if (outputMode === 'Isoluminant') outputModeIndex = 2.0;
+                            uniformData[3] = methodIndex;
+                            uniformData[4] = outputModeIndex;
+                            uniformData[5] = this._evaluateParam(liveParams.threshold !== undefined ? liveParams.threshold : params?.threshold, 0.5, time);
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             // CRITICAL: Evaluate expressions for all parameters in generic fallback
@@ -1693,6 +1828,114 @@
                             uniformData[5] = this._evaluateParam(params.thresholdMax, 0.7, time);
                             uniformData[6] = this._evaluateParam(params.outputLow, 0.0, time);
                             uniformData[7] = this._evaluateParam(params.outputHigh, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeBlur' && params) {
+                            let qualityValue = 1.0;
+                            if (params.quality === 'Low') qualityValue = 0.0;
+                            else if (params.quality === 'High') qualityValue = 2.0;
+                            let directionValue = 0.0;
+                            if (params.direction === 'Horizontal') directionValue = 1.0;
+                            else if (params.direction === 'Vertical') directionValue = 2.0;
+                            uniformData[3] = this._evaluateParam(params.radius, 5.0, time);
+                            uniformData[4] = qualityValue;
+                            uniformData[5] = directionValue;
+                        } else if (nodeData.kind === 'ComputeColorAdjust' && params) {
+                            uniformData[3] = this._evaluateParam(params.brightness, 0.0, time);
+                            uniformData[4] = this._evaluateParam(params.contrast, 1.0, time);
+                            uniformData[5] = this._evaluateParam(params.saturation, 1.0, time);
+                            uniformData[6] = this._evaluateParam(params.hue, 0.0, time);
+                            uniformData[7] = this._evaluateParam(params.gamma, 1.0, time);
+                            uniformData[8] = this._evaluateParam(params.exposure, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeEdgeDetect' && params) {
+                            uniformData[3] = this._evaluateParam(params.threshold, 0.1, time);
+                            uniformData[4] = this._evaluateParam(params.strength, 1.0, time);
+                            uniformData[5] = (typeof params.invertEdges === 'boolean' ? (params.invertEdges ? 1.0 : 0.0) : 0.0);
+                        } else if (nodeData.kind === 'ComputeMorphology' && params) {
+                            uniformData[3] = this._evaluateParam(params.strength, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeVoronoi' && params) {
+                            uniformData[3] = this._evaluateParam(params.scale, 8.0, time);
+                            uniformData[4] = this._evaluateParam(params.seed, 0.0, time);
+                            uniformData[5] = this._evaluateParam(params.speed, 0.1, time);
+                        } else if (nodeData.kind === 'ComputeConvolution' && params) {
+                            uniformData[3] = this._evaluateParam(params.strength, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeFeedback' && params) {
+                            uniformData[3] = this._evaluateParam(params.decay, 0.95, time);
+                            uniformData[4] = this._evaluateParam(params.scale, 1.01, time);
+                            uniformData[5] = this._evaluateParam(params.rotation, 0.0, time);
+                            uniformData[6] = this._evaluateParam(params.offsetX, 0.0, time);
+                            uniformData[7] = this._evaluateParam(params.offsetY, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeReactionDiffusion' && params) {
+                            uniformData[3] = this._evaluateParam(params.feedRate, 0.055, time);
+                            uniformData[4] = this._evaluateParam(params.killRate, 0.062, time);
+                            uniformData[5] = this._evaluateParam(params.diffusionA, 1.0, time);
+                            uniformData[6] = this._evaluateParam(params.diffusionB, 0.5, time);
+                            uniformData[7] = this._evaluateParam(params.timestep, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeCellular' && params) {
+                            uniformData[3] = this._evaluateParam(params.speed, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeFeedbackField' && params) {
+                            uniformData[3] = this._evaluateParam(params.decay, 0.98, time);
+                            uniformData[4] = this._evaluateParam(params.diffusion, 0.1, time);
+                            uniformData[5] = this._evaluateParam(params.feedback, 0.5, time);
+                            uniformData[6] = this._evaluateParam(params.speed, 1.0, time);
+                            let modeValue = 0.0;
+                            if (params.mode === 'Reaction-Diffusion') modeValue = 1.0;
+                            else if (params.mode === 'Accumulate') modeValue = 2.0;
+                            else if (params.mode === 'Custom') modeValue = 3.0;
+                            uniformData[7] = modeValue;
+                        } else if (nodeData.kind === 'ComputePattern' && params) {
+                            uniformData[3] = 0.0; // _padding1
+                            uniformData[4] = this._evaluateParam(params.scaleX, 8.0, time);
+                            uniformData[5] = this._evaluateParam(params.scaleY, 8.0, time);
+                            uniformData[6] = this._evaluateParam(params.rotation, 0.0, time);
+                            uniformData[7] = this._evaluateParam(params.thickness, 0.5, time);
+                            uniformData[8] = this._evaluateParam(params.smoothness, 0.01, time);
+                        } else if (nodeData.kind === 'ComputeGradient' && params) {
+                            uniformData[3] = this._evaluateParam(params.angle, 0.0, time);
+                            uniformData[4] = this._evaluateParam(params.centerX, 0.5, time);
+                            uniformData[5] = this._evaluateParam(params.centerY, 0.5, time);
+                            uniformData[6] = this._evaluateParam(params.radius, 0.5, time);
+                            uniformData[7] = this._evaluateParam(params.repeat, 1.0, time);
+                            uniformData[8] = this._evaluateParam(params.saturation, 0.8, time);
+                            uniformData[9] = this._evaluateParam(params.brightness, 1.0, time);
+                            const colorStops = params.colorStops || [];
+                            uniformData[10] = Math.min(colorStops.length, 8);
+                            uniformData[11] = 0.0;
+                        } else if (nodeData.kind === 'ComputeChannels' && params) {
+                            const getChannelIndex = (source) => {
+                                if (source === 'R') return 0.0;
+                                if (source === 'G') return 1.0;
+                                if (source === 'B') return 2.0;
+                                if (source === 'A') return 3.0;
+                                if (source === '0') return 4.0;
+                                if (source === '1') return 5.0;
+                                return 0.0;
+                            };
+                            uniformData[3] = getChannelIndex(params.redSource || 'R');
+                            uniformData[4] = getChannelIndex(params.greenSource || 'G');
+                            uniformData[5] = getChannelIndex(params.blueSource || 'B');
+                            uniformData[6] = getChannelIndex(params.alphaSource || 'A');
+                        } else if (nodeData.kind === 'ComputeHSV' && params) {
+                            const operation = params.operation || 'Adjust HSV';
+                            let opIndex = 2.0;
+                            if (operation === 'RGB to HSV') opIndex = 0.0;
+                            else if (operation === 'HSV to RGB') opIndex = 1.0;
+                            uniformData[3] = opIndex;
+                            uniformData[4] = this._evaluateParam(params.hueShift, 0.0, time);
+                            uniformData[5] = this._evaluateParam(params.saturationMult, 1.0, time);
+                            uniformData[6] = this._evaluateParam(params.valueMult, 1.0, time);
+                        } else if (nodeData.kind === 'ComputeLuminance' && params) {
+                            const method = params.method || 'Rec709';
+                            let methodIndex = 0.0;
+                            if (method === 'Rec601') methodIndex = 1.0;
+                            else if (method === 'Average') methodIndex = 2.0;
+                            else if (method === 'Max') methodIndex = 3.0;
+                            else if (method === 'Min') methodIndex = 4.0;
+                            const outputMode = params.outputMode || 'Grayscale';
+                            let outputModeIndex = 0.0;
+                            if (outputMode === 'Preserve Color') outputModeIndex = 1.0;
+                            else if (outputMode === 'Isoluminant') outputModeIndex = 2.0;
+                            uniformData[3] = methodIndex;
+                            uniformData[4] = outputModeIndex;
+                            uniformData[5] = this._evaluateParam(params.threshold, 0.5, time);
                         }
                     }
 
