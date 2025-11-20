@@ -613,17 +613,25 @@
                                     } else if (typeof value === 'number') {
                                         processedValue = value;
                                     } else if (typeof value === 'string') {
-                                        // Try to parse as number first
-                                        const parsed = parseFloat(value);
-                                        if (!isNaN(parsed)) {
-                                            processedValue = parsed;
+                                        const trimmed = value.trim();
+                                        // CRITICAL: Check if it's an expression (starts with = or contains time/audioEnvelope)
+                                        // If it's an expression, keep it as a string so it can be evaluated every frame
+                                        const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
+                                        if (isExpression) {
+                                            processedValue = value; // Keep expression string for evaluation
                                         } else {
-                                            // Handle boolean strings
-                                            const str = value.toLowerCase().trim();
-                                            if (str === 'true' || str === 'false') {
-                                                processedValue = str === 'true';
+                                            // Try to parse as number first
+                                            const parsed = parseFloat(trimmed);
+                                            if (!isNaN(parsed)) {
+                                                processedValue = parsed;
                                             } else {
-                                                processedValue = value; // Keep as string if can't parse
+                                                // Handle boolean strings
+                                                const str = trimmed.toLowerCase();
+                                                if (str === 'true' || str === 'false') {
+                                                    processedValue = str === 'true';
+                                                } else {
+                                                    processedValue = value; // Keep as string if can't parse
+                                                }
                                             }
                                         }
                                     } else {
@@ -1355,14 +1363,32 @@
                             // CRITICAL: For compute nodes, always prefer params over liveParams for expressions (liveParams only has numeric values from uniformValuesArray)
                             const oldRotation = uniformData[5]; // Store old value for comparison
                             const getParamValue = (liveKey, paramKey, defaultValue) => {
-                                // For compute nodes: params contain the expression strings, liveParams only has numeric values
-                                // So prioritize params for expression evaluation, but allow liveParams numeric override
-                                if (params && params[paramKey] !== undefined && (typeof params[paramKey] === 'string' || typeof params[paramKey] === 'number')) {
-                                    return params[paramKey];
+                                // CRITICAL: For compute nodes with expressions like "time*20":
+                                // 1. If params has a STRING (expression), use it for evaluation
+                                // 2. If liveParams has a value (from uniformValuesArray), it might be an evaluated number
+                                //    BUT we should still check if params has the expression string
+                                // 3. For expressions, we MUST use the string, not the numeric value
+                                
+                                // First check: if params has a string expression, use it (this is the expression source)
+                                if (params && params[paramKey] !== undefined && typeof params[paramKey] === 'string') {
+                                    const paramStr = params[paramKey].trim();
+                                    // Check if it's an expression (starts with = or contains time/audioEnvelope)
+                                    if (paramStr.startsWith('=') || /\btime\b/.test(paramStr) || /\baudioEnvelope/.test(paramStr)) {
+                                        return params[paramKey]; // Return the expression string for evaluation
+                                    }
                                 }
+                                
+                                // Second check: if liveParams has a numeric value (from uniformValuesArray), use it
+                                // This handles real-time updates during parameter drag
                                 if (liveParams && liveParams[liveKey] !== undefined) {
                                     return liveParams[liveKey];
                                 }
+                                
+                                // Third check: if params has a numeric value, use it
+                                if (params && params[paramKey] !== undefined && typeof params[paramKey] === 'number') {
+                                    return params[paramKey];
+                                }
+                                
                                 return undefined;
                             };
                             
