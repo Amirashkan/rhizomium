@@ -543,13 +543,36 @@ async function initialize() {
               const graph = window.editor?.graph;
               let computeNodeParams = null;
               if (graph) {
-                const node = graph.getNodeById?.(nodeId) || graph.getNodeById?.(String(nodeId));
+                // Graph class uses getNode(id), not getNodeById(id)
+                let node = null;
+                if (typeof graph.getNode === 'function') {
+                  node = graph.getNode(nodeId) || graph.getNode(String(nodeId));
+                } else if (graph.nodes) {
+                  // Fallback: search in graph.nodes array
+                  node = graph.nodes.find(n => String(n.id) === String(nodeId));
+                }
+                
                 if (node && node.kind && node.kind.startsWith('Compute')) {
                   // Include all params for this compute node
                   computeNodeParams = {
                     nodeId: String(nodeId),
                     params: { ...node.params }
                   };
+                  
+                  // DEBUG: Log compute node params being sent
+                  if (window._dragParamUpdateCount <= 3) {
+                    console.log('[updateUniformsOnly] Sending computeNodeParams for', nodeId, ':', computeNodeParams);
+                  }
+                } else if (window._dragParamUpdateCount <= 3) {
+                  // DEBUG: Log if node not found or not a compute node
+                  console.log('[updateUniformsOnly] Node lookup:', {
+                    nodeId,
+                    found: !!node,
+                    kind: node?.kind,
+                    isCompute: node?.kind?.startsWith('Compute'),
+                    graphHasGetNode: typeof graph.getNode === 'function',
+                    graphNodesLength: graph.nodes?.length
+                  });
                 }
               }
               

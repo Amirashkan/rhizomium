@@ -590,6 +590,11 @@
                     // CRITICAL: Update compute node params directly from computeNodeParams if provided
                     // This handles the case where compute node parameters aren't in uniformKeys
                     if (computeNodeParams && computeNodeParams.nodeId && computeNodeParams.params) {
+                        // DEBUG: Log receipt of computeNodeParams
+                        if (this.paramUpdateCount <= 3) {
+                            console.log('[LiveViewer] Received computeNodeParams:', computeNodeParams);
+                        }
+                        
                         for (const nodeData of this.computeNodes) {
                             if (String(nodeData.nodeId) === String(computeNodeParams.nodeId)) {
                                 // Update the node's params object directly
@@ -597,11 +602,13 @@
                                     nodeData.params = {};
                                 }
                                 // Merge the new params, ensuring numeric values
+                                let updatedCount = 0;
                                 for (const [paramName, value] of Object.entries(computeNodeParams.params)) {
                                     const numValue = typeof value === 'number' ? value : parseFloat(value);
                                     if (!isNaN(numValue)) {
                                         const oldValue = nodeData.params[paramName];
                                         nodeData.params[paramName] = numValue;
+                                        updatedCount++;
                                         
                                         // DEBUG: Log first few updates for ComputeTransform
                                         if (nodeData.kind === 'ComputeTransform' && this.paramUpdateCount <= 3) {
@@ -609,9 +616,16 @@
                                         }
                                     }
                                 }
+                                
+                                if (updatedCount > 0 && this.paramUpdateCount <= 3) {
+                                    console.log(`[LiveViewer] Updated ${updatedCount} params for compute node ${nodeData.nodeId}`);
+                                }
                                 break;
                             }
                         }
+                    } else if (this.paramUpdateCount <= 3 && this.computeNodes.length > 0) {
+                        // DEBUG: Log if computeNodeParams not received but compute nodes exist
+                        console.log('[LiveViewer] No computeNodeParams received, compute nodes:', this.computeNodes.map(n => n.nodeId));
                     }
 
                     // DEBUG: Log updates during drag to verify they're being received
