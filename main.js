@@ -537,7 +537,23 @@ async function initialize() {
             if (uniformManager && uniformManager.uniformValues.size > 0) {
               const values = Array.from(uniformManager.uniformValues.values());
               const timeSec = performance.now() * 0.001;
-              window.liveShaderStream.sendParameterUpdate(values, timeSec);
+              
+              // CRITICAL: For compute nodes, also include the node's current params
+              // since compute node parameters may not be in uniformKeys
+              const graph = window.editor?.graph;
+              let computeNodeParams = null;
+              if (graph) {
+                const node = graph.getNodeById?.(nodeId) || graph.getNodeById?.(String(nodeId));
+                if (node && node.kind && node.kind.startsWith('Compute')) {
+                  // Include all params for this compute node
+                  computeNodeParams = {
+                    nodeId: String(nodeId),
+                    params: { ...node.params }
+                  };
+                }
+              }
+              
+              window.liveShaderStream.sendParameterUpdate(values, timeSec, computeNodeParams);
             }
           }
         } else {

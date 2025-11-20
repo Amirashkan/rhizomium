@@ -509,7 +509,12 @@
             }
 
             handleParameterUpdate(data) {
-                const { uniformValues, time } = data;
+                const { uniformValues, uniformKeys, computeNodeParams, time } = data;
+
+                // Update uniformKeys if provided (they may change if new parameters are added)
+                if (uniformKeys && Array.isArray(uniformKeys)) {
+                    this.uniformKeys = uniformKeys;
+                }
 
                 // Update parameter values if provided
                 if (uniformValues && Array.isArray(uniformValues)) {
@@ -522,10 +527,12 @@
                     // CRITICAL: Update compute node params directly from uniformValuesArray
                     // Compute nodes use their own uniform buffer, not u_params, so their parameters
                     // need to be updated directly in the nodeData.params object
-                    if (this.uniformKeys && this.uniformKeys.length > 0 && uniformValues.length > 0) {
+                    // Use uniformKeys from the message (if provided) or fall back to stored uniformKeys
+                    const keysToUse = uniformKeys || this.uniformKeys;
+                    if (keysToUse && keysToUse.length > 0 && uniformValues.length > 0) {
                         let computeNodeUpdates = 0;
-                        for (let i = 0; i < Math.min(this.uniformKeys.length, uniformValues.length); i++) {
-                            const key = this.uniformKeys[i];
+                        for (let i = 0; i < Math.min(keysToUse.length, uniformValues.length); i++) {
+                            const key = keysToUse[i];
                             if (!key || typeof key !== 'string') continue;
                             
                             const dotIndex = key.indexOf('.');
@@ -546,12 +553,16 @@
                                         nodeData.params = {};
                                     }
                                     const oldValue = nodeData.params[paramName];
-                                    nodeData.params[paramName] = value;
-                                    computeNodeUpdates++;
-                                    
-                                    // DEBUG: Log first few updates for ComputeTransform
-                                    if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
-                                        console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${value}`);
+                                    // Ensure value is a number (not a string)
+                                    const numValue = typeof value === 'number' ? value : parseFloat(value);
+                                    if (!isNaN(numValue)) {
+                                        nodeData.params[paramName] = numValue;
+                                        computeNodeUpdates++;
+                                        
+                                        // DEBUG: Log first few updates for ComputeTransform
+                                        if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
+                                            console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${numValue}`);
+                                        }
                                     }
                                 }
                             }
@@ -560,6 +571,46 @@
                         // DEBUG: Log if we found compute node parameters to update
                         if (computeNodeUpdates > 0 && this.paramUpdateCount <= 3) {
                             console.log(`[LiveViewer] Updated ${computeNodeUpdates} compute node parameters from uniformValuesArray`);
+                        } else if (this.paramUpdateCount <= 3) {
+                            // DEBUG: Log if no compute node parameters were found (to diagnose the issue)
+                            const computeNodeIds = this.computeNodes.map(n => n.nodeId);
+                            const computeNodeKeys = keysToUse.filter(k => {
+                                if (!k || typeof k !== 'string') return false;
+                                const dotIndex = k.indexOf('.');
+                                if (dotIndex === -1) return false;
+                                const keyNodeId = k.substring(0, dotIndex);
+                                return computeNodeIds.includes(String(keyNodeId));
+                            });
+                            if (computeNodeKeys.length === 0 && this.computeNodes.length > 0) {
+                                console.warn(`[LiveViewer] No compute node parameters found in uniformKeys. Compute nodes: ${computeNodeIds.join(', ')}, uniformKeys: ${keysToUse.slice(0, 5).join(', ')}...`);
+                            }
+                        }
+                    }
+                    
+                    // CRITICAL: Update compute node params directly from computeNodeParams if provided
+                    // This handles the case where compute node parameters aren't in uniformKeys
+                    if (computeNodeParams && computeNodeParams.nodeId && computeNodeParams.params) {
+                        for (const nodeData of this.computeNodes) {
+                            if (String(nodeData.nodeId) === String(computeNodeParams.nodeId)) {
+                                // Update the node's params object directly
+                                if (!nodeData.params) {
+                                    nodeData.params = {};
+                                }
+                                // Merge the new params, ensuring numeric values
+                                for (const [paramName, value] of Object.entries(computeNodeParams.params)) {
+                                    const numValue = typeof value === 'number' ? value : parseFloat(value);
+                                    if (!isNaN(numValue)) {
+                                        const oldValue = nodeData.params[paramName];
+                                        nodeData.params[paramName] = numValue;
+                                        
+                                        // DEBUG: Log first few updates for ComputeTransform
+                                        if (nodeData.kind === 'ComputeTransform' && this.paramUpdateCount <= 3) {
+                                            console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName} from computeNodeParams: ${oldValue} -> ${numValue}`);
+                                        }
+                                    }
+                                }
+                                break;
+                            }
                         }
                     }
 

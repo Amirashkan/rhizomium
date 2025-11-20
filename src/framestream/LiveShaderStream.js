@@ -467,7 +467,7 @@ export class LiveShaderStream {
      * @param {Array} uniformValues - Array of parameter values
      * @param {number} time - Current time in seconds
      */
-    sendParameterUpdate(uniformValues, time) {
+    sendParameterUpdate(uniformValues, time, computeNodeParams = null) {
         if (!this.isStreaming || !this.channel) {
             // DEBUG: Log why we're not sending
             if (this.uniformUpdatesSent === 0) {
@@ -478,9 +478,20 @@ export class LiveShaderStream {
 
         this.currentUniforms = uniformValues;
 
+        // Extract uniformKeys for mapping array indices to node parameters
+        // CRITICAL: Include uniformKeys so viewer can map uniformValuesArray to specific node parameters
+        const uniformKeys = [];
+        if (window.nodeCompiler?.uniformManager?.uniformValues) {
+            for (const key of window.nodeCompiler.uniformManager.uniformValues.keys()) {
+                uniformKeys.push(key);
+            }
+        }
+
         const message = {
             type: 'parameter_update',
             uniformValues: uniformValues,
+            uniformKeys: uniformKeys, // Include keys for mapping
+            computeNodeParams: computeNodeParams, // Include compute node params if provided
             time: time,
             timestamp: Date.now()
         };
@@ -490,7 +501,7 @@ export class LiveShaderStream {
 
         // Log every 60th update to avoid spam (once per second at 60fps)
         if (this.uniformUpdatesSent % 60 === 0) {
-            console.log('[LiveShaderStream] Posted message #', this.uniformUpdatesSent, 'to channel:', this.channelName, 'values:', uniformValues.slice(0, 3));
+            console.log('[LiveShaderStream] Posted message #', this.uniformUpdatesSent, 'to channel:', this.channelName, 'values:', uniformValues.slice(0, 3), 'keys:', uniformKeys.length, 'computeParams:', !!computeNodeParams);
         }
     }
 
