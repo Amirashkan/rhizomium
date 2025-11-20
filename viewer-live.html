@@ -1601,9 +1601,30 @@
                                     'from uniformValuesArray': this.uniformValuesArray
                                 });
                             }
+                        } else if (nodeData.kind === 'ComputeGlitch') {
+                            // ComputeGlitch uniforms: resolution(vec2), time, intensity, frequency, _padding1, blockSize, seed
+                            // CRITICAL: Match the WGSL struct order exactly
+                            uniformData[3] = this._evaluateParam(liveParams.intensity !== undefined ? liveParams.intensity : params?.intensity, 0.5, time);
+                            uniformData[4] = this._evaluateParam(liveParams.frequency !== undefined ? liveParams.frequency : params?.frequency, 0.5, time);
+                            uniformData[5] = 0.0; // _padding1
+                            uniformData[6] = this._evaluateParam(liveParams.blockSize !== undefined ? liveParams.blockSize : params?.blockSize, 0.05, time);
+                            uniformData[7] = this._evaluateParam(liveParams.seed !== undefined ? liveParams.seed : params?.seed, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeKaleidoscope') {
+                            // ComputeKaleidoscope uniforms: resolution(vec2), time, segments, rotation, centerX, centerY, scale, animate, speed
+                            // CRITICAL: Match the WGSL struct order exactly
+                            uniformData[3] = this._evaluateParam(liveParams.segments !== undefined ? liveParams.segments : params?.segments, 6.0, time);
+                            uniformData[4] = this._evaluateParam(liveParams.rotation !== undefined ? liveParams.rotation : params?.rotation, 0.0, time);
+                            uniformData[5] = this._evaluateParam(liveParams.centerX !== undefined ? liveParams.centerX : params?.centerX, 0.5, time);
+                            uniformData[6] = this._evaluateParam(liveParams.centerY !== undefined ? liveParams.centerY : params?.centerY, 0.5, time);
+                            uniformData[7] = this._evaluateParam(liveParams.scale !== undefined ? liveParams.scale : params?.scale, 1.0, time);
+                            // animate is boolean - convert to 1.0/0.0
+                            const animateValue = liveParams.animate !== undefined ? liveParams.animate : params?.animate;
+                            uniformData[8] = (typeof animateValue === 'boolean' ? (animateValue ? 1.0 : 0.0) : (animateValue ? 1.0 : 0.0));
+                            uniformData[9] = this._evaluateParam(liveParams.speed !== undefined ? liveParams.speed : params?.speed, 0.5, time);
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
                             // CRITICAL: Evaluate expressions for all parameters in generic fallback
+                            // WARNING: This may not match WGSL struct order for nodes with complex parameter layouts
                             let paramIndex = 3;
                             for (const key in liveParams) {
                                 const value = liveParams[key];
@@ -1634,6 +1655,20 @@
                             uniformData[6] = this._evaluateParam(params.radius, 0.5, time);
                             uniformData[7] = this._evaluateParam(params.frequency, 4.0, time);
                             uniformData[8] = this._evaluateParam(params.phase, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeGlitch' && params) {
+                            uniformData[3] = this._evaluateParam(params.intensity, 0.5, time);
+                            uniformData[4] = this._evaluateParam(params.frequency, 0.5, time);
+                            uniformData[5] = 0.0; // _padding1
+                            uniformData[6] = this._evaluateParam(params.blockSize, 0.05, time);
+                            uniformData[7] = this._evaluateParam(params.seed, 0.0, time);
+                        } else if (nodeData.kind === 'ComputeKaleidoscope' && params) {
+                            uniformData[3] = this._evaluateParam(params.segments, 6.0, time);
+                            uniformData[4] = this._evaluateParam(params.rotation, 0.0, time);
+                            uniformData[5] = this._evaluateParam(params.centerX, 0.5, time);
+                            uniformData[6] = this._evaluateParam(params.centerY, 0.5, time);
+                            uniformData[7] = this._evaluateParam(params.scale, 1.0, time);
+                            uniformData[8] = (typeof params.animate === 'boolean' ? (params.animate ? 1.0 : 0.0) : 0.0);
+                            uniformData[9] = this._evaluateParam(params.speed, 0.5, time);
                         } else if (nodeData.kind === 'ComputeTransform' && params) {
                             // CRITICAL: Evaluate expressions for all transform parameters
                             uniformData[3] = this._evaluateParam(params.translateX, 0.0, time);
