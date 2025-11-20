@@ -873,11 +873,19 @@
                         this.uniformKeys && this.uniformKeys.length > 0) {
                         // Use live parameter values from uniformValuesArray
                         const data = new Float32Array(this.uniformValuesArray);
-                        this.device.queue.writeBuffer(paramsBuffer, 0, data);
+                        const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                        if (writeSize > 0) {
+                            this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                        } else {
+                            console.warn(`[LiveViewer] Fragment u_params buffer too small: need ${data.byteLength} bytes, have ${paramsBuffer.size} bytes`);
+                        }
                     } else if (nodeData.parameterValues && nodeData.parameterValues.length > 0) {
                         // Fallback to static parameterValues if uniformValuesArray not available
                         const data = new Float32Array(nodeData.parameterValues);
-                        this.device.queue.writeBuffer(paramsBuffer, 0, data);
+                        const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                        if (writeSize > 0) {
+                            this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                        }
                     }
                 }
             }
@@ -938,8 +946,10 @@
                             'uniformValuesArray.length': this.uniformValuesArray.length,
                             'uniformKeys.length': this.uniformKeys?.length || 0,
                             'sampleKeys (first 5)': sampleKeys,
+                            'all uniformKeys': this.uniformKeys,
                             'matchingKeys': matchingKeys,
                             'liveParams': liveParams,
+                            'defaultParams': params,
                             'defaultParams.rotation': params?.rotation,
                             'liveParams.rotation': liveParams.rotation,
                             'liveParams.translateX': liveParams.translateX,
@@ -1488,8 +1498,15 @@
                             size = 32;
                         } else if (meta.varName === 'u_params') {
                             // Parameters - use provided size if available
-                            if (parameterValues && parameterValues.length > 0) {
-                                size = Math.max(16, Math.ceil(parameterValues.length * 4 / 16) * 16);
+                            // CRITICAL: Make sure buffer is large enough for all parameters
+                            // Use uniformValuesArray length if available (for real-time updates)
+                            const paramCount = this.uniformValuesArray?.length || (parameterValues?.length || 0);
+                            if (paramCount > 0) {
+                                // Round up to 16-byte alignment (WebGPU requirement)
+                                size = Math.max(16, Math.ceil(paramCount * 4 / 16) * 16);
+                            } else {
+                                // Default size if no parameters yet
+                                size = 256; // Enough for 64 float parameters
                             }
                         }
 
@@ -1501,9 +1518,18 @@
                         uniformBuffers.set(meta.varName, buffer);
 
                         // Initialize parameter buffer if we have values
-                        if (meta.varName === 'u_params' && parameterValues && parameterValues.length > 0) {
-                            const data = new Float32Array(parameterValues);
-                            this.device.queue.writeBuffer(buffer, 0, data);
+                        // CRITICAL: Use uniformValuesArray if available (for real-time updates), otherwise use parameterValues
+                        if (meta.varName === 'u_params') {
+                            const valuesToUse = this.uniformValuesArray && this.uniformValuesArray.length > 0 
+                                ? this.uniformValuesArray 
+                                : (parameterValues || []);
+                            if (valuesToUse.length > 0) {
+                                const data = new Float32Array(valuesToUse);
+                                const writeSize = Math.min(data.byteLength, buffer.size);
+                                if (writeSize > 0) {
+                                    this.device.queue.writeBuffer(buffer, 0, data.buffer, 0, writeSize);
+                                }
+                            }
                         }
 
                         return { buffer };
