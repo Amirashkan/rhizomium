@@ -531,13 +531,20 @@
                     // executeComputeNodes() uses _extractNodeParams() which reads from uniformValuesArray
                     // So updates should appear within 1 frame (~16ms at 60fps)
                     
-                    // Force immediate render if not already scheduled to ensure real-time updates
-                    // This ensures parameter changes are visible immediately during drag
-                    if (this.isRunning && !this._renderScheduled) {
+                    // Force immediate render to ensure real-time updates during parameter drag
+                    // This ensures parameter changes are visible immediately, not just on next frame
+                    if (this.isRunning) {
+                        // Cancel any pending render to avoid duplicate renders
+                        if (this._renderScheduled) {
+                            cancelAnimationFrame(this._scheduledRenderId);
+                        }
+                        
+                        // Schedule immediate render
                         this._renderScheduled = true;
-                        requestAnimationFrame(() => {
+                        this._scheduledRenderId = requestAnimationFrame(() => {
                             this._renderScheduled = false;
                             if (this.isRunning) {
+                                // Force render with latest parameter values
                                 this.render();
                             }
                         });
@@ -1299,12 +1306,19 @@
 
                 // If we have uniformKeys mapping, extract live values
                 if (this.uniformKeys && this.uniformKeys.length > 0 && this.uniformValuesArray.length > 0) {
+                    // Normalize nodeId for comparison (handle both raw and sanitized IDs)
+                    const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                    
                     for (let i = 0; i < this.uniformKeys.length; i++) {
                         const key = this.uniformKeys[i]; // Format: "nodeId.paramName"
                         const [keyNodeId, paramName] = key.split('.');
+                        
+                        // Normalize keyNodeId for comparison
+                        const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
 
                         // If this key belongs to our node, extract the value
-                        if (keyNodeId === String(nodeId)) {
+                        // Compare both raw and normalized versions to handle ID mismatches
+                        if (keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId) {
                             const value = this.uniformValuesArray[i];
                             if (value !== undefined) {
                                 // CRITICAL: Always use the live value from uniformValuesArray
