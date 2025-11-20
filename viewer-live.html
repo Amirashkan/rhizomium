@@ -864,10 +864,21 @@
                 }
 
                 // Update parameter uniforms (u_params)
+                // CRITICAL: Use uniformValuesArray for real-time parameter updates during drag
+                // This ensures fragment node parameters update immediately, not just on shader recompile
                 const paramsBuffer = uniformBuffers.get('u_params');
-                if (paramsBuffer && nodeData.parameterValues && nodeData.parameterValues.length > 0) {
-                    const data = new Float32Array(nodeData.parameterValues);
-                    this.device.queue.writeBuffer(paramsBuffer, 0, data);
+                if (paramsBuffer) {
+                    // Try to use live values from uniformValuesArray first (for real-time updates)
+                    if (this.uniformValuesArray && this.uniformValuesArray.length > 0 && 
+                        this.uniformKeys && this.uniformKeys.length > 0) {
+                        // Use live parameter values from uniformValuesArray
+                        const data = new Float32Array(this.uniformValuesArray);
+                        this.device.queue.writeBuffer(paramsBuffer, 0, data);
+                    } else if (nodeData.parameterValues && nodeData.parameterValues.length > 0) {
+                        // Fallback to static parameterValues if uniformValuesArray not available
+                        const data = new Float32Array(nodeData.parameterValues);
+                        this.device.queue.writeBuffer(paramsBuffer, 0, data);
+                    }
                 }
             }
 
