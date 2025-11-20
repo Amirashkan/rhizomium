@@ -1082,23 +1082,97 @@
                 // This ensures fragment node parameters update immediately, not just on shader recompile
                 const paramsBuffer = uniformBuffers.get('u_params');
                 if (paramsBuffer) {
-                    // Try to use live values from uniformValuesArray first (for real-time updates)
-                    if (this.uniformValuesArray && this.uniformValuesArray.length > 0 && 
-                        this.uniformKeys && this.uniformKeys.length > 0) {
-                        // Use live parameter values from uniformValuesArray
-                        const data = new Float32Array(this.uniformValuesArray);
-                        const writeSize = Math.min(data.byteLength, paramsBuffer.size);
-                        if (writeSize > 0) {
-                            this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
-                        } else {
-                            console.warn(`[LiveViewer] Fragment u_params buffer too small: need ${data.byteLength} bytes, have ${paramsBuffer.size} bytes`);
+                    // Check if any parameters are expressions (time/audioEnvelope) that need re-evaluation each frame
+                    const hasExpressions = nodeData.params && Object.values(nodeData.params).some(value => {
+                        if (typeof value === 'string') {
+                            const trimmed = value.trim();
+                            return trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
                         }
-                    } else if (nodeData.parameterValues && nodeData.parameterValues.length > 0) {
-                        // Fallback to static parameterValues if uniformValuesArray not available
-                        const data = new Float32Array(nodeData.parameterValues);
-                        const writeSize = Math.min(data.byteLength, paramsBuffer.size);
-                        if (writeSize > 0) {
-                            this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                        return false;
+                    });
+                    
+                    if (hasExpressions) {
+                        // Re-evaluate expressions each frame using nodeData.params
+                        // CRITICAL: Preserve original expression strings from nodeData.params
+                        // Don't use _extractNodeParams as it overwrites expressions with numeric values
+                        const evaluatedValues = [];
+                        
+                        // Build evaluated values array matching uniformKeys order
+                        if (this.uniformKeys && this.uniformKeys.length > 0) {
+                            for (let i = 0; i < this.uniformKeys.length; i++) {
+                                const key = this.uniformKeys[i];
+                                if (!key || typeof key !== 'string') {
+                                    evaluatedValues.push(0);
+                                    continue;
+                                }
+                                
+                                const dotIndex = key.indexOf('.');
+                                if (dotIndex === -1) {
+                                    evaluatedValues.push(0);
+                                    continue;
+                                }
+                                
+                                const keyNodeId = key.substring(0, dotIndex);
+                                const paramName = key.substring(dotIndex + 1);
+                                
+                                // Check if this key belongs to our node
+                                const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                const normalizedNodeId = String(nodeData.nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                                
+                                if (keyNodeId === String(nodeData.nodeId) || normalizedKeyNodeId === normalizedNodeId) {
+                                    // CRITICAL: Get original parameter value from nodeData.params (preserves expression strings)
+                                    // Only use uniformValuesArray if the param is NOT an expression
+                                    let paramValue = nodeData.params?.[paramName];
+                                    const isExpression = typeof paramValue === 'string' && 
+                                        (paramValue.trim().startsWith('=') || /\btime\b/.test(paramValue) || /\baudioEnvelope/.test(paramValue));
+                                    
+                                    if (!isExpression && this.uniformValuesArray && this.uniformValuesArray[i] !== undefined) {
+                                        // Not an expression - use live value from uniformValuesArray for real-time updates
+                                        paramValue = this.uniformValuesArray[i];
+                                    }
+                                    
+                                    const defaultValue = typeof paramValue === 'number' ? paramValue : 0.0;
+                                    // Re-evaluate expression each frame (or use numeric value if not expression)
+                                    evaluatedValues.push(this._evaluateParam(paramValue, defaultValue, time));
+                                } else {
+                                    // Use value from uniformValuesArray for other nodes
+                                    evaluatedValues.push(this.uniformValuesArray && this.uniformValuesArray[i] !== undefined ? this.uniformValuesArray[i] : 0);
+                                }
+                            }
+                            
+                            const data = new Float32Array(evaluatedValues);
+                            const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                            if (writeSize > 0) {
+                                this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                            }
+                        } else if (nodeData.parameterValues && nodeData.parameterValues.length > 0) {
+                            // Fallback: evaluate expressions from params and merge with parameterValues
+                            const data = new Float32Array(nodeData.parameterValues);
+                            // TODO: Map params to parameterValues indices - for now use parameterValues
+                            const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                            if (writeSize > 0) {
+                                this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                            }
+                        }
+                    } else {
+                        // No expressions - use pre-evaluated values from uniformValuesArray
+                        if (this.uniformValuesArray && this.uniformValuesArray.length > 0 && 
+                            this.uniformKeys && this.uniformKeys.length > 0) {
+                            // Use live parameter values from uniformValuesArray
+                            const data = new Float32Array(this.uniformValuesArray);
+                            const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                            if (writeSize > 0) {
+                                this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                            } else {
+                                console.warn(`[LiveViewer] Fragment u_params buffer too small: need ${data.byteLength} bytes, have ${paramsBuffer.size} bytes`);
+                            }
+                        } else if (nodeData.parameterValues && nodeData.parameterValues.length > 0) {
+                            // Fallback to static parameterValues if uniformValuesArray not available
+                            const data = new Float32Array(nodeData.parameterValues);
+                            const writeSize = Math.min(data.byteLength, paramsBuffer.size);
+                            if (writeSize > 0) {
+                                this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeSize);
+                            }
                         }
                     }
                 }
