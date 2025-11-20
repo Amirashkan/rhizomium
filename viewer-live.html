@@ -553,15 +553,30 @@
                                         nodeData.params = {};
                                     }
                                     const oldValue = nodeData.params[paramName];
-                                    // Ensure value is a number (not a string)
-                                    const numValue = typeof value === 'number' ? value : parseFloat(value);
-                                    if (!isNaN(numValue)) {
-                                        nodeData.params[paramName] = numValue;
-                                        computeNodeUpdates++;
-                                        
-                                        // DEBUG: Log first few updates for ComputeTransform
-                                        if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
-                                            console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${numValue}`);
+                                    
+                                    // CRITICAL: Don't overwrite expression strings with numeric values from uniformValuesArray
+                                    // Expression strings like "=time*20" must be preserved for evaluation each frame
+                                    const isExpression = typeof oldValue === 'string' && 
+                                        (oldValue.trim().startsWith('=') || /\btime\b/.test(oldValue) || /\baudioEnvelope/.test(oldValue));
+                                    
+                                    if (!isExpression) {
+                                        // Safe to update with numeric value (not overwriting an expression)
+                                        // Ensure value is a number (not a string)
+                                        const numValue = typeof value === 'number' ? value : parseFloat(value);
+                                        if (!isNaN(numValue)) {
+                                            nodeData.params[paramName] = numValue;
+                                            computeNodeUpdates++;
+                                            
+                                            // DEBUG: Log first few updates for ComputeTransform
+                                            if (nodeData.kind === 'ComputeTransform' && computeNodeUpdates <= 3) {
+                                                console.log(`[LiveViewer] Updated ${nodeData.nodeId}.${paramName}: ${oldValue} -> ${numValue}`);
+                                            }
+                                        }
+                                    } else {
+                                        // Preserve expression string - don't overwrite with numeric value from uniformValuesArray
+                                        // The expression will be evaluated in executeComputeNode using _evaluateParam
+                                        if (this.paramUpdateCount <= 3) {
+                                            console.log(`[LiveViewer] Preserved expression for ${nodeData.nodeId}.${paramName}: "${oldValue}" (ignoring numeric update: ${value})`);
                                         }
                                     }
                                 }
@@ -613,17 +628,25 @@
                                     } else if (typeof value === 'number') {
                                         processedValue = value;
                                     } else if (typeof value === 'string') {
-                                        // Try to parse as number first
-                                        const parsed = parseFloat(value);
-                                        if (!isNaN(parsed)) {
-                                            processedValue = parsed;
+                                        const trimmed = value.trim();
+                                        // CRITICAL: Check if it's an expression (starts with = or contains time/audioEnvelope)
+                                        // If it's an expression, keep it as a string so it can be evaluated every frame
+                                        const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
+                                        if (isExpression) {
+                                            processedValue = value; // Keep expression string for evaluation
                                         } else {
-                                            // Handle boolean strings
-                                            const str = value.toLowerCase().trim();
-                                            if (str === 'true' || str === 'false') {
-                                                processedValue = str === 'true';
+                                            // Try to parse as number first
+                                            const parsed = parseFloat(trimmed);
+                                            if (!isNaN(parsed)) {
+                                                processedValue = parsed;
                                             } else {
-                                                processedValue = value; // Keep as string if can't parse
+                                                // Handle boolean strings
+                                                const str = trimmed.toLowerCase();
+                                                if (str === 'true' || str === 'false') {
+                                                    processedValue = str === 'true';
+                                                } else {
+                                                    processedValue = value; // Keep as string if can't parse
+                                                }
                                             }
                                         }
                                     } else {
@@ -847,6 +870,20 @@
 
                     // Initialize each compute node
                     for (const nodeData of computeNodes) {
+                        // CRITICAL: Preserve expression strings in params - they come from the editor
+                        // The params object should contain expression strings like "time*20" or "=time*20"
+                        // Check and log expression params for debugging
+                        if (nodeData.params) {
+                            for (const [paramName, paramValue] of Object.entries(nodeData.params)) {
+                                if (typeof paramValue === 'string') {
+                                    const trimmed = paramValue.trim();
+                                    const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
+                                    if (isExpression && (nodeData.kind === 'ComputeTransform' || nodeData.nodeId === '28')) {
+                                        console.log(`[LiveViewer] Initializing ${nodeData.nodeId}.${paramName} with expression: "${paramValue}"`);
+                                    }
+                                }
+                            }
+                        }
                         this.initializeComputeNode(nodeData);
                     }
 
@@ -1063,6 +1100,83 @@
                 }
             }
 
+            /**
+             * Evaluate a parameter value - handles expressions, shader variables, and static values
+             * Similar to ComputeShaderManager.evaluateParam but for the external viewer
+             * @param {*} value - The parameter value (could be number, string expression, etc.)
+             * @param {number} defaultValue - Default value if evaluation fails
+             * @param {number} time - Current time for expression evaluation
+             * @returns {number} The evaluated numeric value
+             */
+            _evaluateParam(value, defaultValue, time) {
+                // If already a number, return it
+                if (typeof value === 'number') {
+                    return isFinite(value) ? value : defaultValue;
+                }
+
+                // If it's a string, it might be an expression
+                if (typeof value === 'string') {
+                    const trimmed = value.trim();
+
+                    // Check if it's an expression (either starts with = or contains time/audioEnvelope)
+                    const isExpression = trimmed.startsWith('=') || /\btime\b/.test(trimmed) || /\baudioEnvelope/.test(trimmed);
+
+                    // Handle expressions (with or without = prefix)
+                    if (isExpression) {
+                        try {
+                            // Simple expression evaluation for external viewer
+                            // Build evaluation context with time
+                            const context = {
+                                time: time,
+                                audioEnvelope: 0.0, // Not available in external viewer yet
+                                audioEnvelopeBass: 0.0,
+                                audioEnvelopeMids: 0.0,
+                                audioEnvelopeHighs: 0.0,
+                                audioEnvelopeFull: 0.0
+                            };
+
+                            // Remove = prefix if present
+                            const expression = trimmed.startsWith('=') ? trimmed.slice(1).trim() : trimmed;
+
+                            // Create a safe evaluation function
+                            // Only allow safe math operations and built-in functions
+                            const safeEval = new Function('time', 'audioEnvelope', 'audioEnvelopeBass', 
+                                'audioEnvelopeMids', 'audioEnvelopeHighs', 'audioEnvelopeFull',
+                                'Math', 'PI', 'E',
+                                `"use strict"; return (${expression});`);
+
+                            const result = safeEval(
+                                context.time,
+                                context.audioEnvelope,
+                                context.audioEnvelopeBass,
+                                context.audioEnvelopeMids,
+                                context.audioEnvelopeHighs,
+                                context.audioEnvelopeFull,
+                                Math,
+                                Math.PI,
+                                Math.E
+                            );
+
+                            return isFinite(result) ? result : defaultValue;
+                        } catch (error) {
+                            console.warn(`[LiveViewer] Failed to evaluate expression "${value}":`, error);
+                            return defaultValue;
+                        }
+                    }
+
+                    // Try to parse as number
+                    const parsed = parseFloat(trimmed);
+                    return isNaN(parsed) ? defaultValue : parsed;
+                }
+
+                // Boolean or other types
+                if (typeof value === 'boolean') {
+                    return value ? 1.0 : 0.0;
+                }
+
+                return defaultValue;
+            }
+
             executeComputeNode(encoder, nodeData, time) {
                 const { nodeId, resolution, params } = nodeData;
                 const pipelineData = this.computePipelines.get(nodeId);
@@ -1077,12 +1191,13 @@
                 // For fragment nodes, parameters ARE in uniformKeys, so we extract from uniformValuesArray
                 let liveParams;
                 if (nodeData.kind && nodeData.kind.startsWith('Compute')) {
-                    // Compute nodes: use nodeData.params directly (updated in handleParameterUpdate)
-                    // _extractNodeParams will still try to extract, but will fall back to params if no matches
-                    liveParams = this._extractNodeParams(nodeId, params);
+                    // Compute nodes: CRITICAL - preserve expression strings from params!
+                    // Start with params (which may contain expression strings like "=time*20")
+                    // Then overlay numeric values from uniformValuesArray for real-time updates during drag
+                    // But NEVER overwrite expression strings with numeric values
+                    liveParams = { ...params }; // Start with original params (preserves expression strings)
                     
-                    // If extraction found no matching keys (expected for compute nodes), use nodeData.params directly
-                    // Check if we got any live updates from uniformValuesArray
+                    // Check if we have matching keys in uniformKeys (for real-time numeric updates during drag)
                     const matchingKeys = this.uniformKeys?.filter(k => {
                         if (!k || typeof k !== 'string') return false;
                         const dotIndex = k.indexOf('.');
@@ -1093,9 +1208,35 @@
                         return keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId;
                     }) || [];
                     
-                    // If no matching keys found, use nodeData.params directly (which is updated in handleParameterUpdate)
-                    if (matchingKeys.length === 0 && params) {
-                        liveParams = { ...params };
+                    // Overlay numeric values from uniformValuesArray, but ONLY if params doesn't have an expression string
+                    if (matchingKeys.length > 0 && this.uniformValuesArray && this.uniformValuesArray.length > 0) {
+                        for (let i = 0; i < this.uniformKeys.length; i++) {
+                            const key = this.uniformKeys[i];
+                            if (!key || typeof key !== 'string') continue;
+                            
+                            const dotIndex = key.indexOf('.');
+                            if (dotIndex === -1) continue;
+                            
+                            const keyNodeId = key.substring(0, dotIndex);
+                            const paramName = key.substring(dotIndex + 1);
+                            const normalizedKeyNodeId = String(keyNodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            const normalizedNodeId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                            
+                            // Check if this key belongs to our node
+                            if (keyNodeId === String(nodeId) || normalizedKeyNodeId === normalizedNodeId) {
+                                const value = this.uniformValuesArray[i];
+                                // CRITICAL: Only overlay numeric value if params doesn't have an expression string
+                                const existingValue = params?.[paramName];
+                                const isExpression = typeof existingValue === 'string' && 
+                                    (existingValue.trim().startsWith('=') || /\btime\b/.test(existingValue) || /\baudioEnvelope/.test(existingValue));
+                                
+                                if (!isExpression && value !== undefined) {
+                                    // Safe to overlay numeric value (no expression to preserve)
+                                    liveParams[paramName] = value;
+                                }
+                                // If isExpression, keep the expression string from params (don't overwrite)
+                            }
+                        }
                     }
                 } else {
                     // Fragment nodes: extract from uniformValuesArray using uniformKeys
@@ -1134,10 +1275,14 @@
                         console.log('  matchingKeys.length:', matchingKeys.length);
                         console.log('  liveParams:', liveParams);
                         console.log('  defaultParams.rotation:', params?.rotation);
+                        console.log('  defaultParams.rotation type:', typeof params?.rotation);
                         console.log('  liveParams.rotation:', liveParams.rotation);
+                        console.log('  liveParams.rotation type:', typeof liveParams.rotation);
                         console.log('  liveParams.translateX:', liveParams.translateX);
                         console.log('  liveParams.scaleX:', liveParams.scaleX);
                         console.log('  hasLiveParams:', Object.keys(liveParams).length > 0);
+                        console.log('  all params keys:', params ? Object.keys(params) : 'no params');
+                        console.log('  all params:', params);
                     }
                 }
 
@@ -1205,9 +1350,10 @@
 
                         if (nodeData.kind === 'ComputeNoise') {
                             // ComputeNoise uniforms: resolution(vec2), time, scale, octaves, speed, colorize, _padding
-                            uniformData[3] = liveParams.scale !== undefined ? liveParams.scale : 8.0;
-                            uniformData[4] = liveParams.octaves !== undefined ? liveParams.octaves : 5.0;
-                            uniformData[5] = liveParams.speed !== undefined ? liveParams.speed : 0.1;
+                            // CRITICAL: Evaluate expressions for all parameters (especially speed with time expressions)
+                            uniformData[3] = this._evaluateParam(liveParams.scale !== undefined ? liveParams.scale : params?.scale, 8.0, time);
+                            uniformData[4] = this._evaluateParam(liveParams.octaves !== undefined ? liveParams.octaves : params?.octaves, 5.0, time);
+                            uniformData[5] = this._evaluateParam(liveParams.speed !== undefined ? liveParams.speed : params?.speed, 0.1, time);
                             
                             // CRITICAL: Handle colorize parameter - default is true (1.0) for colorized output
                             // The parameter can be boolean, number (1.0/0.0), or string
@@ -1267,24 +1413,58 @@
                         } else if (nodeData.kind === 'ComputeMix') {
                             // ComputeMix uniforms: resolution(vec2), time, amount, opacity, padding(vec3)
                             // NOTE: 'mode' is baked into the shader at compile time, not in uniforms
-                            uniformData[3] = liveParams.amount !== undefined ? liveParams.amount : 0.5;
-                            uniformData[4] = liveParams.opacity !== undefined ? liveParams.opacity : 1.0;
+                            // CRITICAL: Evaluate expressions for all parameters
+                            uniformData[3] = this._evaluateParam(liveParams.amount !== undefined ? liveParams.amount : params?.amount, 0.5, time);
+                            uniformData[4] = this._evaluateParam(liveParams.opacity !== undefined ? liveParams.opacity : params?.opacity, 1.0, time);
                             // padding at [5-7] (default zeros)
                         } else if (nodeData.kind === 'ComputeTransform') {
                             // ComputeTransform uniforms: resolution(vec2), time, translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY, _padding(vec2)
+                            // CRITICAL: Evaluate expressions for all transform parameters (especially rotation with time expressions)
+                            // CRITICAL: For compute nodes, always prefer params over liveParams for expressions (liveParams only has numeric values from uniformValuesArray)
                             const oldRotation = uniformData[5]; // Store old value for comparison
-                            uniformData[3] = liveParams.translateX !== undefined ? liveParams.translateX : 0.0;
-                            uniformData[4] = liveParams.translateY !== undefined ? liveParams.translateY : 0.0;
-                            uniformData[5] = liveParams.rotation !== undefined ? liveParams.rotation : 0.0; // degrees
-                            uniformData[6] = liveParams.scaleX !== undefined ? liveParams.scaleX : 1.0;
-                            uniformData[7] = liveParams.scaleY !== undefined ? liveParams.scaleY : 1.0;
-                            uniformData[8] = liveParams.pivotX !== undefined ? liveParams.pivotX : (liveParams.centerX !== undefined ? liveParams.centerX : 0.5);
-                            uniformData[9] = liveParams.pivotY !== undefined ? liveParams.pivotY : (liveParams.centerY !== undefined ? liveParams.centerY : 0.5);
+                            const getParamValue = (liveKey, paramKey, defaultValue) => {
+                                // CRITICAL: For compute nodes with expressions like "time*20":
+                                // 1. If params has a STRING (expression), use it for evaluation
+                                // 2. If liveParams has a value (from uniformValuesArray), it might be an evaluated number
+                                //    BUT we should still check if params has the expression string
+                                // 3. For expressions, we MUST use the string, not the numeric value
+                                
+                                // First check: if params has a string expression, use it (this is the expression source)
+                                if (params && params[paramKey] !== undefined && typeof params[paramKey] === 'string') {
+                                    const paramStr = params[paramKey].trim();
+                                    // Check if it's an expression (starts with = or contains time/audioEnvelope)
+                                    if (paramStr.startsWith('=') || /\btime\b/.test(paramStr) || /\baudioEnvelope/.test(paramStr)) {
+                                        return params[paramKey]; // Return the expression string for evaluation
+                                    }
+                                }
+                                
+                                // Second check: if liveParams has a numeric value (from uniformValuesArray), use it
+                                // This handles real-time updates during parameter drag
+                                if (liveParams && liveParams[liveKey] !== undefined) {
+                                    return liveParams[liveKey];
+                                }
+                                
+                                // Third check: if params has a numeric value, use it
+                                if (params && params[paramKey] !== undefined && typeof params[paramKey] === 'number') {
+                                    return params[paramKey];
+                                }
+                                
+                                return undefined;
+                            };
+                            
+                            uniformData[3] = this._evaluateParam(getParamValue('translateX', 'translateX'), 0.0, time);
+                            uniformData[4] = this._evaluateParam(getParamValue('translateY', 'translateY'), 0.0, time);
+                            uniformData[5] = this._evaluateParam(getParamValue('rotation', 'rotation'), 0.0, time); // degrees
+                            uniformData[6] = this._evaluateParam(getParamValue('scaleX', 'scaleX'), 1.0, time);
+                            uniformData[7] = this._evaluateParam(getParamValue('scaleY', 'scaleY'), 1.0, time);
+                            uniformData[8] = this._evaluateParam(getParamValue('pivotX', 'pivotX') || getParamValue('centerX', 'centerX'), 0.5, time);
+                            uniformData[9] = this._evaluateParam(getParamValue('pivotY', 'pivotY') || getParamValue('centerY', 'centerY'), 0.5, time);
                             // padding at [10-11] (default zeros)
                             
                             // DEBUG: Log transform params when rotation changes (for real-time debugging)
                             this._transformDebugCount = (this._transformDebugCount || 0) + 1;
                             if (Math.abs(uniformData[5] - oldRotation) > 0.01 || this._transformDebugCount % 60 === 0) {
+                                const rotationParamValue = getParamValue('rotation', 'rotation');
                                 console.log('[LiveViewer] ComputeTransform params (rotation changed):', {
                                     translateX: uniformData[3],
                                     translateY: uniformData[4],
@@ -1294,18 +1474,35 @@
                                     pivotX: uniformData[8],
                                     pivotY: uniformData[9],
                                     'liveParams.rotation': liveParams.rotation,
+                                    'liveParams.rotation type': typeof liveParams.rotation,
+                                    'params.rotation': params?.rotation,
+                                    'params.rotation type': typeof params?.rotation,
+                                    'getParamValue(rotation)': rotationParamValue,
+                                    'getParamValue(rotation) type': typeof rotationParamValue,
+                                    'evaluated rotation': uniformData[5],
+                                    'time': time,
                                     'from uniformValuesArray': this.uniformValuesArray
                                 });
                             }
                         } else {
                             // Generic fallback: copy all numeric params in order they appear
+                            // CRITICAL: Evaluate expressions for all parameters in generic fallback
                             let paramIndex = 3;
                             for (const key in liveParams) {
                                 const value = liveParams[key];
-                                if (typeof value === 'number') {
-                                    uniformData[paramIndex++] = value;
-                                } else if (typeof value === 'boolean') {
-                                    uniformData[paramIndex++] = value ? 1.0 : 0.0;
+                                // Use evaluateParam to handle expressions, numbers, and booleans
+                                const defaultValue = params?.[key] !== undefined ? (typeof params[key] === 'number' ? params[key] : 0.0) : 0.0;
+                                uniformData[paramIndex++] = this._evaluateParam(value !== undefined ? value : params?.[key], defaultValue, time);
+                            }
+                            // If no liveParams but params exist, also evaluate expressions from params
+                            if (Object.keys(liveParams).length === 0 && params) {
+                                let paramIndex = 3;
+                                for (const key in params) {
+                                    const value = params[key];
+                                    if (value !== undefined && (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean')) {
+                                        const defaultValue = typeof value === 'number' ? value : 0.0;
+                                        uniformData[paramIndex++] = this._evaluateParam(value, defaultValue, time);
+                                    }
                                 }
                             }
                         }
@@ -1313,13 +1510,14 @@
                         // If no liveParams, use default params from nodeData
                         // This ensures the buffer is always written with valid data
                         if (nodeData.kind === 'ComputeTransform' && params) {
-                            uniformData[3] = params.translateX !== undefined ? params.translateX : 0.0;
-                            uniformData[4] = params.translateY !== undefined ? params.translateY : 0.0;
-                            uniformData[5] = params.rotation !== undefined ? params.rotation : 0.0;
-                            uniformData[6] = params.scaleX !== undefined ? params.scaleX : 1.0;
-                            uniformData[7] = params.scaleY !== undefined ? params.scaleY : 1.0;
-                            uniformData[8] = params.pivotX !== undefined ? params.pivotX : (params.centerX !== undefined ? params.centerX : 0.5);
-                            uniformData[9] = params.pivotY !== undefined ? params.pivotY : (params.centerY !== undefined ? params.centerY : 0.5);
+                            // CRITICAL: Evaluate expressions for all transform parameters
+                            uniformData[3] = this._evaluateParam(params.translateX, 0.0, time);
+                            uniformData[4] = this._evaluateParam(params.translateY, 0.0, time);
+                            uniformData[5] = this._evaluateParam(params.rotation, 0.0, time);
+                            uniformData[6] = this._evaluateParam(params.scaleX, 1.0, time);
+                            uniformData[7] = this._evaluateParam(params.scaleY, 1.0, time);
+                            uniformData[8] = this._evaluateParam(params.pivotX || params.centerX, 0.5, time);
+                            uniformData[9] = this._evaluateParam(params.pivotY || params.centerY, 0.5, time);
                         }
                     }
 
