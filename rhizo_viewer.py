@@ -200,18 +200,21 @@ class RhizomiumViewer(mglw.WindowConfig):
             retry_delay = min(retry_delay * 1.5, max_retry_delay)
 
     def _create_fullscreen_quad(self):
-        """Create a fullscreen quad for rendering the texture."""
-        # Vertex shader - simple fullscreen quad
-        # Aspect ratio is handled via viewport, not shader scaling
+        """Create a fullscreen quad for rendering the texture with aspect ratio support."""
+        # Vertex shader with aspect ratio preservation via scaling
+        # This matches the HTML viewer's CSS-based approach
         vertex_shader = """
         #version 330
         in vec2 in_position;
+        uniform vec2 u_scale;  // Scale to maintain aspect ratio
+        uniform vec2 u_offset; // Offset to center the frame
         out vec2 v_texcoord;
 
         void main() {
             v_texcoord = in_position * 0.5 + 0.5;
             v_texcoord.y = 1.0 - v_texcoord.y;  // Flip Y
-            gl_Position = vec4(in_position, 0.0, 1.0);
+            // Scale and offset to maintain aspect ratio (like CSS scaling)
+            gl_Position = vec4(in_position * u_scale + u_offset, 0.0, 1.0);
         }
         """
 
@@ -232,6 +235,10 @@ class RhizomiumViewer(mglw.WindowConfig):
             vertex_shader=vertex_shader,
             fragment_shader=fragment_shader
         )
+        
+        # Initialize scale and offset uniforms (will be updated each frame)
+        self.program['u_scale'] = (1.0, 1.0)
+        self.program['u_offset'] = (0.0, 0.0)
 
         # Fullscreen quad vertices
         vertices = np.array([
@@ -253,14 +260,13 @@ class RhizomiumViewer(mglw.WindowConfig):
         # Clear to black (will show letterboxing/pillarboxing as black bars)
         self.ctx.clear(0.0, 0.0, 0.0)
         
-        # Set viewport for aspect ratio preservation
-        if self.frame_aspect_ratio and self.wnd:
-            vp_x, vp_y, vp_w, vp_h = self._calculate_viewport()
-            self.ctx.viewport = (vp_x, vp_y, vp_w, vp_h)
-        else:
-            # No aspect ratio yet, use full window
-            if self.wnd:
-                self.ctx.viewport = (0, 0, self.wnd.width, self.wnd.height)
+        # Always use full window viewport - aspect ratio handled via shader scaling
+        if self.wnd:
+            self.ctx.viewport = (0, 0, self.wnd.width, self.wnd.height)
+            
+            # Update shader uniforms for aspect ratio preservation
+            if self.frame_aspect_ratio and self.frame_width and self.frame_height:
+                self._update_aspect_ratio_uniforms()
 
         if self.use_websocket:
             self._render_websocket_mode()
@@ -355,8 +361,10 @@ class RhizomiumViewer(mglw.WindowConfig):
 
                     # Render fullscreen quad with texture
                     # Viewport is set in render() method for aspect ratio preservation
+                    # The quad vertices are -1 to 1, which will fill the current viewport
                     self.program['tex'].value = 0
                     self.texture.use(location=0)
+                    # Render once - TRIANGLE_STRIP with 4 vertices creates 2 triangles = 1 quad
                     self.vao.render(moderngl.TRIANGLE_STRIP)
                 else:
                     self._render_waiting_message()
@@ -445,29 +453,48 @@ class RhizomiumViewer(mglw.WindowConfig):
             
             print(f"[rhizo_viewer] Texture updated: {width}x{height} ({components} components, aspect {self.frame_aspect_ratio:.3f})")
 
-    def _calculate_viewport(self):
-        """Calculate viewport with letterboxing/pillarboxing to maintain aspect ratio."""
-        if not self.frame_aspect_ratio or not self.wnd:
-            return 0, 0, self.wnd.width if self.wnd else 1920, self.wnd.height if self.wnd else 1080
+    def _update_aspect_ratio_uniforms(self):
+        """Update shader uniforms for aspect ratio preservation (like CSS scaling in HTML viewer)."""
+        if not self.frame_aspect_ratio or not self.wnd or not self.frame_width or not self.frame_height:
+            # No aspect ratio info, use fullscreen
+            self.program['u_scale'] = (1.0, 1.0)
+            self.program['u_offset'] = (0.0, 0.0)
+            return
         
-        window_width = self.wnd.width
-        window_height = self.wnd.height
-        window_aspect = window_width / window_height if window_height > 0 else 1.0
+        window_width = float(self.wnd.width)
+        window_height = float(self.wnd.height)
         
+        if window_width <= 0 or window_height <= 0:
+            self.program['u_scale'] = (1.0, 1.0)
+            self.program['u_offset'] = (0.0, 0.0)
+            return
+        
+        window_aspect = window_width / window_height
+        
+        # Calculate scale to fit frame in window while maintaining aspect ratio
+        # This matches the HTML viewer's CSS scaling logic
+        # Quad vertices are -1 to 1 in both directions (2.0 units wide/tall)
         if window_aspect > self.frame_aspect_ratio:
-            # Window is wider than frame - add pillarboxing (black bars on sides)
-            viewport_width = int(window_height * self.frame_aspect_ratio)
-            viewport_height = window_height
-            viewport_x = (window_width - viewport_width) // 2
-            viewport_y = 0
+            # Window is wider than frame - fit to height, center horizontally
+            # Scale Y to fill height (1.0), scale X to maintain aspect ratio
+            scale_y = 1.0
+            scale_x = (window_height * self.frame_aspect_ratio) / window_width
+            # Center horizontally: after scaling, quad width is 2.0 * scale_x
+            # We need to offset by (1.0 - scale_x) to center it
+            offset_x = 0.0  # Quad is centered at origin, scaling keeps it centered
+            offset_y = 0.0
         else:
-            # Window is taller than frame - add letterboxing (black bars top/bottom)
-            viewport_width = window_width
-            viewport_height = int(window_width / self.frame_aspect_ratio)
-            viewport_x = 0
-            viewport_y = (window_height - viewport_height) // 2
+            # Window is taller than frame - fit to width, center vertically
+            # Scale X to fill width (1.0), scale Y to maintain aspect ratio
+            scale_x = 1.0
+            scale_y = (window_width / self.frame_aspect_ratio) / window_height
+            # Center vertically: after scaling, quad height is 2.0 * scale_y
+            # We need to offset by (1.0 - scale_y) to center it
+            offset_x = 0.0
+            offset_y = 0.0  # Quad is centered at origin, scaling keeps it centered
         
-        return viewport_x, viewport_y, viewport_width, viewport_height
+        self.program['u_scale'] = (scale_x, scale_y)
+        self.program['u_offset'] = (offset_x, offset_y)
 
 
     def _infer_dimensions_from_size(self, data_size: int, components: int) -> Optional[tuple]:
