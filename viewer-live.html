@@ -949,24 +949,22 @@
                                      (this._transformExtractCount <= 5) ||
                                      (matchingKeys.length === 0 && this._transformExtractCount % 30 === 0);
                     if (shouldLog) {
-                        console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:', {
-                            nodeId,
-                            'nodeId type': typeof nodeId,
-                            'normalizedNodeId': String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_'),
-                            'uniformValuesArray.length': this.uniformValuesArray.length,
-                            'uniformKeys.length': this.uniformKeys?.length || 0,
-                            'sampleKeys (first 10)': sampleKeys,
-                            'all uniformKeys': this.uniformKeys,
-                            'matchingKeys': matchingKeys,
-                            'matchingKeys.length': matchingKeys.length,
-                            'liveParams': liveParams,
-                            'defaultParams': params,
-                            'defaultParams.rotation': params?.rotation,
-                            'liveParams.rotation': liveParams.rotation,
-                            'liveParams.translateX': liveParams.translateX,
-                            'liveParams.scaleX': liveParams.scaleX,
-                            'hasLiveParams': Object.keys(liveParams).length > 0
-                        });
+                        // Log keys as separate strings so they're always visible (not collapsed in console)
+                        console.log('[LiveViewer] ExtractNodeParams for ComputeTransform:');
+                        console.log('  nodeId:', nodeId, 'type:', typeof nodeId);
+                        console.log('  normalizedNodeId:', String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_'));
+                        console.log('  uniformValuesArray.length:', this.uniformValuesArray.length);
+                        console.log('  uniformKeys.length:', this.uniformKeys?.length || 0);
+                        console.log('  sampleKeys (first 10):', sampleKeys);
+                        console.log('  all uniformKeys:', this.uniformKeys);
+                        console.log('  matchingKeys:', matchingKeys);
+                        console.log('  matchingKeys.length:', matchingKeys.length);
+                        console.log('  liveParams:', liveParams);
+                        console.log('  defaultParams.rotation:', params?.rotation);
+                        console.log('  liveParams.rotation:', liveParams.rotation);
+                        console.log('  liveParams.translateX:', liveParams.translateX);
+                        console.log('  liveParams.scaleX:', liveParams.scaleX);
+                        console.log('  hasLiveParams:', Object.keys(liveParams).length > 0);
                     }
                 }
 
