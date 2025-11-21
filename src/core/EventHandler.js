@@ -351,13 +351,8 @@ export class EventHandler {
             
             // Update pan state immediately
             if (this.viewport.updatePan(clientX, clientY)) {
-              // Force immediate synchronous draw - don't use RAF
-              if (this.editor && typeof this.editor.markDirty === 'function') {
-                this.editor.markDirty('pan-immediate');
-              }
-              if (this.onDraw && typeof this.onDraw === 'function') {
-                this.onDraw(); // Synchronous draw
-              }
+              // Use RAF batching for smooth performance
+              this._requestDraw('pan');
             }
           } else if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
@@ -631,14 +626,8 @@ export class EventHandler {
         this.editor.shaderPreviewManager.beginInteraction('drag');
       }
 
-      // CRITICAL: Do an IMMEDIATE synchronous draw right after starting drag
-      // This ensures the canvas is ready and nodes are rendered before first mousemove
-      if (this.editor && typeof this.editor.markDirty === 'function') {
-        this.editor.markDirty('node-drag-start-immediate');
-      }
-      if (this.onDraw && typeof this.onDraw === 'function') {
-        this.onDraw(); // Synchronous draw - don't use RAF
-      }
+      // Mark dirty and request draw (RAF batched for performance)
+      this._requestDraw('node-drag-start');
     });
 
     // Click handler to prevent double-click from bubbling
@@ -751,51 +740,25 @@ export class EventHandler {
           // Handle wire dragging
           if (this.connections.getDragWire()) {
             this.connections.updateWireDrag(pos);
-            // Force immediate synchronous draw - don't use RAF
-            if (this.editor && typeof this.editor.markDirty === 'function') {
-              this.editor.markDirty('wire-drag-immediate');
-            }
-            if (this.onDraw && typeof this.onDraw === 'function') {
-              this.onDraw(); // Synchronous draw
-            }
+            // Use RAF batching for smooth performance
+            this._requestDraw('wire-drag');
             return;
           }
 
           // Handle box selection
           if (this.selection.getBoxSelect()) {
             this.selection.updateBoxSelect(pos.x, pos.y);
-            // Force immediate synchronous draw - don't use RAF
-            if (this.editor && typeof this.editor.markDirty === 'function') {
-              this.editor.markDirty('box-select-immediate');
-            }
-            if (this.onDraw && typeof this.onDraw === 'function') {
-              this.onDraw(); // Synchronous draw
-            }
+            // Use RAF batching for smooth performance
+            this._requestDraw('box-select');
             return;
           }
 
           // Handle node dragging
           if (this.selection.getDragging()) {
-            // CRITICAL: Increment drag update count
-            this._nodeDragUpdateCount++;
-            
-            // CRITICAL: Ensure interaction start time is set (should be set in mousedown, but ensure it)
-            if (!this._interactionStartTime) {
-              this._interactionStartTime = now;
-            }
-            
-            // CRITICAL: Update drag position
+            // Update drag position
             this.selection.updateDrag(pos.x, pos.y);
-            
-            // CRITICAL: Force immediate synchronous draw - ALWAYS bypass RAF for first period
-            // This ensures smooth dragging without lag
-            if (this.editor && typeof this.editor.markDirty === 'function') {
-              this.editor.markDirty('node-drag-immediate');
-            }
-            if (this.onDraw && typeof this.onDraw === 'function') {
-              // Synchronous draw - this MUST be immediate, not batched
-              this.onDraw();
-            }
+            // Use RAF batching for smooth performance
+            this._requestDraw('node-drag');
           }
         } else if (!this._dragUpdateScheduled) {
           this._dragUpdateScheduled = true;
