@@ -2531,13 +2531,14 @@ function handleRenderFrame(frameState) {
     timelinePanel.update();
   }
 
-  // GPU rendering - Skip during canvas interactions to prevent FPS drops
+  // GPU rendering - Always render for real-time preview updates
   // Check if compute shader test is active
   if (computeShaderTest && computeShaderTest.isEnabled) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
-  } else if (window.gpuRenderer && !isCanvasInteracting) {
+  } else if (window.gpuRenderer) {
     // Normal rendering - render() is async and handles compute shaders
+    // GPU rendering always runs for real-time preview, even during canvas interactions
     const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
 
     // Stream frames to external viewers if enabled
