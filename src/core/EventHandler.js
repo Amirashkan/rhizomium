@@ -315,14 +315,14 @@ export class EventHandler {
           // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
           // Longer inactivity = longer immediate update window needed
           const now = Date.now();
-          const timeSinceStart = now - this._interactionStartTime;
+          const timeSinceStart = now - (this._interactionStartTime || now);
           const immediateWindow = Math.max(1000, Math.min(3000, timeSinceStart < 100 ? 2000 : 1500));
           const isFirstPeriod = !this._panUpdateScheduled || timeSinceStart < immediateWindow;
           
-          if ((this._justWarmedUp || isFirstSecond) && this._pendingPanUpdate) {
+          if ((this._justWarmedUp || isFirstPeriod) && this._pendingPanUpdate) {
             // Immediate update - bypass RAF to prevent lag during first second
             // Do this synchronously to ensure it happens before any other processing
-            if (isFirstSecond && !this._interactionStartTime) {
+            if (isFirstPeriod && !this._interactionStartTime) {
               this._interactionStartTime = now;
             }
             
