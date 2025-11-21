@@ -2654,13 +2654,39 @@ function handleRenderFrame(frameState) {
       if (shouldUpdatePreviews) {
         // PERFORMANCE: Defer preview computation to idle time to avoid frame time spikes
         // This prevents periodic micro-stutters from preview updates
+        // CRITICAL: Add time budget to prevent lag spikes
         if (window.requestIdleCallback) {
-          window.requestIdleCallback(() => {
+          window.requestIdleCallback((deadline) => {
+            // CRITICAL: Only run if we have enough time budget (at least 10ms)
+            // This prevents lag when requestIdleCallback finally fires
+            if (deadline.timeRemaining() < 10) {
+              // Not enough time, skip this update to avoid blocking
+              return;
+            }
+            
             // Update preview values for time/audio-based expressions
             // This ensures node labels show current values
             if (editor?.previewComputer && editor?.graph) {
               const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
-              editor.previewComputer.computePreviews(editor.graph);
+              
+              // CRITICAL: Add timeout protection - if computePreviews takes too long, abort
+              const startTime = performance.now();
+              const MAX_COMPUTE_TIME = 30; // Maximum 30ms for preview computation (reduced from 50ms)
+              
+              try {
+                editor.previewComputer.computePreviews(editor.graph, {
+                  timeBudget: Math.min(deadline.timeRemaining() - 5, MAX_COMPUTE_TIME), // Leave 5ms buffer
+                  maxTime: MAX_COMPUTE_TIME
+                });
+                
+                const elapsed = performance.now() - startTime;
+                if (elapsed > MAX_COMPUTE_TIME) {
+                  console.warn(`[Performance] computePreviews took ${elapsed.toFixed(1)}ms, exceeded budget`);
+                }
+              } catch (err) {
+                // Silently handle errors to avoid breaking render loop
+                console.warn('[Performance] computePreviews error:', err);
+              }
 
               // Only mark dirty if there are time-animated nodes that need visual updates
               if (hadTimeAnimatedNodes && editor.markDirty) {
@@ -2670,10 +2696,24 @@ function handleRenderFrame(frameState) {
           }, { timeout: 150 });
         } else {
           // Fallback: do it synchronously but only if we have time
-          // Update preview values for time/audio-based expressions
+          // CRITICAL: Add timeout protection even in fallback
           if (editor?.previewComputer && editor?.graph) {
             const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
-            editor.previewComputer.computePreviews(editor.graph);
+            const startTime = performance.now();
+            const MAX_COMPUTE_TIME = 8; // Maximum 8ms (half frame) for synchronous fallback
+            
+            try {
+              editor.previewComputer.computePreviews(editor.graph, {
+                maxTime: MAX_COMPUTE_TIME
+              });
+              
+              const elapsed = performance.now() - startTime;
+              if (elapsed > MAX_COMPUTE_TIME) {
+                console.warn(`[Performance] computePreviews (sync) took ${elapsed.toFixed(1)}ms, exceeded budget`);
+              }
+            } catch (err) {
+              console.warn('[Performance] computePreviews (sync) error:', err);
+            }
 
             if (hadTimeAnimatedNodes && editor.markDirty) {
               editor.markDirty('time-animation');
