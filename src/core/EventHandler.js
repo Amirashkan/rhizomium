@@ -621,7 +621,14 @@ export class EventHandler {
         this.editor.shaderPreviewManager.beginInteraction('drag');
       }
 
-      this._requestDraw('node-drag-start');
+      // CRITICAL: Do an IMMEDIATE synchronous draw right after starting drag
+      // This ensures the canvas is ready and nodes are rendered before first mousemove
+      if (this.editor && typeof this.editor.markDirty === 'function') {
+        this.editor.markDirty('node-drag-start-immediate');
+      }
+      if (this.onDraw && typeof this.onDraw === 'function') {
+        this.onDraw(); // Synchronous draw - don't use RAF
+      }
     });
 
     // Click handler to prevent double-click from bubbling
@@ -701,9 +708,12 @@ export class EventHandler {
         const immediateWindow = this._justWarmedUp ? 3000 : Math.max(2000, Math.min(3000, 2500));
         const isFirstPeriod = !this._dragUpdateScheduled || timeSinceStart < immediateWindow;
         
-        // CRITICAL: Always do immediate update if we just warmed up OR if it's the first period
-        // This ensures no lag on first drag movement after inactivity
-        if ((this._justWarmedUp || isFirstPeriod) && this._pendingDragEvent) {
+        // CRITICAL: For node dragging, ALWAYS use immediate updates for first 3 seconds
+        // This ensures smooth dragging without any lag after inactivity
+        const isNodeDragging = this.selection?.getDragging();
+        const shouldUseImmediate = isNodeDragging ? (timeSinceStart < 3000) : (this._justWarmedUp || isFirstPeriod);
+        
+        if (shouldUseImmediate && this._pendingDragEvent) {
           // Immediate update - bypass RAF to prevent lag during first period
           // Do this synchronously to ensure it happens before any other processing
           
@@ -758,13 +768,17 @@ export class EventHandler {
               this._interactionStartTime = now;
             }
             
+            // CRITICAL: Update drag position
             this.selection.updateDrag(pos.x, pos.y);
-            // Force immediate synchronous draw - don't use RAF
+            
+            // CRITICAL: Force immediate synchronous draw - ALWAYS bypass RAF for first period
+            // This ensures smooth dragging without lag
             if (this.editor && typeof this.editor.markDirty === 'function') {
               this.editor.markDirty('node-drag-immediate');
             }
             if (this.onDraw && typeof this.onDraw === 'function') {
-              this.onDraw(); // Synchronous draw
+              // Synchronous draw - this MUST be immediate, not batched
+              this.onDraw();
             }
           }
         } else if (!this._dragUpdateScheduled) {
