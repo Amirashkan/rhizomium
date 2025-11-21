@@ -70,11 +70,10 @@ export class ComputeExecutor {
     this._isExecuting = false;
   }
 
-  // PERFORMANCE: Maximum resolution for compute nodes to maintain 60 FPS at full HD
-  // Compute shaders at 1920x1080 are extremely expensive (2M pixels per node)
-  // Fragment shaders can sample lower-res textures and upscale efficiently
-  // Reduced to 512 for complex graphs to ensure consistent 60 FPS
-  static MAX_COMPUTE_RES = 512;
+  // PERFORMANCE: Maximum resolution for compute nodes
+  // For full HD preview (1920x1080), we use full resolution for compute nodes
+  // Quality is maintained - optimizations come from smarter caching and dispatch logic
+  static MAX_COMPUTE_RES = 2048; // High enough to support full HD and beyond
 
   /**
    * Clear fragment render cache
@@ -147,37 +146,35 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
-      // CRITICAL PERFORMANCE FIX: Cap compute node resolution to maintain 60 FPS at full HD
-      // Compute shaders at 1920x1080 (2M pixels) are extremely expensive and cause frame drops
-      // Fragment shaders can sample lower-res compute textures and upscale them efficiently
-      // This maintains visual quality while ensuring smooth 60 FPS performance
+      // Use preview resolution setting to maintain full quality
+      // Resolution follows the preview settings - optimizations come from smart caching
       const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
-      const DEFAULT_COMPUTE_RES = 512;
+      const DEFAULT_COMPUTE_RES = 1024;
 
-      // Always use capped resolution for compute nodes, regardless of preview resolution
-      // The fragment shader will sample these textures at full HD, providing good quality
-      // while keeping compute shader execution fast
+      // Get preview resolution from settings
       let baseWidth = DEFAULT_COMPUTE_RES;
       let baseHeight = DEFAULT_COMPUTE_RES;
 
-      // Note: We intentionally do NOT use preview resolution for compute nodes
-      // Preview can be 1920x1080, but compute nodes stay at 1024x1024 max for performance
+      if (window.floatingPreview?.settings?.settings?.resolution) {
+        const previewRes = window.floatingPreview.settings.settings.resolution;
+        baseWidth = previewRes.width || DEFAULT_COMPUTE_RES;
+        baseHeight = previewRes.height || DEFAULT_COMPUTE_RES;
+      }
 
       let width = baseWidth;
       let height = baseHeight;
 
-      // If the node has a custom resolution setting, use it (but cap for performance)
+      // If the node has a custom resolution setting, use it
       if (node.computeResolution) {
         width = node.computeResolution[0] || baseWidth;
         height = node.computeResolution[1] || baseHeight;
       } else if (resolution && resolution[0] > 0 && resolution[1] > 0) {
-        // Use node's specified resolution if provided (but cap for performance)
+        // Use node's specified resolution if provided
         width = resolution[0];
         height = resolution[1];
       }
 
-      // PERFORMANCE: Cap resolution to maintain 60 FPS at full HD
-      // Compute shaders are expensive - fragment shaders can upscale efficiently
+      // Cap at maximum supported resolution only (no quality reduction)
       width = Math.min(width, MAX_COMPUTE_RES);
       height = Math.min(height, MAX_COMPUTE_RES);
 
@@ -493,11 +490,21 @@ export class ComputeExecutor {
 
         // This is a fragment node being used as compute input!
         try {
-          // Use the same resolution as the compute node (capped for performance)
-          const resolution = nodeData.resolution || [512, 512];
+          // Use the same resolution as the compute node (follows preview settings)
+          const resolution = nodeData.resolution || [1024, 1024];
+          // Get preview resolution if available
+          let width = resolution[0] || 1024;
+          let height = resolution[1] || 1024;
+          
+          if (window.floatingPreview?.settings?.settings?.resolution) {
+            const previewRes = window.floatingPreview.settings.settings.resolution;
+            width = previewRes.width || width;
+            height = previewRes.height || height;
+          }
+          
           const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
-          const width = Math.min(resolution[0] || 512, MAX_COMPUTE_RES);
-          const height = Math.min(resolution[1] || 512, MAX_COMPUTE_RES);
+          width = Math.min(width, MAX_COMPUTE_RES);
+          height = Math.min(height, MAX_COMPUTE_RES);
 
           // Render the fragment node WITH its compute dependencies dispatched first
           const texture = await this._renderFragmentNodeWithDependencies(
