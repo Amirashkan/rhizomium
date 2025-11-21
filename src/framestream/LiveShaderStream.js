@@ -573,12 +573,14 @@ export class LiveShaderStream {
 
             // Only compute values for nodes that produce simple numeric outputs
             // These are typically input nodes like Float, Vec2, etc.
+            // Also include utility nodes that produce f32 outputs (like Remap, Posterize, Expr, etc.)
             const simpleOutputKinds = [
                 'Float', 'ConstFloat',
                 'Vec2', 'ConstVec2',
                 'Vec3', 'ConstVec3',
                 'Vec4', 'ConstVec4',
-                'Time', 'UV', 'Mouse'
+                'Time', 'UV', 'Mouse',
+                'Remap', 'Posterize', 'Expr', 'ColorToGrayscale'
             ];
 
             const isSimpleOutput = simpleOutputKinds.some(kind => 

@@ -305,3 +305,4 @@ No way to detect if viewer window is closed by user. Streaming continues even af
 11. **Add frame size validation**
 12. **Implement exponential backoff for reconnection**
 
+
