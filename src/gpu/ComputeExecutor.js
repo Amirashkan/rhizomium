@@ -455,6 +455,28 @@ export class ComputeExecutor {
       return;
     }
 
+    // PERFORMANCE: Early exit if no fragment inputs need rendering
+    // This avoids expensive iteration when there are no fragment→compute connections
+    let hasFragmentInputs = false;
+    for (const nodeId of this.executionOrder) {
+      const nodeData = window.computeNodeRegistry?.get(nodeId);
+      const node = nodeData?.node;
+      if (node?.inputs && Array.isArray(node.inputs)) {
+        for (const inputNodeId of node.inputs) {
+          if (inputNodeId !== null && inputNodeId !== undefined && !this.computeManagers.has(inputNodeId)) {
+            hasFragmentInputs = true;
+            break;
+          }
+        }
+        if (hasFragmentInputs) break;
+      }
+    }
+    
+    if (!hasFragmentInputs) {
+      this.fragmentNodesRenderedThisFrame = new Set();
+      return;
+    }
+
     // Track which compute nodes need their input hashes invalidated
     const computeNodesToClearHash = new Set();
     
@@ -505,6 +527,23 @@ export class ComputeExecutor {
           const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
           width = Math.min(width, MAX_COMPUTE_RES);
           height = Math.min(height, MAX_COMPUTE_RES);
+
+          // PERFORMANCE: Check if fragment node actually needs rendering (change detection)
+          // This avoids expensive fragment rendering when inputs haven't changed
+          const needsRender = this.fragmentRenderer._checkFragmentNodeNeedsRender(
+            inputNodeId, 
+            inputNode, 
+            time, 
+            audioContext
+          );
+          
+          if (!needsRender && this.renderedFragmentNodes.has(inputNodeId)) {
+            // Fragment node was already rendered and hasn't changed - reuse existing texture
+            const existingTexture = this.nodeOutputs.get(inputNodeId);
+            if (existingTexture) {
+              continue; // Skip rendering, use existing texture
+            }
+          }
 
           // Render the fragment node WITH its compute dependencies dispatched first
           const texture = await this._renderFragmentNodeWithDependencies(

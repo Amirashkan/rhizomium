@@ -1003,9 +1003,12 @@ export class GPURenderer {
     }
 
     try {
+      // PERFORMANCE: Submit command buffer immediately without waiting
+      // This allows the render loop to continue while GPU processes the frame
       this.device.queue.submit([encoder.finish()]);
       
       // Store promise for frame presentation - allows frame capture to wait for GPU work
+      // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
     } catch (submitErr) {
       console.error('[GPURenderer] Failed to submit command buffer:', submitErr);

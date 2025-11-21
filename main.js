@@ -2549,7 +2549,12 @@ function handleRenderFrame(frameState) {
   } else if (window.gpuRenderer) {
     // GPU rendering - Always render for real-time preview
     // Canvas optimizations handle the performance, GPU keeps running
-    const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+    // PERFORMANCE: Don't await render - let it run asynchronously to avoid blocking render loop
+    // The render function is async but we don't need to wait for it to complete
+    window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
+      // Silently handle render errors to avoid breaking render loop
+      // Errors are already logged in gpuRenderer.render()
+    });
 
       // Stream frames to external viewers if enabled
       // NOTE: Now streams during parameter drag for real-time external view updates
@@ -2563,7 +2568,9 @@ function handleRenderFrame(frameState) {
           // This prevents frame streaming from affecting render performance
           if (window.requestIdleCallback) {
             window.requestIdleCallback(() => {
-              renderPromise.then(() => {
+              // Get the render promise from gpuRenderer if available
+              const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
+              framePromise.then(() => {
                 // Use BroadcastChannel for Vercel/cloud deployments
                 if (broadcastFrameStream) {
                   broadcastFrameStream.sendFrameFromCanvas(canvas);
@@ -2578,7 +2585,8 @@ function handleRenderFrame(frameState) {
             }, { timeout: 100 });
           } else {
             // Fallback for browsers without requestIdleCallback
-            renderPromise.then(() => {
+            const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
+            framePromise.then(() => {
               if (broadcastFrameStream) {
                 broadcastFrameStream.sendFrameFromCanvas(canvas);
               } else if (frameStreamClient) {
