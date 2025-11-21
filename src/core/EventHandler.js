@@ -186,13 +186,14 @@ export class EventHandler {
     if (timeSinceLastInteraction > this._inactivityThreshold) {
       this._justWarmedUp = true; // Mark that we just warmed up
       
-      // AGGRESSIVE warmup: Multiple synchronous renders to fully wake up GPU pipeline
-      // This prevents lag on first action after inactivity
+      // ULTRA-AGGRESSIVE warmup: Many synchronous renders to fully wake up GPU pipeline
+      // The longer the inactivity, the more aggressive the warmup needed
+      const warmupIntensity = Math.min(10, Math.floor(timeSinceLastInteraction / 1000) + 5);
+      
       if (this.editor?.renderLoopController) {
         try {
-          // Multiple renders to fully warm up GPU pipeline
-          // Do more renders to ensure pipeline is fully ready
-          for (let i = 0; i < 5; i++) {
+          // Many renders to fully warm up GPU pipeline - more if inactive longer
+          for (let i = 0; i < warmupIntensity; i++) {
             this.editor.renderLoopController.renderNow({ advance: false });
           }
         } catch (error) {
@@ -219,10 +220,12 @@ export class EventHandler {
             this.editor.markDirty('warmup');
           }
           
-          // Force multiple immediate draws to wake up canvas context
+          // Force many immediate draws to wake up canvas context
+          // More draws if inactive longer
+          const drawWarmupCount = Math.min(5, Math.floor(timeSinceLastInteraction / 1000) + 3);
           if (this.onDraw && typeof this.onDraw === 'function') {
-            // Multiple draws to ensure context is fully ready
-            for (let i = 0; i < 3; i++) {
+            // Many draws to ensure context is fully ready
+            for (let i = 0; i < drawWarmupCount; i++) {
               this.onDraw();
             }
           }
@@ -250,10 +253,11 @@ export class EventHandler {
       }
       
       // Keep the flag active longer to ensure first few interactions bypass RAF
-      // This ensures multiple frames after warmup use immediate updates
+      // Longer inactivity = longer immediate update window needed
+      const immediateWindow = Math.min(2000, timeSinceLastInteraction + 500);
       setTimeout(() => {
         this._justWarmedUp = false;
-      }, 500);
+      }, immediateWindow);
     }
 
     // Update last interaction time
@@ -308,9 +312,12 @@ export class EventHandler {
           }
 
           // Only schedule one update per animation frame for performance
-          // BUT: Always do immediate update for first SECOND of interaction to prevent lag
+          // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
+          // Longer inactivity = longer immediate update window needed
           const now = Date.now();
-          const isFirstSecond = !this._panUpdateScheduled || (now - this._interactionStartTime) < 1000;
+          const timeSinceStart = now - this._interactionStartTime;
+          const immediateWindow = Math.max(1000, Math.min(3000, timeSinceStart < 100 ? 2000 : 1500));
+          const isFirstPeriod = !this._panUpdateScheduled || timeSinceStart < immediateWindow;
           
           if ((this._justWarmedUp || isFirstSecond) && this._pendingPanUpdate) {
             // Immediate update - bypass RAF to prevent lag during first second
@@ -645,14 +652,17 @@ export class EventHandler {
         this._pendingDragEvent = e;
 
         // Only schedule one update per animation frame for performance
-        // BUT: Always do immediate update for first SECOND of interaction to prevent lag
+        // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
+        // Longer inactivity = longer immediate update window needed
         const now = Date.now();
-        const isFirstSecond = !this._dragUpdateScheduled || (now - this._interactionStartTime) < 1000;
+        const timeSinceStart = now - this._interactionStartTime;
+        const immediateWindow = Math.max(1000, Math.min(3000, timeSinceStart < 100 ? 2000 : 1500));
+        const isFirstPeriod = !this._dragUpdateScheduled || timeSinceStart < immediateWindow;
         
-        if ((this._justWarmedUp || isFirstSecond) && this._pendingDragEvent) {
-          // Immediate update - bypass RAF to prevent lag during first second
+        if ((this._justWarmedUp || isFirstPeriod) && this._pendingDragEvent) {
+          // Immediate update - bypass RAF to prevent lag during first period
           // Do this synchronously to ensure it happens before any other processing
-          if (isFirstSecond && !this._interactionStartTime) {
+          if (isFirstPeriod && !this._interactionStartTime) {
             this._interactionStartTime = now;
           }
           
