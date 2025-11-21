@@ -31,7 +31,8 @@ export class EventHandler {
     this._pendingDragEvent = null;
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
-    this._inactivityThreshold = 5000; // 5 seconds
+    this._inactivityThreshold = 200; // 200ms - warm up after any brief pause
+    this._justWarmedUp = false; // Track if we just warmed up to bypass RAF on first frame
 
     this._setupEvents();
   }
@@ -84,6 +85,8 @@ export class EventHandler {
 
     // If inactive for more than threshold, warm up GPU and canvas synchronously
     if (timeSinceLastInteraction > this._inactivityThreshold) {
+      this._justWarmedUp = true; // Mark that we just warmed up
+      
       // Force immediate synchronous renders to warm up GPU and canvas resources
       // Multiple renders ensure GPU pipeline is fully warmed up
       // This prevents lag on first action after inactivity
@@ -100,13 +103,35 @@ export class EventHandler {
       
       // Also force a canvas draw to warm up 2D rendering context
       // This ensures canvas operations are ready before first interaction
-      if (this.onDraw && typeof this.onDraw === 'function') {
+      if (this.editor) {
         try {
-          this.onDraw();
+          // Mark canvas as dirty to force a draw
+          if (typeof this.editor.markDirty === 'function') {
+            this.editor.markDirty('warmup');
+          }
+          // Force immediate draw to wake up canvas context
+          if (this.onDraw && typeof this.onDraw === 'function') {
+            this.onDraw();
+          }
+          // Also directly touch the canvas context to wake it up
+          if (this.editor.ctx && this.canvas) {
+            const ctx = this.editor.ctx;
+            // Do a minimal draw operation to wake up the context
+            ctx.save();
+            ctx.globalAlpha = 0.01;
+            ctx.fillStyle = 'transparent';
+            ctx.fillRect(0, 0, 1, 1);
+            ctx.restore();
+          }
         } catch (error) {
           console.warn('[EventHandler] Canvas warmup after inactivity failed:', error);
         }
       }
+      
+      // Clear the flag after a short delay to allow first interaction to bypass RAF
+      setTimeout(() => {
+        this._justWarmedUp = false;
+      }, 100);
     }
 
     // Update last interaction time
@@ -161,7 +186,16 @@ export class EventHandler {
           }
 
           // Only schedule one update per animation frame for performance
-          if (!this._panUpdateScheduled) {
+          // BUT: if we just warmed up, do immediate update to prevent lag
+          if (this._justWarmedUp && this._pendingPanUpdate) {
+            // Immediate update after warmup - bypass RAF to prevent first-frame lag
+            const { clientX, clientY } = this._pendingPanUpdate;
+            if (this.viewport.updatePan(clientX, clientY)) {
+              this._requestDraw('pan');
+            }
+            this._pendingPanUpdate = null;
+            this._panUpdateScheduled = false;
+          } else if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
             requestAnimationFrame(() => {
               this._panUpdateScheduled = false;
@@ -459,7 +493,40 @@ export class EventHandler {
         this._pendingDragEvent = e;
 
         // Only schedule one update per animation frame for performance
-        if (!this._dragUpdateScheduled) {
+        // BUT: if we just warmed up, do immediate update to prevent lag
+        if (this._justWarmedUp && this._pendingDragEvent) {
+          // Immediate update after warmup - bypass RAF to prevent first-frame lag
+          const pendingEvent = this._pendingDragEvent;
+          this._pendingDragEvent = null;
+
+          // Calculate canvas position once per frame
+          const pos = this._getCanvasPosition(pendingEvent);
+
+          // Track cursor position for paste/duplicate operations
+          this.lastCanvasPos = { x: pos.x, y: pos.y };
+
+          // Handle wire dragging
+          if (this.connections.getDragWire()) {
+            this.connections.updateWireDrag(pos);
+            this._requestDraw('wire-drag-update');
+            return;
+          }
+
+          // Handle box selection
+          if (this.selection.getBoxSelect()) {
+            this.selection.updateBoxSelect(pos.x, pos.y);
+            this._requestDraw('box-select-update');
+            return;
+          }
+
+          // Handle node dragging
+          if (this.selection.getDragging()) {
+            this.selection.updateDrag(pos.x, pos.y);
+            this._requestDraw('node-drag-update');
+          }
+          
+          this._dragUpdateScheduled = false;
+        } else if (!this._dragUpdateScheduled) {
           this._dragUpdateScheduled = true;
           requestAnimationFrame(() => {
             this._dragUpdateScheduled = false;
