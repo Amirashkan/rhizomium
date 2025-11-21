@@ -476,8 +476,16 @@ export class GPURenderer {
       return;
     }
 
-    const data = new Float32Array([aspect, 0, 0, 0]);
-    this.device.queue.writeBuffer(target.buffer, 0, data);
+    // PERFORMANCE: Reuse Float32Array to avoid allocation every frame
+    if (!this._aspectUniformBuffer) {
+      this._aspectUniformBuffer = new Float32Array(4);
+    }
+    this._aspectUniformBuffer[0] = aspect;
+    this._aspectUniformBuffer[1] = 0;
+    this._aspectUniformBuffer[2] = 0;
+    this._aspectUniformBuffer[3] = 0;
+    
+    this.device.queue.writeBuffer(target.buffer, 0, this._aspectUniformBuffer);
     this._lastAspectWritten = aspect;
   }
 
@@ -576,12 +584,20 @@ export class GPURenderer {
     const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
     const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-    const data = new Float32Array([
-      width, height, timeSec, audioEnvelope,
-      audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull
-    ]);
+    // PERFORMANCE: Reuse Float32Array to avoid allocation every frame
+    if (!this._globalsUniformBuffer) {
+      this._globalsUniformBuffer = new Float32Array(8);
+    }
+    this._globalsUniformBuffer[0] = width;
+    this._globalsUniformBuffer[1] = height;
+    this._globalsUniformBuffer[2] = timeSec;
+    this._globalsUniformBuffer[3] = audioEnvelope;
+    this._globalsUniformBuffer[4] = audioEnvelopeBass;
+    this._globalsUniformBuffer[5] = audioEnvelopeMids;
+    this._globalsUniformBuffer[6] = audioEnvelopeHighs;
+    this._globalsUniformBuffer[7] = audioEnvelopeFull;
 
-    this.device.queue.writeBuffer(target.buffer, 0, data);
+    this.device.queue.writeBuffer(target.buffer, 0, this._globalsUniformBuffer);
   }
 
   _writeGlobalsForSize(width, height, timeSec) {
@@ -684,12 +700,33 @@ export class GPURenderer {
     const needsUpdate = texManager.bindGroup === null;
     if (!needsUpdate || !this.pipeline || !this.bindGroups) return;
 
+    // PERFORMANCE: Track if textures actually changed to avoid unnecessary bind group rebuilds
+    let texturesChanged = false;
+    if (!this._textureResourceHashes) {
+      this._textureResourceHashes = new Map();
+    }
+
     // Update all texture and sampler resources with newly loaded textures
     for (const resourceKey in this.resources) {
       const resource = this.resources[resourceKey];
       if (resource.kind === "texture-2d" || resource.kind === "texture-cube" || resource.kind === "sampler") {
+        // Check if texture actually changed
+        const previousTextureView = this._textureResourceHashes.get(resourceKey);
         this._applyExternalTextureResource(resource);
+        const currentTextureView = resource.textureView;
+        
+        if (previousTextureView !== currentTextureView) {
+          texturesChanged = true;
+          this._textureResourceHashes.set(resourceKey, currentTextureView);
+        }
       }
+    }
+
+    // Only rebuild bind groups if textures actually changed
+    if (!texturesChanged) {
+      // Mark that we've checked (even though nothing changed)
+      texManager.bindGroup = {};
+      return;
     }
 
     // Rebuild bind groups with updated texture resources
@@ -893,8 +930,9 @@ export class GPURenderer {
       const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
       const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-      // PERFORMANCE: Execute compute shaders synchronously (they're already queued in encoder)
-      // The await here doesn't block GPU work, it just ensures compute passes are recorded
+      // PERFORMANCE: Execute compute shaders - the await ensures compute passes are recorded
+      // This is non-blocking for GPU work (commands are just recorded, not executed yet)
+      // We await to ensure compute results are ready before fragment shader renders
       await window.computeExecutor.execute(encoder, timeValue, {
         audioEnvelope,
         audioEnvelopeBass,
