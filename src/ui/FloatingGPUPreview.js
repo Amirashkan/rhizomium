@@ -41,22 +41,41 @@ export class FloatingGPUPreview {
   }
   
   _handlePerformanceDrop(avgFrameTime) {
-    // If we see multiple performance drops, temporarily reduce backdrop-filter
+    // If we see performance drops, temporarily disable backdrop-filter completely
+    // More aggressive: trigger after 1 drop for severe cases, 2 for moderate
     this._performanceDropCount++;
     
-    if (this._performanceDropCount >= 3 && !this._lowFpsMode && this.container) {
-      // Reduce backdrop-filter blur to improve performance
+    const shouldActivate = (avgFrameTime > 30 && this._performanceDropCount >= 1) || 
+                           (avgFrameTime > 20 && this._performanceDropCount >= 2);
+    
+    if (shouldActivate && !this._lowFpsMode && this.container) {
+      // Completely disable backdrop-filter for maximum performance
       this._lowFpsMode = true;
-      this.container.style.backdropFilter = 'blur(5px)';
+      this.container.style.backdropFilter = 'none';
+      // Slightly increase background opacity to compensate for no blur
+      const currentBg = this.container.style.background;
+      if (currentBg && currentBg.includes('rgba')) {
+        // Increase opacity slightly for better visibility without blur
+        this.container.style.background = currentBg.replace(/0\.95/, '0.98');
+      }
       
-      // Reset after 5 seconds of good performance
+      // Reset counter after a delay
       setTimeout(() => {
-        this._performanceDropCount = 0;
-        if (this._lowFpsMode && this.container) {
+        this._performanceDropCount = Math.max(0, this._performanceDropCount - 1);
+      }, 3000);
+      
+      // Restore backdrop-filter after 10 seconds of good performance
+      setTimeout(() => {
+        if (this._performanceDropCount === 0 && this._lowFpsMode && this.container) {
           this._lowFpsMode = false;
           this.container.style.backdropFilter = 'blur(20px)';
+          // Restore original background opacity
+          const currentBg = this.container.style.background;
+          if (currentBg && currentBg.includes('0.98')) {
+            this.container.style.background = currentBg.replace(/0\.98/, '0.95');
+          }
         }
-      }, 5000);
+      }, 10000);
     }
   }
 
@@ -817,9 +836,9 @@ class FPSCounter {
     this.updateInterval = null;
     // Cache FPS overlay element to avoid DOM queries
     this.fpsOverlayElement = null;
-    // Track frame times to detect performance issues
+    // Track frame times to detect performance issues - use smaller buffer for less GC
     this.frameTimes = [];
-    this.maxFrameTimeHistory = 60; // Keep last 60 frame times
+    this.maxFrameTimeHistory = 20; // Reduced from 60 to 20 for less memory/GC overhead
     // Use RAF for updates instead of setInterval for better performance
     this.rafHandle = null;
   }
@@ -837,16 +856,14 @@ class FPSCounter {
       this.fpsOverlayElement = document.querySelector(".fps-overlay");
     }
 
-    // Use requestAnimationFrame instead of setInterval for better performance
-    // This aligns with the render loop and avoids timer overhead
-    const updateLoop = () => {
-      if (!this.isRunning) return;
-      
-      this._updateFPS();
-      this.rafHandle = requestAnimationFrame(updateLoop);
-    };
-    
-    this.rafHandle = requestAnimationFrame(updateLoop);
+    // PERFORMANCE: Use setInterval with longer interval instead of RAF
+    // RAF creates additional overhead and can conflict with main render loop
+    // Update FPS display every 500ms (2 updates per second) instead of every frame
+    this.updateInterval = setInterval(() => {
+      if (this.isRunning) {
+        this._updateFPS();
+      }
+    }, 500);
   }
 
   stop() {
@@ -859,41 +876,44 @@ class FPSCounter {
       cancelAnimationFrame(this.rafHandle);
       this.rafHandle = null;
     }
-    // Clear cached element reference
+    // Clear cached element reference and frame times to free memory
     this.fpsOverlayElement = null;
+    this.frameTimes = [];
   }
 
   frame() {
-    if (this.isRunning) {
-      this.frameCount++;
-      
-      // Track frame time for performance monitoring
+    if (!this.isRunning) return;
+    
+    // PERFORMANCE: Keep frame() as lightweight as possible
+    // Just increment counter - all expensive operations happen in _updateFPS()
+    this.frameCount++;
+    
+    // Only track frame times occasionally (every 10 frames) to minimize overhead
+    if (this.frameCount % 10 === 0) {
       const now = performance.now();
-      if (this.frameTimes.length > 0) {
-        const frameTime = now - this.frameTimes[this.frameTimes.length - 1];
+      
+      // Use circular buffer pattern to avoid array shifts
+      if (this.frameTimes.length < this.maxFrameTimeHistory) {
         this.frameTimes.push(now);
-        if (this.frameTimes.length > this.maxFrameTimeHistory) {
-          this.frameTimes.shift();
-        }
+      } else {
+        // Circular buffer: overwrite oldest entry
+        const index = Math.floor(this.frameCount / 10) % this.maxFrameTimeHistory;
+        const prevTime = this.frameTimes[index];
+        this.frameTimes[index] = now;
         
-        // Detect sudden frame time spikes (>33ms = <30fps)
-        if (frameTime > 33 && this.frameTimes.length >= 10) {
-          // Calculate average frame time over last 10 frames
-          const recentTimes = this.frameTimes.slice(-10);
-          const avgFrameTime = recentTimes.reduce((sum, time, i, arr) => {
-            if (i === 0) return 0;
-            return sum + (time - arr[i - 1]);
-          }, 0) / 9;
+        // Only check for performance drops occasionally (every 30 frames = 3 samples) to reduce overhead
+        if (this.frameCount % 30 === 0 && prevTime !== undefined) {
+          // Calculate average frame time over the sampling period
+          const frameTime = (now - prevTime) / 3; // 3 samples = 30 frames
           
-          if (avgFrameTime > 33) {
-            // Performance drop detected - notify parent to potentially reduce backdrop-filter
+          // Quick check: if average frame time is too long, notify
+          if (frameTime > 20) {
+            // Drop detected (>20ms average = <50fps)
             if (this.onPerformanceDrop) {
-              this.onPerformanceDrop(avgFrameTime);
+              this.onPerformanceDrop(frameTime);
             }
           }
         }
-      } else {
-        this.frameTimes.push(now);
       }
     }
   }
@@ -902,7 +922,7 @@ class FPSCounter {
     const now = performance.now();
     const delta = now - this.lastTime;
 
-    // Update FPS display every second
+    // Update FPS display every second (or slightly less frequently to reduce overhead)
     if (delta >= 1000) {
       this.fps = Math.round((this.frameCount * 1000) / delta);
       this.frameCount = 0;
@@ -914,8 +934,12 @@ class FPSCounter {
       }
       
       if (this.fpsOverlayElement) {
-        // Use textContent instead of innerHTML for better performance
-        this.fpsOverlayElement.textContent = `FPS: ${this.fps}`;
+        // PERFORMANCE: Batch DOM updates - only update if FPS changed significantly
+        // This reduces unnecessary DOM writes
+        const newText = `FPS: ${this.fps}`;
+        if (this.fpsOverlayElement.textContent !== newText) {
+          this.fpsOverlayElement.textContent = newText;
+        }
       }
     }
   }
