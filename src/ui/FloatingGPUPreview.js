@@ -41,41 +41,14 @@ export class FloatingGPUPreview {
   }
   
   _handlePerformanceDrop(avgFrameTime) {
-    // If we see performance drops, temporarily disable backdrop-filter completely
-    // More aggressive: trigger after 1 drop for severe cases, 2 for moderate
+    // Backdrop-filter is already disabled by default for performance
+    // This handler is kept for potential future optimizations
+    // Currently just tracks performance drops for debugging
     this._performanceDropCount++;
     
-    const shouldActivate = (avgFrameTime > 30 && this._performanceDropCount >= 1) || 
-                           (avgFrameTime > 20 && this._performanceDropCount >= 2);
-    
-    if (shouldActivate && !this._lowFpsMode && this.container) {
-      // Completely disable backdrop-filter for maximum performance
-      this._lowFpsMode = true;
-      this.container.style.backdropFilter = 'none';
-      // Slightly increase background opacity to compensate for no blur
-      const currentBg = this.container.style.background;
-      if (currentBg && currentBg.includes('rgba')) {
-        // Increase opacity slightly for better visibility without blur
-        this.container.style.background = currentBg.replace(/0\.95/, '0.98');
-      }
-      
-      // Reset counter after a delay
-      setTimeout(() => {
-        this._performanceDropCount = Math.max(0, this._performanceDropCount - 1);
-      }, 3000);
-      
-      // Restore backdrop-filter after 10 seconds of good performance
-      setTimeout(() => {
-        if (this._performanceDropCount === 0 && this._lowFpsMode && this.container) {
-          this._lowFpsMode = false;
-          this.container.style.backdropFilter = 'blur(20px)';
-          // Restore original background opacity
-          const currentBg = this.container.style.background;
-          if (currentBg && currentBg.includes('0.98')) {
-            this.container.style.background = currentBg.replace(/0\.98/, '0.95');
-          }
-        }
-      }, 10000);
+    // Log performance issues for debugging (only occasionally to avoid spam)
+    if (this._performanceDropCount % 10 === 0 && avgFrameTime > 20) {
+      console.warn(`[FloatingPreview] Performance drop detected: ${avgFrameTime.toFixed(2)}ms avg frame time`);
     }
   }
 
@@ -451,9 +424,9 @@ async show() {
       right: 20px;
       width: ${width * dockedScale + padding}px;
       height: ${height * dockedScale + headerHeight + padding}px;
-      background: rgba(20, 20, 22, 0.95);
-      /* PERFORMANCE: backdrop-filter can cause periodic FPS drops, use will-change for optimization */
-      backdrop-filter: blur(20px);
+      background: rgba(20, 20, 22, 0.98);
+      /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
+      /* backdrop-filter: blur(20px); */
       will-change: transform, opacity;
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 12px;
@@ -487,9 +460,9 @@ async show() {
         top: ${this.position.y}px;
         width: ${displayWidth + padding}px;
         height: ${displayHeight + headerHeight + padding}px;
-        background: rgba(20, 20, 22, 0.95);
-        /* PERFORMANCE: backdrop-filter can cause periodic FPS drops, use will-change for optimization */
-        backdrop-filter: blur(20px);
+        background: rgba(20, 20, 22, 0.98);
+        /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
+        /* backdrop-filter: blur(20px); */
         will-change: transform, opacity;
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 12px;

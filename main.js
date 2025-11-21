@@ -2344,6 +2344,8 @@ let lastUniformUpdate = 0;
 // Before: Preview computed every frame (60 times/sec) = 10-20ms × 60 = 600-1200ms/sec overhead
 // After: Preview computed every 100ms (10 times/sec) = 10-20ms × 10 = 100-200ms/sec overhead
 let lastPreviewUpdate = 0;
+let lastProfilerUpdate = 0;
+const PROFILER_UPDATE_INTERVAL = 200; // Update profiler overlay every 200ms (5 FPS)
 const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
 
 async function updateShaderFromGraph() {
@@ -2548,22 +2550,39 @@ function handleRenderFrame(frameState) {
       // NOTE: Now streams during parameter drag for real-time external view updates
       // CRITICAL: Frame capture happens asynchronously after render completes
       // This ensures compute shaders have finished and the frame is ready
+      // PERFORMANCE: Use requestIdleCallback to avoid blocking render loop
       if (frameStreamingEnabled) {
         const canvas = document.getElementById('gpu-canvas');
         if (canvas) {
-          // Wait for render to complete, then capture frame
-          renderPromise.then(() => {
-            // Use BroadcastChannel for Vercel/cloud deployments
-            if (broadcastFrameStream) {
-              broadcastFrameStream.sendFrameFromCanvas(canvas);
-            }
-            // Use HTTP streaming for local development
-            else if (frameStreamClient) {
-              frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-            }
-          }).catch(err => {
-            // Silently handle errors to avoid breaking render loop
-          });
+          // Use requestIdleCallback to defer frame capture to idle time
+          // This prevents frame streaming from affecting render performance
+          if (window.requestIdleCallback) {
+            window.requestIdleCallback(() => {
+              renderPromise.then(() => {
+                // Use BroadcastChannel for Vercel/cloud deployments
+                if (broadcastFrameStream) {
+                  broadcastFrameStream.sendFrameFromCanvas(canvas);
+                }
+                // Use HTTP streaming for local development
+                else if (frameStreamClient) {
+                  frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+                }
+              }).catch(err => {
+                // Silently handle errors to avoid breaking render loop
+              });
+            }, { timeout: 100 });
+          } else {
+            // Fallback for browsers without requestIdleCallback
+            renderPromise.then(() => {
+              if (broadcastFrameStream) {
+                broadcastFrameStream.sendFrameFromCanvas(canvas);
+              } else if (frameStreamClient) {
+                frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+              }
+            }).catch(err => {
+              // Silently handle errors
+            });
+          }
         }
       }
   }
@@ -2583,10 +2602,16 @@ function handleRenderFrame(frameState) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Update compute profiler overlay
+  // Update compute profiler overlay (throttled to reduce overhead)
+  // PERFORMANCE: Throttle to 5 updates per second to reduce DOM manipulation overhead
   if (profilerOverlay && computeProfiler) {
-    const metrics = computeProfiler.getMetrics();
-    profilerOverlay.update(metrics);
+    const now = performance.now();
+    const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
+    if (shouldUpdateProfiler) {
+      const metrics = computeProfiler.getMetrics();
+      profilerOverlay.update(metrics);
+      lastProfilerUpdate = now;
+    }
   }
 
   // Undo UI updates (only if not dragging)
