@@ -38,6 +38,7 @@ export class EventHandler {
     this._firstFrameOfInteraction = false; // Track first frame of any interaction
     this._interactionStartTime = 0; // Track when interaction started
     this._nodeDragUpdateCount = 0; // Track number of node drag updates for immediate rendering
+    this._panUpdateCount = 0; // Track number of pan updates for immediate rendering
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -325,21 +326,24 @@ export class EventHandler {
           }
 
           // Only schedule one update per animation frame for performance
-          // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
-          // Longer inactivity = longer immediate update window needed
+          // BUT: Always do immediate update for first pan movements to prevent lag
+          // Use counter-based approach for more reliable immediate updates
           const now = Date.now();
           // Ensure interaction start time is set (should be set by warmup, but ensure it's set)
           if (!this._interactionStartTime) {
             this._interactionStartTime = now;
           }
           const timeSinceStart = now - this._interactionStartTime;
-          // For 2+ seconds of inactivity, use longer immediate window (3 seconds)
-          const immediateWindow = this._justWarmedUp ? 3000 : Math.max(1000, Math.min(3000, 2000));
-          const isFirstPeriod = !this._panUpdateScheduled || timeSinceStart < immediateWindow;
+          // For panning, ALWAYS use immediate updates for first 20 pan updates
+          // This ensures smooth panning without any lag after inactivity
+          const shouldUseImmediate = this._panUpdateCount < 20 || timeSinceStart < 3000 || this._justWarmedUp;
           
-          if ((this._justWarmedUp || isFirstPeriod) && this._pendingPanUpdate) {
+          if (shouldUseImmediate && this._pendingPanUpdate) {
             // Immediate update - bypass RAF to prevent lag during first period
             // Do this synchronously to ensure it happens before any other processing
+            
+            // CRITICAL: Increment pan update count
+            this._panUpdateCount++;
             
             const { clientX, clientY } = this._pendingPanUpdate;
             this._pendingPanUpdate = null;
@@ -576,6 +580,8 @@ export class EventHandler {
           moved: false,
         };
         this.viewport.startPan(e.clientX, e.clientY);
+        // CRITICAL: Reset pan update count to force immediate updates for first pan movements
+        this._panUpdateCount = 0;
         // Mark interaction start time for first-frame immediate updates
         this._interactionStartTime = Date.now();
         return;
@@ -840,10 +846,14 @@ export class EventHandler {
       // Clear any pending drag updates
       this._pendingDragEvent = null;
       this._dragUpdateScheduled = false;
+      // Clear any pending pan updates
+      this._pendingPanUpdate = null;
+      this._panUpdateScheduled = false;
       // Reset interaction tracking
       this._interactionStartTime = 0;
       this._firstFrameOfInteraction = false;
       this._nodeDragUpdateCount = 0; // Reset drag update count
+      this._panUpdateCount = 0; // Reset pan update count
 
       const pos = this._getCanvasPosition(e);
 
