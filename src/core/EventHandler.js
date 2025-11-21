@@ -365,6 +365,13 @@ export class EventHandler {
             this._interactionStartTime = now;
           }
           const timeSinceStart = now - this._interactionStartTime;
+          // PERFORMANCE: Reset pan update count periodically during continuous panning
+          // This prevents accumulation and ensures smooth performance
+          if (this._panUpdateCount > 100) {
+            this._panUpdateCount = 0; // Reset to prevent accumulation
+            this._interactionStartTime = now; // Reset interaction start time
+          }
+          
           // For panning, ALWAYS use immediate updates for first 20 pan updates
           // This ensures smooth panning without any lag after inactivity
           const shouldUseImmediate = this._panUpdateCount < 20 || timeSinceStart < 3000 || this._justWarmedUp;
