@@ -158,6 +158,15 @@ export class LiveShaderStream {
         // This enables parameter references like =node_14 to work in the viewer
         const nodeOutputValues = this._computeNodeOutputValues();
 
+        // Get audio envelope values for transmission to viewer
+        const audioEnvelope = {
+            audioEnvelope: window._audioEnvelopeValue || 0.0,
+            audioEnvelopeBass: window._audioEnvelopeBass || 0.0,
+            audioEnvelopeMids: window._audioEnvelopeMids || 0.0,
+            audioEnvelopeHighs: window._audioEnvelopeHighs || 0.0,
+            audioEnvelopeFull: window._audioEnvelopeFull || 0.0
+        };
+
         const message = {
             type: 'shader_update',
             shaderCode: shaderCode,
@@ -167,6 +176,7 @@ export class LiveShaderStream {
             computeNodes: computeNodes, // Include compute node data
             fragmentNodes: fragmentNodes, // Include fragment node data for local rendering
             nodeOutputValues: nodeOutputValues, // Node output values for parameter reference evaluation
+            audioEnvelope: audioEnvelope, // Include audio envelope values
             timestamp: Date.now()
         };
 
@@ -471,8 +481,10 @@ export class LiveShaderStream {
      * Send parameter and time update to viewers (for real-time sync during dragging)
      * @param {Array} uniformValues - Array of parameter values
      * @param {number} time - Current time in seconds
+     * @param {Object} computeNodeParams - Optional compute node params
+     * @param {Object} audioEnvelope - Optional audio envelope values {audioEnvelope, audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull}
      */
-    sendParameterUpdate(uniformValues, time, computeNodeParams = null) {
+    sendParameterUpdate(uniformValues, time, computeNodeParams = null, audioEnvelope = null) {
         if (!this.isStreaming || !this.channel) {
             // DEBUG: Log why we're not sending
             if (this.uniformUpdatesSent === 0) {
@@ -492,11 +504,23 @@ export class LiveShaderStream {
             }
         }
 
+        // Get audio envelope values if not provided (fallback to window values)
+        if (!audioEnvelope) {
+            audioEnvelope = {
+                audioEnvelope: window._audioEnvelopeValue || 0.0,
+                audioEnvelopeBass: window._audioEnvelopeBass || 0.0,
+                audioEnvelopeMids: window._audioEnvelopeMids || 0.0,
+                audioEnvelopeHighs: window._audioEnvelopeHighs || 0.0,
+                audioEnvelopeFull: window._audioEnvelopeFull || 0.0
+            };
+        }
+
         const message = {
             type: 'parameter_update',
             uniformValues: uniformValues,
             uniformKeys: uniformKeys, // Include keys for mapping
             computeNodeParams: computeNodeParams, // Include compute node params if provided
+            audioEnvelope: audioEnvelope, // Include audio envelope values
             time: time,
             timestamp: Date.now()
         };
@@ -506,7 +530,7 @@ export class LiveShaderStream {
 
         // Log every 60th update to avoid spam (once per second at 60fps)
         if (this.uniformUpdatesSent % 60 === 0) {
-            console.log('[LiveShaderStream] Posted message #', this.uniformUpdatesSent, 'to channel:', this.channelName, 'values:', uniformValues.slice(0, 3), 'keys:', uniformKeys.length, 'computeParams:', !!computeNodeParams);
+            console.log('[LiveShaderStream] Posted message #', this.uniformUpdatesSent, 'to channel:', this.channelName, 'values:', uniformValues.slice(0, 3), 'keys:', uniformKeys.length, 'computeParams:', !!computeNodeParams, 'audioEnv:', audioEnvelope.audioEnvelope.toFixed(3));
         }
     }
 

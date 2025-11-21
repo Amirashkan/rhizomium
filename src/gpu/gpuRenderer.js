@@ -541,8 +541,17 @@ export class GPURenderer {
       this._dragUpdateCount = 0;
     }
 
+    // Get audio envelope values for transmission to viewer
+    const audioEnvelope = {
+      audioEnvelope: window._audioEnvelopeValue || 0.0,
+      audioEnvelopeBass: window._audioEnvelopeBass || 0.0,
+      audioEnvelopeMids: window._audioEnvelopeMids || 0.0,
+      audioEnvelopeHighs: window._audioEnvelopeHighs || 0.0,
+      audioEnvelopeFull: window._audioEnvelopeFull || 0.0
+    };
+
     // Send to viewer with current time for sync
-    window.liveShaderStream.sendParameterUpdate(values, timeSec);
+    window.liveShaderStream.sendParameterUpdate(values, timeSec, null, audioEnvelope);
   }
 
   _updateGlobalsUniform(timeSec) {
