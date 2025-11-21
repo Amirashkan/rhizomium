@@ -37,6 +37,7 @@ export class EventHandler {
     this._warmupTimer = null; // Timer for continuous background warmup
     this._firstFrameOfInteraction = false; // Track first frame of any interaction
     this._interactionStartTime = 0; // Track when interaction started
+    this._nodeDragUpdateCount = 0; // Track number of node drag updates for immediate rendering
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -600,6 +601,9 @@ export class EventHandler {
       // Start node drag
       this.selection.startDrag(clicked.id, pos.x, pos.y);
       
+      // CRITICAL: Reset drag update count to force immediate updates for first drag movements
+      this._nodeDragUpdateCount = 0;
+      
       // CRITICAL: Set interaction start time NOW so immediate updates work for first drag movement
       // This ensures the first few drag updates bypass RAF and are synchronous
       const dragStartTime = Date.now();
@@ -708,10 +712,13 @@ export class EventHandler {
         const immediateWindow = this._justWarmedUp ? 3000 : Math.max(2000, Math.min(3000, 2500));
         const isFirstPeriod = !this._dragUpdateScheduled || timeSinceStart < immediateWindow;
         
-        // CRITICAL: For node dragging, ALWAYS use immediate updates for first 3 seconds
+        // CRITICAL: For node dragging, ALWAYS use immediate updates for first 20 drag updates
         // This ensures smooth dragging without any lag after inactivity
+        // Use count-based approach instead of time-based for more reliable immediate updates
         const isNodeDragging = this.selection?.getDragging();
-        const shouldUseImmediate = isNodeDragging ? (timeSinceStart < 3000) : (this._justWarmedUp || isFirstPeriod);
+        const shouldUseImmediate = isNodeDragging 
+          ? (this._nodeDragUpdateCount < 20 || timeSinceStart < 3000)
+          : (this._justWarmedUp || isFirstPeriod);
         
         if (shouldUseImmediate && this._pendingDragEvent) {
           // Immediate update - bypass RAF to prevent lag during first period
@@ -763,6 +770,9 @@ export class EventHandler {
 
           // Handle node dragging
           if (this.selection.getDragging()) {
+            // CRITICAL: Increment drag update count
+            this._nodeDragUpdateCount++;
+            
             // CRITICAL: Ensure interaction start time is set (should be set in mousedown, but ensure it)
             if (!this._interactionStartTime) {
               this._interactionStartTime = now;
@@ -833,6 +843,7 @@ export class EventHandler {
       // Reset interaction tracking
       this._interactionStartTime = 0;
       this._firstFrameOfInteraction = false;
+      this._nodeDragUpdateCount = 0; // Reset drag update count
 
       const pos = this._getCanvasPosition(e);
 
