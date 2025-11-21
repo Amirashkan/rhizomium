@@ -1010,6 +1010,10 @@
                         }
                     }
 
+                    // Determine if this node supports feedback (ping-pong textures)
+                    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField'];
+                    const supportsFeedback = feedbackNodes.includes(nodeData.kind);
+
                     // Create shader module
                     const shaderModule = this.device.createShaderModule({
                         code: wgslCode,
@@ -1020,11 +1024,39 @@
                     const width = resolution[0];
                     const height = resolution[1];
 
-                    const outputTexture = this.device.createTexture({
-                        size: [width, height, 1],
-                        format: 'rgba8unorm',
-                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
-                    });
+                    let outputTexture;
+                    let storageTextureA = null;
+                    let storageTextureB = null;
+                    let currentWriteTexture = 'A';
+
+                    if (supportsFeedback) {
+                        // Create ping-pong textures for feedback
+                        storageTextureA = this.device.createTexture({
+                            size: [width, height, 1],
+                            format: 'rgba8unorm',
+                            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+                            label: `feedback-A-${nodeId}`
+                        });
+
+                        storageTextureB = this.device.createTexture({
+                            size: [width, height, 1],
+                            format: 'rgba8unorm',
+                            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+                            label: `feedback-B-${nodeId}`
+                        });
+
+                        // Output texture is the current write texture (starts with A)
+                        outputTexture = storageTextureA;
+
+                        console.log(`[LiveViewer] Created ping-pong feedback textures for ${nodeId}`);
+                    } else {
+                        // Single output texture for non-feedback nodes
+                        outputTexture = this.device.createTexture({
+                            size: [width, height, 1],
+                            format: 'rgba8unorm',
+                            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+                        });
+                    }
 
                     // Create uniform buffer for compute parameters
                     const uniformBuffer = this.device.createBuffer({
@@ -1055,10 +1087,14 @@
                         outputTexture: outputTexture,
                         uniformBuffer: uniformBuffer,
                         sampler: sampler,
-                        nodeData: nodeData
+                        nodeData: nodeData,
+                        supportsFeedback: supportsFeedback,
+                        storageTextureA: storageTextureA,
+                        storageTextureB: storageTextureB,
+                        currentWriteTexture: currentWriteTexture
                     });
 
-                    console.log(`[LiveViewer] Initialized compute node ${nodeId} (${width}x${height})`);
+                    console.log(`[LiveViewer] Initialized compute node ${nodeId} (${width}x${height})${supportsFeedback ? ' with feedback support' : ''}`);
                 } catch (error) {
                     console.error(`[LiveViewer] Error initializing compute node ${nodeId}:`, error);
                 }
@@ -2242,11 +2278,30 @@
                         console.warn(`[LiveViewer] Cannot write uniform buffer: writeSize=${writeSize}, bufferSize=${uniformBuffer.size}, dataSize=${uniformData.byteLength}`);
                     }
 
+                    // Handle feedback texture swapping for feedback nodes
+                    const supportsFeedback = pipelineData.supportsFeedback || false;
+                    let writeTexture = outputTexture;
+                    let readTexture = null;
+
+                    if (supportsFeedback && pipelineData.storageTextureA && pipelineData.storageTextureB) {
+                        // Swap ping-pong textures
+                        pipelineData.currentWriteTexture = pipelineData.currentWriteTexture === 'A' ? 'B' : 'A';
+                        writeTexture = pipelineData.currentWriteTexture === 'A' ? pipelineData.storageTextureA : pipelineData.storageTextureB;
+                        readTexture = pipelineData.currentWriteTexture === 'A' ? pipelineData.storageTextureB : pipelineData.storageTextureA;
+
+                        // Update output texture reference
+                        outputTexture = writeTexture;
+                        const outputData = this.computeOutputs.get(nodeId);
+                        if (outputData) {
+                            outputData.texture = writeTexture;
+                        }
+                    }
+
                     // Create bind group entries (create new bind group every frame to ensure fresh buffer reference)
                     // The bind group references the buffer, and WebGPU will ensure the write completes before the compute pass uses it
                     const bindGroupEntries = [
                         { binding: 0, resource: { buffer: uniformBuffer } },
-                        { binding: 1, resource: outputTexture.createView() }
+                        { binding: 1, resource: writeTexture.createView() }
                     ];
 
                     // Use the stored validInputs count to ensure consistency with the layout
@@ -2410,9 +2465,17 @@
                             // console.log(`[LiveViewer] Added input A (bindings 2 & 3), entries now: ${bindGroupEntries.length}`);
                         }
 
-                        // Get second input if node has 2 inputs (binding 4)
-                        // CRITICAL: This is needed for ComputeWarp (warp field) and ComputeMix (input B)
-                        if (validInputs >= 2) {
+                        // Handle binding 4: either second input OR feedback texture
+                        // CRITICAL: For feedback nodes with inputs (like ComputeFeedback), binding 4 is feedback texture
+                        // For non-feedback nodes with 2 inputs (like ComputeWarp, ComputeMix), binding 4 is second input
+                        if (supportsFeedback && readTexture) {
+                            // For feedback nodes with inputs, feedback texture goes in binding 4
+                            bindGroupEntries.push({
+                                binding: 4,
+                                resource: readTexture.createView()
+                            });
+                        } else if (validInputs >= 2) {
+                            // For non-feedback nodes with 2 inputs, binding 4 is the second input
                             const input1 = getInputResources(1);
                             if (input1) {
                                 bindGroupEntries.push({
@@ -2427,6 +2490,18 @@
                             }
                         }
                     } else {
+                        // Node has no inputs - check if it needs feedback texture (binding 2)
+                        if (supportsFeedback && readTexture) {
+                            bindGroupEntries.push({
+                                binding: 2,
+                                resource: readTexture.createView()
+                            });
+                            // Add sampler for feedback texture
+                            bindGroupEntries.push({
+                                binding: 3,
+                                resource: pipelineData.sampler
+                            });
+                        }
                         // console.log(`[LiveViewer] Node ${nodeId} has no inputs, skipping input bindings`);
                     }
 
@@ -2472,38 +2547,66 @@
                     }
                 ];
 
+                // Determine if this node supports feedback
+                const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField'];
+                const supportsFeedback = feedbackNodes.includes(nodeData.kind);
+
                 // CRITICAL: Parse WGSL to detect actual input bindings in the shader
                 // Don't rely on node.inputs array as it might not match the compiled shader
                 const hasBinding2 = /@binding\(2\)/.test(nodeData.wgslCode);
                 const hasBinding3 = /@binding\(3\)/.test(nodeData.wgslCode);
                 const hasBinding4 = /@binding\(4\)/.test(nodeData.wgslCode);
 
+                // Check if node has inputs (needsInput)
+                const needsInput = nodeData.inputs && nodeData.inputs.length > 0 && 
+                                   nodeData.inputs.some(input => input !== null && input !== undefined);
+
                 if (hasBinding2) {
                     // console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has @binding(2), adding to layout`);
 
-                    // binding 2: input texture A
-                    entries.push({
-                        binding: 2,
-                        visibility: GPUShaderStage.COMPUTE,
-                        texture: { sampleType: 'float' }
-                    });
-
-                    if (hasBinding3) {
-                        // binding 3: shared sampler
+                    // binding 2: input texture A (if needsInput) OR feedback texture (if supportsFeedback && !needsInput)
+                    if (needsInput) {
+                        // Input texture
                         entries.push({
-                            binding: 3,
-                            visibility: GPUShaderStage.COMPUTE,
-                            sampler: { type: 'filtering' }
-                        });
-                    }
-
-                    if (hasBinding4) {
-                        // binding 4: input texture B (for nodes with 2 inputs like ComputeMix)
-                        entries.push({
-                            binding: 4,
+                            binding: 2,
                             visibility: GPUShaderStage.COMPUTE,
                             texture: { sampleType: 'float' }
                         });
+
+                        if (hasBinding3) {
+                            // binding 3: shared sampler
+                            entries.push({
+                                binding: 3,
+                                visibility: GPUShaderStage.COMPUTE,
+                                sampler: { type: 'filtering' }
+                            });
+                        }
+
+                        // binding 4: feedback texture (if supportsFeedback) OR input texture B (if has 2 inputs)
+                        if (hasBinding4) {
+                            // Binding 4 can be either feedback texture (for feedback nodes) or second input (for nodes with 2 inputs)
+                            entries.push({
+                                binding: 4,
+                                visibility: GPUShaderStage.COMPUTE,
+                                texture: { sampleType: 'float' }
+                            });
+                        }
+                    } else if (supportsFeedback) {
+                        // Feedback texture for nodes without inputs (binding 2)
+                        entries.push({
+                            binding: 2,
+                            visibility: GPUShaderStage.COMPUTE,
+                            texture: { sampleType: 'float' }
+                        });
+
+                        if (hasBinding3) {
+                            // binding 3: sampler for feedback texture
+                            entries.push({
+                                binding: 3,
+                                visibility: GPUShaderStage.COMPUTE,
+                                sampler: { type: 'filtering' }
+                            });
+                        }
                     }
                 } else {
                     // console.log(`[LiveViewer] Node ${nodeData.nodeId}: WGSL has no input bindings`);
