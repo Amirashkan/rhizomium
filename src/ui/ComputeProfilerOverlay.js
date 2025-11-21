@@ -268,29 +268,47 @@ export class ComputeProfilerOverlay {
     // Total workgroups
     this._metricElements.workgroups.valueEl.textContent = metrics.totalWorkgroups.toLocaleString();
 
-    // Timestamp support
-    const tsSupport = this._createMetricRow(
-      'GPU Timing',
-      metrics.supportsTimestamps ? 'Yes' : 'Fallback',
-      metrics.supportsTimestamps ? '#00ff00' : '#ffaa00'
-    );
-    this.metricsSection.appendChild(tsSupport.labelEl);
-    this.metricsSection.appendChild(tsSupport.valueEl);
+    // Timestamp support (reuse element if exists)
+    if (!this._metricElements.tsSupport) {
+      const tsSupport = this._createMetricRow('GPU Timing', 'Fallback', '#ffaa00');
+      this.metricsSection.appendChild(tsSupport.labelEl);
+      this.metricsSection.appendChild(tsSupport.valueEl);
+      this._metricElements.tsSupport = tsSupport;
+    }
+    const tsSupportColor = metrics.supportsTimestamps ? '#00ff00' : '#ffaa00';
+    this._metricElements.tsSupport.valueEl.textContent = metrics.supportsTimestamps ? 'Yes' : 'Fallback';
+    this._metricElements.tsSupport.valueEl.style.color = tsSupportColor;
 
     // Update detailed dispatch list if expanded
     if (this.expanded && metrics.dispatches && metrics.dispatches.length > 0) {
-      this.dispatchList.innerHTML = '';
-
+      // PERFORMANCE: Reuse dispatch list items instead of clearing and recreating
+      // This reduces DOM manipulation overhead and prevents duplicate entries
+      const existingRows = this.dispatchList.children;
+      const dispatchCount = metrics.dispatches.length;
+      
+      // Remove excess rows if we have more than needed
+      while (existingRows.length > dispatchCount) {
+        this.dispatchList.removeChild(existingRows[existingRows.length - 1]);
+      }
+      
+      // Update or create rows
       metrics.dispatches.forEach((dispatch, index) => {
-        const row = document.createElement('div');
-        row.style.cssText = `
-          padding: 4px;
-          margin-bottom: 4px;
-          background: rgba(0, 255, 0, 0.05);
-          border-left: 2px solid rgba(0, 255, 0, 0.3);
-          padding-left: 6px;
-        `;
-
+        let row = existingRows[index];
+        
+        if (!row) {
+          // Create new row if it doesn't exist
+          row = document.createElement('div');
+          row.style.cssText = `
+            padding: 4px;
+            margin-bottom: 4px;
+            background: rgba(0, 255, 0, 0.05);
+            border-left: 2px solid rgba(0, 255, 0, 0.3);
+            padding-left: 6px;
+          `;
+          this.dispatchList.appendChild(row);
+        }
+        
+        // Update existing row content
         const timing = dispatch.gpuDuration !== undefined ? dispatch.gpuDuration : dispatch.duration;
         const timingLabel = dispatch.gpuDuration !== undefined ? '(GPU)' : '(CPU)';
 
@@ -318,9 +336,10 @@ export class ComputeProfilerOverlay {
             </div>
           ` : ''}
         `;
-
-        this.dispatchList.appendChild(row);
       });
+    } else if (this.expanded) {
+      // Clear dispatch list if not expanded or no dispatches
+      this.dispatchList.innerHTML = '';
     }
   }
 
