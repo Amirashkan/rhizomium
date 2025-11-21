@@ -2710,17 +2710,33 @@ function setupPageVisibilityHandler() {
       // Tab hidden - optional: could pause render loop here to save battery
       console.log('[main.js] Tab hidden');
     } else {
-      // Tab visible - render warmup frame to prepare GPU resources
-      console.log('[main.js] Tab visible - rendering warmup frame');
+      // Tab visible - AGGRESSIVE warmup to prepare GPU and canvas resources
+      console.log('[main.js] Tab visible - aggressive warmup');
 
-      // Render warmup frame to recreate MSAA texture and other GPU resources
+      // Multiple renders to fully warm up GPU pipeline
       // This happens BEFORE user interaction, preventing lag on first action
       if (window.gpuRenderer && renderLoopController) {
         try {
-          // Force immediate render to warm up GPU
-          renderLoopController.renderNow({ advance: false });
+          // Multiple renders to fully warm up GPU pipeline
+          for (let i = 0; i < 3; i++) {
+            renderLoopController.renderNow({ advance: false });
+          }
         } catch (error) {
-          console.warn('[main.js] Warmup frame failed:', error);
+          console.warn('[main.js] Warmup frames failed:', error);
+        }
+      }
+      
+      // Also warm up canvas 2D context
+      if (editor && editor.draw) {
+        try {
+          if (typeof editor.markDirty === 'function') {
+            editor.markDirty('visibility-warmup');
+          }
+          // Force multiple draws to wake up canvas context
+          editor.draw();
+          editor.draw();
+        } catch (error) {
+          console.warn('[main.js] Canvas warmup failed:', error);
         }
       }
     }

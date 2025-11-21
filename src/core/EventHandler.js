@@ -31,9 +31,18 @@ export class EventHandler {
     this._pendingDragEvent = null;
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
-    this._inactivityThreshold = 10000; // 10 seconds
+    this._lastMouseMoveTime = Date.now();
+    this._inactivityThreshold = 50; // 50ms - warm up after any tiny pause
+    this._justWarmedUp = false; // Track if we just warmed up to bypass RAF on first frame
+    this._warmupTimer = null; // Timer for continuous background warmup
+    this._firstFrameOfInteraction = false; // Track first frame of any interaction
+    this._interactionStartTime = 0; // Track when interaction started
 
     this._setupEvents();
+    // Setup focus/visibility handlers to warm up when window regains focus
+    this._setupFocusHandlers();
+    // Start continuous background warmup to keep things ready
+    this._startContinuousWarmup();
   }
 
   _setupEvents() {
@@ -54,6 +63,97 @@ export class EventHandler {
 
     // Global click handling for menu closing
     this._setupGlobalEvents();
+  }
+
+  _setupFocusHandlers() {
+    // Handle window focus - warm up when window regains focus
+    window.addEventListener('focus', () => {
+      // Mark as inactive to force warmup on next interaction
+      this._lastInteractionTime = 0; // Force warmup
+      // Immediately warm up to prepare for user interaction
+      this._checkAndWarmupAfterInactivity();
+      // Restart continuous warmup
+      this._startContinuousWarmup();
+    });
+
+    // Handle page visibility - warm up when tab becomes visible
+    if (typeof document.hidden !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          // Tab became visible - mark as inactive to force warmup
+          this._lastInteractionTime = 0; // Force warmup
+          // Immediately warm up to prepare for user interaction
+          this._checkAndWarmupAfterInactivity();
+          // Restart continuous warmup
+          this._startContinuousWarmup();
+        } else {
+          // Tab hidden - stop continuous warmup to save resources
+          this._stopContinuousWarmup();
+        }
+      });
+    }
+  }
+
+  // Continuous background warmup to keep GPU/canvas ready
+  _startContinuousWarmup() {
+    this._stopContinuousWarmup(); // Clear any existing timer
+    
+    // Warm up VERY frequently when idle to keep things ready
+    this._warmupTimer = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastInteraction = now - this._lastInteractionTime;
+      
+      // Only warm up if truly idle (no interaction for 300ms)
+      if (timeSinceLastInteraction > 300) {
+        // Do a lighter warmup in the background
+        if (this.editor?.renderLoopController) {
+          try {
+            // Do 2 renders to keep GPU pipeline active
+            this.editor.renderLoopController.renderNow({ advance: false });
+            this.editor.renderLoopController.renderNow({ advance: false });
+          } catch (error) {
+            // Silently fail - this is background warmup
+          }
+        }
+        
+        if (this.editor && this.onDraw) {
+          try {
+            if (typeof this.editor.markDirty === 'function') {
+              this.editor.markDirty('background-warmup');
+            }
+            // Do 2 draws to keep canvas context active
+            this.onDraw();
+            this.onDraw();
+          } catch (error) {
+            // Silently fail - this is background warmup
+          }
+        }
+        
+        // Pre-warm expensive operations like getBoundingClientRect
+        // This prevents lag when these are called during actual interaction
+        if (this.canvas) {
+          try {
+            // Pre-warm getBoundingClientRect - this can be slow on first use
+            this.canvas.getBoundingClientRect();
+            // Pre-warm viewport calculations with multiple calls
+            if (this.viewport) {
+              this.viewport.screenToCanvas(0, 0);
+              this.viewport.screenToCanvas(100, 100);
+              this.viewport.screenToCanvas(500, 500);
+            }
+          } catch (error) {
+            // Silently fail
+          }
+        }
+      }
+    }, 500); // Every 500ms - very frequent to keep things warm
+  }
+
+  _stopContinuousWarmup() {
+    if (this._warmupTimer) {
+      clearInterval(this._warmupTimer);
+      this._warmupTimer = null;
+    }
   }
 
   // Mark canvas dirty and request render (optimization for dirty flag system)
@@ -82,17 +182,82 @@ export class EventHandler {
     const now = Date.now();
     const timeSinceLastInteraction = now - this._lastInteractionTime;
 
-    // If inactive for more than threshold, warm up GPU synchronously
+    // If inactive for more than threshold, warm up GPU and canvas synchronously
     if (timeSinceLastInteraction > this._inactivityThreshold) {
-      // Force immediate synchronous render to warm up GPU resources
-      // This prevents lag on first action after inactivity
+      this._justWarmedUp = true; // Mark that we just warmed up
+      
+      // ULTRA-AGGRESSIVE warmup: Many synchronous renders to fully wake up GPU pipeline
+      // The longer the inactivity, the more aggressive the warmup needed
+      const warmupIntensity = Math.min(10, Math.floor(timeSinceLastInteraction / 1000) + 5);
+      
       if (this.editor?.renderLoopController) {
         try {
-          this.editor.renderLoopController.renderNow({ advance: false });
+          // Many renders to fully warm up GPU pipeline - more if inactive longer
+          for (let i = 0; i < warmupIntensity; i++) {
+            this.editor.renderLoopController.renderNow({ advance: false });
+          }
         } catch (error) {
           console.warn('[EventHandler] GPU warmup after inactivity failed:', error);
         }
       }
+      
+      // AGGRESSIVE canvas warmup: Force multiple draws to wake up 2D context
+      if (this.editor) {
+        try {
+          // Pre-warm expensive DOM operations that might be slow on first use
+          if (this.canvas) {
+            // Pre-warm getBoundingClientRect - this can be slow on first use
+            this.canvas.getBoundingClientRect();
+            // Pre-warm viewport calculations
+            if (this.viewport) {
+              this.viewport.screenToCanvas(0, 0);
+              this.viewport.screenToCanvas(100, 100);
+            }
+          }
+          
+          // Mark canvas as dirty to force draws
+          if (typeof this.editor.markDirty === 'function') {
+            this.editor.markDirty('warmup');
+          }
+          
+          // Force many immediate draws to wake up canvas context
+          // More draws if inactive longer
+          const drawWarmupCount = Math.min(5, Math.floor(timeSinceLastInteraction / 1000) + 3);
+          if (this.onDraw && typeof this.onDraw === 'function') {
+            // Many draws to ensure context is fully ready
+            for (let i = 0; i < drawWarmupCount; i++) {
+              this.onDraw();
+            }
+          }
+          
+          // Also directly touch the canvas context with actual operations
+          if (this.editor.ctx && this.canvas) {
+            const ctx = this.editor.ctx;
+            // Do actual canvas operations to wake up the context
+            ctx.save();
+            // Touch common operations that might be slow on first use
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(1, 1);
+            ctx.stroke();
+            ctx.fillRect(0, 0, 1, 1);
+            ctx.clearRect(0, 0, 1, 1);
+            // Touch transform operations
+            ctx.translate(0, 0);
+            ctx.scale(1, 1);
+            ctx.restore();
+          }
+        } catch (error) {
+          console.warn('[EventHandler] Canvas warmup after inactivity failed:', error);
+        }
+      }
+      
+      // Keep the flag active longer to ensure first few interactions bypass RAF
+      // Longer inactivity = longer immediate update window needed
+      const immediateWindow = Math.min(2000, timeSinceLastInteraction + 500);
+      setTimeout(() => {
+        this._justWarmedUp = false;
+      }, immediateWindow);
     }
 
     // Update last interaction time
@@ -147,7 +312,35 @@ export class EventHandler {
           }
 
           // Only schedule one update per animation frame for performance
-          if (!this._panUpdateScheduled) {
+          // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
+          // Longer inactivity = longer immediate update window needed
+          const now = Date.now();
+          const timeSinceStart = now - (this._interactionStartTime || now);
+          const immediateWindow = Math.max(1000, Math.min(3000, timeSinceStart < 100 ? 2000 : 1500));
+          const isFirstPeriod = !this._panUpdateScheduled || timeSinceStart < immediateWindow;
+          
+          if ((this._justWarmedUp || isFirstPeriod) && this._pendingPanUpdate) {
+            // Immediate update - bypass RAF to prevent lag during first second
+            // Do this synchronously to ensure it happens before any other processing
+            if (isFirstPeriod && !this._interactionStartTime) {
+              this._interactionStartTime = now;
+            }
+            
+            const { clientX, clientY } = this._pendingPanUpdate;
+            this._pendingPanUpdate = null;
+            this._panUpdateScheduled = false;
+            
+            // Update pan state immediately
+            if (this.viewport.updatePan(clientX, clientY)) {
+              // Force immediate synchronous draw - don't use RAF
+              if (this.editor && typeof this.editor.markDirty === 'function') {
+                this.editor.markDirty('pan-immediate');
+              }
+              if (this.onDraw && typeof this.onDraw === 'function') {
+                this.onDraw(); // Synchronous draw
+              }
+            }
+          } else if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
             requestAnimationFrame(() => {
               this._panUpdateScheduled = false;
@@ -285,8 +478,8 @@ export class EventHandler {
     document.addEventListener("contextmenu", suppressDefaultContext, true);
 
     this.canvas.addEventListener("mousedown", (e) => {
-      // Warm up GPU if user has been inactive for >10 seconds
-      // This prevents lag on first action after inactivity
+      // Warm up GPU/canvas IMMEDIATELY on mousedown - don't wait for movement
+      // This ensures everything is ready before the first mousemove event
       this._checkAndWarmupAfterInactivity();
 
       const pos = this._getCanvasPosition(e);
@@ -362,6 +555,8 @@ export class EventHandler {
           moved: false,
         };
         this.viewport.startPan(e.clientX, e.clientY);
+        // Mark interaction start time for first-frame immediate updates
+        this._interactionStartTime = Date.now();
         return;
       }
 
@@ -403,6 +598,22 @@ export class EventHandler {
 
     // Mouse move - handle dragging
     window.addEventListener("mousemove", (e) => {
+      // Warm up GPU/canvas on ANY mousemove after any pause
+      // This must happen BEFORE any other processing to prevent lag
+      const now = Date.now();
+      const timeSinceLastMove = now - this._lastMouseMoveTime;
+      this._lastMouseMoveTime = now;
+      
+      // If there's been any pause at all, warm up proactively
+      // Also pre-warm getBoundingClientRect which is called in _getCanvasPosition
+      if (timeSinceLastMove > this._inactivityThreshold) {
+        // Pre-warm getBoundingClientRect BEFORE warmup to prevent lag
+        if (this.canvas) {
+          this.canvas.getBoundingClientRect();
+        }
+        this._checkAndWarmupAfterInactivity();
+      }
+
       if (this._zoomDragState) {
         return;
       }
@@ -441,7 +652,68 @@ export class EventHandler {
         this._pendingDragEvent = e;
 
         // Only schedule one update per animation frame for performance
-        if (!this._dragUpdateScheduled) {
+        // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
+        // Longer inactivity = longer immediate update window needed
+        const now = Date.now();
+        const timeSinceStart = now - this._interactionStartTime;
+        const immediateWindow = Math.max(1000, Math.min(3000, timeSinceStart < 100 ? 2000 : 1500));
+        const isFirstPeriod = !this._dragUpdateScheduled || timeSinceStart < immediateWindow;
+        
+        if ((this._justWarmedUp || isFirstPeriod) && this._pendingDragEvent) {
+          // Immediate update - bypass RAF to prevent lag during first period
+          // Do this synchronously to ensure it happens before any other processing
+          if (isFirstPeriod && !this._interactionStartTime) {
+            this._interactionStartTime = now;
+          }
+          
+          const pendingEvent = this._pendingDragEvent;
+          this._pendingDragEvent = null;
+          this._dragUpdateScheduled = false;
+
+          // Calculate canvas position once per frame
+          const pos = this._getCanvasPosition(pendingEvent);
+
+          // Track cursor position for paste/duplicate operations
+          this.lastCanvasPos = { x: pos.x, y: pos.y };
+
+          // Handle wire dragging
+          if (this.connections.getDragWire()) {
+            this.connections.updateWireDrag(pos);
+            // Force immediate synchronous draw - don't use RAF
+            if (this.editor && typeof this.editor.markDirty === 'function') {
+              this.editor.markDirty('wire-drag-immediate');
+            }
+            if (this.onDraw && typeof this.onDraw === 'function') {
+              this.onDraw(); // Synchronous draw
+            }
+            return;
+          }
+
+          // Handle box selection
+          if (this.selection.getBoxSelect()) {
+            this.selection.updateBoxSelect(pos.x, pos.y);
+            // Force immediate synchronous draw - don't use RAF
+            if (this.editor && typeof this.editor.markDirty === 'function') {
+              this.editor.markDirty('box-select-immediate');
+            }
+            if (this.onDraw && typeof this.onDraw === 'function') {
+              this.onDraw(); // Synchronous draw
+            }
+            return;
+          }
+
+          // Handle node dragging
+          if (this.selection.getDragging()) {
+            this.selection.updateDrag(pos.x, pos.y);
+            // Force immediate synchronous draw - don't use RAF
+            if (this.editor && typeof this.editor.markDirty === 'function') {
+              this.editor.markDirty('node-drag-immediate');
+            }
+            if (this.onDraw && typeof this.onDraw === 'function') {
+              this.onDraw(); // Synchronous draw
+            }
+          }
+        } else if (!this._dragUpdateScheduled) {
           this._dragUpdateScheduled = true;
           requestAnimationFrame(() => {
             this._dragUpdateScheduled = false;
@@ -490,6 +762,9 @@ export class EventHandler {
       // Clear any pending drag updates
       this._pendingDragEvent = null;
       this._dragUpdateScheduled = false;
+      // Reset interaction tracking
+      this._interactionStartTime = 0;
+      this._firstFrameOfInteraction = false;
 
       const pos = this._getCanvasPosition(e);
 

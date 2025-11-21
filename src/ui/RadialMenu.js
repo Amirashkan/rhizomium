@@ -890,6 +890,11 @@ export class RadialMenu {
   }
 
 _createNode(kind) {
+  // Warm up GPU/canvas before node creation to prevent lag
+  if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+    window.eventHandler._checkAndWarmupAfterInactivity();
+  }
+  
   const node = makeNode(kind, this.canvasPos.x, this.canvasPos.y);
   this.graph.nodes.push(node);
   this.graph.selection = new Set([node.id]);
@@ -913,6 +918,18 @@ _createNode(kind) {
       window.editor.markDirty('node-creation');
     }
     window.editor.draw(); // Makes node visible immediately
+  }
+  
+  // Mark interaction start for immediate updates after node creation
+  if (window.eventHandler) {
+    window.eventHandler._interactionStartTime = Date.now();
+    window.eventHandler._justWarmedUp = true;
+    // Keep immediate updates active for 1 second after node creation
+    setTimeout(() => {
+      if (window.eventHandler) {
+        window.eventHandler._justWarmedUp = false;
+      }
+    }, 1000);
   }
 
   // 3. Delay GPU shader compilation (onChange calls updateShaderFromGraph)
