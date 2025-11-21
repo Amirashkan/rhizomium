@@ -933,13 +933,21 @@ export class GPURenderer {
       // PERFORMANCE: Execute compute shaders - the await ensures compute passes are recorded
       // This is non-blocking for GPU work (commands are just recorded, not executed yet)
       // We await to ensure compute results are ready before fragment shader renders
-      await window.computeExecutor.execute(encoder, timeValue, {
-        audioEnvelope,
-        audioEnvelopeBass,
-        audioEnvelopeMids,
-        audioEnvelopeHighs,
-        audioEnvelopeFull
-      });
+      // CRITICAL: This await is necessary for correctness but can cause frame time variance
+      // The compute executor is optimized to minimize work, but async operations here can still cause lag
+      try {
+        await window.computeExecutor.execute(encoder, timeValue, {
+          audioEnvelope,
+          audioEnvelopeBass,
+          audioEnvelopeMids,
+          audioEnvelopeHighs,
+          audioEnvelopeFull
+        });
+      } catch (computeErr) {
+        // Silently handle compute errors to avoid breaking render loop
+        // Errors are already logged in computeExecutor.execute()
+        console.warn('[GPURenderer] Compute execution error:', computeErr);
+      }
 
       // PERFORMANCE: Only update bind groups if compute nodes were actually dispatched
       // This avoids unnecessary bind group rebuilds when compute shaders didn't run
