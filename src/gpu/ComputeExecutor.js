@@ -73,7 +73,8 @@ export class ComputeExecutor {
   // PERFORMANCE: Maximum resolution for compute nodes to maintain 60 FPS at full HD
   // Compute shaders at 1920x1080 are extremely expensive (2M pixels per node)
   // Fragment shaders can sample lower-res textures and upscale efficiently
-  static MAX_COMPUTE_RES = 1024;
+  // Reduced to 768 for better performance while maintaining good quality
+  static MAX_COMPUTE_RES = 768;
 
   /**
    * Clear fragment render cache
@@ -138,7 +139,7 @@ export class ComputeExecutor {
       // Fragment shaders can sample lower-res compute textures and upscale them efficiently
       // This maintains visual quality while ensuring smooth 60 FPS performance
       const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
-      const DEFAULT_COMPUTE_RES = 1024;
+      const DEFAULT_COMPUTE_RES = 768;
 
       // Always use capped resolution for compute nodes, regardless of preview resolution
       // The fragment shader will sample these textures at full HD, providing good quality
@@ -446,6 +447,10 @@ export class ComputeExecutor {
 
     // Track which compute nodes need their input hashes invalidated
     const computeNodesToClearHash = new Set();
+    
+    // Track which fragment nodes were actually re-rendered this frame (changed)
+    // This is used to determine if compute nodes depending on them need to dispatch
+    this.fragmentNodesRenderedThisFrame = new Set();
 
     // Check each compute node for fragment inputs
     for (const nodeId of this.executionOrder) {
@@ -495,6 +500,8 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
+            // Mark that this fragment node was rendered this frame (changed)
+            this.fragmentNodesRenderedThisFrame.add(inputNodeId);
 
             // Mark this compute node's hash for invalidation
             computeNodesToClearHash.add(nodeId);
@@ -536,6 +543,8 @@ export class ComputeExecutor {
     try {
       // Clear the dispatched-this-frame tracking
       this.dispatchedThisFrame.clear();
+      // Clear fragment nodes rendered this frame (will be repopulated by _renderFragmentInputs)
+      this.fragmentNodesRenderedThisFrame = new Set();
 
       // STEP 1: Render fragment node inputs to textures (auto-bridging)
       // Pass the shared command encoder so fragment renders and compute dispatches
@@ -560,13 +569,23 @@ export class ComputeExecutor {
         const node = nodeData?.node;
 
         // Check if inputs have changed (for optimization)
-        // CRITICAL: If this node has fragment inputs, always update because fragment content may change every frame
+        // PERFORMANCE: Only mark fragment inputs as needing update if fragment node actually changed
+        // Fragment nodes are cached, so we only need to update when their inputs/params change
         const hasFragmentInput = node?.inputs && Array.isArray(node.inputs) && node.inputs.some(inputId => {
           if (inputId === null || inputId === undefined) return false;
           const inputNode = window.graph?.getNode(inputId);
           return inputNode && !inputNode.kind.startsWith('Compute');
         });
-        const shouldUpdate = hasFragmentInput || this.checkInputsChanged(nodeId);
+        
+        // Only update if fragment input was re-rendered this frame (indicating it changed)
+        // fragmentNodesRenderedThisFrame is set in _renderFragmentInputs before execute() processes nodes
+        const fragmentInputChanged = hasFragmentInput && node?.inputs && Array.isArray(node.inputs) &&
+          node.inputs.some(inputId => {
+            if (inputId === null || inputId === undefined) return false;
+            return this.fragmentNodesRenderedThisFrame && this.fragmentNodesRenderedThisFrame.has(inputId);
+          });
+        
+        const shouldUpdate = fragmentInputChanged || this.checkInputsChanged(nodeId);
 
         // ONLY dispatch truly time-dependent compute nodes every frame
         // Time-dependent nodes have animation or evolve over time without input changes
@@ -586,9 +605,10 @@ export class ComputeExecutor {
         const hasTimeDependentParams = this.hasTimeDependentParameters(node);
 
         // Check if node has node reference parameters (expressions like =node_5 or =node_5.x)
-        // This ensures nodes that reference Float, Remap, or other node outputs are re-dispatched
-        // when those referenced values might have changed
-        const hasNodeRefParams = this.hasNodeReferenceParameters(node);
+        // PERFORMANCE: Only dispatch if referenced nodes are time-dependent or have been updated
+        // This prevents unnecessary dispatches when referenced values are static
+        const hasNodeRefParams = this.hasNodeReferenceParameters(node) && 
+          this.hasTimeDependentReferencedNodes(node);
 
         // Check if node has compute inputs that were DISPATCHED this frame
         // CRITICAL FIX: Only re-dispatch if upstream compute nodes actually ran this frame
@@ -741,6 +761,55 @@ export class ComputeExecutor {
         const trimmed = value.trim();
         // Check if parameter contains node reference (=node_X or =node_X.component)
         if (/=\s*node_\d+/.test(trimmed)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if any referenced nodes (via node reference parameters) are time-dependent
+   * This helps avoid unnecessary dispatches when referenced values are static
+   */
+  hasTimeDependentReferencedNodes(node) {
+    if (!node || !node.params) return false;
+
+    // Extract node IDs from parameter expressions
+    const referencedNodeIds = new Set();
+    for (const value of Object.values(node.params)) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        // Match =node_X or =node_X.component patterns
+        const matches = trimmed.match(/=\s*node_(\d+)/g);
+        if (matches) {
+          for (const match of matches) {
+            const nodeId = match.replace(/=\s*node_/, '');
+            referencedNodeIds.add(nodeId);
+          }
+        }
+      }
+    }
+
+    // Check if any referenced nodes are time-dependent
+    if (referencedNodeIds.size === 0) return false;
+
+    // Check if any referenced node is time-dependent
+    for (const refNodeId of referencedNodeIds) {
+      const refNodeData = window.computeNodeRegistry?.get(refNodeId);
+      const refNode = refNodeData?.node;
+      if (refNode) {
+        // Check if referenced node has time-dependent parameters
+        if (this.hasTimeDependentParameters(refNode)) {
+          return true;
+        }
+        // Check if referenced node is a time-dependent compute node type
+        const TIME_DEPENDENT_NODES = [
+          'ComputeNoise', 'ComputeReactionDiffusion', 'ComputeFeedback',
+          'ComputeFeedbackField', 'ComputeFluidSim', 'ComputeParticles'
+        ];
+        if (refNode.kind && TIME_DEPENDENT_NODES.includes(refNode.kind)) {
           return true;
         }
       }
