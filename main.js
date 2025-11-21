@@ -2540,38 +2540,9 @@ function handleRenderFrame(frameState) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
   } else if (window.gpuRenderer) {
-    // PERFORMANCE: Throttle GPU rendering during canvas interactions
-    // Skip every other frame during interactions to maintain ~30 FPS GPU rendering
-    // This prevents GPU and canvas from competing, while keeping preview real-time
-    if (isCanvasInteracting) {
-      gpuFrameSkipCounter++;
-      // Skip every other frame (render at ~30 FPS during interactions)
-      if (gpuFrameSkipCounter % 2 === 0) {
-        // Skip this frame - GPU rendering paused to give canvas priority
-        // Preview will update at 30 FPS during interactions, which is acceptable
-      } else {
-        // Render this frame
-        const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
-        // Handle frame streaming if needed
-        if (frameStreamingEnabled) {
-          const canvas = document.getElementById('gpu-canvas');
-          if (canvas) {
-            renderPromise.then(() => {
-              if (broadcastFrameStream) {
-                broadcastFrameStream.sendFrameFromCanvas(canvas);
-              } else if (frameStreamClient) {
-                frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-              }
-            }).catch(err => {
-              // Silently handle errors
-            });
-          }
-        }
-      }
-    } else {
-      // Not interacting - full 60 FPS GPU rendering
-      gpuFrameSkipCounter = 0; // Reset counter
-      const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+    // GPU rendering - Always render for real-time preview
+    // Canvas optimizations handle the performance, GPU keeps running
+    const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
 
       // Stream frames to external viewers if enabled
       // NOTE: Now streams during parameter drag for real-time external view updates
@@ -2595,7 +2566,6 @@ function handleRenderFrame(frameState) {
           });
         }
       }
-    }
   }
 
   // 3D Viewport rendering
