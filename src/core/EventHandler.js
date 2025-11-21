@@ -31,12 +31,16 @@ export class EventHandler {
     this._pendingDragEvent = null;
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
-    this._inactivityThreshold = 200; // 200ms - warm up after any brief pause
+    this._lastMouseMoveTime = Date.now();
+    this._inactivityThreshold = 50; // 50ms - warm up after any tiny pause
     this._justWarmedUp = false; // Track if we just warmed up to bypass RAF on first frame
+    this._warmupTimer = null; // Timer for continuous background warmup
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
     this._setupFocusHandlers();
+    // Start continuous background warmup to keep things ready
+    this._startContinuousWarmup();
   }
 
   _setupEvents() {
@@ -66,6 +70,8 @@ export class EventHandler {
       this._lastInteractionTime = 0; // Force warmup
       // Immediately warm up to prepare for user interaction
       this._checkAndWarmupAfterInactivity();
+      // Restart continuous warmup
+      this._startContinuousWarmup();
     });
 
     // Handle page visibility - warm up when tab becomes visible
@@ -76,8 +82,54 @@ export class EventHandler {
           this._lastInteractionTime = 0; // Force warmup
           // Immediately warm up to prepare for user interaction
           this._checkAndWarmupAfterInactivity();
+          // Restart continuous warmup
+          this._startContinuousWarmup();
+        } else {
+          // Tab hidden - stop continuous warmup to save resources
+          this._stopContinuousWarmup();
         }
       });
+    }
+  }
+
+  // Continuous background warmup to keep GPU/canvas ready
+  _startContinuousWarmup() {
+    this._stopContinuousWarmup(); // Clear any existing timer
+    
+    // Warm up every 2 seconds when idle to keep things ready
+    this._warmupTimer = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastInteraction = now - this._lastInteractionTime;
+      
+      // Only warm up if truly idle (no interaction for 1 second)
+      if (timeSinceLastInteraction > 1000) {
+        // Do a lighter warmup in the background
+        if (this.editor?.renderLoopController) {
+          try {
+            this.editor.renderLoopController.renderNow({ advance: false });
+          } catch (error) {
+            // Silently fail - this is background warmup
+          }
+        }
+        
+        if (this.editor && this.onDraw) {
+          try {
+            if (typeof this.editor.markDirty === 'function') {
+              this.editor.markDirty('background-warmup');
+            }
+            this.onDraw();
+          } catch (error) {
+            // Silently fail - this is background warmup
+          }
+        }
+      }
+    }, 2000); // Every 2 seconds
+  }
+
+  _stopContinuousWarmup() {
+    if (this._warmupTimer) {
+      clearInterval(this._warmupTimer);
+      this._warmupTimer = null;
     }
   }
 
@@ -116,7 +168,8 @@ export class EventHandler {
       if (this.editor?.renderLoopController) {
         try {
           // Multiple renders to fully warm up GPU pipeline
-          for (let i = 0; i < 3; i++) {
+          // Do more renders to ensure pipeline is fully ready
+          for (let i = 0; i < 5; i++) {
             this.editor.renderLoopController.renderNow({ advance: false });
           }
         } catch (error) {
@@ -134,10 +187,10 @@ export class EventHandler {
           
           // Force multiple immediate draws to wake up canvas context
           if (this.onDraw && typeof this.onDraw === 'function') {
-            // First draw - wakes up the context
-            this.onDraw();
-            // Second draw - ensures context is fully ready
-            this.onDraw();
+            // Multiple draws to ensure context is fully ready
+            for (let i = 0; i < 3; i++) {
+              this.onDraw();
+            }
           }
           
           // Also directly touch the canvas context with actual operations
@@ -151,6 +204,7 @@ export class EventHandler {
             ctx.lineTo(1, 1);
             ctx.stroke();
             ctx.fillRect(0, 0, 1, 1);
+            ctx.clearRect(0, 0, 1, 1);
             ctx.restore();
           }
         } catch (error) {
@@ -161,7 +215,7 @@ export class EventHandler {
       // Keep the flag active longer to ensure first few interactions bypass RAF
       setTimeout(() => {
         this._justWarmedUp = false;
-      }, 200);
+      }, 300);
     }
 
     // Update last interaction time
@@ -490,9 +544,16 @@ export class EventHandler {
 
     // Mouse move - handle dragging
     window.addEventListener("mousemove", (e) => {
-      // Warm up GPU/canvas on ANY mousemove after inactivity
+      // Warm up GPU/canvas on ANY mousemove after any pause
       // This must happen BEFORE any other processing to prevent lag
-      this._checkAndWarmupAfterInactivity();
+      const now = Date.now();
+      const timeSinceLastMove = now - this._lastMouseMoveTime;
+      this._lastMouseMoveTime = now;
+      
+      // If there's been any pause at all, warm up proactively
+      if (timeSinceLastMove > this._inactivityThreshold) {
+        this._checkAndWarmupAfterInactivity();
+      }
 
       if (this._zoomDragState) {
         return;
