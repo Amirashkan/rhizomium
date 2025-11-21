@@ -506,11 +506,19 @@ export class GPURenderer {
       return;
     }
 
-    // Get values in order and write to buffer
+    // PERFORMANCE: Reuse Float32Array buffer to avoid allocation every frame
+    // This reduces GC pressure and frame time variance
     const values = Array.from(uniformManager.uniformValues.values());
-    const data = new Float32Array(values);
+    
+    // Reuse buffer if size matches, otherwise create new one
+    if (!this._paramUniformBuffer || this._paramUniformBuffer.length !== values.length) {
+      this._paramUniformBuffer = new Float32Array(values);
+    } else {
+      // Copy values into existing buffer
+      this._paramUniformBuffer.set(values);
+    }
 
-    this.device.queue.writeBuffer(target.buffer, 0, data.buffer, 0, data.byteLength);
+    this.device.queue.writeBuffer(target.buffer, 0, this._paramUniformBuffer.buffer, 0, this._paramUniformBuffer.byteLength);
   }
 
   _sendLiveParameterUpdate(timeSec) {
@@ -729,8 +737,14 @@ export class GPURenderer {
     const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
     if (!computeExecutor || !computeExecutor.initialized) return;
 
-    // Track if any compute textures were updated
+    // PERFORMANCE: Track if any compute textures actually changed to avoid expensive bind group rebuilds
     let hasComputeTextures = false;
+    let texturesChanged = false;
+
+    // Initialize texture change tracking if not exists
+    if (!this._computeTextureHashes) {
+      this._computeTextureHashes = new Map();
+    }
 
     // Update all compute texture resources with fresh texture views from nodeOutputs
     for (const resourceKey in this.resources) {
@@ -741,13 +755,23 @@ export class GPURenderer {
           (resource.varName.startsWith('compute_') ||
            resource.varName.startsWith('sampler_compute_'))) {
 
-        this._applyExternalTextureResource(resource);
         hasComputeTextures = true;
+        
+        // Check if texture actually changed by comparing texture view reference
+        const previousTextureView = this._computeTextureHashes.get(resourceKey);
+        const currentTextureView = resource.textureView;
+        
+        if (previousTextureView !== currentTextureView) {
+          texturesChanged = true;
+          this._computeTextureHashes.set(resourceKey, currentTextureView);
+        }
+
+        this._applyExternalTextureResource(resource);
       }
     }
 
-    // Only rebuild bind groups if we found compute textures
-    if (!hasComputeTextures) {
+    // Only rebuild bind groups if we found compute textures AND they actually changed
+    if (!hasComputeTextures || !texturesChanged) {
       return;
     }
 
@@ -869,6 +893,8 @@ export class GPURenderer {
       const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
       const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
+      // PERFORMANCE: Execute compute shaders synchronously (they're already queued in encoder)
+      // The await here doesn't block GPU work, it just ensures compute passes are recorded
       await window.computeExecutor.execute(encoder, timeValue, {
         audioEnvelope,
         audioEnvelopeBass,
@@ -886,6 +912,7 @@ export class GPURenderer {
         // CRITICAL FIX: Update bind groups with fresh compute texture views
         // After compute execution, nodeOutputs has been updated with fresh textures
         // We need to update bind groups BEFORE the fragment render pass begins
+        // PERFORMANCE: Only update if textures actually changed to avoid expensive bind group recreation
         this._updateComputeTextureBindings();
       }
     }
