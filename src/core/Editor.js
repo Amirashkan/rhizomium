@@ -716,6 +716,8 @@ connectGPURenderer(renderFunction) {
   initializeEventHandling() {
     try {
       this.eventHandler = new EventHandler({
+        // Make eventHandler globally available for warmup calls
+        // This allows other components to trigger warmup when needed
         canvas: this.canvas,
         viewport: this.viewport,
         selection: this.selection,
@@ -731,6 +733,9 @@ connectGPURenderer(renderFunction) {
       if (this.selection.setEventHandler) {
         this.selection.setEventHandler(this.eventHandler);
       }
+      
+      // Make eventHandler globally available for warmup calls from other components
+      window.eventHandler = this.eventHandler;
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'event-handler-initialization'
@@ -1413,6 +1418,11 @@ connectGPURenderer(renderFunction) {
 
   createNode(nodeType, x, y) {
     try {
+      // Warm up GPU/canvas before node creation to prevent lag
+      if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+        window.eventHandler._checkAndWarmupAfterInactivity();
+      }
+      
       if (!nodeType || typeof nodeType !== 'string') {
         throw new Error('Valid node type string is required');
       }
@@ -1459,6 +1469,18 @@ connectGPURenderer(renderFunction) {
       this.triggerShaderRebuild('Node Creation');
 
       this.safeDraw();
+      
+      // Mark interaction start for immediate updates after node creation
+      if (window.eventHandler) {
+        window.eventHandler._interactionStartTime = Date.now();
+        window.eventHandler._justWarmedUp = true;
+        // Keep immediate updates active for 1 second after node creation
+        setTimeout(() => {
+          if (window.eventHandler) {
+            window.eventHandler._justWarmedUp = false;
+          }
+        }, 1000);
+      }
 
       // Generate preview for the newly created node
       // This ensures the node has a preview before any connections are made
