@@ -411,7 +411,7 @@
             }
 
             handleShaderUpdate(data) {
-                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes, nodeOutputValues } = data;
+                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes, nodeOutputValues, audioEnvelope } = data;
 
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
@@ -482,6 +482,23 @@
                     this.initializeComputeNodes(computeNodes);
                 }
 
+                // Update audio envelope values if provided (from initial shader update)
+                // CRITICAL: This allows audioEnvelope expressions to work in the external viewer
+                if (audioEnvelope && typeof audioEnvelope === 'object') {
+                    window._audioEnvelopeValue = audioEnvelope.audioEnvelope || 0.0;
+                    window._audioEnvelopeBass = audioEnvelope.audioEnvelopeBass || 0.0;
+                    window._audioEnvelopeMids = audioEnvelope.audioEnvelopeMids || 0.0;
+                    window._audioEnvelopeHighs = audioEnvelope.audioEnvelopeHighs || 0.0;
+                    window._audioEnvelopeFull = audioEnvelope.audioEnvelopeFull || 0.0;
+                    console.log('[LiveViewer] Initialized audio envelope values:', {
+                        audioEnvelope: window._audioEnvelopeValue.toFixed(3),
+                        bass: window._audioEnvelopeBass.toFixed(3),
+                        mids: window._audioEnvelopeMids.toFixed(3),
+                        highs: window._audioEnvelopeHighs.toFixed(3),
+                        full: window._audioEnvelopeFull.toFixed(3)
+                    });
+                }
+
                 // Compile shader
                 this.compileShader(shaderCode);
 
@@ -522,7 +539,7 @@
             }
 
             handleParameterUpdate(data) {
-                const { uniformValues, uniformKeys, computeNodeParams, time } = data;
+                const { uniformValues, uniformKeys, computeNodeParams, audioEnvelope, time } = data;
 
                 // Update uniformKeys if provided (they may change if new parameters are added)
                 if (uniformKeys && Array.isArray(uniformKeys)) {
@@ -759,6 +776,27 @@
                 // Update synced time if provided
                 if (typeof time === 'number') {
                     this.syncedTime = time;
+                }
+
+                // Update audio envelope values if provided
+                // CRITICAL: This allows audioEnvelope expressions to work in the external viewer
+                if (audioEnvelope && typeof audioEnvelope === 'object') {
+                    window._audioEnvelopeValue = audioEnvelope.audioEnvelope || 0.0;
+                    window._audioEnvelopeBass = audioEnvelope.audioEnvelopeBass || 0.0;
+                    window._audioEnvelopeMids = audioEnvelope.audioEnvelopeMids || 0.0;
+                    window._audioEnvelopeHighs = audioEnvelope.audioEnvelopeHighs || 0.0;
+                    window._audioEnvelopeFull = audioEnvelope.audioEnvelopeFull || 0.0;
+                    
+                    // DEBUG: Log first few updates to verify audio envelope is being received
+                    if (this.paramUpdateCount <= 3) {
+                        console.log('[LiveViewer] Updated audio envelope values:', {
+                            audioEnvelope: window._audioEnvelopeValue.toFixed(3),
+                            bass: window._audioEnvelopeBass.toFixed(3),
+                            mids: window._audioEnvelopeMids.toFixed(3),
+                            highs: window._audioEnvelopeHighs.toFixed(3),
+                            full: window._audioEnvelopeFull.toFixed(3)
+                        });
+                    }
                 }
             }
 

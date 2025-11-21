@@ -576,7 +576,16 @@ async function initialize() {
                 }
               }
               
-              window.liveShaderStream.sendParameterUpdate(values, timeSec, computeNodeParams);
+              // Get audio envelope values for transmission to viewer
+              const audioEnvelope = {
+                audioEnvelope: window._audioEnvelopeValue || 0.0,
+                audioEnvelopeBass: window._audioEnvelopeBass || 0.0,
+                audioEnvelopeMids: window._audioEnvelopeMids || 0.0,
+                audioEnvelopeHighs: window._audioEnvelopeHighs || 0.0,
+                audioEnvelopeFull: window._audioEnvelopeFull || 0.0
+              };
+              
+              window.liveShaderStream.sendParameterUpdate(values, timeSec, computeNodeParams, audioEnvelope);
             }
           }
         } else {
