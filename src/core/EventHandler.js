@@ -35,6 +35,8 @@ export class EventHandler {
     this._inactivityThreshold = 50; // 50ms - warm up after any tiny pause
     this._justWarmedUp = false; // Track if we just warmed up to bypass RAF on first frame
     this._warmupTimer = null; // Timer for continuous background warmup
+    this._firstFrameOfInteraction = false; // Track first frame of any interaction
+    this._interactionStartTime = 0; // Track when interaction started
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -306,10 +308,17 @@ export class EventHandler {
           }
 
           // Only schedule one update per animation frame for performance
-          // BUT: if we just warmed up, do immediate update to prevent lag
-          if (this._justWarmedUp && this._pendingPanUpdate) {
-            // Immediate update after warmup - bypass RAF to prevent first-frame lag
+          // BUT: Always do immediate update for first SECOND of interaction to prevent lag
+          const now = Date.now();
+          const isFirstSecond = !this._panUpdateScheduled || (now - this._interactionStartTime) < 1000;
+          
+          if ((this._justWarmedUp || isFirstSecond) && this._pendingPanUpdate) {
+            // Immediate update - bypass RAF to prevent lag during first second
             // Do this synchronously to ensure it happens before any other processing
+            if (isFirstSecond && !this._interactionStartTime) {
+              this._interactionStartTime = now;
+            }
+            
             const { clientX, clientY } = this._pendingPanUpdate;
             this._pendingPanUpdate = null;
             this._panUpdateScheduled = false;
@@ -539,6 +548,8 @@ export class EventHandler {
           moved: false,
         };
         this.viewport.startPan(e.clientX, e.clientY);
+        // Mark interaction start time for first-frame immediate updates
+        this._interactionStartTime = Date.now();
         return;
       }
 
@@ -634,10 +645,17 @@ export class EventHandler {
         this._pendingDragEvent = e;
 
         // Only schedule one update per animation frame for performance
-        // BUT: if we just warmed up, do immediate update to prevent lag
-        if (this._justWarmedUp && this._pendingDragEvent) {
-          // Immediate update after warmup - bypass RAF to prevent first-frame lag
+        // BUT: Always do immediate update for first SECOND of interaction to prevent lag
+        const now = Date.now();
+        const isFirstSecond = !this._dragUpdateScheduled || (now - this._interactionStartTime) < 1000;
+        
+        if ((this._justWarmedUp || isFirstSecond) && this._pendingDragEvent) {
+          // Immediate update - bypass RAF to prevent lag during first second
           // Do this synchronously to ensure it happens before any other processing
+          if (isFirstSecond && !this._interactionStartTime) {
+            this._interactionStartTime = now;
+          }
+          
           const pendingEvent = this._pendingDragEvent;
           this._pendingDragEvent = null;
           this._dragUpdateScheduled = false;
@@ -734,6 +752,9 @@ export class EventHandler {
       // Clear any pending drag updates
       this._pendingDragEvent = null;
       this._dragUpdateScheduled = false;
+      // Reset interaction tracking
+      this._interactionStartTime = 0;
+      this._firstFrameOfInteraction = false;
 
       const pos = this._getCanvasPosition(e);
 
