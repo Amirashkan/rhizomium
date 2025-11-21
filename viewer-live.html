@@ -2289,8 +2289,7 @@
                         writeTexture = pipelineData.currentWriteTexture === 'A' ? pipelineData.storageTextureA : pipelineData.storageTextureB;
                         readTexture = pipelineData.currentWriteTexture === 'A' ? pipelineData.storageTextureB : pipelineData.storageTextureA;
 
-                        // Update output texture reference
-                        outputTexture = writeTexture;
+                        // Update output texture reference in computeOutputs (for other nodes to use)
                         const outputData = this.computeOutputs.get(nodeId);
                         if (outputData) {
                             outputData.texture = writeTexture;
