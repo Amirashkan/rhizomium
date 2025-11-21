@@ -73,8 +73,8 @@ export class ComputeExecutor {
   // PERFORMANCE: Maximum resolution for compute nodes to maintain 60 FPS at full HD
   // Compute shaders at 1920x1080 are extremely expensive (2M pixels per node)
   // Fragment shaders can sample lower-res textures and upscale efficiently
-  // Reduced to 768 for better performance while maintaining good quality
-  static MAX_COMPUTE_RES = 768;
+  // Reduced to 512 for complex graphs to ensure consistent 60 FPS
+  static MAX_COMPUTE_RES = 512;
 
   /**
    * Clear fragment render cache
@@ -82,9 +82,22 @@ export class ComputeExecutor {
    */
   clearFragmentCache() {
     this.renderedFragmentNodes.clear();
-    if (this.fragmentRenderer && this.fragmentRenderer.textureCache) {
-      this.fragmentRenderer.textureCache.clear();
-      this.fragmentRenderer.shaderCache.clear();
+    if (this.fragmentRenderer) {
+      // Use the new clearCache method which also clears parameter hashes
+      if (this.fragmentRenderer.clearCache) {
+        this.fragmentRenderer.clearCache();
+      } else {
+        // Fallback for older versions
+        if (this.fragmentRenderer.textureCache) {
+          this.fragmentRenderer.textureCache.clear();
+        }
+        if (this.fragmentRenderer.shaderCache) {
+          this.fragmentRenderer.shaderCache.clear();
+        }
+        if (this.fragmentRenderer.parameterHashes) {
+          this.fragmentRenderer.parameterHashes.clear();
+        }
+      }
     }
   }
 
@@ -139,7 +152,7 @@ export class ComputeExecutor {
       // Fragment shaders can sample lower-res compute textures and upscale them efficiently
       // This maintains visual quality while ensuring smooth 60 FPS performance
       const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
-      const DEFAULT_COMPUTE_RES = 768;
+      const DEFAULT_COMPUTE_RES = 512;
 
       // Always use capped resolution for compute nodes, regardless of preview resolution
       // The fragment shader will sample these textures at full HD, providing good quality

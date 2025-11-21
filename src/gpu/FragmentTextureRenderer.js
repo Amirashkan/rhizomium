@@ -30,6 +30,25 @@ export class FragmentTextureRenderer {
     // Cache: nodeId -> shader code (for detecting changes)
     this.shaderCache = new Map();
 
+    // PERFORMANCE: Track parameter hashes to avoid unnecessary renders
+    // Only re-render fragment nodes when inputs/parameters actually change
+    this.parameterHashes = new Map(); // nodeId -> hash string
+  }
+
+  /**
+   * Clear fragment texture cache
+   * Call this when graph structure changes (nodes added/removed, connections changed)
+   */
+  clearCache() {
+    // Destroy textures before clearing cache
+    for (const cached of this.textureCache.values()) {
+      if (cached.texture) {
+        cached.texture.destroy();
+      }
+    }
+    this.textureCache.clear();
+    this.shaderCache.clear();
+    this.parameterHashes.clear();
   }
 
   /**
@@ -94,9 +113,15 @@ export class FragmentTextureRenderer {
       // Store node reference for parameter updates
       cached.node = node;
 
-      // Render to the texture (using external encoder if provided)
-      await this._renderToTexture(cached, time, width, height, audioContext, externalEncoder);
-
+      // PERFORMANCE: Check if fragment node actually needs re-rendering
+      // Only render if parameters/inputs changed or if node is time-dependent
+      const needsRender = this._checkFragmentNodeNeedsRender(nodeId, node, time, audioContext);
+      
+      if (needsRender) {
+        // Render to the texture (using external encoder if provided)
+        await this._renderToTexture(cached, time, width, height, audioContext, externalEncoder);
+      }
+      // If no render needed, return cached texture (unchanged)
 
       return cached.texture;
     } catch (error) {
@@ -259,6 +284,112 @@ export class FragmentTextureRenderer {
 
       return null;
     }
+  }
+
+  /**
+   * Check if fragment node needs re-rendering
+   * Only render when parameters/inputs actually change or node is time-dependent
+   * @private
+   */
+  _checkFragmentNodeNeedsRender(nodeId, node, time, audioContext) {
+    // Always render on first call (no hash exists yet)
+    const previousHash = this.parameterHashes.get(nodeId);
+    if (!previousHash) {
+      // Build initial hash
+      const hash = this._buildFragmentNodeHash(node, time, audioContext);
+      this.parameterHashes.set(nodeId, hash);
+      return true;
+    }
+
+    // Check if node has time-dependent parameters
+    if (this._hasTimeDependentParameters(node)) {
+      // Time-dependent nodes need to render every frame
+      const hash = this._buildFragmentNodeHash(node, time, audioContext);
+      this.parameterHashes.set(nodeId, hash);
+      return true;
+    }
+
+    // Check if parameters or inputs changed
+    const currentHash = this._buildFragmentNodeHash(node, time, audioContext);
+    if (currentHash !== previousHash) {
+      this.parameterHashes.set(nodeId, currentHash);
+      return true;
+    }
+
+    // Check if compute node inputs changed (via compute executor)
+    if (node.inputs && Array.isArray(node.inputs)) {
+      const computeExecutor = window.computeExecutor;
+      if (computeExecutor && computeExecutor.fragmentNodesRenderedThisFrame) {
+        // If any compute node input was re-rendered this frame, we need to re-render
+        for (const inputId of node.inputs) {
+          if (inputId && computeExecutor.fragmentNodesRenderedThisFrame.has(inputId)) {
+            return true;
+          }
+          // Check if compute node input was dispatched
+          if (inputId && computeExecutor.computeManagers && computeExecutor.computeManagers.has(inputId)) {
+            if (computeExecutor.dispatchedThisFrame && computeExecutor.dispatchedThisFrame.has(inputId)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    // No changes detected, skip render
+    return false;
+  }
+
+  /**
+   * Build hash of fragment node parameters and inputs
+   * @private
+   */
+  _buildFragmentNodeHash(node, time, audioContext) {
+    let hash = '';
+
+    // Hash parameters
+    if (node.params) {
+      hash += JSON.stringify(node.params);
+    }
+
+    // Hash inputs (texture references)
+    if (node.inputs && Array.isArray(node.inputs)) {
+      const computeExecutor = window.computeExecutor;
+      for (const inputId of node.inputs) {
+        if (inputId) {
+          // Check if input is a compute node
+          if (computeExecutor && computeExecutor.computeManagers && computeExecutor.computeManagers.has(inputId)) {
+            const texture = computeExecutor.nodeOutputs?.get(inputId);
+            // Use texture reference as part of hash (texture object identity)
+            hash += `${inputId}:${texture ? 'computed' : 'missing'};`;
+          } else {
+            // Regular fragment input
+            hash += `${inputId}:fragment;`;
+          }
+        }
+      }
+    }
+
+    return hash;
+  }
+
+  /**
+   * Check if fragment node has time-dependent parameters
+   * @private
+   */
+  _hasTimeDependentParameters(node) {
+    if (!node || !node.params) return false;
+
+    for (const value of Object.values(node.params)) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        // Check if parameter contains time or audio envelope references
+        if (/time|audioEnvelope/i.test(trimmed)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
