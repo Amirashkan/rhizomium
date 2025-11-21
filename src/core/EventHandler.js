@@ -35,6 +35,8 @@ export class EventHandler {
     this._justWarmedUp = false; // Track if we just warmed up to bypass RAF on first frame
 
     this._setupEvents();
+    // Setup focus/visibility handlers to warm up when window regains focus
+    this._setupFocusHandlers();
   }
 
   _setupEvents() {
@@ -55,6 +57,28 @@ export class EventHandler {
 
     // Global click handling for menu closing
     this._setupGlobalEvents();
+  }
+
+  _setupFocusHandlers() {
+    // Handle window focus - warm up when window regains focus
+    window.addEventListener('focus', () => {
+      // Mark as inactive to force warmup on next interaction
+      this._lastInteractionTime = 0; // Force warmup
+      // Immediately warm up to prepare for user interaction
+      this._checkAndWarmupAfterInactivity();
+    });
+
+    // Handle page visibility - warm up when tab becomes visible
+    if (typeof document.hidden !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          // Tab became visible - mark as inactive to force warmup
+          this._lastInteractionTime = 0; // Force warmup
+          // Immediately warm up to prepare for user interaction
+          this._checkAndWarmupAfterInactivity();
+        }
+      });
+    }
   }
 
   // Mark canvas dirty and request render (optimization for dirty flag system)
