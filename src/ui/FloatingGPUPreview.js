@@ -25,31 +25,11 @@ export class FloatingGPUPreview {
     this.settings = new PreviewSettings(this);
     this.fpsCounter = new FPSCounter();
     
-    // Setup performance monitoring callback
-    this.fpsCounter.onPerformanceDrop = (avgFrameTime) => {
-      this._handlePerformanceDrop(avgFrameTime);
-    };
-    
     this.animationLoop = null;
     // Track previous canvas size to avoid unnecessary rebuilds
     this._lastCanvasSize = { width: 0, height: 0 };
-    // Performance optimization: track low FPS periods to reduce backdrop-filter
-    this._lowFpsMode = false;
-    this._performanceDropCount = 0;
     this._setupParameterListeners();
     this._setupAnimationLoop();
-  }
-  
-  _handlePerformanceDrop(avgFrameTime) {
-    // Backdrop-filter is already disabled by default for performance
-    // This handler is kept for potential future optimizations
-    // Currently just tracks performance drops for debugging
-    this._performanceDropCount++;
-    
-    // Log performance issues for debugging (only occasionally to avoid spam)
-    if (this._performanceDropCount % 10 === 0 && avgFrameTime > 20) {
-      console.warn(`[FloatingPreview] Performance drop detected: ${avgFrameTime.toFixed(2)}ms avg frame time`);
-    }
   }
 
 _setupParameterListeners() {
@@ -803,19 +783,12 @@ canvasWrapper.style.cssText = `
 class FPSCounter {
   constructor() {
     this.fps = 0;
-    this.frameCount = 0; // Total frames since last reset (for fallback calculation)
-    this._frameIndex = 0; // Separate counter for circular buffer indexing (never reset)
+    this.frameCount = 0;
     this.lastTime = performance.now();
-    this._lastFrameTime = undefined; // Track last frame time for accurate FPS calculation
     this.isRunning = false;
     this.updateInterval = null;
     // Cache FPS overlay element to avoid DOM queries
     this.fpsOverlayElement = null;
-    // Track frame times to detect performance issues and calculate accurate FPS
-    this.frameTimes = [];
-    this.maxFrameTimeHistory = 60; // Keep 60 frames for 1 second of history at 60fps
-    // Use RAF for updates instead of setInterval for better performance
-    this.rafHandle = null;
   }
 
   start() {
@@ -823,17 +796,14 @@ class FPSCounter {
 
     this.isRunning = true;
     this.frameCount = 0;
-    this._frameIndex = 0; // Reset frame index when starting
     this.lastTime = performance.now();
-    this._lastFrameTime = undefined;
-    this.frameTimes = [];
 
     // Cache FPS overlay element once
     if (!this.fpsOverlayElement) {
       this.fpsOverlayElement = document.querySelector(".fps-overlay");
     }
 
-    // Update FPS display every 500ms (2 updates per second) for smooth updates
+    // Update FPS display every 500ms (2 updates per second)
     this.updateInterval = setInterval(() => {
       if (this.isRunning) {
         this._updateFPS();
@@ -847,60 +817,14 @@ class FPSCounter {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
     }
-    if (this.rafHandle !== null) {
-      cancelAnimationFrame(this.rafHandle);
-      this.rafHandle = null;
-    }
-    // Clear cached element reference and frame times to free memory
+    // Clear cached element reference
     this.fpsOverlayElement = null;
-    this.frameTimes = [];
   }
 
   frame() {
-    if (!this.isRunning) return;
-    
-    const now = performance.now();
-    this.frameCount++;
-    this._frameIndex++;
-    
-    // Track actual frame time for accurate FPS calculation
-    if (this._lastFrameTime !== undefined) {
-      const frameTime = now - this._lastFrameTime;
-      
-      // Use circular buffer pattern to avoid array shifts
-      if (this.frameTimes.length < this.maxFrameTimeHistory) {
-        this.frameTimes.push(frameTime);
-      } else {
-        // Circular buffer: overwrite oldest entry using frameIndex (never reset)
-        const index = this._frameIndex % this.maxFrameTimeHistory;
-        this.frameTimes[index] = frameTime;
-      }
-      
-      // Check for performance drops occasionally (every 30 frames) to reduce overhead
-      if (this.frameCount % 30 === 0 && this.frameTimes.length >= 3) {
-        // Calculate average frame time over last few frames
-        let sum = 0;
-        let count = 0;
-        for (let i = 0; i < Math.min(10, this.frameTimes.length); i++) {
-          const idx = (this._frameIndex - i + this.maxFrameTimeHistory) % this.maxFrameTimeHistory;
-          if (this.frameTimes[idx] !== undefined) {
-            sum += this.frameTimes[idx];
-            count++;
-          }
-        }
-        if (count > 0) {
-          const avgFrameTime = sum / count;
-          if (avgFrameTime > 20) {
-            // Drop detected (>20ms average = <50fps)
-            if (this.onPerformanceDrop) {
-              this.onPerformanceDrop(avgFrameTime);
-            }
-          }
-        }
-      }
+    if (this.isRunning) {
+      this.frameCount++;
     }
-    
-    this._lastFrameTime = now;
   }
 
   _updateFPS() {
@@ -909,47 +833,8 @@ class FPSCounter {
 
     // Update FPS display every second
     if (delta >= 1000) {
-      // Calculate real FPS based on actual frame times
-      // Use the average frame time from recent frames for accurate measurement
-      if (this.frameTimes.length > 0) {
-        let sum = 0;
-        let count = 0;
-        // Average over all available frame times for accurate FPS
-        // Use the most recent frames (up to 60 frames = 1 second at 60fps)
-        const framesToAverage = Math.min(60, this.frameTimes.length);
-        
-        for (let i = 0; i < framesToAverage; i++) {
-          let idx;
-          if (this.frameTimes.length >= this.maxFrameTimeHistory) {
-            // Circular buffer: calculate index from current position (frameIndex never resets)
-            idx = (this._frameIndex - i - 1 + this.maxFrameTimeHistory) % this.maxFrameTimeHistory;
-          } else {
-            // Linear array: use reverse order (most recent first)
-            idx = this.frameTimes.length - 1 - i;
-          }
-          
-          if (idx >= 0 && idx < this.frameTimes.length && this.frameTimes[idx] !== undefined && this.frameTimes[idx] > 0) {
-            sum += this.frameTimes[idx];
-            count++;
-          }
-        }
-        
-        if (count > 0) {
-          const avgFrameTime = sum / count;
-          // FPS = 1000ms / average frame time in ms
-          // Clamp to reasonable range (0-120 FPS)
-          const calculatedFps = 1000 / avgFrameTime;
-          this.fps = Math.max(0, Math.min(120, Math.round(calculatedFps)));
-        } else {
-          // Fallback: use frame count method if no valid frame times
-          this.fps = Math.round((this.frameCount * 1000) / delta);
-        }
-      } else {
-        // Fallback: use frame count method if no frame times tracked yet
-        this.fps = Math.round((this.frameCount * 1000) / delta);
-      }
-      
-      // Reset counters for next measurement period
+      // Simple and accurate: FPS = frames rendered / time elapsed
+      this.fps = Math.round((this.frameCount * 1000) / delta);
       this.frameCount = 0;
       this.lastTime = now;
 
@@ -959,7 +844,6 @@ class FPSCounter {
       }
       
       if (this.fpsOverlayElement) {
-        // Always update to show accurate FPS
         this.fpsOverlayElement.textContent = `FPS: ${this.fps}`;
       }
     }

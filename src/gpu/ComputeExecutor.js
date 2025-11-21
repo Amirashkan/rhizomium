@@ -528,22 +528,6 @@ export class ComputeExecutor {
           width = Math.min(width, MAX_COMPUTE_RES);
           height = Math.min(height, MAX_COMPUTE_RES);
 
-          // PERFORMANCE: Check if fragment node actually needs rendering (change detection)
-          // This avoids expensive fragment rendering when inputs haven't changed
-          const needsRender = this.fragmentRenderer._checkFragmentNodeNeedsRender(
-            inputNodeId, 
-            inputNode, 
-            time, 
-            audioContext
-          );
-          
-          if (!needsRender && this.renderedFragmentNodes.has(inputNodeId)) {
-            // Fragment node was already rendered and hasn't changed - reuse existing texture
-            const existingTexture = this.nodeOutputs.get(inputNodeId);
-            if (existingTexture) {
-              continue; // Skip rendering, use existing texture
-            }
-          }
 
           // Render the fragment node WITH its compute dependencies dispatched first
           const texture = await this._renderFragmentNodeWithDependencies(
