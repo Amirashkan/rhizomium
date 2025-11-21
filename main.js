@@ -2510,13 +2510,16 @@ function updateStatus(message, type = "info") {
   }
 }
 
+// PERFORMANCE: Track GPU frame skipping during canvas interactions
+let gpuFrameSkipCounter = 0;
+
 function handleRenderFrame(frameState) {
   // PERFORMANCE: Skip expensive operations during parameter drag
   // When dragging parameters, we don't need to update anything
   // All updates happen once on mouseup
   const isDragging = editor?._parameterDragging || false;
   
-  // PERFORMANCE: Skip GPU rendering during canvas interactions (pan, drag, etc.)
+  // PERFORMANCE: Track canvas interactions to throttle GPU rendering
   // This prevents GPU and canvas from competing for resources, causing FPS drops
   const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
 
@@ -2537,30 +2540,60 @@ function handleRenderFrame(frameState) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
   } else if (window.gpuRenderer) {
-    // Normal rendering - render() is async and handles compute shaders
-    // GPU rendering always runs for real-time preview, even during canvas interactions
-    const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+    // PERFORMANCE: Throttle GPU rendering during canvas interactions
+    // Skip every other frame during interactions to maintain ~30 FPS GPU rendering
+    // This prevents GPU and canvas from competing, while keeping preview real-time
+    if (isCanvasInteracting) {
+      gpuFrameSkipCounter++;
+      // Skip every other frame (render at ~30 FPS during interactions)
+      if (gpuFrameSkipCounter % 2 === 0) {
+        // Skip this frame - GPU rendering paused to give canvas priority
+        // Preview will update at 30 FPS during interactions, which is acceptable
+      } else {
+        // Render this frame
+        const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+        // Handle frame streaming if needed
+        if (frameStreamingEnabled) {
+          const canvas = document.getElementById('gpu-canvas');
+          if (canvas) {
+            renderPromise.then(() => {
+              if (broadcastFrameStream) {
+                broadcastFrameStream.sendFrameFromCanvas(canvas);
+              } else if (frameStreamClient) {
+                frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+              }
+            }).catch(err => {
+              // Silently handle errors
+            });
+          }
+        }
+      }
+    } else {
+      // Not interacting - full 60 FPS GPU rendering
+      gpuFrameSkipCounter = 0; // Reset counter
+      const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
 
-    // Stream frames to external viewers if enabled
-    // NOTE: Now streams during parameter drag for real-time external view updates
-    // CRITICAL: Frame capture happens asynchronously after render completes
-    // This ensures compute shaders have finished and the frame is ready
-    if (frameStreamingEnabled) {
-      const canvas = document.getElementById('gpu-canvas');
-      if (canvas) {
-        // Wait for render to complete, then capture frame
-        renderPromise.then(() => {
-          // Use BroadcastChannel for Vercel/cloud deployments
-          if (broadcastFrameStream) {
-            broadcastFrameStream.sendFrameFromCanvas(canvas);
-          }
-          // Use HTTP streaming for local development
-          else if (frameStreamClient) {
-            frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-          }
-        }).catch(err => {
-          // Silently handle errors to avoid breaking render loop
-        });
+      // Stream frames to external viewers if enabled
+      // NOTE: Now streams during parameter drag for real-time external view updates
+      // CRITICAL: Frame capture happens asynchronously after render completes
+      // This ensures compute shaders have finished and the frame is ready
+      if (frameStreamingEnabled) {
+        const canvas = document.getElementById('gpu-canvas');
+        if (canvas) {
+          // Wait for render to complete, then capture frame
+          renderPromise.then(() => {
+            // Use BroadcastChannel for Vercel/cloud deployments
+            if (broadcastFrameStream) {
+              broadcastFrameStream.sendFrameFromCanvas(canvas);
+            }
+            // Use HTTP streaming for local development
+            else if (frameStreamClient) {
+              frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+            }
+          }).catch(err => {
+            // Silently handle errors to avoid breaking render loop
+          });
+        }
       }
     }
   }
