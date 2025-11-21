@@ -1346,6 +1346,11 @@ connectGPURenderer(renderFunction) {
   }
 
   createConnection(sourceNodeId, targetNodeId, targetInput) {
+    // Warm up GPU/canvas before connection creation to prevent lag
+    if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+      window.eventHandler._checkAndWarmupAfterInactivity();
+    }
+    
     try {
       if (typeof sourceNodeId === 'undefined' || typeof targetNodeId === 'undefined') {
         throw new Error('Source and target node IDs are required');

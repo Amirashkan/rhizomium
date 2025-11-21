@@ -379,6 +379,11 @@ export class UndoManager {
 
   // Perform undo
   undo() {
+    // Warm up GPU/canvas before undo to prevent lag
+    if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+      window.eventHandler._checkAndWarmupAfterInactivity();
+    }
+    
     if (this.undoStack.length === 0) {
       return false;
     }
@@ -682,6 +687,11 @@ export class UndoManager {
 
   // Perform redo
   redo() {
+    // Warm up GPU/canvas before redo to prevent lag
+    if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+      window.eventHandler._checkAndWarmupAfterInactivity();
+    }
+    
     if (this.redoStack.length === 0) {
       return false;
     }
@@ -1213,6 +1223,18 @@ export class UndoManager {
 
   // Force editor refresh
   refreshEditor() {
+    // Mark interaction start for immediate updates after undo/redo
+    if (window.eventHandler) {
+      window.eventHandler._interactionStartTime = Date.now();
+      window.eventHandler._justWarmedUp = true;
+      // Keep immediate updates active for 1 second after undo/redo
+      setTimeout(() => {
+        if (window.eventHandler) {
+          window.eventHandler._justWarmedUp = false;
+        }
+      }, 1000);
+    }
+    
     // Clear any caches
     if (this.graph.nodes) {
       this.graph.nodes.forEach(node => {

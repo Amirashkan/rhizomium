@@ -46,6 +46,11 @@ export class ConnectionManager {
 
   // FIXED: endWireDrag with proper preview regeneration and bidirectional support
   endWireDrag(targetPos, hitPin) {
+    // Warm up GPU/canvas before connection creation to prevent lag
+    if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+      window.eventHandler._checkAndWarmupAfterInactivity();
+    }
+    
     try {
       if (!this.dragWire) return false;
 

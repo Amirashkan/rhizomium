@@ -620,6 +620,11 @@ deleteSelected() {
 
   duplicateSelected() {
     try {
+      // Warm up GPU/canvas before duplication to prevent lag
+      if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+        window.eventHandler._checkAndWarmupAfterInactivity();
+      }
+      
       const ids = Array.from(this.graph.selection || []);
       if (!ids.length) return;
 
@@ -683,6 +688,18 @@ deleteSelected() {
       // Synchronize ID counter
       updateNodeIdCounter(this.graph.nodes);
 
+      // Mark interaction start for immediate updates after duplication
+      if (window.eventHandler) {
+        window.eventHandler._interactionStartTime = Date.now();
+        window.eventHandler._justWarmedUp = true;
+        // Keep immediate updates active for 1 second after duplication
+        setTimeout(() => {
+          if (window.eventHandler) {
+            window.eventHandler._justWarmedUp = false;
+          }
+        }, 1000);
+      }
+
       if (this.onChange) this.onChange();
     } catch (error) {
       window.errorHandler?.handleError(error, {
@@ -728,6 +745,11 @@ deleteSelected() {
 
   pasteFromClipboard() {
     try {
+      // Warm up GPU/canvas before paste to prevent lag
+      if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+        window.eventHandler._checkAndWarmupAfterInactivity();
+      }
+      
       if (!this.clipboard || !this.clipboard.nodes.length) return false;
 
       const mapOldToNew = new Map();
@@ -785,6 +807,18 @@ deleteSelected() {
 
       // Synchronize ID counter
       updateNodeIdCounter(this.graph.nodes);
+
+      // Mark interaction start for immediate updates after paste
+      if (window.eventHandler) {
+        window.eventHandler._interactionStartTime = Date.now();
+        window.eventHandler._justWarmedUp = true;
+        // Keep immediate updates active for 1 second after paste
+        setTimeout(() => {
+          if (window.eventHandler) {
+            window.eventHandler._justWarmedUp = false;
+          }
+        }, 1000);
+      }
 
       if (this.onChange) this.onChange();
       return true;

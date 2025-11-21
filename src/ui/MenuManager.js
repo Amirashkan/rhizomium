@@ -367,6 +367,11 @@ export class MenuManager {
 
   _duplicateSelected() {
     try {
+      // Warm up GPU/canvas before duplication to prevent lag
+      if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+        window.eventHandler._checkAndWarmupAfterInactivity();
+      }
+      
       const ids = Array.from(this.graph.selection || []);
       if (!ids.length) return;
 
@@ -431,6 +436,18 @@ export class MenuManager {
 
       // Synchronize ID counter
       updateNodeIdCounter(this.graph.nodes);
+
+      // Mark interaction start for immediate updates after duplication
+      if (window.eventHandler) {
+        window.eventHandler._interactionStartTime = Date.now();
+        window.eventHandler._justWarmedUp = true;
+        // Keep immediate updates active for 1 second after duplication
+        setTimeout(() => {
+          if (window.eventHandler) {
+            window.eventHandler._justWarmedUp = false;
+          }
+        }, 1000);
+      }
 
       if (this.onChange) this.onChange();
     } catch (error) {

@@ -356,6 +356,20 @@ async importProject(projectData, options = {}) {
 
     // Step 5: Wait for GPU pipeline to stabilize
     await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Warm up GPU/canvas after loading project to prevent lag on first interaction
+    if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
+      window.eventHandler._checkAndWarmupAfterInactivity();
+      // Mark interaction start for immediate updates after load
+      window.eventHandler._interactionStartTime = Date.now();
+      window.eventHandler._justWarmedUp = true;
+      // Keep immediate updates active for 2 seconds after load (longer for large projects)
+      setTimeout(() => {
+        if (window.eventHandler) {
+          window.eventHandler._justWarmedUp = false;
+        }
+      }, 2000);
+    }
 
     // Step 6: Force editor redraw
     if (this.editor && this.editor.draw) {
