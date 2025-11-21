@@ -31,7 +31,7 @@ export class EventHandler {
     this._pendingDragEvent = null;
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
-    this._inactivityThreshold = 10000; // 10 seconds
+    this._inactivityThreshold = 5000; // 5 seconds
 
     this._setupEvents();
   }
@@ -134,6 +134,10 @@ export class EventHandler {
       (e) => {
         // Check if we're currently panning
         if (this.viewport.isPanning()) {
+          // Warm up GPU if user has been inactive - check on first pan movement
+          // This prevents lag on first pan action after inactivity
+          this._checkAndWarmupAfterInactivity();
+
           // Store the pending pan update position
           this._pendingPanUpdate = { clientX: e.clientX, clientY: e.clientY };
 
@@ -437,6 +441,10 @@ export class EventHandler {
       const isBoxSelecting = this.selection.getBoxSelect();
 
       if (isDraggingWire || isDraggingNodes || isBoxSelecting) {
+        // Warm up GPU if user has been inactive - check on first drag movement
+        // This prevents lag on first drag action after inactivity
+        this._checkAndWarmupAfterInactivity();
+
         // Store the pending event for throttled processing
         this._pendingDragEvent = e;
 
