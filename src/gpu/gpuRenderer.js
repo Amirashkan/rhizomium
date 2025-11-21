@@ -627,6 +627,15 @@ export class GPURenderer {
 
   setShaderSource(wgslCode) {
     try {
+      // FIX: Skip pipeline rebuild if shader code hasn't changed
+      // This prevents black flash during parameter drags when only uniforms change
+      if (this._currentWgslCode === wgslCode && this.pipeline) {
+        // Shader code unchanged - just update uniforms and continue rendering
+        this._updateAspectUniform();
+        this._updateParameterUniforms();
+        return;
+      }
+
       // Store WGSL code for potential pipeline recreation
       this._currentWgslCode = wgslCode;
 
