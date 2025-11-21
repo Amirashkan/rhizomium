@@ -2343,10 +2343,15 @@ let lastUniformUpdate = 0;
 // PERFORMANCE: Throttle preview computations to reduce CPU overhead
 // Before: Preview computed every frame (60 times/sec) = 10-20ms × 60 = 600-1200ms/sec overhead
 // After: Preview computed every 100ms (10 times/sec) = 10-20ms × 10 = 100-200ms/sec overhead
-let lastPreviewUpdate = 0;
-let lastProfilerUpdate = 0;
+// PERFORMANCE: Add small random offset to prevent periodic operations from aligning
+// This prevents all updates from happening at the same time, causing frame time spikes
+const PREVIEW_UPDATE_OFFSET = Math.random() * 50; // 0-50ms random offset
+const PROFILER_UPDATE_OFFSET = Math.random() * 50; // 0-50ms random offset
+
+let lastPreviewUpdate = -PREVIEW_UPDATE_OFFSET; // Start with offset to spread out initial updates
+let lastProfilerUpdate = -PROFILER_UPDATE_OFFSET;
 const PROFILER_UPDATE_INTERVAL = 200; // Update profiler overlay every 200ms (5 FPS)
-const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
+const PREVIEW_UPDATE_INTERVAL = 150; // ms (increased from 100ms to reduce frequency and spread out updates)
 
 async function updateShaderFromGraph() {
   try {
@@ -2604,12 +2609,22 @@ function handleRenderFrame(frameState) {
 
   // Update compute profiler overlay (throttled to reduce overhead)
   // PERFORMANCE: Throttle to 5 updates per second to reduce DOM manipulation overhead
+  // Also defer to idle time to avoid frame time spikes
   if (profilerOverlay && computeProfiler) {
     const now = performance.now();
     const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
     if (shouldUpdateProfiler) {
-      const metrics = computeProfiler.getMetrics();
-      profilerOverlay.update(metrics);
+      // Defer profiler overlay update to idle time to avoid micro-stutters
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => {
+          const metrics = computeProfiler.getMetrics();
+          profilerOverlay.update(metrics);
+        }, { timeout: 250 });
+      } else {
+        // Fallback: update synchronously
+        const metrics = computeProfiler.getMetrics();
+        profilerOverlay.update(metrics);
+      }
       lastProfilerUpdate = now;
     }
   }
@@ -2629,15 +2644,32 @@ function handleRenderFrame(frameState) {
       const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
 
       if (shouldUpdatePreviews) {
-        // Update preview values for time/audio-based expressions
-        // This ensures node labels show current values
-        if (editor?.previewComputer && editor?.graph) {
-          const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
-          editor.previewComputer.computePreviews(editor.graph);
+        // PERFORMANCE: Defer preview computation to idle time to avoid frame time spikes
+        // This prevents periodic micro-stutters from preview updates
+        if (window.requestIdleCallback) {
+          window.requestIdleCallback(() => {
+            // Update preview values for time/audio-based expressions
+            // This ensures node labels show current values
+            if (editor?.previewComputer && editor?.graph) {
+              const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
+              editor.previewComputer.computePreviews(editor.graph);
 
-          // Only mark dirty if there are time-animated nodes that need visual updates
-          if (hadTimeAnimatedNodes && editor.markDirty) {
-            editor.markDirty('time-animation');
+              // Only mark dirty if there are time-animated nodes that need visual updates
+              if (hadTimeAnimatedNodes && editor.markDirty) {
+                editor.markDirty('time-animation');
+              }
+            }
+          }, { timeout: 150 });
+        } else {
+          // Fallback: do it synchronously but only if we have time
+          // Update preview values for time/audio-based expressions
+          if (editor?.previewComputer && editor?.graph) {
+            const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
+            editor.previewComputer.computePreviews(editor.graph);
+
+            if (hadTimeAnimatedNodes && editor.markDirty) {
+              editor.markDirty('time-animation');
+            }
           }
         }
         lastPreviewUpdate = now;
