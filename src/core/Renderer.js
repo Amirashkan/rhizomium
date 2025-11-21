@@ -15,23 +15,40 @@ export class Renderer {
     // Clear canvas
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    // Subtle grid background for alignment
-    this._renderBackgroundGrid();
+    // PERFORMANCE: Skip expensive grid rendering during interactions
+    // Grid rendering can take 10-15ms - skip it during pan/drag for smooth 60 FPS
+    const isInteracting = renderState.isInteracting || false;
+    if (!isInteracting) {
+      // Subtle grid background for alignment
+      this._renderBackgroundGrid();
+    }
 
     // Save context and apply viewport transform
     ctx.save();
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
     ctx.scale(this.viewport.scale, this.viewport.scale);
 
-    // Render connections/wires
-    this._renderConnections(graph.connections, graph.nodes);
+    // PERFORMANCE: Create node lookup map for O(1) access instead of O(n) linear search
+    // This is critical for performance with many nodes
+    const nodeMap = new Map();
+    for (const node of graph.nodes) {
+      if (node && node.id) {
+        nodeMap.set(node.id, node);
+      }
+    }
 
-    // Render parameter reference lines (subtle lines for =node_X references)
-    this._renderParameterReferences(graph.nodes);
+    // Render connections/wires
+    this._renderConnections(graph.connections, nodeMap);
+
+    // PERFORMANCE: Skip parameter reference lines during interactions (minor visual detail)
+    if (!isInteracting) {
+      // Render parameter reference lines (subtle lines for =node_X references)
+      this._renderParameterReferences(graph.nodes, nodeMap);
+    }
 
     // Render drag wire if active
     if (renderState.dragWire) {
-      this._renderDragWire(renderState.dragWire, graph.nodes, graph.connections);
+      this._renderDragWire(renderState.dragWire, nodeMap, graph.connections);
     }
 
     // Render nodes
@@ -106,13 +123,14 @@ export class Renderer {
     ctx.restore();
   }
 
-  _renderConnections(connections, nodes) {
+  _renderConnections(connections, nodeMap) {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
     for (const c of connections) {
-      const fromNode = nodes.find((n) => n.id === c.from.nodeId);
-      const toNode = nodes.find((n) => n.id === c.to.nodeId);
+      // PERFORMANCE: Use Map lookup instead of linear search
+      const fromNode = nodeMap.get(c.from.nodeId);
+      const toNode = nodeMap.get(c.to.nodeId);
       if (!fromNode || !toNode) continue;
 
       const fromPos = this._getOutputPinPosition(fromNode, c.from.pin);
@@ -129,7 +147,7 @@ export class Renderer {
     }
   }
 
-  _renderParameterReferences(nodes) {
+  _renderParameterReferences(nodes, nodeMap) {
     const ctx = this.ctx;
 
     // Extract parameter references from all nodes
@@ -199,9 +217,10 @@ export class Renderer {
     ctx.restore();
   }
 
-  _renderDragWire(dragWire, nodes, connections) {
+  _renderDragWire(dragWire, nodeMap, connections) {
     const ctx = this.ctx;
-    const fromNode = nodes.find((n) => n.id === dragWire.from.nodeId);
+    // PERFORMANCE: Use Map lookup instead of linear search
+    const fromNode = nodeMap.get(dragWire.from.nodeId);
     if (!fromNode) return;
 
     let fromPos, srcType;
@@ -217,7 +236,8 @@ export class Renderer {
       );
 
       if (existingConnection) {
-        const sourceNode = nodes.find((n) => n.id === existingConnection.from.nodeId);
+        // PERFORMANCE: Use Map lookup instead of linear search
+        const sourceNode = nodeMap.get(existingConnection.from.nodeId);
         if (sourceNode) {
           srcType = NodeDefs[sourceNode.kind]?.pinsOut?.[existingConnection.from.pin]?.type || "default";
         } else {
