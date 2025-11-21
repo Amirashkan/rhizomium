@@ -2515,6 +2515,10 @@ function handleRenderFrame(frameState) {
   // When dragging parameters, we don't need to update anything
   // All updates happen once on mouseup
   const isDragging = editor?._parameterDragging || false;
+  
+  // PERFORMANCE: Skip GPU rendering during canvas interactions (pan, drag, etc.)
+  // This prevents GPU and canvas from competing for resources, causing FPS drops
+  const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
 
   // PERFORMANCE: Skip expensive operations during drag, but keep basic rendering
   // Update timeline manager (only if not dragging)
@@ -2527,12 +2531,12 @@ function handleRenderFrame(frameState) {
     timelinePanel.update();
   }
 
-  // GPU rendering - ALWAYS render for visual feedback
+  // GPU rendering - Skip during canvas interactions to prevent FPS drops
   // Check if compute shader test is active
   if (computeShaderTest && computeShaderTest.isEnabled) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
-  } else if (window.gpuRenderer) {
+  } else if (window.gpuRenderer && !isCanvasInteracting) {
     // Normal rendering - render() is async and handles compute shaders
     const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
 
