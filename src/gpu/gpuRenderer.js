@@ -729,8 +729,10 @@ export class GPURenderer {
       return;
     }
 
-    // Rebuild bind groups with updated texture resources
-    this.bindGroups = this.bindGroups.map((_, layoutIndex) => {
+    // PERFORMANCE: Rebuild bind groups with updated texture resources
+    // Use for loop instead of map to avoid creating intermediate arrays (reduces GC pressure)
+    const newBindGroups = [];
+    for (let layoutIndex = 0; layoutIndex < this.bindGroups.length; layoutIndex++) {
       const entries = [];
 
       // Collect all resources for this group
@@ -754,11 +756,12 @@ export class GPURenderer {
       // Sort entries by binding number to ensure correct order
       entries.sort((a, b) => a.binding - b.binding);
 
-      return this.device.createBindGroup({
+      newBindGroups.push(this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(layoutIndex),
         entries,
-      });
-    });
+      }));
+    }
+    this.bindGroups = newBindGroups;
 
     // Mark that we've updated the bind groups
     texManager.bindGroup = {};
@@ -812,8 +815,10 @@ export class GPURenderer {
       return;
     }
 
-    // Rebuild bind groups with updated compute texture resources
-    this.bindGroups = this.bindGroups.map((_, layoutIndex) => {
+    // PERFORMANCE: Rebuild bind groups with updated compute texture resources
+    // Use for loop instead of map to avoid creating intermediate arrays (reduces GC pressure)
+    const newBindGroups = [];
+    for (let layoutIndex = 0; layoutIndex < this.bindGroups.length; layoutIndex++) {
       const entries = [];
 
       // Collect all resources for this group
@@ -837,11 +842,12 @@ export class GPURenderer {
       // Sort entries by binding number to ensure correct order
       entries.sort((a, b) => a.binding - b.binding);
 
-      return this.device.createBindGroup({
+      newBindGroups.push(this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(layoutIndex),
         entries,
-      });
-    });
+      }));
+    }
+    this.bindGroups = newBindGroups;
 
   }
 

@@ -203,44 +203,70 @@ export class ComputeProfilerOverlay {
 
   /**
    * Update overlay with new metrics
+   * PERFORMANCE: Reuse DOM elements instead of clearing and recreating to avoid GC pressure
    */
   update(metrics) {
     if (!this.visible) return;
 
-    // Clear existing metrics
-    this.metricsSection.innerHTML = '';
+    // PERFORMANCE: Reuse existing metric elements instead of clearing and recreating
+    // This avoids expensive DOM manipulation and reduces GC pressure
+    if (!this._metricElements) {
+      // First time: create elements
+      this._metricElements = {};
+      this.metricsSection.innerHTML = '';
+      
+      // FPS
+      const fps = this._createMetricRow('FPS', '0.0', '#00ff00');
+      this.metricsSection.appendChild(fps.labelEl);
+      this.metricsSection.appendChild(fps.valueEl);
+      this._metricElements.fps = fps;
 
+      // Frame time
+      const frameTime = this._createMetricRow('Frame Time', '0.00 ms', '#00ff00');
+      this.metricsSection.appendChild(frameTime.labelEl);
+      this.metricsSection.appendChild(frameTime.valueEl);
+      this._metricElements.frameTime = frameTime;
+
+      // Dispatch time
+      const dispatchTime = this._createMetricRow('Compute Time', '0.00 ms', '#00ff00');
+      this.metricsSection.appendChild(dispatchTime.labelEl);
+      this.metricsSection.appendChild(dispatchTime.valueEl);
+      this._metricElements.dispatchTime = dispatchTime;
+
+      // Active dispatches
+      const dispatches = this._createMetricRow('Dispatches', '0');
+      this.metricsSection.appendChild(dispatches.labelEl);
+      this.metricsSection.appendChild(dispatches.valueEl);
+      this._metricElements.dispatches = dispatches;
+
+      // Total workgroups
+      const workgroups = this._createMetricRow('Workgroups', '0');
+      this.metricsSection.appendChild(workgroups.labelEl);
+      this.metricsSection.appendChild(workgroups.valueEl);
+      this._metricElements.workgroups = workgroups;
+    }
+
+    // Update existing elements (much faster than recreating)
     // FPS
     const fpsColor = metrics.fps >= 60 ? '#00ff00' : metrics.fps >= 30 ? '#ffaa00' : '#ff4444';
-    const fps = this._createMetricRow('FPS', metrics.fps.toFixed(1), fpsColor);
-    this.metricsSection.appendChild(fps.labelEl);
-    this.metricsSection.appendChild(fps.valueEl);
+    this._metricElements.fps.valueEl.textContent = metrics.fps.toFixed(1);
+    this._metricElements.fps.valueEl.style.color = fpsColor;
 
     // Frame time
     const frameTimeColor = metrics.frameTime <= 16.67 ? '#00ff00' : metrics.frameTime <= 33.33 ? '#ffaa00' : '#ff4444';
-    const frameTime = this._createMetricRow('Frame Time', metrics.frameTime.toFixed(2) + ' ms', frameTimeColor);
-    this.metricsSection.appendChild(frameTime.labelEl);
-    this.metricsSection.appendChild(frameTime.valueEl);
+    this._metricElements.frameTime.valueEl.textContent = metrics.frameTime.toFixed(2) + ' ms';
+    this._metricElements.frameTime.valueEl.style.color = frameTimeColor;
 
     // Dispatch time
     const dispatchTimeColor = metrics.totalDispatchTime <= 5 ? '#00ff00' : metrics.totalDispatchTime <= 10 ? '#ffaa00' : '#ff4444';
-    const dispatchTime = this._createMetricRow(
-      'Compute Time',
-      metrics.totalDispatchTime.toFixed(2) + ' ms',
-      dispatchTimeColor
-    );
-    this.metricsSection.appendChild(dispatchTime.labelEl);
-    this.metricsSection.appendChild(dispatchTime.valueEl);
+    this._metricElements.dispatchTime.valueEl.textContent = metrics.totalDispatchTime.toFixed(2) + ' ms';
+    this._metricElements.dispatchTime.valueEl.style.color = dispatchTimeColor;
 
     // Active dispatches
-    const dispatches = this._createMetricRow('Dispatches', metrics.activeWorkgroups.toString());
-    this.metricsSection.appendChild(dispatches.labelEl);
-    this.metricsSection.appendChild(dispatches.valueEl);
+    this._metricElements.dispatches.valueEl.textContent = metrics.activeWorkgroups.toString();
 
     // Total workgroups
-    const workgroups = this._createMetricRow('Workgroups', metrics.totalWorkgroups.toLocaleString());
-    this.metricsSection.appendChild(workgroups.labelEl);
-    this.metricsSection.appendChild(workgroups.valueEl);
+    this._metricElements.workgroups.valueEl.textContent = metrics.totalWorkgroups.toLocaleString();
 
     // Timestamp support
     const tsSupport = this._createMetricRow(
