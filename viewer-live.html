@@ -2550,13 +2550,22 @@
                         if (matches) {
                             const value = this.uniformValuesArray[i];
                             if (value !== undefined) {
-                                // CRITICAL: Always use the live value from uniformValuesArray
-                                // This ensures real-time updates during parameter drag
-                                // However, for boolean parameters with default true (like 'colorize'),
-                                // if the value is 0 and the default is true, we need to check if it's
-                                // actually explicitly set. For now, we'll use the value as-is and let
-                                // the uniform packing logic handle the default.
-                                params[paramName] = value;
+                                // CRITICAL: Check if the original value in defaultParams is an expression string
+                                // If it contains 'time' or 'audioEnvelope', preserve the expression string
+                                // instead of overwriting it with the numeric value from uniformValuesArray
+                                const originalValue = defaultParams?.[paramName];
+                                const isExpression = typeof originalValue === 'string' && 
+                                    (originalValue.trim().startsWith('=') || /\btime\b/.test(originalValue) || /\baudioEnvelope/.test(originalValue));
+                                
+                                if (isExpression) {
+                                    // Preserve the expression string - it will be evaluated each frame
+                                    // Don't overwrite with numeric value from uniformValuesArray
+                                    // The expression string is already in params from the Object.assign above
+                                } else {
+                                    // Not an expression - use the live value from uniformValuesArray
+                                    // This ensures real-time updates during parameter drag
+                                    params[paramName] = value;
+                                }
                             }
                         }
                     }
