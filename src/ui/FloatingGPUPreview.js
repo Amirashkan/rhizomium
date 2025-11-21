@@ -25,11 +25,39 @@ export class FloatingGPUPreview {
     this.settings = new PreviewSettings(this);
     this.fpsCounter = new FPSCounter();
     
+    // Setup performance monitoring callback
+    this.fpsCounter.onPerformanceDrop = (avgFrameTime) => {
+      this._handlePerformanceDrop(avgFrameTime);
+    };
+    
     this.animationLoop = null;
     // Track previous canvas size to avoid unnecessary rebuilds
     this._lastCanvasSize = { width: 0, height: 0 };
+    // Performance optimization: track low FPS periods to reduce backdrop-filter
+    this._lowFpsMode = false;
+    this._performanceDropCount = 0;
     this._setupParameterListeners();
     this._setupAnimationLoop();
+  }
+  
+  _handlePerformanceDrop(avgFrameTime) {
+    // If we see multiple performance drops, temporarily reduce backdrop-filter
+    this._performanceDropCount++;
+    
+    if (this._performanceDropCount >= 3 && !this._lowFpsMode && this.container) {
+      // Reduce backdrop-filter blur to improve performance
+      this._lowFpsMode = true;
+      this.container.style.backdropFilter = 'blur(5px)';
+      
+      // Reset after 5 seconds of good performance
+      setTimeout(() => {
+        this._performanceDropCount = 0;
+        if (this._lowFpsMode && this.container) {
+          this._lowFpsMode = false;
+          this.container.style.backdropFilter = 'blur(20px)';
+        }
+      }, 5000);
+    }
   }
 
 _setupParameterListeners() {
@@ -405,7 +433,9 @@ async show() {
       width: ${width * dockedScale + padding}px;
       height: ${height * dockedScale + headerHeight + padding}px;
       background: rgba(20, 20, 22, 0.95);
+      /* PERFORMANCE: backdrop-filter can cause periodic FPS drops, use will-change for optimization */
       backdrop-filter: blur(20px);
+      will-change: transform, opacity;
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 12px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -439,7 +469,9 @@ async show() {
         width: ${displayWidth + padding}px;
         height: ${displayHeight + headerHeight + padding}px;
         background: rgba(20, 20, 22, 0.95);
+        /* PERFORMANCE: backdrop-filter can cause periodic FPS drops, use will-change for optimization */
         backdrop-filter: blur(20px);
+        will-change: transform, opacity;
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 12px;
         box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
@@ -552,6 +584,11 @@ canvasWrapper.style.cssText = `
     `;
     fpsOverlay.textContent = "FPS: --";
     canvasWrapper.appendChild(fpsOverlay);
+    
+    // Refresh FPS counter element cache after creating overlay
+    if (this.fpsCounter) {
+      this.fpsCounter.refreshElementCache();
+    }
 
     const debugOverlay = document.createElement("div");
     debugOverlay.className = "debug-overlay";
@@ -778,6 +815,13 @@ class FPSCounter {
     this.lastTime = performance.now();
     this.isRunning = false;
     this.updateInterval = null;
+    // Cache FPS overlay element to avoid DOM queries
+    this.fpsOverlayElement = null;
+    // Track frame times to detect performance issues
+    this.frameTimes = [];
+    this.maxFrameTimeHistory = 60; // Keep last 60 frame times
+    // Use RAF for updates instead of setInterval for better performance
+    this.rafHandle = null;
   }
 
   start() {
@@ -786,10 +830,23 @@ class FPSCounter {
     this.isRunning = true;
     this.frameCount = 0;
     this.lastTime = performance.now();
+    this.frameTimes = [];
 
-    this.updateInterval = setInterval(() => {
+    // Cache FPS overlay element once
+    if (!this.fpsOverlayElement) {
+      this.fpsOverlayElement = document.querySelector(".fps-overlay");
+    }
+
+    // Use requestAnimationFrame instead of setInterval for better performance
+    // This aligns with the render loop and avoids timer overhead
+    const updateLoop = () => {
+      if (!this.isRunning) return;
+      
       this._updateFPS();
-    }, 100);
+      this.rafHandle = requestAnimationFrame(updateLoop);
+    };
+    
+    this.rafHandle = requestAnimationFrame(updateLoop);
   }
 
   stop() {
@@ -798,11 +855,46 @@ class FPSCounter {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
     }
+    if (this.rafHandle !== null) {
+      cancelAnimationFrame(this.rafHandle);
+      this.rafHandle = null;
+    }
+    // Clear cached element reference
+    this.fpsOverlayElement = null;
   }
 
   frame() {
     if (this.isRunning) {
       this.frameCount++;
+      
+      // Track frame time for performance monitoring
+      const now = performance.now();
+      if (this.frameTimes.length > 0) {
+        const frameTime = now - this.frameTimes[this.frameTimes.length - 1];
+        this.frameTimes.push(now);
+        if (this.frameTimes.length > this.maxFrameTimeHistory) {
+          this.frameTimes.shift();
+        }
+        
+        // Detect sudden frame time spikes (>33ms = <30fps)
+        if (frameTime > 33 && this.frameTimes.length >= 10) {
+          // Calculate average frame time over last 10 frames
+          const recentTimes = this.frameTimes.slice(-10);
+          const avgFrameTime = recentTimes.reduce((sum, time, i, arr) => {
+            if (i === 0) return 0;
+            return sum + (time - arr[i - 1]);
+          }, 0) / 9;
+          
+          if (avgFrameTime > 33) {
+            // Performance drop detected - notify parent to potentially reduce backdrop-filter
+            if (this.onPerformanceDrop) {
+              this.onPerformanceDrop(avgFrameTime);
+            }
+          }
+        }
+      } else {
+        this.frameTimes.push(now);
+      }
     }
   }
 
@@ -810,15 +902,26 @@ class FPSCounter {
     const now = performance.now();
     const delta = now - this.lastTime;
 
+    // Update FPS display every second
     if (delta >= 1000) {
       this.fps = Math.round((this.frameCount * 1000) / delta);
       this.frameCount = 0;
       this.lastTime = now;
 
-      const fpsOverlay = document.querySelector(".fps-overlay");
-      if (fpsOverlay) {
-        fpsOverlay.textContent = `FPS: ${this.fps}`;
+      // Use cached element reference instead of DOM query
+      if (!this.fpsOverlayElement) {
+        this.fpsOverlayElement = document.querySelector(".fps-overlay");
+      }
+      
+      if (this.fpsOverlayElement) {
+        // Use textContent instead of innerHTML for better performance
+        this.fpsOverlayElement.textContent = `FPS: ${this.fps}`;
       }
     }
+  }
+  
+  // Method to refresh cached element reference (call when DOM changes)
+  refreshElementCache() {
+    this.fpsOverlayElement = document.querySelector(".fps-overlay");
   }
 }
