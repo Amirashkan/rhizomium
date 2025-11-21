@@ -96,16 +96,18 @@ export class EventHandler {
   _startContinuousWarmup() {
     this._stopContinuousWarmup(); // Clear any existing timer
     
-    // Warm up every 2 seconds when idle to keep things ready
+    // Warm up VERY frequently when idle to keep things ready
     this._warmupTimer = setInterval(() => {
       const now = Date.now();
       const timeSinceLastInteraction = now - this._lastInteractionTime;
       
-      // Only warm up if truly idle (no interaction for 1 second)
-      if (timeSinceLastInteraction > 1000) {
+      // Only warm up if truly idle (no interaction for 300ms)
+      if (timeSinceLastInteraction > 300) {
         // Do a lighter warmup in the background
         if (this.editor?.renderLoopController) {
           try {
+            // Do 2 renders to keep GPU pipeline active
+            this.editor.renderLoopController.renderNow({ advance: false });
             this.editor.renderLoopController.renderNow({ advance: false });
           } catch (error) {
             // Silently fail - this is background warmup
@@ -117,13 +119,32 @@ export class EventHandler {
             if (typeof this.editor.markDirty === 'function') {
               this.editor.markDirty('background-warmup');
             }
+            // Do 2 draws to keep canvas context active
+            this.onDraw();
             this.onDraw();
           } catch (error) {
             // Silently fail - this is background warmup
           }
         }
+        
+        // Pre-warm expensive operations like getBoundingClientRect
+        // This prevents lag when these are called during actual interaction
+        if (this.canvas) {
+          try {
+            // Pre-warm getBoundingClientRect - this can be slow on first use
+            this.canvas.getBoundingClientRect();
+            // Pre-warm viewport calculations with multiple calls
+            if (this.viewport) {
+              this.viewport.screenToCanvas(0, 0);
+              this.viewport.screenToCanvas(100, 100);
+              this.viewport.screenToCanvas(500, 500);
+            }
+          } catch (error) {
+            // Silently fail
+          }
+        }
       }
-    }, 2000); // Every 2 seconds
+    }, 500); // Every 500ms - very frequent to keep things warm
   }
 
   _stopContinuousWarmup() {
@@ -180,6 +201,17 @@ export class EventHandler {
       // AGGRESSIVE canvas warmup: Force multiple draws to wake up 2D context
       if (this.editor) {
         try {
+          // Pre-warm expensive DOM operations that might be slow on first use
+          if (this.canvas) {
+            // Pre-warm getBoundingClientRect - this can be slow on first use
+            this.canvas.getBoundingClientRect();
+            // Pre-warm viewport calculations
+            if (this.viewport) {
+              this.viewport.screenToCanvas(0, 0);
+              this.viewport.screenToCanvas(100, 100);
+            }
+          }
+          
           // Mark canvas as dirty to force draws
           if (typeof this.editor.markDirty === 'function') {
             this.editor.markDirty('warmup');
@@ -205,6 +237,9 @@ export class EventHandler {
             ctx.stroke();
             ctx.fillRect(0, 0, 1, 1);
             ctx.clearRect(0, 0, 1, 1);
+            // Touch transform operations
+            ctx.translate(0, 0);
+            ctx.scale(1, 1);
             ctx.restore();
           }
         } catch (error) {
@@ -213,9 +248,10 @@ export class EventHandler {
       }
       
       // Keep the flag active longer to ensure first few interactions bypass RAF
+      // This ensures multiple frames after warmup use immediate updates
       setTimeout(() => {
         this._justWarmedUp = false;
-      }, 300);
+      }, 500);
     }
 
     // Update last interaction time
@@ -551,7 +587,12 @@ export class EventHandler {
       this._lastMouseMoveTime = now;
       
       // If there's been any pause at all, warm up proactively
+      // Also pre-warm getBoundingClientRect which is called in _getCanvasPosition
       if (timeSinceLastMove > this._inactivityThreshold) {
+        // Pre-warm getBoundingClientRect BEFORE warmup to prevent lag
+        if (this.canvas) {
+          this.canvas.getBoundingClientRect();
+        }
         this._checkAndWarmupAfterInactivity();
       }
 
