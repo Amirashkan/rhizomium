@@ -32,11 +32,13 @@ export class EventHandler {
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
     this._lastMouseMoveTime = Date.now();
-    this._inactivityThreshold = 50; // 50ms - warm up after any tiny pause
+    this._inactivityThreshold = 100; // 100ms - warm up after any pause (reduced from 50ms to avoid too frequent warmups)
     this._justWarmedUp = false; // Track if we just warmed up to bypass RAF on first frame
     this._warmupTimer = null; // Timer for continuous background warmup
     this._firstFrameOfInteraction = false; // Track first frame of any interaction
     this._interactionStartTime = 0; // Track when interaction started
+    this._nodeDragUpdateCount = 0; // Track number of node drag updates for immediate rendering
+    this._panUpdateCount = 0; // Track number of pan updates for immediate rendering
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -103,12 +105,14 @@ export class EventHandler {
       const now = Date.now();
       const timeSinceLastInteraction = now - this._lastInteractionTime;
       
-      // Only warm up if truly idle (no interaction for 300ms)
-      if (timeSinceLastInteraction > 300) {
-        // Do a lighter warmup in the background
+      // Only warm up if truly idle (no interaction for 500ms)
+      // More aggressive warmup to prevent lag after short pauses
+      if (timeSinceLastInteraction > 500) {
+        // Do a lighter warmup in the background - more aggressive
         if (this.editor?.renderLoopController) {
           try {
-            // Do 2 renders to keep GPU pipeline active
+            // Do 3 renders to keep GPU pipeline hot
+            this.editor.renderLoopController.renderNow({ advance: false });
             this.editor.renderLoopController.renderNow({ advance: false });
             this.editor.renderLoopController.renderNow({ advance: false });
           } catch (error) {
@@ -121,7 +125,8 @@ export class EventHandler {
             if (typeof this.editor.markDirty === 'function') {
               this.editor.markDirty('background-warmup');
             }
-            // Do 2 draws to keep canvas context active
+            // Do 3 draws to keep canvas context active
+            this.onDraw();
             this.onDraw();
             this.onDraw();
           } catch (error) {
@@ -146,7 +151,7 @@ export class EventHandler {
           }
         }
       }
-    }, 500); // Every 500ms - very frequent to keep things warm
+    }, 300); // Every 300ms - very frequent to keep things warm and prevent lag
   }
 
   _stopContinuousWarmup() {
@@ -185,14 +190,20 @@ export class EventHandler {
     // If inactive for more than threshold, warm up GPU and canvas synchronously
     if (timeSinceLastInteraction > this._inactivityThreshold) {
       this._justWarmedUp = true; // Mark that we just warmed up
+      // CRITICAL: Set interaction start time NOW so immediate updates work for first movement
+      if (!this._interactionStartTime || timeSinceLastInteraction > 100) {
+        this._interactionStartTime = now;
+      }
       
       // ULTRA-AGGRESSIVE warmup: Many synchronous renders to fully wake up GPU pipeline
       // The longer the inactivity, the more aggressive the warmup needed
-      const warmupIntensity = Math.min(10, Math.floor(timeSinceLastInteraction / 1000) + 5);
+      // For 2+ seconds, do at least 10 renders to fully wake up the pipeline
+      const warmupIntensity = Math.min(15, Math.floor(timeSinceLastInteraction / 500) + 8);
       
       if (this.editor?.renderLoopController) {
         try {
           // Many renders to fully warm up GPU pipeline - more if inactive longer
+          // Do them synchronously to ensure they complete before first interaction
           for (let i = 0; i < warmupIntensity; i++) {
             this.editor.renderLoopController.renderNow({ advance: false });
           }
@@ -221,10 +232,11 @@ export class EventHandler {
           }
           
           // Force many immediate draws to wake up canvas context
-          // More draws if inactive longer
-          const drawWarmupCount = Math.min(5, Math.floor(timeSinceLastInteraction / 1000) + 3);
+          // More draws if inactive longer - ULTRA AGGRESSIVE for node dragging
+          const drawWarmupCount = Math.min(10, Math.floor(timeSinceLastInteraction / 500) + 5);
           if (this.onDraw && typeof this.onDraw === 'function') {
             // Many draws to ensure context is fully ready
+            // Do them synchronously to ensure they complete before first interaction
             for (let i = 0; i < drawWarmupCount; i++) {
               this.onDraw();
             }
@@ -254,7 +266,9 @@ export class EventHandler {
       
       // Keep the flag active longer to ensure first few interactions bypass RAF
       // Longer inactivity = longer immediate update window needed
-      const immediateWindow = Math.min(2000, timeSinceLastInteraction + 500);
+      // For 2+ seconds of inactivity, keep immediate updates for at least 3 seconds
+      // This ensures smooth dragging even after longer pauses
+      const immediateWindow = Math.max(3000, Math.min(4000, timeSinceLastInteraction + 1500));
       setTimeout(() => {
         this._justWarmedUp = false;
       }, immediateWindow);
@@ -312,19 +326,24 @@ export class EventHandler {
           }
 
           // Only schedule one update per animation frame for performance
-          // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
-          // Longer inactivity = longer immediate update window needed
+          // BUT: Always do immediate update for first pan movements to prevent lag
+          // Use counter-based approach for more reliable immediate updates
           const now = Date.now();
-          const timeSinceStart = now - (this._interactionStartTime || now);
-          const immediateWindow = Math.max(1000, Math.min(3000, timeSinceStart < 100 ? 2000 : 1500));
-          const isFirstPeriod = !this._panUpdateScheduled || timeSinceStart < immediateWindow;
+          // Ensure interaction start time is set (should be set by warmup, but ensure it's set)
+          if (!this._interactionStartTime) {
+            this._interactionStartTime = now;
+          }
+          const timeSinceStart = now - this._interactionStartTime;
+          // For panning, ALWAYS use immediate updates for first 20 pan updates
+          // This ensures smooth panning without any lag after inactivity
+          const shouldUseImmediate = this._panUpdateCount < 20 || timeSinceStart < 3000 || this._justWarmedUp;
           
-          if ((this._justWarmedUp || isFirstPeriod) && this._pendingPanUpdate) {
-            // Immediate update - bypass RAF to prevent lag during first second
+          if (shouldUseImmediate && this._pendingPanUpdate) {
+            // Immediate update - bypass RAF to prevent lag during first period
             // Do this synchronously to ensure it happens before any other processing
-            if (isFirstPeriod && !this._interactionStartTime) {
-              this._interactionStartTime = now;
-            }
+            
+            // CRITICAL: Increment pan update count
+            this._panUpdateCount++;
             
             const { clientX, clientY } = this._pendingPanUpdate;
             this._pendingPanUpdate = null;
@@ -481,6 +500,12 @@ export class EventHandler {
       // Warm up GPU/canvas IMMEDIATELY on mousedown - don't wait for movement
       // This ensures everything is ready before the first mousemove event
       this._checkAndWarmupAfterInactivity();
+      
+      // Pre-warm getBoundingClientRect before calling _getCanvasPosition
+      // This prevents lag on the first call after inactivity
+      if (this.canvas) {
+        this.canvas.getBoundingClientRect();
+      }
 
       const pos = this._getCanvasPosition(e);
 
@@ -555,6 +580,8 @@ export class EventHandler {
           moved: false,
         };
         this.viewport.startPan(e.clientX, e.clientY);
+        // CRITICAL: Reset pan update count to force immediate updates for first pan movements
+        this._panUpdateCount = 0;
         // Mark interaction start time for first-frame immediate updates
         this._interactionStartTime = Date.now();
         return;
@@ -579,13 +606,39 @@ export class EventHandler {
 
       // Start node drag
       this.selection.startDrag(clicked.id, pos.x, pos.y);
+      
+      // CRITICAL: Reset drag update count to force immediate updates for first drag movements
+      this._nodeDragUpdateCount = 0;
+      
+      // CRITICAL: Set interaction start time NOW so immediate updates work for first drag movement
+      // This ensures the first few drag updates bypass RAF and are synchronous
+      const dragStartTime = Date.now();
+      if (!this._interactionStartTime || (dragStartTime - this._lastInteractionTime) > 100) {
+        this._interactionStartTime = dragStartTime;
+      }
+      
+      // CRITICAL: Pre-warm snap calculations that happen during drag
+      // This prevents lag on first drag update
+      if (this.selection && typeof this.selection.applySnap === 'function') {
+        // Pre-warm snap with a few test values
+        this.selection.applySnap(pos.x, pos.y);
+        this.selection.applySnap(pos.x + 10, pos.y + 10);
+        this.selection.applySnap(pos.x + 20, pos.y + 20);
+      }
 
       // Notify shader preview manager of drag start (for throttling)
       if (this.editor?.shaderPreviewManager) {
         this.editor.shaderPreviewManager.beginInteraction('drag');
       }
 
-      this._requestDraw('node-drag-start');
+      // CRITICAL: Do an IMMEDIATE synchronous draw right after starting drag
+      // This ensures the canvas is ready and nodes are rendered before first mousemove
+      if (this.editor && typeof this.editor.markDirty === 'function') {
+        this.editor.markDirty('node-drag-start-immediate');
+      }
+      if (this.onDraw && typeof this.onDraw === 'function') {
+        this.onDraw(); // Synchronous draw - don't use RAF
+      }
     });
 
     // Click handler to prevent double-click from bubbling
@@ -655,15 +708,34 @@ export class EventHandler {
         // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
         // Longer inactivity = longer immediate update window needed
         const now = Date.now();
+        // Ensure interaction start time is set (should be set by warmup, but ensure it's set)
+        if (!this._interactionStartTime) {
+          this._interactionStartTime = now;
+        }
         const timeSinceStart = now - this._interactionStartTime;
-        const immediateWindow = Math.max(1000, Math.min(3000, timeSinceStart < 100 ? 2000 : 1500));
+        // For 2+ seconds of inactivity, use longer immediate window (3 seconds)
+        // ALWAYS use immediate updates for first 3 seconds after any warmup or interaction start
+        const immediateWindow = this._justWarmedUp ? 3000 : Math.max(2000, Math.min(3000, 2500));
         const isFirstPeriod = !this._dragUpdateScheduled || timeSinceStart < immediateWindow;
         
-        if ((this._justWarmedUp || isFirstPeriod) && this._pendingDragEvent) {
+        // CRITICAL: For node dragging, ALWAYS use immediate updates for first 20 drag updates
+        // This ensures smooth dragging without any lag after inactivity
+        // Use count-based approach instead of time-based for more reliable immediate updates
+        const isNodeDragging = this.selection?.getDragging();
+        const shouldUseImmediate = isNodeDragging 
+          ? (this._nodeDragUpdateCount < 20 || timeSinceStart < 3000)
+          : (this._justWarmedUp || isFirstPeriod);
+        
+        if (shouldUseImmediate && this._pendingDragEvent) {
           // Immediate update - bypass RAF to prevent lag during first period
           // Do this synchronously to ensure it happens before any other processing
-          if (isFirstPeriod && !this._interactionStartTime) {
-            this._interactionStartTime = now;
+          
+          // Pre-warm getBoundingClientRect before first drag update to prevent lag
+          if (this.canvas && this._justWarmedUp) {
+            this.canvas.getBoundingClientRect();
+            if (this.viewport) {
+              this.viewport.screenToCanvas(0, 0);
+            }
           }
           
           const pendingEvent = this._pendingDragEvent;
@@ -704,13 +776,25 @@ export class EventHandler {
 
           // Handle node dragging
           if (this.selection.getDragging()) {
+            // CRITICAL: Increment drag update count
+            this._nodeDragUpdateCount++;
+            
+            // CRITICAL: Ensure interaction start time is set (should be set in mousedown, but ensure it)
+            if (!this._interactionStartTime) {
+              this._interactionStartTime = now;
+            }
+            
+            // CRITICAL: Update drag position
             this.selection.updateDrag(pos.x, pos.y);
-            // Force immediate synchronous draw - don't use RAF
+            
+            // CRITICAL: Force immediate synchronous draw - ALWAYS bypass RAF for first period
+            // This ensures smooth dragging without lag
             if (this.editor && typeof this.editor.markDirty === 'function') {
               this.editor.markDirty('node-drag-immediate');
             }
             if (this.onDraw && typeof this.onDraw === 'function') {
-              this.onDraw(); // Synchronous draw
+              // Synchronous draw - this MUST be immediate, not batched
+              this.onDraw();
             }
           }
         } else if (!this._dragUpdateScheduled) {
@@ -762,9 +846,14 @@ export class EventHandler {
       // Clear any pending drag updates
       this._pendingDragEvent = null;
       this._dragUpdateScheduled = false;
+      // Clear any pending pan updates
+      this._pendingPanUpdate = null;
+      this._panUpdateScheduled = false;
       // Reset interaction tracking
       this._interactionStartTime = 0;
       this._firstFrameOfInteraction = false;
+      this._nodeDragUpdateCount = 0; // Reset drag update count
+      this._panUpdateCount = 0; // Reset pan update count
 
       const pos = this._getCanvasPosition(e);
 
