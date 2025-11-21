@@ -539,11 +539,23 @@
             }
 
             handleParameterUpdate(data) {
-                const { uniformValues, uniformKeys, computeNodeParams, audioEnvelope, time } = data;
+                const { uniformValues, uniformKeys, computeNodeParams, audioEnvelope, nodeOutputValues, time } = data;
 
                 // Update uniformKeys if provided (they may change if new parameters are added)
                 if (uniformKeys && Array.isArray(uniformKeys)) {
                     this.uniformKeys = uniformKeys;
+                }
+
+                // CRITICAL: Update node output values when parameters change
+                // This ensures that when a node with expressions (time/audio) changes,
+                // nodes that reference it (e.g., =node_X) get updated values
+                if (nodeOutputValues && typeof nodeOutputValues === 'object') {
+                    for (const [nodeId, value] of Object.entries(nodeOutputValues)) {
+                        this.nodeOutputValues.set(nodeId, value);
+                    }
+                    if (this.paramUpdateCount <= 3) {
+                        console.log('[LiveViewer] Updated', Object.keys(nodeOutputValues).length, 'node output values from parameter update');
+                    }
                 }
 
                 // Update parameter values if provided

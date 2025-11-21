@@ -515,12 +515,18 @@ export class LiveShaderStream {
             };
         }
 
+        // CRITICAL: Recompute node output values when parameters change
+        // This ensures that when a node with expressions (time/audio) changes,
+        // nodes that reference it (e.g., =node_X) get updated values in the viewer
+        const nodeOutputValues = this._computeNodeOutputValues();
+
         const message = {
             type: 'parameter_update',
             uniformValues: uniformValues,
             uniformKeys: uniformKeys, // Include keys for mapping
             computeNodeParams: computeNodeParams, // Include compute node params if provided
             audioEnvelope: audioEnvelope, // Include audio envelope values
+            nodeOutputValues: nodeOutputValues, // Include updated node output values for parameter references
             time: time,
             timestamp: Date.now()
         };
