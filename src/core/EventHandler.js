@@ -82,15 +82,29 @@ export class EventHandler {
     const now = Date.now();
     const timeSinceLastInteraction = now - this._lastInteractionTime;
 
-    // If inactive for more than threshold, warm up GPU synchronously
+    // If inactive for more than threshold, warm up GPU and canvas synchronously
     if (timeSinceLastInteraction > this._inactivityThreshold) {
-      // Force immediate synchronous render to warm up GPU resources
+      // Force immediate synchronous renders to warm up GPU and canvas resources
+      // Multiple renders ensure GPU pipeline is fully warmed up
       // This prevents lag on first action after inactivity
       if (this.editor?.renderLoopController) {
         try {
+          // First render - wakes up GPU pipeline
+          this.editor.renderLoopController.renderNow({ advance: false });
+          // Second render - ensures canvas 2D context is warmed up
           this.editor.renderLoopController.renderNow({ advance: false });
         } catch (error) {
           console.warn('[EventHandler] GPU warmup after inactivity failed:', error);
+        }
+      }
+      
+      // Also force a canvas draw to warm up 2D rendering context
+      // This ensures canvas operations are ready before first interaction
+      if (this.onDraw && typeof this.onDraw === 'function') {
+        try {
+          this.onDraw();
+        } catch (error) {
+          console.warn('[EventHandler] Canvas warmup after inactivity failed:', error);
         }
       }
     }
@@ -134,10 +148,6 @@ export class EventHandler {
       (e) => {
         // Check if we're currently panning
         if (this.viewport.isPanning()) {
-          // Warm up GPU if user has been inactive - check on first pan movement
-          // This prevents lag on first pan action after inactivity
-          this._checkAndWarmupAfterInactivity();
-
           // Store the pending pan update position
           this._pendingPanUpdate = { clientX: e.clientX, clientY: e.clientY };
 
@@ -407,6 +417,10 @@ export class EventHandler {
 
     // Mouse move - handle dragging
     window.addEventListener("mousemove", (e) => {
+      // Warm up GPU/canvas on ANY mousemove after inactivity
+      // This must happen BEFORE any other processing to prevent lag
+      this._checkAndWarmupAfterInactivity();
+
       if (this._zoomDragState) {
         return;
       }
@@ -441,10 +455,6 @@ export class EventHandler {
       const isBoxSelecting = this.selection.getBoxSelect();
 
       if (isDraggingWire || isDraggingNodes || isBoxSelecting) {
-        // Warm up GPU if user has been inactive - check on first drag movement
-        // This prevents lag on first drag action after inactivity
-        this._checkAndWarmupAfterInactivity();
-
         // Store the pending event for throttled processing
         this._pendingDragEvent = e;
 
