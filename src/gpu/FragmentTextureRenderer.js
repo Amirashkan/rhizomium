@@ -341,14 +341,33 @@ export class FragmentTextureRenderer {
 
   /**
    * Build hash of fragment node parameters and inputs
+   * PERFORMANCE: Optimized to avoid expensive JSON.stringify calls
    * @private
    */
   _buildFragmentNodeHash(node, time, audioContext) {
+    // PERFORMANCE: Use simple string concatenation instead of JSON.stringify
+    // JSON.stringify is expensive and can cause frame time spikes
     let hash = '';
 
-    // Hash parameters
+    // Hash parameters (fast string concatenation instead of JSON.stringify)
     if (node.params) {
-      hash += JSON.stringify(node.params);
+      // Build hash from parameter values directly without JSON.stringify
+      for (const key in node.params) {
+        if (node.params.hasOwnProperty(key)) {
+          const value = node.params[key];
+          // Convert value to string quickly
+          if (typeof value === 'string') {
+            hash += `${key}:${value};`;
+          } else if (typeof value === 'number') {
+            hash += `${key}:${value};`;
+          } else if (Array.isArray(value)) {
+            hash += `${key}:[${value.join(',')}];`;
+          } else if (value && typeof value === 'object') {
+            // For objects, use a simple representation
+            hash += `${key}:obj;`;
+          }
+        }
+      }
     }
 
     // Hash inputs (texture references)
@@ -476,18 +495,15 @@ export class FragmentTextureRenderer {
       if (shouldSubmit) {
         this.device.queue.submit([encoder.finish()]);
 
-        // CRITICAL: Wait for GPU to finish rendering before returning
-        // Without this, compute shaders may try to read from incomplete textures
-        if (this.device.queue.onSubmittedWorkDone) {
-          await this.device.queue.onSubmittedWorkDone();
-
-        } else {
-
-          // Fallback: Longer delay to give GPU time to finish
-          // 100ms should be more than enough for most GPUs
-          await new Promise(resolve => setTimeout(resolve, 100));
-
-        }
+        // PERFORMANCE: Don't wait for GPU to finish - let it run asynchronously
+        // The command buffer is submitted, GPU will process it
+        // Waiting here causes frame time variance and stutters
+        // Compute shaders will wait for dependencies via proper GPU synchronization
+        // CRITICAL: Removed await to prevent blocking render loop
+        // GPU command buffer submission is sufficient - GPU handles synchronization
+        // If we need to wait, it should be done at the compute shader level, not here
+        // NOTE: This is safe because we're using the same command encoder, so GPU
+        // will execute commands in order and handle synchronization automatically
 
         // Debug: Log texture details after render
 
