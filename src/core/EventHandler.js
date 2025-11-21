@@ -491,6 +491,12 @@ export class EventHandler {
       // Warm up GPU/canvas IMMEDIATELY on mousedown - don't wait for movement
       // This ensures everything is ready before the first mousemove event
       this._checkAndWarmupAfterInactivity();
+      
+      // Pre-warm getBoundingClientRect before calling _getCanvasPosition
+      // This prevents lag on the first call after inactivity
+      if (this.canvas) {
+        this.canvas.getBoundingClientRect();
+      }
 
       const pos = this._getCanvasPosition(e);
 
@@ -589,6 +595,12 @@ export class EventHandler {
 
       // Start node drag
       this.selection.startDrag(clicked.id, pos.x, pos.y);
+      
+      // CRITICAL: Set interaction start time NOW so immediate updates work for first drag movement
+      // This ensures the first few drag updates bypass RAF and are synchronous
+      if (!this._interactionStartTime) {
+        this._interactionStartTime = Date.now();
+      }
 
       // Notify shader preview manager of drag start (for throttling)
       if (this.editor?.shaderPreviewManager) {
@@ -678,6 +690,14 @@ export class EventHandler {
           // Immediate update - bypass RAF to prevent lag during first period
           // Do this synchronously to ensure it happens before any other processing
           
+          // Pre-warm getBoundingClientRect before first drag update to prevent lag
+          if (this.canvas && this._justWarmedUp) {
+            this.canvas.getBoundingClientRect();
+            if (this.viewport) {
+              this.viewport.screenToCanvas(0, 0);
+            }
+          }
+          
           const pendingEvent = this._pendingDragEvent;
           this._pendingDragEvent = null;
           this._dragUpdateScheduled = false;
@@ -716,6 +736,11 @@ export class EventHandler {
 
           // Handle node dragging
           if (this.selection.getDragging()) {
+            // CRITICAL: Ensure interaction start time is set (should be set in mousedown, but ensure it)
+            if (!this._interactionStartTime) {
+              this._interactionStartTime = now;
+            }
+            
             this.selection.updateDrag(pos.x, pos.y);
             // Force immediate synchronous draw - don't use RAF
             if (this.editor && typeof this.editor.markDirty === 'function') {
