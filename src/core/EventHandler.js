@@ -189,6 +189,10 @@ export class EventHandler {
   _markCanvasInteracting() {
     this._isCanvasInteracting = true;
     
+    // PERFORMANCE: Stop continuous warmup during active interactions
+    // This prevents background work from interfering with panning performance
+    this._stopContinuousWarmup();
+    
     // Clear existing timer
     if (this._canvasInteractionEndTimer) {
       clearTimeout(this._canvasInteractionEndTimer);
@@ -198,7 +202,9 @@ export class EventHandler {
     this._canvasInteractionEndTimer = setTimeout(() => {
       this._isCanvasInteracting = false;
       this._canvasInteractionEndTimer = null;
-    }, 100); // 100ms after last interaction
+      // Resume continuous warmup after interaction ends
+      this._startContinuousWarmup();
+    }, 150); // 150ms after last interaction
   }
 
   // Check if canvas is currently being interacted with

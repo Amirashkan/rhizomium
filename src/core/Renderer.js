@@ -130,6 +130,28 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
+    // PERFORMANCE: Viewport culling during interactions - calculate viewport bounds
+    let viewportBounds = null;
+    if (this._isInteracting) {
+      const canvas = ctx.canvas;
+      const scale = this.viewport.scale;
+      const offsetX = this.viewport.offsetX;
+      const offsetY = this.viewport.offsetY;
+      // Calculate world-space bounds of visible area
+      const minX = -offsetX / scale;
+      const maxX = (canvas.width - offsetX) / scale;
+      const minY = -offsetY / scale;
+      const maxY = (canvas.height - offsetY) / scale;
+      // Add padding for bezier curves that might extend beyond nodes
+      const padding = 100;
+      viewportBounds = {
+        minX: minX - padding,
+        maxX: maxX + padding,
+        minY: minY - padding,
+        maxY: maxY + padding
+      };
+    }
+
     for (const c of connections) {
       // PERFORMANCE: Use Map lookup instead of linear search
       const fromNode = nodeMap.get(c.from.nodeId);
@@ -139,6 +161,18 @@ export class Renderer {
       const fromPos = this._getOutputPinPosition(fromNode, c.from.pin);
       const toPos = this._getInputPinPosition(toNode, c.to.pin);
       if (!fromPos || !toPos) continue;
+
+      // PERFORMANCE: Skip connections that are completely off-screen during interactions
+      if (viewportBounds) {
+        const fromInBounds = fromPos.x >= viewportBounds.minX && fromPos.x <= viewportBounds.maxX &&
+                             fromPos.y >= viewportBounds.minY && fromPos.y <= viewportBounds.maxY;
+        const toInBounds = toPos.x >= viewportBounds.minX && toPos.x <= viewportBounds.maxX &&
+                           toPos.y >= viewportBounds.minY && toPos.y <= viewportBounds.maxY;
+        // Skip if both endpoints are outside viewport
+        if (!fromInBounds && !toInBounds) {
+          continue;
+        }
+      }
 
       // Get wire color based on output type
       const srcType =
@@ -265,7 +299,38 @@ export class Renderer {
   }
 
   _renderNodes(nodes, selection) {
+    // PERFORMANCE: Viewport culling during interactions - skip nodes off-screen
+    let viewportBounds = null;
+    if (this._isInteracting) {
+      const canvas = this.ctx.canvas;
+      const scale = this.viewport.scale;
+      const offsetX = this.viewport.offsetX;
+      const offsetY = this.viewport.offsetY;
+      // Calculate world-space bounds of visible area
+      const minX = -offsetX / scale;
+      const maxX = (canvas.width - offsetX) / scale;
+      const minY = -offsetY / scale;
+      const maxY = (canvas.height - offsetY) / scale;
+      // Add padding for nodes that might be partially visible
+      const padding = 200;
+      viewportBounds = {
+        minX: minX - padding,
+        maxX: maxX + padding,
+        minY: minY - padding,
+        maxY: maxY + padding
+      };
+    }
+
     for (const node of nodes) {
+      // PERFORMANCE: Skip nodes that are completely off-screen during interactions
+      if (viewportBounds) {
+        const nodeRight = (node.x || 0) + (node.w || 120);
+        const nodeBottom = (node.y || 0) + (node.h || 80);
+        if (nodeRight < viewportBounds.minX || (node.x || 0) > viewportBounds.maxX ||
+            nodeBottom < viewportBounds.minY || (node.y || 0) > viewportBounds.maxY) {
+          continue; // Node is completely outside viewport
+        }
+      }
       this._renderNode(node, selection.has(node.id));
     }
   }
