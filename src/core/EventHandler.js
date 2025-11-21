@@ -195,11 +195,13 @@ export class EventHandler {
       
       // ULTRA-AGGRESSIVE warmup: Many synchronous renders to fully wake up GPU pipeline
       // The longer the inactivity, the more aggressive the warmup needed
-      const warmupIntensity = Math.min(10, Math.floor(timeSinceLastInteraction / 1000) + 5);
+      // For 2+ seconds, do at least 10 renders to fully wake up the pipeline
+      const warmupIntensity = Math.min(15, Math.floor(timeSinceLastInteraction / 500) + 8);
       
       if (this.editor?.renderLoopController) {
         try {
           // Many renders to fully warm up GPU pipeline - more if inactive longer
+          // Do them synchronously to ensure they complete before first interaction
           for (let i = 0; i < warmupIntensity; i++) {
             this.editor.renderLoopController.renderNow({ advance: false });
           }
@@ -228,10 +230,11 @@ export class EventHandler {
           }
           
           // Force many immediate draws to wake up canvas context
-          // More draws if inactive longer
-          const drawWarmupCount = Math.min(5, Math.floor(timeSinceLastInteraction / 1000) + 3);
+          // More draws if inactive longer - ULTRA AGGRESSIVE for node dragging
+          const drawWarmupCount = Math.min(10, Math.floor(timeSinceLastInteraction / 500) + 5);
           if (this.onDraw && typeof this.onDraw === 'function') {
             // Many draws to ensure context is fully ready
+            // Do them synchronously to ensure they complete before first interaction
             for (let i = 0; i < drawWarmupCount; i++) {
               this.onDraw();
             }
@@ -261,8 +264,9 @@ export class EventHandler {
       
       // Keep the flag active longer to ensure first few interactions bypass RAF
       // Longer inactivity = longer immediate update window needed
-      // For 2+ seconds of inactivity, keep immediate updates for at least 2 seconds
-      const immediateWindow = Math.max(2000, Math.min(3000, timeSinceLastInteraction + 1000));
+      // For 2+ seconds of inactivity, keep immediate updates for at least 3 seconds
+      // This ensures smooth dragging even after longer pauses
+      const immediateWindow = Math.max(3000, Math.min(4000, timeSinceLastInteraction + 1500));
       setTimeout(() => {
         this._justWarmedUp = false;
       }, immediateWindow);
@@ -598,8 +602,18 @@ export class EventHandler {
       
       // CRITICAL: Set interaction start time NOW so immediate updates work for first drag movement
       // This ensures the first few drag updates bypass RAF and are synchronous
-      if (!this._interactionStartTime) {
-        this._interactionStartTime = Date.now();
+      const dragStartTime = Date.now();
+      if (!this._interactionStartTime || (dragStartTime - this._lastInteractionTime) > 100) {
+        this._interactionStartTime = dragStartTime;
+      }
+      
+      // CRITICAL: Pre-warm snap calculations that happen during drag
+      // This prevents lag on first drag update
+      if (this.selection && typeof this.selection.applySnap === 'function') {
+        // Pre-warm snap with a few test values
+        this.selection.applySnap(pos.x, pos.y);
+        this.selection.applySnap(pos.x + 10, pos.y + 10);
+        this.selection.applySnap(pos.x + 20, pos.y + 20);
       }
 
       // Notify shader preview manager of drag start (for throttling)
@@ -683,9 +697,12 @@ export class EventHandler {
         }
         const timeSinceStart = now - this._interactionStartTime;
         // For 2+ seconds of inactivity, use longer immediate window (3 seconds)
-        const immediateWindow = this._justWarmedUp ? 3000 : Math.max(1000, Math.min(3000, 2000));
+        // ALWAYS use immediate updates for first 3 seconds after any warmup or interaction start
+        const immediateWindow = this._justWarmedUp ? 3000 : Math.max(2000, Math.min(3000, 2500));
         const isFirstPeriod = !this._dragUpdateScheduled || timeSinceStart < immediateWindow;
         
+        // CRITICAL: Always do immediate update if we just warmed up OR if it's the first period
+        // This ensures no lag on first drag movement after inactivity
         if ((this._justWarmedUp || isFirstPeriod) && this._pendingDragEvent) {
           // Immediate update - bypass RAF to prevent lag during first period
           // Do this synchronously to ensure it happens before any other processing
