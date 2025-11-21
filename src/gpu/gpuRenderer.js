@@ -877,10 +877,17 @@ export class GPURenderer {
         audioEnvelopeFull
       });
 
-      // CRITICAL FIX: Update bind groups with fresh compute texture views
-      // After compute execution, nodeOutputs has been updated with fresh textures
-      // We need to update bind groups BEFORE the fragment render pass begins
-      this._updateComputeTextureBindings();
+      // PERFORMANCE: Only update bind groups if compute nodes were actually dispatched
+      // This avoids unnecessary bind group rebuilds when compute shaders didn't run
+      const computeExecutor = window.computeExecutor;
+      const hasDispatchedNodes = computeExecutor && computeExecutor.dispatchedThisFrame && computeExecutor.dispatchedThisFrame.size > 0;
+      
+      if (hasDispatchedNodes) {
+        // CRITICAL FIX: Update bind groups with fresh compute texture views
+        // After compute execution, nodeOutputs has been updated with fresh textures
+        // We need to update bind groups BEFORE the fragment render pass begins
+        this._updateComputeTextureBindings();
+      }
     }
 
     // Configure render pass based on MSAA support
