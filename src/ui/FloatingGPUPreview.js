@@ -26,6 +26,8 @@ export class FloatingGPUPreview {
     this.fpsCounter = new FPSCounter();
     
     this.animationLoop = null;
+    // Track previous canvas size to avoid unnecessary rebuilds
+    this._lastCanvasSize = { width: 0, height: 0 };
     this._setupParameterListeners();
     this._setupAnimationLoop();
   }
@@ -96,12 +98,17 @@ _setupAnimationLoop() {
     const headerHeight = 37;
     const padding = 20;
 
+    // FIX: Only rebuild if canvas size actually changed
+    const sizeChanged = 
+      this._lastCanvasSize.width !== width || 
+      this._lastCanvasSize.height !== height;
+
     // CRITICAL FIX: Use synchronized resize to prevent screen tearing
     // This waits for GPU operations to complete before resizing the canvas
     const gpuRenderer = window.gpuRenderer;
-    if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+    if (sizeChanged && gpuRenderer && gpuRenderer.resizeCanvasSync) {
       await gpuRenderer.resizeCanvasSync(width, height);
-    } else {
+    } else if (sizeChanged) {
       // Fallback to direct resize if gpuRenderer not available
       this.gpuCanvas.width = width;
       this.gpuCanvas.height = height;
@@ -136,10 +143,22 @@ _setupAnimationLoop() {
       this.settings._positionSettingsPanel();
     }
 
-    // Trigger shader rebuild with new resolution
-    // The GPURenderer will automatically adapt to the new canvas size during render
-    if (window.rebuild) {
+    // FIX: Only trigger shader rebuild if canvas size actually changed
+    // This prevents black screen on every canvas click
+    if (sizeChanged && window.rebuild) {
+      // Update tracked size before rebuild
+      this._lastCanvasSize = { width, height };
       window.rebuild();
+    } else if (!sizeChanged) {
+      // Ensure render loop continues even if size didn't change
+      const renderLoopState = window.renderLoop?.getState();
+      if (window.renderLoop && renderLoopState && !renderLoopState.running) {
+        window.renderLoop.start();
+      }
+      // Trigger a single render to refresh display
+      if (typeof window.render === "function") {
+        window.render();
+      }
     }
   }
 async show() {
@@ -178,6 +197,8 @@ async show() {
     this.gpuCanvas.style.left = "auto";
     this.gpuCanvas.style.top = "auto";
 
+    // Initialize canvas size tracking
+    this._lastCanvasSize = { width, height };
     await this.updateSize();
     this._setupDragging();
 
@@ -190,6 +211,15 @@ async show() {
       this.fpsCounter.start();
     }
 
+    // FIX: Ensure render loop continues when preview is shown
+    const renderLoopState = window.renderLoop?.getState();
+    if (window.renderLoop && renderLoopState && !renderLoopState.running) {
+      window.renderLoop.start();
+    }
+
+    // FIX: Handle visibility changes to ensure rendering continues
+    this._setupVisibilityHandler();
+
     requestAnimationFrame(() => {
       this.container.style.opacity = "1";
       this.container.style.transform = "scale(1)";
@@ -200,6 +230,12 @@ async show() {
     if (!this.isVisible || !this.container) return;
 
     this.fpsCounter.stop();
+
+    // Cleanup visibility handler
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
 
     const originalContainer = document.querySelector(".canvas-wrapper");
     if (originalContainer && this.gpuCanvas) {
@@ -698,6 +734,40 @@ canvasWrapper.style.cssText = `
     };
 
     resizeHandle.addEventListener("mousedown", onMouseDown);
+  }
+
+  _setupVisibilityHandler() {
+    // FIX: Ensure render loop continues when canvas becomes visible
+    // This prevents the "needs a click to continue rendering" issue
+    if (!this.gpuCanvas) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && this.isVisible) {
+        // Ensure render loop is running when page becomes visible
+        const renderLoopState = window.renderLoop?.getState();
+        if (window.renderLoop && renderLoopState && !renderLoopState.running) {
+          window.renderLoop.start();
+        }
+        // Trigger a render to refresh the display
+        if (typeof window.render === "function") {
+          window.render();
+        }
+      }
+    };
+
+    // Listen for page visibility changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Also listen for canvas focus to ensure rendering continues
+    this.gpuCanvas.addEventListener('focus', () => {
+      const renderLoopState = window.renderLoop?.getState();
+      if (window.renderLoop && renderLoopState && !renderLoopState.running) {
+        window.renderLoop.start();
+      }
+    });
+
+    // Store handler for cleanup
+    this._visibilityHandler = handleVisibilityChange;
   }
 }
 
