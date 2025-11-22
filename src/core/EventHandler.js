@@ -165,11 +165,17 @@ export class EventHandler {
   }
 
   // Mark canvas dirty and request render (optimization for dirty flag system)
+  // PERFORMANCE: During interactions, just mark dirty - main loop handles rendering
+  // This prevents double rendering (RAF callback + main loop) which causes FPS drops
+  // The main render loop already calls editor.draw() every frame if dirty
   _requestDraw(reason = 'user-interaction') {
     if (this.editor && typeof this.editor.markDirty === 'function') {
       this.editor.markDirty(reason);
     }
-    this._requestRender();
+    // Don't schedule separate RAF callback - main loop already handles rendering
+    // Calling _requestRender() here causes double rendering during interactions
+    // Main loop runs at 60fps and checks _isDirty flag, so we don't need separate RAF
+    // this._requestRender(); // REMOVED: Causes double rendering
   }
 
   // Throttled render using requestAnimationFrame for better performance
