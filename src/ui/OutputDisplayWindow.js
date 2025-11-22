@@ -128,6 +128,17 @@ export class OutputDisplayWindow {
     `;
     content.className = "custom-scroll";
 
+    // Settings section
+    const settingsSection = this._createSection("Display Settings", [
+      this._createCheckbox("Start in Fullscreen", "fullscreen", false),
+      this._createDropdown("Monitor", "monitor", [
+        { value: "primary", label: "Primary Monitor" },
+        { value: "secondary", label: "Secondary Monitor" },
+        { value: "all", label: "All Monitors" }
+      ], "primary")
+    ]);
+    content.appendChild(settingsSection);
+
     // Placeholder section
     const placeholder = document.createElement("div");
     placeholder.style.cssText = `
@@ -171,7 +182,15 @@ export class OutputDisplayWindow {
     };
     launchBtn.onclick = async () => {
       if (this.onLaunchExternalViewer) {
-        await this.onLaunchExternalViewer();
+        const fullscreenCheckbox = this.window.querySelector('#output-display-fullscreen');
+        const monitorSelect = this.window.querySelector('#output-display-monitor');
+        
+        const options = {
+          fullscreen: fullscreenCheckbox ? fullscreenCheckbox.checked : false,
+          monitor: monitorSelect ? monitorSelect.value : 'primary'
+        };
+        
+        await this.onLaunchExternalViewer(options);
       }
     };
     content.appendChild(launchBtn);
@@ -209,5 +228,103 @@ export class OutputDisplayWindow {
     document.addEventListener('keydown', this.keyHandler);
   }
 
+  _createSection(title, controls) {
+    const section = document.createElement("div");
+    section.style.cssText = "margin-bottom: 20px;";
+
+    const sectionTitle = document.createElement("div");
+    sectionTitle.textContent = title;
+    sectionTitle.style.cssText = `
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    `;
+    section.appendChild(sectionTitle);
+
+    controls.forEach(control => {
+      section.appendChild(control);
+    });
+
+    return section;
+  }
+
+  _createCheckbox(label, id, checked) {
+    const container = document.createElement("label");
+    container.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      cursor: pointer;
+      color: #e8e8e8;
+      font-size: 13px;
+      user-select: none;
+    `;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.id = `output-display-${id}`;
+    checkbox.checked = checked;
+    checkbox.style.cssText = `
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #007aff;
+    `;
+
+    const labelText = document.createElement("span");
+    labelText.textContent = label;
+
+    container.appendChild(checkbox);
+    container.appendChild(labelText);
+
+    return container;
+  }
+
+  _createDropdown(label, id, options, defaultValue) {
+    const container = document.createElement("div");
+    container.style.cssText = "margin-bottom: 12px;";
+
+    const labelEl = document.createElement("label");
+    labelEl.textContent = label;
+    labelEl.style.cssText = `
+      display: block;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      margin-bottom: 6px;
+    `;
+    labelEl.setAttribute("for", `output-display-${id}`);
+
+    const select = document.createElement("select");
+    select.id = `output-display-${id}`;
+    select.style.cssText = `
+      width: 100%;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    `;
+
+    options.forEach(option => {
+      const optionEl = document.createElement("option");
+      optionEl.value = typeof option === 'string' ? option : option.value;
+      optionEl.textContent = typeof option === 'string' ? option : option.label;
+      if (optionEl.value === defaultValue) {
+        optionEl.selected = true;
+      }
+      select.appendChild(optionEl);
+    });
+
+    container.appendChild(labelEl);
+    container.appendChild(select);
+
+    return container;
+  }
 }
 

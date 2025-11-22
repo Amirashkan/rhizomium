@@ -92,15 +92,27 @@ def launch_viewer():
 
         print(f"[rhizo_server] Launching viewer: {viewer_path}")
 
+        # Get launch options from request
+        fullscreen = data.get('fullscreen', False)
+        monitor = data.get('monitor', 'primary')
+        
         # Launch the viewer process
         if viewer_path.endswith('.py'):
-            # Launch Python script with WebSocket mode by default
-            process = subprocess.Popen([
+            # Build command arguments
+            cmd = [
                 sys.executable,
                 viewer_path,
                 '--ws',  # Enable WebSocket mode
                 '--url', 'ws://localhost:8766/ws'  # Frame streaming URL
-            ])
+            ]
+            
+            # Add fullscreen flag if requested
+            if fullscreen:
+                cmd.append('--fullscreen')
+            
+            # Note: Monitor selection would need to be implemented in the viewer
+            # For now, we'll pass it as an environment variable or future parameter
+            process = subprocess.Popen(cmd, env={**os.environ, 'RHIZO_MONITOR': str(monitor)})
         else:
             # Launch executable
             process = subprocess.Popen([viewer_path])

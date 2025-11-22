@@ -467,13 +467,17 @@ async function initialize() {
     // Create Output Display Window
     outputDisplayWindow = new OutputDisplayWindow({
       onClose: () => {},
-      onLaunchExternalViewer: async () => {
+      onLaunchExternalViewer: async (options = {}) => {
         try {
           // Try to launch rhizo_viewer via backend API
           const response = await fetch('/api/launch-viewer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ viewer: 'rhizo_viewer.py' })
+            body: JSON.stringify({ 
+              viewer: 'rhizo_viewer.py',
+              fullscreen: options.fullscreen || false,
+              monitor: options.monitor || 'primary'
+            })
           });
 
           if (response.ok) {
