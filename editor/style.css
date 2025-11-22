@@ -388,6 +388,29 @@
   padding: 0 4px;
 }
 
+/* Custom Scrollbar for Windows */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(102, 170, 255, 0.6) rgba(255, 255, 255, 0.05);
+}
+
+.custom-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(102, 170, 255, 0.6);
+  border-radius: 4px;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(129, 196, 255, 0.75);
+}
+
 .menu-status {
   margin-left: auto;
   padding: 0 16px;

@@ -40,6 +40,8 @@ import { addTestCubeToScene } from './src/scene/helpers/createTestCube.js';
 import { test3DVisualization } from './test-3d-viewport.js';
 import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
+import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
+import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
 
 // Verify timeline imports loaded
 
@@ -163,6 +165,8 @@ let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
 let floatingPreview = null;
+let previewExportSettingsWindow = null;
+let preferencesWindow = null;
 let renderLoopController = null;
 let timelineManager = null;
 let timelinePanel = null;
@@ -504,22 +508,32 @@ async function initialize() {
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
 
-    // Setup Preview Settings menu after floatingPreview is ready
-    if (floatingPreview && floatingPreview.settings) {
+    // Initialize Preview/Export Settings Window
+    if (floatingPreview) {
+      previewExportSettingsWindow = new PreviewExportSettingsWindow(floatingPreview);
+      window.previewExportSettingsWindow = previewExportSettingsWindow;
+      
       // Initialize settings with default values if needed
-      const previewSettings = floatingPreview.settings.settings;
-      if (!previewSettings.showGrid) previewSettings.showGrid = false;
-      if (previewSettings.showNodePreviews === undefined) previewSettings.showNodePreviews = true;
-      if (!previewSettings.antiAliasing) previewSettings.antiAliasing = 2;
-      if (previewSettings.startFrame === undefined) previewSettings.startFrame = 0;
-      if (previewSettings.endFrame === undefined) previewSettings.endFrame = 60;
-      if (previewSettings.loop === undefined) previewSettings.loop = true;
-      if (previewSettings.alphaChannel === undefined) previewSettings.alphaChannel = false;
-      if (!previewSettings.compression) previewSettings.compression = 90;
+      if (floatingPreview.settings) {
+        const previewSettings = floatingPreview.settings.settings;
+        if (!previewSettings.showGrid) previewSettings.showGrid = false;
+        if (previewSettings.showNodePreviews === undefined) previewSettings.showNodePreviews = true;
+        if (!previewSettings.antiAliasing) previewSettings.antiAliasing = 2;
+        if (previewSettings.startFrame === undefined) previewSettings.startFrame = 0;
+        if (previewSettings.endFrame === undefined) previewSettings.endFrame = 60;
+        if (previewSettings.loop === undefined) previewSettings.loop = true;
+        if (previewSettings.alphaChannel === undefined) previewSettings.alphaChannel = false;
+        if (!previewSettings.compression) previewSettings.compression = 90;
+        if (!previewSettings.aspectRatio) previewSettings.aspectRatio = "16:9";
+      }
 
       // Setup menu handlers
       setTimeout(() => setupPreviewSettingsMenu(), 100);
     }
+
+    // Initialize Preferences Window
+    preferencesWindow = new PreferencesWindow();
+    window.preferencesWindow = preferencesWindow;
 
     // PERFORMANCE: Lightweight uniform update without shader rebuild
     window.updateUniformsOnly = function(nodeId, paramName, value) {
@@ -2338,13 +2352,13 @@ function setupRhizomiumMenu() {
 
   // Preferences
   const preferencesBtn = document.getElementById("btn-preferences");
-  if (preferencesBtn) {
+  if (preferencesBtn && window.preferencesWindow) {
     preferencesBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Open preferences dialog
+      window.preferencesWindow.show();
       if (typeof updateStatus === "function") {
-        updateStatus("Preferences: Feature coming soon");
+        updateStatus("Preferences opened");
       }
     });
   }
@@ -2397,15 +2411,13 @@ function setupRhizomiumMenu() {
 
   // Preview / Export Settings - opens as window
   const previewExportSettingsBtn = document.getElementById("btn-preview-export-settings");
-  if (previewExportSettingsBtn && window.floatingPreview?.settings) {
+  if (previewExportSettingsBtn && window.previewExportSettingsWindow) {
     previewExportSettingsBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (window.floatingPreview.settings.showSettings) {
-        window.floatingPreview.settings.showSettings();
-        if (typeof updateStatus === "function") {
-          updateStatus("Preview / Export Settings opened");
-        }
+      window.previewExportSettingsWindow.show();
+      if (typeof updateStatus === "function") {
+        updateStatus("Preview / Export Settings opened");
       }
     });
   }
