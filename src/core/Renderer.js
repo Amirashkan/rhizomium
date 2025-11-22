@@ -7,6 +7,7 @@ export class Renderer {
     this.viewport = viewport;
     // Cache for temporary canvases used in thumbnail rendering
     // This avoids recreating canvases every frame, which is expensive
+    // Format: Map<nodeId, { canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, imageDataHash: string }>
     this._tempCanvasCache = new Map();
   }
 
@@ -546,23 +547,31 @@ export class Renderer {
     if (node.__thumb instanceof HTMLCanvasElement) {
       ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
     } else if (node.__thumb instanceof ImageData) {
-      // PERFORMANCE: Cache temporary canvases to avoid recreating them every frame
-      // Use a key based on imageData dimensions to reuse canvases
-      const cacheKey = `${node.__thumb.width}x${node.__thumb.height}`;
-      let tempCanvas = this._tempCanvasCache.get(cacheKey);
+      // CRITICAL FIX: Only call putImageData when ImageData actually changes
+      // putImageData is a synchronous blocking operation that prevents GPU renderer from running
+      // By tracking the last ImageData used, we avoid unnecessary blocking calls
+      let cached = this._tempCanvasCache.get(node.id);
+      const imageData = node.__thumb;
       
-      if (!tempCanvas || tempCanvas.width !== node.__thumb.width || tempCanvas.height !== node.__thumb.height) {
-        tempCanvas = document.createElement("canvas");
-        tempCanvas.width = node.__thumb.width;
-        tempCanvas.height = node.__thumb.height;
+      if (!cached || cached.canvas.width !== imageData.width || cached.canvas.height !== imageData.height) {
+        // Create new canvas if needed
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = imageData.width;
+        tempCanvas.height = imageData.height;
         const tempCtx = tempCanvas.getContext("2d");
-        this._tempCanvasCache.set(cacheKey, tempCanvas);
+        cached = { canvas: tempCanvas, ctx: tempCtx, lastImageData: null };
+        this._tempCanvasCache.set(node.id, cached);
       }
       
-      // Update cached canvas with current ImageData
-      const tempCtx = tempCanvas.getContext("2d");
-      tempCtx.putImageData(node.__thumb, 0, 0);
-      ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
+      // Only update canvas if ImageData actually changed (different object reference)
+      // This avoids expensive putImageData calls every frame when thumbnails haven't changed
+      if (cached.lastImageData !== imageData) {
+        cached.ctx.putImageData(imageData, 0, 0);
+        cached.lastImageData = imageData;
+      }
+      
+      // Draw the cached canvas (non-blocking operation)
+      ctx.drawImage(cached.canvas, thumbX, thumbY, thumbSize, thumbSize);
     }
 
     // Inner border for clarity
