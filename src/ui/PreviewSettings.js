@@ -8,6 +8,7 @@ import { modalManager } from './ModalManager.js';
 export class PreviewSettings {
   constructor(floatingPreview) {
     this.floatingPreview = floatingPreview;
+    // Initialize settings - this object is shared with PreviewExportSettingsWindow
     this.settings = {
       resolution: { width: 512, height: 512 },
       refreshRate: 60,
@@ -20,6 +21,10 @@ export class PreviewSettings {
       quality: "high",
       showFPS: false,
     };
+    // Ensure resolution object exists
+    if (!this.settings.resolution) {
+      this.settings.resolution = { width: 512, height: 512 };
+    }
     this.settingsPanel = null;
     this._refreshRateControls = null;
     this.cleanupDraggable = null;
@@ -346,7 +351,49 @@ async _publishAnimation() {
     requestAnimationFrame(() => {
       this.settingsPanel.style.opacity = "1";
       this.settingsPanel.style.transform = "scale(1)";
+      
+      // Refresh UI with current settings in case they changed externally
+      this._refreshPanelUI();
     });
+  }
+
+  _refreshPanelUI() {
+    // Refresh UI elements when settings change externally from PreviewExportSettingsWindow
+    if (!this.settingsPanel) return;
+    
+    // Update resolution inputs
+    const resolutionInputs = this.settingsPanel.querySelectorAll('.resolution-input input');
+    resolutionInputs.forEach(input => {
+      if (input.placeholder?.toLowerCase().includes('width')) {
+        if (input.value !== String(this.settings.resolution?.width || 512)) {
+          input.value = this.settings.resolution?.width || 512;
+        }
+      } else if (input.placeholder?.toLowerCase().includes('height')) {
+        if (input.value !== String(this.settings.resolution?.height || 512)) {
+          input.value = this.settings.resolution?.height || 512;
+        }
+      }
+    });
+    
+    // Update quality dropdown
+    const qualitySelect = this.settingsPanel.querySelector('select');
+    if (qualitySelect && qualitySelect.options.length > 0) {
+      const qualityOptions = Array.from(qualitySelect.options).map(opt => opt.value);
+      if (qualityOptions.includes(this.settings.quality) && qualitySelect.value !== this.settings.quality) {
+        qualitySelect.value = this.settings.quality;
+      }
+    }
+    
+    // Update wireframe checkbox if it exists
+    const wireframeCheckbox = this.settingsPanel.querySelector('input[type="checkbox"]');
+    if (wireframeCheckbox) {
+      const label = wireframeCheckbox.closest('label');
+      if (label && label.textContent.toLowerCase().includes('wireframe')) {
+        if (wireframeCheckbox.checked !== !!this.settings.wireframe) {
+          wireframeCheckbox.checked = !!this.settings.wireframe;
+        }
+      }
+    }
   }
 
   hideSettings() {
@@ -395,12 +442,68 @@ async _publishAnimation() {
   updateSetting(key, value) {
     if (key.includes(".")) {
       const [parent, child] = key.split(".");
+      if (!this.settings[parent]) this.settings[parent] = {};
       this.settings[parent][child] = value;
     } else {
       this.settings[key] = value;
     }
 
     this._applySetting(key, value);
+    
+    // Notify PreviewExportSettingsWindow if it exists and is open
+    if (window.previewExportSettingsWindow && window.previewExportSettingsWindow.window && 
+        window.previewExportSettingsWindow.window.style.display !== 'none') {
+      window.previewExportSettingsWindow._syncUIElement(key, value);
+    }
+    
+    // Refresh this panel's UI if it's open
+    if (this.settingsPanel && this.settingsPanel.style.display !== 'none') {
+      this._refreshPanelUIElement(key, value);
+    }
+  }
+
+  _refreshPanelUIElement(key, value) {
+    // Update UI elements in this panel when settings change externally
+    if (!this.settingsPanel) return;
+    
+    // Update resolution inputs
+    if (key === 'resolution.width' || key === 'resolution.height') {
+      const [, prop] = key.split('.');
+      const inputs = this.settingsPanel.querySelectorAll('.resolution-input input, input[placeholder*="Width"], input[placeholder*="Height"]');
+      inputs.forEach(input => {
+        const placeholder = input.placeholder?.toLowerCase();
+        if ((prop === 'width' && placeholder?.includes('width')) ||
+            (prop === 'height' && placeholder?.includes('height'))) {
+          if (input.value !== String(value)) {
+            input.value = value;
+          }
+        }
+      });
+    }
+    
+    // Update quality dropdown
+    if (key === 'quality') {
+      const selects = this.settingsPanel.querySelectorAll('select');
+      selects.forEach(select => {
+        const options = Array.from(select.options).map(opt => opt.value.toLowerCase());
+        if (options.includes(value.toLowerCase()) && select.value !== value) {
+          select.value = value;
+        }
+      });
+    }
+    
+    // Update wireframe checkbox
+    if (key === 'wireframe') {
+      const checkboxes = this.settingsPanel.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(cb => {
+        const label = cb.closest('label');
+        if (label && label.textContent.toLowerCase().includes('wireframe')) {
+          if (cb.checked !== !!value) {
+            cb.checked = !!value;
+          }
+        }
+      });
+    }
   }
 
   _applySetting(key, value) {

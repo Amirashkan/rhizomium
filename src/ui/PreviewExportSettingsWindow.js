@@ -7,39 +7,41 @@ import { makeDraggable } from './utils/draggable.js';
 export class PreviewExportSettingsWindow {
   constructor(floatingPreview) {
     this.floatingPreview = floatingPreview;
-    this.settings = floatingPreview?.settings?.settings || {
-      resolution: { width: 1920, height: 1080 },
-      refreshRate: 60,
-      wireframe: false,
-      showGrid: false,
-      showNodePreviews: true,
-      quality: "high",
-      antiAliasing: 2,
-      startFrame: 0,
-      endFrame: 60,
-      fps: 30,
-      loop: true,
-      alphaChannel: false,
-      compression: 90,
-      aspectRatio: "16:9",
-    };
+    // Use the same settings object as PreviewSettings - direct reference for synchronization
+    if (floatingPreview?.settings?.settings) {
+      this.settings = floatingPreview.settings.settings;
+      // Initialize missing properties
+      if (!this.settings.showGrid) this.settings.showGrid = false;
+      if (this.settings.showNodePreviews === undefined) this.settings.showNodePreviews = true;
+      if (!this.settings.antiAliasing) this.settings.antiAliasing = 2;
+      if (this.settings.startFrame === undefined) this.settings.startFrame = 0;
+      if (this.settings.endFrame === undefined) this.settings.endFrame = 60;
+      if (this.settings.loop === undefined) this.settings.loop = true;
+      if (this.settings.alphaChannel === undefined) this.settings.alphaChannel = false;
+      if (!this.settings.compression) this.settings.compression = 90;
+      if (!this.settings.aspectRatio) this.settings.aspectRatio = "16:9";
+    } else {
+      // Fallback if settings don't exist yet
+      this.settings = {
+        resolution: { width: 1920, height: 1080 },
+        refreshRate: 60,
+        wireframe: false,
+        showGrid: false,
+        showNodePreviews: true,
+        quality: "high",
+        antiAliasing: 2,
+        startFrame: 0,
+        endFrame: 60,
+        fps: 30,
+        loop: true,
+        alphaChannel: false,
+        compression: 90,
+        aspectRatio: "16:9",
+      };
+    }
     this.window = null;
     this.cleanupDraggable = null;
-    this.aspectRatioPresets = {
-      "1:1": { ratio: 1, width: 1080, height: 1080 },
-      "4:3": { ratio: 4/3, width: 1440, height: 1080 },
-      "16:9": { ratio: 16/9, width: 1920, height: 1080 },
-      "21:9": { ratio: 21/9, width: 2560, height: 1080 },
-      "custom": { ratio: null, width: 1920, height: 1080 },
-    };
-    this.resolutionPresets = {
-      "720p": { width: 1280, height: 720 },
-      "1080p": { width: 1920, height: 1080 },
-      "1440p": { width: 2560, height: 1440 },
-      "4K": { width: 3840, height: 2160 },
-      "8K": { width: 7680, height: 4320 },
-      "custom": { width: null, height: null },
-    };
+    this._uiElements = {}; // Store UI element references for updates
   }
 
   show() {
@@ -231,6 +233,7 @@ export class PreviewExportSettingsWindow {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = checked;
+    checkbox.setAttribute('data-key', key); // For syncing
     checkbox.style.cssText = `
       width: 16px;
       height: 16px;
@@ -242,7 +245,9 @@ export class PreviewExportSettingsWindow {
     labelEl.textContent = label;
 
     checkbox.addEventListener("change", (e) => {
+      // Update settings directly (they're shared with PreviewSettings)
       this.settings[key] = e.target.checked;
+      // Notify PreviewSettings to apply the change (this will also sync UI)
       if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting(key, e.target.checked);
       }
@@ -318,6 +323,7 @@ export class PreviewExportSettingsWindow {
     widthInput.value = this.settings.resolution?.width || 1920;
     widthInput.min = 128;
     widthInput.max = 7680;
+    widthInput.id = "settings-resolution-width";
     widthInput.style.cssText = `
       flex: 1;
       padding: 6px 8px;
@@ -334,6 +340,7 @@ export class PreviewExportSettingsWindow {
     heightInput.value = this.settings.resolution?.height || 1080;
     heightInput.min = 128;
     heightInput.max = 4320;
+    heightInput.id = "settings-resolution-height";
     heightInput.style.cssText = `
       flex: 1;
       padding: 6px 8px;
@@ -359,7 +366,9 @@ export class PreviewExportSettingsWindow {
         if (preset) {
           this.settings.resolution.width = preset.width;
           this.settings.resolution.height = preset.height;
-          if (this.floatingPreview?.settings) {
+          widthInput.value = preset.width;
+          heightInput.value = preset.height;
+          if (this.floatingPreview?.settings?.updateSetting) {
             this.floatingPreview.settings.updateSetting("resolution.width", preset.width);
             this.floatingPreview.settings.updateSetting("resolution.height", preset.height);
           }
@@ -369,17 +378,17 @@ export class PreviewExportSettingsWindow {
 
     widthInput.addEventListener("change", (e) => {
       const width = parseInt(e.target.value) || 1920;
-      if (this.floatingPreview?.settings) {
+      this.settings.resolution.width = width;
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("resolution.width", width);
-        this.settings.resolution.width = width;
       }
     });
 
     heightInput.addEventListener("change", (e) => {
       const height = parseInt(e.target.value) || 1080;
-      if (this.floatingPreview?.settings) {
+      this.settings.resolution.height = height;
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("resolution.height", height);
-        this.settings.resolution.height = height;
       }
     });
 
@@ -489,7 +498,9 @@ export class PreviewExportSettingsWindow {
           this.settings.resolution.height = res.height;
           resWidthInput.value = res.width;
           resHeightInput.value = res.height;
-          if (this.floatingPreview?.settings) {
+          widthInput.value = res.width;
+          heightInput.value = res.height;
+          if (this.floatingPreview?.settings?.updateSetting) {
             this.floatingPreview.settings.updateSetting("resolution.width", res.width);
             this.floatingPreview.settings.updateSetting("resolution.height", res.height);
           }
@@ -499,17 +510,19 @@ export class PreviewExportSettingsWindow {
 
     resWidthInput.addEventListener("change", (e) => {
       const width = parseInt(e.target.value) || 1920;
-      if (this.floatingPreview?.settings) {
+      this.settings.resolution.width = width;
+      widthInput.value = width;
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("resolution.width", width);
-        this.settings.resolution.width = width;
       }
     });
 
     resHeightInput.addEventListener("change", (e) => {
       const height = parseInt(e.target.value) || 1080;
-      if (this.floatingPreview?.settings) {
+      this.settings.resolution.height = height;
+      heightInput.value = height;
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("resolution.height", height);
-        this.settings.resolution.height = height;
       }
     });
 
@@ -562,7 +575,7 @@ export class PreviewExportSettingsWindow {
       const aa = this._sliderToAA(parseInt(e.target.value));
       aaValue.textContent = this._formatAA(aa);
       this.settings.antiAliasing = aa;
-      if (this.floatingPreview?.settings) {
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("antiAliasing", aa);
       }
     });
@@ -698,7 +711,7 @@ export class PreviewExportSettingsWindow {
     startFrameInput.addEventListener("change", (e) => {
       const value = parseInt(e.target.value) || 0;
       this.settings.startFrame = value;
-      if (this.floatingPreview?.settings) {
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("startFrame", value);
       }
     });
@@ -706,7 +719,7 @@ export class PreviewExportSettingsWindow {
     endFrameInput.addEventListener("change", (e) => {
       const value = parseInt(e.target.value) || 60;
       this.settings.endFrame = value;
-      if (this.floatingPreview?.settings) {
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("endFrame", value);
       }
     });
@@ -714,7 +727,7 @@ export class PreviewExportSettingsWindow {
     fpsInput.addEventListener("change", (e) => {
       const value = parseInt(e.target.value) || 30;
       this.settings.fps = value;
-      if (this.floatingPreview?.settings) {
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("refreshRate", value);
       }
     });
@@ -811,6 +824,7 @@ export class PreviewExportSettingsWindow {
     compressionSlider.max = "100";
     compressionSlider.step = "1";
     compressionSlider.value = this.settings.compression || 90;
+    compressionSlider.id = "compression-slider";
     compressionSlider.style.cssText = `
       width: 100%;
       height: 4px;
@@ -836,7 +850,7 @@ export class PreviewExportSettingsWindow {
       const value = parseInt(e.target.value);
       compressionValue.textContent = `${value}%`;
       this.settings.compression = value;
-      if (this.floatingPreview?.settings) {
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("compression", value);
       }
     });
@@ -881,7 +895,7 @@ export class PreviewExportSettingsWindow {
 
     gpuSelect.addEventListener("change", (e) => {
       this.settings.quality = e.target.value;
-      if (this.floatingPreview?.settings) {
+      if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("quality", e.target.value);
       }
     });
@@ -967,5 +981,98 @@ export class PreviewExportSettingsWindow {
     this.hide();
     setTimeout(() => this.show(), 250);
   }
-}
 
+  _syncUIElement(key, value) {
+    // Update UI elements when settings change from PreviewSettings panel
+    if (!this.window) return;
+    
+    // Update checkboxes
+    if (key === 'showGrid' || key === 'wireframe' || key === 'showNodePreviews' || key === 'loop' || key === 'alphaChannel') {
+      // Find checkboxes by looking for their labels or data attributes
+      const checkboxes = this.window.querySelectorAll(`input[type="checkbox"]`);
+      checkboxes.forEach(cb => {
+        const label = cb.closest('label');
+        if (label) {
+          const labelText = label.textContent.toLowerCase();
+          if ((key === 'showGrid' && labelText.includes('show grid')) ||
+              (key === 'wireframe' && labelText.includes('wireframe')) ||
+              (key === 'showNodePreviews' && labelText.includes('node previews')) ||
+              (key === 'loop' && labelText.includes('loop')) ||
+              (key === 'alphaChannel' && labelText.includes('alpha channel'))) {
+            if (cb.checked !== !!value) {
+              cb.checked = !!value;
+            }
+          }
+        }
+      });
+    }
+    
+    // Update resolution inputs
+    if (key === 'resolution.width') {
+      const widthInputs = this.window.querySelectorAll('input[placeholder="Width"]');
+      widthInputs.forEach(input => {
+        if (input.value !== String(value)) {
+          input.value = value;
+        }
+      });
+    }
+    
+    if (key === 'resolution.height') {
+      const heightInputs = this.window.querySelectorAll('input[placeholder="Height"]');
+      heightInputs.forEach(input => {
+        if (input.value !== String(value)) {
+          input.value = value;
+        }
+      });
+    }
+    
+    // Update anti-aliasing slider
+    if (key === 'antiAliasing') {
+      const aaSlider = Array.from(this.window.querySelectorAll('input[type="range"]'))
+        .find(slider => slider.id !== 'compression-slider' && slider.value !== undefined);
+      if (aaSlider) {
+        const sliderValue = this._aaToSlider(value);
+        if (aaSlider.value !== String(sliderValue)) {
+          aaSlider.value = sliderValue;
+          const aaValue = this.window.querySelector('#aa-value');
+          if (aaValue) {
+            aaValue.textContent = this._formatAA(value);
+          }
+        }
+      }
+    }
+    
+    // Update quality dropdown
+    if (key === 'quality') {
+      const selectElements = this.window.querySelectorAll('select');
+      selectElements.forEach(select => {
+        const options = Array.from(select.options).map(opt => opt.value.toLowerCase());
+        if (options.includes(value.toLowerCase()) && select.value !== value) {
+          select.value = value;
+        }
+      });
+    }
+  }
+
+  // Store aspect ratio and resolution presets
+  get aspectRatioPresets() {
+    return {
+      "1:1": { ratio: 1, width: 1080, height: 1080 },
+      "4:3": { ratio: 4/3, width: 1440, height: 1080 },
+      "16:9": { ratio: 16/9, width: 1920, height: 1080 },
+      "21:9": { ratio: 21/9, width: 2560, height: 1080 },
+      "custom": { ratio: null, width: 1920, height: 1080 },
+    };
+  }
+
+  get resolutionPresets() {
+    return {
+      "720p": { width: 1280, height: 720 },
+      "1080p": { width: 1920, height: 1080 },
+      "1440p": { width: 2560, height: 1440 },
+      "4K": { width: 3840, height: 2160 },
+      "8K": { width: 7680, height: 4320 },
+      "custom": { width: null, height: null },
+    };
+  }
+}
