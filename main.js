@@ -1065,15 +1065,6 @@ function setupUIEventHandlers() {
     });
   }
 
-  function triggerFileLoad() {
-    const fileInput = document.getElementById("file-import");
-    if (fileInput) {
-      fileInput.value = "";
-      setTimeout(() => {
-        fileInput.click();
-      }, 10);
-    }
-  }
 
   // Export JSON button
   const exportJsonBtn = removeExistingHandlers("btn-export-json");
@@ -2655,6 +2646,29 @@ function setupRhizomiumMenu() {
 
   // Setup nested submenu hover behavior for all submenus
   setupNestedSubmenuHover();
+}
+
+// Global function to trigger file load dialog
+function triggerFileLoad() {
+  const fileInput = document.getElementById("file-import");
+  if (fileInput) {
+    fileInput.value = "";
+    setTimeout(() => {
+      fileInput.click();
+    }, 50);
+  }
+}
+
+// Global function to trigger file load dialog
+// This needs to be accessible from both setupUIEventHandlers and setupRhizomiumMenu
+function triggerFileLoad() {
+  const fileInput = document.getElementById("file-import");
+  if (fileInput) {
+    fileInput.value = "";
+    setTimeout(() => {
+      fileInput.click();
+    }, 10);
+  }
 }
 
 function setupNestedSubmenuHover() {

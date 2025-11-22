@@ -46,7 +46,18 @@ export class PreferencesWindow {
     if (this.window) {
       this.window.style.display = "flex";
       this.window.style.opacity = "1";
-      this.window.style.transform = "translate(-50%, -50%) scale(1)";
+      
+      // If window already has left/top positioning (from dragging), preserve it
+      // Otherwise, center it on first show
+      if (!this.window.style.left || this.window.style.left === 'auto' || this.window.style.left === '50%') {
+        // Center on screen
+        const left = (window.innerWidth - this.window.offsetWidth) / 2;
+        const top = (window.innerHeight - this.window.offsetHeight) / 2;
+        this.window.style.left = left + 'px';
+        this.window.style.top = top + 'px';
+      }
+      this.window.style.transform = "scale(1)";
+      
       return;
     }
 
@@ -142,12 +153,24 @@ export class PreferencesWindow {
     this.window.appendChild(content);
     document.body.appendChild(this.window);
 
-    // Make draggable
-    this.cleanupDraggable = makeDraggable(this.window, header);
-
+    // Make draggable - needs to be done after element is in DOM
     requestAnimationFrame(() => {
       this.window.style.opacity = "1";
+      
+      // Center the window initially using transform
       this.window.style.transform = "translate(-50%, -50%) scale(1)";
+      
+      // Get the actual position after centering
+      const rect = this.window.getBoundingClientRect();
+      
+      // Convert from transform-based centering to left/top positioning
+      // This makes dragging work properly
+      this.window.style.left = rect.left + 'px';
+      this.window.style.top = rect.top + 'px';
+      this.window.style.transform = 'scale(1)';
+      
+      // Make draggable after positioning is set
+      this.cleanupDraggable = makeDraggable(this.window, header);
     });
   }
 

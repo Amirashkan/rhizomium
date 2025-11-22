@@ -59,6 +59,9 @@ export function makeDraggable(panel, dragHandle) {
     if (panel.style.position !== 'fixed' && panel.style.position !== 'absolute') {
       panel.style.position = 'fixed';
     }
+    
+    // Clear transform to use left/top positioning instead
+    panel.style.transform = 'none';
     panel.style.left = currentX + 'px';
     panel.style.top = currentY + 'px';
     panel.style.right = 'auto';
