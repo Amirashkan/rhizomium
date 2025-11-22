@@ -933,7 +933,7 @@ function setupUIEventHandlers() {
     });
   }
 
-  // Load Project button
+  // Load Project button (old ID for backward compatibility)
   const loadBtn = removeExistingHandlers("btn-load");
   if (loadBtn) {
     loadBtn.addEventListener("click", (e) => {
@@ -941,6 +941,7 @@ function setupUIEventHandlers() {
       triggerFileLoad();
     });
   }
+  // Open Project button (new ID - also handled in setupRhizomiumMenu)
 
   // File input change handler
   const fileInput = removeExistingHandlers("file-import");
@@ -1717,6 +1718,9 @@ function setupUIEventHandlers() {
       updateShaderFromGraph();
     });
   }
+
+  // Setup new Rhizomium menu structure handlers
+  setupRhizomiumMenu();
 }
 
 function setupPreviewSettingsMenu() {
@@ -2010,6 +2014,628 @@ function setupPreviewSettingsMenu() {
       }
     });
   }
+}
+
+function setupRhizomiumMenu() {
+  if (!saveLoadManager || !editor || !graph) {
+    console.warn("Required components not available for menu setup");
+    return;
+  }
+
+  // ========== FILE MENU ==========
+  
+  // New Project
+  const newProjectBtn = document.getElementById("btn-new-project");
+  if (newProjectBtn) {
+    newProjectBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement new project functionality
+      if (typeof createNewProject === "function") {
+        createNewProject();
+      } else {
+        console.warn("createNewProject function not available");
+      }
+    });
+  }
+
+  // Open Project (maps to existing Load Project) - Handled above, just ensure it works
+  // The setupRhizomiumMenu function will handle btn-open-project
+
+  // Save (maps to existing Save Project)
+  // Save button already handled above, but updating ID if needed
+  const saveBtnNew = document.getElementById("btn-save");
+  if (saveBtnNew && !saveBtnNew.hasAttribute("data-handler-attached")) {
+    saveBtnNew.setAttribute("data-handler-attached", "true");
+    saveBtnNew.addEventListener("click", (e) => {
+      e.preventDefault();
+      saveLoadManager.saveToFile();
+    });
+  }
+
+  // Save As (placeholder)
+  const saveAsBtn = document.getElementById("btn-save-as");
+  if (saveAsBtn) {
+    saveAsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement Save As dialog
+      saveLoadManager.saveToFile(null, "json"); // Temporary: use regular save
+      if (typeof updateStatus === "function") {
+        updateStatus("Save As: Use regular Save for now");
+      }
+    });
+  }
+
+  // Import Node
+  const importNodeBtn = document.getElementById("btn-import-node");
+  if (importNodeBtn) {
+    importNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement node import
+      if (typeof updateStatus === "function") {
+        updateStatus("Import Node: Feature coming soon");
+      }
+    });
+  }
+
+  // Import Scene
+  const importSceneBtn = document.getElementById("btn-import-scene");
+  if (importSceneBtn) {
+    importSceneBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement scene import
+      if (typeof updateStatus === "function") {
+        updateStatus("Import Scene: Feature coming soon");
+      }
+    });
+  }
+
+  // Export Node
+  const exportNodeBtn = document.getElementById("btn-export-node");
+  if (exportNodeBtn) {
+    exportNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const format = document.getElementById("export-node-format")?.value || ".json";
+      const includePreviews = document.getElementById("export-node-include-previews")?.checked || false;
+      // TODO: Implement node export
+      saveLoadManager.saveToFile(null, format.replace(".", ""));
+      if (typeof updateStatus === "function") {
+        updateStatus(`Export Node ${format}: ${includePreviews ? "with" : "without"} previews`);
+      }
+    });
+  }
+
+  // Export Scene
+  const exportSceneBtn = document.getElementById("btn-export-scene");
+  if (exportSceneBtn) {
+    exportSceneBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement scene export
+      if (typeof updateStatus === "function") {
+        updateStatus("Export Scene: Feature coming soon");
+      }
+    });
+  }
+
+  // Publish
+  const publishBtn = document.getElementById("btn-publish");
+  if (publishBtn) {
+    publishBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const target = document.getElementById("publish-target")?.value || "tenderworld";
+      const includePreviews = document.getElementById("publish-include-previews")?.checked || false;
+      const commitMessage = document.getElementById("publish-commit-message")?.value || "";
+      // TODO: Implement publish to cloud/server
+      if (typeof updateStatus === "function") {
+        updateStatus(`Publish to ${target}: Feature coming soon`);
+      }
+    });
+  }
+
+  // Exit
+  const exitBtn = document.getElementById("btn-exit");
+  if (exitBtn) {
+    exitBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Check for unsaved changes before exit
+      if (typeof updateStatus === "function") {
+        updateStatus("Exit: Close browser tab to exit");
+      }
+    });
+  }
+
+  // ========== EDIT MENU ==========
+  
+  // Cut (uses existing selection manager)
+  const cutBtn = document.getElementById("btn-cut");
+  if (cutBtn && editor?.selection) {
+    cutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.copySelected && editor.selection.deleteSelected) {
+        editor.selection.copySelected();
+        editor.selection.deleteSelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Cut selected nodes");
+        }
+      }
+    });
+  }
+
+  // Copy (uses existing selection manager)
+  const copyBtn = document.getElementById("btn-copy");
+  if (copyBtn && editor?.selection) {
+    copyBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.copySelected) {
+        editor.selection.copySelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Copied selected nodes");
+        }
+      }
+    });
+  }
+
+  // Paste (uses existing selection manager)
+  const pasteBtn = document.getElementById("btn-paste");
+  if (pasteBtn && editor?.selection) {
+    pasteBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.pasteFromClipboard) {
+        editor.selection.pasteFromClipboard();
+        if (typeof updateStatus === "function") {
+          updateStatus("Pasted nodes");
+        }
+      }
+    });
+  }
+
+  // Delete (uses existing selection manager)
+  const deleteBtn = document.getElementById("btn-delete");
+  if (deleteBtn && editor?.selection) {
+    deleteBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.deleteSelected) {
+        editor.selection.deleteSelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Deleted selected nodes");
+        }
+      }
+    });
+  }
+
+  // Preferences
+  const preferencesBtn = document.getElementById("btn-preferences");
+  if (preferencesBtn) {
+    preferencesBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Open preferences dialog
+      if (typeof updateStatus === "function") {
+        updateStatus("Preferences: Feature coming soon");
+      }
+    });
+  }
+
+  // ========== VIEW MENU ==========
+  
+  // Toggle ParamPanel
+  const toggleParamPanelBtn = document.getElementById("btn-toggle-param-panel");
+  if (toggleParamPanelBtn && editor?.paramPanel) {
+    toggleParamPanelBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Toggle param panel visibility
+      const panel = editor.paramPanel.panel;
+      if (panel) {
+        const isHidden = panel.style?.display === "none" || panel.offsetParent === null;
+        if (isHidden && editor.paramPanel.showNodeParameters) {
+          const selected = editor.selection?.getSelected?.();
+          if (selected && selected.size === 1) {
+            const nodeId = selected.values().next().value;
+            const node = editor.graph?.nodes?.find((n) => n.id === nodeId);
+            if (node) {
+              editor.paramPanel.showNodeParameters(node);
+            }
+          }
+        } else {
+          panel.style.display = isHidden ? "block" : "none";
+        }
+        if (typeof updateStatus === "function") {
+          updateStatus(isHidden ? "ParamPanel shown" : "ParamPanel hidden");
+        }
+      }
+    });
+  }
+
+  // Toggle Preview Panel
+  const togglePreviewPanelBtn = document.getElementById("btn-toggle-preview-panel");
+  if (togglePreviewPanelBtn && window.floatingPreview) {
+    togglePreviewPanelBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.floatingPreview.toggle) {
+        window.floatingPreview.toggle();
+        if (typeof updateStatus === "function") {
+          updateStatus(window.floatingPreview.isVisible ? "Preview Panel shown" : "Preview Panel hidden");
+        }
+      }
+    });
+  }
+
+  // Zoom In
+  const zoomInBtn = document.getElementById("btn-zoom-in");
+  if (zoomInBtn && editor?.viewport) {
+    zoomInBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = editor.canvas;
+      if (canvas && editor.viewport.zoom) {
+        const rect = canvas.getBoundingClientRect();
+        editor.viewport.zoom(rect.width / 2, rect.height / 2, -1);
+        editor.draw();
+        if (typeof updateStatus === "function") {
+          updateStatus("Zoomed in");
+        }
+      }
+    });
+  }
+
+  // Zoom Out
+  const zoomOutBtn = document.getElementById("btn-zoom-out");
+  if (zoomOutBtn && editor?.viewport) {
+    zoomOutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = editor.canvas;
+      if (canvas && editor.viewport.zoom) {
+        const rect = canvas.getBoundingClientRect();
+        editor.viewport.zoom(rect.width / 2, rect.height / 2, 1);
+        editor.draw();
+        if (typeof updateStatus === "function") {
+          updateStatus("Zoomed out");
+        }
+      }
+    });
+  }
+
+  // Reset Zoom
+  const zoomResetBtn = document.getElementById("btn-zoom-reset");
+  if (zoomResetBtn && editor?.viewport) {
+    zoomResetBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.viewport) {
+        editor.viewport.scale = 1;
+        editor.viewport.offsetX = 0;
+        editor.viewport.offsetY = 0;
+        editor.draw();
+        if (typeof updateStatus === "function") {
+          updateStatus("Zoom reset");
+        }
+      }
+    });
+  }
+
+  // View Show Grid
+  const viewShowGridCheckbox = document.getElementById("view-show-grid");
+  if (viewShowGridCheckbox) {
+    viewShowGridCheckbox.checked = true; // Default
+    viewShowGridCheckbox.addEventListener("change", (e) => {
+      // TODO: Implement grid visibility toggle
+      if (typeof updateStatus === "function") {
+        updateStatus(`Grid ${e.target.checked ? "shown" : "hidden"}`);
+      }
+    });
+  }
+
+  // ========== NODE MENU ==========
+  
+  // Create Node (opens node creation menu)
+  const createNodeBtn = document.getElementById("btn-create-node");
+  if (createNodeBtn && editor?.menu) {
+    createNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.menu.showCreateMenu && editor.viewport && editor.canvas) {
+        const rect = editor.canvas.getBoundingClientRect();
+        const localX = rect.width / 2;
+        const localY = rect.height / 2;
+        const canvasPos = editor.viewport.screenToCanvas(localX, localY);
+        editor.menu.showCreateMenu(canvasPos.x, canvasPos.y, rect.left + localX, rect.top + localY);
+        if (typeof updateStatus === "function") {
+          updateStatus("Node creation menu opened");
+        }
+      }
+    });
+  }
+
+  // Delete Node (uses selection)
+  const deleteNodeBtn = document.getElementById("btn-delete-node");
+  if (deleteNodeBtn && editor?.selection) {
+    deleteNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.deleteSelected) {
+        editor.selection.deleteSelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Deleted selected node(s)");
+        }
+      }
+    });
+  }
+
+  // Duplicate Node
+  const duplicateNodeBtn = document.getElementById("btn-duplicate-node");
+  if (duplicateNodeBtn && editor?.selection) {
+    duplicateNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.copySelected && editor.selection.pasteFromClipboard) {
+        editor.selection.copySelected();
+        editor.selection.pasteFromClipboard();
+        if (typeof updateStatus === "function") {
+          updateStatus("Duplicated selected node(s)");
+        }
+      }
+    });
+  }
+
+  // Connect Pins
+  const connectPinsBtn = document.getElementById("btn-connect-pins");
+  if (connectPinsBtn) {
+    connectPinsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement connect pins functionality
+      if (typeof updateStatus === "function") {
+        updateStatus("Connect Pins: Feature coming soon");
+      }
+    });
+  }
+
+  // Disconnect Pins
+  const disconnectPinsBtn = document.getElementById("btn-disconnect-pins");
+  if (disconnectPinsBtn) {
+    disconnectPinsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement disconnect pins functionality
+      if (typeof updateStatus === "function") {
+        updateStatus("Disconnect Pins: Feature coming soon");
+      }
+    });
+  }
+
+  // Node Settings
+  const nodeSettingsBtn = document.getElementById("btn-node-settings");
+  if (nodeSettingsBtn && editor?.paramPanel) {
+    nodeSettingsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const selected = editor.selection?.getSelected?.();
+      if (selected && selected.size === 1 && editor.paramPanel.showNodeParameters) {
+        const nodeId = selected.values().next().value;
+        const node = editor.graph?.nodes?.find((n) => n.id === nodeId);
+        if (node) {
+          editor.paramPanel.showNodeParameters(node);
+          if (typeof updateStatus === "function") {
+            updateStatus("Opened node settings");
+          }
+        }
+      } else if (typeof updateStatus === "function") {
+        updateStatus("Select a single node to view settings");
+      }
+    });
+  }
+
+  // ========== TOOLS MENU ==========
+  
+  // Script Editor
+  const scriptEditorBtn = document.getElementById("btn-script-editor");
+  if (scriptEditorBtn) {
+    scriptEditorBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement script editor
+      if (typeof updateStatus === "function") {
+        updateStatus("Script Editor: Feature coming soon");
+      }
+    });
+  }
+
+  // Shader Compiler
+  const shaderCompilerBtn = document.getElementById("btn-shader-compiler");
+  if (shaderCompilerBtn) {
+    shaderCompilerBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement shader compiler tool
+      if (typeof updateStatus === "function") {
+        updateStatus("Shader Compiler: Feature coming soon");
+      }
+    });
+  }
+
+  // GLSL Utilities
+  const glslUtilitiesBtn = document.getElementById("btn-glsl-utilities");
+  if (glslUtilitiesBtn) {
+    glslUtilitiesBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement GLSL utilities
+      if (typeof updateStatus === "function") {
+        updateStatus("GLSL Utilities: Feature coming soon");
+      }
+    });
+  }
+
+  // Audio Tools
+  const audioToolsBtn = document.getElementById("btn-audio-tools");
+  if (audioToolsBtn) {
+    audioToolsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Map to existing audio settings
+      const audioSettingsBtn = document.getElementById("btn-audio-settings");
+      if (audioSettingsBtn) {
+        audioSettingsBtn.click();
+      }
+    });
+  }
+
+  // ========== WINDOW MENU ==========
+  
+  // Layout Default
+  const layoutDefaultBtn = document.getElementById("btn-layout-default");
+  if (layoutDefaultBtn) {
+    layoutDefaultBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement layout system
+      if (typeof updateStatus === "function") {
+        updateStatus("Default Layout: Feature coming soon");
+      }
+    });
+  }
+
+  // Layout Custom
+  const layoutCustomBtn = document.getElementById("btn-layout-custom");
+  if (layoutCustomBtn) {
+    layoutCustomBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement custom layout
+      if (typeof updateStatus === "function") {
+        updateStatus("Custom Layout: Feature coming soon");
+      }
+    });
+  }
+
+  // Layout Minimal
+  const layoutMinimalBtn = document.getElementById("btn-layout-minimal");
+  if (layoutMinimalBtn) {
+    layoutMinimalBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement minimal layout
+      if (typeof updateStatus === "function") {
+        updateStatus("Minimal Layout: Feature coming soon");
+      }
+    });
+  }
+
+  // Floating Windows
+  const floatingWindowsBtn = document.getElementById("btn-floating-windows");
+  if (floatingWindowsBtn) {
+    floatingWindowsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement floating windows manager
+      if (typeof updateStatus === "function") {
+        updateStatus("Floating Windows: Feature coming soon");
+      }
+    });
+  }
+
+  // Reset Layout
+  const resetLayoutBtn = document.getElementById("btn-reset-layout");
+  if (resetLayoutBtn) {
+    resetLayoutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Reset all panel positions
+      if (typeof updateStatus === "function") {
+        updateStatus("Layout reset: Feature coming soon");
+      }
+    });
+  }
+
+  // ========== HELP MENU ==========
+  
+  // Documentation
+  const documentationBtn = document.getElementById("btn-documentation");
+  if (documentationBtn) {
+    documentationBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Open documentation
+      window.open("https://github.com/your-repo/docs", "_blank");
+      if (typeof updateStatus === "function") {
+        updateStatus("Opening documentation...");
+      }
+    });
+  }
+
+  // Shortcuts
+  const shortcutsBtn = document.getElementById("btn-shortcuts");
+  if (shortcutsBtn) {
+    shortcutsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Show shortcuts/keymap dialog
+      if (typeof updateStatus === "function") {
+        updateStatus("Shortcuts: Feature coming soon");
+      }
+    });
+  }
+
+  // About
+  const aboutBtn = document.getElementById("btn-about");
+  if (aboutBtn) {
+    aboutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Show about dialog
+      alert("Rhizomium\nGLSL Node Editor\nVersion 1.0");
+      if (typeof updateStatus === "function") {
+        updateStatus("About Rhizomium");
+      }
+    });
+  }
+
+  // Setup nested submenu hover behavior for all submenus
+  setupNestedSubmenuHover();
+}
+
+function setupNestedSubmenuHover() {
+  const submenuTriggers = document.querySelectorAll(".menu-submenu-trigger");
+  
+  submenuTriggers.forEach((trigger) => {
+    const submenu = trigger.nextElementSibling;
+    if (!submenu || !submenu.classList.contains("menu-submenu")) return;
+    
+    let submenuTimeout = null;
+    
+    trigger.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+      submenu.classList.add("show");
+    });
+    
+    trigger.addEventListener("mouseleave", () => {
+      submenuTimeout = setTimeout(() => {
+        submenu.classList.remove("show");
+      }, 200);
+    });
+    
+    submenu.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+    });
+    
+    submenu.addEventListener("mouseleave", () => {
+      submenu.classList.remove("show");
+    });
+  });
 }
 
 function setupKeyboardShortcuts() {
