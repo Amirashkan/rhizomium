@@ -938,6 +938,11 @@ export class GPURenderer {
 
     const encoder = this.device.createCommandEncoder();
 
+    // ARCHITECTURAL FIX: Yield control before compute execution to allow canvas rendering
+    // This ensures GPU sync work completes, then canvas can render, then GPU async work continues
+    // The yield allows the main thread to process canvas rendering before we block on compute
+    await Promise.resolve();
+
     // ARCHITECTURAL FIX: Separate GPU work from canvas rendering
     // Execute compute shaders - await is necessary for correctness
     // The await ensures compute passes are recorded before fragment shader renders

@@ -15,7 +15,7 @@ export class Renderer {
     this._gridCacheKey = null;
   }
 
-  render(graph, renderState) {
+  async render(graph, renderState) {
     const ctx = this.ctx;
     if (renderState.editor) {
       window.editor = renderState.editor; // Make editor accessible
@@ -55,8 +55,9 @@ export class Renderer {
       this._renderDragWire(renderState.dragWire, nodeMap, graph.connections);
     }
 
-    // Render nodes
-    this._renderNodes(graph.nodes, renderState.selection);
+    // ARCHITECTURAL FIX: Make node rendering async to yield control
+    // This allows GPU async work to proceed while canvas renders
+    await this._renderNodes(graph.nodes, renderState.selection);
 
     // Render selection box if active
     if (renderState.boxSelect) {
@@ -333,7 +334,7 @@ export class Renderer {
     this._drawBezierCurve(fromPos.x, fromPos.y, dragWire.pos.x, dragWire.pos.y);
   }
 
-  _renderNodes(nodes, selection) {
+  async _renderNodes(nodes, selection) {
     // PERFORMANCE: Viewport culling during interactions - doesn't change visual appearance
     // Only skips nodes that are completely off-screen
     let viewportBounds = null;
@@ -357,6 +358,9 @@ export class Renderer {
       };
     }
 
+    // ARCHITECTURAL FIX: Yield control periodically during node rendering
+    // This allows GPU async work to proceed while canvas renders
+    let nodeIndex = 0;
     for (const node of nodes) {
       // PERFORMANCE: Skip nodes that are completely off-screen during interactions
       if (viewportBounds) {
@@ -368,6 +372,12 @@ export class Renderer {
         }
       }
       this._renderNode(node, selection.has(node.id));
+      
+      // Yield control every 10 nodes to allow GPU work to proceed
+      nodeIndex++;
+      if (this._isInteracting && nodeIndex % 10 === 0) {
+        await Promise.resolve();
+      }
     }
   }
 

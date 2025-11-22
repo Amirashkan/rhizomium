@@ -838,7 +838,7 @@ connectGPURenderer(renderFunction) {
     return this._isDirty;
   }
 
-  draw() {
+  async draw() {
     if (!this.renderer) {
       throw new Error('Renderer not initialized');
     }
@@ -851,10 +851,10 @@ connectGPURenderer(renderFunction) {
     // Check if canvas is currently being interacted with (pan, drag, etc.)
     const isInteracting = this.eventHandler?.isCanvasInteracting?.() || false;
     
-    // CRITICAL: Render canvas synchronously - cannot be deferred without visual changes
-    // However, the renderer itself uses viewport culling to skip off-screen elements
-    // This reduces work without changing visuals (elements outside viewport aren't visible anyway)
-    this.renderer.render(this.graph, {
+    // ARCHITECTURAL FIX: Make canvas rendering async to yield control periodically
+    // This allows GPU async work to proceed while canvas renders
+    // The renderer yields control every 10 nodes, allowing GPU work to continue
+    await this.renderer.render(this.graph, {
       selection: this.selection.getSelected(),
       dragWire: this.connections.getDragWire(),
       boxSelect: this.selection.getBoxSelect(),
