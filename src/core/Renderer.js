@@ -9,6 +9,10 @@ export class Renderer {
     // This avoids recreating canvases every frame, which is expensive
     // Format: Map<nodeId, { canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, imageDataHash: string }>
     this._tempCanvasCache = new Map();
+    // Cache for grid rendering to reduce blocking during interactions
+    // Grid is only redrawn when viewport changes (pan/zoom), not every frame
+    this._gridCache = null;
+    this._gridCacheKey = null;
   }
 
   render(graph, renderState) {
@@ -80,6 +84,33 @@ export class Renderer {
     const width = ctx.canvas.width;
     const height = ctx.canvas.height;
 
+    // CRITICAL FIX: Cache grid rendering to reduce blocking during interactions
+    // Grid only needs to be redrawn when viewport changes (pan/zoom), not every frame
+    // This significantly reduces canvas blocking time during interactions
+    const gridCacheKey = `${gridSize}_${scale}_${offsetX}_${offsetY}_${width}_${height}`;
+    
+    // Check if we can reuse cached grid
+    if (this._gridCache && this._gridCacheKey === gridCacheKey) {
+      // Grid hasn't changed - just draw the cached version
+      ctx.drawImage(this._gridCache, 0, 0);
+      return;
+    }
+
+    // Grid changed - redraw and cache it
+    // Create or reuse grid cache canvas
+    if (!this._gridCache || this._gridCache.width !== width || this._gridCache.height !== height) {
+      if (this._gridCache) {
+        // Clean up old cache
+        this._gridCache = null;
+      }
+      this._gridCache = document.createElement('canvas');
+      this._gridCache.width = width;
+      this._gridCache.height = height;
+    }
+    
+    const gridCtx = this._gridCache.getContext('2d');
+    gridCtx.clearRect(0, 0, width, height);
+
     const minorSpacing = gridSize * scale;
     const majorSpacing = minorSpacing * 5;
 
@@ -88,9 +119,9 @@ export class Renderer {
         return;
       }
 
-      ctx.beginPath();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      gridCtx.beginPath();
+      gridCtx.lineWidth = 1;
+      gridCtx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
 
       // Vertical lines
       let x = offsetX + Math.floor(-offsetX / spacing) * spacing;
@@ -99,8 +130,8 @@ export class Renderer {
       }
       for (; x <= width; x += spacing) {
         const px = Math.round(x) + 0.5;
-        ctx.moveTo(px, 0);
-        ctx.lineTo(px, height);
+        gridCtx.moveTo(px, 0);
+        gridCtx.lineTo(px, height);
       }
 
       // Horizontal lines
@@ -110,17 +141,23 @@ export class Renderer {
       }
       for (; y <= height; y += spacing) {
         const py = Math.round(y) + 0.5;
-        ctx.moveTo(0, py);
-        ctx.lineTo(width, py);
+        gridCtx.moveTo(0, py);
+        gridCtx.lineTo(width, py);
       }
 
-      ctx.stroke();
+      gridCtx.stroke();
     };
 
-    ctx.save();
+    gridCtx.save();
     drawLines(minorSpacing, 0.025);
     drawLines(majorSpacing, 0.07);
-    ctx.restore();
+    gridCtx.restore();
+
+    // Draw cached grid to main canvas
+    ctx.drawImage(this._gridCache, 0, 0);
+    
+    // Update cache key
+    this._gridCacheKey = gridCacheKey;
   }
 
   _renderConnections(connections, nodeMap) {

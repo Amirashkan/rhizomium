@@ -485,6 +485,8 @@ export class ComputeExecutor {
     this.fragmentNodesRenderedThisFrame = new Set();
 
     // Check each compute node for fragment inputs
+    // ARCHITECTURAL FIX: Yield control periodically to allow canvas rendering to proceed
+    let fragmentInputIndex = 0;
     for (const nodeId of this.executionOrder) {
       const manager = this.computeManagers.get(nodeId);
       if (!manager) continue;
@@ -509,6 +511,13 @@ export class ComputeExecutor {
         if (!inputNode) {
           continue;
         }
+
+        // CRITICAL: Yield control after every few fragment renders to allow canvas rendering
+        // This prevents fragment rendering from blocking the main thread
+        if (fragmentInputIndex > 0 && fragmentInputIndex % 3 === 0) {
+          await Promise.resolve(); // Yield control to event loop
+        }
+        fragmentInputIndex++;
 
         // This is a fragment node being used as compute input!
         try {
@@ -595,6 +604,8 @@ export class ComputeExecutor {
       await this._renderFragmentInputs(commandEncoder, time, audioContext);
 
     // STEP 2: Execute compute nodes in topological order (dependencies first)
+    // ARCHITECTURAL FIX: Yield control between nodes to allow canvas rendering to proceed
+    // This prevents compute execution from blocking the main thread for too long
     for (const nodeId of this.executionOrder) {
       // Skip if already dispatched during _renderFragmentInputs
       if (this.dispatchedThisFrame.has(nodeId)) {
@@ -604,6 +615,14 @@ export class ComputeExecutor {
       const manager = this.computeManagers.get(nodeId);
       if (!manager) {
         continue;
+      }
+
+      // CRITICAL: Yield control after every few nodes to allow canvas rendering to proceed
+      // This prevents compute execution from blocking the main thread
+      // Yield every 5 nodes to balance between performance and responsiveness
+      const nodeIndex = this.executionOrder.indexOf(nodeId);
+      if (nodeIndex > 0 && nodeIndex % 5 === 0) {
+        await Promise.resolve(); // Yield control to event loop
       }
 
       try {

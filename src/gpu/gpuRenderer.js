@@ -936,12 +936,11 @@ export class GPURenderer {
       this.profiler.beginFrame();
     }
 
-    // CRITICAL FIX: Create command encoder AFTER all synchronous setup completes
-    // This ensures all GPU buffer writes and bind group updates finish before encoder creation
-    // This way, GPU renderer's sync work is fully complete before canvas rendering blocks
     const encoder = this.device.createCommandEncoder();
 
-    // Execute compute shaders BEFORE fragment shader
+    // ARCHITECTURAL FIX: Separate GPU work from canvas rendering
+    // Execute compute shaders - await is necessary for correctness
+    // The await ensures compute passes are recorded before fragment shader renders
     if (window.computeExecutor && window.computeExecutor.initialized) {
       // Get audio envelope values for compute shader expressions
       const audioEnvelope = window._audioEnvelopeValue || 0.0;
@@ -950,11 +949,6 @@ export class GPURenderer {
       const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
       const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-      // PERFORMANCE: Execute compute shaders - the await ensures compute passes are recorded
-      // This is non-blocking for GPU work (commands are just recorded, not executed yet)
-      // We await to ensure compute results are ready before fragment shader renders
-      // CRITICAL: This await is necessary for correctness but can cause frame time variance
-      // The compute executor is optimized to minimize work, but async operations here can still cause lag
       try {
         await window.computeExecutor.execute(encoder, timeValue, {
           audioEnvelope,

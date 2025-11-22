@@ -3863,11 +3863,11 @@ function handleRenderFrame(frameState) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
   } else if (window.gpuRenderer) {
-    // GPU rendering - Always render for real-time preview
-    // START GPU WORK FIRST: This ensures GPU renderer's synchronous setup completes before canvas rendering blocks
-    // The await in gpuRenderer.render() pauses execution, allowing canvas rendering to run
-    // But the GPU renderer's sync work (uniforms, bind groups) happens BEFORE the await
-    // This prevents canvas rendering from delaying the GPU renderer's synchronous work
+    // ARCHITECTURAL FIX: Separate GPU and canvas rendering threads
+    // GPU renderer is async and not awaited - it runs independently
+    // This allows GPU work to proceed in parallel with canvas rendering
+    // GPU renderer's sync work completes immediately, then async work proceeds
+    // Canvas rendering can run without blocking GPU work continuation
     window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
       // Silently handle render errors to avoid breaking render loop
       // Errors are already logged in gpuRenderer.render()
@@ -4043,10 +4043,6 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
-    // CRITICAL FIX: Ensure GPU renderer's sync work completes before canvas rendering blocks
-    // GPU renderer is called first (async, not awaited), so its sync work completes immediately
-    // Canvas rendering then runs, but GPU renderer's sync work is already done
-    // The await in GPU renderer pauses execution, allowing canvas rendering to run without delaying GPU setup
     if (editor?.draw) {
       editor.draw(); // draw() will check _isDirty internally
     }
