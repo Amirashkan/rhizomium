@@ -3861,13 +3861,28 @@ function handleRenderFrame(frameState) {
     computeShaderTest.render(frameState.simTime);
   } else if (window.gpuRenderer) {
     // GPU rendering - Always render for real-time preview
-    // Canvas optimizations handle the performance, GPU keeps running
-    // PERFORMANCE: Don't await render - let it run asynchronously to avoid blocking render loop
-    // The render function is async but we don't need to wait for it to complete
-    window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
-      // Silently handle render errors to avoid breaking render loop
-      // Errors are already logged in gpuRenderer.render()
-    });
+    // PERFORMANCE: During interactions, ensure GPU renderer completes its synchronous setup
+    // before canvas rendering starts, to prevent canvas from blocking GPU command processing
+    const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+    
+    if (isCanvasInteracting) {
+      // During interactions: ensure GPU renderer's sync work completes first
+      // GPU renderer does sync work (uniforms, bind groups) before async submission
+      // We need this sync work to complete before canvas blocks the thread
+      const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+      // Don't await the full async work, but ensure sync setup completes
+      // The promise starts immediately, doing sync work, then async submission
+      renderPromise.catch(err => {
+        // Silently handle render errors to avoid breaking render loop
+        // Errors are already logged in gpuRenderer.render()
+      });
+    } else {
+      // Not interacting: normal async rendering
+      window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
+        // Silently handle render errors to avoid breaking render loop
+        // Errors are already logged in gpuRenderer.render()
+      });
+    }
 
       // Stream frames to external viewers if enabled
       // NOTE: Now streams during parameter drag for real-time external view updates
@@ -4039,23 +4054,24 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
-    // PERFORMANCE: During interactions, defer canvas rendering to idle time to avoid blocking GPU renderer
-    // With many nodes, canvas rendering is CPU-bound and blocks GPU operations
-    // Using requestIdleCallback during interactions ensures GPU gets priority while still rendering everything
+    // PERFORMANCE: During interactions, defer canvas rendering using queueMicrotask
+    // This ensures GPU renderer's synchronous setup work completes before canvas blocks
+    // queueMicrotask runs in the same frame, after current sync code, before next event loop tick
+    // This gives GPU renderer's sync work (uniforms, bind groups) time to complete
     if (editor?.draw) {
       const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
       
-      if (isCanvasInteracting && window.requestIdleCallback) {
-        // During interactions with complex graphs: defer canvas to idle time
-        // This ensures GPU renderer gets CPU priority while still rendering everything (no visual changes)
-        // GPU renderer can process its commands while canvas waits for idle time
-        window.requestIdleCallback((deadline) => {
-          if (deadline.timeRemaining() > 0 && editor?.draw) {
+      if (isCanvasInteracting) {
+        // During interactions: defer canvas to microtask queue
+        // This runs in the same frame, after GPU renderer's sync setup completes
+        // GPU renderer does sync work first, then canvas renders, all in same frame
+        queueMicrotask(() => {
+          if (editor?.draw) {
             editor.draw(); // draw() will check _isDirty internally
           }
-        }, { timeout: 16 }); // Timeout ensures it still renders even if never idle (within one frame)
+        });
       } else {
-        // Not interacting or no requestIdleCallback: render immediately
+        // Not interacting: render immediately
         editor.draw(); // draw() will check _isDirty internally
       }
     }
