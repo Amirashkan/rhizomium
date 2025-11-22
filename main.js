@@ -673,6 +673,21 @@ function onConnectionDeleted(connection) {
   }
 }
 
+// Global function to trigger file load dialog
+// This needs to be accessible from both setupUIEventHandlers and setupRhizomiumMenu
+function triggerFileLoad() {
+  const fileInput = document.getElementById("file-import");
+  if (fileInput) {
+    fileInput.value = "";
+    setTimeout(() => {
+      fileInput.click();
+    }, 10);
+  }
+}
+
+// Expose globally to ensure it's accessible everywhere
+window.triggerFileLoad = triggerFileLoad;
+
 function onNodesMovement(movementData) {
   if (undoManager && movementData) {
     undoManager.recordNodeMovement(movementData);
@@ -2121,7 +2136,13 @@ function setupRhizomiumMenu() {
     openProjectBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      triggerFileLoad();
+      if (typeof triggerFileLoad === 'function') {
+        triggerFileLoad();
+      } else if (typeof window.triggerFileLoad === 'function') {
+        window.triggerFileLoad();
+      } else {
+        console.error('triggerFileLoad is not defined');
+      }
     });
   }
 
@@ -2648,28 +2669,6 @@ function setupRhizomiumMenu() {
   setupNestedSubmenuHover();
 }
 
-// Global function to trigger file load dialog
-function triggerFileLoad() {
-  const fileInput = document.getElementById("file-import");
-  if (fileInput) {
-    fileInput.value = "";
-    setTimeout(() => {
-      fileInput.click();
-    }, 50);
-  }
-}
-
-// Global function to trigger file load dialog
-// This needs to be accessible from both setupUIEventHandlers and setupRhizomiumMenu
-function triggerFileLoad() {
-  const fileInput = document.getElementById("file-import");
-  if (fileInput) {
-    fileInput.value = "";
-    setTimeout(() => {
-      fileInput.click();
-    }, 10);
-  }
-}
 
 function setupNestedSubmenuHover() {
   const submenuTriggers = document.querySelectorAll(".menu-submenu-trigger");
