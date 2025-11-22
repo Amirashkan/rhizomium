@@ -547,23 +547,32 @@ export class Renderer {
     if (node.__thumb instanceof HTMLCanvasElement) {
       ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
     } else if (node.__thumb instanceof ImageData) {
-      // PERFORMANCE: Cache temporary canvases per node to avoid recreating every frame
-      // putImageData is blocking, but we cache the canvas to at least avoid canvas creation overhead
-      const cacheKey = `${node.id}-${node.__thumb.width}x${node.__thumb.height}`;
-      let tempCanvas = this._tempCanvasCache.get(cacheKey);
+      // CRITICAL FIX: Skip putImageData if ImageData hasn't actually changed
+      // putImageData is synchronous and blocks the main thread, preventing GPU renderer from running
+      // During interactions (dragging), thumbnails don't change, so we can skip expensive putImageData
+      const cacheKey = node.id;
+      let cached = this._tempCanvasCache.get(cacheKey);
+      const imageData = node.__thumb;
       
-      if (!tempCanvas || tempCanvas.width !== node.__thumb.width || tempCanvas.height !== node.__thumb.height) {
-        tempCanvas = document.createElement("canvas");
-        tempCanvas.width = node.__thumb.width;
-        tempCanvas.height = node.__thumb.height;
-        this._tempCanvasCache.set(cacheKey, tempCanvas);
+      // Create canvas cache entry if needed
+      if (!cached || cached.canvas.width !== imageData.width || cached.canvas.height !== imageData.height) {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = imageData.width;
+        tempCanvas.height = imageData.height;
+        const tempCtx = tempCanvas.getContext("2d");
+        tempCtx.putImageData(imageData, 0, 0);
+        cached = { canvas: tempCanvas, ctx: tempCtx, imageDataPtr: imageData.data.buffer };
+        this._tempCanvasCache.set(cacheKey, cached);
+      } else {
+        // Only update if ImageData buffer changed (fast pointer check, no pixel comparison)
+        // During interactions like dragging, node outputs don't change, so thumbnails don't change
+        if (cached.imageDataPtr !== imageData.data.buffer) {
+          cached.ctx.putImageData(imageData, 0, 0);
+          cached.imageDataPtr = imageData.data.buffer;
+        }
       }
       
-      // putImageData is blocking but necessary - the real fix needs to happen where thumbnails are created
-      // Thumbnails should be converted to canvas elements, not ImageData
-      const tempCtx = tempCanvas.getContext("2d");
-      tempCtx.putImageData(node.__thumb, 0, 0);
-      ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
+      ctx.drawImage(cached.canvas, thumbX, thumbY, thumbSize, thumbSize);
     }
 
     // Inner border for clarity

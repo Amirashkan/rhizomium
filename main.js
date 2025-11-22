@@ -4039,21 +4039,9 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
-    // PERFORMANCE: During interactions, defer canvas rendering slightly to let GPU renderer's sync setup complete
-    // Canvas rendering with putImageData is blocking - we need to let GPU renderer start its async work first
+    // Render canvas immediately - GPU renderer is async so it can proceed while canvas blocks
     if (editor?.draw) {
-      const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
-      
-      if (isCanvasInteracting && window.gpuRenderer) {
-        // During interactions: Defer canvas rendering by one microtask to let GPU renderer's sync setup finish
-        // This ensures GPU renderer can complete its CPU-side work (uniforms, encoders) before canvas blocks
-        queueMicrotask(() => {
-          editor.draw(); // draw() will check _isDirty internally
-        });
-      } else {
-        // Not interacting or no GPU renderer: Render immediately
-        editor.draw(); // draw() will check _isDirty internally
-      }
+      editor.draw(); // draw() will check _isDirty internally
     }
   }
 }
