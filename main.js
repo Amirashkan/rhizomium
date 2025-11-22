@@ -4039,19 +4039,8 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
-    // PERFORMANCE: Defer canvas rendering slightly to avoid blocking GPU renderer
-    // Canvas 2D rendering is CPU-bound and synchronous, which blocks GPU operations
-    // Use queueMicrotask to defer to end of current task, allowing GPU work to start first
-    // This happens in the same frame, so no visual delay - GPU just gets priority
     if (editor?.draw) {
-      // Defer canvas rendering to microtask queue - happens after current sync code
-      // GPU renderer has already been called and can start processing
-      // Canvas rendering happens in same frame but after GPU work has been queued
-      queueMicrotask(() => {
-        if (editor?.draw) {
-          editor.draw(); // draw() will check _isDirty internally
-        }
-      });
+      editor.draw(); // draw() will check _isDirty internally
     }
   }
 }

@@ -5,6 +5,9 @@ export class Renderer {
   constructor(ctx, viewport) {
     this.ctx = ctx;
     this.viewport = viewport;
+    // Cache for temporary canvases used in thumbnail rendering
+    // This avoids recreating canvases every frame, which is expensive
+    this._tempCanvasCache = new Map();
   }
 
   render(graph, renderState) {
@@ -543,10 +546,20 @@ export class Renderer {
     if (node.__thumb instanceof HTMLCanvasElement) {
       ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
     } else if (node.__thumb instanceof ImageData) {
-      // Create temporary canvas for ImageData
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = node.__thumb.width;
-      tempCanvas.height = node.__thumb.height;
+      // PERFORMANCE: Cache temporary canvases to avoid recreating them every frame
+      // Use a key based on imageData dimensions to reuse canvases
+      const cacheKey = `${node.__thumb.width}x${node.__thumb.height}`;
+      let tempCanvas = this._tempCanvasCache.get(cacheKey);
+      
+      if (!tempCanvas || tempCanvas.width !== node.__thumb.width || tempCanvas.height !== node.__thumb.height) {
+        tempCanvas = document.createElement("canvas");
+        tempCanvas.width = node.__thumb.width;
+        tempCanvas.height = node.__thumb.height;
+        const tempCtx = tempCanvas.getContext("2d");
+        this._tempCanvasCache.set(cacheKey, tempCanvas);
+      }
+      
+      // Update cached canvas with current ImageData
       const tempCtx = tempCanvas.getContext("2d");
       tempCtx.putImageData(node.__thumb, 0, 0);
       ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
