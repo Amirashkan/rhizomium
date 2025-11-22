@@ -4039,9 +4039,24 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
-    // Render canvas immediately - GPU renderer is async so it can proceed while canvas blocks
+    // CRITICAL: During interactions, render canvas on next frame to let GPU renderer complete its sync setup
+    // Canvas 2D rendering blocks the main thread, preventing GPU renderer from setting up commands
     if (editor?.draw) {
-      editor.draw(); // draw() will check _isDirty internally
+      const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+      
+      if (isCanvasInteracting && window.gpuRenderer) {
+        // During interactions: Schedule canvas rendering for next frame
+        // This allows GPU renderer's synchronous setup (uniforms, encoders) to complete first
+        // GPU renderer is async but has sync setup work that needs CPU time
+        requestAnimationFrame(() => {
+          if (editor?.draw) {
+            editor.draw(); // draw() will check _isDirty internally
+          }
+        });
+      } else {
+        // Not interacting: Render immediately
+        editor.draw(); // draw() will check _isDirty internally
+      }
     }
   }
 }
