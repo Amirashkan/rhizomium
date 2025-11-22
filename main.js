@@ -1416,15 +1416,139 @@ function setupUIEventHandlers() {
   const openExternalViewerBtn = removeExistingHandlers("btn-open-external-viewer");
 
   if (openExternalViewerBtn) {
+    // Check if running on Vercel or other cloud hosting
+    const isCloudHosted = window.location.hostname.includes('vercel.app') ||
+                          window.location.hostname.includes('netlify.app') ||
+                          window.location.hostname.includes('github.io') ||
+                          (!window.location.hostname.includes('localhost') &&
+                           !window.location.hostname.includes('127.0.0.1') &&
+                           !window.location.hostname.match(/^192\.168\./));
+
     openExternalViewerBtn.addEventListener("click", async (e) => {
       e.preventDefault();
+      e.stopPropagation(); // Prevent dropdown from closing immediately
 
+      // Check if running on Vercel/cloud
+      if (isCloudHosted) {
+        // If already streaming, stop it
+        if (frameStreamingEnabled && liveShaderStream) {
+          liveShaderStream.stopStreaming();
+          frameStreamingEnabled = false;
+
+          // Reset button appearance
+          openExternalViewerBtn.textContent = "Open External Viewer";
+          openExternalViewerBtn.style.backgroundColor = "";
+          openExternalViewerBtn.style.borderColor = "";
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming stopped");
+          }
+          return;
+        }
+
+        // Use LiveShaderStream for same-origin communication
+        if (!LiveShaderStream.isSupported()) {
+          alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
+          return;
+        }
+
+        try {
+          // Initialize LiveShaderStream
+          if (!liveShaderStream) {
+            liveShaderStream = new LiveShaderStream();
+            liveShaderStream.init();
+            window.liveShaderStream = liveShaderStream; // Expose for GPU renderer
+          }
+
+          // Start streaming
+          liveShaderStream.startStreaming();
+          frameStreamingEnabled = true;
+
+          // Send current shader immediately if available
+          if (window.latestGeneratedWGSL) {
+            const canvas = document.getElementById('gpu-canvas');
+
+            // Extract current parameter values
+            let uniformValues = [];
+            if (window.nodeCompiler?.uniformManager?.uniformValues) {
+              uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
+            }
+
+            liveShaderStream.sendShaderUpdate(
+              window.latestGeneratedWGSL,
+              uniformValues,
+              { width: canvas?.width || 1920, height: canvas?.height || 1080 }
+            );
+          } else {
+            console.warn('[main.js] ⚠️ No shader available yet - triggering rebuild');
+            // Trigger a shader rebuild to generate and send the shader
+            if (window.rebuild && typeof window.rebuild === 'function') {
+              setTimeout(() => {
+                window.rebuild();
+              }, 100);
+            }
+          }
+
+          // Update button
+          openExternalViewerBtn.textContent = "Stop Streaming";
+          openExternalViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
+          openExternalViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
+
+          // Open live viewer in new window
+          const viewerUrl = window.location.origin + '/viewer-live.html?fullscreen=true&hideui=true';
+          window.open(viewerUrl, 'RhizomiumLiveViewer', 'width=1920,height=1080');
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming shaders to live viewer (60 FPS)");
+          }
+        } catch (error) {
+          console.error('[main.js] Error starting LiveShaderStream:', error);
+          alert('❌ Failed to start streaming: ' + error.message);
+        }
+
+        return;
+      }
+
+      // Local development - use HTTP/WebSocket streaming
       try {
+        // If already streaming, stop it
+        if (frameStreamingEnabled && frameStreamClient) {
+          frameStreamClient.stopStreaming();
+          frameStreamingEnabled = false;
+
+          // Reset button appearance
+          openExternalViewerBtn.textContent = "Open External Viewer";
+          openExternalViewerBtn.style.backgroundColor = "";
+          openExternalViewerBtn.style.borderColor = "";
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming stopped");
+          }
+          return;
+        }
+
         // Use the onLaunchExternalViewer function if available
         if (outputDisplayWindow && typeof outputDisplayWindow.onLaunchExternalViewer === 'function') {
           await outputDisplayWindow.onLaunchExternalViewer({});
         } else {
-          // Fallback: call the API directly
+          // Fallback: initialize frame streaming client if not already done
+          if (!frameStreamClient) {
+            frameStreamClient = new FrameStreamClient('http://localhost:5000');
+          }
+
+          // Start frame streaming
+          try {
+            await frameStreamClient.startStreaming();
+            frameStreamingEnabled = true;
+
+            if (typeof updateStatus === "function") {
+              updateStatus("Frame streaming started");
+            }
+          } catch (streamError) {
+            console.warn('[main.js] Frame streaming not available:', streamError);
+          }
+
+          // Try to launch rhizo_viewer via backend API
           const response = await fetch('/api/launch-viewer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1439,6 +1563,11 @@ function setupUIEventHandlers() {
             if (typeof updateStatus === "function") {
               updateStatus("External viewer opened (WebSocket mode)");
             }
+
+            // Update button text to show streaming is active
+            openExternalViewerBtn.textContent = "Stop Streaming";
+            openExternalViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
+            openExternalViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
           } else {
             console.error('[main.js] Failed to launch external viewer:', response.status);
             
