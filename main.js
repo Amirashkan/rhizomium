@@ -6,6 +6,7 @@ import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
+import { OutputDisplayWindow } from "./src/ui/OutputDisplayWindow.js";
 import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
@@ -161,6 +162,7 @@ let editor = null;
 let saveLoadManager = null;
 let backupDialog = null;
 let welcomeWindow = null;
+let outputDisplayWindow = null;
 let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
@@ -462,6 +464,95 @@ async function initialize() {
       storageKey: "rhizomium.welcome.dismissed"
     });
 
+    // Create Output Display Window
+    outputDisplayWindow = new OutputDisplayWindow({
+      onClose: () => {},
+      onLaunchExternalViewer: async (options = {}) => {
+        try {
+          // Use the same logic as the existing viewer launch code
+          // First, initialize frame streaming client if not already done
+          if (!frameStreamClient) {
+            frameStreamClient = new FrameStreamClient('http://localhost:5000');
+          }
+
+          // Start frame streaming
+          try {
+            await frameStreamClient.startStreaming();
+            frameStreamingEnabled = true;
+
+            if (typeof updateStatus === "function") {
+              updateStatus("Frame streaming started");
+            }
+          } catch (streamError) {
+            console.warn('[main.js] Frame streaming not available:', streamError);
+          }
+
+          // Then launch rhizo_viewer via backend API
+          const response = await fetch('/api/launch-viewer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              viewer: 'rhizo_viewer.py',
+              fullscreen: options.fullscreen || false,
+              monitor: options.monitor || 'primary'
+            })
+          });
+
+          if (response.ok) {
+            if (typeof updateStatus === "function") {
+              updateStatus("External viewer opened (WebSocket mode)");
+            }
+          } else {
+            console.error('[main.js] Failed to launch external viewer:', response.status);
+            
+            // Show helpful message for local setup
+            const isLocal = window.location.hostname === 'localhost' ||
+                           window.location.hostname === '127.0.0.1';
+            
+            if (isLocal) {
+              const message =
+                "⚠️ Python backend not running.\n\n" +
+                "To use the external viewer:\n" +
+                "1. Open a terminal in the project directory\n" +
+                "2. Run: python rhizo_server.py\n" +
+                "3. Refresh this page\n" +
+                "4. Click 'Open External Viewer' again\n\n" +
+                "The viewer will connect via WebSocket for remote streaming.";
+              
+              alert(message);
+            }
+            
+            if (typeof updateStatus === "function") {
+              updateStatus("Failed to launch external viewer - backend not running", "error");
+            }
+          }
+        } catch (error) {
+          console.error('[main.js] Error launching external viewer:', error);
+          
+          // Show helpful message for local setup
+          const isLocal = window.location.hostname === 'localhost' ||
+                         window.location.hostname === '127.0.0.1';
+          
+          if (isLocal) {
+            const message =
+              "⚠️ Python backend not running.\n\n" +
+              "To use the external viewer:\n" +
+              "1. Open a terminal in the project directory\n" +
+              "2. Run: python rhizo_server.py\n" +
+              "3. Refresh this page\n" +
+              "4. Click 'Open External Viewer' again\n\n" +
+              "The viewer will connect via WebSocket for remote streaming.";
+            
+            alert(message);
+          }
+          
+          if (typeof updateStatus === "function") {
+            updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
+          }
+        }
+      }
+    });
+
     // Create VJ Control Panel (after SaveLoadManager is ready)
     try {
       vjControlPanel = new VJControlPanel(editor);
@@ -501,6 +592,7 @@ async function initialize() {
     window.saveLoadManager = saveLoadManager;
     window.backupDialog = backupDialog;
     window.welcomeWindow = welcomeWindow;
+    window.outputDisplayWindow = outputDisplayWindow;
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
@@ -1318,6 +1410,214 @@ function setupUIEventHandlers() {
     });
   } else {
     console.error('[main.js] VJ Control button NOT found in DOM!');
+  }
+
+  // Open External Viewer button
+  const openExternalViewerBtn = removeExistingHandlers("btn-open-external-viewer");
+
+  if (openExternalViewerBtn) {
+    // Check if running on Vercel or other cloud hosting
+    const isCloudHosted = window.location.hostname.includes('vercel.app') ||
+                          window.location.hostname.includes('netlify.app') ||
+                          window.location.hostname.includes('github.io') ||
+                          (!window.location.hostname.includes('localhost') &&
+                           !window.location.hostname.includes('127.0.0.1') &&
+                           !window.location.hostname.match(/^192\.168\./));
+
+    openExternalViewerBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // Prevent dropdown from closing immediately
+
+      // Check if running on Vercel/cloud
+      if (isCloudHosted) {
+        // If already streaming, stop it
+        if (frameStreamingEnabled && liveShaderStream) {
+          liveShaderStream.stopStreaming();
+          frameStreamingEnabled = false;
+
+          // Reset button appearance
+          openExternalViewerBtn.textContent = "Open External Viewer";
+          openExternalViewerBtn.style.backgroundColor = "";
+          openExternalViewerBtn.style.borderColor = "";
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming stopped");
+          }
+          return;
+        }
+
+        // Use LiveShaderStream for same-origin communication
+        if (!LiveShaderStream.isSupported()) {
+          alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
+          return;
+        }
+
+        try {
+          // Initialize LiveShaderStream
+          if (!liveShaderStream) {
+            liveShaderStream = new LiveShaderStream();
+            liveShaderStream.init();
+            window.liveShaderStream = liveShaderStream; // Expose for GPU renderer
+          }
+
+          // Start streaming
+          liveShaderStream.startStreaming();
+          frameStreamingEnabled = true;
+
+          // Send current shader immediately if available
+          if (window.latestGeneratedWGSL) {
+            const canvas = document.getElementById('gpu-canvas');
+
+            // Extract current parameter values
+            let uniformValues = [];
+            if (window.nodeCompiler?.uniformManager?.uniformValues) {
+              uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
+            }
+
+            liveShaderStream.sendShaderUpdate(
+              window.latestGeneratedWGSL,
+              uniformValues,
+              { width: canvas?.width || 1920, height: canvas?.height || 1080 }
+            );
+          } else {
+            console.warn('[main.js] ⚠️ No shader available yet - triggering rebuild');
+            // Trigger a shader rebuild to generate and send the shader
+            if (window.rebuild && typeof window.rebuild === 'function') {
+              setTimeout(() => {
+                window.rebuild();
+              }, 100);
+            }
+          }
+
+          // Update button
+          openExternalViewerBtn.textContent = "Stop Streaming";
+          openExternalViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
+          openExternalViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
+
+          // Open live viewer in new window
+          const viewerUrl = window.location.origin + '/viewer-live.html?fullscreen=true&hideui=true';
+          window.open(viewerUrl, 'RhizomiumLiveViewer', 'width=1920,height=1080');
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming shaders to live viewer (60 FPS)");
+          }
+        } catch (error) {
+          console.error('[main.js] Error starting LiveShaderStream:', error);
+          alert('❌ Failed to start streaming: ' + error.message);
+        }
+
+        return;
+      }
+
+      // Local development - use HTTP/WebSocket streaming
+      try {
+        // If already streaming, stop it
+        if (frameStreamingEnabled && frameStreamClient) {
+          frameStreamClient.stopStreaming();
+          frameStreamingEnabled = false;
+
+          // Reset button appearance
+          openExternalViewerBtn.textContent = "Open External Viewer";
+          openExternalViewerBtn.style.backgroundColor = "";
+          openExternalViewerBtn.style.borderColor = "";
+
+          if (typeof updateStatus === "function") {
+            updateStatus("Streaming stopped");
+          }
+          return;
+        }
+
+        // Use the onLaunchExternalViewer function if available
+        if (outputDisplayWindow && typeof outputDisplayWindow.onLaunchExternalViewer === 'function') {
+          await outputDisplayWindow.onLaunchExternalViewer({});
+        } else {
+          // Fallback: initialize frame streaming client if not already done
+          if (!frameStreamClient) {
+            frameStreamClient = new FrameStreamClient('http://localhost:5000');
+          }
+
+          // Start frame streaming
+          try {
+            await frameStreamClient.startStreaming();
+            frameStreamingEnabled = true;
+
+            if (typeof updateStatus === "function") {
+              updateStatus("Frame streaming started");
+            }
+          } catch (streamError) {
+            console.warn('[main.js] Frame streaming not available:', streamError);
+          }
+
+          // Try to launch rhizo_viewer via backend API
+          const response = await fetch('/api/launch-viewer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              viewer: 'rhizo_viewer.py',
+              fullscreen: false,
+              monitor: 'primary'
+            })
+          });
+
+          if (response.ok) {
+            if (typeof updateStatus === "function") {
+              updateStatus("External viewer opened (WebSocket mode)");
+            }
+
+            // Update button text to show streaming is active
+            openExternalViewerBtn.textContent = "Stop Streaming";
+            openExternalViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
+            openExternalViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
+          } else {
+            console.error('[main.js] Failed to launch external viewer:', response.status);
+            
+            const isLocal = window.location.hostname === 'localhost' ||
+                           window.location.hostname === '127.0.0.1';
+            
+            if (isLocal) {
+              const message =
+                "⚠️ Python backend not running.\n\n" +
+                "To use the external viewer:\n" +
+                "1. Open a terminal in the project directory\n" +
+                "2. Run: python rhizo_server.py\n" +
+                "3. Refresh this page\n" +
+                "4. Click 'Open External Viewer' again\n\n" +
+                "The viewer will connect via WebSocket for remote streaming.";
+              
+              alert(message);
+            }
+            
+            if (typeof updateStatus === "function") {
+              updateStatus("Failed to launch external viewer - backend not running", "error");
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error launching external viewer:', error);
+        
+        const isLocal = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+        
+        if (isLocal) {
+          const message =
+            "⚠️ Python backend not running.\n\n" +
+            "To use the external viewer:\n" +
+            "1. Open a terminal in the project directory\n" +
+            "2. Run: python rhizo_server.py\n" +
+            "3. Refresh this page\n" +
+            "4. Click 'Open External Viewer' again\n\n" +
+            "The viewer will connect via WebSocket for remote streaming.";
+          
+          alert(message);
+        }
+        
+        if (typeof updateStatus === "function") {
+          updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
+        }
+      }
+    });
+  } else {
+    console.error('[main.js] Open External Viewer button NOT found in DOM!');
   }
 
   // TODO: Display selector and External Viewer functionality moved to Window menu
@@ -2327,6 +2627,21 @@ function setupRhizomiumMenu() {
         window.floatingPreview.toggle();
         if (typeof updateStatus === "function") {
           updateStatus(window.floatingPreview.isVisible ? "Preview Panel shown" : "Preview Panel hidden");
+        }
+      }
+    });
+  }
+
+  // Output Display - opens as window
+  const outputDisplayBtn = document.getElementById("btn-output-display");
+  if (outputDisplayBtn && window.outputDisplayWindow) {
+    outputDisplayBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.outputDisplayWindow) {
+        window.outputDisplayWindow.show();
+        if (typeof updateStatus === "function") {
+          updateStatus("Output Display window opened");
         }
       }
     });

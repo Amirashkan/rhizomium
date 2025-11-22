@@ -92,15 +92,27 @@ def launch_viewer():
 
         print(f"[rhizo_server] Launching viewer: {viewer_path}")
 
+        # Get launch options from request
+        fullscreen = data.get('fullscreen', False)
+        monitor = data.get('monitor', 'primary')
+        
         # Launch the viewer process
         if viewer_path.endswith('.py'):
-            # Launch Python script with WebSocket mode by default
-            process = subprocess.Popen([
+            # Build command arguments
+            cmd = [
                 sys.executable,
                 viewer_path,
                 '--ws',  # Enable WebSocket mode
                 '--url', 'ws://localhost:8766/ws'  # Frame streaming URL
-            ])
+            ]
+            
+            # Add fullscreen flag if requested
+            if fullscreen:
+                cmd.append('--fullscreen')
+            
+            # Note: Monitor selection would need to be implemented in the viewer
+            # For now, we'll pass it as an environment variable or future parameter
+            process = subprocess.Popen(cmd, env={**os.environ, 'RHIZO_MONITOR': str(monitor)})
         else:
             # Launch executable
             process = subprocess.Popen([viewer_path])
@@ -132,6 +144,125 @@ def launch_viewer():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@app.route('/api/detect-monitors', methods=['GET'])
+def detect_monitors():
+    """Detect available monitors on the system."""
+    try:
+        import platform
+        
+        monitors = []
+        
+        # Try to detect monitors using platform-specific methods
+        if platform.system() == 'Windows':
+            try:
+                import win32api
+                import win32con
+                
+                # Get all monitors
+                monitors_info = win32api.EnumDisplayMonitors()
+                for i, (hMonitor, hdcMonitor, lprcMonitor) in enumerate(monitors_info):
+                    monitor_info = win32api.GetMonitorInfo(hMonitor)
+                    width = monitor_info['Monitor'][2] - monitor_info['Monitor'][0]
+                    height = monitor_info['Monitor'][3] - monitor_info['Monitor'][1]
+                    
+                    monitors.append({
+                        'index': i,
+                        'label': f"Monitor {i + 1}",
+                        'width': width,
+                        'height': height,
+                        'primary': i == 0
+                    })
+            except ImportError:
+                # Fallback: use screeninfo library if available
+                try:
+                    from screeninfo import get_monitors
+                    for i, monitor in enumerate(get_monitors()):
+                        monitors.append({
+                            'index': i,
+                            'label': f"Monitor {i + 1}",
+                            'width': monitor.width,
+                            'height': monitor.height,
+                            'primary': monitor.is_primary if hasattr(monitor, 'is_primary') else i == 0
+                        })
+                except ImportError:
+                    # Final fallback: return basic info
+                    monitors = [{
+                        'index': 0,
+                        'label': 'Primary Monitor',
+                        'width': 1920,
+                        'height': 1080,
+                        'primary': True
+                    }]
+        elif platform.system() == 'Linux':
+            try:
+                from screeninfo import get_monitors
+                for i, monitor in enumerate(get_monitors()):
+                    monitors.append({
+                        'index': i,
+                        'label': f"Monitor {i + 1}",
+                        'width': monitor.width,
+                        'height': monitor.height,
+                        'primary': monitor.is_primary if hasattr(monitor, 'is_primary') else i == 0
+                    })
+            except ImportError:
+                # Fallback
+                monitors = [{
+                    'index': 0,
+                    'label': 'Primary Monitor',
+                    'width': 1920,
+                    'height': 1080,
+                    'primary': True
+                }]
+        elif platform.system() == 'Darwin':  # macOS
+            try:
+                from screeninfo import get_monitors
+                for i, monitor in enumerate(get_monitors()):
+                    monitors.append({
+                        'index': i,
+                        'label': f"Monitor {i + 1}",
+                        'width': monitor.width,
+                        'height': monitor.height,
+                        'primary': monitor.is_primary if hasattr(monitor, 'is_primary') else i == 0
+                    })
+            except ImportError:
+                # Fallback
+                monitors = [{
+                    'index': 0,
+                    'label': 'Primary Monitor',
+                    'width': 1920,
+                    'height': 1080,
+                    'primary': True
+                }]
+        else:
+            # Unknown platform - return basic info
+            monitors = [{
+                'index': 0,
+                'label': 'Primary Monitor',
+                'width': 1920,
+                'height': 1080,
+                'primary': True
+            }]
+        
+        return jsonify({
+            'success': True,
+            'monitors': monitors
+        }), 200
+        
+    except Exception as e:
+        print(f"[rhizo_server] Error detecting monitors: {e}")
+        # Return fallback
+        return jsonify({
+            'success': True,
+            'monitors': [{
+                'index': 0,
+                'label': 'Primary Monitor',
+                'width': 1920,
+                'height': 1080,
+                'primary': True
+            }]
+        }), 200
 
 
 @app.route('/api/health', methods=['GET'])
