@@ -9,6 +9,7 @@ export class OutputDisplayWindow {
     this.window = null;
     this.keyHandler = null;
     this.cleanupDraggable = null;
+    this.detectedMonitors = [];
   }
 
   show() {
@@ -128,35 +129,6 @@ export class OutputDisplayWindow {
     `;
     content.className = "custom-scroll";
 
-    // Settings section
-    const settingsSection = this._createSection("Display Settings", [
-      this._createCheckbox("Start in Fullscreen", "fullscreen", false),
-      this._createDropdown("Monitor", "monitor", [
-        { value: "primary", label: "Primary Monitor" },
-        { value: "secondary", label: "Secondary Monitor" },
-        { value: "all", label: "All Monitors" }
-      ], "primary")
-    ]);
-    content.appendChild(settingsSection);
-
-    // Placeholder section
-    const placeholder = document.createElement("div");
-    placeholder.style.cssText = `
-      background: rgba(0, 0, 0, 0.2);
-      border: 1px dashed rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-      padding: 40px 24px;
-      margin-bottom: 20px;
-      text-align: center;
-      color: #888;
-      font-size: 14px;
-    `;
-    placeholder.innerHTML = `
-      <div style="margin-bottom: 8px; font-size: 16px; color: #aaa;">Output Display</div>
-      <div style="font-size: 13px; color: #666;">Placeholder content will be added here</div>
-    `;
-    content.appendChild(placeholder);
-
     // Launch External Viewer button
     const launchBtn = document.createElement("button");
     launchBtn.textContent = "Open External Viewer";
@@ -171,6 +143,7 @@ export class OutputDisplayWindow {
       font-weight: 500;
       cursor: pointer;
       transition: all 0.2s ease;
+      margin-top: 8px;
     `;
     launchBtn.onmouseenter = () => {
       launchBtn.style.background = "rgba(102, 126, 234, 0.3)";
@@ -193,7 +166,37 @@ export class OutputDisplayWindow {
         await this.onLaunchExternalViewer(options);
       }
     };
-    content.appendChild(launchBtn);
+
+    // Settings section with button
+    const settingsSection = this._createSection("External Viewer", [
+      this._createCheckbox("Start in Fullscreen", "fullscreen", false),
+      this._createMonitorDropdown("Monitor", "monitor"),
+      launchBtn
+    ]);
+    content.appendChild(settingsSection);
+    
+    // Detect monitors
+    this.detectMonitors().then(() => {
+      this.updateMonitorDropdown();
+    });
+
+    // Placeholder section
+    const placeholder = document.createElement("div");
+    placeholder.style.cssText = `
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px dashed rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 40px 24px;
+      margin-bottom: 20px;
+      text-align: center;
+      color: #888;
+      font-size: 14px;
+    `;
+    placeholder.innerHTML = `
+      <div style="margin-bottom: 8px; font-size: 16px; color: #aaa;">Output Display</div>
+      <div style="font-size: 13px; color: #666;">Placeholder content will be added here</div>
+    `;
+    content.appendChild(placeholder);
 
     this.window.appendChild(header);
     this.window.appendChild(content);
@@ -325,6 +328,144 @@ export class OutputDisplayWindow {
     container.appendChild(select);
 
     return container;
+  }
+
+  async detectMonitors() {
+    try {
+      // Try to use Screen Details API (Chrome/Edge)
+      if ('getScreenDetails' in window.screen) {
+        const screenDetails = await window.screen.getScreenDetails();
+        this.detectedMonitors = [];
+        
+        // Add primary screen
+        this.detectedMonitors.push({
+          value: 'primary',
+          label: `Primary Monitor (${screen.width}x${screen.height})`
+        });
+        
+        // Add other screens
+        for (let i = 0; i < screenDetails.screens.length; i++) {
+          const scr = screenDetails.screens[i];
+          if (scr !== screenDetails.currentScreen) {
+            this.detectedMonitors.push({
+              value: `monitor_${i}`,
+              label: `Monitor ${i + 1} (${scr.width}x${scr.height})`
+            });
+          }
+        }
+        
+        return;
+      }
+      
+      // Fallback: Try to detect via backend API
+      try {
+        const response = await fetch('/api/detect-monitors', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.monitors && Array.isArray(data.monitors)) {
+            this.detectedMonitors = data.monitors.map((mon, idx) => ({
+              value: `monitor_${idx}`,
+              label: mon.label || `Monitor ${idx + 1} (${mon.width}x${mon.height})`
+            }));
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('[OutputDisplayWindow] Could not detect monitors via API:', e);
+      }
+      
+      // Final fallback: Use basic screen info
+      this.detectedMonitors = [
+        { value: 'primary', label: `Primary Monitor (${screen.width}x${screen.height})` },
+        { value: 'secondary', label: 'Secondary Monitor' },
+        { value: 'all', label: 'All Monitors' }
+      ];
+    } catch (error) {
+      console.warn('[OutputDisplayWindow] Monitor detection failed:', error);
+      // Fallback to basic options
+      this.detectedMonitors = [
+        { value: 'primary', label: 'Primary Monitor' },
+        { value: 'secondary', label: 'Secondary Monitor' },
+        { value: 'all', label: 'All Monitors' }
+      ];
+    }
+  }
+
+  _createMonitorDropdown(label, id) {
+    const container = document.createElement("div");
+    container.style.cssText = "margin-bottom: 12px;";
+
+    const labelEl = document.createElement("label");
+    labelEl.textContent = label;
+    labelEl.style.cssText = `
+      display: block;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      margin-bottom: 6px;
+    `;
+    labelEl.setAttribute("for", `output-display-${id}`);
+
+    const select = document.createElement("select");
+    select.id = `output-display-${id}`;
+    select.style.cssText = `
+      width: 100%;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    `;
+
+    // Initial options (will be updated when monitors are detected)
+    const initialOptions = [
+      { value: "primary", label: "Detecting monitors..." }
+    ];
+    
+    initialOptions.forEach(option => {
+      const optionEl = document.createElement("option");
+      optionEl.value = option.value;
+      optionEl.textContent = option.label;
+      select.appendChild(optionEl);
+    });
+
+    container.appendChild(labelEl);
+    container.appendChild(select);
+
+    return container;
+  }
+
+  updateMonitorDropdown() {
+    const select = this.window?.querySelector('#output-display-monitor');
+    if (!select) return;
+
+    // Clear existing options
+    select.innerHTML = '';
+
+    // Add detected monitors
+    if (this.detectedMonitors.length > 0) {
+      this.detectedMonitors.forEach(monitor => {
+        const optionEl = document.createElement("option");
+        optionEl.value = monitor.value;
+        optionEl.textContent = monitor.label;
+        if (monitor.value === 'primary') {
+          optionEl.selected = true;
+        }
+        select.appendChild(optionEl);
+      });
+    } else {
+      // Fallback if detection failed
+      const fallback = document.createElement("option");
+      fallback.value = "primary";
+      fallback.textContent = "Primary Monitor";
+      fallback.selected = true;
+      select.appendChild(fallback);
+    }
   }
 }
 
