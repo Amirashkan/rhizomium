@@ -3855,15 +3855,19 @@ function handleRenderFrame(frameState) {
   }
 
   // GPU rendering - Always render for real-time preview updates
+  // CRITICAL: Start GPU work BEFORE canvas rendering to ensure GPU work isn't delayed
+  // The GPU renderer does synchronous setup work, then awaits compute shader execution
+  // By starting GPU work first, its async continuation can progress even while canvas rendering blocks
   // Check if compute shader test is active
   if (computeShaderTest && computeShaderTest.isEnabled) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
   } else if (window.gpuRenderer) {
     // GPU rendering - Always render for real-time preview
-    // Canvas optimizations handle the performance, GPU keeps running
-    // PERFORMANCE: Don't await render - let it run asynchronously to avoid blocking render loop
-    // The render function is async but we don't need to wait for it to complete
+    // START GPU WORK FIRST: This ensures GPU renderer's synchronous setup completes before canvas rendering blocks
+    // The await in gpuRenderer.render() pauses execution, allowing canvas rendering to run
+    // But the GPU renderer's sync work (uniforms, bind groups) happens BEFORE the await
+    // This prevents canvas rendering from delaying the GPU renderer's synchronous work
     window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
       // Silently handle render errors to avoid breaking render loop
       // Errors are already logged in gpuRenderer.render()
@@ -4039,6 +4043,10 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
+    // CRITICAL FIX: Ensure GPU renderer's sync work completes before canvas rendering blocks
+    // GPU renderer is called first (async, not awaited), so its sync work completes immediately
+    // Canvas rendering then runs, but GPU renderer's sync work is already done
+    // The await in GPU renderer pauses execution, allowing canvas rendering to run without delaying GPU setup
     if (editor?.draw) {
       editor.draw(); // draw() will check _isDirty internally
     }

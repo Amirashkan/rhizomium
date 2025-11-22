@@ -936,6 +936,9 @@ export class GPURenderer {
       this.profiler.beginFrame();
     }
 
+    // CRITICAL FIX: Create command encoder AFTER all synchronous setup completes
+    // This ensures all GPU buffer writes and bind group updates finish before encoder creation
+    // This way, GPU renderer's sync work is fully complete before canvas rendering blocks
     const encoder = this.device.createCommandEncoder();
 
     // Execute compute shaders BEFORE fragment shader

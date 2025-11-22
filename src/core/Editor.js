@@ -851,6 +851,9 @@ connectGPURenderer(renderFunction) {
     // Check if canvas is currently being interacted with (pan, drag, etc.)
     const isInteracting = this.eventHandler?.isCanvasInteracting?.() || false;
     
+    // CRITICAL: Render canvas synchronously - cannot be deferred without visual changes
+    // However, the renderer itself uses viewport culling to skip off-screen elements
+    // This reduces work without changing visuals (elements outside viewport aren't visible anyway)
     this.renderer.render(this.graph, {
       selection: this.selection.getSelected(),
       dragWire: this.connections.getDragWire(),
