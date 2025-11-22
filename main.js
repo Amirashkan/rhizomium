@@ -4039,9 +4039,20 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
-    // Render canvas immediately - viewport culling handles performance optimization
+    // PERFORMANCE: During interactions, yield to GPU renderer first, then render canvas
+    // This ensures GPU renderer's sync setup (uniforms, bind groups) completes before canvas blocks
     if (editor?.draw) {
-      editor.draw(); // draw() will check _isDirty internally
+      const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+      if (isCanvasInteracting) {
+        // During interactions: Yield to GPU renderer first, then render canvas
+        // This gives GPU renderer CPU priority for its sync setup before canvas blocks the thread
+        queueMicrotask(() => {
+          editor.draw(); // draw() will check _isDirty internally
+        });
+      } else {
+        // Not interacting: Render immediately
+        editor.draw(); // draw() will check _isDirty internally
+      }
     }
   }
 }
