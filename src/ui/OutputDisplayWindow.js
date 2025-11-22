@@ -6,274 +6,208 @@ export class OutputDisplayWindow {
     this.onClose = options.onClose || (() => {});
     this.onLaunchExternalViewer = options.onLaunchExternalViewer || (() => {});
 
-    this.overlay = null;
+    this.window = null;
     this.keyHandler = null;
     this.cleanupDraggable = null;
   }
 
   show() {
-    if (this.overlay) {
-      return true;
+    if (this.window) {
+      this.window.style.display = "flex";
+      this.window.style.opacity = "1";
+      
+      // If window already has left/top positioning (from dragging), preserve it
+      // Otherwise, center it on first show
+      if (!this.window.style.left || this.window.style.left === 'auto' || this.window.style.left === '50%') {
+        // Center on screen
+        const left = (window.innerWidth - this.window.offsetWidth) / 2;
+        const top = (window.innerHeight - this.window.offsetHeight) / 2;
+        this.window.style.left = left + 'px';
+        this.window.style.top = top + 'px';
+      }
+      this.window.style.transform = "scale(1)";
+      
+      return;
     }
 
     this.render();
-    return true;
   }
 
   hide() {
-    if (!this.overlay) {
-      return;
-    }
+    if (!this.window) return;
 
     if (this.cleanupDraggable) {
       this.cleanupDraggable();
       this.cleanupDraggable = null;
     }
 
-    this.overlay.classList.remove("visible");
     if (this.keyHandler) {
       document.removeEventListener("keydown", this.keyHandler);
       this.keyHandler = null;
     }
 
+    this.window.style.opacity = "0";
+    this.window.style.transform = "translate(-50%, -50%) scale(0.95)";
+
     setTimeout(() => {
-      this.overlay?.remove();
-      this.overlay = null;
+      if (this.window) {
+        this.window.style.display = "none";
+      }
       this.onClose();
-    }, 180);
+    }, 200);
   }
 
   render() {
-    this.addStyles();
+    this.window = document.createElement("div");
+    this.window.id = "output-display-window";
+    this.window.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 500px;
+      max-width: 90vw;
+      max-height: 85vh;
+      background: rgba(28, 28, 30, 0.98);
+      backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      z-index: 1001;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.95);
+      transition: all 0.2s ease;
+      overflow: hidden;
+    `;
 
-    this.overlay = document.createElement("div");
-    this.overlay.className = "output-display-overlay";
-    this.overlay.innerHTML = this.getTemplate();
-    document.body.appendChild(this.overlay);
+    const header = document.createElement("div");
+    header.style.cssText = `
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: move;
+      flex-shrink: 0;
+    `;
 
-    // Make dialog draggable by its header
-    const dialog = this.overlay.querySelector('.output-display-dialog');
-    const header = this.overlay.querySelector('.output-display-header');
-    if (dialog && header) {
-      this.cleanupDraggable = makeDraggable(dialog, header);
-    }
+    const title = document.createElement("div");
+    title.textContent = "Output Display";
+    title.style.cssText = "color: #fff; font-size: 14px; font-weight: 600;";
 
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "×";
+    closeBtn.style.cssText = `
+      background: transparent;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 4px;
+      border-radius: 4px;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+    closeBtn.onclick = () => this.hide();
+
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const content = document.createElement("div");
+    content.style.cssText = `
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    `;
+    content.className = "custom-scroll";
+
+    // Placeholder section
+    const placeholder = document.createElement("div");
+    placeholder.style.cssText = `
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px dashed rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 40px 24px;
+      margin-bottom: 20px;
+      text-align: center;
+      color: #888;
+      font-size: 14px;
+    `;
+    placeholder.innerHTML = `
+      <div style="margin-bottom: 8px; font-size: 16px; color: #aaa;">Output Display</div>
+      <div style="font-size: 13px; color: #666;">Placeholder content will be added here</div>
+    `;
+    content.appendChild(placeholder);
+
+    // Launch External Viewer button
+    const launchBtn = document.createElement("button");
+    launchBtn.textContent = "Open External Viewer";
+    launchBtn.style.cssText = `
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(102, 126, 234, 0.2);
+      border: 1px solid rgba(102, 126, 234, 0.4);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    `;
+    launchBtn.onmouseenter = () => {
+      launchBtn.style.background = "rgba(102, 126, 234, 0.3)";
+      launchBtn.style.borderColor = "rgba(102, 126, 234, 0.6)";
+    };
+    launchBtn.onmouseleave = () => {
+      launchBtn.style.background = "rgba(102, 126, 234, 0.2)";
+      launchBtn.style.borderColor = "rgba(102, 126, 234, 0.4)";
+    };
+    launchBtn.onclick = async () => {
+      if (this.onLaunchExternalViewer) {
+        await this.onLaunchExternalViewer();
+      }
+    };
+    content.appendChild(launchBtn);
+
+    this.window.appendChild(header);
+    this.window.appendChild(content);
+    document.body.appendChild(this.window);
+
+    // Make draggable - needs to be done after element is in DOM
     requestAnimationFrame(() => {
-      this.overlay?.classList.add("visible");
+      this.window.style.opacity = "1";
+      
+      // Center the window initially using transform
+      this.window.style.transform = "translate(-50%, -50%) scale(1)";
+      
+      // Get the actual position after centering
+      const rect = this.window.getBoundingClientRect();
+      
+      // Convert from transform-based centering to left/top positioning
+      // This makes dragging work properly
+      this.window.style.left = rect.left + 'px';
+      this.window.style.top = rect.top + 'px';
+      this.window.style.transform = 'scale(1)';
+      
+      // Make draggable after positioning is set
+      this.cleanupDraggable = makeDraggable(this.window, header);
     });
-
-    this.attachEventHandlers();
-  }
-
-  addStyles() {
-    if (document.getElementById("output-display-window-styles")) return;
-
-    const styles = document.createElement("style");
-    styles.id = "output-display-window-styles";
-    styles.textContent = `
-      .output-display-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.85);
-        backdrop-filter: blur(8px);
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: opacity 0.2s ease;
-      }
-
-      .output-display-overlay.visible {
-        opacity: 1;
-      }
-
-      .output-display-dialog {
-        background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
-        border-radius: 12px;
-        border: 1px solid #444;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-        max-width: 700px;
-        width: 90%;
-        max-height: 85vh;
-        overflow-y: auto;
-        animation: slideIn 0.3s ease;
-      }
-
-      @keyframes slideIn {
-        from {
-          transform: translateY(-20px);
-          opacity: 0;
-        }
-        to {
-          transform: translateY(0);
-          opacity: 1;
-        }
-      }
-
-      .output-display-header {
-        padding: 24px 32px 20px;
-        text-align: center;
-        border-bottom: 1px solid #333;
-        cursor: move;
-      }
-
-      .output-display-header h1 {
-        margin: 0 0 8px 0;
-        font-size: 28px;
-        font-weight: 700;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-      }
-
-      .output-display-header p {
-        margin: 0;
-        color: #aaa;
-        font-size: 14px;
-        line-height: 1.5;
-      }
-
-      .output-display-content {
-        padding: 24px 32px 32px;
-      }
-
-      .output-display-placeholder {
-        background: #222;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 24px;
-        margin-bottom: 20px;
-        min-height: 200px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #666;
-        font-size: 14px;
-        text-align: center;
-      }
-
-      .output-display-actions {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .output-display-button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border: 1px solid #667eea;
-        border-radius: 8px;
-        color: white;
-        padding: 14px 24px;
-        font-size: 15px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        text-align: center;
-      }
-
-      .output-display-button:hover {
-        background: linear-gradient(135deg, #7a8ef0 0%, #8a5bb2 100%);
-        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-        transform: translateY(-1px);
-      }
-
-      .output-display-button:active {
-        transform: translateY(0);
-      }
-
-      .output-display-close {
-        position: absolute;
-        top: 16px;
-        right: 16px;
-        width: 32px;
-        height: 32px;
-        border: none;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 6px;
-        color: #aaa;
-        font-size: 20px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-      }
-
-      .output-display-close:hover {
-        background: rgba(255, 255, 255, 0.2);
-        color: white;
-      }
-
-      .output-display-dialog {
-        position: relative;
-      }
-    `;
-    document.head.appendChild(styles);
-  }
-
-  getTemplate() {
-    return `
-      <div class="output-display-dialog">
-        <button class="output-display-close" aria-label="Close">×</button>
-        <div class="output-display-header">
-          <h1>Output Display</h1>
-          <p>Configure and manage output display settings</p>
-        </div>
-        <div class="output-display-content">
-          <div class="output-display-placeholder">
-            <div>
-              <p style="margin: 0 0 8px 0; font-size: 16px; color: #888;">Output Display</p>
-              <p style="margin: 0; font-size: 13px; color: #555;">Placeholder content will be added here</p>
-            </div>
-          </div>
-          <div class="output-display-actions">
-            <button class="output-display-button" id="btn-launch-external-viewer">
-              Open External Viewer
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  attachEventHandlers() {
-    // Close button
-    const closeBtn = this.overlay.querySelector('.output-display-close');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
-        this.hide();
-      });
-    }
-
-    // Launch external viewer button
-    const launchBtn = this.overlay.querySelector('#btn-launch-external-viewer');
-    if (launchBtn) {
-      launchBtn.addEventListener('click', async () => {
-        if (this.onLaunchExternalViewer) {
-          await this.onLaunchExternalViewer();
-        }
-      });
-    }
 
     // Close on Escape key
     this.keyHandler = (e) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && this.window && this.window.style.display !== 'none') {
         this.hide();
       }
     };
     document.addEventListener('keydown', this.keyHandler);
-
-    // Close on overlay click (outside dialog)
-    this.overlay.addEventListener('click', (e) => {
-      if (e.target === this.overlay) {
-        this.hide();
-      }
-    });
   }
+
 }
 

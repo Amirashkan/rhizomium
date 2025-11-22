@@ -482,12 +482,48 @@ async function initialize() {
             }
           } else {
             console.error('[main.js] Failed to launch external viewer:', response.status);
+            
+            // Show helpful message for local setup
+            const isLocal = window.location.hostname === 'localhost' ||
+                           window.location.hostname === '127.0.0.1';
+            
+            if (isLocal) {
+              const message =
+                "⚠️ Python backend not running.\n\n" +
+                "To use the external viewer:\n" +
+                "1. Open a terminal in the project directory\n" +
+                "2. Run: python rhizo_server.py\n" +
+                "3. Refresh this page\n" +
+                "4. Click 'Open External Viewer' again\n\n" +
+                "The viewer will connect via WebSocket for remote streaming.";
+              
+              alert(message);
+            }
+            
             if (typeof updateStatus === "function") {
-              updateStatus("Failed to launch external viewer", "error");
+              updateStatus("Failed to launch external viewer - backend not running", "error");
             }
           }
         } catch (error) {
           console.error('[main.js] Error launching external viewer:', error);
+          
+          // Show helpful message for local setup
+          const isLocal = window.location.hostname === 'localhost' ||
+                         window.location.hostname === '127.0.0.1';
+          
+          if (isLocal) {
+            const message =
+              "⚠️ Python backend not running.\n\n" +
+              "To use the external viewer:\n" +
+              "1. Open a terminal in the project directory\n" +
+              "2. Run: python rhizo_server.py\n" +
+              "3. Refresh this page\n" +
+              "4. Click 'Open External Viewer' again\n\n" +
+              "The viewer will connect via WebSocket for remote streaming.";
+            
+            alert(message);
+          }
+          
           if (typeof updateStatus === "function") {
             updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
           }
