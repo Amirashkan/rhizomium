@@ -549,7 +549,7 @@ export class Renderer {
     } else if (node.__thumb instanceof ImageData) {
       // ARCHITECTURAL FIX: Convert ImageData to Canvas immediately and replace on node
       // This ensures we only convert once (when first encountered), not every frame
-      // After conversion, future renders will use the cached Canvas (fast, non-blocking drawImage)
+      // After conversion, future renders will use Canvas (fast drawImage, not blocking putImageData)
       const tempCanvas = document.createElement("canvas");
       tempCanvas.width = node.__thumb.width;
       tempCanvas.height = node.__thumb.height;

@@ -1125,12 +1125,21 @@ _renderOutputThumbnail(ctx, size, color, node) {
     if (window.editor && window.editor.graph && window.editor.graph.nodes) {
       const inputNode = window.editor.graph.nodes.find(n => n.id === inputNodeId);
 
-      if (inputNode && inputNode.__thumb) {
+        if (inputNode && inputNode.__thumb) {
         try {
           if (inputNode.__thumb instanceof HTMLCanvasElement) {
             ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
           } else if (inputNode.__thumb instanceof ImageData) {
-            ctx.putImageData(inputNode.__thumb, 0, 0);
+            // ARCHITECTURAL FIX: Convert ImageData to Canvas immediately and replace on node
+            // This ensures thumbnails are always Canvas, eliminating blocking putImageData during rendering
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = inputNode.__thumb.width;
+            tempCanvas.height = inputNode.__thumb.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(inputNode.__thumb, 0, 0);
+            // Replace ImageData with Canvas on the node - future renders will use Canvas
+            inputNode.__thumb = tempCanvas;
+            ctx.drawImage(tempCanvas, 0, 0, size, size);
           } else {
             ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
           }
@@ -1434,11 +1443,15 @@ _renderOutputThumbnail(ctx, size, color) {
       if (inputNode.__thumb instanceof HTMLCanvasElement) {
         ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
       } else if (inputNode.__thumb instanceof ImageData) {
+        // ARCHITECTURAL FIX: Convert ImageData to Canvas immediately and replace on node
+        // This ensures thumbnails are always Canvas, eliminating blocking putImageData during rendering
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = inputNode.__thumb.width;
         tempCanvas.height = inputNode.__thumb.height;
         const tempCtx = tempCanvas.getContext('2d');
         tempCtx.putImageData(inputNode.__thumb, 0, 0);
+        // Replace ImageData with Canvas on the node - future renders will use Canvas
+        inputNode.__thumb = tempCanvas;
         ctx.drawImage(tempCanvas, 0, 0, size, size);
       }
       
