@@ -48,30 +48,34 @@ Frame Start (requestAnimationFrame)
 
 **Replace Canvas 2D with WebGPU for UI rendering.**
 
-**Why WebGPU, not WebGL?**
-- WebGPU is the modern successor to WebGL
-- Better performance and lower overhead
-- More efficient command buffer system
-- Better suited for modern GPUs
-- Already using WebGPU for shader rendering, so consistent API
+**Current Architecture:**
+- Canvas 2D for UI rendering (blocking, main thread)
+- WebGPU for shader rendering (non-blocking, GPU)
 
-**Pros:**
-- WebGL rendering is non-blocking (GPU-based)
+**Why WebGPU for UI?**
+- Already using WebGPU for shader rendering, so consistent API
+- WebGPU rendering is non-blocking (GPU-based)
+- Better performance and lower overhead than Canvas 2D
 - Can render thousands of nodes efficiently
 - Maintains all visual elements (gradients, shadows, etc.)
 - No visual changes required
 
 **Cons:**
 - Significant refactoring required
-- Need to implement 2D rendering primitives in WebGL
-- Text rendering more complex
+- Need to implement 2D rendering primitives in WebGPU
+- Text rendering more complex (need texture atlases)
+- More complex than WebGL for 2D rendering
 
 **Implementation:**
-- Create `WebGLUIRenderer` class
-- Implement 2D primitives (rectangles, circles, lines, bezier curves)
-- Implement text rendering using texture atlases
-- Implement gradient and shadow effects using shaders
-- Port existing `Renderer.js` logic to WebGL
+- Create `WebGPUUIRenderer` class
+- Implement 2D primitives using WebGPU:
+  - Rectangles with rounded corners (using geometry shaders or instancing)
+  - Circles/arcs (using geometry shaders)
+  - Lines and bezier curves (using geometry shaders or compute shaders)
+  - Text rendering (using texture atlases)
+- Implement gradient and shadow effects using fragment shaders
+- Port existing `Renderer.js` logic to WebGPU
+- Use same WebGPU device as shader rendering
 
 **Estimated Impact:** 90% reduction in blocking time (from 10-20ms to 1-2ms)
 
@@ -180,28 +184,30 @@ Frame Start (requestAnimationFrame)
 
 ---
 
-## Recommended Solution: WebGL-Based UI Rendering
+## Recommended Solution: WebGPU-Based UI Rendering
 
-### Why WebGL?
+### Why WebGPU?
 
-1. **Non-blocking**: WebGL rendering happens on GPU, doesn't block main thread
+1. **Non-blocking**: WebGPU rendering happens on GPU, doesn't block main thread
 2. **Performance**: Can render thousands of elements efficiently
 3. **Visual Fidelity**: Can implement all current visual effects (gradients, shadows, etc.)
-4. **Future-proof**: Better foundation for complex UIs
+4. **Consistency**: Already using WebGPU for shader rendering, same API
+5. **Future-proof**: Modern GPU API, better than WebGL
 
 ### Implementation Plan
 
-#### Phase 1: WebGL Renderer Foundation
-1. Create `WebGLUIRenderer` class
-2. Implement basic 2D primitives:
-   - Rectangles with rounded corners
-   - Circles/arcs
-   - Lines and bezier curves
+#### Phase 1: WebGPU Renderer Foundation
+1. Create `WebGPUUIRenderer` class
+2. Reuse existing WebGPU device from `gpuRenderer`
+3. Implement basic 2D primitives:
+   - Rectangles with rounded corners (using geometry or instancing)
+   - Circles/arcs (using geometry shaders)
+   - Lines and bezier curves (using geometry shaders or compute)
    - Text rendering (using texture atlases)
 
 #### Phase 2: Visual Effects
-1. Implement gradients (using shaders)
-2. Implement shadows (using shaders)
+1. Implement gradients (using fragment shaders)
+2. Implement shadows (using fragment shaders)
 3. Implement transparency and blending
 
 #### Phase 3: Port Existing Logic
@@ -212,16 +218,16 @@ Frame Start (requestAnimationFrame)
 
 #### Phase 4: Optimization
 1. Batch rendering operations
-2. Use instancing for repeated elements
-3. Implement efficient text rendering
+2. Use instancing for repeated elements (nodes, pins)
+3. Implement efficient text rendering with texture atlases
 
 ### Code Structure
 
 ```
 src/core/
 ├── Renderer.js (current Canvas 2D - keep for fallback)
-├── WebGLUIRenderer.js (new WebGL-based renderer)
-├── UIRenderer.js (abstraction layer, switches between Canvas/WebGL)
+├── WebGPUUIRenderer.js (new WebGPU-based renderer)
+├── UIRenderer.js (abstraction layer, switches between Canvas/WebGPU)
 └── primitives/
     ├── Rectangle.js
     ├── Circle.js
