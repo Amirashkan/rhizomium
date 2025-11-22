@@ -39,6 +39,9 @@ export class EventHandler {
     this._interactionStartTime = 0; // Track when interaction started
     this._nodeDragUpdateCount = 0; // Track number of node drag updates for immediate rendering
     this._panUpdateCount = 0; // Track number of pan updates for immediate rendering
+    // PERFORMANCE: Track active canvas interactions to skip GPU rendering during pan/drag
+    this._isCanvasInteracting = false;
+    this._canvasInteractionEndTimer = null;
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -179,6 +182,34 @@ export class EventHandler {
       this._pendingFrame = null;
       this.onDraw();
     });
+  }
+
+  // Mark canvas as actively interacting (pan, drag, etc.)
+  // This allows GPU rendering to be skipped during interactions for better performance
+  _markCanvasInteracting() {
+    this._isCanvasInteracting = true;
+    
+    // PERFORMANCE: Stop continuous warmup during active interactions
+    // This prevents background work from interfering with panning performance
+    this._stopContinuousWarmup();
+    
+    // Clear existing timer
+    if (this._canvasInteractionEndTimer) {
+      clearTimeout(this._canvasInteractionEndTimer);
+    }
+    
+    // Mark interaction as ended after a short delay (when user stops moving mouse)
+    this._canvasInteractionEndTimer = setTimeout(() => {
+      this._isCanvasInteracting = false;
+      this._canvasInteractionEndTimer = null;
+      // Resume continuous warmup after interaction ends
+      this._startContinuousWarmup();
+    }, 150); // 150ms after last interaction
+  }
+
+  // Check if canvas is currently being interacted with
+  isCanvasInteracting() {
+    return this._isCanvasInteracting;
   }
 
   // Check for inactivity and warm up GPU if needed
@@ -334,6 +365,13 @@ export class EventHandler {
             this._interactionStartTime = now;
           }
           const timeSinceStart = now - this._interactionStartTime;
+          // PERFORMANCE: Reset pan update count periodically during continuous panning
+          // This prevents accumulation and ensures smooth performance
+          if (this._panUpdateCount > 100) {
+            this._panUpdateCount = 0; // Reset to prevent accumulation
+            this._interactionStartTime = now; // Reset interaction start time
+          }
+          
           // For panning, ALWAYS use immediate updates for first 20 pan updates
           // This ensures smooth panning without any lag after inactivity
           const shouldUseImmediate = this._panUpdateCount < 20 || timeSinceStart < 3000 || this._justWarmedUp;
@@ -351,13 +389,10 @@ export class EventHandler {
             
             // Update pan state immediately
             if (this.viewport.updatePan(clientX, clientY)) {
-              // Force immediate synchronous draw - don't use RAF
-              if (this.editor && typeof this.editor.markDirty === 'function') {
-                this.editor.markDirty('pan-immediate');
-              }
-              if (this.onDraw && typeof this.onDraw === 'function') {
-                this.onDraw(); // Synchronous draw
-              }
+              // Mark canvas as interacting to skip GPU rendering during pan
+              this._markCanvasInteracting();
+              // Use RAF batching for smooth performance
+              this._requestDraw('pan');
             }
           } else if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
@@ -631,14 +666,10 @@ export class EventHandler {
         this.editor.shaderPreviewManager.beginInteraction('drag');
       }
 
-      // CRITICAL: Do an IMMEDIATE synchronous draw right after starting drag
-      // This ensures the canvas is ready and nodes are rendered before first mousemove
-      if (this.editor && typeof this.editor.markDirty === 'function') {
-        this.editor.markDirty('node-drag-start-immediate');
-      }
-      if (this.onDraw && typeof this.onDraw === 'function') {
-        this.onDraw(); // Synchronous draw - don't use RAF
-      }
+      // Mark canvas as interacting to skip GPU rendering during drag
+      this._markCanvasInteracting();
+      // Mark dirty and request draw (RAF batched for performance)
+      this._requestDraw('node-drag-start');
     });
 
     // Click handler to prevent double-click from bubbling
@@ -751,51 +782,31 @@ export class EventHandler {
           // Handle wire dragging
           if (this.connections.getDragWire()) {
             this.connections.updateWireDrag(pos);
-            // Force immediate synchronous draw - don't use RAF
-            if (this.editor && typeof this.editor.markDirty === 'function') {
-              this.editor.markDirty('wire-drag-immediate');
-            }
-            if (this.onDraw && typeof this.onDraw === 'function') {
-              this.onDraw(); // Synchronous draw
-            }
+            // Mark canvas as interacting to skip GPU rendering during drag
+            this._markCanvasInteracting();
+            // Use RAF batching for smooth performance
+            this._requestDraw('wire-drag');
             return;
           }
 
           // Handle box selection
           if (this.selection.getBoxSelect()) {
             this.selection.updateBoxSelect(pos.x, pos.y);
-            // Force immediate synchronous draw - don't use RAF
-            if (this.editor && typeof this.editor.markDirty === 'function') {
-              this.editor.markDirty('box-select-immediate');
-            }
-            if (this.onDraw && typeof this.onDraw === 'function') {
-              this.onDraw(); // Synchronous draw
-            }
+            // Mark canvas as interacting to skip GPU rendering during selection
+            this._markCanvasInteracting();
+            // Use RAF batching for smooth performance
+            this._requestDraw('box-select');
             return;
           }
 
           // Handle node dragging
           if (this.selection.getDragging()) {
-            // CRITICAL: Increment drag update count
-            this._nodeDragUpdateCount++;
-            
-            // CRITICAL: Ensure interaction start time is set (should be set in mousedown, but ensure it)
-            if (!this._interactionStartTime) {
-              this._interactionStartTime = now;
-            }
-            
-            // CRITICAL: Update drag position
+            // Mark canvas as interacting to skip GPU rendering during drag
+            this._markCanvasInteracting();
+            // Update drag position
             this.selection.updateDrag(pos.x, pos.y);
-            
-            // CRITICAL: Force immediate synchronous draw - ALWAYS bypass RAF for first period
-            // This ensures smooth dragging without lag
-            if (this.editor && typeof this.editor.markDirty === 'function') {
-              this.editor.markDirty('node-drag-immediate');
-            }
-            if (this.onDraw && typeof this.onDraw === 'function') {
-              // Synchronous draw - this MUST be immediate, not batched
-              this.onDraw();
-            }
+            // Use RAF batching for smooth performance
+            this._requestDraw('node-drag');
           }
         } else if (!this._dragUpdateScheduled) {
           this._dragUpdateScheduled = true;

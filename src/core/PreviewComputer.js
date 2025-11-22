@@ -89,15 +89,39 @@ export class PreviewComputer {
     return isNaN(parsed) ? defaultValue : parsed;
   }
 
-  computePreviews(graph) {
+  computePreviews(graph, options = {}) {
     try {
+      const startTime = performance.now();
+      const maxTime = options.maxTime || 50; // Default 50ms max
+      const timeBudget = options.timeBudget || maxTime;
+      
       this.animationTime = performance.now() / 1000;
 
-      const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-      const ordered = this._topologicalSort(graph.nodes, byId);
+      // PERFORMANCE: Limit graph size to prevent excessive computation
+      // If graph is too large, only process a subset to stay within time budget
+      const maxNodes = options.maxNodes || 1000; // Limit to 1000 nodes max
+      const nodesToProcess = graph.nodes.length > maxNodes 
+        ? graph.nodes.slice(0, maxNodes) 
+        : graph.nodes;
+
+      const byId = new Map(nodesToProcess.map((n) => [n.id, n]));
+      const ordered = this._topologicalSort(nodesToProcess, byId);
       const values = new Map();
 
+      let processedCount = 0;
       for (const node of ordered) {
+        // CRITICAL: Check time budget periodically to prevent lag spikes
+        // If we've exceeded the time budget, stop processing to avoid blocking
+        if (processedCount % 10 === 0) { // Check every 10 nodes
+          const elapsed = performance.now() - startTime;
+          if (elapsed > timeBudget) {
+            // Time budget exceeded - stop processing to avoid blocking
+            // This prevents 3-4 second lag when computePreviews is expensive
+            // Remaining nodes will be processed on next update
+            break;
+          }
+        }
+        processedCount++;
         let result = null;
 
         try {

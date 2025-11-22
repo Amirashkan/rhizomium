@@ -404,8 +404,10 @@ async show() {
       right: 20px;
       width: ${width * dockedScale + padding}px;
       height: ${height * dockedScale + headerHeight + padding}px;
-      background: rgba(20, 20, 22, 0.95);
-      backdrop-filter: blur(20px);
+      background: rgba(20, 20, 22, 0.98);
+      /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
+      /* backdrop-filter: blur(20px); */
+      will-change: transform, opacity;
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 12px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -438,8 +440,10 @@ async show() {
         top: ${this.position.y}px;
         width: ${displayWidth + padding}px;
         height: ${displayHeight + headerHeight + padding}px;
-        background: rgba(20, 20, 22, 0.95);
-        backdrop-filter: blur(20px);
+        background: rgba(20, 20, 22, 0.98);
+        /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
+        /* backdrop-filter: blur(20px); */
+        will-change: transform, opacity;
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 12px;
         box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
@@ -552,6 +556,11 @@ canvasWrapper.style.cssText = `
     `;
     fpsOverlay.textContent = "FPS: --";
     canvasWrapper.appendChild(fpsOverlay);
+    
+    // Refresh FPS counter element cache after creating overlay
+    if (this.fpsCounter) {
+      this.fpsCounter.refreshElementCache();
+    }
 
     const debugOverlay = document.createElement("div");
     debugOverlay.className = "debug-overlay";
@@ -778,6 +787,8 @@ class FPSCounter {
     this.lastTime = performance.now();
     this.isRunning = false;
     this.updateInterval = null;
+    // Cache FPS overlay element to avoid DOM queries
+    this.fpsOverlayElement = null;
   }
 
   start() {
@@ -787,9 +798,17 @@ class FPSCounter {
     this.frameCount = 0;
     this.lastTime = performance.now();
 
+    // Cache FPS overlay element once
+    if (!this.fpsOverlayElement) {
+      this.fpsOverlayElement = document.querySelector(".fps-overlay");
+    }
+
+    // Update FPS display every 500ms (2 updates per second)
     this.updateInterval = setInterval(() => {
-      this._updateFPS();
-    }, 100);
+      if (this.isRunning) {
+        this._updateFPS();
+      }
+    }, 500);
   }
 
   stop() {
@@ -798,6 +817,8 @@ class FPSCounter {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
     }
+    // Clear cached element reference
+    this.fpsOverlayElement = null;
   }
 
   frame() {
@@ -810,15 +831,26 @@ class FPSCounter {
     const now = performance.now();
     const delta = now - this.lastTime;
 
+    // Update FPS display every second
     if (delta >= 1000) {
+      // Simple and accurate: FPS = frames rendered / time elapsed
       this.fps = Math.round((this.frameCount * 1000) / delta);
       this.frameCount = 0;
       this.lastTime = now;
 
-      const fpsOverlay = document.querySelector(".fps-overlay");
-      if (fpsOverlay) {
-        fpsOverlay.textContent = `FPS: ${this.fps}`;
+      // Use cached element reference instead of DOM query
+      if (!this.fpsOverlayElement) {
+        this.fpsOverlayElement = document.querySelector(".fps-overlay");
+      }
+      
+      if (this.fpsOverlayElement) {
+        this.fpsOverlayElement.textContent = `FPS: ${this.fps}`;
       }
     }
+  }
+  
+  // Method to refresh cached element reference (call when DOM changes)
+  refreshElementCache() {
+    this.fpsOverlayElement = document.querySelector(".fps-overlay");
   }
 }

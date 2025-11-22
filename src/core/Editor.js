@@ -841,11 +841,15 @@ connectGPURenderer(renderFunction) {
       return;
     }
 
+    // Check if canvas is currently being interacted with (pan, drag, etc.)
+    const isInteracting = this.eventHandler?.isCanvasInteracting?.() || false;
+    
     this.renderer.render(this.graph, {
       selection: this.selection.getSelected(),
       dragWire: this.connections.getDragWire(),
       boxSelect: this.selection.getBoxSelect(),
       editor: this,
+      isInteracting: isInteracting, // Pass interaction state to optimize rendering
     });
 
     // Clear dirty flag after rendering

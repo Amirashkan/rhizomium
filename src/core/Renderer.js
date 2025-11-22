@@ -15,23 +15,43 @@ export class Renderer {
     // Clear canvas
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    // Subtle grid background for alignment
-    this._renderBackgroundGrid();
+    // PERFORMANCE: Skip expensive operations during interactions
+    // Grid rendering can take 10-15ms - skip it during pan/drag for smooth 60 FPS
+    const isInteracting = renderState.isInteracting || false;
+    if (!isInteracting) {
+      // Subtle grid background for alignment
+      this._renderBackgroundGrid();
+    }
+    
+    // Store interaction state for use in node rendering
+    this._isInteracting = isInteracting;
 
     // Save context and apply viewport transform
     ctx.save();
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
     ctx.scale(this.viewport.scale, this.viewport.scale);
 
-    // Render connections/wires
-    this._renderConnections(graph.connections, graph.nodes);
+    // PERFORMANCE: Create node lookup map for O(1) access instead of O(n) linear search
+    // This is critical for performance with many nodes
+    const nodeMap = new Map();
+    for (const node of graph.nodes) {
+      if (node && node.id) {
+        nodeMap.set(node.id, node);
+      }
+    }
 
-    // Render parameter reference lines (subtle lines for =node_X references)
-    this._renderParameterReferences(graph.nodes);
+    // Render connections/wires
+    this._renderConnections(graph.connections, nodeMap);
+
+    // PERFORMANCE: Skip parameter reference lines during interactions (minor visual detail)
+    if (!isInteracting) {
+      // Render parameter reference lines (subtle lines for =node_X references)
+      this._renderParameterReferences(graph.nodes, nodeMap);
+    }
 
     // Render drag wire if active
     if (renderState.dragWire) {
-      this._renderDragWire(renderState.dragWire, graph.nodes, graph.connections);
+      this._renderDragWire(renderState.dragWire, nodeMap, graph.connections);
     }
 
     // Render nodes
@@ -106,18 +126,53 @@ export class Renderer {
     ctx.restore();
   }
 
-  _renderConnections(connections, nodes) {
+  _renderConnections(connections, nodeMap) {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
+    // PERFORMANCE: Viewport culling during interactions - calculate viewport bounds
+    let viewportBounds = null;
+    if (this._isInteracting) {
+      const canvas = ctx.canvas;
+      const scale = this.viewport.scale;
+      const offsetX = this.viewport.offsetX;
+      const offsetY = this.viewport.offsetY;
+      // Calculate world-space bounds of visible area
+      const minX = -offsetX / scale;
+      const maxX = (canvas.width - offsetX) / scale;
+      const minY = -offsetY / scale;
+      const maxY = (canvas.height - offsetY) / scale;
+      // Add padding for bezier curves that might extend beyond nodes
+      const padding = 100;
+      viewportBounds = {
+        minX: minX - padding,
+        maxX: maxX + padding,
+        minY: minY - padding,
+        maxY: maxY + padding
+      };
+    }
+
     for (const c of connections) {
-      const fromNode = nodes.find((n) => n.id === c.from.nodeId);
-      const toNode = nodes.find((n) => n.id === c.to.nodeId);
+      // PERFORMANCE: Use Map lookup instead of linear search
+      const fromNode = nodeMap.get(c.from.nodeId);
+      const toNode = nodeMap.get(c.to.nodeId);
       if (!fromNode || !toNode) continue;
 
       const fromPos = this._getOutputPinPosition(fromNode, c.from.pin);
       const toPos = this._getInputPinPosition(toNode, c.to.pin);
       if (!fromPos || !toPos) continue;
+
+      // PERFORMANCE: Skip connections that are completely off-screen during interactions
+      if (viewportBounds) {
+        const fromInBounds = fromPos.x >= viewportBounds.minX && fromPos.x <= viewportBounds.maxX &&
+                             fromPos.y >= viewportBounds.minY && fromPos.y <= viewportBounds.maxY;
+        const toInBounds = toPos.x >= viewportBounds.minX && toPos.x <= viewportBounds.maxX &&
+                           toPos.y >= viewportBounds.minY && toPos.y <= viewportBounds.maxY;
+        // Skip if both endpoints are outside viewport
+        if (!fromInBounds && !toInBounds) {
+          continue;
+        }
+      }
 
       // Get wire color based on output type
       const srcType =
@@ -129,7 +184,7 @@ export class Renderer {
     }
   }
 
-  _renderParameterReferences(nodes) {
+  _renderParameterReferences(nodes, nodeMap) {
     const ctx = this.ctx;
 
     // Extract parameter references from all nodes
@@ -199,9 +254,10 @@ export class Renderer {
     ctx.restore();
   }
 
-  _renderDragWire(dragWire, nodes, connections) {
+  _renderDragWire(dragWire, nodeMap, connections) {
     const ctx = this.ctx;
-    const fromNode = nodes.find((n) => n.id === dragWire.from.nodeId);
+    // PERFORMANCE: Use Map lookup instead of linear search
+    const fromNode = nodeMap.get(dragWire.from.nodeId);
     if (!fromNode) return;
 
     let fromPos, srcType;
@@ -217,7 +273,8 @@ export class Renderer {
       );
 
       if (existingConnection) {
-        const sourceNode = nodes.find((n) => n.id === existingConnection.from.nodeId);
+        // PERFORMANCE: Use Map lookup instead of linear search
+        const sourceNode = nodeMap.get(existingConnection.from.nodeId);
         if (sourceNode) {
           srcType = NodeDefs[sourceNode.kind]?.pinsOut?.[existingConnection.from.pin]?.type || "default";
         } else {
@@ -242,7 +299,38 @@ export class Renderer {
   }
 
   _renderNodes(nodes, selection) {
+    // PERFORMANCE: Viewport culling during interactions - skip nodes off-screen
+    let viewportBounds = null;
+    if (this._isInteracting) {
+      const canvas = this.ctx.canvas;
+      const scale = this.viewport.scale;
+      const offsetX = this.viewport.offsetX;
+      const offsetY = this.viewport.offsetY;
+      // Calculate world-space bounds of visible area
+      const minX = -offsetX / scale;
+      const maxX = (canvas.width - offsetX) / scale;
+      const minY = -offsetY / scale;
+      const maxY = (canvas.height - offsetY) / scale;
+      // Add padding for nodes that might be partially visible
+      const padding = 200;
+      viewportBounds = {
+        minX: minX - padding,
+        maxX: maxX + padding,
+        minY: minY - padding,
+        maxY: maxY + padding
+      };
+    }
+
     for (const node of nodes) {
+      // PERFORMANCE: Skip nodes that are completely off-screen during interactions
+      if (viewportBounds) {
+        const nodeRight = (node.x || 0) + (node.w || 120);
+        const nodeBottom = (node.y || 0) + (node.h || 80);
+        if (nodeRight < viewportBounds.minX || (node.x || 0) > viewportBounds.maxX ||
+            nodeBottom < viewportBounds.minY || (node.y || 0) > viewportBounds.maxY) {
+          continue; // Node is completely outside viewport
+        }
+      }
       this._renderNode(node, selection.has(node.id));
     }
   }
@@ -256,17 +344,22 @@ export class Renderer {
     if (!node.w) node.w = 120; // Default width
     if (!node.h) node.h = 80; // Default height
 
-    // Enhanced node background with gradient
-    const gradient = ctx.createLinearGradient(
-      node.x,
-      node.y,
-      node.x,
-      node.y + node.h,
-    );
-    gradient.addColorStop(0, "#252525");
-    gradient.addColorStop(1, "#1b1b1b");
-
-    ctx.fillStyle = gradient;
+    // PERFORMANCE: Skip expensive gradient creation during interactions
+    // Use solid color instead for better performance
+    if (this._isInteracting) {
+      ctx.fillStyle = "#252525"; // Solid color - faster
+    } else {
+      // Enhanced node background with gradient
+      const gradient = ctx.createLinearGradient(
+        node.x,
+        node.y,
+        node.x,
+        node.y + node.h,
+      );
+      gradient.addColorStop(0, "#252525");
+      gradient.addColorStop(1, "#1b1b1b");
+      ctx.fillStyle = gradient;
+    }
     ctx.strokeStyle = isSelected ? "#66aaff" : "#404040";
     ctx.lineWidth = isSelected ? 2 : 1;
 
@@ -276,8 +369,9 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
+    // PERFORMANCE: Skip expensive shadow effects during interactions
     // Add subtle inner glow for selected nodes
-    if (isSelected) {
+    if (isSelected && !this._isInteracting) {
       ctx.save();
       ctx.shadowColor = "#66aaff";
       ctx.shadowBlur = 8;
@@ -303,22 +397,27 @@ export class Renderer {
     const label = NodeDefs[node.kind]?.label || node.kind;
     ctx.fillText(label, node.x + 10, node.y + 18);
 
-    // Render enhanced thumbnail (before ID so ID is on top)
-    this._renderNodeThumbnail(node);
+    // PERFORMANCE: Skip thumbnail and preview controls during interactions
+    // These are expensive operations that can be skipped for smooth panning
+    if (!this._isInteracting) {
+      // Render enhanced thumbnail (before ID so ID is on top)
+      this._renderNodeThumbnail(node);
+
+      // Render preview controls
+      this._renderPreviewControls(node);
+    }
 
     // Draw node ID (for referencing in expressions) - AFTER thumbnail so it's visible
     ctx.fillStyle = "#888";
     ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px monospace`;
     ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + 16);
 
-    // Render preview controls
-    this._renderPreviewControls(node);
-
     // Render pins with enhanced styling
     this._renderNodePins(node);
 
+    // PERFORMANCE: Skip expensive drop shadow during interactions
     // Add subtle drop shadow for depth (only for non-selected nodes)
-    if (!isSelected) {
+    if (!isSelected && !this._isInteracting) {
       ctx.save();
       ctx.globalAlpha = 0.3;
       ctx.fillStyle = "#000";
@@ -487,14 +586,22 @@ export class Renderer {
     // Enhanced pin rendering with glow effects
     ctx.save();
 
+    // PERFORMANCE: Skip expensive shadow effects during interactions
+    const skipShadows = this._isInteracting || false;
+
     // Render output pins with enhanced styling
     for (const [i, pos] of outputPins.entries()) {
       const pinType = NodeDefs[node.kind]?.pinsOut?.[i]?.type || "default";
       const pinColor = this._getWireColor(pinType);
 
-      // Pin glow effect
-      ctx.shadowColor = pinColor;
-      ctx.shadowBlur = 8;
+      // Pin glow effect (skip during interactions for performance)
+      if (!skipShadows) {
+        ctx.shadowColor = pinColor;
+        ctx.shadowBlur = 8;
+      } else {
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+      }
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 5, "output");
 
@@ -502,7 +609,10 @@ export class Renderer {
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
 
-      this._renderOutputPinLabel(node, i, pos);
+      // PERFORMANCE: Skip pin labels during interactions
+      if (!skipShadows) {
+        this._renderOutputPinLabel(node, i, pos);
+      }
     }
 
     // Render input pins with enhanced styling
@@ -510,16 +620,20 @@ export class Renderer {
       const connected = node.inputs && node.inputs[i];
       const pinColor = connected ? "#ff7a7a" : "#444";
 
-      if (connected) {
+      if (connected && !skipShadows) {
         ctx.shadowColor = "#ff7a7a";
         ctx.shadowBlur = 6;
+      } else {
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
       }
 
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 4, "input");
 
+      // PERFORMANCE: Skip input pin labels during interactions
       // Input pin label
-      if (!connected) {
+      if (!connected && !skipShadows) {
         const inputLabel = NodeDefs[node.kind]?.pinsIn?.[i] || `In${i}`;
         ctx.fillStyle = "#666";
         ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
@@ -679,17 +793,21 @@ export class Renderer {
     ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
     const textWidth = ctx.measureText(labelText).width + 8;
 
+    // PERFORMANCE: Skip expensive gradient during interactions
     // Enhanced label background with gradient
-    const gradient = ctx.createLinearGradient(
-      pinPos.x + 8,
-      pinPos.y - 8,
-      pinPos.x + 8,
-      pinPos.y + 4,
-    );
-    gradient.addColorStop(0, "rgba(20, 20, 25, 0.95)");
-    gradient.addColorStop(1, "rgba(15, 15, 20, 0.95)");
-
-    ctx.fillStyle = gradient;
+    if (this._isInteracting) {
+      ctx.fillStyle = "rgba(20, 20, 25, 0.95)"; // Solid color - faster
+    } else {
+      const gradient = ctx.createLinearGradient(
+        pinPos.x + 8,
+        pinPos.y - 8,
+        pinPos.x + 8,
+        pinPos.y + 4,
+      );
+      gradient.addColorStop(0, "rgba(20, 20, 25, 0.95)");
+      gradient.addColorStop(1, "rgba(15, 15, 20, 0.95)");
+      ctx.fillStyle = gradient;
+    }
     ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();

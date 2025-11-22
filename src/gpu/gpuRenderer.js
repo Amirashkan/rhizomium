@@ -476,8 +476,16 @@ export class GPURenderer {
       return;
     }
 
-    const data = new Float32Array([aspect, 0, 0, 0]);
-    this.device.queue.writeBuffer(target.buffer, 0, data);
+    // PERFORMANCE: Reuse Float32Array to avoid allocation every frame
+    if (!this._aspectUniformBuffer) {
+      this._aspectUniformBuffer = new Float32Array(4);
+    }
+    this._aspectUniformBuffer[0] = aspect;
+    this._aspectUniformBuffer[1] = 0;
+    this._aspectUniformBuffer[2] = 0;
+    this._aspectUniformBuffer[3] = 0;
+    
+    this.device.queue.writeBuffer(target.buffer, 0, this._aspectUniformBuffer);
     this._lastAspectWritten = aspect;
   }
 
@@ -506,11 +514,19 @@ export class GPURenderer {
       return;
     }
 
-    // Get values in order and write to buffer
+    // PERFORMANCE: Reuse Float32Array buffer to avoid allocation every frame
+    // This reduces GC pressure and frame time variance
     const values = Array.from(uniformManager.uniformValues.values());
-    const data = new Float32Array(values);
+    
+    // Reuse buffer if size matches, otherwise create new one
+    if (!this._paramUniformBuffer || this._paramUniformBuffer.length !== values.length) {
+      this._paramUniformBuffer = new Float32Array(values);
+    } else {
+      // Copy values into existing buffer
+      this._paramUniformBuffer.set(values);
+    }
 
-    this.device.queue.writeBuffer(target.buffer, 0, data.buffer, 0, data.byteLength);
+    this.device.queue.writeBuffer(target.buffer, 0, this._paramUniformBuffer.buffer, 0, this._paramUniformBuffer.byteLength);
   }
 
   _sendLiveParameterUpdate(timeSec) {
@@ -568,12 +584,20 @@ export class GPURenderer {
     const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
     const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-    const data = new Float32Array([
-      width, height, timeSec, audioEnvelope,
-      audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull
-    ]);
+    // PERFORMANCE: Reuse Float32Array to avoid allocation every frame
+    if (!this._globalsUniformBuffer) {
+      this._globalsUniformBuffer = new Float32Array(8);
+    }
+    this._globalsUniformBuffer[0] = width;
+    this._globalsUniformBuffer[1] = height;
+    this._globalsUniformBuffer[2] = timeSec;
+    this._globalsUniformBuffer[3] = audioEnvelope;
+    this._globalsUniformBuffer[4] = audioEnvelopeBass;
+    this._globalsUniformBuffer[5] = audioEnvelopeMids;
+    this._globalsUniformBuffer[6] = audioEnvelopeHighs;
+    this._globalsUniformBuffer[7] = audioEnvelopeFull;
 
-    this.device.queue.writeBuffer(target.buffer, 0, data);
+    this.device.queue.writeBuffer(target.buffer, 0, this._globalsUniformBuffer);
   }
 
   _writeGlobalsForSize(width, height, timeSec) {
@@ -676,16 +700,39 @@ export class GPURenderer {
     const needsUpdate = texManager.bindGroup === null;
     if (!needsUpdate || !this.pipeline || !this.bindGroups) return;
 
+    // PERFORMANCE: Track if textures actually changed to avoid unnecessary bind group rebuilds
+    let texturesChanged = false;
+    if (!this._textureResourceHashes) {
+      this._textureResourceHashes = new Map();
+    }
+
     // Update all texture and sampler resources with newly loaded textures
     for (const resourceKey in this.resources) {
       const resource = this.resources[resourceKey];
       if (resource.kind === "texture-2d" || resource.kind === "texture-cube" || resource.kind === "sampler") {
+        // Check if texture actually changed
+        const previousTextureView = this._textureResourceHashes.get(resourceKey);
         this._applyExternalTextureResource(resource);
+        const currentTextureView = resource.textureView;
+        
+        if (previousTextureView !== currentTextureView) {
+          texturesChanged = true;
+          this._textureResourceHashes.set(resourceKey, currentTextureView);
+        }
       }
     }
 
-    // Rebuild bind groups with updated texture resources
-    this.bindGroups = this.bindGroups.map((_, layoutIndex) => {
+    // Only rebuild bind groups if textures actually changed
+    if (!texturesChanged) {
+      // Mark that we've checked (even though nothing changed)
+      texManager.bindGroup = {};
+      return;
+    }
+
+    // PERFORMANCE: Rebuild bind groups with updated texture resources
+    // Use for loop instead of map to avoid creating intermediate arrays (reduces GC pressure)
+    const newBindGroups = [];
+    for (let layoutIndex = 0; layoutIndex < this.bindGroups.length; layoutIndex++) {
       const entries = [];
 
       // Collect all resources for this group
@@ -709,11 +756,12 @@ export class GPURenderer {
       // Sort entries by binding number to ensure correct order
       entries.sort((a, b) => a.binding - b.binding);
 
-      return this.device.createBindGroup({
+      newBindGroups.push(this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(layoutIndex),
         entries,
-      });
-    });
+      }));
+    }
+    this.bindGroups = newBindGroups;
 
     // Mark that we've updated the bind groups
     texManager.bindGroup = {};
@@ -729,8 +777,14 @@ export class GPURenderer {
     const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
     if (!computeExecutor || !computeExecutor.initialized) return;
 
-    // Track if any compute textures were updated
+    // PERFORMANCE: Track if any compute textures actually changed to avoid expensive bind group rebuilds
     let hasComputeTextures = false;
+    let texturesChanged = false;
+
+    // Initialize texture change tracking if not exists
+    if (!this._computeTextureHashes) {
+      this._computeTextureHashes = new Map();
+    }
 
     // Update all compute texture resources with fresh texture views from nodeOutputs
     for (const resourceKey in this.resources) {
@@ -741,18 +795,30 @@ export class GPURenderer {
           (resource.varName.startsWith('compute_') ||
            resource.varName.startsWith('sampler_compute_'))) {
 
-        this._applyExternalTextureResource(resource);
         hasComputeTextures = true;
+        
+        // Check if texture actually changed by comparing texture view reference
+        const previousTextureView = this._computeTextureHashes.get(resourceKey);
+        const currentTextureView = resource.textureView;
+        
+        if (previousTextureView !== currentTextureView) {
+          texturesChanged = true;
+          this._computeTextureHashes.set(resourceKey, currentTextureView);
+        }
+
+        this._applyExternalTextureResource(resource);
       }
     }
 
-    // Only rebuild bind groups if we found compute textures
-    if (!hasComputeTextures) {
+    // Only rebuild bind groups if we found compute textures AND they actually changed
+    if (!hasComputeTextures || !texturesChanged) {
       return;
     }
 
-    // Rebuild bind groups with updated compute texture resources
-    this.bindGroups = this.bindGroups.map((_, layoutIndex) => {
+    // PERFORMANCE: Rebuild bind groups with updated compute texture resources
+    // Use for loop instead of map to avoid creating intermediate arrays (reduces GC pressure)
+    const newBindGroups = [];
+    for (let layoutIndex = 0; layoutIndex < this.bindGroups.length; layoutIndex++) {
       const entries = [];
 
       // Collect all resources for this group
@@ -776,11 +842,12 @@ export class GPURenderer {
       // Sort entries by binding number to ensure correct order
       entries.sort((a, b) => a.binding - b.binding);
 
-      return this.device.createBindGroup({
+      newBindGroups.push(this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(layoutIndex),
         entries,
-      });
-    });
+      }));
+    }
+    this.bindGroups = newBindGroups;
 
   }
 
@@ -869,18 +936,37 @@ export class GPURenderer {
       const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
       const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-      await window.computeExecutor.execute(encoder, timeValue, {
-        audioEnvelope,
-        audioEnvelopeBass,
-        audioEnvelopeMids,
-        audioEnvelopeHighs,
-        audioEnvelopeFull
-      });
+      // PERFORMANCE: Execute compute shaders - the await ensures compute passes are recorded
+      // This is non-blocking for GPU work (commands are just recorded, not executed yet)
+      // We await to ensure compute results are ready before fragment shader renders
+      // CRITICAL: This await is necessary for correctness but can cause frame time variance
+      // The compute executor is optimized to minimize work, but async operations here can still cause lag
+      try {
+        await window.computeExecutor.execute(encoder, timeValue, {
+          audioEnvelope,
+          audioEnvelopeBass,
+          audioEnvelopeMids,
+          audioEnvelopeHighs,
+          audioEnvelopeFull
+        });
+      } catch (computeErr) {
+        // Silently handle compute errors to avoid breaking render loop
+        // Errors are already logged in computeExecutor.execute()
+        console.warn('[GPURenderer] Compute execution error:', computeErr);
+      }
 
-      // CRITICAL FIX: Update bind groups with fresh compute texture views
-      // After compute execution, nodeOutputs has been updated with fresh textures
-      // We need to update bind groups BEFORE the fragment render pass begins
-      this._updateComputeTextureBindings();
+      // PERFORMANCE: Only update bind groups if compute nodes were actually dispatched
+      // This avoids unnecessary bind group rebuilds when compute shaders didn't run
+      const computeExecutor = window.computeExecutor;
+      const hasDispatchedNodes = computeExecutor && computeExecutor.dispatchedThisFrame && computeExecutor.dispatchedThisFrame.size > 0;
+      
+      if (hasDispatchedNodes) {
+        // CRITICAL FIX: Update bind groups with fresh compute texture views
+        // After compute execution, nodeOutputs has been updated with fresh textures
+        // We need to update bind groups BEFORE the fragment render pass begins
+        // PERFORMANCE: Only update if textures actually changed to avoid expensive bind group recreation
+        this._updateComputeTextureBindings();
+      }
     }
 
     // Configure render pass based on MSAA support
@@ -931,9 +1017,12 @@ export class GPURenderer {
     }
 
     try {
+      // PERFORMANCE: Submit command buffer immediately without waiting
+      // This allows the render loop to continue while GPU processes the frame
       this.device.queue.submit([encoder.finish()]);
       
       // Store promise for frame presentation - allows frame capture to wait for GPU work
+      // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
     } catch (submitErr) {
       console.error('[GPURenderer] Failed to submit command buffer:', submitErr);

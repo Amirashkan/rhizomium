@@ -70,15 +70,33 @@ export class ComputeExecutor {
     this._isExecuting = false;
   }
 
+  // PERFORMANCE: Maximum resolution for compute nodes
+  // For full HD preview (1920x1080), we use full resolution for compute nodes
+  // Quality is maintained - optimizations come from smarter caching and dispatch logic
+  static MAX_COMPUTE_RES = 2048; // High enough to support full HD and beyond
+
   /**
    * Clear fragment render cache
    * Call this when graph structure changes (nodes added/removed, connections changed)
    */
   clearFragmentCache() {
     this.renderedFragmentNodes.clear();
-    if (this.fragmentRenderer && this.fragmentRenderer.textureCache) {
-      this.fragmentRenderer.textureCache.clear();
-      this.fragmentRenderer.shaderCache.clear();
+    if (this.fragmentRenderer) {
+      // Use the new clearCache method which also clears parameter hashes
+      if (this.fragmentRenderer.clearCache) {
+        this.fragmentRenderer.clearCache();
+      } else {
+        // Fallback for older versions
+        if (this.fragmentRenderer.textureCache) {
+          this.fragmentRenderer.textureCache.clear();
+        }
+        if (this.fragmentRenderer.shaderCache) {
+          this.fragmentRenderer.shaderCache.clear();
+        }
+        if (this.fragmentRenderer.parameterHashes) {
+          this.fragmentRenderer.parameterHashes.clear();
+        }
+      }
     }
   }
 
@@ -128,18 +146,12 @@ export class ComputeExecutor {
     try {
       const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
-      // CRITICAL: Use a reasonable default resolution for compute textures to avoid GPU memory exhaustion
-      // With many nodes (30+), using full canvas resolution (e.g., 1920x1080) can create 60-90 textures
-      // at ~8MB each, totaling 480-720MB of GPU memory, which can exceed limits on integrated GPUs
-      //
-      // Default to 1024x1024 (4MB per texture) for better quality in high-res previews
-      // This provides sharp output while keeping memory usage reasonable (~120MB for 30 nodes)
-      // Previous 512x512 caused blur when displayed in floating preview
-      //
-      // Advanced users can override this per-node in the future by setting node.computeResolution
+      // Use preview resolution setting to maintain full quality
+      // Resolution follows the preview settings - optimizations come from smart caching
+      const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
       const DEFAULT_COMPUTE_RES = 1024;
 
-      // Check if preview settings are available and use them as the base resolution
+      // Get preview resolution from settings
       let baseWidth = DEFAULT_COMPUTE_RES;
       let baseHeight = DEFAULT_COMPUTE_RES;
 
@@ -161,6 +173,10 @@ export class ComputeExecutor {
         width = resolution[0];
         height = resolution[1];
       }
+
+      // Cap at maximum supported resolution only (no quality reduction)
+      width = Math.min(width, MAX_COMPUTE_RES);
+      height = Math.min(height, MAX_COMPUTE_RES);
 
       // Ensure we have valid dimensions before initializing
       if (!width || !height || width <= 0 || height <= 0) {
@@ -439,8 +455,34 @@ export class ComputeExecutor {
       return;
     }
 
+    // PERFORMANCE: Early exit if no fragment inputs need rendering
+    // This avoids expensive iteration when there are no fragment→compute connections
+    let hasFragmentInputs = false;
+    for (const nodeId of this.executionOrder) {
+      const nodeData = window.computeNodeRegistry?.get(nodeId);
+      const node = nodeData?.node;
+      if (node?.inputs && Array.isArray(node.inputs)) {
+        for (const inputNodeId of node.inputs) {
+          if (inputNodeId !== null && inputNodeId !== undefined && !this.computeManagers.has(inputNodeId)) {
+            hasFragmentInputs = true;
+            break;
+          }
+        }
+        if (hasFragmentInputs) break;
+      }
+    }
+    
+    if (!hasFragmentInputs) {
+      this.fragmentNodesRenderedThisFrame = new Set();
+      return;
+    }
+
     // Track which compute nodes need their input hashes invalidated
     const computeNodesToClearHash = new Set();
+    
+    // Track which fragment nodes were actually re-rendered this frame (changed)
+    // This is used to determine if compute nodes depending on them need to dispatch
+    this.fragmentNodesRenderedThisFrame = new Set();
 
     // Check each compute node for fragment inputs
     for (const nodeId of this.executionOrder) {
@@ -470,10 +512,22 @@ export class ComputeExecutor {
 
         // This is a fragment node being used as compute input!
         try {
-          // Use the same resolution as the compute node
-          const resolution = nodeData.resolution || [512, 512];
-          const width = resolution[0];
-          const height = resolution[1];
+          // Use the same resolution as the compute node (follows preview settings)
+          const resolution = nodeData.resolution || [1024, 1024];
+          // Get preview resolution if available
+          let width = resolution[0] || 1024;
+          let height = resolution[1] || 1024;
+          
+          if (window.floatingPreview?.settings?.settings?.resolution) {
+            const previewRes = window.floatingPreview.settings.settings.resolution;
+            width = previewRes.width || width;
+            height = previewRes.height || height;
+          }
+          
+          const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
+          width = Math.min(width, MAX_COMPUTE_RES);
+          height = Math.min(height, MAX_COMPUTE_RES);
+
 
           // Render the fragment node WITH its compute dependencies dispatched first
           const texture = await this._renderFragmentNodeWithDependencies(
@@ -489,6 +543,8 @@ export class ComputeExecutor {
             // Store in nodeOutputs so ComputeExecutor can find it
             this.nodeOutputs.set(inputNodeId, texture);
             this.renderedFragmentNodes.add(inputNodeId);
+            // Mark that this fragment node was rendered this frame (changed)
+            this.fragmentNodesRenderedThisFrame.add(inputNodeId);
 
             // Mark this compute node's hash for invalidation
             computeNodesToClearHash.add(nodeId);
@@ -530,6 +586,8 @@ export class ComputeExecutor {
     try {
       // Clear the dispatched-this-frame tracking
       this.dispatchedThisFrame.clear();
+      // Clear fragment nodes rendered this frame (will be repopulated by _renderFragmentInputs)
+      this.fragmentNodesRenderedThisFrame = new Set();
 
       // STEP 1: Render fragment node inputs to textures (auto-bridging)
       // Pass the shared command encoder so fragment renders and compute dispatches
@@ -554,13 +612,23 @@ export class ComputeExecutor {
         const node = nodeData?.node;
 
         // Check if inputs have changed (for optimization)
-        // CRITICAL: If this node has fragment inputs, always update because fragment content may change every frame
+        // PERFORMANCE: Only mark fragment inputs as needing update if fragment node actually changed
+        // Fragment nodes are cached, so we only need to update when their inputs/params change
         const hasFragmentInput = node?.inputs && Array.isArray(node.inputs) && node.inputs.some(inputId => {
           if (inputId === null || inputId === undefined) return false;
           const inputNode = window.graph?.getNode(inputId);
           return inputNode && !inputNode.kind.startsWith('Compute');
         });
-        const shouldUpdate = hasFragmentInput || this.checkInputsChanged(nodeId);
+        
+        // Only update if fragment input was re-rendered this frame (indicating it changed)
+        // fragmentNodesRenderedThisFrame is set in _renderFragmentInputs before execute() processes nodes
+        const fragmentInputChanged = hasFragmentInput && node?.inputs && Array.isArray(node.inputs) &&
+          node.inputs.some(inputId => {
+            if (inputId === null || inputId === undefined) return false;
+            return this.fragmentNodesRenderedThisFrame && this.fragmentNodesRenderedThisFrame.has(inputId);
+          });
+        
+        const shouldUpdate = fragmentInputChanged || this.checkInputsChanged(nodeId);
 
         // ONLY dispatch truly time-dependent compute nodes every frame
         // Time-dependent nodes have animation or evolve over time without input changes
@@ -580,9 +648,10 @@ export class ComputeExecutor {
         const hasTimeDependentParams = this.hasTimeDependentParameters(node);
 
         // Check if node has node reference parameters (expressions like =node_5 or =node_5.x)
-        // This ensures nodes that reference Float, Remap, or other node outputs are re-dispatched
-        // when those referenced values might have changed
-        const hasNodeRefParams = this.hasNodeReferenceParameters(node);
+        // PERFORMANCE: Only dispatch if referenced nodes are time-dependent or have been updated
+        // This prevents unnecessary dispatches when referenced values are static
+        const hasNodeRefParams = this.hasNodeReferenceParameters(node) && 
+          this.hasTimeDependentReferencedNodes(node);
 
         // Check if node has compute inputs that were DISPATCHED this frame
         // CRITICAL FIX: Only re-dispatch if upstream compute nodes actually ran this frame
@@ -596,7 +665,11 @@ export class ComputeExecutor {
             return this.dispatchedThisFrame.has(inputId);
           });
 
-        if (shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasUpdatedComputeInput) {
+        // PERFORMANCE: Only dispatch if node actually needs to update
+        // This prevents unnecessary GPU work and maintains 60 FPS
+        const needsDispatch = shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasUpdatedComputeInput;
+        
+        if (needsDispatch) {
           // OPTIMIZATION: Only set input textures when we're actually dispatching
           // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
           if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
@@ -731,6 +804,55 @@ export class ComputeExecutor {
         const trimmed = value.trim();
         // Check if parameter contains node reference (=node_X or =node_X.component)
         if (/=\s*node_\d+/.test(trimmed)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if any referenced nodes (via node reference parameters) are time-dependent
+   * This helps avoid unnecessary dispatches when referenced values are static
+   */
+  hasTimeDependentReferencedNodes(node) {
+    if (!node || !node.params) return false;
+
+    // Extract node IDs from parameter expressions
+    const referencedNodeIds = new Set();
+    for (const value of Object.values(node.params)) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        // Match =node_X or =node_X.component patterns
+        const matches = trimmed.match(/=\s*node_(\d+)/g);
+        if (matches) {
+          for (const match of matches) {
+            const nodeId = match.replace(/=\s*node_/, '');
+            referencedNodeIds.add(nodeId);
+          }
+        }
+      }
+    }
+
+    // Check if any referenced nodes are time-dependent
+    if (referencedNodeIds.size === 0) return false;
+
+    // Check if any referenced node is time-dependent
+    for (const refNodeId of referencedNodeIds) {
+      const refNodeData = window.computeNodeRegistry?.get(refNodeId);
+      const refNode = refNodeData?.node;
+      if (refNode) {
+        // Check if referenced node has time-dependent parameters
+        if (this.hasTimeDependentParameters(refNode)) {
+          return true;
+        }
+        // Check if referenced node is a time-dependent compute node type
+        const TIME_DEPENDENT_NODES = [
+          'ComputeNoise', 'ComputeReactionDiffusion', 'ComputeFeedback',
+          'ComputeFeedbackField', 'ComputeFluidSim', 'ComputeParticles'
+        ];
+        if (refNode.kind && TIME_DEPENDENT_NODES.includes(refNode.kind)) {
           return true;
         }
       }

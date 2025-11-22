@@ -2343,8 +2343,15 @@ let lastUniformUpdate = 0;
 // PERFORMANCE: Throttle preview computations to reduce CPU overhead
 // Before: Preview computed every frame (60 times/sec) = 10-20ms × 60 = 600-1200ms/sec overhead
 // After: Preview computed every 100ms (10 times/sec) = 10-20ms × 10 = 100-200ms/sec overhead
-let lastPreviewUpdate = 0;
-const PREVIEW_UPDATE_INTERVAL = 100; // ms (10 updates/sec instead of 60)
+// PERFORMANCE: Add small random offset to prevent periodic operations from aligning
+// This prevents all updates from happening at the same time, causing frame time spikes
+const PREVIEW_UPDATE_OFFSET = Math.random() * 50; // 0-50ms random offset
+const PROFILER_UPDATE_OFFSET = Math.random() * 50; // 0-50ms random offset
+
+let lastPreviewUpdate = -PREVIEW_UPDATE_OFFSET; // Start with offset to spread out initial updates
+let lastProfilerUpdate = -PROFILER_UPDATE_OFFSET;
+const PROFILER_UPDATE_INTERVAL = 200; // Update profiler overlay every 200ms (5 FPS)
+const PREVIEW_UPDATE_INTERVAL = 150; // ms (increased from 100ms to reduce frequency and spread out updates)
 
 async function updateShaderFromGraph() {
   try {
@@ -2510,11 +2517,18 @@ function updateStatus(message, type = "info") {
   }
 }
 
+// PERFORMANCE: Track GPU frame skipping during canvas interactions
+let gpuFrameSkipCounter = 0;
+
 function handleRenderFrame(frameState) {
   // PERFORMANCE: Skip expensive operations during parameter drag
   // When dragging parameters, we don't need to update anything
   // All updates happen once on mouseup
   const isDragging = editor?._parameterDragging || false;
+  
+  // PERFORMANCE: Track canvas interactions to throttle GPU rendering
+  // This prevents GPU and canvas from competing for resources, causing FPS drops
+  const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
 
   // PERFORMANCE: Skip expensive operations during drag, but keep basic rendering
   // Update timeline manager (only if not dragging)
@@ -2527,37 +2541,63 @@ function handleRenderFrame(frameState) {
     timelinePanel.update();
   }
 
-  // GPU rendering - ALWAYS render for visual feedback
+  // GPU rendering - Always render for real-time preview updates
   // Check if compute shader test is active
   if (computeShaderTest && computeShaderTest.isEnabled) {
     // Render compute shader test instead of normal renderer
     computeShaderTest.render(frameState.simTime);
   } else if (window.gpuRenderer) {
-    // Normal rendering - render() is async and handles compute shaders
-    const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+    // GPU rendering - Always render for real-time preview
+    // Canvas optimizations handle the performance, GPU keeps running
+    // PERFORMANCE: Don't await render - let it run asynchronously to avoid blocking render loop
+    // The render function is async but we don't need to wait for it to complete
+    window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
+      // Silently handle render errors to avoid breaking render loop
+      // Errors are already logged in gpuRenderer.render()
+    });
 
-    // Stream frames to external viewers if enabled
-    // NOTE: Now streams during parameter drag for real-time external view updates
-    // CRITICAL: Frame capture happens asynchronously after render completes
-    // This ensures compute shaders have finished and the frame is ready
-    if (frameStreamingEnabled) {
-      const canvas = document.getElementById('gpu-canvas');
-      if (canvas) {
-        // Wait for render to complete, then capture frame
-        renderPromise.then(() => {
-          // Use BroadcastChannel for Vercel/cloud deployments
-          if (broadcastFrameStream) {
-            broadcastFrameStream.sendFrameFromCanvas(canvas);
+      // Stream frames to external viewers if enabled
+      // NOTE: Now streams during parameter drag for real-time external view updates
+      // CRITICAL: Frame capture happens asynchronously after render completes
+      // This ensures compute shaders have finished and the frame is ready
+      // PERFORMANCE: Use requestIdleCallback to avoid blocking render loop
+      if (frameStreamingEnabled) {
+        const canvas = document.getElementById('gpu-canvas');
+        if (canvas) {
+          // Use requestIdleCallback to defer frame capture to idle time
+          // This prevents frame streaming from affecting render performance
+          if (window.requestIdleCallback) {
+            window.requestIdleCallback(() => {
+              // Get the render promise from gpuRenderer if available
+              const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
+              framePromise.then(() => {
+                // Use BroadcastChannel for Vercel/cloud deployments
+                if (broadcastFrameStream) {
+                  broadcastFrameStream.sendFrameFromCanvas(canvas);
+                }
+                // Use HTTP streaming for local development
+                else if (frameStreamClient) {
+                  frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+                }
+              }).catch(err => {
+                // Silently handle errors to avoid breaking render loop
+              });
+            }, { timeout: 100 });
+          } else {
+            // Fallback for browsers without requestIdleCallback
+            const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
+            framePromise.then(() => {
+              if (broadcastFrameStream) {
+                broadcastFrameStream.sendFrameFromCanvas(canvas);
+              } else if (frameStreamClient) {
+                frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+              }
+            }).catch(err => {
+              // Silently handle errors
+            });
           }
-          // Use HTTP streaming for local development
-          else if (frameStreamClient) {
-            frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-          }
-        }).catch(err => {
-          // Silently handle errors to avoid breaking render loop
-        });
+        }
       }
-    }
   }
 
   // 3D Viewport rendering
@@ -2575,10 +2615,26 @@ function handleRenderFrame(frameState) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Update compute profiler overlay
+  // Update compute profiler overlay (throttled to reduce overhead)
+  // PERFORMANCE: Throttle to 5 updates per second to reduce DOM manipulation overhead
+  // Also defer to idle time to avoid frame time spikes
   if (profilerOverlay && computeProfiler) {
-    const metrics = computeProfiler.getMetrics();
-    profilerOverlay.update(metrics);
+    const now = performance.now();
+    const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
+    if (shouldUpdateProfiler) {
+      // Defer profiler overlay update to idle time to avoid micro-stutters
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => {
+          const metrics = computeProfiler.getMetrics();
+          profilerOverlay.update(metrics);
+        }, { timeout: 250 });
+      } else {
+        // Fallback: update synchronously
+        const metrics = computeProfiler.getMetrics();
+        profilerOverlay.update(metrics);
+      }
+      lastProfilerUpdate = now;
+    }
   }
 
   // Undo UI updates (only if not dragging)
@@ -2596,15 +2652,72 @@ function handleRenderFrame(frameState) {
       const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
 
       if (shouldUpdatePreviews) {
-        // Update preview values for time/audio-based expressions
-        // This ensures node labels show current values
-        if (editor?.previewComputer && editor?.graph) {
-          const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
-          editor.previewComputer.computePreviews(editor.graph);
+        // PERFORMANCE: Defer preview computation to idle time to avoid frame time spikes
+        // This prevents periodic micro-stutters from preview updates
+        // CRITICAL: Add time budget to prevent lag spikes
+        if (window.requestIdleCallback) {
+          window.requestIdleCallback((deadline) => {
+            // CRITICAL: Only run if we have enough time budget (at least 10ms)
+            // This prevents lag when requestIdleCallback finally fires
+            if (deadline.timeRemaining() < 10) {
+              // Not enough time, skip this update to avoid blocking
+              return;
+            }
+            
+            // Update preview values for time/audio-based expressions
+            // This ensures node labels show current values
+            if (editor?.previewComputer && editor?.graph) {
+              const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
+              
+              // CRITICAL: Add timeout protection - if computePreviews takes too long, abort
+              const startTime = performance.now();
+              const MAX_COMPUTE_TIME = 30; // Maximum 30ms for preview computation (reduced from 50ms)
+              
+              try {
+                editor.previewComputer.computePreviews(editor.graph, {
+                  timeBudget: Math.min(deadline.timeRemaining() - 5, MAX_COMPUTE_TIME), // Leave 5ms buffer
+                  maxTime: MAX_COMPUTE_TIME
+                });
+                
+                const elapsed = performance.now() - startTime;
+                if (elapsed > MAX_COMPUTE_TIME) {
+                  console.warn(`[Performance] computePreviews took ${elapsed.toFixed(1)}ms, exceeded budget`);
+                }
+              } catch (err) {
+                // Silently handle errors to avoid breaking render loop
+                console.warn('[Performance] computePreviews error:', err);
+              }
 
-          // Only mark dirty if there are time-animated nodes that need visual updates
-          if (hadTimeAnimatedNodes && editor.markDirty) {
-            editor.markDirty('time-animation');
+              // Only mark dirty if there are time-animated nodes that need visual updates
+              if (hadTimeAnimatedNodes && editor.markDirty) {
+                editor.markDirty('time-animation');
+              }
+            }
+          }, { timeout: 150 });
+        } else {
+          // Fallback: do it synchronously but only if we have time
+          // CRITICAL: Add timeout protection even in fallback
+          if (editor?.previewComputer && editor?.graph) {
+            const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
+            const startTime = performance.now();
+            const MAX_COMPUTE_TIME = 8; // Maximum 8ms (half frame) for synchronous fallback
+            
+            try {
+              editor.previewComputer.computePreviews(editor.graph, {
+                maxTime: MAX_COMPUTE_TIME
+              });
+              
+              const elapsed = performance.now() - startTime;
+              if (elapsed > MAX_COMPUTE_TIME) {
+                console.warn(`[Performance] computePreviews (sync) took ${elapsed.toFixed(1)}ms, exceeded budget`);
+              }
+            } catch (err) {
+              console.warn('[Performance] computePreviews (sync) error:', err);
+            }
+
+            if (hadTimeAnimatedNodes && editor.markDirty) {
+              editor.markDirty('time-animation');
+            }
           }
         }
         lastPreviewUpdate = now;
