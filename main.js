@@ -496,9 +496,6 @@ async function initialize() {
       floatingPreview.show();
     }
 
-    setupUIEventHandlers();
-    setupKeyboardShortcuts();
-
     window.graph = graph;
     window.editor = editor;
     window.saveLoadManager = saveLoadManager;
@@ -508,7 +505,8 @@ async function initialize() {
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
 
-    // Initialize Preview/Export Settings Window
+    // Initialize Preview/Export Settings Window BEFORE setupUIEventHandlers
+    // so that handlers can find it
     if (floatingPreview) {
       previewExportSettingsWindow = new PreviewExportSettingsWindow(floatingPreview);
       window.previewExportSettingsWindow = previewExportSettingsWindow;
@@ -531,9 +529,14 @@ async function initialize() {
       setTimeout(() => setupPreviewSettingsMenu(), 100);
     }
 
-    // Initialize Preferences Window
+    // Initialize Preferences Window BEFORE setupUIEventHandlers
+    // so that handlers can find it
     preferencesWindow = new PreferencesWindow();
     window.preferencesWindow = preferencesWindow;
+
+    // Now set up UI event handlers (which will attach handlers to the windows we just created)
+    setupUIEventHandlers();
+    setupKeyboardShortcuts();
 
     // PERFORMANCE: Lightweight uniform update without shader rebuild
     window.updateUniformsOnly = function(nodeId, paramName, value) {
@@ -1311,67 +1314,13 @@ function setupUIEventHandlers() {
     console.error('[main.js] VJ Control button NOT found in DOM!');
   }
 
-  // Display selector for multi-monitor support
-  const displaySelect = document.getElementById('display-select');
-  let availableScreens = [];
-  let permissionGranted = false;
+  // TODO: Display selector and External Viewer functionality moved to Window menu
+  // These handlers have been removed as the UI elements no longer exist in the new menu structure
+  // The functionality may be restored in the future under Window > External Viewer or similar
 
-  // Try to detect available displays using Window Management API
-  async function detectDisplays() {
-    if (!displaySelect) {
-      console.warn('[main.js] Display selector not found');
-      return;
-    }
-
-    if (!('getScreenDetails' in window)) {
-      displaySelect.title = 'Window Management API not supported in your browser';
-      displaySelect.disabled = false;
-      return;
-    }
-
-    try {
-      // Request permission if needed
-      const permission = await navigator.permissions.query({ name: 'window-management' });
-
-      if (permission.state === 'granted' || permission.state === 'prompt') {
-        const screenDetails = await window.getScreenDetails();
-        availableScreens = screenDetails.screens;
-        permissionGranted = true;
-
-        // Clear and populate display selector
-        displaySelect.innerHTML = '<option value="auto">Auto</option>';
-
-        availableScreens.forEach((screen, index) => {
-          const isPrimary = screen.isPrimary ? ' (Primary)' : '';
-          const label = `Display ${index + 1}: ${screen.width}x${screen.height}${isPrimary}`;
-          const option = document.createElement('option');
-          option.value = index;
-          option.textContent = label;
-          displaySelect.appendChild(option);
-        });
-
-        displaySelect.title = `Select which monitor to open viewer on (${availableScreens.length} displays detected)`;
-      } else if (permission.state === 'denied') {
-        displaySelect.title = 'Permission denied. Enable Window Management in browser settings.';
-      }
-    } catch (error) {
-      displaySelect.title = 'Click to request multi-monitor permission';
-    }
-  }
-
-  // Detect displays on startup
-  if (displaySelect) {
-    detectDisplays();
-
-    // Also try to detect when user clicks the dropdown (for permission prompt)
-    displaySelect.addEventListener('focus', async () => {
-      if (!permissionGranted && 'getScreenDetails' in window) {
-        await detectDisplays();
-      }
-    }, { once: true });
-  }
-
-  // Open External Viewer button
+  // Open External Viewer button (removed - no longer in menu)
+  // If you need this functionality, add it back to the Window menu
+  /*
   const openViewerBtn = removeExistingHandlers("btn-open-viewer");
 
   if (openViewerBtn) {
@@ -1575,49 +1524,11 @@ function setupUIEventHandlers() {
         }
       }
     });
-  } else {
-    console.error('[main.js] External viewer button NOT found in DOM!');
   }
+  */
 
-  // Resolution selector for canvas/streaming
-  const resolutionSelect = document.getElementById('resolution-select');
-  if (resolutionSelect) {
-    resolutionSelect.addEventListener('change', (e) => {
-      const resolution = e.target.value;
-      const [width, height] = resolution.split('x').map(Number);
-
-      const canvas = document.getElementById('gpu-canvas');
-      if (canvas) {
-
-        // Update canvas size
-        canvas.width = width;
-        canvas.height = height;
-
-        // WebGPU renderer will automatically handle the resize on next render
-        // The context will be recreated with new dimensions
-
-        // Send resolution update to LiveShaderStream if active
-        if (liveShaderStream && liveShaderStream.isStreaming) {
-          liveShaderStream.sendResolutionUpdate(width, height);
-        }
-
-        if (typeof updateStatus === "function") {
-          updateStatus(`Resolution changed to ${width}x${height}`);
-        }
-      }
-    });
-
-    // Set initial resolution on startup
-    const initialResolution = resolutionSelect.value;
-    const [initWidth, initHeight] = initialResolution.split('x').map(Number);
-    const canvas = document.getElementById('gpu-canvas');
-    if (canvas) {
-      canvas.width = initWidth;
-      canvas.height = initHeight;
-    }
-  } else {
-    console.error('[main.js] Resolution selector NOT found in DOM!');
-  }
+  // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
+  // The resolution selector functionality has been moved to the Preview/Export Settings window
 
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
   if (selectCodeBtn) {
