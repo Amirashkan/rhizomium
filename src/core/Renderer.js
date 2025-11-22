@@ -5,6 +5,10 @@ export class Renderer {
   constructor(ctx, viewport) {
     this.ctx = ctx;
     this.viewport = viewport;
+    // Cache for temporary canvases used in thumbnail rendering
+    // This avoids recreating canvases every frame, which is expensive
+    // Format: Map<nodeId, { canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, imageDataHash: string }>
+    this._tempCanvasCache = new Map();
   }
 
   render(graph, renderState) {
@@ -15,17 +19,13 @@ export class Renderer {
     // Clear canvas
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    // PERFORMANCE: Skip expensive operations during interactions
-    // Grid rendering can take 10-15ms - skip it during pan/drag for smooth 60 FPS
-    const isInteracting = renderState.isInteracting || false;
-    if (!isInteracting) {
-      // Subtle grid background for alignment
-      this._renderBackgroundGrid();
-    }
+    // Always render grid background for visual consistency
+    this._renderBackgroundGrid();
     
-    // Store interaction state for use in node rendering
+    // Store interaction state for optimizations that don't affect visual appearance
+    const isInteracting = renderState.isInteracting || false;
     this._isInteracting = isInteracting;
-
+    
     // Save context and apply viewport transform
     ctx.save();
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
@@ -43,11 +43,8 @@ export class Renderer {
     // Render connections/wires
     this._renderConnections(graph.connections, nodeMap);
 
-    // PERFORMANCE: Skip parameter reference lines during interactions (minor visual detail)
-    if (!isInteracting) {
-      // Render parameter reference lines (subtle lines for =node_X references)
-      this._renderParameterReferences(graph.nodes, nodeMap);
-    }
+    // Render parameter reference lines (subtle lines for =node_X references)
+    this._renderParameterReferences(graph.nodes, nodeMap);
 
     // Render drag wire if active
     if (renderState.dragWire) {
@@ -120,17 +117,16 @@ export class Renderer {
       ctx.stroke();
     };
 
-    ctx.save();
     drawLines(minorSpacing, 0.025);
     drawLines(majorSpacing, 0.07);
-    ctx.restore();
   }
 
   _renderConnections(connections, nodeMap) {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
-    // PERFORMANCE: Viewport culling during interactions - calculate viewport bounds
+    // PERFORMANCE: Viewport culling during interactions - doesn't change visual appearance
+    // Only skips connections that are completely off-screen
     let viewportBounds = null;
     if (this._isInteracting) {
       const canvas = ctx.canvas;
@@ -299,7 +295,8 @@ export class Renderer {
   }
 
   _renderNodes(nodes, selection) {
-    // PERFORMANCE: Viewport culling during interactions - skip nodes off-screen
+    // PERFORMANCE: Viewport culling during interactions - doesn't change visual appearance
+    // Only skips nodes that are completely off-screen
     let viewportBounds = null;
     if (this._isInteracting) {
       const canvas = this.ctx.canvas;
@@ -344,22 +341,16 @@ export class Renderer {
     if (!node.w) node.w = 120; // Default width
     if (!node.h) node.h = 80; // Default height
 
-    // PERFORMANCE: Skip expensive gradient creation during interactions
-    // Use solid color instead for better performance
-    if (this._isInteracting) {
-      ctx.fillStyle = "#252525"; // Solid color - faster
-    } else {
-      // Enhanced node background with gradient
-      const gradient = ctx.createLinearGradient(
-        node.x,
-        node.y,
-        node.x,
-        node.y + node.h,
-      );
-      gradient.addColorStop(0, "#252525");
-      gradient.addColorStop(1, "#1b1b1b");
-      ctx.fillStyle = gradient;
-    }
+    // Enhanced node background with gradient
+    const gradient = ctx.createLinearGradient(
+      node.x,
+      node.y,
+      node.x,
+      node.y + node.h,
+    );
+    gradient.addColorStop(0, "#252525");
+    gradient.addColorStop(1, "#1b1b1b");
+    ctx.fillStyle = gradient;
     ctx.strokeStyle = isSelected ? "#66aaff" : "#404040";
     ctx.lineWidth = isSelected ? 2 : 1;
 
@@ -369,9 +360,8 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
-    // PERFORMANCE: Skip expensive shadow effects during interactions
     // Add subtle inner glow for selected nodes
-    if (isSelected && !this._isInteracting) {
+    if (isSelected) {
       ctx.save();
       ctx.shadowColor = "#66aaff";
       ctx.shadowBlur = 8;
@@ -397,15 +387,11 @@ export class Renderer {
     const label = NodeDefs[node.kind]?.label || node.kind;
     ctx.fillText(label, node.x + 10, node.y + 18);
 
-    // PERFORMANCE: Skip thumbnail and preview controls during interactions
-    // These are expensive operations that can be skipped for smooth panning
-    if (!this._isInteracting) {
-      // Render enhanced thumbnail (before ID so ID is on top)
-      this._renderNodeThumbnail(node);
+    // Render enhanced thumbnail (before ID so ID is on top)
+    this._renderNodeThumbnail(node);
 
-      // Render preview controls
-      this._renderPreviewControls(node);
-    }
+    // Render preview controls
+    this._renderPreviewControls(node);
 
     // Draw node ID (for referencing in expressions) - AFTER thumbnail so it's visible
     ctx.fillStyle = "#888";
@@ -415,9 +401,8 @@ export class Renderer {
     // Render pins with enhanced styling
     this._renderNodePins(node);
 
-    // PERFORMANCE: Skip expensive drop shadow during interactions
     // Add subtle drop shadow for depth (only for non-selected nodes)
-    if (!isSelected && !this._isInteracting) {
+    if (!isSelected) {
       ctx.save();
       ctx.globalAlpha = 0.3;
       ctx.fillStyle = "#000";
@@ -560,10 +545,20 @@ export class Renderer {
     if (node.__thumb instanceof HTMLCanvasElement) {
       ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
     } else if (node.__thumb instanceof ImageData) {
-      // Create temporary canvas for ImageData
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = node.__thumb.width;
-      tempCanvas.height = node.__thumb.height;
+      // PERFORMANCE: Cache temporary canvases per node to avoid recreating every frame
+      // putImageData is blocking, but we cache the canvas to at least avoid canvas creation overhead
+      const cacheKey = `${node.id}-${node.__thumb.width}x${node.__thumb.height}`;
+      let tempCanvas = this._tempCanvasCache.get(cacheKey);
+      
+      if (!tempCanvas || tempCanvas.width !== node.__thumb.width || tempCanvas.height !== node.__thumb.height) {
+        tempCanvas = document.createElement("canvas");
+        tempCanvas.width = node.__thumb.width;
+        tempCanvas.height = node.__thumb.height;
+        this._tempCanvasCache.set(cacheKey, tempCanvas);
+      }
+      
+      // putImageData is blocking but necessary - the real fix needs to happen where thumbnails are created
+      // Thumbnails should be converted to canvas elements, not ImageData
       const tempCtx = tempCanvas.getContext("2d");
       tempCtx.putImageData(node.__thumb, 0, 0);
       ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
@@ -586,22 +581,14 @@ export class Renderer {
     // Enhanced pin rendering with glow effects
     ctx.save();
 
-    // PERFORMANCE: Skip expensive shadow effects during interactions
-    const skipShadows = this._isInteracting || false;
-
     // Render output pins with enhanced styling
     for (const [i, pos] of outputPins.entries()) {
       const pinType = NodeDefs[node.kind]?.pinsOut?.[i]?.type || "default";
       const pinColor = this._getWireColor(pinType);
 
-      // Pin glow effect (skip during interactions for performance)
-      if (!skipShadows) {
-        ctx.shadowColor = pinColor;
-        ctx.shadowBlur = 8;
-      } else {
-        ctx.shadowColor = "transparent";
-        ctx.shadowBlur = 0;
-      }
+      // Pin glow effect
+      ctx.shadowColor = pinColor;
+      ctx.shadowBlur = 8;
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 5, "output");
 
@@ -609,10 +596,7 @@ export class Renderer {
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
 
-      // PERFORMANCE: Skip pin labels during interactions
-      if (!skipShadows) {
-        this._renderOutputPinLabel(node, i, pos);
-      }
+      this._renderOutputPinLabel(node, i, pos);
     }
 
     // Render input pins with enhanced styling
@@ -620,7 +604,7 @@ export class Renderer {
       const connected = node.inputs && node.inputs[i];
       const pinColor = connected ? "#ff7a7a" : "#444";
 
-      if (connected && !skipShadows) {
+      if (connected) {
         ctx.shadowColor = "#ff7a7a";
         ctx.shadowBlur = 6;
       } else {
@@ -631,9 +615,8 @@ export class Renderer {
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 4, "input");
 
-      // PERFORMANCE: Skip input pin labels during interactions
       // Input pin label
-      if (!connected && !skipShadows) {
+      if (!connected) {
         const inputLabel = NodeDefs[node.kind]?.pinsIn?.[i] || `In${i}`;
         ctx.fillStyle = "#666";
         ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
@@ -793,21 +776,16 @@ export class Renderer {
     ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
     const textWidth = ctx.measureText(labelText).width + 8;
 
-    // PERFORMANCE: Skip expensive gradient during interactions
     // Enhanced label background with gradient
-    if (this._isInteracting) {
-      ctx.fillStyle = "rgba(20, 20, 25, 0.95)"; // Solid color - faster
-    } else {
-      const gradient = ctx.createLinearGradient(
-        pinPos.x + 8,
-        pinPos.y - 8,
-        pinPos.x + 8,
-        pinPos.y + 4,
-      );
-      gradient.addColorStop(0, "rgba(20, 20, 25, 0.95)");
-      gradient.addColorStop(1, "rgba(15, 15, 20, 0.95)");
-      ctx.fillStyle = gradient;
-    }
+    const gradient = ctx.createLinearGradient(
+      pinPos.x + 8,
+      pinPos.y - 8,
+      pinPos.x + 8,
+      pinPos.y + 4,
+    );
+    gradient.addColorStop(0, "rgba(20, 20, 25, 0.95)");
+    gradient.addColorStop(1, "rgba(15, 15, 20, 0.95)");
+    ctx.fillStyle = gradient;
     ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();

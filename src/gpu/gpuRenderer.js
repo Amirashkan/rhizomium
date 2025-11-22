@@ -947,11 +947,6 @@ export class GPURenderer {
       const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
       const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-      // PERFORMANCE: Execute compute shaders - the await ensures compute passes are recorded
-      // This is non-blocking for GPU work (commands are just recorded, not executed yet)
-      // We await to ensure compute results are ready before fragment shader renders
-      // CRITICAL: This await is necessary for correctness but can cause frame time variance
-      // The compute executor is optimized to minimize work, but async operations here can still cause lag
       try {
         await window.computeExecutor.execute(encoder, timeValue, {
           audioEnvelope,

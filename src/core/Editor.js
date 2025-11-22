@@ -134,7 +134,14 @@ export class Editor {
         throw new Error('Canvas element with id "ui-canvas" not found');
       }
       
-      this.ctx = this.canvas.getContext("2d");
+      // PERFORMANCE: Use optimized canvas context settings
+      // willReadFrequently: false - we don't read pixels, only draw
+      // This allows browser to optimize for drawing performance
+      this.ctx = this.canvas.getContext("2d", {
+        willReadFrequently: false,
+        desynchronized: true, // Allow async rendering, reduces blocking
+        alpha: true // We need transparency for node rendering
+      });
       if (!this.ctx) {
         throw new Error('Failed to get 2D rendering context from canvas');
       }
