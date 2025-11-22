@@ -70,72 +70,7 @@
           <button id="btn-save">Save</button>
           <button id="btn-save-as">Save As…</button>
           <div class="menu-separator"></div>
-          
-          <!-- Import Submenu -->
-          <div class="menu-item-with-submenu">
-            <button class="menu-submenu-trigger">Import ▸</button>
-            <div class="menu-submenu">
-              <div class="menu-item-with-submenu">
-                <button class="menu-submenu-trigger">Node… ▸</button>
-                <div class="menu-submenu menu-submenu-nested">
-                  <label for="import-node-format" class="menu-label">File Format:</label>
-                  <select id="import-node-format">
-                    <option value=".rhn">.rhn</option>
-                    <option value=".json">.json</option>
-                  </select>
-                  <button id="btn-import-node" class="submenu-button">Import Node</button>
-                </div>
-              </div>
-              <div class="menu-item-with-submenu">
-                <button class="menu-submenu-trigger">Scene… ▸</button>
-                <div class="menu-submenu menu-submenu-nested">
-                  <label for="import-scene-format" class="menu-label">File Format:</label>
-                  <select id="import-scene-format">
-                    <option value=".rhn_scene">.rhn_scene</option>
-                    <option value=".fbx">.fbx</option>
-                  </select>
-                  <button id="btn-import-scene" class="submenu-button">Import Scene</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Export Submenu -->
-          <div class="menu-item-with-submenu">
-            <button class="menu-submenu-trigger">Export ▸</button>
-            <div class="menu-submenu">
-              <div class="menu-item-with-submenu">
-                <button class="menu-submenu-trigger">Node… ▸</button>
-                <div class="menu-submenu menu-submenu-nested">
-                  <label for="export-node-format" class="menu-label">File Format:</label>
-                  <select id="export-node-format">
-                    <option value=".rhn">.rhn</option>
-                    <option value=".json">.json</option>
-                  </select>
-                  <label class="submenu-toggle">
-                    <input type="checkbox" id="export-node-include-previews" />
-                    Include Node Previews
-                  </label>
-                  <button id="btn-export-node" class="submenu-button">Export Node</button>
-                </div>
-              </div>
-              <div class="menu-item-with-submenu">
-                <button class="menu-submenu-trigger">Scene… ▸</button>
-                <div class="menu-submenu menu-submenu-nested">
-                  <label for="export-scene-format" class="menu-label">File Format:</label>
-                  <select id="export-scene-format">
-                    <option value=".rhn_scene">.rhn_scene</option>
-                    <option value=".fbx">.fbx</option>
-                  </select>
-                  <label class="submenu-toggle">
-                    <input type="checkbox" id="export-scene-include-previews" />
-                    Include Node Previews
-                  </label>
-                  <button id="btn-export-scene" class="submenu-button">Export Scene</button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <button id="btn-export">Export</button>
           
           <!-- Publish Submenu -->
           <div class="menu-item-with-submenu">
@@ -234,98 +169,7 @@
           </div>
           
           <div class="menu-separator"></div>
-          
-          <!-- Preview / Export Settings Submenu (moved from File) -->
-          <div class="menu-item-with-submenu">
-            <button class="menu-submenu-trigger">Preview / Export Settings ▸</button>
-            <div class="menu-submenu" id="preview-settings-submenu">
-              <!-- Display Options -->
-              <div class="submenu-section">
-                <div class="submenu-section-title">Display Options</div>
-                <label class="submenu-toggle">
-                  <input type="checkbox" id="preview-show-grid" />
-                  Show Grid
-                </label>
-                <label class="submenu-toggle">
-                  <input type="checkbox" id="preview-show-wireframe" />
-                  Show Wireframe
-                </label>
-                <label class="submenu-toggle">
-                  <input type="checkbox" id="preview-show-node-previews" />
-                  Show Node Previews
-                </label>
-              </div>
-              
-              <!-- Resolution / Quality -->
-              <div class="submenu-section">
-                <div class="submenu-section-title">Resolution / Quality</div>
-                <label for="preview-resolution" class="menu-label">Resolution:</label>
-                <select id="preview-resolution">
-                  <option value="custom">Custom</option>
-                  <option value="720p">720p (1280x720)</option>
-                  <option value="1080p" selected>1080p (1920x1080)</option>
-                  <option value="4k">4K (3840x2160)</option>
-                </select>
-                <label for="preview-aa" class="menu-label">Sampling / Anti-Aliasing:</label>
-                <input type="range" id="preview-aa" min="0" max="8" value="2" step="1" />
-                <div class="slider-value" id="preview-aa-value">2x</div>
-              </div>
-              
-              <!-- Animation Settings -->
-              <div class="submenu-section">
-                <div class="submenu-section-title">Animation Settings</div>
-                <div class="submenu-input-group">
-                  <label for="preview-start-frame" class="menu-label">Start Frame:</label>
-                  <input type="number" id="preview-start-frame" value="0" min="0" />
-                </div>
-                <div class="submenu-input-group">
-                  <label for="preview-end-frame" class="menu-label">End Frame:</label>
-                  <input type="number" id="preview-end-frame" value="60" min="1" />
-                </div>
-                <div class="submenu-input-group">
-                  <label for="preview-fps" class="menu-label">FPS:</label>
-                  <input type="number" id="preview-fps" value="30" min="1" max="60" />
-                </div>
-                <label class="submenu-toggle">
-                  <input type="checkbox" id="preview-loop" checked />
-                  Loop / Play Options
-                </label>
-              </div>
-              
-              <!-- Export / Publish -->
-              <div class="submenu-section">
-                <div class="submenu-section-title">Export / Publish</div>
-                <button id="preview-export-png" class="submenu-button">Export as PNG</button>
-                <button id="preview-export-animation" class="submenu-button">Export Animation (WebM)</button>
-                <button id="preview-publish-image" class="submenu-button submenu-button-primary">Publish Image to TenderWorld</button>
-                <button id="preview-publish-animation" class="submenu-button submenu-button-primary">Publish Animation to TenderWorld</button>
-              </div>
-              
-              <!-- Advanced / Optional Settings -->
-              <div class="submenu-section">
-                <div class="submenu-section-title">Advanced / Optional Settings</div>
-                <label class="submenu-toggle">
-                  <input type="checkbox" id="preview-alpha-channel" />
-                  Alpha Channel
-                </label>
-                <label for="preview-compression" class="menu-label">Compression Level:</label>
-                <input type="range" id="preview-compression" min="0" max="100" value="90" step="1" />
-                <div class="slider-value" id="preview-compression-value">90%</div>
-                <label for="preview-gpu-precision" class="menu-label">GPU / Render Options:</label>
-                <select id="preview-gpu-precision">
-                  <option value="low">Low Precision</option>
-                  <option value="medium">Medium Precision</option>
-                  <option value="high" selected>High Precision</option>
-                </select>
-              </div>
-              
-              <!-- Reset -->
-              <div class="submenu-section">
-                <button id="preview-reset-defaults" class="submenu-button submenu-button-reset">Reset to Default Settings</button>
-              </div>
-            </div>
-          </div>
-          
+          <button id="btn-preview-export-settings">Preview / Export Settings</button>
           <div class="menu-separator"></div>
           <button id="btn-toggle-console">Console</button>
           <button id="btn-toggle-timeline">Timeline</button>
@@ -373,7 +217,8 @@
           </div>
           
           <div class="menu-separator"></div>
-          <button id="btn-audio-tools">Audio / Signal Tools</button>
+          <button id="btn-audio-settings">Audio Settings</button>
+          <button id="btn-midi-settings">MIDI Settings</button>
         </div>
       </div>
 
