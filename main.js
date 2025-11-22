@@ -4039,8 +4039,25 @@ function handleRenderFrame(frameState) {
 
     // OPTIMIZATION: Only redraw when canvas is dirty
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
+    // PERFORMANCE: During interactions, defer canvas rendering to idle time to avoid blocking GPU renderer
+    // With many nodes, canvas rendering is CPU-bound and blocks GPU operations
+    // Using requestIdleCallback during interactions ensures GPU gets priority while still rendering everything
     if (editor?.draw) {
-      editor.draw(); // draw() will check _isDirty internally
+      const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+      
+      if (isCanvasInteracting && window.requestIdleCallback) {
+        // During interactions with complex graphs: defer canvas to idle time
+        // This ensures GPU renderer gets CPU priority while still rendering everything (no visual changes)
+        // GPU renderer can process its commands while canvas waits for idle time
+        window.requestIdleCallback((deadline) => {
+          if (deadline.timeRemaining() > 0 && editor?.draw) {
+            editor.draw(); // draw() will check _isDirty internally
+          }
+        }, { timeout: 16 }); // Timeout ensures it still renders even if never idle (within one frame)
+      } else {
+        // Not interacting or no requestIdleCallback: render immediately
+        editor.draw(); // draw() will check _isDirty internally
+      }
     }
   }
 }
