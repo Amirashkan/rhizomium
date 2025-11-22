@@ -17,10 +17,6 @@ export class Renderer {
 
     // Always render grid background for visual consistency
     this._renderBackgroundGrid();
-    
-    // Store interaction state for use in node rendering (still used for other optimizations)
-    const isInteracting = renderState.isInteracting || false;
-    this._isInteracting = isInteracting;
 
     // Save context and apply viewport transform
     ctx.save();
@@ -39,11 +35,8 @@ export class Renderer {
     // Render connections/wires
     this._renderConnections(graph.connections, nodeMap);
 
-    // PERFORMANCE: Skip parameter reference lines during interactions (minor visual detail)
-    if (!isInteracting) {
-      // Render parameter reference lines (subtle lines for =node_X references)
-      this._renderParameterReferences(graph.nodes, nodeMap);
-    }
+    // Render parameter reference lines (subtle lines for =node_X references)
+    this._renderParameterReferences(graph.nodes, nodeMap);
 
     // Render drag wire if active
     if (renderState.dragWire) {
@@ -126,28 +119,6 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
-    // PERFORMANCE: Viewport culling during interactions - calculate viewport bounds
-    let viewportBounds = null;
-    if (this._isInteracting) {
-      const canvas = ctx.canvas;
-      const scale = this.viewport.scale;
-      const offsetX = this.viewport.offsetX;
-      const offsetY = this.viewport.offsetY;
-      // Calculate world-space bounds of visible area
-      const minX = -offsetX / scale;
-      const maxX = (canvas.width - offsetX) / scale;
-      const minY = -offsetY / scale;
-      const maxY = (canvas.height - offsetY) / scale;
-      // Add padding for bezier curves that might extend beyond nodes
-      const padding = 100;
-      viewportBounds = {
-        minX: minX - padding,
-        maxX: maxX + padding,
-        minY: minY - padding,
-        maxY: maxY + padding
-      };
-    }
-
     for (const c of connections) {
       // PERFORMANCE: Use Map lookup instead of linear search
       const fromNode = nodeMap.get(c.from.nodeId);
@@ -157,18 +128,6 @@ export class Renderer {
       const fromPos = this._getOutputPinPosition(fromNode, c.from.pin);
       const toPos = this._getInputPinPosition(toNode, c.to.pin);
       if (!fromPos || !toPos) continue;
-
-      // PERFORMANCE: Skip connections that are completely off-screen during interactions
-      if (viewportBounds) {
-        const fromInBounds = fromPos.x >= viewportBounds.minX && fromPos.x <= viewportBounds.maxX &&
-                             fromPos.y >= viewportBounds.minY && fromPos.y <= viewportBounds.maxY;
-        const toInBounds = toPos.x >= viewportBounds.minX && toPos.x <= viewportBounds.maxX &&
-                           toPos.y >= viewportBounds.minY && toPos.y <= viewportBounds.maxY;
-        // Skip if both endpoints are outside viewport
-        if (!fromInBounds && !toInBounds) {
-          continue;
-        }
-      }
 
       // Get wire color based on output type
       const srcType =
@@ -295,38 +254,7 @@ export class Renderer {
   }
 
   _renderNodes(nodes, selection) {
-    // PERFORMANCE: Viewport culling during interactions - skip nodes off-screen
-    let viewportBounds = null;
-    if (this._isInteracting) {
-      const canvas = this.ctx.canvas;
-      const scale = this.viewport.scale;
-      const offsetX = this.viewport.offsetX;
-      const offsetY = this.viewport.offsetY;
-      // Calculate world-space bounds of visible area
-      const minX = -offsetX / scale;
-      const maxX = (canvas.width - offsetX) / scale;
-      const minY = -offsetY / scale;
-      const maxY = (canvas.height - offsetY) / scale;
-      // Add padding for nodes that might be partially visible
-      const padding = 200;
-      viewportBounds = {
-        minX: minX - padding,
-        maxX: maxX + padding,
-        minY: minY - padding,
-        maxY: maxY + padding
-      };
-    }
-
     for (const node of nodes) {
-      // PERFORMANCE: Skip nodes that are completely off-screen during interactions
-      if (viewportBounds) {
-        const nodeRight = (node.x || 0) + (node.w || 120);
-        const nodeBottom = (node.y || 0) + (node.h || 80);
-        if (nodeRight < viewportBounds.minX || (node.x || 0) > viewportBounds.maxX ||
-            nodeBottom < viewportBounds.minY || (node.y || 0) > viewportBounds.maxY) {
-          continue; // Node is completely outside viewport
-        }
-      }
       this._renderNode(node, selection.has(node.id));
     }
   }
@@ -359,9 +287,8 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
-    // PERFORMANCE: Skip expensive shadow effects during interactions
     // Add subtle inner glow for selected nodes
-    if (isSelected && !this._isInteracting) {
+    if (isSelected) {
       ctx.save();
       ctx.shadowColor = "#66aaff";
       ctx.shadowBlur = 8;
@@ -387,15 +314,11 @@ export class Renderer {
     const label = NodeDefs[node.kind]?.label || node.kind;
     ctx.fillText(label, node.x + 10, node.y + 18);
 
-    // PERFORMANCE: Skip thumbnail and preview controls during interactions
-    // These are expensive operations that can be skipped for smooth panning
-    if (!this._isInteracting) {
-      // Render enhanced thumbnail (before ID so ID is on top)
-      this._renderNodeThumbnail(node);
+    // Render enhanced thumbnail (before ID so ID is on top)
+    this._renderNodeThumbnail(node);
 
-      // Render preview controls
-      this._renderPreviewControls(node);
-    }
+    // Render preview controls
+    this._renderPreviewControls(node);
 
     // Draw node ID (for referencing in expressions) - AFTER thumbnail so it's visible
     ctx.fillStyle = "#888";
@@ -405,9 +328,8 @@ export class Renderer {
     // Render pins with enhanced styling
     this._renderNodePins(node);
 
-    // PERFORMANCE: Skip expensive drop shadow during interactions
     // Add subtle drop shadow for depth (only for non-selected nodes)
-    if (!isSelected && !this._isInteracting) {
+    if (!isSelected) {
       ctx.save();
       ctx.globalAlpha = 0.3;
       ctx.fillStyle = "#000";
@@ -576,22 +498,14 @@ export class Renderer {
     // Enhanced pin rendering with glow effects
     ctx.save();
 
-    // PERFORMANCE: Skip expensive shadow effects during interactions
-    const skipShadows = this._isInteracting || false;
-
     // Render output pins with enhanced styling
     for (const [i, pos] of outputPins.entries()) {
       const pinType = NodeDefs[node.kind]?.pinsOut?.[i]?.type || "default";
       const pinColor = this._getWireColor(pinType);
 
-      // Pin glow effect (skip during interactions for performance)
-      if (!skipShadows) {
-        ctx.shadowColor = pinColor;
-        ctx.shadowBlur = 8;
-      } else {
-        ctx.shadowColor = "transparent";
-        ctx.shadowBlur = 0;
-      }
+      // Pin glow effect
+      ctx.shadowColor = pinColor;
+      ctx.shadowBlur = 8;
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 5, "output");
 
@@ -599,10 +513,7 @@ export class Renderer {
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
 
-      // PERFORMANCE: Skip pin labels during interactions
-      if (!skipShadows) {
-        this._renderOutputPinLabel(node, i, pos);
-      }
+      this._renderOutputPinLabel(node, i, pos);
     }
 
     // Render input pins with enhanced styling
@@ -610,7 +521,7 @@ export class Renderer {
       const connected = node.inputs && node.inputs[i];
       const pinColor = connected ? "#ff7a7a" : "#444";
 
-      if (connected && !skipShadows) {
+      if (connected) {
         ctx.shadowColor = "#ff7a7a";
         ctx.shadowBlur = 6;
       } else {
@@ -621,9 +532,8 @@ export class Renderer {
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 4, "input");
 
-      // PERFORMANCE: Skip input pin labels during interactions
       // Input pin label
-      if (!connected && !skipShadows) {
+      if (!connected) {
         const inputLabel = NodeDefs[node.kind]?.pinsIn?.[i] || `In${i}`;
         ctx.fillStyle = "#666";
         ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
