@@ -547,32 +547,19 @@ export class Renderer {
     if (node.__thumb instanceof HTMLCanvasElement) {
       ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
     } else if (node.__thumb instanceof ImageData) {
-      // CRITICAL FIX: Skip putImageData if ImageData hasn't actually changed
-      // putImageData is synchronous and blocks the main thread, preventing GPU renderer from running
-      // During interactions (dragging), thumbnails don't change, so we can skip expensive putImageData
-      const cacheKey = node.id;
-      let cached = this._tempCanvasCache.get(cacheKey);
-      const imageData = node.__thumb;
-      
-      // Create canvas cache entry if needed
-      if (!cached || cached.canvas.width !== imageData.width || cached.canvas.height !== imageData.height) {
-        const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = imageData.width;
-        tempCanvas.height = imageData.height;
-        const tempCtx = tempCanvas.getContext("2d");
-        tempCtx.putImageData(imageData, 0, 0);
-        cached = { canvas: tempCanvas, ctx: tempCtx, imageDataPtr: imageData.data.buffer };
-        this._tempCanvasCache.set(cacheKey, cached);
-      } else {
-        // Only update if ImageData buffer changed (fast pointer check, no pixel comparison)
-        // During interactions like dragging, node outputs don't change, so thumbnails don't change
-        if (cached.imageDataPtr !== imageData.data.buffer) {
-          cached.ctx.putImageData(imageData, 0, 0);
-          cached.imageDataPtr = imageData.data.buffer;
-        }
-      }
-      
-      ctx.drawImage(cached.canvas, thumbX, thumbY, thumbSize, thumbSize);
+      // ARCHITECTURAL FIX: Convert ImageData to Canvas immediately and replace on node
+      // This ensures we only convert once (when first encountered), not every frame
+      // After conversion, future renders will use the cached Canvas (fast, non-blocking drawImage)
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = node.__thumb.width;
+      tempCanvas.height = node.__thumb.height;
+      const tempCtx = tempCanvas.getContext("2d");
+      // This putImageData happens once per thumbnail change, not every frame
+      tempCtx.putImageData(node.__thumb, 0, 0);
+      // Replace ImageData with Canvas on the node itself - now future renders won't see ImageData
+      node.__thumb = tempCanvas;
+      // Draw the newly created canvas
+      ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
     }
 
     // Inner border for clarity
