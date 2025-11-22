@@ -9,13 +9,9 @@ export class Renderer {
     // This avoids recreating canvases every frame, which is expensive
     // Format: Map<nodeId, { canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, imageDataHash: string }>
     this._tempCanvasCache = new Map();
-    // Cache for grid rendering to reduce blocking during interactions
-    // Grid is only redrawn when viewport changes (pan/zoom), not every frame
-    this._gridCache = null;
-    this._gridCacheKey = null;
   }
 
-  async render(graph, renderState) {
+  render(graph, renderState) {
     const ctx = this.ctx;
     if (renderState.editor) {
       window.editor = renderState.editor; // Make editor accessible
@@ -55,9 +51,8 @@ export class Renderer {
       this._renderDragWire(renderState.dragWire, nodeMap, graph.connections);
     }
 
-    // ARCHITECTURAL FIX: Make node rendering async to yield control
-    // This allows GPU async work to proceed while canvas renders
-    await this._renderNodes(graph.nodes, renderState.selection);
+    // Render nodes
+    this._renderNodes(graph.nodes, renderState.selection);
 
     // Render selection box if active
     if (renderState.boxSelect) {
@@ -85,33 +80,6 @@ export class Renderer {
     const width = ctx.canvas.width;
     const height = ctx.canvas.height;
 
-    // CRITICAL FIX: Cache grid rendering to reduce blocking during interactions
-    // Grid only needs to be redrawn when viewport changes (pan/zoom), not every frame
-    // This significantly reduces canvas blocking time during interactions
-    const gridCacheKey = `${gridSize}_${scale}_${offsetX}_${offsetY}_${width}_${height}`;
-    
-    // Check if we can reuse cached grid
-    if (this._gridCache && this._gridCacheKey === gridCacheKey) {
-      // Grid hasn't changed - just draw the cached version
-      ctx.drawImage(this._gridCache, 0, 0);
-      return;
-    }
-
-    // Grid changed - redraw and cache it
-    // Create or reuse grid cache canvas
-    if (!this._gridCache || this._gridCache.width !== width || this._gridCache.height !== height) {
-      if (this._gridCache) {
-        // Clean up old cache
-        this._gridCache = null;
-      }
-      this._gridCache = document.createElement('canvas');
-      this._gridCache.width = width;
-      this._gridCache.height = height;
-    }
-    
-    const gridCtx = this._gridCache.getContext('2d');
-    gridCtx.clearRect(0, 0, width, height);
-
     const minorSpacing = gridSize * scale;
     const majorSpacing = minorSpacing * 5;
 
@@ -120,9 +88,9 @@ export class Renderer {
         return;
       }
 
-      gridCtx.beginPath();
-      gridCtx.lineWidth = 1;
-      gridCtx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
 
       // Vertical lines
       let x = offsetX + Math.floor(-offsetX / spacing) * spacing;
@@ -131,8 +99,8 @@ export class Renderer {
       }
       for (; x <= width; x += spacing) {
         const px = Math.round(x) + 0.5;
-        gridCtx.moveTo(px, 0);
-        gridCtx.lineTo(px, height);
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, height);
       }
 
       // Horizontal lines
@@ -142,23 +110,15 @@ export class Renderer {
       }
       for (; y <= height; y += spacing) {
         const py = Math.round(y) + 0.5;
-        gridCtx.moveTo(0, py);
-        gridCtx.lineTo(width, py);
+        ctx.moveTo(0, py);
+        ctx.lineTo(width, py);
       }
 
-      gridCtx.stroke();
+      ctx.stroke();
     };
 
-    gridCtx.save();
     drawLines(minorSpacing, 0.025);
     drawLines(majorSpacing, 0.07);
-    gridCtx.restore();
-
-    // Draw cached grid to main canvas
-    ctx.drawImage(this._gridCache, 0, 0);
-    
-    // Update cache key
-    this._gridCacheKey = gridCacheKey;
   }
 
   _renderConnections(connections, nodeMap) {
@@ -334,7 +294,7 @@ export class Renderer {
     this._drawBezierCurve(fromPos.x, fromPos.y, dragWire.pos.x, dragWire.pos.y);
   }
 
-  async _renderNodes(nodes, selection) {
+  _renderNodes(nodes, selection) {
     // PERFORMANCE: Viewport culling during interactions - doesn't change visual appearance
     // Only skips nodes that are completely off-screen
     let viewportBounds = null;
@@ -358,9 +318,6 @@ export class Renderer {
       };
     }
 
-    // ARCHITECTURAL FIX: Yield control periodically during node rendering
-    // This allows GPU async work to proceed while canvas renders
-    let nodeIndex = 0;
     for (const node of nodes) {
       // PERFORMANCE: Skip nodes that are completely off-screen during interactions
       if (viewportBounds) {
@@ -372,12 +329,6 @@ export class Renderer {
         }
       }
       this._renderNode(node, selection.has(node.id));
-      
-      // Yield control every 10 nodes to allow GPU work to proceed
-      nodeIndex++;
-      if (this._isInteracting && nodeIndex % 10 === 0) {
-        await Promise.resolve();
-      }
     }
   }
 
@@ -594,18 +545,22 @@ export class Renderer {
     if (node.__thumb instanceof HTMLCanvasElement) {
       ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
     } else if (node.__thumb instanceof ImageData) {
-      // ARCHITECTURAL FIX: Convert ImageData to Canvas immediately and replace on node
-      // This ensures we only convert once (when first encountered), not every frame
-      // After conversion, future renders will use Canvas (fast drawImage, not blocking putImageData)
-      const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = node.__thumb.width;
-      tempCanvas.height = node.__thumb.height;
+      // PERFORMANCE: Cache temporary canvases per node to avoid recreating every frame
+      // putImageData is blocking, but we cache the canvas to at least avoid canvas creation overhead
+      const cacheKey = `${node.id}-${node.__thumb.width}x${node.__thumb.height}`;
+      let tempCanvas = this._tempCanvasCache.get(cacheKey);
+      
+      if (!tempCanvas || tempCanvas.width !== node.__thumb.width || tempCanvas.height !== node.__thumb.height) {
+        tempCanvas = document.createElement("canvas");
+        tempCanvas.width = node.__thumb.width;
+        tempCanvas.height = node.__thumb.height;
+        this._tempCanvasCache.set(cacheKey, tempCanvas);
+      }
+      
+      // putImageData is blocking but necessary - the real fix needs to happen where thumbnails are created
+      // Thumbnails should be converted to canvas elements, not ImageData
       const tempCtx = tempCanvas.getContext("2d");
-      // This putImageData happens once per thumbnail change, not every frame
       tempCtx.putImageData(node.__thumb, 0, 0);
-      // Replace ImageData with Canvas on the node itself - now future renders won't see ImageData
-      node.__thumb = tempCanvas;
-      // Draw the newly created canvas
       ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
     }
 

@@ -3932,24 +3932,13 @@ function handleRenderFrame(frameState) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Update compute profiler overlay (throttled to reduce overhead)
-  // PERFORMANCE: Throttle to 5 updates per second to reduce DOM manipulation overhead
-  // Also defer to idle time to avoid frame time spikes
+  // Update compute profiler overlay
   if (profilerOverlay && computeProfiler) {
     const now = performance.now();
     const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
     if (shouldUpdateProfiler) {
-      // Defer profiler overlay update to idle time to avoid micro-stutters
-      if (window.requestIdleCallback) {
-        window.requestIdleCallback(() => {
-          const metrics = computeProfiler.getMetrics();
-          profilerOverlay.update(metrics);
-        }, { timeout: 250 });
-      } else {
-        // Fallback: update synchronously
-        const metrics = computeProfiler.getMetrics();
-        profilerOverlay.update(metrics);
-      }
+      const metrics = computeProfiler.getMetrics();
+      profilerOverlay.update(metrics);
       lastProfilerUpdate = now;
     }
   }
@@ -3962,79 +3951,22 @@ function handleRenderFrame(frameState) {
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
   if (!frameState.manual) {
-    // PERFORMANCE: Skip preview computations during drag (expensive!)
     if (!isDragging) {
-      // PERFORMANCE: Throttle preview COMPUTATIONS to reduce CPU overhead
       const now = performance.now();
       const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
 
       if (shouldUpdatePreviews) {
-        // PERFORMANCE: Defer preview computation to idle time to avoid frame time spikes
-        // This prevents periodic micro-stutters from preview updates
-        // CRITICAL: Add time budget to prevent lag spikes
-        if (window.requestIdleCallback) {
-          window.requestIdleCallback((deadline) => {
-            // CRITICAL: Only run if we have enough time budget (at least 10ms)
-            // This prevents lag when requestIdleCallback finally fires
-            if (deadline.timeRemaining() < 10) {
-              // Not enough time, skip this update to avoid blocking
-              return;
-            }
-            
-            // Update preview values for time/audio-based expressions
-            // This ensures node labels show current values
-            if (editor?.previewComputer && editor?.graph) {
-              const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
-              
-              // CRITICAL: Add timeout protection - if computePreviews takes too long, abort
-              const startTime = performance.now();
-              const MAX_COMPUTE_TIME = 30; // Maximum 30ms for preview computation (reduced from 50ms)
-              
-              try {
-                editor.previewComputer.computePreviews(editor.graph, {
-                  timeBudget: Math.min(deadline.timeRemaining() - 5, MAX_COMPUTE_TIME), // Leave 5ms buffer
-                  maxTime: MAX_COMPUTE_TIME
-                });
-                
-                const elapsed = performance.now() - startTime;
-                if (elapsed > MAX_COMPUTE_TIME) {
-                  console.warn(`[Performance] computePreviews took ${elapsed.toFixed(1)}ms, exceeded budget`);
-                }
-              } catch (err) {
-                // Silently handle errors to avoid breaking render loop
-                console.warn('[Performance] computePreviews error:', err);
-              }
+        if (editor?.previewComputer && editor?.graph) {
+          const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
+          
+          try {
+            editor.previewComputer.computePreviews(editor.graph);
+          } catch (err) {
+            console.warn('[Performance] computePreviews error:', err);
+          }
 
-              // Only mark dirty if there are time-animated nodes that need visual updates
-              if (hadTimeAnimatedNodes && editor.markDirty) {
-                editor.markDirty('time-animation');
-              }
-            }
-          }, { timeout: 150 });
-        } else {
-          // Fallback: do it synchronously but only if we have time
-          // CRITICAL: Add timeout protection even in fallback
-          if (editor?.previewComputer && editor?.graph) {
-            const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
-            const startTime = performance.now();
-            const MAX_COMPUTE_TIME = 8; // Maximum 8ms (half frame) for synchronous fallback
-            
-            try {
-              editor.previewComputer.computePreviews(editor.graph, {
-                maxTime: MAX_COMPUTE_TIME
-              });
-              
-              const elapsed = performance.now() - startTime;
-              if (elapsed > MAX_COMPUTE_TIME) {
-                console.warn(`[Performance] computePreviews (sync) took ${elapsed.toFixed(1)}ms, exceeded budget`);
-              }
-            } catch (err) {
-              console.warn('[Performance] computePreviews (sync) error:', err);
-            }
-
-            if (hadTimeAnimatedNodes && editor.markDirty) {
-              editor.markDirty('time-animation');
-            }
+          if (hadTimeAnimatedNodes && editor.markDirty) {
+            editor.markDirty('time-animation');
           }
         }
         lastPreviewUpdate = now;
