@@ -145,11 +145,27 @@ _setupAnimationLoop() {
 
     // FIX: Only trigger shader rebuild if canvas size actually changed
     // This prevents black screen on every canvas click
-    if (sizeChanged && window.rebuild) {
+    if (sizeChanged) {
       // Update tracked size before rebuild
       this._lastCanvasSize = { width, height };
-      window.rebuild();
-    } else if (!sizeChanged) {
+      
+      // Wait a bit for textures to be recreated before rebuilding
+      // This prevents "destroyed texture" errors
+      setTimeout(() => {
+        if (window.rebuild) {
+          window.rebuild();
+        }
+        
+        // Restart render loop after rebuild completes
+        setTimeout(() => {
+          if (window.renderLoop && window.renderLoop.start) {
+            window.renderLoop.start();
+          } else if (typeof window.render === "function") {
+            window.render();
+          }
+        }, 100);
+      }, 50);
+    } else {
       // Ensure render loop continues even if size didn't change
       const renderLoopState = window.renderLoop?.getState();
       if (window.renderLoop && renderLoopState && !renderLoopState.running) {

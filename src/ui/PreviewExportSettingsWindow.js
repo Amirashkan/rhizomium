@@ -244,6 +244,8 @@ export class PreviewExportSettingsWindow {
     const labelEl = document.createElement("span");
     labelEl.textContent = label;
 
+    checkbox.setAttribute('data-setting-key', key); // For syncing
+    
     checkbox.addEventListener("change", (e) => {
       // Update settings directly (they're shared with PreviewSettings)
       this.settings[key] = e.target.checked;

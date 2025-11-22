@@ -138,10 +138,18 @@ export class GPURenderer {
       return; // No resize needed
     }
 
+    // CRITICAL: Stop render loop to prevent using textures during resize
+    if (window.renderLoop && window.renderLoop.stop) {
+      window.renderLoop.stop();
+    }
+
     // CRITICAL: Wait for all pending GPU operations to complete
     // This prevents the canvas from being resized mid-render which causes tearing
+    // Also prevents "destroyed texture" errors by ensuring all GPU work finishes
     try {
       await this.device.queue.onSubmittedWorkDone();
+      // Wait a bit more to ensure textures are fully released
+      await new Promise(resolve => setTimeout(resolve, 50));
     } catch (err) {
       console.warn('[GPURenderer] Failed to wait for GPU sync:', err);
     }
@@ -157,6 +165,9 @@ export class GPURenderer {
 
     // Update aspect ratio uniform for new size
     this._updateAspectUniform();
+    
+    // Wait a bit more to ensure new textures are ready before rendering resumes
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
 
   // Create placeholder texture for optional bindings.
