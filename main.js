@@ -1412,6 +1412,85 @@ function setupUIEventHandlers() {
     console.error('[main.js] VJ Control button NOT found in DOM!');
   }
 
+  // Open External Viewer button
+  const openExternalViewerBtn = removeExistingHandlers("btn-open-external-viewer");
+
+  if (openExternalViewerBtn) {
+    openExternalViewerBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      try {
+        // Use the onLaunchExternalViewer function if available
+        if (outputDisplayWindow && typeof outputDisplayWindow.onLaunchExternalViewer === 'function') {
+          await outputDisplayWindow.onLaunchExternalViewer({});
+        } else {
+          // Fallback: call the API directly
+          const response = await fetch('/api/launch-viewer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              viewer: 'rhizo_viewer.py',
+              fullscreen: false,
+              monitor: 'primary'
+            })
+          });
+
+          if (response.ok) {
+            if (typeof updateStatus === "function") {
+              updateStatus("External viewer opened (WebSocket mode)");
+            }
+          } else {
+            console.error('[main.js] Failed to launch external viewer:', response.status);
+            
+            const isLocal = window.location.hostname === 'localhost' ||
+                           window.location.hostname === '127.0.0.1';
+            
+            if (isLocal) {
+              const message =
+                "⚠️ Python backend not running.\n\n" +
+                "To use the external viewer:\n" +
+                "1. Open a terminal in the project directory\n" +
+                "2. Run: python rhizo_server.py\n" +
+                "3. Refresh this page\n" +
+                "4. Click 'Open External Viewer' again\n\n" +
+                "The viewer will connect via WebSocket for remote streaming.";
+              
+              alert(message);
+            }
+            
+            if (typeof updateStatus === "function") {
+              updateStatus("Failed to launch external viewer - backend not running", "error");
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error launching external viewer:', error);
+        
+        const isLocal = window.location.hostname === 'localhost' ||
+                       window.location.hostname === '127.0.0.1';
+        
+        if (isLocal) {
+          const message =
+            "⚠️ Python backend not running.\n\n" +
+            "To use the external viewer:\n" +
+            "1. Open a terminal in the project directory\n" +
+            "2. Run: python rhizo_server.py\n" +
+            "3. Refresh this page\n" +
+            "4. Click 'Open External Viewer' again\n\n" +
+            "The viewer will connect via WebSocket for remote streaming.";
+          
+          alert(message);
+        }
+        
+        if (typeof updateStatus === "function") {
+          updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
+        }
+      }
+    });
+  } else {
+    console.error('[main.js] Open External Viewer button NOT found in DOM!');
+  }
+
   // TODO: Display selector and External Viewer functionality moved to Window menu
   // These handlers have been removed as the UI elements no longer exist in the new menu structure
   // The functionality may be restored in the future under Window > External Viewer or similar
