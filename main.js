@@ -6,6 +6,7 @@ import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
+import { OutputDisplayWindow } from "./src/ui/OutputDisplayWindow.js";
 import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
@@ -161,6 +162,7 @@ let editor = null;
 let saveLoadManager = null;
 let backupDialog = null;
 let welcomeWindow = null;
+let outputDisplayWindow = null;
 let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
@@ -462,6 +464,37 @@ async function initialize() {
       storageKey: "rhizomium.welcome.dismissed"
     });
 
+    // Create Output Display Window
+    outputDisplayWindow = new OutputDisplayWindow({
+      onClose: () => {},
+      onLaunchExternalViewer: async () => {
+        try {
+          // Try to launch rhizo_viewer via backend API
+          const response = await fetch('/api/launch-viewer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ viewer: 'rhizo_viewer.py' })
+          });
+
+          if (response.ok) {
+            if (typeof updateStatus === "function") {
+              updateStatus("External viewer opened");
+            }
+          } else {
+            console.error('[main.js] Failed to launch external viewer:', response.status);
+            if (typeof updateStatus === "function") {
+              updateStatus("Failed to launch external viewer", "error");
+            }
+          }
+        } catch (error) {
+          console.error('[main.js] Error launching external viewer:', error);
+          if (typeof updateStatus === "function") {
+            updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
+          }
+        }
+      }
+    });
+
     // Create VJ Control Panel (after SaveLoadManager is ready)
     try {
       vjControlPanel = new VJControlPanel(editor);
@@ -501,6 +534,7 @@ async function initialize() {
     window.saveLoadManager = saveLoadManager;
     window.backupDialog = backupDialog;
     window.welcomeWindow = welcomeWindow;
+    window.outputDisplayWindow = outputDisplayWindow;
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
@@ -2327,6 +2361,21 @@ function setupRhizomiumMenu() {
         window.floatingPreview.toggle();
         if (typeof updateStatus === "function") {
           updateStatus(window.floatingPreview.isVisible ? "Preview Panel shown" : "Preview Panel hidden");
+        }
+      }
+    });
+  }
+
+  // Output Display - opens as window
+  const outputDisplayBtn = document.getElementById("btn-output-display");
+  if (outputDisplayBtn && window.outputDisplayWindow) {
+    outputDisplayBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.outputDisplayWindow) {
+        window.outputDisplayWindow.show();
+        if (typeof updateStatus === "function") {
+          updateStatus("Output Display window opened");
         }
       }
     });
