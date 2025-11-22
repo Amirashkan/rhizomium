@@ -469,7 +469,25 @@ async function initialize() {
       onClose: () => {},
       onLaunchExternalViewer: async (options = {}) => {
         try {
-          // Try to launch rhizo_viewer via backend API
+          // Use the same logic as the existing viewer launch code
+          // First, initialize frame streaming client if not already done
+          if (!frameStreamClient) {
+            frameStreamClient = new FrameStreamClient('http://localhost:5000');
+          }
+
+          // Start frame streaming
+          try {
+            await frameStreamClient.startStreaming();
+            frameStreamingEnabled = true;
+
+            if (typeof updateStatus === "function") {
+              updateStatus("Frame streaming started");
+            }
+          } catch (streamError) {
+            console.warn('[main.js] Frame streaming not available:', streamError);
+          }
+
+          // Then launch rhizo_viewer via backend API
           const response = await fetch('/api/launch-viewer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -482,7 +500,7 @@ async function initialize() {
 
           if (response.ok) {
             if (typeof updateStatus === "function") {
-              updateStatus("External viewer opened");
+              updateStatus("External viewer opened (WebSocket mode)");
             }
           } else {
             console.error('[main.js] Failed to launch external viewer:', response.status);
