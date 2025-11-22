@@ -149,22 +149,9 @@ _setupAnimationLoop() {
       // Update tracked size before rebuild
       this._lastCanvasSize = { width, height };
       
-      // Wait a bit for textures to be recreated before rebuilding
-      // This prevents "destroyed texture" errors
-      setTimeout(() => {
-        if (window.rebuild) {
-          window.rebuild();
-        }
-        
-        // Restart render loop after rebuild completes
-        setTimeout(() => {
-          if (window.renderLoop && window.renderLoop.start) {
-            window.renderLoop.start();
-          } else if (typeof window.render === "function") {
-            window.render();
-          }
-        }, 100);
-      }, 50);
+      // CRITICAL: Wait for GPU resize operations to complete before rebuilding
+      // This prevents "destroyed texture" errors by ensuring textures are recreated
+      this._rebuildAfterResize();
     } else {
       // Ensure render loop continues even if size didn't change
       const renderLoopState = window.renderLoop?.getState();

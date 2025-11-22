@@ -679,7 +679,7 @@ export class PreviewExportSettingsWindow {
     endFrameContainer.appendChild(endFrameInput);
     section.appendChild(endFrameContainer);
 
-    // FPS
+    // FPS (uses refreshRate in shared settings object)
     const fpsContainer = document.createElement("div");
     fpsContainer.style.cssText = "display: flex; align-items: center; gap: 8px; margin-bottom: 8px;";
     
@@ -689,7 +689,11 @@ export class PreviewExportSettingsWindow {
 
     const fpsInput = document.createElement("input");
     fpsInput.type = "number";
-    fpsInput.value = this.settings.fps || 30;
+    fpsInput.id = "animation-fps-input";
+    // Store data attribute for synchronization (using refreshRate key)
+    fpsInput.setAttribute('data-setting-key', 'refreshRate');
+    // Use refreshRate from shared settings object (not fps)
+    fpsInput.value = this.settings.refreshRate || 30;
     fpsInput.min = 1;
     fpsInput.max = 60;
     fpsInput.style.cssText = `
@@ -728,7 +732,8 @@ export class PreviewExportSettingsWindow {
 
     fpsInput.addEventListener("change", (e) => {
       const value = parseInt(e.target.value) || 30;
-      this.settings.fps = value;
+      // Update refreshRate in shared settings object (consistent with PreviewSettings)
+      this.settings.refreshRate = value;
       if (this.floatingPreview?.settings?.updateSetting) {
         this.floatingPreview.settings.updateSetting("refreshRate", value);
       }
@@ -949,7 +954,7 @@ export class PreviewExportSettingsWindow {
   _resetToDefaults() {
     const defaults = {
       resolution: { width: 1920, height: 1080 },
-      refreshRate: 60,
+      refreshRate: 60, // Use refreshRate (not fps) for consistency with PreviewSettings
       wireframe: false,
       showGrid: false,
       showNodePreviews: true,
@@ -957,7 +962,6 @@ export class PreviewExportSettingsWindow {
       antiAliasing: 2,
       startFrame: 0,
       endFrame: 60,
-      fps: 30,
       loop: true,
       alphaChannel: false,
       compression: 90,
