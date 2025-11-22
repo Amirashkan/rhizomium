@@ -59,20 +59,52 @@
     </style>
   </head>
   <body>
-    <!-- Top Menu Bar -->
+    <!-- Top Menu Bar - Rhizomium Menu -->
     <div id="top-menu-bar">
+      <!-- File Menu -->
       <div class="menu-section">
         <button class="menu-button" id="menu-file">File ▾</button>
         <div class="menu-dropdown" id="dropdown-file">
-          <button id="btn-save">Save Project</button>
-          <button id="btn-load">Load Project</button>
-          <button id="btn-import">Import</button>
+          <button id="btn-new-project">New Project</button>
+          <button id="btn-open-project">Open Project…</button>
+          <button id="btn-save">Save</button>
+          <button id="btn-save-as">Save As…</button>
           <div class="menu-separator"></div>
-          <button id="btn-export-json">Export JSON</button>
+          <button id="btn-export">Export</button>
+          
+          <!-- Publish Submenu -->
+          <div class="menu-item-with-submenu">
+            <button class="menu-submenu-trigger">Publish ▸</button>
+            <div class="menu-submenu">
+              <div class="submenu-section">
+                <div class="submenu-section-title">To Cloud / Server</div>
+                <label for="publish-target" class="menu-label">Select Target:</label>
+                <select id="publish-target">
+                  <option value="tenderworld">TenderWorld</option>
+                  <option value="custom">Custom Server…</option>
+                </select>
+                <label class="submenu-toggle">
+                  <input type="checkbox" id="publish-include-previews" />
+                  Include Node Previews
+                </label>
+              </div>
+              <div class="submenu-section">
+                <div class="submenu-section-title">Version / Commit</div>
+                <label for="publish-commit-message" class="menu-label">Commit Message:</label>
+                <input type="text" id="publish-commit-message" placeholder="Enter version message..." class="submenu-input" />
+                <button id="btn-publish" class="submenu-button submenu-button-primary">Publish</button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="menu-separator"></div>
           <button id="btn-backups">Backups</button>
+          <div class="menu-separator"></div>
+          <button id="btn-exit">Exit</button>
         </div>
       </div>
 
+      <!-- Edit Menu -->
       <div class="menu-section">
         <button class="menu-button" id="menu-edit">Edit ▾</button>
         <div class="menu-dropdown" id="dropdown-edit">
@@ -83,17 +115,61 @@
             <span class="icon">&#8635;</span> Redo
           </button>
           <div class="menu-separator"></div>
+          <button id="btn-cut">Cut</button>
+          <button id="btn-copy">Copy</button>
+          <button id="btn-paste">Paste</button>
+          <button id="btn-delete">Delete</button>
+          <div class="menu-separator"></div>
           <button id="btn-rebuild">Rebuild</button>
+          <div class="menu-separator"></div>
+          <button id="btn-preferences">Preferences…</button>
         </div>
       </div>
 
+      <!-- View Menu -->
       <div class="menu-section">
         <button class="menu-button" id="menu-view">View ▾</button>
         <div class="menu-dropdown" id="dropdown-view">
-          <button id="btn-toggle-preview">Toggle Preview</button>
-          <button id="btn-dock-preview">Dock Preview</button>
-          <button id="btn-lock-preview">Lock Preview</button>
-          <button id="btn-fullscreen-preview">Fullscreen</button>
+          <!-- Panels Submenu -->
+          <div class="menu-item-with-submenu">
+            <button class="menu-submenu-trigger">Panels ▸</button>
+            <div class="menu-submenu">
+              <button id="btn-toggle-param-panel" class="submenu-button">Toggle ParamPanel</button>
+              <button id="btn-toggle-preview-panel" class="submenu-button">Toggle Preview Panel</button>
+            </div>
+          </div>
+          
+          <!-- Zoom Submenu -->
+          <div class="menu-item-with-submenu">
+            <button class="menu-submenu-trigger">Zoom ▸</button>
+            <div class="menu-submenu">
+              <button id="btn-zoom-in" class="submenu-button">Zoom In</button>
+              <button id="btn-zoom-out" class="submenu-button">Zoom Out</button>
+              <button id="btn-zoom-reset" class="submenu-button">Reset Zoom</button>
+            </div>
+          </div>
+          
+          <!-- Grid Submenu -->
+          <div class="menu-item-with-submenu">
+            <button class="menu-submenu-trigger">Grid ▸</button>
+            <div class="menu-submenu">
+              <label class="submenu-toggle">
+                <input type="checkbox" id="view-show-grid" />
+                Show Grid
+              </label>
+              <label class="submenu-toggle">
+                <input type="checkbox" id="snap-toggle" />
+                Snap to Grid
+              </label>
+              <label class="snap-size">
+                <span>Grid Size:</span>
+                <input type="number" id="snap-size" inputmode="numeric" min="2" max="512" step="1" value="20" />
+              </label>
+            </div>
+          </div>
+          
+          <div class="menu-separator"></div>
+          <button id="btn-preview-export-settings">Preview / Export Settings</button>
           <div class="menu-separator"></div>
           <button id="btn-toggle-console">Console</button>
           <button id="btn-toggle-timeline">Timeline</button>
@@ -101,56 +177,81 @@
         </div>
       </div>
 
+      <!-- Node Menu -->
       <div class="menu-section">
-        <button class="menu-button" id="menu-settings">Settings ▾</button>
-        <div class="menu-dropdown" id="dropdown-settings">
+        <button class="menu-button" id="menu-node">Node ▾</button>
+        <div class="menu-dropdown" id="dropdown-node">
+          <button id="btn-create-node">Create Node…</button>
+          <button id="btn-delete-node">Delete Node</button>
+          <button id="btn-duplicate-node">Duplicate Node</button>
+          <div class="menu-separator"></div>
+          
+          <!-- Pins Submenu -->
+          <div class="menu-item-with-submenu">
+            <button class="menu-submenu-trigger">Pins ▸</button>
+            <div class="menu-submenu">
+              <button id="btn-connect-pins" class="submenu-button">Connect Pins</button>
+              <button id="btn-disconnect-pins" class="submenu-button">Disconnect Pins</button>
+            </div>
+          </div>
+          
+          <div class="menu-separator"></div>
+          <button id="btn-node-settings">Node Settings / Params…</button>
+        </div>
+      </div>
+
+      <!-- Tools Menu -->
+      <div class="menu-section">
+        <button class="menu-button" id="menu-tools">Tools ▾</button>
+        <div class="menu-dropdown" id="dropdown-tools">
+          <button id="btn-script-editor">Script Editor / Python Console</button>
+          <div class="menu-separator"></div>
+          
+          <!-- Shader Tools Submenu -->
+          <div class="menu-item-with-submenu">
+            <button class="menu-submenu-trigger">Shader Tools ▸</button>
+            <div class="menu-submenu">
+              <button id="btn-shader-compiler" class="submenu-button">Shader Compiler</button>
+              <button id="btn-glsl-utilities" class="submenu-button">GLSL Utilities</button>
+            </div>
+          </div>
+          
+          <div class="menu-separator"></div>
           <button id="btn-audio-settings">Audio Settings</button>
           <button id="btn-midi-settings">MIDI Settings</button>
-          <div class="menu-separator"></div>
-          <div class="snap-controls">
-            <label class="snap-toggle">
-              <input type="checkbox" id="snap-toggle" /> Snap to Grid
-            </label>
-            <label class="snap-size">
-              <span>Grid Size:</span>
-              <input
-                type="number"
-                id="snap-size"
-                inputmode="numeric"
-                min="2"
-                max="512"
-                step="1"
-                value="20"
-              />
-            </label>
-          </div>
         </div>
       </div>
 
+      <!-- Window Menu -->
       <div class="menu-section">
-        <button class="menu-button" id="menu-display">Display ▾</button>
-        <div class="menu-dropdown" id="dropdown-display">
-          <button id="btn-open-viewer">Open External Viewer</button>
+        <button class="menu-button" id="menu-window">Window ▾</button>
+        <div class="menu-dropdown" id="dropdown-window">
+          <!-- Layouts Submenu -->
+          <div class="menu-item-with-submenu">
+            <button class="menu-submenu-trigger">Layouts ▸</button>
+            <div class="menu-submenu">
+              <button id="btn-layout-default" class="submenu-button">Default</button>
+              <button id="btn-layout-custom" class="submenu-button">Custom</button>
+              <button id="btn-layout-minimal" class="submenu-button">Minimal</button>
+            </div>
+          </div>
+          
+          <button id="btn-floating-windows">Floating Windows</button>
           <div class="menu-separator"></div>
-          <label for="resolution-select" class="menu-label">Resolution:</label>
-          <select id="resolution-select" title="Set canvas resolution for streaming">
-            <option value="960x540">960x540 (SD)</option>
-            <option value="1280x720">1280x720 (HD)</option>
-            <option value="1920x1080" selected>1920x1080 (FHD)</option>
-            <option value="2560x1440">2560x1440 (QHD)</option>
-            <option value="3840x2160">3840x2160 (4K)</option>
-          </select>
-          <label for="display-select" class="menu-label">Display:</label>
-          <select id="display-select" title="Choose which monitor to open viewer on">
-            <option value="auto">Auto</option>
-          </select>
+          <button id="btn-reset-layout">Reset Layout</button>
         </div>
       </div>
 
+      <!-- Help Menu -->
       <div class="menu-section">
         <button class="menu-button" id="menu-help">Help ▾</button>
         <div class="menu-dropdown" id="dropdown-help">
+          <button id="btn-documentation">Documentation</button>
+          <button id="btn-shortcuts">Shortcuts / Keymap</button>
+          <div class="menu-separator"></div>
           <button id="btn-welcome">Welcome</button>
+          <div class="menu-separator"></div>
+          <button id="btn-about">About</button>
         </div>
       </div>
 

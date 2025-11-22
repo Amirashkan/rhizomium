@@ -40,6 +40,8 @@ import { addTestCubeToScene } from './src/scene/helpers/createTestCube.js';
 import { test3DVisualization } from './test-3d-viewport.js';
 import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
+import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
+import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
 
 // Verify timeline imports loaded
 
@@ -163,6 +165,8 @@ let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
 let floatingPreview = null;
+let previewExportSettingsWindow = null;
+let preferencesWindow = null;
 let renderLoopController = null;
 let timelineManager = null;
 let timelinePanel = null;
@@ -492,9 +496,6 @@ async function initialize() {
       floatingPreview.show();
     }
 
-    setupUIEventHandlers();
-    setupKeyboardShortcuts();
-
     window.graph = graph;
     window.editor = editor;
     window.saveLoadManager = saveLoadManager;
@@ -503,6 +504,39 @@ async function initialize() {
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
+
+    // Initialize Preview/Export Settings Window BEFORE setupUIEventHandlers
+    // so that handlers can find it
+    if (floatingPreview) {
+      previewExportSettingsWindow = new PreviewExportSettingsWindow(floatingPreview);
+      window.previewExportSettingsWindow = previewExportSettingsWindow;
+      
+      // Initialize settings with default values if needed
+      if (floatingPreview.settings) {
+        const previewSettings = floatingPreview.settings.settings;
+        if (!previewSettings.showGrid) previewSettings.showGrid = false;
+        if (previewSettings.showNodePreviews === undefined) previewSettings.showNodePreviews = true;
+        if (!previewSettings.antiAliasing) previewSettings.antiAliasing = 2;
+        if (previewSettings.startFrame === undefined) previewSettings.startFrame = 0;
+        if (previewSettings.endFrame === undefined) previewSettings.endFrame = 60;
+        if (previewSettings.loop === undefined) previewSettings.loop = true;
+        if (previewSettings.alphaChannel === undefined) previewSettings.alphaChannel = false;
+        if (!previewSettings.compression) previewSettings.compression = 90;
+        if (!previewSettings.aspectRatio) previewSettings.aspectRatio = "16:9";
+      }
+
+      // Setup menu handlers
+      setTimeout(() => setupPreviewSettingsMenu(), 100);
+    }
+
+    // Initialize Preferences Window BEFORE setupUIEventHandlers
+    // so that handlers can find it
+    preferencesWindow = new PreferencesWindow();
+    window.preferencesWindow = preferencesWindow;
+
+    // Now set up UI event handlers (which will attach handlers to the windows we just created)
+    setupUIEventHandlers();
+    setupKeyboardShortcuts();
 
     // PERFORMANCE: Lightweight uniform update without shader rebuild
     window.updateUniformsOnly = function(nodeId, paramName, value) {
@@ -639,6 +673,21 @@ function onConnectionDeleted(connection) {
   }
 }
 
+// Global function to trigger file load dialog
+// This needs to be accessible from both setupUIEventHandlers and setupRhizomiumMenu
+function triggerFileLoad() {
+  const fileInput = document.getElementById("file-import");
+  if (fileInput) {
+    fileInput.value = "";
+    setTimeout(() => {
+      fileInput.click();
+    }, 10);
+  }
+}
+
+// Expose globally to ensure it's accessible everywhere
+window.triggerFileLoad = triggerFileLoad;
+
 function onNodesMovement(movementData) {
   if (undoManager && movementData) {
     undoManager.recordNodeMovement(movementData);
@@ -758,13 +807,13 @@ function setupUIEventHandlers() {
     // Close dropdown when clicking a menu item (except for checkboxes and inputs)
     menuDropdowns.forEach(dropdown => {
       dropdown.addEventListener('click', (e) => {
-        // Don't close if clicking on checkbox, input, select, or label
-        if (e.target.matches('input, select, label, .snap-controls, .snap-controls *')) {
+        // Don't close if clicking on checkbox, input, select, label, submenu items, or within submenu
+        if (e.target.matches('input, select, label, .snap-controls, .snap-controls *, .menu-item-with-submenu *, .submenu-button, .submenu-toggle, .submenu-section *')) {
           e.stopPropagation();
           return;
         }
-        // Close dropdown if clicking on a button
-        if (e.target.closest('button')) {
+        // Close dropdown if clicking on a button (but not submenu buttons)
+        if (e.target.closest('button') && !e.target.closest('.menu-item-with-submenu')) {
           setTimeout(() => closeAllDropdowns(), 100);
         }
       });
@@ -916,7 +965,7 @@ function setupUIEventHandlers() {
     });
   }
 
-  // Load Project button
+  // Load Project button (old ID for backward compatibility)
   const loadBtn = removeExistingHandlers("btn-load");
   if (loadBtn) {
     loadBtn.addEventListener("click", (e) => {
@@ -924,6 +973,7 @@ function setupUIEventHandlers() {
       triggerFileLoad();
     });
   }
+  // Open Project button (new ID - also handled in setupRhizomiumMenu)
 
   // File input change handler
   const fileInput = removeExistingHandlers("file-import");
@@ -1030,15 +1080,6 @@ function setupUIEventHandlers() {
     });
   }
 
-  function triggerFileLoad() {
-    const fileInput = document.getElementById("file-import");
-    if (fileInput) {
-      fileInput.value = "";
-      setTimeout(() => {
-        fileInput.click();
-      }, 10);
-    }
-  }
 
   // Export JSON button
   const exportJsonBtn = removeExistingHandlers("btn-export-json");
@@ -1279,67 +1320,13 @@ function setupUIEventHandlers() {
     console.error('[main.js] VJ Control button NOT found in DOM!');
   }
 
-  // Display selector for multi-monitor support
-  const displaySelect = document.getElementById('display-select');
-  let availableScreens = [];
-  let permissionGranted = false;
+  // TODO: Display selector and External Viewer functionality moved to Window menu
+  // These handlers have been removed as the UI elements no longer exist in the new menu structure
+  // The functionality may be restored in the future under Window > External Viewer or similar
 
-  // Try to detect available displays using Window Management API
-  async function detectDisplays() {
-    if (!displaySelect) {
-      console.warn('[main.js] Display selector not found');
-      return;
-    }
-
-    if (!('getScreenDetails' in window)) {
-      displaySelect.title = 'Window Management API not supported in your browser';
-      displaySelect.disabled = false;
-      return;
-    }
-
-    try {
-      // Request permission if needed
-      const permission = await navigator.permissions.query({ name: 'window-management' });
-
-      if (permission.state === 'granted' || permission.state === 'prompt') {
-        const screenDetails = await window.getScreenDetails();
-        availableScreens = screenDetails.screens;
-        permissionGranted = true;
-
-        // Clear and populate display selector
-        displaySelect.innerHTML = '<option value="auto">Auto</option>';
-
-        availableScreens.forEach((screen, index) => {
-          const isPrimary = screen.isPrimary ? ' (Primary)' : '';
-          const label = `Display ${index + 1}: ${screen.width}x${screen.height}${isPrimary}`;
-          const option = document.createElement('option');
-          option.value = index;
-          option.textContent = label;
-          displaySelect.appendChild(option);
-        });
-
-        displaySelect.title = `Select which monitor to open viewer on (${availableScreens.length} displays detected)`;
-      } else if (permission.state === 'denied') {
-        displaySelect.title = 'Permission denied. Enable Window Management in browser settings.';
-      }
-    } catch (error) {
-      displaySelect.title = 'Click to request multi-monitor permission';
-    }
-  }
-
-  // Detect displays on startup
-  if (displaySelect) {
-    detectDisplays();
-
-    // Also try to detect when user clicks the dropdown (for permission prompt)
-    displaySelect.addEventListener('focus', async () => {
-      if (!permissionGranted && 'getScreenDetails' in window) {
-        await detectDisplays();
-      }
-    }, { once: true });
-  }
-
-  // Open External Viewer button
+  // Open External Viewer button (removed - no longer in menu)
+  // If you need this functionality, add it back to the Window menu
+  /*
   const openViewerBtn = removeExistingHandlers("btn-open-viewer");
 
   if (openViewerBtn) {
@@ -1543,49 +1530,11 @@ function setupUIEventHandlers() {
         }
       }
     });
-  } else {
-    console.error('[main.js] External viewer button NOT found in DOM!');
   }
+  */
 
-  // Resolution selector for canvas/streaming
-  const resolutionSelect = document.getElementById('resolution-select');
-  if (resolutionSelect) {
-    resolutionSelect.addEventListener('change', (e) => {
-      const resolution = e.target.value;
-      const [width, height] = resolution.split('x').map(Number);
-
-      const canvas = document.getElementById('gpu-canvas');
-      if (canvas) {
-
-        // Update canvas size
-        canvas.width = width;
-        canvas.height = height;
-
-        // WebGPU renderer will automatically handle the resize on next render
-        // The context will be recreated with new dimensions
-
-        // Send resolution update to LiveShaderStream if active
-        if (liveShaderStream && liveShaderStream.isStreaming) {
-          liveShaderStream.sendResolutionUpdate(width, height);
-        }
-
-        if (typeof updateStatus === "function") {
-          updateStatus(`Resolution changed to ${width}x${height}`);
-        }
-      }
-    });
-
-    // Set initial resolution on startup
-    const initialResolution = resolutionSelect.value;
-    const [initWidth, initHeight] = initialResolution.split('x').map(Number);
-    const canvas = document.getElementById('gpu-canvas');
-    if (canvas) {
-      canvas.width = initWidth;
-      canvas.height = initHeight;
-    }
-  } else {
-    console.error('[main.js] Resolution selector NOT found in DOM!');
-  }
+  // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
+  // The resolution selector functionality has been moved to the Preview/Export Settings window
 
   const selectCodeBtn = removeExistingHandlers("btn-select-code");
   if (selectCodeBtn) {
@@ -1700,6 +1649,1055 @@ function setupUIEventHandlers() {
       updateShaderFromGraph();
     });
   }
+
+  // Setup new Rhizomium menu structure handlers
+  setupRhizomiumMenu();
+}
+
+function setupPreviewSettingsMenu() {
+  if (!window.floatingPreview || !window.floatingPreview.settings) {
+    console.warn("Preview settings not available");
+    return;
+  }
+
+  const settings = window.floatingPreview.settings;
+  const previewSettings = settings.settings;
+
+  // Submenu hover behavior
+  const submenuTrigger = document.getElementById("preview-settings-trigger");
+  const submenu = document.getElementById("preview-settings-submenu");
+  
+  if (submenuTrigger && submenu) {
+    let submenuTimeout = null;
+    
+    submenuTrigger.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+      submenu.classList.add("show");
+    });
+    
+    submenuTrigger.addEventListener("mouseleave", () => {
+      submenuTimeout = setTimeout(() => {
+        submenu.classList.remove("show");
+      }, 200);
+    });
+    
+    submenu.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+    });
+    
+    submenu.addEventListener("mouseleave", () => {
+      submenu.classList.remove("show");
+    });
+  }
+
+  // Display Options - Show Grid
+  const showGridCheckbox = document.getElementById("preview-show-grid");
+  if (showGridCheckbox) {
+    showGridCheckbox.checked = previewSettings.showGrid || false;
+    showGridCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("showGrid", e.target.checked);
+      // TODO: Implement grid display in editor
+    });
+  }
+
+  // Display Options - Show Wireframe
+  const showWireframeCheckbox = document.getElementById("preview-show-wireframe");
+  if (showWireframeCheckbox) {
+    showWireframeCheckbox.checked = previewSettings.wireframe || false;
+    showWireframeCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("wireframe", e.target.checked);
+    });
+  }
+
+  // Display Options - Show Node Previews
+  const showNodePreviewsCheckbox = document.getElementById("preview-show-node-previews");
+  if (showNodePreviewsCheckbox) {
+    // Default to true if editor has node previews enabled
+    const nodePreviewsEnabled = window.editor?.nodePreviews?.size > 0;
+    showNodePreviewsCheckbox.checked = previewSettings.showNodePreviews !== false && nodePreviewsEnabled;
+    showNodePreviewsCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("showNodePreviews", e.target.checked);
+      // TODO: Toggle node previews globally
+    });
+  }
+
+  // Resolution / Quality - Resolution Dropdown
+  const resolutionSelect = document.getElementById("preview-resolution");
+  if (resolutionSelect) {
+    const currentRes = previewSettings.resolution || { width: 1920, height: 1080 };
+    if (currentRes.width === 1280 && currentRes.height === 720) {
+      resolutionSelect.value = "720p";
+    } else if (currentRes.width === 1920 && currentRes.height === 1080) {
+      resolutionSelect.value = "1080p";
+    } else if (currentRes.width === 3840 && currentRes.height === 2160) {
+      resolutionSelect.value = "4k";
+    } else {
+      resolutionSelect.value = "custom";
+    }
+
+    resolutionSelect.addEventListener("change", (e) => {
+      const resMap = {
+        "720p": { width: 1280, height: 720 },
+        "1080p": { width: 1920, height: 1080 },
+        "4k": { width: 3840, height: 2160 },
+      };
+      
+      if (resMap[e.target.value]) {
+        settings.updateSetting("resolution.width", resMap[e.target.value].width);
+        settings.updateSetting("resolution.height", resMap[e.target.value].height);
+      }
+    });
+  }
+
+  // Resolution / Quality - Anti-Aliasing Slider
+  const aaSlider = document.getElementById("preview-aa");
+  const aaValue = document.getElementById("preview-aa-value");
+  if (aaSlider && aaValue) {
+    aaSlider.value = previewSettings.antiAliasing || 2;
+    aaValue.textContent = `${aaSlider.value}x`;
+    aaSlider.addEventListener("input", (e) => {
+      const value = parseInt(e.target.value);
+      aaValue.textContent = `${value}x`;
+      settings.updateSetting("antiAliasing", value);
+      // TODO: Apply anti-aliasing to renderer
+    });
+  }
+
+  // Animation Settings - Frame Range
+  const startFrameInput = document.getElementById("preview-start-frame");
+  const endFrameInput = document.getElementById("preview-end-frame");
+  if (startFrameInput) {
+    startFrameInput.value = previewSettings.startFrame || 0;
+    startFrameInput.addEventListener("change", (e) => {
+      const value = parseInt(e.target.value) || 0;
+      settings.updateSetting("startFrame", value);
+      // TODO: Apply frame range to animation
+    });
+  }
+  if (endFrameInput) {
+    endFrameInput.value = previewSettings.endFrame || 60;
+    endFrameInput.addEventListener("change", (e) => {
+      const value = parseInt(e.target.value) || 60;
+      settings.updateSetting("endFrame", value);
+      // TODO: Apply frame range to animation
+    });
+  }
+
+  // Animation Settings - FPS
+  const fpsInput = document.getElementById("preview-fps");
+  if (fpsInput) {
+    fpsInput.value = previewSettings.refreshRate || 30;
+    fpsInput.addEventListener("change", (e) => {
+      const value = parseInt(e.target.value) || 30;
+      settings.updateSetting("refreshRate", Math.min(60, Math.max(1, value)));
+    });
+  }
+
+  // Animation Settings - Loop / Play Options
+  const loopCheckbox = document.getElementById("preview-loop");
+  if (loopCheckbox) {
+    loopCheckbox.checked = previewSettings.loop !== false;
+    loopCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("loop", e.target.checked);
+      // TODO: Apply loop setting
+    });
+  }
+
+  // Export / Publish - Export PNG
+  const exportPngBtn = document.getElementById("preview-export-png");
+  if (exportPngBtn) {
+    exportPngBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._exportPNG) {
+        await settings._exportPNG();
+      }
+    });
+  }
+
+  // Export / Publish - Export Animation
+  const exportAnimBtn = document.getElementById("preview-export-animation");
+  if (exportAnimBtn) {
+    exportAnimBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._exportAnimation) {
+        await settings._exportAnimation();
+      }
+    });
+  }
+
+  // Export / Publish - Publish Image
+  const publishImageBtn = document.getElementById("preview-publish-image");
+  if (publishImageBtn) {
+    publishImageBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._publishImage) {
+        await settings._publishImage();
+      }
+    });
+  }
+
+  // Export / Publish - Publish Animation
+  const publishAnimBtn = document.getElementById("preview-publish-animation");
+  if (publishAnimBtn) {
+    publishAnimBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._publishAnimation) {
+        await settings._publishAnimation();
+      }
+    });
+  }
+
+  // Advanced Settings - Alpha Channel
+  const alphaChannelCheckbox = document.getElementById("preview-alpha-channel");
+  if (alphaChannelCheckbox) {
+    alphaChannelCheckbox.checked = previewSettings.alphaChannel || false;
+    alphaChannelCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("alphaChannel", e.target.checked);
+      // TODO: Apply alpha channel setting
+    });
+  }
+
+  // Advanced Settings - Compression Level
+  const compressionSlider = document.getElementById("preview-compression");
+  const compressionValue = document.getElementById("preview-compression-value");
+  if (compressionSlider && compressionValue) {
+    compressionSlider.value = previewSettings.compression || 90;
+    compressionValue.textContent = `${compressionSlider.value}%`;
+    compressionSlider.addEventListener("input", (e) => {
+      const value = parseInt(e.target.value);
+      compressionValue.textContent = `${value}%`;
+      settings.updateSetting("compression", value);
+      // TODO: Apply compression when exporting
+    });
+  }
+
+  // Advanced Settings - GPU Precision
+  const gpuPrecisionSelect = document.getElementById("preview-gpu-precision");
+  if (gpuPrecisionSelect) {
+    gpuPrecisionSelect.value = previewSettings.quality || "high";
+    gpuPrecisionSelect.addEventListener("change", (e) => {
+      settings.updateSetting("quality", e.target.value);
+    });
+  }
+
+  // Miscellaneous - Reset to Defaults
+  const resetBtn = document.getElementById("preview-reset-defaults");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Reset all settings to defaults
+      const defaults = {
+        resolution: { width: 1920, height: 1080 },
+        refreshRate: 60,
+        wireframe: false,
+        showGrid: false,
+        showNodePreviews: true,
+        debugChannel: "none",
+        timeScale: 1.0,
+        isPaused: false,
+        quality: "high",
+        showFPS: false,
+        antiAliasing: 2,
+        startFrame: 0,
+        endFrame: 60,
+        loop: true,
+        alphaChannel: false,
+        compression: 90,
+      };
+
+      Object.keys(defaults).forEach((key) => {
+        if (key === "resolution") {
+          settings.updateSetting("resolution.width", defaults[key].width);
+          settings.updateSetting("resolution.height", defaults[key].height);
+        } else {
+          settings.updateSetting(key, defaults[key]);
+        }
+      });
+
+      // Update UI elements
+      if (showGridCheckbox) showGridCheckbox.checked = defaults.showGrid;
+      if (showWireframeCheckbox) showWireframeCheckbox.checked = defaults.wireframe;
+      if (showNodePreviewsCheckbox) showNodePreviewsCheckbox.checked = defaults.showNodePreviews;
+      if (resolutionSelect) resolutionSelect.value = "1080p";
+      if (aaSlider) {
+        aaSlider.value = defaults.antiAliasing;
+        if (aaValue) aaValue.textContent = `${defaults.antiAliasing}x`;
+      }
+      if (startFrameInput) startFrameInput.value = defaults.startFrame;
+      if (endFrameInput) endFrameInput.value = defaults.endFrame;
+      if (fpsInput) fpsInput.value = defaults.refreshRate;
+      if (loopCheckbox) loopCheckbox.checked = defaults.loop;
+      if (alphaChannelCheckbox) alphaChannelCheckbox.checked = defaults.alphaChannel;
+      if (compressionSlider) {
+        compressionSlider.value = defaults.compression;
+        if (compressionValue) compressionValue.textContent = `${defaults.compression}%`;
+      }
+      if (gpuPrecisionSelect) gpuPrecisionSelect.value = defaults.quality;
+
+      if (typeof updateStatus === "function") {
+        updateStatus("Preview settings reset to defaults");
+      }
+    });
+  }
+}
+
+// Export Window Manager
+let exportWindow = null;
+
+function showExportWindow() {
+  if (exportWindow) {
+    exportWindow.style.display = "flex";
+    exportWindow.style.opacity = "1";
+    exportWindow.style.transform = "translate(-50%, -50%) scale(1)";
+    return;
+  }
+
+  exportWindow = document.createElement("div");
+  exportWindow.id = "export-window";
+  exportWindow.style.cssText = `
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 320px;
+    background: rgba(28, 28, 30, 0.98);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 1001;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+    transition: all 0.2s ease;
+  `;
+
+  const header = document.createElement("div");
+  header.style.cssText = `
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: move;
+  `;
+
+  const title = document.createElement("div");
+  title.textContent = "Export";
+  title.style.cssText = "color: #fff; font-size: 14px; font-weight: 600;";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "×";
+  closeBtn.style.cssText = `
+    background: transparent;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+  closeBtn.onclick = () => hideExportWindow();
+
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const content = document.createElement("div");
+  content.style.cssText = "padding: 16px; display: flex; flex-direction: column; gap: 12px;";
+
+  const exportPngBtn = document.createElement("button");
+  exportPngBtn.textContent = "Export as PNG";
+  exportPngBtn.className = "submenu-button";
+  exportPngBtn.style.cssText = `
+    width: 100%;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+  `;
+  exportPngBtn.onmouseenter = () => {
+    exportPngBtn.style.background = "rgba(255, 255, 255, 0.15)";
+  };
+  exportPngBtn.onmouseleave = () => {
+    exportPngBtn.style.background = "rgba(255, 255, 255, 0.1)";
+  };
+  exportPngBtn.onclick = async () => {
+    if (window.floatingPreview?.settings?._exportPNG) {
+      await window.floatingPreview.settings._exportPNG();
+    }
+  };
+
+  const exportAnimBtn = document.createElement("button");
+  exportAnimBtn.textContent = "Export Animation (WebM)";
+  exportAnimBtn.className = "submenu-button";
+  exportAnimBtn.style.cssText = `
+    width: 100%;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+  `;
+  exportAnimBtn.onmouseenter = () => {
+    exportAnimBtn.style.background = "rgba(255, 255, 255, 0.15)";
+  };
+  exportAnimBtn.onmouseleave = () => {
+    exportAnimBtn.style.background = "rgba(255, 255, 255, 0.1)";
+  };
+  exportAnimBtn.onclick = async () => {
+    if (window.floatingPreview?.settings?._exportAnimation) {
+      await window.floatingPreview.settings._exportAnimation();
+    }
+  };
+
+  content.appendChild(exportPngBtn);
+  content.appendChild(exportAnimBtn);
+
+  exportWindow.appendChild(header);
+  exportWindow.appendChild(content);
+  document.body.appendChild(exportWindow);
+
+  // Make draggable
+  import('./src/ui/utils/draggable.js').then(({ makeDraggable }) => {
+    makeDraggable(exportWindow, header);
+  }).catch(() => {
+    // Fallback if draggable fails
+    console.warn("Could not make export window draggable");
+  });
+
+  requestAnimationFrame(() => {
+    exportWindow.style.opacity = "1";
+    exportWindow.style.transform = "translate(-50%, -50%) scale(1)";
+  });
+}
+
+function hideExportWindow() {
+  if (exportWindow) {
+    exportWindow.style.opacity = "0";
+    exportWindow.style.transform = "translate(-50%, -50%) scale(0.95)";
+    setTimeout(() => {
+      if (exportWindow) {
+        exportWindow.style.display = "none";
+      }
+    }, 200);
+  }
+}
+
+function setupRhizomiumMenu() {
+  if (!saveLoadManager || !editor || !graph) {
+    console.warn("Required components not available for menu setup");
+    return;
+  }
+
+  // ========== FILE MENU ==========
+  
+  // New Project
+  const newProjectBtn = document.getElementById("btn-new-project");
+  if (newProjectBtn) {
+    newProjectBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement new project functionality
+      if (typeof createNewProject === "function") {
+        createNewProject();
+      } else {
+        console.warn("createNewProject function not available");
+      }
+    });
+  }
+
+  // Open Project (maps to existing Load Project)
+  const openProjectBtn = document.getElementById("btn-open-project");
+  if (openProjectBtn) {
+    openProjectBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof triggerFileLoad === 'function') {
+        triggerFileLoad();
+      } else if (typeof window.triggerFileLoad === 'function') {
+        window.triggerFileLoad();
+      } else {
+        console.error('triggerFileLoad is not defined');
+      }
+    });
+  }
+
+  // Save (maps to existing Save Project)
+  // Save button already handled above, but updating ID if needed
+  const saveBtnNew = document.getElementById("btn-save");
+  if (saveBtnNew && !saveBtnNew.hasAttribute("data-handler-attached")) {
+    saveBtnNew.setAttribute("data-handler-attached", "true");
+    saveBtnNew.addEventListener("click", (e) => {
+      e.preventDefault();
+      saveLoadManager.saveToFile();
+    });
+  }
+
+  // Save As (placeholder)
+  const saveAsBtn = document.getElementById("btn-save-as");
+  if (saveAsBtn) {
+    saveAsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement Save As dialog
+      saveLoadManager.saveToFile(null, "json"); // Temporary: use regular save
+      if (typeof updateStatus === "function") {
+        updateStatus("Save As: Use regular Save for now");
+      }
+    });
+  }
+
+  // Export button - opens export window
+  const exportBtn = document.getElementById("btn-export");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showExportWindow();
+    });
+  }
+
+  // Publish
+  const publishBtn = document.getElementById("btn-publish");
+  if (publishBtn) {
+    publishBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const target = document.getElementById("publish-target")?.value || "tenderworld";
+      const includePreviews = document.getElementById("publish-include-previews")?.checked || false;
+      const commitMessage = document.getElementById("publish-commit-message")?.value || "";
+      // TODO: Implement publish to cloud/server
+      if (typeof updateStatus === "function") {
+        updateStatus(`Publish to ${target}: Feature coming soon`);
+      }
+    });
+  }
+
+  // Exit
+  const exitBtn = document.getElementById("btn-exit");
+  if (exitBtn) {
+    exitBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Check for unsaved changes before exit
+      if (typeof updateStatus === "function") {
+        updateStatus("Exit: Close browser tab to exit");
+      }
+    });
+  }
+
+  // ========== EDIT MENU ==========
+  
+  // Cut (uses existing selection manager)
+  const cutBtn = document.getElementById("btn-cut");
+  if (cutBtn && editor?.selection) {
+    cutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.copySelected && editor.selection.deleteSelected) {
+        editor.selection.copySelected();
+        editor.selection.deleteSelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Cut selected nodes");
+        }
+      }
+    });
+  }
+
+  // Copy (uses existing selection manager)
+  const copyBtn = document.getElementById("btn-copy");
+  if (copyBtn && editor?.selection) {
+    copyBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.copySelected) {
+        editor.selection.copySelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Copied selected nodes");
+        }
+      }
+    });
+  }
+
+  // Paste (uses existing selection manager)
+  const pasteBtn = document.getElementById("btn-paste");
+  if (pasteBtn && editor?.selection) {
+    pasteBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.pasteFromClipboard) {
+        editor.selection.pasteFromClipboard();
+        if (typeof updateStatus === "function") {
+          updateStatus("Pasted nodes");
+        }
+      }
+    });
+  }
+
+  // Delete (uses existing selection manager)
+  const deleteBtn = document.getElementById("btn-delete");
+  if (deleteBtn && editor?.selection) {
+    deleteBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.deleteSelected) {
+        editor.selection.deleteSelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Deleted selected nodes");
+        }
+      }
+    });
+  }
+
+  // Preferences
+  const preferencesBtn = document.getElementById("btn-preferences");
+  if (preferencesBtn && window.preferencesWindow) {
+    preferencesBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.preferencesWindow.show();
+      if (typeof updateStatus === "function") {
+        updateStatus("Preferences opened");
+      }
+    });
+  }
+
+  // ========== VIEW MENU ==========
+  
+  // Toggle ParamPanel
+  const toggleParamPanelBtn = document.getElementById("btn-toggle-param-panel");
+  if (toggleParamPanelBtn && editor?.paramPanel) {
+    toggleParamPanelBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Toggle param panel visibility
+      const panel = editor.paramPanel.panel;
+      if (panel) {
+        const isHidden = panel.style?.display === "none" || panel.offsetParent === null;
+        if (isHidden && editor.paramPanel.showNodeParameters) {
+          const selected = editor.selection?.getSelected?.();
+          if (selected && selected.size === 1) {
+            const nodeId = selected.values().next().value;
+            const node = editor.graph?.nodes?.find((n) => n.id === nodeId);
+            if (node) {
+              editor.paramPanel.showNodeParameters(node);
+            }
+          }
+        } else {
+          panel.style.display = isHidden ? "block" : "none";
+        }
+        if (typeof updateStatus === "function") {
+          updateStatus(isHidden ? "ParamPanel shown" : "ParamPanel hidden");
+        }
+      }
+    });
+  }
+
+  // Toggle Preview Panel
+  const togglePreviewPanelBtn = document.getElementById("btn-toggle-preview-panel");
+  if (togglePreviewPanelBtn && window.floatingPreview) {
+    togglePreviewPanelBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.floatingPreview.toggle) {
+        window.floatingPreview.toggle();
+        if (typeof updateStatus === "function") {
+          updateStatus(window.floatingPreview.isVisible ? "Preview Panel shown" : "Preview Panel hidden");
+        }
+      }
+    });
+  }
+
+  // Preview / Export Settings - opens as window
+  const previewExportSettingsBtn = document.getElementById("btn-preview-export-settings");
+  if (previewExportSettingsBtn && window.previewExportSettingsWindow) {
+    previewExportSettingsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.previewExportSettingsWindow.show();
+      if (typeof updateStatus === "function") {
+        updateStatus("Preview / Export Settings opened");
+      }
+    });
+  }
+
+  // Zoom In
+  const zoomInBtn = document.getElementById("btn-zoom-in");
+  if (zoomInBtn && editor?.viewport) {
+    zoomInBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = editor.canvas;
+      if (canvas && editor.viewport.zoom) {
+        const rect = canvas.getBoundingClientRect();
+        editor.viewport.zoom(rect.width / 2, rect.height / 2, -1);
+        editor.draw();
+        if (typeof updateStatus === "function") {
+          updateStatus("Zoomed in");
+        }
+      }
+    });
+  }
+
+  // Zoom Out
+  const zoomOutBtn = document.getElementById("btn-zoom-out");
+  if (zoomOutBtn && editor?.viewport) {
+    zoomOutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = editor.canvas;
+      if (canvas && editor.viewport.zoom) {
+        const rect = canvas.getBoundingClientRect();
+        editor.viewport.zoom(rect.width / 2, rect.height / 2, 1);
+        editor.draw();
+        if (typeof updateStatus === "function") {
+          updateStatus("Zoomed out");
+        }
+      }
+    });
+  }
+
+  // Reset Zoom
+  const zoomResetBtn = document.getElementById("btn-zoom-reset");
+  if (zoomResetBtn && editor?.viewport) {
+    zoomResetBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.viewport) {
+        editor.viewport.scale = 1;
+        editor.viewport.offsetX = 0;
+        editor.viewport.offsetY = 0;
+        editor.draw();
+        if (typeof updateStatus === "function") {
+          updateStatus("Zoom reset");
+        }
+      }
+    });
+  }
+
+  // View Show Grid
+  const viewShowGridCheckbox = document.getElementById("view-show-grid");
+  if (viewShowGridCheckbox) {
+    viewShowGridCheckbox.checked = true; // Default
+    viewShowGridCheckbox.addEventListener("change", (e) => {
+      // TODO: Implement grid visibility toggle
+      if (typeof updateStatus === "function") {
+        updateStatus(`Grid ${e.target.checked ? "shown" : "hidden"}`);
+      }
+    });
+  }
+
+  // ========== NODE MENU ==========
+  
+  // Create Node (opens node creation menu)
+  const createNodeBtn = document.getElementById("btn-create-node");
+  if (createNodeBtn && editor?.menu) {
+    createNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.menu.showCreateMenu && editor.viewport && editor.canvas) {
+        const rect = editor.canvas.getBoundingClientRect();
+        const localX = rect.width / 2;
+        const localY = rect.height / 2;
+        const canvasPos = editor.viewport.screenToCanvas(localX, localY);
+        editor.menu.showCreateMenu(canvasPos.x, canvasPos.y, rect.left + localX, rect.top + localY);
+        if (typeof updateStatus === "function") {
+          updateStatus("Node creation menu opened");
+        }
+      }
+    });
+  }
+
+  // Delete Node (uses selection)
+  const deleteNodeBtn = document.getElementById("btn-delete-node");
+  if (deleteNodeBtn && editor?.selection) {
+    deleteNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.deleteSelected) {
+        editor.selection.deleteSelected();
+        if (typeof updateStatus === "function") {
+          updateStatus("Deleted selected node(s)");
+        }
+      }
+    });
+  }
+
+  // Duplicate Node
+  const duplicateNodeBtn = document.getElementById("btn-duplicate-node");
+  if (duplicateNodeBtn && editor?.selection) {
+    duplicateNodeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editor.selection.copySelected && editor.selection.pasteFromClipboard) {
+        editor.selection.copySelected();
+        editor.selection.pasteFromClipboard();
+        if (typeof updateStatus === "function") {
+          updateStatus("Duplicated selected node(s)");
+        }
+      }
+    });
+  }
+
+  // Connect Pins
+  const connectPinsBtn = document.getElementById("btn-connect-pins");
+  if (connectPinsBtn) {
+    connectPinsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement connect pins functionality
+      if (typeof updateStatus === "function") {
+        updateStatus("Connect Pins: Feature coming soon");
+      }
+    });
+  }
+
+  // Disconnect Pins
+  const disconnectPinsBtn = document.getElementById("btn-disconnect-pins");
+  if (disconnectPinsBtn) {
+    disconnectPinsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement disconnect pins functionality
+      if (typeof updateStatus === "function") {
+        updateStatus("Disconnect Pins: Feature coming soon");
+      }
+    });
+  }
+
+  // Node Settings
+  const nodeSettingsBtn = document.getElementById("btn-node-settings");
+  if (nodeSettingsBtn && editor?.paramPanel) {
+    nodeSettingsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const selected = editor.selection?.getSelected?.();
+      if (selected && selected.size === 1 && editor.paramPanel.showNodeParameters) {
+        const nodeId = selected.values().next().value;
+        const node = editor.graph?.nodes?.find((n) => n.id === nodeId);
+        if (node) {
+          editor.paramPanel.showNodeParameters(node);
+          if (typeof updateStatus === "function") {
+            updateStatus("Opened node settings");
+          }
+        }
+      } else if (typeof updateStatus === "function") {
+        updateStatus("Select a single node to view settings");
+      }
+    });
+  }
+
+  // ========== TOOLS MENU ==========
+  
+  // Script Editor
+  const scriptEditorBtn = document.getElementById("btn-script-editor");
+  if (scriptEditorBtn) {
+    scriptEditorBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement script editor
+      if (typeof updateStatus === "function") {
+        updateStatus("Script Editor: Feature coming soon");
+      }
+    });
+  }
+
+  // Shader Compiler
+  const shaderCompilerBtn = document.getElementById("btn-shader-compiler");
+  if (shaderCompilerBtn) {
+    shaderCompilerBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement shader compiler tool
+      if (typeof updateStatus === "function") {
+        updateStatus("Shader Compiler: Feature coming soon");
+      }
+    });
+  }
+
+  // GLSL Utilities
+  const glslUtilitiesBtn = document.getElementById("btn-glsl-utilities");
+  if (glslUtilitiesBtn) {
+    glslUtilitiesBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement GLSL utilities
+      if (typeof updateStatus === "function") {
+        updateStatus("GLSL Utilities: Feature coming soon");
+      }
+    });
+  }
+
+  // Audio Settings and MIDI Settings are already handled in setupUIEventHandlers()
+  // They use removeExistingHandlers() so they'll work with the new menu structure
+
+  // ========== WINDOW MENU ==========
+  
+  // Layout Default
+  const layoutDefaultBtn = document.getElementById("btn-layout-default");
+  if (layoutDefaultBtn) {
+    layoutDefaultBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement layout system
+      if (typeof updateStatus === "function") {
+        updateStatus("Default Layout: Feature coming soon");
+      }
+    });
+  }
+
+  // Layout Custom
+  const layoutCustomBtn = document.getElementById("btn-layout-custom");
+  if (layoutCustomBtn) {
+    layoutCustomBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement custom layout
+      if (typeof updateStatus === "function") {
+        updateStatus("Custom Layout: Feature coming soon");
+      }
+    });
+  }
+
+  // Layout Minimal
+  const layoutMinimalBtn = document.getElementById("btn-layout-minimal");
+  if (layoutMinimalBtn) {
+    layoutMinimalBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement minimal layout
+      if (typeof updateStatus === "function") {
+        updateStatus("Minimal Layout: Feature coming soon");
+      }
+    });
+  }
+
+  // Floating Windows
+  const floatingWindowsBtn = document.getElementById("btn-floating-windows");
+  if (floatingWindowsBtn) {
+    floatingWindowsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Implement floating windows manager
+      if (typeof updateStatus === "function") {
+        updateStatus("Floating Windows: Feature coming soon");
+      }
+    });
+  }
+
+  // Reset Layout
+  const resetLayoutBtn = document.getElementById("btn-reset-layout");
+  if (resetLayoutBtn) {
+    resetLayoutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Reset all panel positions
+      if (typeof updateStatus === "function") {
+        updateStatus("Layout reset: Feature coming soon");
+      }
+    });
+  }
+
+  // ========== HELP MENU ==========
+  
+  // Documentation
+  const documentationBtn = document.getElementById("btn-documentation");
+  if (documentationBtn) {
+    documentationBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Open documentation
+      window.open("https://github.com/your-repo/docs", "_blank");
+      if (typeof updateStatus === "function") {
+        updateStatus("Opening documentation...");
+      }
+    });
+  }
+
+  // Shortcuts
+  const shortcutsBtn = document.getElementById("btn-shortcuts");
+  if (shortcutsBtn) {
+    shortcutsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Show shortcuts/keymap dialog
+      if (typeof updateStatus === "function") {
+        updateStatus("Shortcuts: Feature coming soon");
+      }
+    });
+  }
+
+  // About
+  const aboutBtn = document.getElementById("btn-about");
+  if (aboutBtn) {
+    aboutBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // TODO: Show about dialog
+      alert("Rhizomium\nGLSL Node Editor\nVersion 1.0");
+      if (typeof updateStatus === "function") {
+        updateStatus("About Rhizomium");
+      }
+    });
+  }
+
+  // Setup nested submenu hover behavior for all submenus
+  setupNestedSubmenuHover();
+}
+
+
+function setupNestedSubmenuHover() {
+  const submenuTriggers = document.querySelectorAll(".menu-submenu-trigger");
+  
+  submenuTriggers.forEach((trigger) => {
+    const submenu = trigger.nextElementSibling;
+    if (!submenu || !submenu.classList.contains("menu-submenu")) return;
+    
+    let submenuTimeout = null;
+    
+    trigger.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+      submenu.classList.add("show");
+    });
+    
+    trigger.addEventListener("mouseleave", () => {
+      submenuTimeout = setTimeout(() => {
+        submenu.classList.remove("show");
+      }, 200);
+    });
+    
+    submenu.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+    });
+    
+    submenu.addEventListener("mouseleave", () => {
+      submenu.classList.remove("show");
+    });
+  });
 }
 
 function setupKeyboardShortcuts() {

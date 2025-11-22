@@ -91,6 +91,55 @@ _setupAnimationLoop() {
   };
 }
 
+  async _rebuildAfterResize() {
+    // Wait for GPU resize operations to complete
+    const gpuRenderer = window.gpuRenderer;
+    if (gpuRenderer && gpuRenderer.device) {
+      try {
+        // Wait for all pending GPU operations to complete
+        await gpuRenderer.device.queue.onSubmittedWorkDone();
+        // Wait a bit more to ensure textures are fully recreated
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (err) {
+        console.warn('[FloatingGPUPreview] Failed to wait for GPU sync:', err);
+      }
+    }
+
+    // Now rebuild shader - GPU operations are complete
+    if (window.rebuild) {
+      try {
+        // Rebuild might be async, so handle it properly
+        const rebuildResult = window.rebuild();
+        if (rebuildResult instanceof Promise) {
+          await rebuildResult;
+        }
+      } catch (err) {
+        console.error('[FloatingGPUPreview] Rebuild failed:', err);
+      }
+    }
+
+    // Wait for rebuild to fully complete (shader compilation, pipeline creation)
+    // This ensures textures and pipelines are ready before rendering resumes
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Verify GPU is ready before restarting render loop
+    if (gpuRenderer && gpuRenderer.device) {
+      try {
+        // One more sync check to ensure rebuild operations are complete
+        await gpuRenderer.device.queue.onSubmittedWorkDone();
+      } catch (err) {
+        console.warn('[FloatingGPUPreview] Failed final GPU sync check:', err);
+      }
+    }
+
+    // Now safely restart the render loop
+    if (window.renderLoop && window.renderLoop.start) {
+      window.renderLoop.start();
+    } else if (typeof window.render === "function") {
+      window.render();
+    }
+  }
+
   async updateSize() {
     if (!this.container || this.isFullscreen) return;
 
@@ -145,11 +194,14 @@ _setupAnimationLoop() {
 
     // FIX: Only trigger shader rebuild if canvas size actually changed
     // This prevents black screen on every canvas click
-    if (sizeChanged && window.rebuild) {
+    if (sizeChanged) {
       // Update tracked size before rebuild
       this._lastCanvasSize = { width, height };
-      window.rebuild();
-    } else if (!sizeChanged) {
+      
+      // CRITICAL: Wait for GPU resize operations to complete before rebuilding
+      // This prevents "destroyed texture" errors by ensuring textures are recreated
+      this._rebuildAfterResize();
+    } else {
       // Ensure render loop continues even if size didn't change
       const renderLoopState = window.renderLoop?.getState();
       if (window.renderLoop && renderLoopState && !renderLoopState.running) {

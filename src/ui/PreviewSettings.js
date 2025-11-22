@@ -8,6 +8,7 @@ import { modalManager } from './ModalManager.js';
 export class PreviewSettings {
   constructor(floatingPreview) {
     this.floatingPreview = floatingPreview;
+    // Initialize settings - this object is shared with PreviewExportSettingsWindow
     this.settings = {
       resolution: { width: 512, height: 512 },
       refreshRate: 60,
@@ -20,6 +21,10 @@ export class PreviewSettings {
       quality: "high",
       showFPS: false,
     };
+    // Ensure resolution object exists
+    if (!this.settings.resolution) {
+      this.settings.resolution = { width: 512, height: 512 };
+    }
     this.settingsPanel = null;
     this._refreshRateControls = null;
     this.cleanupDraggable = null;
@@ -346,7 +351,49 @@ async _publishAnimation() {
     requestAnimationFrame(() => {
       this.settingsPanel.style.opacity = "1";
       this.settingsPanel.style.transform = "scale(1)";
+      
+      // Refresh UI with current settings in case they changed externally
+      this._refreshPanelUI();
     });
+  }
+
+  _refreshPanelUI() {
+    // Refresh UI elements when settings change externally from PreviewExportSettingsWindow
+    if (!this.settingsPanel) return;
+    
+    // Update resolution inputs
+    const resolutionInputs = this.settingsPanel.querySelectorAll('.resolution-input input');
+    resolutionInputs.forEach(input => {
+      if (input.placeholder?.toLowerCase().includes('width')) {
+        if (input.value !== String(this.settings.resolution?.width || 512)) {
+          input.value = this.settings.resolution?.width || 512;
+        }
+      } else if (input.placeholder?.toLowerCase().includes('height')) {
+        if (input.value !== String(this.settings.resolution?.height || 512)) {
+          input.value = this.settings.resolution?.height || 512;
+        }
+      }
+    });
+    
+    // Update quality dropdown
+    const qualitySelect = this.settingsPanel.querySelector('select');
+    if (qualitySelect && qualitySelect.options.length > 0) {
+      const qualityOptions = Array.from(qualitySelect.options).map(opt => opt.value);
+      if (qualityOptions.includes(this.settings.quality) && qualitySelect.value !== this.settings.quality) {
+        qualitySelect.value = this.settings.quality;
+      }
+    }
+    
+    // Update wireframe checkbox if it exists
+    const wireframeCheckbox = this.settingsPanel.querySelector('input[type="checkbox"]');
+    if (wireframeCheckbox) {
+      const label = wireframeCheckbox.closest('label');
+      if (label && label.textContent.toLowerCase().includes('wireframe')) {
+        if (wireframeCheckbox.checked !== !!this.settings.wireframe) {
+          wireframeCheckbox.checked = !!this.settings.wireframe;
+        }
+      }
+    }
   }
 
   hideSettings() {
@@ -395,12 +442,139 @@ async _publishAnimation() {
   updateSetting(key, value) {
     if (key.includes(".")) {
       const [parent, child] = key.split(".");
+      if (!this.settings[parent]) this.settings[parent] = {};
       this.settings[parent][child] = value;
     } else {
       this.settings[key] = value;
     }
 
     this._applySetting(key, value);
+    
+    // Notify PreviewExportSettingsWindow if it exists and is open
+    if (window.previewExportSettingsWindow && window.previewExportSettingsWindow.window && 
+        window.previewExportSettingsWindow.window.style.display !== 'none') {
+      window.previewExportSettingsWindow._syncUIElement(key, value);
+    }
+    
+    // Refresh this panel's UI if it's open
+    if (this.settingsPanel && this.settingsPanel.style.display !== 'none') {
+      this._refreshPanelUIElement(key, value);
+    }
+  }
+
+  _refreshPanelUIElement(key, value) {
+    // Update UI elements in this panel when settings change externally
+    if (!this.settingsPanel) return;
+    
+    // Try to find by data attribute first (most reliable)
+    const elementByDataAttr = this.settingsPanel.querySelector(`[data-setting-key="${key}"]`);
+    if (elementByDataAttr) {
+      if (elementByDataAttr.type === 'checkbox') {
+        if (elementByDataAttr.checked !== !!value) {
+          elementByDataAttr.checked = !!value;
+          // Don't dispatch event to avoid infinite loop - just update visually
+        }
+      } else if (elementByDataAttr.type === 'number') {
+        if (elementByDataAttr.value !== String(value)) {
+          elementByDataAttr.value = value;
+        }
+      } else if (elementByDataAttr.tagName === 'SELECT') {
+        const options = Array.from(elementByDataAttr.options).map(opt => opt.value);
+        if (options.includes(value) && elementByDataAttr.value !== value) {
+          elementByDataAttr.value = value;
+        }
+      } else if (elementByDataAttr.type === 'range') {
+        if (elementByDataAttr.value !== String(value)) {
+          elementByDataAttr.value = value;
+          // Update value display if it exists
+          const valueDisplay = elementByDataAttr.parentElement?.querySelector('.slider-value, span');
+          if (valueDisplay && key === 'refreshRate') {
+            valueDisplay.textContent = `${value}Hz`;
+          }
+        }
+      }
+      return; // Found by data attribute, done
+    }
+    
+    // Fallback to finding by label text for compatibility
+    // Update resolution inputs
+    if (key === 'resolution.width' || key === 'resolution.height') {
+      const [, prop] = key.split('.');
+      const inputs = this.settingsPanel.querySelectorAll('.resolution-input input, input[type="number"]');
+      inputs.forEach(input => {
+        const placeholder = (input.placeholder || '').toLowerCase();
+        const container = input.closest('.resolution-input');
+        const label = container?.querySelector('label');
+        const labelText = label ? label.textContent.toLowerCase() : '';
+        
+        const isWidth = prop === 'width' && (
+          placeholder.includes('width') || 
+          labelText.includes('width') ||
+          (inputs[0] === input && !placeholder.includes('height'))
+        );
+        const isHeight = prop === 'height' && (
+          placeholder.includes('height') || 
+          labelText.includes('height') ||
+          (inputs[1] === input && !placeholder.includes('width'))
+        );
+        
+        if ((isWidth || isHeight) && input.value !== String(value)) {
+          input.value = value;
+        }
+      });
+    }
+    
+    // Update quality dropdown
+    if (key === 'quality') {
+      const selects = this.settingsPanel.querySelectorAll('select');
+      selects.forEach(select => {
+        const options = Array.from(select.options).map(opt => opt.value);
+        if (options.includes('low') && options.includes('medium') && options.includes('high')) {
+          if (options.includes(value) && select.value !== value) {
+            select.value = value;
+          }
+        }
+      });
+    }
+    
+    // Update wireframe checkbox
+    if (key === 'wireframe') {
+      const checkboxes = this.settingsPanel.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(cb => {
+        const label = cb.closest('label') || cb.parentElement;
+        const labelText = label ? label.textContent.toLowerCase() : '';
+        if (labelText.includes('wireframe')) {
+          if (cb.checked !== !!value) {
+            cb.checked = !!value;
+          }
+        }
+      });
+    }
+    
+    // Update refresh rate slider value display
+    if (key === 'refreshRate' && this._refreshRateControls) {
+      const { slider, valueEl } = this._refreshRateControls;
+      if (slider && slider.value !== String(value)) {
+        slider.value = value;
+        if (valueEl) {
+          valueEl.textContent = `${value}Hz`;
+        }
+      }
+    }
+    
+    // Update showFPS checkbox
+    if (key === 'showFPS') {
+      const checkboxes = this.settingsPanel.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(cb => {
+        const label = cb.closest('label') || cb.parentElement;
+        const labelText = label ? label.textContent.toLowerCase() : '';
+        if (labelText.includes('fps')) {
+          if (cb.checked !== !!value) {
+            cb.checked = !!value;
+          }
+        }
+      });
+    }
   }
 
   _applySetting(key, value) {
@@ -472,16 +646,40 @@ async _publishAnimation() {
     }
   }
 
-  _updateResolution() {
+  async _updateResolution() {
     const { width, height } = this.settings.resolution;
-    const canvas = this.floatingPreview.gpuCanvas;
 
-    if (!canvas) return;
+    if (!this.floatingPreview.gpuCanvas) return;
+    
+    // Stop render loop temporarily to prevent using destroyed textures
+    if (window.renderLoop && window.renderLoop.stop) {
+      window.renderLoop.stop();
+    }
+    
+    // Wait for current GPU operations to complete before resizing
+    const gpuRenderer = window.gpuRenderer;
+    if (gpuRenderer && gpuRenderer.device) {
+      try {
+        await gpuRenderer.device.queue.onSubmittedWorkDone();
+        // Wait a bit more to ensure textures are fully released
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (err) {
+        console.warn('[PreviewSettings] Failed to wait for GPU sync:', err);
+      }
+    }
 
-    canvas.width = width;
-    canvas.height = height;
-
-    this.floatingPreview.updateSize();
+    // Let floatingPreview.updateSize() handle the resize using resizeCanvasSync
+    // This ensures proper texture recreation and prevents "destroyed texture" errors
+    await this.floatingPreview.updateSize();
+    
+    // Restart render loop after resize completes
+    setTimeout(() => {
+      if (window.renderLoop && window.renderLoop.start) {
+        window.renderLoop.start();
+      } else if (typeof window.render === "function") {
+        window.render();
+      }
+    }, 100);
   }
 
   _updateQuality(quality) {
@@ -770,13 +968,34 @@ async _publishAnimation() {
       4096,
     );
 
-    widthInput.querySelector("input").addEventListener("change", (e) => {
-      this.updateSetting("resolution.width", parseInt(e.target.value));
-    });
+    const widthInputElement = widthInput.querySelector("input");
+    const heightInputElement = heightInput.querySelector("input");
+    
+    // Store data attributes for synchronization
+    if (widthInputElement) widthInputElement.setAttribute('data-setting-key', 'resolution.width');
+    if (heightInputElement) heightInputElement.setAttribute('data-setting-key', 'resolution.height');
+    
+    if (widthInputElement) {
+      widthInputElement.addEventListener("change", (e) => {
+        const value = parseInt(e.target.value) || 512;
+        // Update settings object directly first (they're shared with PreviewExportSettingsWindow)
+        if (!this.settings.resolution) this.settings.resolution = {};
+        this.settings.resolution.width = value;
+        // Then call updateSetting to apply and notify other panels
+        this.updateSetting("resolution.width", value);
+      });
+    }
 
-    heightInput.querySelector("input").addEventListener("change", (e) => {
-      this.updateSetting("resolution.height", parseInt(e.target.value));
-    });
+    if (heightInputElement) {
+      heightInputElement.addEventListener("change", (e) => {
+        const value = parseInt(e.target.value) || 512;
+        // Update settings object directly first (they're shared with PreviewExportSettingsWindow)
+        if (!this.settings.resolution) this.settings.resolution = {};
+        this.settings.resolution.height = value;
+        // Then call updateSetting to apply and notify other panels
+        this.updateSetting("resolution.height", value);
+      });
+    }
 
     const presets = document.createElement("div");
     presets.style.cssText = "display: flex; gap: 4px; flex-wrap: wrap;";
