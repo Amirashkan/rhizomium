@@ -15,15 +15,11 @@ export class Renderer {
     // Clear canvas
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-    // PERFORMANCE: Skip expensive operations during interactions
-    // Grid rendering can take 10-15ms - skip it during pan/drag for smooth 60 FPS
-    const isInteracting = renderState.isInteracting || false;
-    if (!isInteracting) {
-      // Subtle grid background for alignment
-      this._renderBackgroundGrid();
-    }
+    // Always render grid background for visual consistency
+    this._renderBackgroundGrid();
     
-    // Store interaction state for use in node rendering
+    // Store interaction state for use in node rendering (still used for other optimizations)
+    const isInteracting = renderState.isInteracting || false;
     this._isInteracting = isInteracting;
 
     // Save context and apply viewport transform
@@ -344,22 +340,16 @@ export class Renderer {
     if (!node.w) node.w = 120; // Default width
     if (!node.h) node.h = 80; // Default height
 
-    // PERFORMANCE: Skip expensive gradient creation during interactions
-    // Use solid color instead for better performance
-    if (this._isInteracting) {
-      ctx.fillStyle = "#252525"; // Solid color - faster
-    } else {
-      // Enhanced node background with gradient
-      const gradient = ctx.createLinearGradient(
-        node.x,
-        node.y,
-        node.x,
-        node.y + node.h,
-      );
-      gradient.addColorStop(0, "#252525");
-      gradient.addColorStop(1, "#1b1b1b");
-      ctx.fillStyle = gradient;
-    }
+    // Enhanced node background with gradient
+    const gradient = ctx.createLinearGradient(
+      node.x,
+      node.y,
+      node.x,
+      node.y + node.h,
+    );
+    gradient.addColorStop(0, "#252525");
+    gradient.addColorStop(1, "#1b1b1b");
+    ctx.fillStyle = gradient;
     ctx.strokeStyle = isSelected ? "#66aaff" : "#404040";
     ctx.lineWidth = isSelected ? 2 : 1;
 
@@ -793,21 +783,16 @@ export class Renderer {
     ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
     const textWidth = ctx.measureText(labelText).width + 8;
 
-    // PERFORMANCE: Skip expensive gradient during interactions
     // Enhanced label background with gradient
-    if (this._isInteracting) {
-      ctx.fillStyle = "rgba(20, 20, 25, 0.95)"; // Solid color - faster
-    } else {
-      const gradient = ctx.createLinearGradient(
-        pinPos.x + 8,
-        pinPos.y - 8,
-        pinPos.x + 8,
-        pinPos.y + 4,
-      );
-      gradient.addColorStop(0, "rgba(20, 20, 25, 0.95)");
-      gradient.addColorStop(1, "rgba(15, 15, 20, 0.95)");
-      ctx.fillStyle = gradient;
-    }
+    const gradient = ctx.createLinearGradient(
+      pinPos.x + 8,
+      pinPos.y - 8,
+      pinPos.x + 8,
+      pinPos.y + 4,
+    );
+    gradient.addColorStop(0, "rgba(20, 20, 25, 0.95)");
+    gradient.addColorStop(1, "rgba(15, 15, 20, 0.95)");
+    ctx.fillStyle = gradient;
     ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();
