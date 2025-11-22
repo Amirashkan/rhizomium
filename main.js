@@ -504,6 +504,23 @@ async function initialize() {
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
 
+    // Setup Preview Settings menu after floatingPreview is ready
+    if (floatingPreview && floatingPreview.settings) {
+      // Initialize settings with default values if needed
+      const previewSettings = floatingPreview.settings.settings;
+      if (!previewSettings.showGrid) previewSettings.showGrid = false;
+      if (previewSettings.showNodePreviews === undefined) previewSettings.showNodePreviews = true;
+      if (!previewSettings.antiAliasing) previewSettings.antiAliasing = 2;
+      if (previewSettings.startFrame === undefined) previewSettings.startFrame = 0;
+      if (previewSettings.endFrame === undefined) previewSettings.endFrame = 60;
+      if (previewSettings.loop === undefined) previewSettings.loop = true;
+      if (previewSettings.alphaChannel === undefined) previewSettings.alphaChannel = false;
+      if (!previewSettings.compression) previewSettings.compression = 90;
+
+      // Setup menu handlers
+      setTimeout(() => setupPreviewSettingsMenu(), 100);
+    }
+
     // PERFORMANCE: Lightweight uniform update without shader rebuild
     window.updateUniformsOnly = function(nodeId, paramName, value) {
       if (!window.nodeCompiler?.uniformManager) return;
@@ -758,13 +775,13 @@ function setupUIEventHandlers() {
     // Close dropdown when clicking a menu item (except for checkboxes and inputs)
     menuDropdowns.forEach(dropdown => {
       dropdown.addEventListener('click', (e) => {
-        // Don't close if clicking on checkbox, input, select, or label
-        if (e.target.matches('input, select, label, .snap-controls, .snap-controls *')) {
+        // Don't close if clicking on checkbox, input, select, label, submenu items, or within submenu
+        if (e.target.matches('input, select, label, .snap-controls, .snap-controls *, .menu-item-with-submenu *, .submenu-button, .submenu-toggle, .submenu-section *')) {
           e.stopPropagation();
           return;
         }
-        // Close dropdown if clicking on a button
-        if (e.target.closest('button')) {
+        // Close dropdown if clicking on a button (but not submenu buttons)
+        if (e.target.closest('button') && !e.target.closest('.menu-item-with-submenu')) {
           setTimeout(() => closeAllDropdowns(), 100);
         }
       });
@@ -1698,6 +1715,299 @@ function setupUIEventHandlers() {
     rebuildBtn.addEventListener("click", (e) => {
       e.preventDefault();
       updateShaderFromGraph();
+    });
+  }
+}
+
+function setupPreviewSettingsMenu() {
+  if (!window.floatingPreview || !window.floatingPreview.settings) {
+    console.warn("Preview settings not available");
+    return;
+  }
+
+  const settings = window.floatingPreview.settings;
+  const previewSettings = settings.settings;
+
+  // Submenu hover behavior
+  const submenuTrigger = document.getElementById("preview-settings-trigger");
+  const submenu = document.getElementById("preview-settings-submenu");
+  
+  if (submenuTrigger && submenu) {
+    let submenuTimeout = null;
+    
+    submenuTrigger.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+      submenu.classList.add("show");
+    });
+    
+    submenuTrigger.addEventListener("mouseleave", () => {
+      submenuTimeout = setTimeout(() => {
+        submenu.classList.remove("show");
+      }, 200);
+    });
+    
+    submenu.addEventListener("mouseenter", () => {
+      clearTimeout(submenuTimeout);
+    });
+    
+    submenu.addEventListener("mouseleave", () => {
+      submenu.classList.remove("show");
+    });
+  }
+
+  // Display Options - Show Grid
+  const showGridCheckbox = document.getElementById("preview-show-grid");
+  if (showGridCheckbox) {
+    showGridCheckbox.checked = previewSettings.showGrid || false;
+    showGridCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("showGrid", e.target.checked);
+      // TODO: Implement grid display in editor
+    });
+  }
+
+  // Display Options - Show Wireframe
+  const showWireframeCheckbox = document.getElementById("preview-show-wireframe");
+  if (showWireframeCheckbox) {
+    showWireframeCheckbox.checked = previewSettings.wireframe || false;
+    showWireframeCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("wireframe", e.target.checked);
+    });
+  }
+
+  // Display Options - Show Node Previews
+  const showNodePreviewsCheckbox = document.getElementById("preview-show-node-previews");
+  if (showNodePreviewsCheckbox) {
+    // Default to true if editor has node previews enabled
+    const nodePreviewsEnabled = window.editor?.nodePreviews?.size > 0;
+    showNodePreviewsCheckbox.checked = previewSettings.showNodePreviews !== false && nodePreviewsEnabled;
+    showNodePreviewsCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("showNodePreviews", e.target.checked);
+      // TODO: Toggle node previews globally
+    });
+  }
+
+  // Resolution / Quality - Resolution Dropdown
+  const resolutionSelect = document.getElementById("preview-resolution");
+  if (resolutionSelect) {
+    const currentRes = previewSettings.resolution || { width: 1920, height: 1080 };
+    if (currentRes.width === 1280 && currentRes.height === 720) {
+      resolutionSelect.value = "720p";
+    } else if (currentRes.width === 1920 && currentRes.height === 1080) {
+      resolutionSelect.value = "1080p";
+    } else if (currentRes.width === 3840 && currentRes.height === 2160) {
+      resolutionSelect.value = "4k";
+    } else {
+      resolutionSelect.value = "custom";
+    }
+
+    resolutionSelect.addEventListener("change", (e) => {
+      const resMap = {
+        "720p": { width: 1280, height: 720 },
+        "1080p": { width: 1920, height: 1080 },
+        "4k": { width: 3840, height: 2160 },
+      };
+      
+      if (resMap[e.target.value]) {
+        settings.updateSetting("resolution.width", resMap[e.target.value].width);
+        settings.updateSetting("resolution.height", resMap[e.target.value].height);
+      }
+    });
+  }
+
+  // Resolution / Quality - Anti-Aliasing Slider
+  const aaSlider = document.getElementById("preview-aa");
+  const aaValue = document.getElementById("preview-aa-value");
+  if (aaSlider && aaValue) {
+    aaSlider.value = previewSettings.antiAliasing || 2;
+    aaValue.textContent = `${aaSlider.value}x`;
+    aaSlider.addEventListener("input", (e) => {
+      const value = parseInt(e.target.value);
+      aaValue.textContent = `${value}x`;
+      settings.updateSetting("antiAliasing", value);
+      // TODO: Apply anti-aliasing to renderer
+    });
+  }
+
+  // Animation Settings - Frame Range
+  const startFrameInput = document.getElementById("preview-start-frame");
+  const endFrameInput = document.getElementById("preview-end-frame");
+  if (startFrameInput) {
+    startFrameInput.value = previewSettings.startFrame || 0;
+    startFrameInput.addEventListener("change", (e) => {
+      const value = parseInt(e.target.value) || 0;
+      settings.updateSetting("startFrame", value);
+      // TODO: Apply frame range to animation
+    });
+  }
+  if (endFrameInput) {
+    endFrameInput.value = previewSettings.endFrame || 60;
+    endFrameInput.addEventListener("change", (e) => {
+      const value = parseInt(e.target.value) || 60;
+      settings.updateSetting("endFrame", value);
+      // TODO: Apply frame range to animation
+    });
+  }
+
+  // Animation Settings - FPS
+  const fpsInput = document.getElementById("preview-fps");
+  if (fpsInput) {
+    fpsInput.value = previewSettings.refreshRate || 30;
+    fpsInput.addEventListener("change", (e) => {
+      const value = parseInt(e.target.value) || 30;
+      settings.updateSetting("refreshRate", Math.min(60, Math.max(1, value)));
+    });
+  }
+
+  // Animation Settings - Loop / Play Options
+  const loopCheckbox = document.getElementById("preview-loop");
+  if (loopCheckbox) {
+    loopCheckbox.checked = previewSettings.loop !== false;
+    loopCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("loop", e.target.checked);
+      // TODO: Apply loop setting
+    });
+  }
+
+  // Export / Publish - Export PNG
+  const exportPngBtn = document.getElementById("preview-export-png");
+  if (exportPngBtn) {
+    exportPngBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._exportPNG) {
+        await settings._exportPNG();
+      }
+    });
+  }
+
+  // Export / Publish - Export Animation
+  const exportAnimBtn = document.getElementById("preview-export-animation");
+  if (exportAnimBtn) {
+    exportAnimBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._exportAnimation) {
+        await settings._exportAnimation();
+      }
+    });
+  }
+
+  // Export / Publish - Publish Image
+  const publishImageBtn = document.getElementById("preview-publish-image");
+  if (publishImageBtn) {
+    publishImageBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._publishImage) {
+        await settings._publishImage();
+      }
+    });
+  }
+
+  // Export / Publish - Publish Animation
+  const publishAnimBtn = document.getElementById("preview-publish-animation");
+  if (publishAnimBtn) {
+    publishAnimBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (settings._publishAnimation) {
+        await settings._publishAnimation();
+      }
+    });
+  }
+
+  // Advanced Settings - Alpha Channel
+  const alphaChannelCheckbox = document.getElementById("preview-alpha-channel");
+  if (alphaChannelCheckbox) {
+    alphaChannelCheckbox.checked = previewSettings.alphaChannel || false;
+    alphaChannelCheckbox.addEventListener("change", (e) => {
+      settings.updateSetting("alphaChannel", e.target.checked);
+      // TODO: Apply alpha channel setting
+    });
+  }
+
+  // Advanced Settings - Compression Level
+  const compressionSlider = document.getElementById("preview-compression");
+  const compressionValue = document.getElementById("preview-compression-value");
+  if (compressionSlider && compressionValue) {
+    compressionSlider.value = previewSettings.compression || 90;
+    compressionValue.textContent = `${compressionSlider.value}%`;
+    compressionSlider.addEventListener("input", (e) => {
+      const value = parseInt(e.target.value);
+      compressionValue.textContent = `${value}%`;
+      settings.updateSetting("compression", value);
+      // TODO: Apply compression when exporting
+    });
+  }
+
+  // Advanced Settings - GPU Precision
+  const gpuPrecisionSelect = document.getElementById("preview-gpu-precision");
+  if (gpuPrecisionSelect) {
+    gpuPrecisionSelect.value = previewSettings.quality || "high";
+    gpuPrecisionSelect.addEventListener("change", (e) => {
+      settings.updateSetting("quality", e.target.value);
+    });
+  }
+
+  // Miscellaneous - Reset to Defaults
+  const resetBtn = document.getElementById("preview-reset-defaults");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Reset all settings to defaults
+      const defaults = {
+        resolution: { width: 1920, height: 1080 },
+        refreshRate: 60,
+        wireframe: false,
+        showGrid: false,
+        showNodePreviews: true,
+        debugChannel: "none",
+        timeScale: 1.0,
+        isPaused: false,
+        quality: "high",
+        showFPS: false,
+        antiAliasing: 2,
+        startFrame: 0,
+        endFrame: 60,
+        loop: true,
+        alphaChannel: false,
+        compression: 90,
+      };
+
+      Object.keys(defaults).forEach((key) => {
+        if (key === "resolution") {
+          settings.updateSetting("resolution.width", defaults[key].width);
+          settings.updateSetting("resolution.height", defaults[key].height);
+        } else {
+          settings.updateSetting(key, defaults[key]);
+        }
+      });
+
+      // Update UI elements
+      if (showGridCheckbox) showGridCheckbox.checked = defaults.showGrid;
+      if (showWireframeCheckbox) showWireframeCheckbox.checked = defaults.wireframe;
+      if (showNodePreviewsCheckbox) showNodePreviewsCheckbox.checked = defaults.showNodePreviews;
+      if (resolutionSelect) resolutionSelect.value = "1080p";
+      if (aaSlider) {
+        aaSlider.value = defaults.antiAliasing;
+        if (aaValue) aaValue.textContent = `${defaults.antiAliasing}x`;
+      }
+      if (startFrameInput) startFrameInput.value = defaults.startFrame;
+      if (endFrameInput) endFrameInput.value = defaults.endFrame;
+      if (fpsInput) fpsInput.value = defaults.refreshRate;
+      if (loopCheckbox) loopCheckbox.checked = defaults.loop;
+      if (alphaChannelCheckbox) alphaChannelCheckbox.checked = defaults.alphaChannel;
+      if (compressionSlider) {
+        compressionSlider.value = defaults.compression;
+        if (compressionValue) compressionValue.textContent = `${defaults.compression}%`;
+      }
+      if (gpuPrecisionSelect) gpuPrecisionSelect.value = defaults.quality;
+
+      if (typeof updateStatus === "function") {
+        updateStatus("Preview settings reset to defaults");
+      }
     });
   }
 }
