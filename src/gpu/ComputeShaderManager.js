@@ -95,6 +95,8 @@ export class ComputeShaderManager {
             const previewComputer = window.editor?.previewComputer;
             if (previewComputer && window.editor?.graph) {
               // Only recompute if not already done this frame (within 1ms)
+              // NOTE: This must remain synchronous because expression evaluation happens immediately after
+              // and needs the computed values. This is in the GPU render path which is already async.
               if (!previewComputer._lastComputeTime || (now - previewComputer._lastComputeTime) > 1) {
                 previewComputer.computePreviews(window.editor.graph);
                 previewComputer._lastComputeTime = now;

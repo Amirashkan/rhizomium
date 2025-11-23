@@ -249,10 +249,26 @@ updateAllPreviews(nodes) {
 
     // CRITICAL: Compute all node output values FIRST before generating visual previews
     // This ensures values are available for display on output pins
+    // Use async worker-based computation to avoid blocking
     if (this.editor?.previewComputer && this.editor?.graph) {
-      this.editor.previewComputer.computePreviews(this.editor.graph);
+      // Use async requestPreviewComputation instead of synchronous computePreviews
+      this.editor.previewComputer.requestPreviewComputation(
+        this.editor.graph,
+        { time: performance.now() / 1000 },
+        {},
+        () => {
+          // Preview computation completed, continue with preview generation
+          this._doUpdateAllPreviews(nodes);
+        }
+      );
+      return; // Exit early, processing will continue in callback
     }
 
+    // Fallback: process synchronously if no preview computer
+    this._doUpdateAllPreviews(nodes);
+  }
+
+  _doUpdateAllPreviews(nodes) {
     // Sort nodes in topological order so dependencies are rendered first
     const sortedNodes = this.topologicalSort(nodes);
 

@@ -72,8 +72,19 @@ export class PreviewIntegration {
       return;
     }
     // OPTIMIZATION: Allow caller to skip compute if they already computed all values
+    // Use async worker-based computation to avoid blocking canvas interactions
     if (!skipCompute && this.editor?.previewComputer && this.editor?.graph) {
-      this.editor.previewComputer.computePreviews(this.editor.graph);
+      // Use async requestPreviewComputation instead of synchronous computePreviews
+      this.editor.previewComputer.requestPreviewComputation(
+        this.editor.graph,
+        { time: performance.now() / 1000 },
+        {},
+        () => {
+          // Preview computation completed, now generate the preview
+          this.previewSystem.generateNodePreview(node);
+        }
+      );
+      return; // Exit early, preview will be generated in callback
     }
     this.previewSystem.generateNodePreview(node);
   }
@@ -138,21 +149,38 @@ updateTimeNodes() {
     const changedNodes = Array.from(this.pendingParameterChanges.values());
     this.pendingParameterChanges.clear();
 
-    // OPTIMIZATION: Compute all node values ONCE
+    // OPTIMIZATION: Compute all node values ONCE (async, non-blocking)
     if (this.editor?.previewComputer && this.editor?.graph) {
-      this.editor.previewComputer.computePreviews(this.editor.graph);
+      this.editor.previewComputer.requestPreviewComputation(
+        this.editor.graph,
+        { time: performance.now() / 1000 },
+        {},
+        () => {
+          // Preview computation completed, now generate previews
+          changedNodes.forEach(node => {
+            // Generate preview for changed node (skip compute since we just did it)
+            this.generateNodePreview(node, true);
+
+            // Update dependent nodes (skip compute since we just did it)
+            this.updateDependentNodes(node, true);
+          });
+
+          // Mark dirty and redraw once for all changes
+          if (this.editor.markDirty) {
+            this.editor.markDirty('parameter-change-batch');
+          }
+          this.editor.draw();
+        }
+      );
+      return; // Exit early, processing will continue in callback
     }
 
-    // Process all changed nodes
+    // Fallback: process synchronously if no preview computer
     changedNodes.forEach(node => {
-      // Generate preview for changed node (skip compute since we just did it)
       this.generateNodePreview(node, true);
-
-      // Update dependent nodes (skip compute since we just did it)
       this.updateDependentNodes(node, true);
     });
 
-    // Mark dirty and redraw once for all changes
     if (this.editor.markDirty) {
       this.editor.markDirty('parameter-change-batch');
     }
@@ -160,18 +188,34 @@ updateTimeNodes() {
   }
 
   processParameterChange(node) {
-    // OPTIMIZATION: Compute all node values ONCE before generating any previews
+    // OPTIMIZATION: Compute all node values ONCE before generating any previews (async, non-blocking)
     if (this.editor?.previewComputer && this.editor?.graph) {
-      this.editor.previewComputer.computePreviews(this.editor.graph);
+      this.editor.previewComputer.requestPreviewComputation(
+        this.editor.graph,
+        { time: performance.now() / 1000 },
+        {},
+        () => {
+          // Preview computation completed, now generate previews
+          // Generate preview for changed node (skip compute since we just did it)
+          this.generateNodePreview(node, true);
+
+          // Update dependent nodes (skip compute since we just did it)
+          this.updateDependentNodes(node, true);
+
+          // Mark dirty and redraw to show updated output values
+          if (this.editor.markDirty) {
+            this.editor.markDirty('parameter-change');
+          }
+          this.editor.draw();
+        }
+      );
+      return; // Exit early, processing will continue in callback
     }
 
-    // Generate preview for changed node (skip compute since we just did it)
+    // Fallback: process synchronously if no preview computer
     this.generateNodePreview(node, true);
-
-    // Update dependent nodes (skip compute since we just did it)
     this.updateDependentNodes(node, true);
 
-    // Mark dirty and redraw to show updated output values
     if (this.editor.markDirty) {
       this.editor.markDirty('parameter-change');
     }
@@ -187,20 +231,39 @@ updateTimeNodes() {
 
     if (dependents.length === 0) return;
 
-    // OPTIMIZATION: Compute once if needed, then generate all previews
+    // OPTIMIZATION: Compute once if needed, then generate all previews (async, non-blocking)
     if (!skipCompute && this.editor?.previewComputer && this.editor?.graph) {
-      this.editor.previewComputer.computePreviews(this.editor.graph);
+      this.editor.previewComputer.requestPreviewComputation(
+        this.editor.graph,
+        { time: performance.now() / 1000 },
+        {},
+        () => {
+          // Preview computation completed, now generate dependent previews
+          dependents.forEach((nodeId) => {
+            const node = this.editor.graph.nodes.find((n) => n.id === nodeId);
+            if (node) {
+              this.generateNodePreview(node, true); // Skip compute since we already did it
+            }
+          });
+
+          // Mark dirty and draw once after all dependents are updated
+          if (this.editor.markDirty) {
+            this.editor.markDirty('dependent-update');
+          }
+          this.editor.draw();
+        }
+      );
+      return; // Exit early, processing will continue in callback
     }
 
-    // OPTIMIZATION: Batch dependent node updates
+    // Fallback: process synchronously if skipCompute is true
     dependents.forEach((nodeId) => {
       const node = this.editor.graph.nodes.find((n) => n.id === nodeId);
       if (node) {
-        this.generateNodePreview(node, true); // Skip compute since we already did it
+        this.generateNodePreview(node, true);
       }
     });
 
-    // Mark dirty and draw once after all dependents are updated
     if (this.editor.markDirty) {
       this.editor.markDirty('dependent-update');
     }

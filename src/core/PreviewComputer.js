@@ -83,10 +83,25 @@ export class PreviewComputer {
     this.lastPreviewRequestTime = now;
     
     if (!this.useWorker || !this.queueManager) {
-      // Fallback to main thread computation
-      // computePreviews expects options with maxTime, timeBudget, maxNodes
-      // Just pass the graph - it will use default options
-      return this.computePreviews(graph);
+      // Fallback to main thread computation (deferred, non-blocking)
+      // Use requestIdleCallback to avoid blocking canvas interactions
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => {
+          const result = this.computePreviews(graph);
+          if (callback) {
+            callback(result?.previews || {});
+          }
+        }, { timeout: 100 });
+      } else {
+        // Fallback: defer with setTimeout
+        setTimeout(() => {
+          const result = this.computePreviews(graph);
+          if (callback) {
+            callback(result?.previews || {});
+          }
+        }, 0);
+      }
+      return;
     }
     
     // Create immutable snapshot of graph state
