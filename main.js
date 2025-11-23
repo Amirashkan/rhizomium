@@ -3876,24 +3876,24 @@ function handleRenderFrame(frameState) {
     timelinePanel.update();
   }
 
-  // GPU rendering - Always render for real-time preview updates
-  // CRITICAL: Start GPU work BEFORE canvas rendering to ensure GPU work isn't delayed
-  // The GPU renderer does synchronous setup work, then awaits compute shader execution
-  // By starting GPU work first, its async continuation can progress even while canvas rendering blocks
-  // Check if compute shader test is active
-  if (computeShaderTest && computeShaderTest.isEnabled) {
-    // Render compute shader test instead of normal renderer
-    computeShaderTest.render(frameState.simTime);
-  } else if (window.gpuRenderer) {
-    // ARCHITECTURAL FIX: Separate GPU and canvas rendering threads
-    // GPU renderer is async and not awaited - it runs independently
-    // This allows GPU work to proceed in parallel with canvas rendering
-    // GPU renderer's sync work completes immediately, then async work proceeds
-    // Canvas rendering can run without blocking GPU work continuation
-    window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
-      // Silently handle render errors to avoid breaking render loop
-      // Errors are already logged in gpuRenderer.render()
-    });
+  // GPU rendering - Skip during canvas interactions to prevent FPS drops in preview window
+  // PERFORMANCE: Skip GPU rendering during panning/dragging to prevent FPS drops
+  // GPU rendering competes with canvas rendering for resources, causing lag
+  if (!isCanvasInteracting) {
+    // Check if compute shader test is active
+    if (computeShaderTest && computeShaderTest.isEnabled) {
+      // Render compute shader test instead of normal renderer
+      computeShaderTest.render(frameState.simTime);
+    } else if (window.gpuRenderer) {
+      // ARCHITECTURAL FIX: Separate GPU and canvas rendering threads
+      // GPU renderer is async and not awaited - it runs independently
+      // This allows GPU work to proceed in parallel with canvas rendering
+      // GPU renderer's sync work completes immediately, then async work proceeds
+      // Canvas rendering can run without blocking GPU work continuation
+      window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
+        // Silently handle render errors to avoid breaking render loop
+        // Errors are already logged in gpuRenderer.render()
+      });
 
       // Stream frames to external viewers if enabled
       // NOTE: Now streams during parameter drag for real-time external view updates
@@ -3982,22 +3982,42 @@ function handleRenderFrame(frameState) {
           const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           
           // Only compute previews if there are time-animated nodes or if explicitly needed
-          if (hadTimeAnimatedNodes || editor._needsPreviewUpdate) {
+          // CRITICAL: Skip preview computation during canvas interactions to prevent FPS drops
+          const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+          
+          if ((hadTimeAnimatedNodes || editor._needsPreviewUpdate) && !isCanvasInteracting) {
             try {
-              // Use requestIdleCallback to defer preview computation
-              if (typeof requestIdleCallback !== 'undefined') {
-                requestIdleCallback(() => {
-                  editor.previewComputer.computePreviews(editor.graph);
-                }, { timeout: 100 });
+              // Use async worker-based preview computation to avoid blocking main thread
+              if (editor.previewComputer && typeof editor.previewComputer.requestPreviewComputation === 'function') {
+                editor.previewComputer.requestPreviewComputation(
+                  editor.graph,
+                  { time: frameState.simTime || performance.now() / 1000 },
+                  {},
+                  () => {
+                    // Preview computation completed in worker
+                    if (hadTimeAnimatedNodes && editor.markDirty) {
+                      editor.markDirty('time-animation');
+                    }
+                  }
+                );
               } else {
-                editor.previewComputer.computePreviews(editor.graph);
+                // Fallback: defer with requestIdleCallback if worker not available
+                if (typeof requestIdleCallback !== 'undefined') {
+                  requestIdleCallback(() => {
+                    editor.previewComputer.computePreviews(editor.graph);
+                    if (hadTimeAnimatedNodes && editor.markDirty) {
+                      editor.markDirty('time-animation');
+                    }
+                  }, { timeout: 100 });
+                } else {
+                  editor.previewComputer.computePreviews(editor.graph);
+                  if (hadTimeAnimatedNodes && editor.markDirty) {
+                    editor.markDirty('time-animation');
+                  }
+                }
               }
             } catch (err) {
               console.warn('[Performance] computePreviews error:', err);
-            }
-
-            if (hadTimeAnimatedNodes && editor.markDirty) {
-              editor.markDirty('time-animation');
             }
             
             editor._needsPreviewUpdate = false;

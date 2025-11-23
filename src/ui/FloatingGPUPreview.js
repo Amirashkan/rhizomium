@@ -76,11 +76,17 @@ _setupAnimationLoop() {
     if (renderTimeout) return; // Already scheduled
     renderTimeout = setTimeout(() => {
       renderTimeout = null;
-      if (this.isVisible && typeof window.render === "function") {
+      // CRITICAL: Skip GPU rendering during canvas interactions to prevent FPS drops
+      const isCanvasInteracting = window.editor?.eventHandler?.isCanvasInteracting?.() || false;
+      if (this.isVisible && typeof window.render === "function" && !isCanvasInteracting) {
         // Use requestIdleCallback to defer render if possible
         if (typeof requestIdleCallback !== 'undefined') {
           requestIdleCallback(() => {
-            window.render();
+            // Double-check interaction state before rendering
+            const stillInteracting = window.editor?.eventHandler?.isCanvasInteracting?.() || false;
+            if (!stillInteracting) {
+              window.render();
+            }
           }, { timeout: 100 });
         } else {
           window.render();
