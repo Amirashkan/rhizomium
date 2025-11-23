@@ -19,8 +19,8 @@ export class PreviewComputer {
     this.useWorker = false;
     this.previewRequestTimeout = 5000; // 5 second timeout for preview requests
     
-    // Initialize worker connection if available
-    this._initWorkerSupport();
+    // TEMPORARILY DISABLED: Worker support initialization
+    // this._initWorkerSupport();
   }
   
   /**

@@ -43,8 +43,9 @@ import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
 import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
-import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
-import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
+// TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
+// import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
+// import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
 
 // Verify timeline imports loaded
 
@@ -3971,42 +3972,16 @@ function handleRenderFrame(frameState) {
 
       if (shouldUpdatePreviews) {
         if (editor?.previewComputer && editor?.graph) {
-          // Only compute if there are time-based expressions
-          const hasTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
+          const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           
-          if (hasTimeAnimatedNodes) {
-            // Use requestIdleCallback to make computation non-blocking
-            // This prevents blocking the main thread and keeps interactions responsive
-            if (typeof requestIdleCallback !== 'undefined') {
-              requestIdleCallback(() => {
-                try {
-                  editor.previewComputer.computePreviews(editor.graph, {
-                    maxTime: 16, // Reduced time budget for smoother interactions
-                    maxNodes: 500 // Limit nodes to process
-                  });
-                  if (editor.markDirty) {
-                    editor.markDirty('time-animation');
-                  }
-                } catch (err) {
-                  console.warn('[Performance] computePreviews error:', err);
-                }
-              }, { timeout: 100 });
-            } else {
-              // Fallback: use setTimeout for non-blocking execution
-              setTimeout(() => {
-                try {
-                  editor.previewComputer.computePreviews(editor.graph, {
-                    maxTime: 16,
-                    maxNodes: 500
-                  });
-                  if (editor.markDirty) {
-                    editor.markDirty('time-animation');
-                  }
-                } catch (err) {
-                  console.warn('[Performance] computePreviews error:', err);
-                }
-              }, 0);
-            }
+          try {
+            editor.previewComputer.computePreviews(editor.graph);
+          } catch (err) {
+            console.warn('[Performance] computePreviews error:', err);
+          }
+
+          if (hadTimeAnimatedNodes && editor.markDirty) {
+            editor.markDirty('time-animation');
           }
         }
         lastPreviewUpdate = now;

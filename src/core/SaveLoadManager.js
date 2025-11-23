@@ -60,7 +60,8 @@ export class SaveLoadManager {
 
     this.setupAutoSave();
     this.setupUnloadHandler();
-    this._initWorkerSupport();
+    // TEMPORARILY DISABLED: Worker support initialization
+    // this._initWorkerSupport();
   }
   
   /**

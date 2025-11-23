@@ -17,7 +17,8 @@ export class UndoManager {
     this.pendingOperations = new Map();
     this.currentVersion = 0;
     
-    this._initWorkerSupport();
+    // TEMPORARILY DISABLED: Worker support initialization
+    // this._initWorkerSupport();
   }
   
   /**

@@ -54,8 +54,8 @@ export class ParameterExpressionSystem {
       frame: () => 0, // Can be updated by animation system
     };
     
-    // Initialize worker connection if available
-    this._initWorkerSupport();
+    // TEMPORARILY DISABLED: Worker support initialization
+    // this._initWorkerSupport();
   }
   
   /**
