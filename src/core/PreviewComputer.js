@@ -1,6 +1,7 @@
 // src/core/PreviewComputer.js
 import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
+import { MessagePriority } from './AsyncQueueManager.js';
 
 export class PreviewComputer {
   constructor() {
@@ -9,6 +10,143 @@ export class PreviewComputer {
     this.lastFrameTime = 0;
     this.lastComputedValues = new Map(); // Store computed values for expression system
     this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
+    
+    // Worker support
+    this.queueManager = null;
+    this.pendingPreviewResults = new Map();
+    this.lastPreviewRequestTime = 0;
+    this.previewRequestThrottle = 16; // ~60 FPS max
+    this.useWorker = false;
+    this.previewRequestTimeout = 5000; // 5 second timeout for preview requests
+    
+    // Initialize worker connection if available
+    this._initWorkerSupport();
+  }
+  
+  /**
+   * Initialize worker support
+   */
+  _initWorkerSupport() {
+    if (window.threadSeparationManager) {
+      const manager = window.threadSeparationManager;
+      if (manager.isWorkerAvailable('previewComputer')) {
+        this.queueManager = manager.getQueueManager();
+        this.useWorker = true;
+        
+        // Set up response handler
+        const worker = manager.getWorker('previewComputer');
+        const originalOnMessage = worker.onmessage;
+        worker.onmessage = (e) => {
+          if (e.data.type === 'previewResult') {
+            this._handlePreviewResult(e.data);
+          }
+          // Call original handler for other messages
+          if (originalOnMessage) {
+            originalOnMessage.call(worker, e);
+          }
+        };
+      }
+    }
+  }
+  
+  /**
+   * Handle preview computation result from worker
+   */
+  _handlePreviewResult(data) {
+    if (data.id && this.pendingPreviewResults.has(data.id)) {
+      const { callback } = this.pendingPreviewResults.get(data.id);
+      this.pendingPreviewResults.delete(data.id);
+      
+      if (callback && data.result) {
+        callback(data.result.previews);
+      }
+    }
+  }
+  
+  /**
+   * Request preview computation (async, non-blocking)
+   */
+  async requestPreviewComputation(graph, timeContext, audioContext, callback) {
+    // Throttle requests to prevent queue overflow
+    const now = performance.now();
+    if (now - this.lastPreviewRequestTime < this.previewRequestThrottle) {
+      return; // Skip this request
+    }
+    this.lastPreviewRequestTime = now;
+    
+    if (!this.useWorker || !this.queueManager) {
+      // Fallback to main thread computation
+      // computePreviews expects options with maxTime, timeBudget, maxNodes
+      // Just pass the graph - it will use default options
+      return this.computePreviews(graph);
+    }
+    
+    // Create immutable snapshot of graph state
+    const graphSnapshot = this._createGraphSnapshot(graph);
+    
+    // Generate unique request ID
+    const requestId = `preview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Enqueue preview computation request (CRITICAL priority)
+    const message = {
+      id: requestId, // Add ID field for callback tracking
+      type: 'computePreviews',
+      graph: graphSnapshot,
+      timeContext: {
+        time: timeContext?.time || this.animationTime,
+        frame: timeContext?.frame || Math.floor(this.animationTime * 60),
+        deltaTime: timeContext?.deltaTime || 0
+      },
+      audioContext: {
+        audioEnvelope: audioContext?.audioEnvelope || 0,
+        audioEnvelopeBass: audioContext?.audioEnvelopeBass || 0,
+        audioEnvelopeMids: audioContext?.audioEnvelopeMids || 0,
+        audioEnvelopeHighs: audioContext?.audioEnvelopeHighs || 0
+      },
+      timestamp: performance.now()
+    };
+    
+    // Store callback BEFORE enqueueing (in case enqueue returns null)
+    if (callback) {
+      this.pendingPreviewResults.set(requestId, {
+        timestamp: performance.now(),
+        callback: callback
+      });
+      
+      // Set timeout to clean up callback if worker doesn't respond
+      setTimeout(() => {
+        if (this.pendingPreviewResults.has(requestId)) {
+          // Clean up leaked callback
+          this.pendingPreviewResults.delete(requestId);
+          console.warn(`Preview computation request ${requestId} timed out after ${this.previewRequestTimeout}ms`);
+        }
+      }, this.previewRequestTimeout);
+    }
+    
+    // Fire-and-forget with callback registration
+    this.queueManager.enqueue(
+      'previewComputer',
+      message,
+      MessagePriority.CRITICAL
+    );
+  }
+  
+  /**
+   * Create immutable graph snapshot
+   */
+  _createGraphSnapshot(graph) {
+    // Deep clone to prevent race conditions
+    return JSON.parse(JSON.stringify({
+      nodes: graph.nodes.map(node => ({
+        id: node.id,
+        type: node.type,
+        kind: node.kind,
+        params: { ...node.params },
+        inputs: node.inputs ? [...node.inputs] : [],
+        position: { ...node.position }
+      })),
+      connections: graph.connections.map(conn => ({ ...conn }))
+    }));
   }
 
   /**

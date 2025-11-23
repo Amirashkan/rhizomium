@@ -2,6 +2,7 @@
 
 import { getAudioEnvelope } from '../audio/BrowserAudioCapture.js';
 import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
+import { MessagePriority } from '../core/AsyncQueueManager.js';
 
 export class ParameterExpressionSystem {
   constructor() {
@@ -9,6 +10,13 @@ export class ParameterExpressionSystem {
     this.dependencyGraph = new Map();
     this.evaluationContext = new Map();
     this.listeners = new Set();
+    
+    // Worker support
+    this.queueManager = null;
+    this.pendingExpressions = new Map(); // Batch expressions
+    this.expressionBatchTimer = null;
+    this.expressionBatchDelay = 5; // 5ms batching window
+    this.useWorker = false;
     
     // Built-in functions available in expressions
     this.builtInFunctions = {
@@ -45,6 +53,118 @@ export class ParameterExpressionSystem {
       time: () => Date.now() / 1000,
       frame: () => 0, // Can be updated by animation system
     };
+    
+    // Initialize worker connection if available
+    this._initWorkerSupport();
+  }
+  
+  /**
+   * Initialize worker support
+   */
+  _initWorkerSupport() {
+    if (window.threadSeparationManager) {
+      const manager = window.threadSeparationManager;
+      if (manager.isWorkerAvailable('parameterExpression')) {
+        this.queueManager = manager.getQueueManager();
+        this.useWorker = true;
+      }
+    }
+  }
+  
+  /**
+   * Batch expression evaluations to reduce message overhead
+   */
+  async _batchExpressionEvaluation(expression, context, node) {
+    if (!this.useWorker || !this.queueManager) {
+      // Fallback to main thread (synchronous)
+      const cleanExpression = expression.slice(1).trim();
+      const evalContext = this.buildEvaluationContext(context, node);
+      return this.safeEvaluate(cleanExpression, evalContext);
+    }
+    
+    return new Promise((resolve, reject) => {
+      const cleanExpression = expression.slice(1).trim();
+      const cacheKey = this.getCacheKey(cleanExpression, context, node);
+      
+      // Add to pending batch
+      if (!this.pendingExpressions.has(cacheKey)) {
+        this.pendingExpressions.set(cacheKey, {
+          expression: cleanExpression,
+          context,
+          node,
+          resolvers: []
+        });
+      }
+      
+      const pending = this.pendingExpressions.get(cacheKey);
+      pending.resolvers.push({ resolve, reject });
+      
+      // Schedule batch processing
+      if (this.expressionBatchTimer) {
+        clearTimeout(this.expressionBatchTimer);
+      }
+      
+      this.expressionBatchTimer = setTimeout(() => {
+        this._processExpressionBatch();
+      }, this.expressionBatchDelay);
+    });
+  }
+  
+  /**
+   * Process batched expressions
+   */
+  async _processExpressionBatch() {
+    if (this.pendingExpressions.size === 0) return;
+    
+    const batch = Array.from(this.pendingExpressions.entries()).map(([key, data]) => ({
+      key,
+      expression: data.expression,
+      context: data.context,
+      nodeId: data.node?.id
+    }));
+    
+    const pendingMap = new Map(this.pendingExpressions);
+    this.pendingExpressions.clear();
+    this.expressionBatchTimer = null;
+    
+    // Send batch request to worker
+    try {
+      const results = await this.queueManager.request(
+        'parameterExpression',
+        {
+          type: 'evaluateBatch',
+          expressions: batch
+        },
+        MessagePriority.HIGH
+      );
+      
+      // Resolve all promises and update cache
+      for (const result of results) {
+        const { key, value, error } = result;
+        
+        const pending = pendingMap.get(key);
+        if (!pending) continue;
+        
+        if (error) {
+          // Reject all resolvers for this expression
+          pending.resolvers.forEach(({ reject }) => reject(new Error(error)));
+        } else {
+          // Update cache
+          this.expressionCache.set(key, {
+            result: value,
+            timestamp: performance.now()
+          });
+          
+          // Resolve all resolvers
+          pending.resolvers.forEach(({ resolve }) => resolve(value));
+        }
+      }
+    } catch (error) {
+      // Reject all pending promises
+      for (const pending of pendingMap.values()) {
+        pending.resolvers.forEach(({ reject }) => reject(error));
+      }
+    }
   }
 recordParameterChange(nodeId, parameterName, oldValue, newValue) {
   // Don't record if values are the same
@@ -100,6 +220,8 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
   /**
    * Evaluates a parameter expression with comprehensive error handling
+   * NOTE: This method is synchronous for backward compatibility. Worker-based evaluation
+   * is only used internally for batched operations when explicitly requested.
    */
   evaluateExpression(expression, context = {}, node = null) {
     try {
@@ -132,6 +254,11 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         }
       }
 
+      // NOTE: Worker-based evaluation is not used here to maintain synchronous API
+      // Worker batching is available via _batchExpressionEvaluation for internal use
+      // when async evaluation is acceptable
+
+      // Main thread evaluation (synchronous)
       // Build evaluation context
       const evalContext = this.buildEvaluationContext(context, node);
 
@@ -155,6 +282,75 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
     } catch (error) {
 
+      return this.parseValue(expression.slice(1)); // Return expression without = on error
+    }
+  }
+  
+  /**
+   * Async version of evaluateExpression for use when async evaluation is acceptable
+   * This version can use worker-based batching for better performance
+   */
+  async evaluateExpressionAsync(expression, context = {}, node = null) {
+    try {
+      if (!this.isExpression(expression)) {
+        return this.parseValue(expression);
+      }
+      
+      if ((expression.includes('time') || expression.includes('audioEnvelope')) && node) {
+        // Mark this node as needing continuous updates
+        if (!this.timeAnimatedNodes) {
+          this.timeAnimatedNodes = new Set();
+        }
+        this.timeAnimatedNodes.add(node.id);
+      }
+      
+      const cleanExpression = expression.slice(1).trim();
+      if (!cleanExpression) {
+        return 0; // Empty expression defaults to 0
+      }
+
+      // Skip caching for time-dependent expressions (they change every frame)
+      const isTimeDep = cleanExpression.includes('time') || cleanExpression.includes('audioEnvelope') || cleanExpression.includes('frame');
+
+      // Check cache first (only for non-time-dependent expressions)
+      if (!isTimeDep) {
+        const cacheKey = this.getCacheKey(cleanExpression, context, node);
+        if (this.expressionCache.has(cacheKey)) {
+          const cached = this.expressionCache.get(cacheKey);
+          if (this.isContextValid(cached.context, context)) {
+            return cached.result;
+          }
+        }
+      }
+
+      // Use worker for evaluation if available (batched)
+      if (this.useWorker && !isTimeDep) {
+        return await this._batchExpressionEvaluation(expression, context, node);
+      }
+
+      // Fallback to main thread evaluation
+      // Build evaluation context
+      const evalContext = this.buildEvaluationContext(context, node);
+
+      // Evaluate the expression
+      const result = this.safeEvaluate(cleanExpression, evalContext);
+
+      // Cache the result (only for non-time-dependent expressions)
+      if (!isTimeDep) {
+        const cacheKey = this.getCacheKey(cleanExpression, context, node);
+        this.expressionCache.set(cacheKey, {
+          result,
+          context: { ...context },
+          timestamp: Date.now()
+        });
+      }
+
+      // Update dependencies
+      this.updateDependencyGraph(node?.id, cleanExpression, evalContext);
+
+      return result;
+
+    } catch (error) {
       return this.parseValue(expression.slice(1)); // Return expression without = on error
     }
   }

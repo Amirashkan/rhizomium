@@ -1,4 +1,4 @@
-
+import { MessagePriority } from './AsyncQueueManager.js';
 
 async function reinitializeWebGPUAfterLoad() {
   try {
@@ -52,9 +52,58 @@ export class SaveLoadManager {
     this.autosaveInterval = 30000; // 30 seconds
     this.maxBackups = 10;
     this.hasUnsavedChanges = false;
+    
+    // Worker support
+    this.queueManager = null;
+    this.useWorker = false;
+    this.pendingSerializations = new Map();
 
     this.setupAutoSave();
     this.setupUnloadHandler();
+    this._initWorkerSupport();
+  }
+  
+  /**
+   * Initialize worker support
+   */
+  _initWorkerSupport() {
+    if (window.threadSeparationManager) {
+      const manager = window.threadSeparationManager;
+      if (manager.isWorkerAvailable('saveLoad')) {
+        this.queueManager = manager.getQueueManager();
+        this.useWorker = true;
+        
+        // Set up response handler
+        const worker = manager.getWorker('saveLoad');
+        const originalOnMessage = worker.onmessage;
+        worker.onmessage = (e) => {
+          if (e.data.type === 'result' && e.data.id) {
+            this._handleWorkerResult(e.data);
+          }
+          // Call original handler for other messages
+          if (originalOnMessage) {
+            originalOnMessage.call(worker, e);
+          }
+        };
+      }
+    }
+  }
+  
+  /**
+   * Handle worker result
+   */
+  _handleWorkerResult(data) {
+    if (this.pendingSerializations.has(data.id)) {
+      const { resolve, reject } = this.pendingSerializations.get(data.id);
+      this.pendingSerializations.delete(data.id);
+      
+      if (data.error) {
+        reject(new Error(data.error));
+      } else {
+        // Worker returns serialized string directly
+        resolve(data.result);
+      }
+    }
   }
 // ADD THESE THREE METHODS to your SaveLoadManager class
 // Put them after your export methods, before the file operations section
@@ -212,6 +261,55 @@ exportProject(options = {}) {
   }
 }
 
+/**
+ * Serialize project to JSON string (async, can use worker for large projects)
+ */
+async serializeProject(options = {}) {
+  try {
+    const projectData = this.exportProject(options);
+    
+    // Use worker for serialization if available (for large projects)
+    if (this.useWorker && this.queueManager && projectData.nodes.length > 100) {
+      const requestId = `serialize_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      return new Promise((resolve, reject) => {
+        this.pendingSerializations.set(requestId, { resolve, reject });
+        
+        this.queueManager.enqueue(
+          'saveLoad',
+          {
+            id: requestId,
+            type: 'serialize',
+            graph: {
+              nodes: projectData.nodes,
+              connections: projectData.connections,
+              metadata: projectData.metadata || {}
+            }
+          },
+          MessagePriority.NORMAL
+        );
+        
+        // Fallback timeout
+        setTimeout(() => {
+          if (this.pendingSerializations.has(requestId)) {
+            this.pendingSerializations.delete(requestId);
+            // Fallback to main thread serialization
+            resolve(JSON.stringify(projectData, null, 2));
+          }
+        }, 5000);
+      });
+    }
+    
+    // Main thread serialization (synchronous)
+    return JSON.stringify(projectData, null, 2);
+  } catch (error) {
+    window.errorHandler?.handleError(error, { 
+      component: 'project-serialization',
+      options
+    });
+    throw new Error(`Failed to serialize project: ${error.message}`);
+  }
+}
 
 // Add this helper method
 collectTextureData() {

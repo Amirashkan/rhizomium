@@ -1,5 +1,7 @@
 // src/core/UndoManager.js - Complete working version with proper scoping
 
+import { MessagePriority } from './AsyncQueueManager.js';
+
 export class UndoManager {
   constructor(graph, editor) {
     this.graph = graph;
@@ -8,6 +10,128 @@ export class UndoManager {
     this.redoStack = [];
     this.maxUndoSteps = 50;
     this.onChange = editor ? editor.onChange : null;
+    
+    // Worker support
+    this.queueManager = null;
+    this.useWorker = false;
+    this.pendingOperations = new Map();
+    this.currentVersion = 0;
+    
+    this._initWorkerSupport();
+  }
+  
+  /**
+   * Initialize worker support
+   */
+  _initWorkerSupport() {
+    if (window.threadSeparationManager) {
+      const manager = window.threadSeparationManager;
+      if (manager.isWorkerAvailable('undoManager')) {
+        this.queueManager = manager.getQueueManager();
+        this.useWorker = true;
+        
+        // Set up response handler
+        const worker = manager.getWorker('undoManager');
+        const originalOnMessage = worker.onmessage;
+        worker.onmessage = (e) => {
+          if (e.data.type === 'result' && e.data.id) {
+            this._handleWorkerResult(e.data);
+          }
+          // Call original handler for other messages
+          if (originalOnMessage) {
+            originalOnMessage.call(worker, e);
+          }
+        };
+      }
+    }
+  }
+  
+  /**
+   * Handle worker result
+   */
+  _handleWorkerResult(data) {
+    if (this.pendingOperations.has(data.id)) {
+      const { resolve, reject } = this.pendingOperations.get(data.id);
+      this.pendingOperations.delete(data.id);
+      
+      if (data.error) {
+        reject(new Error(data.error));
+      } else {
+        resolve(data.result);
+      }
+    }
+  }
+  
+  /**
+   * Create state snapshot (async, can use worker)
+   */
+  async createStateSnapshot() {
+    try {
+      const snapshot = {
+        nodes: this.graph.nodes.map(node => ({
+          id: node.id,
+          kind: node.kind,
+          type: node.type,
+          x: node.x,
+          y: node.y,
+          w: node.w,
+          h: node.h,
+          inputs: node.inputs ? [...node.inputs] : [],
+          params: node.params ? { ...node.params } : {},
+          parameters: node.parameters ? { ...node.parameters } : {}
+        })),
+        connections: this.graph.connections ? [...this.graph.connections] : [],
+        timestamp: Date.now()
+      };
+      
+      // Use worker for snapshot creation if available (for large graphs)
+      if (this.useWorker && this.queueManager && snapshot.nodes.length > 50) {
+        const requestId = `snapshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const version = ++this.currentVersion;
+        
+        return new Promise((resolve, reject) => {
+          this.pendingOperations.set(requestId, { resolve, reject });
+          
+          this.queueManager.enqueue(
+            'undoManager',
+            {
+              id: requestId,
+              type: 'recordState',
+              snapshot: snapshot,
+              version: version
+            },
+            MessagePriority.NORMAL
+          );
+          
+          // Fallback timeout
+          setTimeout(() => {
+            if (this.pendingOperations.has(requestId)) {
+              this.pendingOperations.delete(requestId);
+              // Fallback to main thread
+              this.undoStack.push({
+                version: version,
+                snapshot: snapshot,
+                timestamp: Date.now()
+              });
+              resolve({ version, snapshot });
+            }
+          }, 2000);
+        });
+      }
+      
+      // Main thread snapshot creation
+      const version = ++this.currentVersion;
+      this.undoStack.push({
+        version: version,
+        snapshot: snapshot,
+        timestamp: Date.now()
+      });
+      
+      return { version, snapshot };
+    } catch (error) {
+      console.error('Failed to create state snapshot:', error);
+      throw error;
+    }
   }
 
   setEditor(editor) {

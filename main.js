@@ -43,6 +43,8 @@ import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
 import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
+import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
+import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
 
 // Verify timeline imports loaded
 
@@ -307,6 +309,16 @@ async function initialize() {
         window.systemIntegration = systemIntegration;
       } catch (error) {
         console.error("Failed to initialize SystemIntegration:", error);
+      }
+
+      // Initialize Thread Separation System
+      try {
+        const threadSeparationManager = getThreadSeparationManager();
+        await threadSeparationManager.initialize();
+        window.threadSeparationManager = threadSeparationManager;
+        console.log("Thread separation system initialized");
+      } catch (error) {
+        console.error("Failed to initialize thread separation system:", error);
       }
 
       // Initialize 3D Viewport
@@ -3960,7 +3972,46 @@ function handleRenderFrame(frameState) {
           const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           
           try {
-            editor.previewComputer.computePreviews(editor.graph);
+            // Get audio context if available
+            let audioContext = {};
+            try {
+              const audioCapture = getBrowserAudioCapture();
+              if (audioCapture) {
+                audioContext = {
+                  audioEnvelope: audioCapture.getValue?.() ?? 0,
+                  audioEnvelopeBass: audioCapture.getAudioEnvelopeBass?.() ?? 0,
+                  audioEnvelopeMids: audioCapture.getAudioEnvelopeMids?.() ?? 0,
+                  audioEnvelopeHighs: audioCapture.getAudioEnvelopeHighs?.() ?? 0
+                };
+              }
+            } catch (e) {
+              // Audio not available
+            }
+            
+            // Use worker-based computation if available, otherwise fallback to main thread
+            if (editor.previewComputer.useWorker) {
+              // Request async preview computation via worker
+              editor.previewComputer.requestPreviewComputation(
+                editor.graph,
+                {
+                  time: frameState.simTime,
+                  frame: Math.floor(frameState.simTime * 60),
+                  deltaTime: frameState.deltaTime
+                },
+                audioContext,
+                (previews) => {
+                  // Callback when previews are computed
+                  // Update preview system with results
+                  if (editor.previewSystem && previews) {
+                    // Update preview textures from worker results
+                    // This would need to be implemented in PreviewSystem
+                  }
+                }
+              );
+            } else {
+              // Fallback to main thread computation
+              editor.previewComputer.computePreviews(editor.graph);
+            }
           } catch (err) {
             console.warn('[Performance] computePreviews error:', err);
           }
