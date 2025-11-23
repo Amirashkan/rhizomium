@@ -312,14 +312,16 @@ async function initialize() {
       }
 
       // Initialize Thread Separation System
-      try {
-        const threadSeparationManager = getThreadSeparationManager();
-        await threadSeparationManager.initialize();
-        window.threadSeparationManager = threadSeparationManager;
-        console.log("Thread separation system initialized");
-      } catch (error) {
-        console.error("Failed to initialize thread separation system:", error);
-      }
+      // TEMPORARILY DISABLED: Causing performance issues
+      // TODO: Fix performance issues before re-enabling
+      // try {
+      //   const threadSeparationManager = getThreadSeparationManager();
+      //   await threadSeparationManager.initialize();
+      //   window.threadSeparationManager = threadSeparationManager;
+      //   console.log("Thread separation system initialized");
+      // } catch (error) {
+      //   console.error("Failed to initialize thread separation system:", error);
+      // }
 
       // Initialize 3D Viewport
       try {
