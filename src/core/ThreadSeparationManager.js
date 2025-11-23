@@ -31,7 +31,7 @@ export class ThreadSeparationManager {
   }
   
   /**
-   * Initialize the thread separation system
+   * Initialize the thread separation system (deferred, non-blocking)
    */
   async initialize() {
     if (!this.options.enabled) {
@@ -39,18 +39,52 @@ export class ThreadSeparationManager {
       return;
     }
     
-    // Start thread monitor
-    this.threadMonitor.start();
-    
-    // Initialize workers if enabled
-    if (this.options.enableWorkers) {
-      await this._initializeWorkers();
+    // Defer initialization until after app load using requestIdleCallback
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(async () => {
+        await this._doInitialize();
+      }, { timeout: 3000 }); // Start after 3 seconds max
     } else {
-      console.log('Web Workers disabled, using main thread fallback');
+      // Fallback: defer with setTimeout
+      setTimeout(async () => {
+        await this._doInitialize();
+      }, 2000);
     }
-    
-    // Register primary threads
-    this._registerPrimaryThreads();
+  }
+  
+  /**
+   * Actually perform initialization
+   */
+  async _doInitialize() {
+    try {
+      // Start thread monitor (non-blocking)
+      this.threadMonitor.start();
+      
+      // Initialize workers if enabled (async, non-blocking)
+      if (this.options.enableWorkers) {
+        // Initialize workers in background, don't block
+        this._initializeWorkers().catch(error => {
+          console.error('Worker initialization failed:', error);
+          this._enableMainThreadFallback();
+        });
+      } else {
+        console.log('Web Workers disabled, using main thread fallback');
+      }
+      
+      // Register primary threads (deferred until they're available)
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => {
+          this._registerPrimaryThreads();
+        }, { timeout: 1000 });
+      } else {
+        setTimeout(() => {
+          this._registerPrimaryThreads();
+        }, 1000);
+      }
+    } catch (error) {
+      console.error('Thread separation initialization error:', error);
+      this._enableMainThreadFallback();
+    }
   }
   
   /**

@@ -312,17 +312,19 @@ async function initialize() {
         console.error("Failed to initialize SystemIntegration:", error);
       }
 
-      // Initialize Thread Separation System
-      // TEMPORARILY DISABLED: Causing performance issues
-      // TODO: Fix performance issues before re-enabling
-      // try {
-      //   const threadSeparationManager = getThreadSeparationManager();
-      //   await threadSeparationManager.initialize();
-      //   window.threadSeparationManager = threadSeparationManager;
-      //   console.log("Thread separation system initialized");
-      // } catch (error) {
-      //   console.error("Failed to initialize thread separation system:", error);
-      // }
+      // Initialize Thread Separation System (optimized, deferred)
+      // Now optimized with requestIdleCallback, reduced heartbeat frequency, and deferred initialization
+      try {
+        const { getThreadSeparationManager } = await import('./src/core/ThreadSeparationManager.js');
+        const threadSeparationManager = getThreadSeparationManager();
+        
+        // Initialize with optimized options
+        threadSeparationManager.initialize();
+        window.threadSeparationManager = threadSeparationManager;
+        console.log("Thread separation system initialization scheduled (deferred)");
+      } catch (error) {
+        console.error("Failed to initialize thread separation system:", error);
+      }
 
       // Initialize 3D Viewport
       try {

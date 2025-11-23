@@ -9,20 +9,23 @@ export class PerformanceCollector {
     this.maxHistorySize = 100; // Keep last 100 samples
     this.isCollecting = false;
     this.collectionHandle = null;
+    this.idleCallbackHandle = null;
+    this.lastCollectionTime = 0;
+    this.collectionInterval = 500; // Default 500ms
   }
   
   /**
-   * Start collecting metrics
+   * Start collecting metrics (non-blocking, uses requestIdleCallback)
    */
   start() {
     if (this.isCollecting) return;
     
     this.isCollecting = true;
+    this.lastCollectionTime = 0;
+    this.collectionInterval = this.monitor.options.metricsInterval || 500; // Default 500ms (reduced from 100ms)
     
-    // Collect metrics periodically (non-blocking)
-    this.collectionHandle = setInterval(() => {
-      this._collectMetrics();
-    }, this.monitor.options.metricsInterval);
+    // Use requestIdleCallback for non-blocking metric collection
+    this._scheduleNextCollection();
   }
   
   /**
@@ -37,20 +40,71 @@ export class PerformanceCollector {
       clearInterval(this.collectionHandle);
       this.collectionHandle = null;
     }
+    
+    if (this.idleCallbackHandle && typeof cancelIdleCallback !== 'undefined') {
+      cancelIdleCallback(this.idleCallbackHandle);
+      this.idleCallbackHandle = null;
+    }
   }
   
   /**
-   * Collect metrics for all threads
+   * Schedule next metric collection using requestIdleCallback
    */
-  _collectMetrics() {
-    // Use requestIdleCallback to avoid blocking
+  _scheduleNextCollection() {
+    if (!this.isCollecting) return;
+    
+    // Use requestIdleCallback if available
     if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(() => {
-        this._doCollectMetrics();
-      }, { timeout: 10 });
+      this.idleCallbackHandle = requestIdleCallback((deadline) => {
+        // Only collect if we have idle time
+        if (deadline.timeRemaining() > 1) {
+          this._collectMetrics(deadline);
+        }
+        // Schedule next collection
+        this._scheduleNextCollection();
+      }, { timeout: this.collectionInterval });
     } else {
-      // Fallback: collect synchronously (should be fast)
-      this._doCollectMetrics();
+      // Fallback to setTimeout
+      this.collectionHandle = setTimeout(() => {
+        this._collectMetrics({ timeRemaining: () => 16 });
+        this._scheduleNextCollection();
+      }, this.collectionInterval);
+    }
+  }
+  
+  /**
+   * Collect metrics for all threads (non-blocking, respects deadline)
+   */
+  _collectMetrics(deadline) {
+    const now = performance.now();
+    
+    // Skip if too soon since last collection
+    if (now - this.lastCollectionTime < this.collectionInterval * 0.8) {
+      return;
+    }
+    
+    this.lastCollectionTime = now;
+    
+    // Collect metrics for each thread, but respect deadline
+    let processed = 0;
+    for (const [name, thread] of this.monitor.threads.entries()) {
+      // Check if we still have time
+      if (deadline && deadline.timeRemaining() < 1) {
+        break; // Out of time, continue next cycle
+      }
+      
+      this.collectMetrics(name, thread);
+      processed++;
+    }
+    
+    // If we processed all threads quickly, we can collect more frequently
+    // If we ran out of time, collect less frequently
+    if (processed === this.monitor.threads.size && deadline && deadline.timeRemaining() > 5) {
+      // All processed with time to spare - can collect more frequently
+      this.collectionInterval = Math.max(this.collectionInterval * 0.95, 200);
+    } else if (processed < this.monitor.threads.size) {
+      // Didn't finish - collect less frequently
+      this.collectionInterval = Math.min(this.collectionInterval * 1.1, 2000);
     }
   }
   

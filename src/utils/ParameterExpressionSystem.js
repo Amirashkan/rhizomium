@@ -54,8 +54,16 @@ export class ParameterExpressionSystem {
       frame: () => 0, // Can be updated by animation system
     };
     
-    // TEMPORARILY DISABLED: Worker support initialization
-    // this._initWorkerSupport();
+    // Initialize worker support (deferred, non-blocking)
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(() => {
+        this._initWorkerSupport();
+      }, { timeout: 2000 });
+    } else {
+      setTimeout(() => {
+        this._initWorkerSupport();
+      }, 2000);
+    }
   }
   
   /**

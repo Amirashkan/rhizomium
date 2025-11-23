@@ -11,10 +11,10 @@ export class ThreadMonitor {
   constructor(options = {}) {
     this.options = {
       enabled: options.enabled !== false,
-      heartbeatInterval: options.heartbeatInterval || 1000, // 1 second
-      stallTimeout: options.stallTimeout || 5000, // 5 seconds
-      metricsInterval: options.metricsInterval || 100, // 100ms
-      logLevel: options.logLevel || 'info', // 'debug', 'info', 'warn', 'error'
+      heartbeatInterval: options.heartbeatInterval || 5000, // 5 seconds (reduced frequency)
+      stallTimeout: options.stallTimeout || 10000, // 10 seconds (increased tolerance)
+      metricsInterval: options.metricsInterval || 500, // 500ms (reduced frequency)
+      logLevel: options.logLevel || 'warn', // 'debug', 'info', 'warn', 'error' (default to warn to reduce logging)
       enableRecovery: options.enableRecovery !== false,
       maxRecoveryAttempts: options.maxRecoveryAttempts || 3,
       ...options
@@ -180,61 +180,81 @@ export class ThreadMonitor {
   }
   
   /**
-   * Main monitoring loop (runs on idle time)
+   * Main monitoring loop (runs on idle time, optimized)
    */
   _startMonitoringLoop() {
+    let lastMonitoringTime = 0;
+    const minMonitoringInterval = 1000; // Minimum 1 second between monitoring cycles
+    
     const monitor = (deadline) => {
       if (!this.isMonitoring) return;
       
-      // Only monitor if we have idle time
-      if (deadline.timeRemaining() > 1) {
-        this._performMonitoring();
+      const now = performance.now();
+      
+      // Only monitor if we have idle time AND enough time has passed
+      if (deadline.timeRemaining() > 2 && (now - lastMonitoringTime) >= minMonitoringInterval) {
+        this._performMonitoring(deadline);
+        lastMonitoringTime = now;
       }
       
-      // Schedule next monitoring cycle
+      // Schedule next monitoring cycle with longer timeout
       if (typeof requestIdleCallback !== 'undefined') {
-        this.monitoringHandle = requestIdleCallback(monitor, { timeout: 1000 });
+        this.monitoringHandle = requestIdleCallback(monitor, { timeout: 2000 }); // 2 second timeout
       } else {
-        // Fallback: use setTimeout with minimal delay
+        // Fallback: use setTimeout with longer delay
         this.monitoringHandle = setTimeout(() => {
           monitor({ timeRemaining: () => 16 }); // Assume 16ms available
-        }, 100);
+        }, minMonitoringInterval);
       }
     };
     
-    // Start monitoring loop
+    // Start monitoring loop (defer initial start)
     if (typeof requestIdleCallback !== 'undefined') {
-      this.monitoringHandle = requestIdleCallback(monitor, { timeout: 1000 });
+      requestIdleCallback(() => {
+        this.monitoringHandle = requestIdleCallback(monitor, { timeout: 2000 });
+      }, { timeout: 1000 });
     } else {
-      setTimeout(() => monitor({ timeRemaining: () => 16 }), 100);
+      setTimeout(() => {
+        this.monitoringHandle = setTimeout(() => monitor({ timeRemaining: () => 16 }), minMonitoringInterval);
+      }, 1000);
     }
   }
   
   /**
-   * Perform monitoring checks (non-blocking)
+   * Perform monitoring checks (non-blocking, respects deadline)
    */
-  _performMonitoring() {
+  _performMonitoring(deadline) {
     const startTime = performance.now();
+    const maxTime = deadline ? Math.min(deadline.timeRemaining() * 0.8, 5) : 5; // Use 80% of available time, max 5ms
     
-    // Check thread health
+    // Check thread health (only critical threads if time is limited)
+    let processed = 0;
     for (const [name, thread] of this.threads.entries()) {
-      // Check for stalls
+      // Check if we're out of time
+      if (performance.now() - startTime > maxTime) {
+        break; // Out of time, continue next cycle
+      }
+      
+      // Check for stalls (only if significant time has passed)
       const timeSinceHeartbeat = performance.now() - thread.lastHeartbeat;
       if (timeSinceHeartbeat > this.options.stallTimeout) {
         this._handleStall(name, timeSinceHeartbeat);
       }
       
-      // Update metrics
+      // Update metrics (lightweight operation)
       this.performanceCollector.collectMetrics(name, thread);
+      processed++;
     }
     
-    // Check for performance degradation
-    this._checkPerformanceDegradation();
+    // Check for performance degradation (only if we have time)
+    if (performance.now() - startTime < maxTime * 0.5) {
+      this._checkPerformanceDegradation();
+    }
     
     // Limit monitoring time to prevent blocking
     const elapsed = performance.now() - startTime;
-    if (elapsed > 5) {
-      this.loggingSystem.log('warn', `Monitoring took ${elapsed.toFixed(2)}ms (target: <5ms)`);
+    if (elapsed > maxTime) {
+      this.loggingSystem.log('debug', `Monitoring took ${elapsed.toFixed(2)}ms (processed ${processed}/${this.threads.size} threads)`);
     }
   }
   

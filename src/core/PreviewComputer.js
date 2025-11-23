@@ -19,8 +19,16 @@ export class PreviewComputer {
     this.useWorker = false;
     this.previewRequestTimeout = 5000; // 5 second timeout for preview requests
     
-    // TEMPORARILY DISABLED: Worker support initialization
-    // this._initWorkerSupport();
+    // Initialize worker support (deferred, non-blocking)
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(() => {
+        this._initWorkerSupport();
+      }, { timeout: 2000 });
+    } else {
+      setTimeout(() => {
+        this._initWorkerSupport();
+      }, 2000);
+    }
   }
   
   /**

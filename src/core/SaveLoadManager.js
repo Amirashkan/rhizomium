@@ -60,8 +60,16 @@ export class SaveLoadManager {
 
     this.setupAutoSave();
     this.setupUnloadHandler();
-    // TEMPORARILY DISABLED: Worker support initialization
-    // this._initWorkerSupport();
+    // Initialize worker support (deferred, non-blocking)
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(() => {
+        this._initWorkerSupport();
+      }, { timeout: 2000 });
+    } else {
+      setTimeout(() => {
+        this._initWorkerSupport();
+      }, 2000);
+    }
   }
   
   /**
