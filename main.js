@@ -3937,6 +3937,7 @@ function handleRenderFrame(frameState) {
           }
         }
       }
+    }
   }
 
   // 3D Viewport rendering
