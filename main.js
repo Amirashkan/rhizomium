@@ -3676,7 +3676,7 @@ const PROFILER_UPDATE_OFFSET = Math.random() * 50; // 0-50ms random offset
 let lastPreviewUpdate = -PREVIEW_UPDATE_OFFSET; // Start with offset to spread out initial updates
 let lastProfilerUpdate = -PROFILER_UPDATE_OFFSET;
 const PROFILER_UPDATE_INTERVAL = 200; // Update profiler overlay every 200ms (5 FPS)
-const PREVIEW_UPDATE_INTERVAL = 150; // ms (increased from 100ms to reduce frequency and spread out updates)
+const PREVIEW_UPDATE_INTERVAL = 200; // ms (reduced frequency to improve performance - ~5 FPS)
 
 async function updateShaderFromGraph() {
   try {
@@ -3969,55 +3969,42 @@ function handleRenderFrame(frameState) {
 
       if (shouldUpdatePreviews) {
         if (editor?.previewComputer && editor?.graph) {
-          const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
+          // Only compute if there are time-based expressions
+          const hasTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           
-          try {
-            // Get audio context if available
-            let audioContext = {};
-            try {
-              const audioCapture = getBrowserAudioCapture();
-              if (audioCapture) {
-                audioContext = {
-                  audioEnvelope: audioCapture.getValue?.() ?? 0,
-                  audioEnvelopeBass: audioCapture.getAudioEnvelopeBass?.() ?? 0,
-                  audioEnvelopeMids: audioCapture.getAudioEnvelopeMids?.() ?? 0,
-                  audioEnvelopeHighs: audioCapture.getAudioEnvelopeHighs?.() ?? 0
-                };
-              }
-            } catch (e) {
-              // Audio not available
-            }
-            
-            // Use worker-based computation if available, otherwise fallback to main thread
-            if (editor.previewComputer.useWorker) {
-              // Request async preview computation via worker
-              editor.previewComputer.requestPreviewComputation(
-                editor.graph,
-                {
-                  time: frameState.simTime,
-                  frame: Math.floor(frameState.simTime * 60),
-                  deltaTime: frameState.deltaTime
-                },
-                audioContext,
-                (previews) => {
-                  // Callback when previews are computed
-                  // Update preview system with results
-                  if (editor.previewSystem && previews) {
-                    // Update preview textures from worker results
-                    // This would need to be implemented in PreviewSystem
+          if (hasTimeAnimatedNodes) {
+            // Use requestIdleCallback to make computation non-blocking
+            // This prevents blocking the main thread and keeps interactions responsive
+            if (typeof requestIdleCallback !== 'undefined') {
+              requestIdleCallback(() => {
+                try {
+                  editor.previewComputer.computePreviews(editor.graph, {
+                    maxTime: 16, // Reduced time budget for smoother interactions
+                    maxNodes: 500 // Limit nodes to process
+                  });
+                  if (editor.markDirty) {
+                    editor.markDirty('time-animation');
                   }
+                } catch (err) {
+                  console.warn('[Performance] computePreviews error:', err);
                 }
-              );
+              }, { timeout: 100 });
             } else {
-              // Fallback to main thread computation
-              editor.previewComputer.computePreviews(editor.graph);
+              // Fallback: use setTimeout for non-blocking execution
+              setTimeout(() => {
+                try {
+                  editor.previewComputer.computePreviews(editor.graph, {
+                    maxTime: 16,
+                    maxNodes: 500
+                  });
+                  if (editor.markDirty) {
+                    editor.markDirty('time-animation');
+                  }
+                } catch (err) {
+                  console.warn('[Performance] computePreviews error:', err);
+                }
+              }, 0);
             }
-          } catch (err) {
-            console.warn('[Performance] computePreviews error:', err);
-          }
-
-          if (hadTimeAnimatedNodes && editor.markDirty) {
-            editor.markDirty('time-animation');
           }
         }
         lastPreviewUpdate = now;
