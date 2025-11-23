@@ -31,8 +31,10 @@ export class AsyncQueueManager {
       queueSizes: new Map()
     };
     
-    // Process queues on next tick (non-blocking)
+    // Process queues using requestIdleCallback (non-blocking)
     this._scheduleQueueProcessing();
+    this.isProcessing = false;
+    this.processingHandle = null;
   }
   
   /**
@@ -59,8 +61,8 @@ export class AsyncQueueManager {
       this._handleWorkerError(workerName, error);
     };
     
-    // Start processing queue
-    this._processQueue(workerName);
+    // Schedule queue processing (non-blocking)
+    this._scheduleQueueProcessing();
   }
   
   /**
@@ -82,8 +84,10 @@ export class AsyncQueueManager {
     this.metrics.messagesSent++;
     this.metrics.queueSizes.set(workerName, this._getTotalQueueSize(workerName));
     
-    // Schedule processing (non-blocking)
-    this._scheduleQueueProcessing();
+    // Schedule processing only if not already scheduled (non-blocking)
+    if (!this.isProcessing) {
+      this._scheduleQueueProcessing();
+    }
     
     return message.id || null;
   }
@@ -169,8 +173,10 @@ export class AsyncQueueManager {
       }
     }
     
-    // Schedule next message processing (non-blocking)
-    this._scheduleQueueProcessing();
+    // Schedule next message processing only if there are more messages (non-blocking)
+    if (this._getTotalQueueSize(workerName) > 0) {
+      this._scheduleQueueProcessing();
+    }
   }
   
   /**
@@ -202,24 +208,74 @@ export class AsyncQueueManager {
   }
   
   /**
-   * Schedule queue processing (non-blocking)
+   * Schedule queue processing (non-blocking, optimized)
    */
   _scheduleQueueProcessing() {
+    // Skip if already processing
+    if (this.isProcessing) return;
+    
+    // Check if there are any messages to process
+    let hasMessages = false;
+    for (const workerName of this.workers.keys()) {
+      if (this._getTotalQueueSize(workerName) > 0) {
+        hasMessages = true;
+        break;
+      }
+    }
+    
+    // Only schedule if there are messages
+    if (!hasMessages) return;
+    
+    this.isProcessing = true;
+    
     // Use requestIdleCallback if available, otherwise setTimeout
     if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(() => {
-        for (const workerName of this.workers.keys()) {
-          this._processQueue(workerName);
+      this.processingHandle = requestIdleCallback((deadline) => {
+        this.isProcessing = false;
+        
+        // Process queues only if we have idle time
+        if (deadline.timeRemaining() > 1) {
+          for (const workerName of this.workers.keys()) {
+            if (this._getTotalQueueSize(workerName) > 0) {
+              this._processQueue(workerName);
+              // Check if we still have time
+              if (deadline.timeRemaining() < 1) break;
+            }
+          }
         }
-      }, { timeout: 1 });
+        
+        // Schedule next processing if there are still messages
+        if (this._hasAnyMessages()) {
+          this._scheduleQueueProcessing();
+        }
+      }, { timeout: 100 }); // 100ms timeout
     } else {
       // Fallback: use setTimeout with minimal delay
-      setTimeout(() => {
+      this.processingHandle = setTimeout(() => {
+        this.isProcessing = false;
         for (const workerName of this.workers.keys()) {
-          this._processQueue(workerName);
+          if (this._getTotalQueueSize(workerName) > 0) {
+            this._processQueue(workerName);
+          }
+        }
+        // Schedule next processing if there are still messages
+        if (this._hasAnyMessages()) {
+          this._scheduleQueueProcessing();
         }
       }, 0);
     }
+  }
+  
+  /**
+   * Check if there are any messages in any queue
+   */
+  _hasAnyMessages() {
+    for (const workerName of this.workers.keys()) {
+      if (this._getTotalQueueSize(workerName) > 0) {
+        return true;
+      }
+    }
+    return false;
   }
   
   /**

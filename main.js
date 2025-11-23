@@ -314,16 +314,21 @@ async function initialize() {
 
       // Initialize Thread Separation System (optimized, deferred)
       // Now optimized with requestIdleCallback, reduced heartbeat frequency, and deferred initialization
-      try {
-        const { getThreadSeparationManager } = await import('./src/core/ThreadSeparationManager.js');
-        const threadSeparationManager = getThreadSeparationManager();
-        
-        // Initialize with optimized options
-        threadSeparationManager.initialize();
-        window.threadSeparationManager = threadSeparationManager;
-        console.log("Thread separation system initialization scheduled (deferred)");
-      } catch (error) {
-        console.error("Failed to initialize thread separation system:", error);
+      // Can be disabled by setting window.DISABLE_THREAD_SEPARATION = true
+      if (!window.DISABLE_THREAD_SEPARATION) {
+        try {
+          const { getThreadSeparationManager } = await import('./src/core/ThreadSeparationManager.js');
+          const threadSeparationManager = getThreadSeparationManager();
+          
+          // Initialize with optimized options
+          threadSeparationManager.initialize();
+          window.threadSeparationManager = threadSeparationManager;
+          console.log("Thread separation system initialization scheduled (deferred)");
+        } catch (error) {
+          console.error("Failed to initialize thread separation system:", error);
+        }
+      } else {
+        console.log("Thread separation system disabled (window.DISABLE_THREAD_SEPARATION = true)");
       }
 
       // Initialize 3D Viewport
@@ -3681,7 +3686,7 @@ const PROFILER_UPDATE_OFFSET = Math.random() * 50; // 0-50ms random offset
 let lastPreviewUpdate = -PREVIEW_UPDATE_OFFSET; // Start with offset to spread out initial updates
 let lastProfilerUpdate = -PROFILER_UPDATE_OFFSET;
 const PROFILER_UPDATE_INTERVAL = 200; // Update profiler overlay every 200ms (5 FPS)
-const PREVIEW_UPDATE_INTERVAL = 200; // ms (reduced frequency to improve performance - ~5 FPS)
+const PREVIEW_UPDATE_INTERVAL = 500; // ms (further reduced frequency to improve performance - ~2 FPS)
 
 async function updateShaderFromGraph() {
   try {
@@ -3976,24 +3981,42 @@ function handleRenderFrame(frameState) {
         if (editor?.previewComputer && editor?.graph) {
           const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           
-          try {
-            editor.previewComputer.computePreviews(editor.graph);
-          } catch (err) {
-            console.warn('[Performance] computePreviews error:', err);
-          }
+          // Only compute previews if there are time-animated nodes or if explicitly needed
+          if (hadTimeAnimatedNodes || editor._needsPreviewUpdate) {
+            try {
+              // Use requestIdleCallback to defer preview computation
+              if (typeof requestIdleCallback !== 'undefined') {
+                requestIdleCallback(() => {
+                  editor.previewComputer.computePreviews(editor.graph);
+                }, { timeout: 100 });
+              } else {
+                editor.previewComputer.computePreviews(editor.graph);
+              }
+            } catch (err) {
+              console.warn('[Performance] computePreviews error:', err);
+            }
 
-          if (hadTimeAnimatedNodes && editor.markDirty) {
-            editor.markDirty('time-animation');
+            if (hadTimeAnimatedNodes && editor.markDirty) {
+              editor.markDirty('time-animation');
+            }
+            
+            editor._needsPreviewUpdate = false;
           }
         }
         lastPreviewUpdate = now;
       }
     }
 
-    // OPTIMIZATION: Only redraw when canvas is dirty
+    // OPTIMIZATION: Only redraw when canvas is dirty or during interactions
     // Canvas is marked dirty by: user interactions, preview updates, graph changes
     if (editor?.draw) {
-      editor.draw(); // draw() will check _isDirty internally
+      // Skip drawing if not dirty and not interacting (unless manual frame)
+      const isDirty = editor._isDirty !== false; // Default to true if not set
+      const needsRedraw = isDirty || isCanvasInteracting || frameState.manual;
+      
+      if (needsRedraw) {
+        editor.draw(); // draw() will check _isDirty internally
+      }
     }
   }
 }

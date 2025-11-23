@@ -70,23 +70,42 @@ _setupAnimationLoop() {
   // No interval needed - the main GPU renderer already has a render loop
   // We just need to ensure the preview updates when parameters change
   
+  // Throttle parameter change renders to avoid performance issues
+  let renderTimeout = null;
+  const throttledRender = () => {
+    if (renderTimeout) return; // Already scheduled
+    renderTimeout = setTimeout(() => {
+      renderTimeout = null;
+      if (this.isVisible && typeof window.render === "function") {
+        // Use requestIdleCallback to defer render if possible
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(() => {
+            window.render();
+          }, { timeout: 100 });
+        } else {
+          window.render();
+        }
+      }
+    }, 16); // ~60 FPS max for parameter changes
+  };
+  
   const originalShow = this.show.bind(this);
   this.show = () => {
     originalShow();
     
-    // Listen for parameter changes and trigger a single render
+    // Listen for parameter changes and trigger a throttled render
     if (window.editor?.paramPanel) {
-      window.editor.paramPanel.on?.('parameterChanged', () => {
-        if (this.isVisible && typeof window.render === "function") {
-          window.render();
-        }
-      });
+      window.editor.paramPanel.on?.('parameterChanged', throttledRender);
     }
   };
 
   const originalHide = this.hide.bind(this);
   this.hide = () => {
     // Cleanup listeners if needed
+    if (renderTimeout) {
+      clearTimeout(renderTimeout);
+      renderTimeout = null;
+    }
     originalHide();
   };
 }
