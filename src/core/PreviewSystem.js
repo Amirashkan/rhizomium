@@ -266,6 +266,10 @@ updateAllPreviews(nodes) {
 
     // Fallback: process synchronously if no preview computer
     this._doUpdateAllPreviews(nodes);
+  } catch (error) {
+    window.errorHandler?.handleError(error, {
+      component: 'update-all-previews'
+    });
   }
 
   _doUpdateAllPreviews(nodes) {
