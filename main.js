@@ -3876,10 +3876,12 @@ function handleRenderFrame(frameState) {
     timelinePanel.update();
   }
 
-  // GPU rendering - Continue during canvas interactions but with lower priority
+  // GPU rendering - Continue during canvas interactions but with frame throttling
   // FIX: Allow preview to continue rendering during panning to prevent freezing
-  // Use requestIdleCallback during interactions to avoid competing with canvas rendering
-  const renderGPU = () => {
+  // Use frame skipping during interactions (render every 2nd frame) to reduce load
+  const shouldRenderGPU = !isCanvasInteracting || (gpuFrameSkipCounter % 2 === 0);
+  
+  if (shouldRenderGPU) {
     // Check if compute shader test is active
     if (computeShaderTest && computeShaderTest.isEnabled) {
       // Render compute shader test instead of normal renderer
@@ -3938,20 +3940,13 @@ function handleRenderFrame(frameState) {
         }
       }
     }
-  };
-
-  // During canvas interactions, use requestIdleCallback to render with lower priority
-  // This prevents the preview from freezing while still allowing canvas to be responsive
+  }
+  
+  // Increment frame skip counter during interactions for throttling
   if (isCanvasInteracting) {
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(renderGPU, { timeout: 50 }); // Short timeout to ensure preview updates
-    } else {
-      // Fallback: render immediately if requestIdleCallback not available
-      renderGPU();
-    }
+    gpuFrameSkipCounter++;
   } else {
-    // Normal rendering when not interacting
-    renderGPU();
+    gpuFrameSkipCounter = 0; // Reset when not interacting
   }
 
   // 3D Viewport rendering
@@ -3969,7 +3964,8 @@ function handleRenderFrame(frameState) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Update compute profiler overlay
+  // Update compute profiler overlay - Continue updating during interactions
+  // FIX: Allow profiler to continue updating during panning to prevent freezing
   if (profilerOverlay && computeProfiler) {
     const now = performance.now();
     const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
@@ -3997,10 +3993,17 @@ function handleRenderFrame(frameState) {
           const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           
           // Only compute previews if there are time-animated nodes or if explicitly needed
-          // CRITICAL: Skip preview computation during canvas interactions to prevent FPS drops
+          // FIX: Allow preview computation during interactions for time-based animations
+          // This prevents preview from freezing while still maintaining performance
           const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
           
-          if ((hadTimeAnimatedNodes || editor._needsPreviewUpdate) && !isCanvasInteracting) {
+          // During interactions, compute time-based previews but skip static ones for performance
+          // When not interacting, compute all previews as normal
+          const shouldComputePreviews = isCanvasInteracting 
+            ? hadTimeAnimatedNodes // Only time-based during interactions
+            : (hadTimeAnimatedNodes || editor._needsPreviewUpdate); // All previews when not interacting
+          
+          if (shouldComputePreviews) {
             try {
               // Use async worker-based preview computation to avoid blocking main thread
               if (editor.previewComputer && typeof editor.previewComputer.requestPreviewComputation === 'function') {
