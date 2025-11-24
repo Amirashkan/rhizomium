@@ -452,9 +452,9 @@ _setupAnimationLoop() {
 _startPreviewRenderLoop() {
   if (this._previewRenderLoopRunning || !this.isVisible) return;
   
-  // PERFORMANCE: Run a lightweight monitoring loop that ensures preview stays responsive
-  // The main render loop handles most rendering, but we supplement when needed
-  // This ensures smooth 60 FPS even when main loop throttles during interactions
+  // PERFORMANCE: Run a loop that ensures preview maintains 60 FPS
+  // Always render at 60 FPS to ensure smooth preview, regardless of main loop state
+  // The GPU renderer can handle being called multiple times per frame gracefully
   
   this._previewRenderLoopRunning = true;
   this._previewFrameSkipCounter = 0;
@@ -468,41 +468,20 @@ _startPreviewRenderLoop() {
       return;
     }
     
-    // Check if main render loop is active
-    const mainLoopRunning = window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running;
+    // Always render at 60 FPS to ensure smooth preview
+    // Check if enough time has passed (target 60 FPS = 16.67ms per frame)
+    const timeSinceLastRender = timestamp - this._lastRenderTime;
+    const minFrameInterval = 16.67; // ~60 FPS
+    const shouldRender = timeSinceLastRender >= minFrameInterval;
     
-    if (mainLoopRunning) {
-      // Main loop is active - it handles most rendering
-      // During interactions, main loop may throttle to every 2nd frame (~30 FPS)
-      // We supplement to maintain smoother preview (~60 FPS) by rendering on alternate frames
-      if (this.isCanvasInteractionActive) {
-        // During interactions: render on frames when main loop might skip
-        // Main loop renders on even frames, we render on odd frames = ~60 FPS combined
-        if (this._previewFrameSkipCounter % 2 === 1 && typeof window.render === "function") {
-          window.render();
-          if (this.fpsCounter) {
-            this.fpsCounter.frame();
-          }
-        }
-      }
-      // When not interacting, main loop runs at 60 FPS, so we don't need to supplement
-    } else {
-      // Main loop not running - this loop handles all rendering at 60 FPS
-      const timeSinceLastRender = timestamp - this._lastRenderTime;
-      const minFrameInterval = 16.67; // ~60 FPS
-      const shouldRender = timeSinceLastRender >= minFrameInterval;
+    if (shouldRender && typeof window.render === "function") {
+      // Render the preview - GPU renderer handles duplicate calls gracefully
+      window.render();
+      this._lastRenderTime = timestamp;
       
-      // During canvas interactions, skip some frames (render every 2nd frame = ~30 FPS)
-      const interactionSkipRate = this.isCanvasInteractionActive ? 2 : 1;
-      const shouldSkipFrame = this.isCanvasInteractionActive && (this._previewFrameSkipCounter % interactionSkipRate !== 0);
-      
-      if (shouldRender && !shouldSkipFrame && typeof window.render === "function") {
-        window.render();
-        this._lastRenderTime = timestamp;
-        
-        if (this.fpsCounter) {
-          this.fpsCounter.frame();
-        }
+      // Update FPS counter
+      if (this.fpsCounter) {
+        this.fpsCounter.frame();
       }
     }
     
@@ -688,8 +667,17 @@ async show() {
       this.fpsCounter.start();
     }
 
-    // Start independent preview render loop
+    // Start independent preview render loop - always run to ensure 60 FPS
+    // This loop ensures smooth preview rendering regardless of main loop state
     this._startPreviewRenderLoop();
+    
+    // Ensure loop is actually running (safety check)
+    setTimeout(() => {
+      if (this.isVisible && !this._previewRenderLoopRunning) {
+        console.warn('[FloatingGPUPreview] Preview loop not running, restarting...');
+        this._startPreviewRenderLoop();
+      }
+    }, 100);
 
     // FIX: Handle visibility changes to ensure rendering continues
     this._setupVisibilityHandler();
