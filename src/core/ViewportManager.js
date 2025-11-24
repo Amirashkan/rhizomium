@@ -6,6 +6,23 @@ export class ViewportManager {
     this.offsetY = 0;
     this._isPanning = false;
     this._panStart = null;
+    
+    // PERFORMANCE: Cache viewport calculations during panning
+    // Only recalculate when panning stops or zoom changes
+    this._viewportDirty = true;
+    this._lastScale = this.scale;
+    this._lastOffsetX = this.offsetX;
+    this._lastOffsetY = this.offsetY;
+    
+    // Cache for screenToCanvas and canvasToScreen results
+    // Key format: "screenToCanvas_${screenX}_${screenY}" or "canvasToScreen_${canvasX}_${canvasY}"
+    this._transformCache = new Map();
+    this._cacheMaxSize = 1000; // Limit cache size to prevent memory issues
+    
+    // Track pan velocity for fast pan detection
+    this._panVelocity = { x: 0, y: 0 };
+    this._lastPanTime = 0;
+    this._lastPanPos = { x: 0, y: 0 };
   }
 
   startPan(clientX, clientY) {
@@ -21,6 +38,12 @@ export class ViewportManager {
         ox: this.offsetX,
         oy: this.offsetY,
       };
+      
+      // PERFORMANCE: Mark viewport as dirty and clear cache when panning starts
+      this._viewportDirty = true;
+      this._lastPanTime = performance.now();
+      this._lastPanPos = { x: clientX, y: clientY };
+      this._panVelocity = { x: 0, y: 0 };
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'viewport-pan-start',
@@ -42,8 +65,35 @@ export class ViewportManager {
 
       const dx = clientX - this._panStart.x;
       const dy = clientY - this._panStart.y;
-      this.offsetX = this._panStart.ox + dx;
-      this.offsetY = this._panStart.oy + dy;
+      const newOffsetX = this._panStart.ox + dx;
+      const newOffsetY = this._panStart.oy + dy;
+      
+      // PERFORMANCE: Track pan velocity for fast pan detection
+      const now = performance.now();
+      const dt = now - this._lastPanTime;
+      if (dt > 0) {
+        const dxVel = clientX - this._lastPanPos.x;
+        const dyVel = clientY - this._lastPanPos.y;
+        this._panVelocity = {
+          x: dxVel / dt,
+          y: dyVel / dt
+        };
+      }
+      this._lastPanTime = now;
+      this._lastPanPos = { x: clientX, y: clientY };
+      
+      // PERFORMANCE: Only mark dirty if offset actually changed
+      // This allows caching within the same frame
+      const offsetChanged = this.offsetX !== newOffsetX || this.offsetY !== newOffsetY;
+      this.offsetX = newOffsetX;
+      this.offsetY = newOffsetY;
+      
+      if (offsetChanged) {
+        // Clear cache when offset changes
+        this._clearTransformCache();
+        this._viewportDirty = true;
+      }
+      
       return true;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -60,6 +110,15 @@ export class ViewportManager {
     try {
       this._isPanning = false;
       this._panStart = null;
+      
+      // PERFORMANCE: Clear transform cache when panning stops
+      // This ensures fresh calculations after panning
+      this._clearTransformCache();
+      this._viewportDirty = true;
+      this._lastScale = this.scale;
+      this._lastOffsetX = this.offsetX;
+      this._lastOffsetY = this.offsetY;
+      this._panVelocity = { x: 0, y: 0 };
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'viewport-pan-stop'
@@ -95,6 +154,14 @@ export class ViewportManager {
       this.offsetX = newOffsetX;
       this.offsetY = newOffsetY;
       this.scale = next;
+      
+      // PERFORMANCE: Clear cache when zoom changes
+      this._clearTransformCache();
+      this._viewportDirty = true;
+      this._lastScale = this.scale;
+      this._lastOffsetX = this.offsetX;
+      this._lastOffsetY = this.offsetY;
+      
       return true;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -121,6 +188,17 @@ export class ViewportManager {
         throw new Error('Invalid scale value (zero) for coordinate conversion');
       }
 
+      // PERFORMANCE: Use cached result during panning if available
+      // Cache is valid within the same frame (same offset/scale)
+      // Cache key includes viewport state to ensure correctness
+      if (this._isPanning && !this._viewportDirty) {
+        const cacheKey = `screenToCanvas_${screenX}_${screenY}`;
+        const cached = this._transformCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+      }
+
       const canvasX = (screenX - this.offsetX) / this.scale;
       const canvasY = (screenY - this.offsetY) / this.scale;
 
@@ -128,10 +206,19 @@ export class ViewportManager {
         throw new Error('Invalid canvas coordinate calculation');
       }
 
-      return {
+      const result = {
         x: canvasX,
         y: canvasY,
       };
+      
+      // PERFORMANCE: Cache result during panning
+      // Only cache if viewport is not dirty (same frame)
+      if (this._isPanning && !this._viewportDirty) {
+        const cacheKey = `screenToCanvas_${screenX}_${screenY}`;
+        this._setCachedTransform(cacheKey, result);
+      }
+
+      return result;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'viewport-screen-to-canvas',
@@ -157,6 +244,16 @@ export class ViewportManager {
         throw new Error('Non-finite canvas coordinates');
       }
 
+      // PERFORMANCE: Use cached result during panning if available
+      // Cache is valid within the same frame (same offset/scale)
+      if (this._isPanning && !this._viewportDirty) {
+        const cacheKey = `canvasToScreen_${canvasX}_${canvasY}`;
+        const cached = this._transformCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+      }
+
       const screenX = canvasX * this.scale + this.offsetX;
       const screenY = canvasY * this.scale + this.offsetY;
 
@@ -164,10 +261,19 @@ export class ViewportManager {
         throw new Error('Invalid screen coordinate calculation');
       }
 
-      return {
+      const result = {
         x: screenX,
         y: screenY,
       };
+      
+      // PERFORMANCE: Cache result during panning
+      // Only cache if viewport is not dirty (same frame)
+      if (this._isPanning && !this._viewportDirty) {
+        const cacheKey = `canvasToScreen_${canvasX}_${canvasY}`;
+        this._setCachedTransform(cacheKey, result);
+      }
+
+      return result;
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'viewport-canvas-to-screen',
@@ -227,6 +333,17 @@ export class ViewportManager {
       this.scale = Math.min(2.5, Math.max(0.25, scale));
       this.offsetX = offsetX;
       this.offsetY = offsetY;
+      
+      // PERFORMANCE: Clear cache when viewport is manually set
+      if (this.scale !== this._lastScale || 
+          this.offsetX !== this._lastOffsetX || 
+          this.offsetY !== this._lastOffsetY) {
+        this._clearTransformCache();
+        this._viewportDirty = true;
+        this._lastScale = this.scale;
+        this._lastOffsetX = this.offsetX;
+        this._lastOffsetY = this.offsetY;
+      }
       
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -313,6 +430,13 @@ export class ViewportManager {
       this.scale = Math.max(0.25, newScale); // Respect min zoom
       this.offsetX = newOffsetX;
       this.offsetY = newOffsetY;
+      
+      // PERFORMANCE: Clear cache when viewport changes
+      this._clearTransformCache();
+      this._viewportDirty = true;
+      this._lastScale = this.scale;
+      this._lastOffsetX = this.offsetX;
+      this._lastOffsetY = this.offsetY;
 
       return true;
     } catch (error) {
@@ -372,5 +496,65 @@ export class ViewportManager {
       });
       return { valid: false, issues: ['Validation failed'], error: error.message };
     }
+  }
+  
+  // PERFORMANCE: Helper methods for transform caching
+  
+  /**
+   * Set a cached transform result with size limit
+   */
+  _setCachedTransform(key, value) {
+    // Limit cache size to prevent memory issues
+    if (this._transformCache.size >= this._cacheMaxSize) {
+      // Remove oldest entries (first 10% of cache)
+      const entriesToRemove = Math.floor(this._cacheMaxSize * 0.1);
+      const keysToRemove = Array.from(this._transformCache.keys()).slice(0, entriesToRemove);
+      keysToRemove.forEach(k => this._transformCache.delete(k));
+    }
+    this._transformCache.set(key, value);
+  }
+  
+  /**
+   * Clear all cached transform results
+   */
+  _clearTransformCache() {
+    this._transformCache.clear();
+  }
+  
+  /**
+   * Check if viewport transform is dirty (needs recalculation)
+   */
+  isViewportDirty() {
+    return this._viewportDirty || 
+           this.scale !== this._lastScale ||
+           this.offsetX !== this._lastOffsetX ||
+           this.offsetY !== this._lastOffsetY;
+  }
+  
+  /**
+   * Mark viewport as clean (after recalculation)
+   */
+  markViewportClean() {
+    this._viewportDirty = false;
+    this._lastScale = this.scale;
+    this._lastOffsetX = this.offsetX;
+    this._lastOffsetY = this.offsetY;
+  }
+  
+  /**
+   * Get pan velocity for fast pan detection
+   */
+  getPanVelocity() {
+    return { ...this._panVelocity };
+  }
+  
+  /**
+   * Check if panning is fast (for skipping expensive operations)
+   */
+  isFastPanning(threshold = 5) {
+    if (!this._isPanning) return false;
+    const speed = Math.sqrt(this._panVelocity.x * this._panVelocity.x + 
+                           this._panVelocity.y * this._panVelocity.y);
+    return speed > threshold;
   }
 }

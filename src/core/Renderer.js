@@ -9,6 +9,20 @@ export class Renderer {
     // This avoids recreating canvases every frame, which is expensive
     // Format: Map<nodeId, { canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, imageDataHash: string }>
     this._tempCanvasCache = new Map();
+    
+    // PERFORMANCE: Grid rendering optimization
+    // Offscreen canvas for grid rendering
+    this._gridCanvas = null;
+    this._gridCtx = null;
+    this._gridCacheKey = null; // Cache key based on grid size, scale, and canvas dimensions
+    this._lastGridOffsetX = null;
+    this._lastGridOffsetY = null;
+    this._skipGridRendering = false; // Skip grid during fast panning
+    
+    // PERFORMANCE: Cache node pin positions during panning
+    // Format: Map<nodeId, { inputPins: Array, outputPins: Array, version: number }>
+    this._nodePinCache = new Map();
+    this._nodePinCacheVersion = 0;
   }
 
   render(graph, renderState) {
@@ -17,6 +31,15 @@ export class Renderer {
     if (renderState.editor) {
       window.editor = renderState.editor; // Make editor accessible
     }
+    
+    // PERFORMANCE: Clear node pin cache when panning stops
+    const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function' 
+      ? this.viewport.isPanning() 
+      : (this.viewport._isPanning || false);
+    if (!isPanning && this._nodePinCache.size > 0) {
+      this._clearNodePinCache();
+    }
+    
     // Clear canvas
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
@@ -61,6 +84,13 @@ export class Renderer {
     }
 
     ctx.restore();
+    
+    // PERFORMANCE: Mark viewport as clean after rendering
+    // This allows transform cache to be used within the same frame
+    if (this.viewport.markViewportClean && typeof this.viewport.markViewportClean === 'function') {
+      this.viewport.markViewportClean();
+    }
+    
     window.previewPerfMonitor?.endSection(perfToken, {
       canvasNodeCount: graph?.nodes?.length || 0,
       canvasConnectionCount: graph?.connections?.length || 0,
@@ -85,43 +115,114 @@ export class Renderer {
     const width = ctx.canvas.width;
     const height = ctx.canvas.height;
 
+    // PERFORMANCE: Skip grid rendering during fast panning
+    const isFastPanning = this.viewport.isFastPanning && typeof this.viewport.isFastPanning === 'function'
+      ? this.viewport.isFastPanning()
+      : false;
+    if (isFastPanning) {
+      this._skipGridRendering = true;
+      return;
+    }
+    this._skipGridRendering = false;
+
+    // PERFORMANCE: Use transform-based grid rendering with offscreen canvas
+    // Only regenerate grid when scale or grid size changes
     const minorSpacing = gridSize * scale;
     const majorSpacing = minorSpacing * 5;
+    
+    const cacheKey = `${gridSize}_${scale.toFixed(2)}`;
+    const needsRegenerate = !this._gridCanvas || 
+                           this._gridCacheKey !== cacheKey;
 
+    if (needsRegenerate) {
+      this._regenerateGrid(gridSize, scale, width, height);
+      this._gridCacheKey = cacheKey;
+    }
+
+    // PERFORMANCE: Use transform to pan the grid instead of recalculating lines
+    // This is much faster during panning
+    ctx.save();
+    
+    // Calculate grid offset for smooth panning
+    const gridOffsetX = offsetX % minorSpacing;
+    const gridOffsetY = offsetY % minorSpacing;
+    
+    // Draw cached grid with transform offset
+    if (this._gridCanvas) {
+      // Calculate how many tiles we need to cover the viewport
+      const tilesX = Math.ceil((width + Math.abs(gridOffsetX)) / this._gridCanvas.width) + 1;
+      const tilesY = Math.ceil((height + Math.abs(gridOffsetY)) / this._gridCanvas.height) + 1;
+      
+      // Draw grid tiles with offset
+      for (let tx = -1; tx < tilesX; tx++) {
+        for (let ty = -1; ty < tilesY; ty++) {
+          const x = tx * this._gridCanvas.width + gridOffsetX;
+          const y = ty * this._gridCanvas.height + gridOffsetY;
+          ctx.drawImage(this._gridCanvas, x, y);
+        }
+      }
+    }
+    
+    ctx.restore();
+    
+    // Update last grid offset for next frame
+    this._lastGridOffsetX = offsetX;
+    this._lastGridOffsetY = offsetY;
+  }
+  
+  /**
+   * Regenerate the grid on an offscreen canvas
+   * This is only called when scale or grid size changes
+   */
+  _regenerateGrid(gridSize, scale, width, height) {
+    const minorSpacing = gridSize * scale;
+    const majorSpacing = minorSpacing * 5;
+    
+    // Create or resize offscreen canvas
+    // Use a tile size that's a multiple of major spacing for efficient repetition
+    // Make it large enough to cover most viewports but not too large
+    const tileSize = Math.max(Math.ceil(majorSpacing) * 10, 500);
+    
+    if (!this._gridCanvas || 
+        this._gridCanvas.width !== tileSize || 
+        this._gridCanvas.height !== tileSize) {
+      this._gridCanvas = document.createElement('canvas');
+      this._gridCanvas.width = tileSize;
+      this._gridCanvas.height = tileSize;
+      this._gridCtx = this._gridCanvas.getContext('2d');
+    }
+    
+    const gridCtx = this._gridCtx;
+    gridCtx.clearRect(0, 0, tileSize, tileSize);
+    
+    // Draw grid lines on the tile
     const drawLines = (spacing, alpha) => {
       if (!Number.isFinite(spacing) || spacing < 4) {
         return;
       }
 
-      ctx.beginPath();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      gridCtx.beginPath();
+      gridCtx.lineWidth = 1;
+      gridCtx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
 
       // Vertical lines
-      let x = offsetX + Math.floor(-offsetX / spacing) * spacing;
-      while (x < 0) {
-        x += spacing;
-      }
-      for (; x <= width; x += spacing) {
+      for (let x = 0; x <= tileSize; x += spacing) {
         const px = Math.round(x) + 0.5;
-        ctx.moveTo(px, 0);
-        ctx.lineTo(px, height);
+        gridCtx.moveTo(px, 0);
+        gridCtx.lineTo(px, tileSize);
       }
 
       // Horizontal lines
-      let y = offsetY + Math.floor(-offsetY / spacing) * spacing;
-      while (y < 0) {
-        y += spacing;
-      }
-      for (; y <= height; y += spacing) {
+      for (let y = 0; y <= tileSize; y += spacing) {
         const py = Math.round(y) + 0.5;
-        ctx.moveTo(0, py);
-        ctx.lineTo(width, py);
+        gridCtx.moveTo(0, py);
+        gridCtx.lineTo(tileSize, py);
       }
 
-      ctx.stroke();
+      gridCtx.stroke();
     };
 
+    // Draw both minor and major grid lines
     drawLines(minorSpacing, 0.025);
     drawLines(majorSpacing, 0.07);
   }
@@ -837,6 +938,19 @@ export class Renderer {
 
   // Helper methods
   _getNodePinPositions(node) {
+    // PERFORMANCE: Cache pin positions during panning
+    // Pin positions only change when node moves, not during panning
+    const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function' 
+      ? this.viewport.isPanning() 
+      : (this.viewport._isPanning || false);
+    
+    if (isPanning) {
+      const cached = this._nodePinCache.get(node.id);
+      if (cached && cached.version === this._nodePinCacheVersion) {
+        return { inputPins: cached.inputPins, outputPins: cached.outputPins };
+      }
+    }
+    
     const inputPins = [];
     for (let i = 0; i < (NodeDefs[node.kind]?.inputs || 0); i++) {
       inputPins.push({ x: node.x + 8, y: node.y + 32 + i * 18 });
@@ -847,8 +961,26 @@ export class Renderer {
     for (let i = 0; i < outCount; i++) {
       outputPins.push({ x: node.x + node.w - 8, y: node.y + 32 + i * 18 });
     }
+    
+    // Cache the result during panning
+    if (isPanning) {
+      this._nodePinCache.set(node.id, {
+        inputPins,
+        outputPins,
+        version: this._nodePinCacheVersion
+      });
+    }
 
     return { inputPins, outputPins };
+  }
+  
+  /**
+   * Clear node pin position cache
+   * Called when panning stops or nodes move
+   */
+  _clearNodePinCache() {
+    this._nodePinCache.clear();
+    this._nodePinCacheVersion++;
   }
 
   _getInputPinPosition(node, pinIndex) {
