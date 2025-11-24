@@ -42,6 +42,10 @@ export class EventHandler {
     // PERFORMANCE: Track active canvas interactions to skip GPU rendering during pan/drag
     this._isCanvasInteracting = false;
     this._canvasInteractionEndTimer = null;
+    // PERFORMANCE: Track panning state separately for frame-based throttling
+    this._isPanning = false;
+    this._panFrameCounter = 0; // Frame counter for panning throttling
+    this._panFrameSkipThreshold = 2; // Skip every 2nd frame (redraw every 2 frames = ~30fps during pan)
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -168,6 +172,8 @@ export class EventHandler {
   // PERFORMANCE: During interactions, just mark dirty - main loop handles rendering
   // This prevents double rendering (RAF callback + main loop) which causes FPS drops
   // The main render loop already calls editor.draw() every frame if dirty
+  // PERFORMANCE: During panning, always mark dirty so draw() is called every frame
+  // Frame-based throttling is handled in editor.draw() to skip actual rendering
   _requestDraw(reason = 'user-interaction') {
     if (this.editor && typeof this.editor.markDirty === 'function') {
       this.editor.markDirty(reason);
@@ -176,6 +182,31 @@ export class EventHandler {
     // Calling _requestRender() here causes double rendering during interactions
     // Main loop runs at 60fps and checks _isDirty flag, so we don't need separate RAF
     // this._requestRender(); // REMOVED: Causes double rendering
+  }
+  
+  // Check if panning is currently active
+  isPanning() {
+    return this._isPanning;
+  }
+  
+  // Get current pan frame counter (for editor.draw() to check)
+  getPanFrameCounter() {
+    return this._panFrameCounter;
+  }
+  
+  // Increment pan frame counter (called from editor.draw() during panning)
+  incrementPanFrameCounter() {
+    this._panFrameCounter++;
+  }
+  
+  // Get pan frame skip threshold
+  getPanFrameSkipThreshold() {
+    return this._panFrameSkipThreshold;
+  }
+  
+  // Reset pan frame counter (called from editor.draw() when threshold reached)
+  resetPanFrameCounter() {
+    this._panFrameCounter = 0;
   }
 
   // Throttled render using requestAnimationFrame for better performance
@@ -342,10 +373,19 @@ export class EventHandler {
     window.addEventListener(
       "mouseup",
       (e) => {
+        const wasPanning = this._isPanning;
         this.viewport.stopPan();
+        // Clear panning state and reset frame counter
+        this._isPanning = false;
+        this._panFrameCounter = 0;
         // Clear any pending pan updates
         this._pendingPanUpdate = null;
         this._panUpdateScheduled = false;
+        
+        // Force final redraw when panning stops to ensure final state is rendered
+        if (wasPanning) {
+          this._requestDraw('pan-end');
+        }
 
         if (this._panCandidate && e.button === 0) {
           if (!this._panCandidate.moved) {
@@ -373,6 +413,12 @@ export class EventHandler {
       (e) => {
         // Check if we're currently panning
         if (this.viewport.isPanning()) {
+          // Set panning flag if not already set
+          if (!this._isPanning) {
+            this._isPanning = true;
+            this._panFrameCounter = 0; // Reset frame counter when panning starts
+          }
+          
           // Store the pending pan update position
           this._pendingPanUpdate = { clientX: e.clientX, clientY: e.clientY };
 
@@ -644,6 +690,9 @@ export class EventHandler {
           moved: false,
         };
         this.viewport.startPan(e.clientX, e.clientY);
+        // Set panning flag and reset frame counter
+        this._isPanning = true;
+        this._panFrameCounter = 0;
         // CRITICAL: Reset pan update count to force immediate updates for first pan movements
         this._panUpdateCount = 0;
         // Mark interaction start time for first-frame immediate updates

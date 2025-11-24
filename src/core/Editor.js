@@ -848,6 +848,28 @@ connectGPURenderer(renderFunction) {
       return;
     }
 
+    // PERFORMANCE: Frame-based throttling during panning
+    // Check if panning is active and apply frame skipping
+    const isPanning = this.eventHandler?.isPanning?.() || false;
+    if (isPanning) {
+      // Increment frame counter during panning
+      this.eventHandler.incrementPanFrameCounter();
+      const frameCounter = this.eventHandler.getPanFrameCounter();
+      const skipThreshold = this.eventHandler.getPanFrameSkipThreshold();
+      
+      // Skip actual drawing if frame counter hasn't reached threshold
+      // Viewport transform is already updated in mousemove handler, so we just skip rendering
+      if (frameCounter < skipThreshold) {
+        // Skip rendering but still clear dirty flag to prevent accumulation
+        // The viewport transform is already updated, so visual state is correct
+        this.clearDirty();
+        return;
+      }
+      
+      // Reset counter when threshold reached (we're about to render)
+      this.eventHandler.resetPanFrameCounter();
+    }
+
     // Check if canvas is currently being interacted with (pan, drag, etc.)
     const isInteracting = this.eventHandler?.isCanvasInteracting?.() || false;
     
