@@ -28,8 +28,205 @@ export class FloatingGPUPreview {
     this.animationLoop = null;
     // Track previous canvas size to avoid unnecessary rebuilds
     this._lastCanvasSize = { width: 0, height: 0 };
+    this._pendingDragPosition = null;
+    this._dragRafId = null;
+    this._pendingResizeDimensions = null;
+    this._resizeRafId = null;
+    this.isCanvasInteractionActive = false;
+    this._handleInteractionEvent = this._handleInteractionEvent.bind(this);
+    window.addEventListener("floating-preview-interaction", this._handleInteractionEvent);
+    this._adaptiveConfig = {
+      enabled: true,
+      interactionScale: 0.7,
+      resolutionScale: 0.75,
+      cooldownMs: 350,
+    };
+    this._isAdaptiveActive = false;
+    this._adaptiveScaleMultiplier = 1;
+    this._adaptiveResolutionMultiplier = 1;
+    this._adaptiveCooldownTimer = null;
     this._setupParameterListeners();
     this._setupAnimationLoop();
+    this.onAdaptiveSettingsChanged(this.settings.settings.adaptiveQuality);
+  }
+
+  _getPerfMonitor() {
+    return window.previewPerfMonitor || null;
+  }
+
+  _recordPerfRead(label) {
+    const perf = this._getPerfMonitor();
+    perf?.recordLayoutRead(`preview:${label}`);
+  }
+
+  _recordPerfWrite(label) {
+    const perf = this._getPerfMonitor();
+    perf?.recordLayoutWrite(`preview:${label}`);
+  }
+  
+  _clamp(value, min, max) {
+    if (!Number.isFinite(value)) return min;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  _getAdaptiveConfig() {
+    return this._adaptiveConfig || {
+      enabled: false,
+      interactionScale: 1,
+      resolutionScale: 1,
+      cooldownMs: 300,
+    };
+  }
+
+  _getEffectiveResolution() {
+    const { width, height } = this.settings.settings.resolution;
+    const multiplier = this._adaptiveResolutionMultiplier || 1;
+    const effectiveWidth = Math.max(64, Math.round(width * multiplier));
+    const effectiveHeight = Math.max(64, Math.round(height * multiplier));
+    return { width: effectiveWidth, height: effectiveHeight, baseWidth: width, baseHeight: height };
+  }
+
+  _getDisplayScale() {
+    const baseScale = this.isDocked ? 0.3 : this.previewScale;
+    return baseScale * (this._adaptiveScaleMultiplier || 1);
+  }
+
+  _applyDragPosition(left, top) {
+    this.container.style.left = left + "px";
+    this.container.style.top = top + "px";
+    this._recordPerfWrite("drag:position");
+    this.position.x = left;
+    this.position.y = top;
+    if (this.settings.settingsPanel) {
+      this.settings._positionSettingsPanel();
+      this._recordPerfWrite("drag:settingsPanel");
+    }
+  }
+
+  _scheduleDragPositionFlush() {
+    if (this._dragRafId || !this._pendingDragPosition) return;
+    this._dragRafId = requestAnimationFrame(() => {
+      this._dragRafId = null;
+      if (!this._pendingDragPosition) return;
+      const { left, top } = this._pendingDragPosition;
+      this._pendingDragPosition = null;
+      this._applyDragPosition(left, top);
+    });
+  }
+
+  _flushDragPosition() {
+    if (!this._pendingDragPosition) return;
+    const { left, top } = this._pendingDragPosition;
+    this._pendingDragPosition = null;
+    if (this._dragRafId) {
+      cancelAnimationFrame(this._dragRafId);
+      this._dragRafId = null;
+    }
+    this._applyDragPosition(left, top);
+  }
+
+  _applyResizeDimensions(widthPx, heightPx) {
+    this.container.style.width = widthPx + "px";
+    this.container.style.height = heightPx + "px";
+    this._recordPerfWrite("resize:container");
+  }
+
+  _scheduleResizeFlush() {
+    if (this._resizeRafId || !this._pendingResizeDimensions) return;
+    this._resizeRafId = requestAnimationFrame(() => {
+      this._resizeRafId = null;
+      if (!this._pendingResizeDimensions) return;
+      const { width, height } = this._pendingResizeDimensions;
+      this._pendingResizeDimensions = null;
+      this._applyResizeDimensions(width, height);
+    });
+  }
+
+  _flushResizeDimensions() {
+    if (!this._pendingResizeDimensions) return;
+    const { width, height } = this._pendingResizeDimensions;
+    this._pendingResizeDimensions = null;
+    if (this._resizeRafId) {
+      cancelAnimationFrame(this._resizeRafId);
+      this._resizeRafId = null;
+    }
+    this._applyResizeDimensions(width, height);
+  }
+
+  onAdaptiveSettingsChanged(config = {}) {
+    const normalized = {
+      enabled: config?.enabled !== false,
+      interactionScale: this._clamp(
+        Number(config?.interactionScale ?? this._adaptiveConfig.interactionScale ?? 0.7),
+        0.3,
+        1
+      ),
+      resolutionScale: this._clamp(
+        Number(config?.resolutionScale ?? this._adaptiveConfig.resolutionScale ?? 0.75),
+        0.25,
+        1
+      ),
+      cooldownMs: Math.max(50, Number(config?.cooldownMs ?? this._adaptiveConfig.cooldownMs ?? 350)),
+    };
+
+    this._adaptiveConfig = normalized;
+    if (!normalized.enabled) {
+      this._exitAdaptiveMode(true);
+    } else if (this._isAdaptiveActive) {
+      this._adaptiveScaleMultiplier = normalized.interactionScale;
+      this._adaptiveResolutionMultiplier = normalized.resolutionScale;
+      if (this.isVisible) {
+        this.updateSize();
+      }
+    }
+  }
+
+  _applyAdaptiveInteractionState(active, reason = "interaction") {
+    const config = this._getAdaptiveConfig();
+    if (!config.enabled) return;
+
+    if (active) {
+      if (this._adaptiveCooldownTimer) {
+        clearTimeout(this._adaptiveCooldownTimer);
+        this._adaptiveCooldownTimer = null;
+      }
+      if (!this._isAdaptiveActive) {
+        this._isAdaptiveActive = true;
+        this._adaptiveScaleMultiplier = config.interactionScale;
+        this._adaptiveResolutionMultiplier = config.resolutionScale;
+        this._announceAdaptiveState("engaged", reason);
+        this.updateSize();
+      }
+    } else {
+      if (!this._isAdaptiveActive) return;
+      if (this._adaptiveCooldownTimer) {
+        clearTimeout(this._adaptiveCooldownTimer);
+      }
+      this._adaptiveCooldownTimer = setTimeout(() => {
+        this._adaptiveCooldownTimer = null;
+        this._exitAdaptiveMode(false, reason);
+      }, config.cooldownMs);
+    }
+  }
+
+  _exitAdaptiveMode(force = false, reason = "interaction") {
+    if (!force && !this._isAdaptiveActive) return;
+    if (this._adaptiveCooldownTimer) {
+      clearTimeout(this._adaptiveCooldownTimer);
+      this._adaptiveCooldownTimer = null;
+    }
+    this._isAdaptiveActive = false;
+    this._adaptiveScaleMultiplier = 1;
+    this._adaptiveResolutionMultiplier = 1;
+    this._announceAdaptiveState("restored", reason);
+    if (this.isVisible) {
+      this.updateSize();
+    }
+  }
+
+  _announceAdaptiveState(phase, reason) {
+    const perf = this._getPerfMonitor();
+    perf?.recordValue("previewAdaptiveState", `${phase}:${reason}`);
   }
 
 _setupParameterListeners() {
@@ -168,7 +365,8 @@ _setupAnimationLoop() {
   async updateSize() {
     if (!this.container || this.isFullscreen) return;
 
-    const { width, height } = this.settings.settings.resolution;
+    const perfToken = this._getPerfMonitor()?.timeSection("previewDom");
+    const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
     const headerHeight = 37;
     const padding = 20;
 
@@ -188,28 +386,18 @@ _setupAnimationLoop() {
       this.gpuCanvas.height = height;
     }
 
-    if (this.isDocked) {
-      const dockedScale = 0.3;
-      const dockedWidth = width * dockedScale;
-      const dockedHeight = height * dockedScale;
+    const displayScale = this._getDisplayScale();
+    const cssWidth = baseWidth * displayScale;
+    const cssHeight = baseHeight * displayScale;
 
-      this.container.style.width = dockedWidth + padding + "px";
-      this.container.style.height = dockedHeight + headerHeight + padding + "px";
+    this.container.style.width = cssWidth + padding + "px";
+    this.container.style.height = cssHeight + headerHeight + padding + "px";
+    this._recordPerfWrite("updateSize:container");
 
-      // FIX: Set CSS size to maintain aspect ratio
-      this.gpuCanvas.style.width = dockedWidth + "px";
-      this.gpuCanvas.style.height = dockedHeight + "px";
-    } else {
-      const displayWidth = width * this.previewScale;
-      const displayHeight = height * this.previewScale;
-
-      this.container.style.width = displayWidth + padding + "px";
-      this.container.style.height = displayHeight + headerHeight + padding + "px";
-
-      // FIX: Set CSS size to maintain aspect ratio
-      this.gpuCanvas.style.width = displayWidth + "px";
-      this.gpuCanvas.style.height = displayHeight + "px";
-    }
+    // FIX: Set CSS size to maintain aspect ratio
+    this.gpuCanvas.style.width = cssWidth + "px";
+    this.gpuCanvas.style.height = cssHeight + "px";
+    this._recordPerfWrite("updateSize:canvas");
 
     this._updateTitle();
 
@@ -253,8 +441,8 @@ async show() {
     canvasWrapper.appendChild(this.gpuCanvas);
 
     // FIX: Don't use 100% - use actual scaled dimensions
-    const { width, height } = this.settings.settings.resolution;
-    const scale = this.isDocked ? 0.3 : this.previewScale;
+    const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
+    const scale = this._getDisplayScale();
 
     // CRITICAL FIX: Use synchronized resize to prevent screen tearing
     const gpuRenderer = window.gpuRenderer;
@@ -266,8 +454,8 @@ async show() {
       this.gpuCanvas.height = height;
     }
 
-    this.gpuCanvas.style.width = (width * scale) + "px";
-    this.gpuCanvas.style.height = (height * scale) + "px";
+    this.gpuCanvas.style.width = (baseWidth * scale) + "px";
+    this.gpuCanvas.style.height = (baseHeight * scale) + "px";
     this.gpuCanvas.style.position = "relative";
     this.gpuCanvas.style.zIndex = "auto";
     // FIX: Override global canvas CSS that sets left/top to 0
@@ -438,6 +626,7 @@ async show() {
     if (window.rebuild) {
       window.rebuild();
     }
+    this._getPerfMonitor()?.endSection(perfToken);
   }
 
   toggleLock() {
@@ -461,11 +650,17 @@ async show() {
   _updateTitle() {
     const title = this.container?.querySelector(".preview-title");
     if (title) {
-      const { width, height } = this.settings.settings.resolution;
-      const scale = this.isDocked
+      const baseWidth = this.settings.settings.resolution.width;
+      const baseHeight = this.settings.settings.resolution.height;
+      const effective = this._getEffectiveResolution();
+      const scaleValue = this.isDocked
         ? "Docked"
-        : `${Math.round(this.previewScale * 100)}%`;
-      title.textContent = `Preview ${width}×${height} (${scale})`;
+        : `${Math.round(this.previewScale * (this._adaptiveScaleMultiplier || 1) * 100)}%`;
+      const resolutionLabel = this._isAdaptiveActive
+        ? `${baseWidth}×${baseHeight} → ${effective.width}×${effective.height}`
+        : `${baseWidth}×${baseHeight}`;
+      const adaptiveLabel = this._isAdaptiveActive ? " • adaptive" : "";
+      title.textContent = `Preview ${resolutionLabel} (${scaleValue}${adaptiveLabel})`;
     }
   }
 
@@ -723,6 +918,7 @@ canvasWrapper.style.cssText = `
       startY = e.clientY;
 
       const rect = this.container.getBoundingClientRect();
+      this._recordPerfRead("drag:startBounds");
       startLeft = rect.left;
       startTop = rect.top;
 
@@ -749,25 +945,26 @@ canvasWrapper.style.cssText = `
         Math.min(window.innerHeight - 150, startTop + deltaY),
       );
 
-      this.container.style.left = newLeft + "px";
-      this.container.style.top = newTop + "px";
-
-      this.position.x = newLeft;
-      this.position.y = newTop;
-
-      if (this.settings.settingsPanel) {
-        this.settings._positionSettingsPanel();
-      }
+      this._pendingDragPosition = { left: newLeft, top: newTop };
+      this._scheduleDragPositionFlush();
     };
 
     const onMouseUp = () => {
       this.isDragging = false;
       this.container.style.transition = "opacity 0.2s ease, transform 0.2s ease";
+      this._flushDragPosition();
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
 
     header.addEventListener("mousedown", onMouseDown);
+  }
+
+  _handleInteractionEvent(event) {
+    const detail = event?.detail || {};
+    const isActive = !!detail.active;
+    this.isCanvasInteractionActive = isActive;
+    this._applyAdaptiveInteractionState(isActive, detail.reason || "canvas");
   }
 
   _setupDockedResize() {
@@ -782,6 +979,7 @@ canvasWrapper.style.cssText = `
       startY = e.clientY;
 
       const rect = this.container.getBoundingClientRect();
+      this._recordPerfRead("resize:startBounds");
       startWidth = rect.width;
       startHeight = rect.height;
 
@@ -809,12 +1007,13 @@ canvasWrapper.style.cssText = `
         newWidth = (newHeight - 37 - 20) * aspectRatio + 20;
       }
 
-      this.container.style.width = newWidth + "px";
-      this.container.style.height = newHeight + "px";
+      this._pendingResizeDimensions = { width: newWidth, height: newHeight };
+      this._scheduleResizeFlush();
     };
 
     const onMouseUp = () => {
       this.isResizing = false;
+      this._flushResizeDimensions();
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };

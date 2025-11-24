@@ -18,6 +18,10 @@ export class PreviewComputer {
     this.previewRequestThrottle = 16; // ~60 FPS max
     this.useWorker = false;
     this.previewRequestTimeout = 5000; // 5 second timeout for preview requests
+    this.cachedPreviews = null;
+    this.lastPreviewComputeTime = 0;
+    this.interactionCacheWindow = 250;
+    this._interactionMode = false;
     
     // Initialize worker support (deferred, non-blocking)
     if (typeof requestIdleCallback !== 'undefined') {
@@ -58,6 +62,17 @@ export class PreviewComputer {
    * Request preview computation (synchronous)
    */
   async requestPreviewComputation(graph, timeContext, audioContext, callback) {
+    if (
+      this._interactionMode &&
+      this.cachedPreviews &&
+      performance.now() - this.lastPreviewComputeTime < this.interactionCacheWindow
+    ) {
+      if (callback) {
+        callback(this.cachedPreviews);
+      }
+      return;
+    }
+
     // Run computation synchronously
     const startTime = performance.now();
     const result = this.computePreviews(graph);
@@ -70,7 +85,19 @@ export class PreviewComputer {
     
     // Invoke callback immediately
     if (callback) {
-      callback(result?.previews || {});
+      const previews = result?.previews || {};
+      this.cachedPreviews = previews;
+      this.lastPreviewComputeTime = performance.now();
+      callback(previews);
+    }
+  }
+
+  setInteractionMode(active) {
+    this._interactionMode = !!active;
+    if (!this._interactionMode) {
+      this.interactionCacheWindow = 250;
+    } else {
+      this.interactionCacheWindow = 400;
     }
   }
   

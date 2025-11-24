@@ -20,6 +20,12 @@ export class PreviewSettings {
       isPaused: false,
       quality: "high",
       showFPS: false,
+      adaptiveQuality: {
+        enabled: true,
+        interactionScale: 0.7,
+        resolutionScale: 0.75,
+        cooldownMs: 350,
+      },
     };
     // Ensure resolution object exists
     if (!this.settings.resolution) {
@@ -486,11 +492,20 @@ async _publishAnimation() {
       } else if (elementByDataAttr.type === 'range') {
         if (elementByDataAttr.value !== String(value)) {
           elementByDataAttr.value = value;
-          // Update value display if it exists
-          const valueDisplay = elementByDataAttr.parentElement?.querySelector('.slider-value, span');
-          if (valueDisplay && key === 'refreshRate') {
-            valueDisplay.textContent = `${value}Hz`;
+        }
+        const unit = elementByDataAttr.dataset.displayUnit || '';
+        const valueDisplay =
+          this.settingsPanel.querySelector(`[data-slider-value-for="${key}"]`) ||
+          elementByDataAttr.parentElement?.querySelector('.slider-value');
+        if (valueDisplay) {
+          const numericValue = Number(value);
+          let formatted = value;
+          if (Number.isFinite(numericValue)) {
+            const precision = unit === 'ms' ? 0 : 2;
+            formatted = numericValue.toFixed(precision);
+            formatted = formatted.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
           }
+          valueDisplay.textContent = `${formatted}${unit}`;
         }
       }
       return; // Found by data attribute, done
@@ -603,6 +618,12 @@ async _publishAnimation() {
         break;
       case "isPaused":
         this._updatePauseState(value);
+        break;
+      case "adaptiveQuality.enabled":
+      case "adaptiveQuality.interactionScale":
+      case "adaptiveQuality.resolutionScale":
+      case "adaptiveQuality.cooldownMs":
+        this._updateAdaptiveQuality();
         break;
     }
   }
@@ -803,6 +824,12 @@ async _publishAnimation() {
     }
   }
 
+  _updateAdaptiveQuality() {
+    if (this.floatingPreview && typeof this.floatingPreview.onAdaptiveSettingsChanged === "function") {
+      this.floatingPreview.onAdaptiveSettingsChanged(this.settings.adaptiveQuality);
+    }
+  }
+
   _createSettingsPanel() {
     const panel = document.createElement("div");
     panel.className = "preview-settings-panel custom-scroll";
@@ -898,6 +925,10 @@ async _publishAnimation() {
     );
 
     content.appendChild(
+      this._createSection("Adaptive Quality", this._createAdaptiveQualityControls()),
+    );
+
+    content.appendChild(
       this._createSection("Animation", [
         this._createSlider(
           "Time Scale",
@@ -946,6 +977,44 @@ async _publishAnimation() {
     controls.forEach((control) => section.appendChild(control));
 
     return section;
+  }
+
+  _createAdaptiveQualityControls() {
+    const config = this.settings.adaptiveQuality || {};
+    return [
+      this._createCheckbox(
+        "Enable adaptive scaling",
+        "adaptiveQuality.enabled",
+        config.enabled !== false,
+      ),
+      this._createSlider(
+        "Interaction size",
+        "adaptiveQuality.interactionScale",
+        0.3,
+        1,
+        config.interactionScale ?? 0.7,
+        "x",
+        0.05,
+      ),
+      this._createSlider(
+        "Resolution scale",
+        "adaptiveQuality.resolutionScale",
+        0.25,
+        1,
+        config.resolutionScale ?? 0.75,
+        "x",
+        0.05,
+      ),
+      this._createSlider(
+        "Recovery delay",
+        "adaptiveQuality.cooldownMs",
+        100,
+        1000,
+        config.cooldownMs ?? 350,
+        "ms",
+        50,
+      ),
+    ];
   }
 
   _createResolutionControl() {
@@ -1093,6 +1162,8 @@ async _publishAnimation() {
 
     const valueEl = document.createElement("span");
     valueEl.textContent = `${value}${unit}`;
+    valueEl.classList.add("slider-value");
+    valueEl.setAttribute("data-slider-value-for", key);
     valueEl.style.cssText = "color: #fff; font-size: 12px; font-weight: 500;";
 
     const slider = document.createElement("input");
@@ -1101,6 +1172,8 @@ async _publishAnimation() {
     slider.max = max;
     slider.step = step;
     slider.value = value;
+    slider.setAttribute("data-setting-key", key);
+    slider.dataset.displayUnit = unit;
     slider.style.cssText = `
       width: 100%;
       height: 4px;
@@ -1169,6 +1242,7 @@ async _publishAnimation() {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = checked;
+    checkbox.setAttribute("data-setting-key", key);
     checkbox.style.cssText = `
       width: 16px;
       height: 16px;
@@ -1241,6 +1315,7 @@ async _publishAnimation() {
       background-size: 12px;
       padding-right: 32px;
     `;
+    select.setAttribute("data-setting-key", key);
 
     options.forEach((option) => {
       const optionEl = document.createElement("option");

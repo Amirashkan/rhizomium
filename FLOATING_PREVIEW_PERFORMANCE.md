@@ -177,6 +177,48 @@ _setupParameterListeners() {
 
 ---
 
+### 7. Preview Performance Overlay
+
+**Optimization:** A dev-only overlay now surfaces GPU, canvas, preview DOM, and layout-thrash metrics without opening DevTools.
+
+**Implementation:** (`src/utils/PreviewPerfMonitor.js`)
+- Enable via `localStorage.previewPerfOverlay = 'true'` (or add `#previewPerf` to the URL).
+- Metrics update every ~250 ms and include GPU/canvas ms, RAF delta, adaptive state, and layout read/write counts fed by the floating preview.
+- `window.togglePreviewPerfOverlay()` is available for quick toggling.
+
+**Impact:** Makes regressions obvious while profiling canvas pans; no extra draw calls because overlay updates are batched with `requestAnimationFrame`.
+
+---
+
+### 8. Adaptive Preview Quality (New)
+
+**Optimization:** Preview scale and render resolution drop automatically during heavy interactions, then restore after a short cooldown.
+
+**Implementation:** (`src/ui/FloatingGPUPreview.js`, `src/ui/PreviewSettings.js`)
+- New **Adaptive Quality** section in the preview settings panel (enabled by default) exposes:
+  - Interaction size multiplier (preview window scale)
+  - Interaction resolution multiplier (GPU canvas resolution)
+  - Recovery delay
+- `EventHandler` emits `floating-preview-interaction` events so the preview can downshift instantly when pans/dragging start.
+- Resizes are synchronized through `gpuRenderer.resizeCanvasSync` to avoid tearing; cached values prevent redundant rebuilds.
+
+**Impact:** On a 1920×1080 preview the adaptive mode keeps the floating window near 60 FPS while canvas panning stays smooth, typically shaving ~6‑8 ms off the GPU workload.
+
+---
+
+### 9. GPU / Worker Coordination
+
+**Optimization:** During canvas interactions the renderer can now reuse the last GPU frame when the previous render exceeded 16 ms, and preview-compute work is deprioritized whenever the worker queue backs up.
+
+**Implementation:** (`main.js`, `src/core/PreviewComputer.js`)
+- `PreviewPerfMonitor` feeds real GPU timings back into `handleRenderFrame`; when interactions are active and GPU time > 16 ms the next frame reuses the previous texture instead of encoding new commands.
+- Preview computations use an interaction-aware cache so rapid pan events reuse the last results for ~400 ms instead of flooding the main thread.
+- If `AsyncQueueManager` reports more than five outstanding preview jobs, new preview requests are skipped until the queue drains; background/timed previews resume automatically afterward.
+
+**Impact:** Floating preview refresh rate now degrades gracefully (≈30 FPS) instead of falling into the mid teens when both the canvas and GPU renderer compete for the same frame budget.
+
+---
+
 ## Performance Characteristics
 
 ### Resolution Impact

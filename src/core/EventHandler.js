@@ -192,8 +192,12 @@ export class EventHandler {
 
   // Mark canvas as actively interacting (pan, drag, etc.)
   // This allows GPU rendering to be skipped during interactions for better performance
-  _markCanvasInteracting() {
+  _markCanvasInteracting(reason = 'canvas') {
+    const wasInteracting = this._isCanvasInteracting;
     this._isCanvasInteracting = true;
+    if (!wasInteracting) {
+      this._emitFloatingPreviewInteraction(true, reason);
+    }
     
     // PERFORMANCE: Stop continuous warmup during active interactions
     // This prevents background work from interfering with panning performance
@@ -206,11 +210,30 @@ export class EventHandler {
     
     // Mark interaction as ended after a short delay (when user stops moving mouse)
     this._canvasInteractionEndTimer = setTimeout(() => {
+      if (!this._isCanvasInteracting) {
+        return;
+      }
       this._isCanvasInteracting = false;
       this._canvasInteractionEndTimer = null;
+      this._emitFloatingPreviewInteraction(false, reason);
       // Resume continuous warmup after interaction ends
       this._startContinuousWarmup();
     }, 150); // 150ms after last interaction
+  }
+  _emitFloatingPreviewInteraction(active, reason) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("floating-preview-interaction", {
+          detail: {
+            active,
+            reason,
+            timestamp: performance.now(),
+          },
+        })
+      );
+    } catch {
+      // Ignore if window/custom event is unavailable (non-browser tests)
+    }
   }
 
   // Check if canvas is currently being interacted with
@@ -396,7 +419,7 @@ export class EventHandler {
             // Update pan state immediately
             if (this.viewport.updatePan(clientX, clientY)) {
               // Mark canvas as interacting to skip GPU rendering during pan
-              this._markCanvasInteracting();
+              this._markCanvasInteracting('pan');
               // Use RAF batching for smooth performance
               this._requestDraw('pan');
             }
@@ -673,7 +696,7 @@ export class EventHandler {
       }
 
       // Mark canvas as interacting to skip GPU rendering during drag
-      this._markCanvasInteracting();
+      this._markCanvasInteracting('node-drag-start');
       // Mark dirty and request draw (RAF batched for performance)
       this._requestDraw('node-drag-start');
     });
@@ -789,7 +812,7 @@ export class EventHandler {
           if (this.connections.getDragWire()) {
             this.connections.updateWireDrag(pos);
             // Mark canvas as interacting to skip GPU rendering during drag
-            this._markCanvasInteracting();
+            this._markCanvasInteracting('wire-drag');
             // Use RAF batching for smooth performance
             this._requestDraw('wire-drag');
             return;
@@ -799,7 +822,7 @@ export class EventHandler {
           if (this.selection.getBoxSelect()) {
             this.selection.updateBoxSelect(pos.x, pos.y);
             // Mark canvas as interacting to skip GPU rendering during selection
-            this._markCanvasInteracting();
+            this._markCanvasInteracting('box-select');
             // Use RAF batching for smooth performance
             this._requestDraw('box-select');
             return;
@@ -808,7 +831,7 @@ export class EventHandler {
           // Handle node dragging
           if (this.selection.getDragging()) {
             // Mark canvas as interacting to skip GPU rendering during drag
-            this._markCanvasInteracting();
+            this._markCanvasInteracting('node-drag');
             // Update drag position
             this.selection.updateDrag(pos.x, pos.y);
             // Use RAF batching for smooth performance

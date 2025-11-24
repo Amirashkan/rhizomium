@@ -12,6 +12,7 @@ export class Renderer {
   }
 
   render(graph, renderState) {
+    const perfToken = window.previewPerfMonitor?.timeSection("canvas");
     const ctx = this.ctx;
     if (renderState.editor) {
       window.editor = renderState.editor; // Make editor accessible
@@ -60,6 +61,10 @@ export class Renderer {
     }
 
     ctx.restore();
+    window.previewPerfMonitor?.endSection(perfToken, {
+      canvasNodeCount: graph?.nodes?.length || 0,
+      canvasConnectionCount: graph?.connections?.length || 0,
+    });
   }
 
   _renderBackgroundGrid() {

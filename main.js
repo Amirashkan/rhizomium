@@ -43,6 +43,7 @@ import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
 import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
+import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -187,6 +188,8 @@ let viewportPanel = null;
 let sceneRenderer3D = null;
 let fieldVisualizerManager = null;
 let fieldMapperIntegration = null;
+const previewPerfMonitor = new PreviewPerfMonitor();
+window.previewPerfMonitor = previewPerfMonitor;
 
 // Frame streaming client for dual-screen support
 let frameStreamClient = null;
@@ -3687,6 +3690,7 @@ let lastPreviewUpdate = -PREVIEW_UPDATE_OFFSET; // Start with offset to spread o
 let lastProfilerUpdate = -PROFILER_UPDATE_OFFSET;
 const PROFILER_UPDATE_INTERVAL = 200; // Update profiler overlay every 200ms (5 FPS)
 const PREVIEW_UPDATE_INTERVAL = 500; // ms (further reduced frequency to improve performance - ~2 FPS)
+const GPU_INTERACTION_REUSE_THRESHOLD = 16; // ms - reuse last GPU frame if render cost exceeds this during interactions
 
 async function updateShaderFromGraph() {
   try {
@@ -3856,6 +3860,7 @@ function updateStatus(message, type = "info") {
 let gpuFrameSkipCounter = 0;
 
 function handleRenderFrame(frameState) {
+  previewPerfMonitor?.beginFrame(frameState);
   // PERFORMANCE: Skip expensive operations during parameter drag
   // When dragging parameters, we don't need to update anything
   // All updates happen once on mouseup
@@ -3864,6 +3869,7 @@ function handleRenderFrame(frameState) {
   // PERFORMANCE: Track canvas interactions to throttle GPU rendering
   // This prevents GPU and canvas from competing for resources, causing FPS drops
   const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+  previewPerfMonitor?.recordInteractionState({ isCanvasInteracting, isDragging });
 
   // PERFORMANCE: Skip expensive operations during drag, but keep basic rendering
   // Update timeline manager (only if not dragging)
@@ -3879,20 +3885,30 @@ function handleRenderFrame(frameState) {
   // GPU rendering - Continue during canvas interactions but with frame throttling
   // FIX: Allow preview to continue rendering during panning to prevent freezing
   // Use frame skipping during interactions (render every 2nd frame) to reduce load
-  const shouldRenderGPU = !isCanvasInteracting || (gpuFrameSkipCounter % 2 === 0);
+  const gpuBudgetExceeded =
+    isCanvasInteracting &&
+    (previewPerfMonitor?.getMetric("gpuMs") || 0) > GPU_INTERACTION_REUSE_THRESHOLD;
+  previewPerfMonitor?.recordValue("gpuReuseActive", gpuBudgetExceeded ? 1 : 0);
+  const shouldRenderGPU =
+    !gpuBudgetExceeded && (!isCanvasInteracting || (gpuFrameSkipCounter % 2 === 0));
   
   if (shouldRenderGPU) {
+    const gpuToken = previewPerfMonitor?.timeSection("gpu");
     // Check if compute shader test is active
     if (computeShaderTest && computeShaderTest.isEnabled) {
       // Render compute shader test instead of normal renderer
       computeShaderTest.render(frameState.simTime);
+      previewPerfMonitor?.endSection(gpuToken);
     } else if (window.gpuRenderer) {
       // ARCHITECTURAL FIX: Separate GPU and canvas rendering threads
       // GPU renderer is async and not awaited - it runs independently
       // This allows GPU work to proceed in parallel with canvas rendering
       // GPU renderer's sync work completes immediately, then async work proceeds
       // Canvas rendering can run without blocking GPU work continuation
-      window.gpuRenderer.render({ timeSec: frameState.simTime }).catch(err => {
+      const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+      previewPerfMonitor?.endSection(gpuToken);
+      previewPerfMonitor?.attachAsyncMetric("gpuQueueWaitMs", renderPromise);
+      renderPromise.catch(err => {
         // Silently handle render errors to avoid breaking render loop
         // Errors are already logged in gpuRenderer.render()
       });
@@ -3986,7 +4002,10 @@ function handleRenderFrame(frameState) {
   if (!frameState.manual) {
     if (!isDragging) {
       const now = performance.now();
-      const shouldUpdatePreviews = (now - lastPreviewUpdate) >= PREVIEW_UPDATE_INTERVAL;
+      const previewInterval = isCanvasInteracting
+        ? PREVIEW_UPDATE_INTERVAL * 1.5
+        : PREVIEW_UPDATE_INTERVAL;
+      const shouldUpdatePreviews = (now - lastPreviewUpdate) >= previewInterval;
 
       if (shouldUpdatePreviews) {
         if (editor?.previewComputer && editor?.graph) {
@@ -3999,10 +4018,17 @@ function handleRenderFrame(frameState) {
           
           // During interactions, compute time-based previews but skip static ones for performance
           // When not interacting, compute all previews as normal
-          const shouldComputePreviews = isCanvasInteracting 
+          const queueManager = window.threadSeparationManager?.getQueueManager?.();
+          const previewQueueSize = queueManager?.getQueueSize?.('previewComputer') || 0;
+          const queueBacklogged = previewQueueSize > 5;
+          const shouldComputePreviews = !queueBacklogged && (isCanvasInteracting 
             ? hadTimeAnimatedNodes // Only time-based during interactions
-            : (hadTimeAnimatedNodes || editor._needsPreviewUpdate); // All previews when not interacting
+            : (hadTimeAnimatedNodes || editor._needsPreviewUpdate)); // All previews when not interacting
           
+          if (editor.previewComputer?.setInteractionMode) {
+            editor.previewComputer.setInteractionMode(isCanvasInteracting);
+          }
+
           if (shouldComputePreviews) {
             try {
               // Use async worker-based preview computation to avoid blocking main thread
@@ -4053,10 +4079,13 @@ function handleRenderFrame(frameState) {
       const needsRedraw = isDirty || isCanvasInteracting || frameState.manual;
       
       if (needsRedraw) {
+        const drawToken = previewPerfMonitor?.timeSection("editorDraw");
         editor.draw(); // draw() will check _isDirty internally
+        previewPerfMonitor?.endSection(drawToken);
       }
     }
   }
+  previewPerfMonitor?.endFrame();
 }
 
 function initializeRenderLoopFromSettings() {
