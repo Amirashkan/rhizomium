@@ -1,4 +1,6 @@
 // src/core/EventHandler.js - Complete version with undo system integration
+import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+
 export class EventHandler {
   constructor(options) {
     this.canvas = options.canvas;
@@ -10,6 +12,9 @@ export class EventHandler {
     this.onChange = options.onChange;
     this.onDraw = options.onDraw;
     this.editor = options.editor;
+    
+    // Interaction state manager
+    this.interactionStateManager = getInteractionStateManager();
     // Track when we open the parameter panel to prevent immediate closure
     this.paramPanelJustOpened = false;
     // Track CTRL-drag zoom interactions
@@ -109,6 +114,11 @@ export class EventHandler {
     
     // Warm up VERY frequently when idle to keep things ready
     this._warmupTimer = setInterval(() => {
+      // Check interaction state manager - pause warmup during panning
+      if (this.interactionStateManager.shouldThrottleOperation('backgroundWarmup')) {
+        return; // Skip warmup during panning/dragging
+      }
+      
       const now = Date.now();
       const timeSinceLastInteraction = now - this._lastInteractionTime;
       
@@ -378,6 +388,8 @@ export class EventHandler {
         // Clear panning state and reset frame counter
         this._isPanning = false;
         this._panFrameCounter = 0;
+        // Update interaction state manager
+        this.interactionStateManager.setPanning(false);
         // Clear any pending pan updates
         this._pendingPanUpdate = null;
         this._panUpdateScheduled = false;
@@ -417,6 +429,8 @@ export class EventHandler {
           if (!this._isPanning) {
             this._isPanning = true;
             this._panFrameCounter = 0; // Reset frame counter when panning starts
+            // Update interaction state manager
+            this.interactionStateManager.setPanning(true);
             // Emit interaction event immediately when panning starts
             this._markCanvasInteracting('pan');
           }
@@ -695,6 +709,8 @@ export class EventHandler {
         // Set panning flag and reset frame counter
         this._isPanning = true;
         this._panFrameCounter = 0;
+        // Update interaction state manager
+        this.interactionStateManager.setPanning(true);
         // CRITICAL: Reset pan update count to force immediate updates for first pan movements
         this._panUpdateCount = 0;
         // Mark interaction start time for first-frame immediate updates

@@ -3869,16 +3869,22 @@ function handleRenderFrame(frameState) {
   // PERFORMANCE: Track canvas interactions to throttle GPU rendering
   // This prevents GPU and canvas from competing for resources, causing FPS drops
   const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
-  previewPerfMonitor?.recordInteractionState({ isCanvasInteracting, isDragging });
+  const isPanning = editor?.eventHandler?.isPanning?.() || false;
+  previewPerfMonitor?.recordInteractionState({ isCanvasInteracting, isDragging, isPanning });
+  
+  // Get interaction state manager to check throttling decisions
+  const interactionStateManager = previewPerfMonitor?.getInteractionStateManager?.();
+  const shouldThrottleTimeline = interactionStateManager?.shouldThrottleOperation('timeline') || false;
+  const shouldThrottleUIPanels = interactionStateManager?.shouldThrottleOperation('uiPanels') || false;
 
-  // PERFORMANCE: Skip expensive operations during drag, but keep basic rendering
-  // Update timeline manager (only if not dragging)
-  if (!isDragging && timelineManager && timelineManager.isEnabled()) {
+  // PERFORMANCE: Skip expensive operations during drag/pan, but keep basic rendering
+  // Update timeline manager (skip during panning/dragging)
+  if (!shouldThrottleTimeline && !isDragging && timelineManager && timelineManager.isEnabled()) {
     timelineManager.update(frameState.deltaTime);
   }
 
-  // Update timeline panel visualization (only if not dragging)
-  if (!isDragging && timelinePanel) {
+  // Update timeline panel visualization (skip during panning/dragging)
+  if (!shouldThrottleUIPanels && !isDragging && timelinePanel) {
     timelinePanel.update();
   }
 
@@ -3992,8 +3998,8 @@ function handleRenderFrame(frameState) {
     }
   }
 
-  // Undo UI updates (only if not dragging)
-  if (!isDragging && undoManager) {
+  // Undo UI updates (skip during panning/dragging)
+  if (!shouldThrottleUIPanels && !isDragging && undoManager) {
     undoManager.updateUI();
   }
 
@@ -4086,6 +4092,19 @@ function handleRenderFrame(frameState) {
     }
   }
   previewPerfMonitor?.endFrame();
+  
+  // Apply dynamic quality adjustment based on frame budget
+  const budgetAllocator = previewPerfMonitor?.getBudgetAllocator?.();
+  if (budgetAllocator && window.floatingPreview) {
+    const qualityMultiplier = budgetAllocator.getQualityMultiplier();
+    // Apply quality adjustment to preview resolution if needed
+    if (qualityMultiplier < 1.0 && window.floatingPreview._applyQualityMultiplier) {
+      window.floatingPreview._applyQualityMultiplier(qualityMultiplier);
+    } else if (qualityMultiplier >= 1.0 && window.floatingPreview._frameBudgetQualityMultiplier) {
+      // Reset to full quality when budget allows
+      window.floatingPreview._applyQualityMultiplier(1.0);
+    }
+  }
 }
 
 function initializeRenderLoopFromSettings() {

@@ -45,6 +45,7 @@ export class FloatingGPUPreview {
     this._adaptiveScaleMultiplier = 1;
     this._adaptiveResolutionMultiplier = 1;
     this._adaptiveCooldownTimer = null;
+    this._frameBudgetQualityMultiplier = 1.0; // Quality multiplier from frame budget allocator
     this._previewRenderLoopRunning = false;
     this._previewRafId = null;
     this._previewFrameSkipCounter = 0;
@@ -84,10 +85,46 @@ export class FloatingGPUPreview {
 
   _getEffectiveResolution() {
     const { width, height } = this.settings.settings.resolution;
-    const multiplier = this._adaptiveResolutionMultiplier || 1;
+    // Combine adaptive resolution multiplier with frame budget quality multiplier
+    const adaptiveMultiplier = this._adaptiveResolutionMultiplier || 1;
+    const budgetQualityMultiplier = this._frameBudgetQualityMultiplier || 1;
+    const multiplier = adaptiveMultiplier * budgetQualityMultiplier;
     const effectiveWidth = Math.max(64, Math.round(width * multiplier));
     const effectiveHeight = Math.max(64, Math.round(height * multiplier));
     return { width: effectiveWidth, height: effectiveHeight, baseWidth: width, baseHeight: height };
+  }
+  
+  /**
+   * Apply quality multiplier from frame budget allocator
+   * This dynamically reduces preview resolution if frame budget is exceeded
+   */
+  _applyQualityMultiplier(multiplier) {
+    if (typeof multiplier !== 'number' || multiplier < 0.5 || multiplier > 1.0) {
+      return; // Invalid multiplier, ignore
+    }
+    
+    // Only apply if significantly different to avoid constant resizing
+    const currentMultiplier = this._frameBudgetQualityMultiplier || 1.0;
+    if (Math.abs(multiplier - currentMultiplier) < 0.05) {
+      return; // Less than 5% change, skip
+    }
+    
+    this._frameBudgetQualityMultiplier = multiplier;
+    
+    // Update canvas resolution if visible
+    if (this.isVisible && this.gpuCanvas) {
+      const { width, height } = this._getEffectiveResolution();
+      if (this.gpuCanvas.width !== width || this.gpuCanvas.height !== height) {
+        // Update canvas size
+        this.gpuCanvas.width = width;
+        this.gpuCanvas.height = height;
+        
+        // Trigger rebuild if available
+        if (window.rebuild) {
+          window.rebuild();
+        }
+      }
+    }
   }
 
   _getDisplayScale() {

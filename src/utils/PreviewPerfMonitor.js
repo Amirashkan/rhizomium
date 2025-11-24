@@ -1,3 +1,6 @@
+import { getFrameBudgetAllocator } from './FrameBudgetAllocator.js';
+import { getInteractionStateManager } from './InteractionStateManager.js';
+
 const STORAGE_KEY = "previewPerfOverlay";
 const HASH_FLAG = "previewPerf";
 const QUERY_FLAG = "previewPerf";
@@ -34,6 +37,13 @@ export class PreviewPerfMonitor {
     this._idleCallbackScheduled = false;
     this._pendingMetrics = {};
     this._batchUpdateScheduled = false;
+    
+    // Frame budget allocator integration
+    this.budgetAllocator = getFrameBudgetAllocator();
+    this.interactionStateManager = getInteractionStateManager();
+    
+    // Track section timings for budget allocation
+    this._currentSections = new Map();
 
     if (this.enabled) {
       this._ensureOverlay();
@@ -46,6 +56,17 @@ export class PreviewPerfMonitor {
       this._frameStarted = false;
       return;
     }
+    
+    // Update budget allocator mode based on interaction state
+    const interactionState = this.interactionStateManager.getState();
+    if (interactionState.isPanning) {
+      this.budgetAllocator.setMode('panning');
+    } else {
+      this.budgetAllocator.setMode('normal');
+    }
+    
+    // Start frame tracking in budget allocator
+    this.budgetAllocator.beginFrame();
     
     // Throttle profiler updates during interactions (every 3-5 frames)
     if (this._isInteractionMode) {
@@ -71,25 +92,40 @@ export class PreviewPerfMonitor {
       return;
     }
     
+    const frameTime = performance.now() - this._lastFrameStart;
+    
+    // Record times in budget allocator
+    this.budgetAllocator.recordTime('canvas', this.metrics.canvasMs || 0);
+    this.budgetAllocator.recordTime('gpuPreview', this.metrics.gpuMs || 0);
+    this.budgetAllocator.recordTime('other', (this.metrics.previewDomMs || 0) + (extra.otherTime || 0));
+    
+    // End frame in budget allocator and get analysis
+    const budgetAnalysis = this.budgetAllocator.endFrame();
+    
     // During interactions, only track high-level metrics (FPS, frame time)
     if (this._isInteractionMode) {
       // Only update frame time, skip detailed metrics
-      this.metrics.frameMs = performance.now() - this._lastFrameStart;
+      this.metrics.frameMs = frameTime;
       // Store extra metrics for later processing if not in interaction mode
       Object.keys(extra).forEach(key => {
         this._pendingMetrics[key] = extra[key];
       });
+      // Store budget analysis
+      this.metrics.budgetExceeded = budgetAnalysis.exceeded;
       // Throttled overlay update during interactions
       this._scheduleOverlayUpdate(false);
     } else {
       // Full profiling when not interacting
-      this.metrics.frameMs = performance.now() - this._lastFrameStart;
+      this.metrics.frameMs = frameTime;
       Object.assign(this.metrics, extra);
       // Apply any pending metrics from interaction mode
       if (Object.keys(this._pendingMetrics).length > 0) {
         Object.assign(this.metrics, this._pendingMetrics);
         this._pendingMetrics = {};
       }
+      // Store budget analysis
+      this.metrics.budgetExceeded = budgetAnalysis.exceeded;
+      this.metrics.budgetStats = this.budgetAllocator.getStats();
       this._scheduleOverlayUpdate(true);
     }
     
@@ -116,6 +152,15 @@ export class PreviewPerfMonitor {
     }
     
     const duration = performance.now() - token.start;
+    
+    // Record time in budget allocator
+    if (token.name === "gpu" || token.name === "preview") {
+      this.budgetAllocator.recordTime('gpuPreview', duration);
+    } else if (token.name === "canvas") {
+      this.budgetAllocator.recordTime('canvas', duration);
+    } else {
+      this.budgetAllocator.recordTime('other', duration);
+    }
     
     // During interactions, defer query resolution to requestIdleCallback
     if (this._isInteractionMode) {
@@ -159,12 +204,15 @@ export class PreviewPerfMonitor {
     
     if (typeof state === "string") {
       newState = state;
-      this._isInteractionMode = state === "canvas-interaction" || state === "dragging";
+      this._isInteractionMode = state === "canvas-interaction" || state === "dragging" || state === "panning";
     } else if (state?.isCanvasInteracting) {
       newState = "canvas-interaction";
       this._isInteractionMode = true;
     } else if (state?.isDragging) {
       newState = "dragging";
+      this._isInteractionMode = true;
+    } else if (state?.isPanning) {
+      newState = "panning";
       this._isInteractionMode = true;
     } else {
       newState = "idle";
@@ -172,6 +220,14 @@ export class PreviewPerfMonitor {
     }
     
     this.metrics.interactionState = newState;
+    
+    // Update interaction state manager
+    if (state?.isPanning !== undefined) {
+      this.interactionStateManager.setPanning(state.isPanning);
+    }
+    if (state?.isDragging !== undefined) {
+      this.interactionStateManager.setDragging(state.isDragging);
+    }
     
     // When switching from interaction to idle, process pending queries
     if (wasInteracting && !this._isInteractionMode) {
@@ -374,30 +430,44 @@ export class PreviewPerfMonitor {
       lastLayoutRead,
       lastLayoutWrite,
       interactionState,
+      budgetExceeded,
+      budgetStats,
     } = this.metrics;
+    
+    const budgets = this.budgetAllocator.getBudgets();
+    const qualityMultiplier = this.budgetAllocator.getQualityMultiplier();
 
     // During interactions, show only high-level metrics (FPS, frame time)
     let lines;
     if (this._isInteractionMode) {
       const fps = frameMs > 0 ? (1000 / frameMs).toFixed(1) : "0.0";
+      const budgetStatus = budgetExceeded ? "⚠ EXCEEDED" : "✓ OK";
       lines = [
-        `Frame: ${frameMs.toFixed(1)} ms (${fps} FPS)`,
-        `GPU   : ${gpuMs.toFixed(1)} ms`,
-        `Canvas: ${canvasMs.toFixed(1)} ms`,
+        `Frame: ${frameMs.toFixed(1)} ms (${fps} FPS) ${budgetStatus}`,
+        `GPU   : ${gpuMs.toFixed(1)} / ${budgets.gpuPreview.toFixed(1)} ms`,
+        `Canvas: ${canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
+        `Quality: ${(qualityMultiplier * 100).toFixed(0)}%`,
         `State: ${interactionState} [LIGHT]`,
       ];
     } else {
       // Full metrics when not interacting
+      const budgetStatus = budgetExceeded ? "⚠ EXCEEDED" : "✓ OK";
       lines = [
-        `Frame: ${frameMs.toFixed(1)} ms (RAF Δ ${rafDelta.toFixed(1)} ms)`,
-        `GPU   : ${gpuMs.toFixed(1)} ms`,
-        `Canvas: ${canvasMs.toFixed(1)} ms`,
+        `Frame: ${frameMs.toFixed(1)} ms (RAF Δ ${rafDelta.toFixed(1)} ms) ${budgetStatus}`,
+        `GPU   : ${gpuMs.toFixed(1)} / ${budgets.gpuPreview.toFixed(1)} ms`,
+        `Canvas: ${canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
+        `Other : ${(previewDomMs || 0).toFixed(1)} / ${budgets.other.toFixed(1)} ms`,
         `Preview DOM: ${previewDomMs.toFixed(1)} ms`,
+        `Quality: ${(qualityMultiplier * 100).toFixed(0)}%`,
         `Layout R/W: ${layoutReads}/${layoutWrites}`,
         `Last Read: ${lastLayoutRead}`,
         `Last Write: ${lastLayoutWrite}`,
         `State: ${interactionState}`,
       ];
+      
+      if (budgetStats) {
+        lines.push(`Avg Frame: ${budgetStats.avgFrameTime.toFixed(1)} ms`);
+      }
     }
 
     // Use textContent for now (could be optimized with CSS transforms if needed)
@@ -457,6 +527,20 @@ export class PreviewPerfMonitor {
 
   getMetric(name) {
     return this.metrics?.[name];
+  }
+  
+  /**
+   * Get frame budget allocator instance
+   */
+  getBudgetAllocator() {
+    return this.budgetAllocator;
+  }
+  
+  /**
+   * Get interaction state manager instance
+   */
+  getInteractionStateManager() {
+    return this.interactionStateManager;
   }
 
   _installDebugHooks() {
