@@ -53,6 +53,16 @@ export class GPURenderer {
     this.msaaTextureSize = { width: 0, height: 0 }; // Track MSAA texture size for validation
     this.profiler = null; // ComputeProfiler instance
     this._currentWgslCode = null; // Store current WGSL code for pipeline recreation
+    
+    // CRITICAL PERFORMANCE FIX: Cache canvas dimensions to avoid layout reads during render
+    // Reading clientWidth/clientHeight forces synchronous layout recalculation, blocking the main thread
+    // This causes FPS drops during panning. Cache is updated only on explicit resize events.
+    this._cachedCanvasSize = {
+      width: this.canvas.width || 1,
+      height: this.canvas.height || 1,
+      clientWidth: this.canvas.clientWidth || this.canvas.width || 1,
+      clientHeight: this.canvas.clientHeight || this.canvas.height || 1,
+    };
   }
 
   clear() {
@@ -117,12 +127,18 @@ export class GPURenderer {
   // Explicit canvas resize method - should only be called on window resize, not during render
   resizeCanvas() {
     const dpr = window.devicePixelRatio || 1;
-    const targetWidth = Math.max(1, Math.floor((this.canvas.clientWidth || window.innerWidth) * dpr));
-    const targetHeight = Math.max(1, Math.floor((this.canvas.clientHeight || window.innerHeight) * dpr));
+    // Update cache with current layout dimensions (only during explicit resize)
+    this._cachedCanvasSize.clientWidth = this.canvas.clientWidth || window.innerWidth;
+    this._cachedCanvasSize.clientHeight = this.canvas.clientHeight || window.innerHeight;
+    const targetWidth = Math.max(1, Math.floor(this._cachedCanvasSize.clientWidth * dpr));
+    const targetHeight = Math.max(1, Math.floor(this._cachedCanvasSize.clientHeight * dpr));
 
     if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
       this.canvas.width = targetWidth;
       this.canvas.height = targetHeight;
+      // Update cache with actual canvas dimensions
+      this._cachedCanvasSize.width = targetWidth;
+      this._cachedCanvasSize.height = targetHeight;
       this._lastAspectWritten = null; // force aspect ratio recalculation
       this._createMSAATexture(); // Recreate MSAA texture for new size
     }
@@ -157,6 +173,11 @@ export class GPURenderer {
     // Now it's safe to resize the canvas
     this.canvas.width = targetWidth;
     this.canvas.height = targetHeight;
+    // Update cache with new dimensions
+    this._cachedCanvasSize.width = targetWidth;
+    this._cachedCanvasSize.height = targetHeight;
+    this._cachedCanvasSize.clientWidth = targetWidth; // For sync resize, client = actual
+    this._cachedCanvasSize.clientHeight = targetHeight;
     this._lastAspectWritten = null; // force aspect ratio recalculation
 
     // Immediately recreate MSAA texture to match new canvas size
@@ -885,12 +906,15 @@ export class GPURenderer {
 
     const [sizeWidth, sizeHeight] = Array.isArray(size) ? size : [undefined, undefined];
 
+    // CRITICAL PERFORMANCE FIX: Use cached dimensions instead of reading layout properties
+    // Reading clientWidth/clientHeight forces synchronous layout recalculation, blocking the main thread
+    // This was causing FPS drops during panning. Cache is updated only on explicit resize events.
     const baseWidth = Number.isFinite(sizeWidth)
       ? sizeWidth
-      : this.canvas.clientWidth || this.canvas.width || 1;
+      : this._cachedCanvasSize.clientWidth || this._cachedCanvasSize.width || 1;
     const baseHeight = Number.isFinite(sizeHeight)
       ? sizeHeight
-      : this.canvas.clientHeight || this.canvas.height || 1;
+      : this._cachedCanvasSize.clientHeight || this._cachedCanvasSize.height || 1;
 
     const targetWidth = Math.max(1, Math.floor(baseWidth * resolvedDpr));
     const targetHeight = Math.max(1, Math.floor(baseHeight * resolvedDpr));
@@ -1059,13 +1083,14 @@ export class GPURenderer {
       throw new Error("GPU pipeline missing; build shader before capturing");
     }
 
+    // Use cached dimensions to avoid layout reads
     const targetWidth = Math.max(
       1,
-      Math.floor(options.width ?? this.canvas.width ?? this.canvas.clientWidth ?? 1)
+      Math.floor(options.width ?? this._cachedCanvasSize.width ?? 1)
     );
     const targetHeight = Math.max(
       1,
-      Math.floor(options.height ?? this.canvas.height ?? this.canvas.clientHeight ?? 1)
+      Math.floor(options.height ?? this._cachedCanvasSize.height ?? 1)
     );
 
     const captureTexture = this.device.createTexture({
