@@ -405,20 +405,22 @@ _setupParameterListeners() {
 }
 
 _setupParameterChangeListener() {
-  // PERFORMANCE: Only trigger renders on actual parameter changes, not every frame
-  // This prevents redundant rendering when nothing has changed
+  // PERFORMANCE: Trigger renders on parameter changes to ensure preview updates immediately
   if (this._parameterChangeListenerSetup) return;
   this._parameterChangeListenerSetup = true;
   
   // Listen for parameter changes to trigger immediate render
   if (window.editor?.paramPanel) {
     window.editor.paramPanel.on?.('parameterChanged', () => {
-      // Trigger immediate render on parameter change only if main loop isn't running
+      // Trigger immediate render on parameter change
+      // Main loop will handle it, but this ensures responsiveness
       if (this.isVisible && typeof window.render === "function") {
-        const mainLoopRunning = window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running;
-        if (!mainLoopRunning) {
-          window.render();
+        // Update tracking to indicate a render happened
+        if (this._previewRenderLoopRunning) {
+          this._mainLoopLastRenderTime = performance.now();
         }
+        // Main loop should handle this, but trigger render to be safe
+        window.render();
       }
     });
   }
@@ -450,21 +452,14 @@ _setupAnimationLoop() {
 _startPreviewRenderLoop() {
   if (this._previewRenderLoopRunning || !this.isVisible) return;
   
-  // PERFORMANCE FIX: Don't run independent render loop if main render loop is active
-  // The main render loop already handles GPU rendering, so we don't need to duplicate it
-  // Only use this loop as a fallback if the main loop is not running
-  if (window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running) {
-    // Main render loop is active, don't create redundant loop
-    // Just ensure we're listening for parameter changes to trigger renders
-    this._setupParameterChangeListener();
-    return;
-  }
+  // PERFORMANCE: Run a lightweight monitoring loop that ensures preview stays responsive
+  // The main render loop handles most rendering, but we supplement when needed
+  // This ensures smooth 60 FPS even when main loop throttles during interactions
   
   this._previewRenderLoopRunning = true;
   this._previewFrameSkipCounter = 0;
   this._previewLastFrameTime = performance.now();
   this._lastRenderTime = 0;
-  this._minFrameInterval = 16.67; // ~60 FPS max, but we'll throttle more aggressively
   
   const renderFrame = (timestamp) => {
     if (!this._previewRenderLoopRunning || !this.isVisible) {
@@ -473,40 +468,41 @@ _startPreviewRenderLoop() {
       return;
     }
     
-    // PERFORMANCE: Check if main render loop started - if so, stop this redundant loop
-    if (window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running) {
-      this._stopPreviewRenderLoop();
-      this._setupParameterChangeListener();
-      return;
-    }
+    // Check if main render loop is active
+    const mainLoopRunning = window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running;
     
-    // PERFORMANCE: Check if there are any time-based animations before rendering
-    // If no animations, reduce render frequency significantly (5 FPS instead of 60)
-    const expressionSystem = window.editor?.paramPanel?.expressionSystem;
-    const hasTimeAnimations = expressionSystem?.timeAnimatedNodes && expressionSystem.timeAnimatedNodes.size > 0;
-    const hasTimeline = window.timelineManager && window.timelineManager.isEnabled();
-    const needsAnimation = hasTimeAnimations || hasTimeline;
-    
-    // Adjust frame interval based on whether animations are needed
-    const targetFPS = needsAnimation ? 30 : 5; // 30 FPS for animations, 5 FPS when static
-    const frameInterval = 1000 / targetFPS;
-    
-    // PERFORMANCE: Throttle rendering more aggressively
-    // Only render if enough time has passed
-    const timeSinceLastRender = timestamp - this._lastRenderTime;
-    const shouldRender = timeSinceLastRender >= frameInterval;
-    
-    // During canvas interactions, skip even more frames (render every 3rd frame = ~20 FPS)
-    const interactionSkipRate = this.isCanvasInteractionActive ? 3 : 1;
-    const shouldSkipFrame = this.isCanvasInteractionActive && (this._previewFrameSkipCounter % interactionSkipRate !== 0);
-    
-    if (shouldRender && !shouldSkipFrame && typeof window.render === "function") {
-      window.render();
-      this._lastRenderTime = timestamp;
+    if (mainLoopRunning) {
+      // Main loop is active - it handles most rendering
+      // During interactions, main loop may throttle to every 2nd frame (~30 FPS)
+      // We supplement to maintain smoother preview (~60 FPS) by rendering on alternate frames
+      if (this.isCanvasInteractionActive) {
+        // During interactions: render on frames when main loop might skip
+        // Main loop renders on even frames, we render on odd frames = ~60 FPS combined
+        if (this._previewFrameSkipCounter % 2 === 1 && typeof window.render === "function") {
+          window.render();
+          if (this.fpsCounter) {
+            this.fpsCounter.frame();
+          }
+        }
+      }
+      // When not interacting, main loop runs at 60 FPS, so we don't need to supplement
+    } else {
+      // Main loop not running - this loop handles all rendering at 60 FPS
+      const timeSinceLastRender = timestamp - this._lastRenderTime;
+      const minFrameInterval = 16.67; // ~60 FPS
+      const shouldRender = timeSinceLastRender >= minFrameInterval;
       
-      // Update FPS counter
-      if (this.fpsCounter) {
-        this.fpsCounter.frame();
+      // During canvas interactions, skip some frames (render every 2nd frame = ~30 FPS)
+      const interactionSkipRate = this.isCanvasInteractionActive ? 2 : 1;
+      const shouldSkipFrame = this.isCanvasInteractionActive && (this._previewFrameSkipCounter % interactionSkipRate !== 0);
+      
+      if (shouldRender && !shouldSkipFrame && typeof window.render === "function") {
+        window.render();
+        this._lastRenderTime = timestamp;
+        
+        if (this.fpsCounter) {
+          this.fpsCounter.frame();
+        }
       }
     }
     
