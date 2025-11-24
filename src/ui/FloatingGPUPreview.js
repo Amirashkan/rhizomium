@@ -228,12 +228,17 @@ export class FloatingGPUPreview {
   }
 
   _applyDragPosition(left, top) {
+    // PERFORMANCE: Use CSS left/top (already optimized by browser)
+    // Batch DOM writes to reduce layout thrashing
     this.container.style.left = left + "px";
     this.container.style.top = top + "px";
     this._recordPerfWrite("drag:position");
     this.position.x = left;
     this.position.y = top;
-    if (this.settings.settingsPanel) {
+    
+    // PERFORMANCE: Defer settings panel update during dragging to reduce layout reads
+    // Only update settings panel position when drag ends (handled in onMouseUp)
+    if (!this.isDragging && this.settings.settingsPanel) {
       this.settings._positionSettingsPanel();
       this._recordPerfWrite("drag:settingsPanel");
     }
@@ -399,30 +404,45 @@ _setupParameterListeners() {
   }
 }
 
+_setupParameterChangeListener() {
+  // PERFORMANCE: Only trigger renders on actual parameter changes, not every frame
+  // This prevents redundant rendering when nothing has changed
+  if (this._parameterChangeListenerSetup) return;
+  this._parameterChangeListenerSetup = true;
+  
+  // Listen for parameter changes to trigger immediate render
+  if (window.editor?.paramPanel) {
+    window.editor.paramPanel.on?.('parameterChanged', () => {
+      // Trigger immediate render on parameter change only if main loop isn't running
+      if (this.isVisible && typeof window.render === "function") {
+        const mainLoopRunning = window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running;
+        if (!mainLoopRunning) {
+          window.render();
+        }
+      }
+    });
+  }
+}
+
 _setupAnimationLoop() {
-  // INDEPENDENT PREVIEW RENDER LOOP
-  // The preview has its own RAF loop that runs independently of the main canvas render loop
-  // This ensures the preview continues rendering even during canvas interactions
+  // PERFORMANCE FIX: Don't create redundant render loop
+  // The main render loop already handles GPU rendering efficiently
+  // Only use independent loop as fallback if main loop is not running
   
   const originalShow = this.show.bind(this);
   this.show = () => {
     originalShow();
+    // Only start independent loop if main loop isn't running
+    // Otherwise, just setup parameter change listener
     this._startPreviewRenderLoop();
-    
-    // Listen for parameter changes to trigger immediate render
-    if (window.editor?.paramPanel) {
-      window.editor.paramPanel.on?.('parameterChanged', () => {
-        // Trigger immediate render on parameter change
-        if (this.isVisible && typeof window.render === "function") {
-          window.render();
-        }
-      });
-    }
   };
 
   const originalHide = this.hide.bind(this);
   this.hide = () => {
     this._stopPreviewRenderLoop();
+    if (this._parameterChangeListenerSetup) {
+      this._parameterChangeListenerSetup = false;
+    }
     originalHide();
   };
 }
@@ -430,9 +450,21 @@ _setupAnimationLoop() {
 _startPreviewRenderLoop() {
   if (this._previewRenderLoopRunning || !this.isVisible) return;
   
+  // PERFORMANCE FIX: Don't run independent render loop if main render loop is active
+  // The main render loop already handles GPU rendering, so we don't need to duplicate it
+  // Only use this loop as a fallback if the main loop is not running
+  if (window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running) {
+    // Main render loop is active, don't create redundant loop
+    // Just ensure we're listening for parameter changes to trigger renders
+    this._setupParameterChangeListener();
+    return;
+  }
+  
   this._previewRenderLoopRunning = true;
   this._previewFrameSkipCounter = 0;
   this._previewLastFrameTime = performance.now();
+  this._lastRenderTime = 0;
+  this._minFrameInterval = 16.67; // ~60 FPS max, but we'll throttle more aggressively
   
   const renderFrame = (timestamp) => {
     if (!this._previewRenderLoopRunning || !this.isVisible) {
@@ -441,12 +473,36 @@ _startPreviewRenderLoop() {
       return;
     }
     
-    // Frame skipping during heavy canvas interactions (render every 2nd frame)
-    const shouldSkipFrame = this.isCanvasInteractionActive && (this._previewFrameSkipCounter % 2 !== 0);
+    // PERFORMANCE: Check if main render loop started - if so, stop this redundant loop
+    if (window.renderLoop && window.renderLoop.getState && window.renderLoop.getState().running) {
+      this._stopPreviewRenderLoop();
+      this._setupParameterChangeListener();
+      return;
+    }
     
-    if (!shouldSkipFrame && typeof window.render === "function") {
-      // Render preview independently - doesn't depend on canvas interaction state
+    // PERFORMANCE: Check if there are any time-based animations before rendering
+    // If no animations, reduce render frequency significantly (5 FPS instead of 60)
+    const expressionSystem = window.editor?.paramPanel?.expressionSystem;
+    const hasTimeAnimations = expressionSystem?.timeAnimatedNodes && expressionSystem.timeAnimatedNodes.size > 0;
+    const hasTimeline = window.timelineManager && window.timelineManager.isEnabled();
+    const needsAnimation = hasTimeAnimations || hasTimeline;
+    
+    // Adjust frame interval based on whether animations are needed
+    const targetFPS = needsAnimation ? 30 : 5; // 30 FPS for animations, 5 FPS when static
+    const frameInterval = 1000 / targetFPS;
+    
+    // PERFORMANCE: Throttle rendering more aggressively
+    // Only render if enough time has passed
+    const timeSinceLastRender = timestamp - this._lastRenderTime;
+    const shouldRender = timeSinceLastRender >= frameInterval;
+    
+    // During canvas interactions, skip even more frames (render every 3rd frame = ~20 FPS)
+    const interactionSkipRate = this.isCanvasInteractionActive ? 3 : 1;
+    const shouldSkipFrame = this.isCanvasInteractionActive && (this._previewFrameSkipCounter % interactionSkipRate !== 0);
+    
+    if (shouldRender && !shouldSkipFrame && typeof window.render === "function") {
       window.render();
+      this._lastRenderTime = timestamp;
       
       // Update FPS counter
       if (this.fpsCounter) {
@@ -1113,6 +1169,12 @@ canvasWrapper.style.cssText = `
       this.isDragging = false;
       this.container.style.transition = "opacity 0.2s ease, transform 0.2s ease";
       this._flushDragPosition();
+      // PERFORMANCE: Update settings panel position after drag ends (batched with final position)
+      // This reduces layout reads during dragging
+      if (this.settings.settingsPanel) {
+        this.settings._positionSettingsPanel();
+        this._recordPerfWrite("drag:settingsPanel:final");
+      }
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
