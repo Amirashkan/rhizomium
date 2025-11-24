@@ -2,6 +2,9 @@ const STORAGE_KEY = "previewPerfOverlay";
 const HASH_FLAG = "previewPerf";
 const QUERY_FLAG = "previewPerf";
 const OVERLAY_UPDATE_MS = 250;
+const OVERLAY_UPDATE_MS_INTERACTION = 100; // 10 FPS during interactions
+const FRAME_THROTTLE_INTERACTION = 4; // Update every 4 frames during interactions (3-5 range)
+const IDLE_CALLBACK_TIMEOUT = 100; // ms timeout for requestIdleCallback
 
 export class PreviewPerfMonitor {
   constructor(options = {}) {
@@ -22,6 +25,15 @@ export class PreviewPerfMonitor {
     this._overlay = null;
     this._pendingOverlayUpdate = false;
     this._lastOverlayUpdate = 0;
+    
+    // Interaction-aware profiler mode
+    this._isInteractionMode = false;
+    this._frameCounter = 0;
+    this._frameStarted = false; // Track if current frame was actually started
+    this._pendingQueries = [];
+    this._idleCallbackScheduled = false;
+    this._pendingMetrics = {};
+    this._batchUpdateScheduled = false;
 
     if (this.enabled) {
       this._ensureOverlay();
@@ -30,27 +42,95 @@ export class PreviewPerfMonitor {
   }
 
   beginFrame(frameState = {}) {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      this._frameStarted = false;
+      return;
+    }
+    
+    // Throttle profiler updates during interactions (every 3-5 frames)
+    if (this._isInteractionMode) {
+      this._frameCounter++;
+      // Only process every Nth frame during interactions
+      if (this._frameCounter % FRAME_THROTTLE_INTERACTION !== 0) {
+        this._frameStarted = false;
+        return; // Skip this frame
+      }
+    } else {
+      this._frameCounter = 0;
+    }
+    
+    this._frameStarted = true;
     this._lastFrameStart = performance.now();
     this.metrics.rafDelta = Number(frameState.deltaTime) || 0;
     this.metrics.interactionState = frameState.manual ? "manual" : this.metrics.interactionState;
   }
 
   endFrame(extra = {}) {
-    if (!this.enabled || !this._lastFrameStart) return;
-    this.metrics.frameMs = performance.now() - this._lastFrameStart;
-    Object.assign(this.metrics, extra);
-    this._scheduleOverlayUpdate(true);
+    if (!this.enabled || !this._frameStarted || !this._lastFrameStart) {
+      this._frameStarted = false;
+      return;
+    }
+    
+    // During interactions, only track high-level metrics (FPS, frame time)
+    if (this._isInteractionMode) {
+      // Only update frame time, skip detailed metrics
+      this.metrics.frameMs = performance.now() - this._lastFrameStart;
+      // Store extra metrics for later processing if not in interaction mode
+      Object.keys(extra).forEach(key => {
+        this._pendingMetrics[key] = extra[key];
+      });
+      // Throttled overlay update during interactions
+      this._scheduleOverlayUpdate(false);
+    } else {
+      // Full profiling when not interacting
+      this.metrics.frameMs = performance.now() - this._lastFrameStart;
+      Object.assign(this.metrics, extra);
+      // Apply any pending metrics from interaction mode
+      if (Object.keys(this._pendingMetrics).length > 0) {
+        Object.assign(this.metrics, this._pendingMetrics);
+        this._pendingMetrics = {};
+      }
+      this._scheduleOverlayUpdate(true);
+    }
+    
+    this._frameStarted = false;
   }
 
   timeSection(name) {
     if (!this.enabled) return null;
+    
+    // Skip detailed dispatch timing during canvas interactions
+    if (this._isInteractionMode && name !== "gpu" && name !== "canvas") {
+      return null; // Don't track detailed sections during interactions
+    }
+    
     return { name, start: performance.now() };
   }
 
   endSection(token, extra = {}) {
     if (!this.enabled || !token) return 0;
+    
+    // Skip detailed dispatch timing during canvas interactions
+    if (this._isInteractionMode && token.name !== "gpu" && token.name !== "canvas") {
+      return 0;
+    }
+    
     const duration = performance.now() - token.start;
+    
+    // During interactions, defer query resolution to requestIdleCallback
+    if (this._isInteractionMode) {
+      // Batch queries for later resolution
+      this._pendingQueries.push({
+        type: 'section',
+        name: token.name,
+        duration,
+        extra
+      });
+      this._scheduleIdleCallback();
+      return duration;
+    }
+    
+    // Normal processing when not in interaction mode
     if (token.name === "gpu") {
       this.metrics.gpuMs = duration;
     } else if (token.name === "canvas") {
@@ -73,15 +153,38 @@ export class PreviewPerfMonitor {
 
   recordInteractionState(state) {
     if (!this.enabled) return;
+    
+    const wasInteracting = this._isInteractionMode;
+    let newState = "idle";
+    
     if (typeof state === "string") {
-      this.metrics.interactionState = state;
+      newState = state;
+      this._isInteractionMode = state === "canvas-interaction" || state === "dragging";
     } else if (state?.isCanvasInteracting) {
-      this.metrics.interactionState = "canvas-interaction";
+      newState = "canvas-interaction";
+      this._isInteractionMode = true;
     } else if (state?.isDragging) {
-      this.metrics.interactionState = "dragging";
+      newState = "dragging";
+      this._isInteractionMode = true;
     } else {
-      this.metrics.interactionState = "idle";
+      newState = "idle";
+      this._isInteractionMode = false;
     }
+    
+    this.metrics.interactionState = newState;
+    
+    // When switching from interaction to idle, process pending queries
+    if (wasInteracting && !this._isInteractionMode) {
+      this._processPendingQueries();
+      this._frameCounter = 0; // Reset frame counter
+    }
+    
+    // Skip query resolution entirely if interaction is very active
+    if (this._isInteractionMode && this._pendingQueries.length > 10) {
+      // Too many pending queries, clear them to avoid backlog
+      this._pendingQueries = [];
+    }
+    
     this._scheduleOverlayUpdate(false);
   }
 
@@ -117,6 +220,20 @@ export class PreviewPerfMonitor {
       return;
     }
     const start = performance.now();
+    
+    // During interactions, defer async metric resolution
+    if (this._isInteractionMode) {
+      this._pendingQueries.push({
+        type: 'async',
+        name,
+        promise,
+        start
+      });
+      this._scheduleIdleCallback();
+      return;
+    }
+    
+    // Normal processing when not in interaction mode
     promise
       .then(() => {
         this.metrics[name] = performance.now() - start;
@@ -198,18 +315,48 @@ export class PreviewPerfMonitor {
 
   _scheduleOverlayUpdate(forceImmediate) {
     if (!this.enabled || !this._overlay) return;
+    
+    // Throttle overlay updates during interactions (max 10 FPS)
+    const updateInterval = this._isInteractionMode 
+      ? OVERLAY_UPDATE_MS_INTERACTION 
+      : OVERLAY_UPDATE_MS;
+    
     const now = performance.now();
-    if (forceImmediate || now - this._lastOverlayUpdate > OVERLAY_UPDATE_MS) {
+    if (forceImmediate || now - this._lastOverlayUpdate > updateInterval) {
       this._lastOverlayUpdate = now;
       this._pendingOverlayUpdate = false;
-      this._updateOverlay();
+      this._batchUpdateOverlay();
       return;
     }
 
+    // Batch multiple metric updates into single DOM write
     if (this._pendingOverlayUpdate) return;
     this._pendingOverlayUpdate = true;
+    
+    if (this._isInteractionMode && window.requestIdleCallback) {
+      // Use requestIdleCallback during interactions to avoid blocking
+      window.requestIdleCallback(() => {
+        this._pendingOverlayUpdate = false;
+        this._batchUpdateOverlay();
+      }, { timeout: IDLE_CALLBACK_TIMEOUT });
+    } else {
+      requestAnimationFrame(() => {
+        this._pendingOverlayUpdate = false;
+        this._batchUpdateOverlay();
+      });
+    }
+  }
+  
+  _batchUpdateOverlay() {
+    if (!this._overlay) return;
+    
+    // Batch multiple metric updates into single DOM write
+    if (this._batchUpdateScheduled) return;
+    this._batchUpdateScheduled = true;
+    
+    // Use requestAnimationFrame to batch all pending updates
     requestAnimationFrame(() => {
-      this._pendingOverlayUpdate = false;
+      this._batchUpdateScheduled = false;
       this._updateOverlay();
     });
   }
@@ -229,18 +376,83 @@ export class PreviewPerfMonitor {
       interactionState,
     } = this.metrics;
 
-    const lines = [
-      `Frame: ${frameMs.toFixed(1)} ms (RAF Δ ${rafDelta.toFixed(1)} ms)`,
-      `GPU   : ${gpuMs.toFixed(1)} ms`,
-      `Canvas: ${canvasMs.toFixed(1)} ms`,
-      `Preview DOM: ${previewDomMs.toFixed(1)} ms`,
-      `Layout R/W: ${layoutReads}/${layoutWrites}`,
-      `Last Read: ${lastLayoutRead}`,
-      `Last Write: ${lastLayoutWrite}`,
-      `State: ${interactionState}`,
-    ];
+    // During interactions, show only high-level metrics (FPS, frame time)
+    let lines;
+    if (this._isInteractionMode) {
+      const fps = frameMs > 0 ? (1000 / frameMs).toFixed(1) : "0.0";
+      lines = [
+        `Frame: ${frameMs.toFixed(1)} ms (${fps} FPS)`,
+        `GPU   : ${gpuMs.toFixed(1)} ms`,
+        `Canvas: ${canvasMs.toFixed(1)} ms`,
+        `State: ${interactionState} [LIGHT]`,
+      ];
+    } else {
+      // Full metrics when not interacting
+      lines = [
+        `Frame: ${frameMs.toFixed(1)} ms (RAF Δ ${rafDelta.toFixed(1)} ms)`,
+        `GPU   : ${gpuMs.toFixed(1)} ms`,
+        `Canvas: ${canvasMs.toFixed(1)} ms`,
+        `Preview DOM: ${previewDomMs.toFixed(1)} ms`,
+        `Layout R/W: ${layoutReads}/${layoutWrites}`,
+        `Last Read: ${lastLayoutRead}`,
+        `Last Write: ${lastLayoutWrite}`,
+        `State: ${interactionState}`,
+      ];
+    }
 
+    // Use textContent for now (could be optimized with CSS transforms if needed)
     this._overlay.textContent = lines.join("\n");
+  }
+  
+  _scheduleIdleCallback() {
+    if (this._idleCallbackScheduled) return;
+    if (!window.requestIdleCallback) {
+      // Fallback: process immediately if requestIdleCallback not available
+      this._processPendingQueries();
+      return;
+    }
+    
+    this._idleCallbackScheduled = true;
+    window.requestIdleCallback(() => {
+      this._idleCallbackScheduled = false;
+      this._processPendingQueries();
+    }, { timeout: IDLE_CALLBACK_TIMEOUT });
+  }
+  
+  _processPendingQueries() {
+    if (this._pendingQueries.length === 0) return;
+    
+    // Batch multiple frame queries together
+    const queries = this._pendingQueries.splice(0);
+    
+    queries.forEach(query => {
+      if (query.type === 'section') {
+        // Process section timing
+        if (query.name === "gpu") {
+          this.metrics.gpuMs = query.duration;
+        } else if (query.name === "canvas") {
+          this.metrics.canvasMs = query.duration;
+        } else if (query.name === "previewDom") {
+          this.metrics.previewDomMs = query.duration;
+        } else {
+          this.metrics[query.name] = query.duration;
+        }
+        if (query.extra) {
+          Object.assign(this.metrics, query.extra);
+        }
+      } else if (query.type === 'async') {
+        // Process async metrics
+        query.promise
+          .then(() => {
+            this.metrics[query.name] = performance.now() - query.start;
+            this._scheduleOverlayUpdate(false);
+          })
+          .catch(() => {});
+      }
+    });
+    
+    // Schedule overlay update after processing queries
+    this._scheduleOverlayUpdate(false);
   }
 
   getMetric(name) {
