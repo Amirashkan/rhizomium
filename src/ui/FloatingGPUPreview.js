@@ -76,18 +76,18 @@ _setupAnimationLoop() {
     if (renderTimeout) return; // Already scheduled
     renderTimeout = setTimeout(() => {
       renderTimeout = null;
-      // CRITICAL: Skip GPU rendering during canvas interactions to prevent FPS drops
-      const isCanvasInteracting = window.editor?.eventHandler?.isCanvasInteracting?.() || false;
-      if (this.isVisible && typeof window.render === "function" && !isCanvasInteracting) {
-        // Use requestIdleCallback to defer render if possible
+      // FIX: Allow preview to render during canvas interactions
+      // The preview is a separate window and should continue rendering independently
+      // Canvas panning should not block the preview from updating
+      if (this.isVisible && typeof window.render === "function") {
+        // Use requestIdleCallback to defer render if possible, but with shorter timeout
+        // This allows rendering even during interactions, just at lower priority
         if (typeof requestIdleCallback !== 'undefined') {
           requestIdleCallback(() => {
-            // Double-check interaction state before rendering
-            const stillInteracting = window.editor?.eventHandler?.isCanvasInteracting?.() || false;
-            if (!stillInteracting) {
+            if (this.isVisible && typeof window.render === "function") {
               window.render();
             }
-          }, { timeout: 100 });
+          }, { timeout: 50 }); // Shorter timeout to allow rendering during interactions
         } else {
           window.render();
         }

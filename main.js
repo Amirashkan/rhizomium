@@ -3876,10 +3876,10 @@ function handleRenderFrame(frameState) {
     timelinePanel.update();
   }
 
-  // GPU rendering - Skip during canvas interactions to prevent FPS drops in preview window
-  // PERFORMANCE: Skip GPU rendering during panning/dragging to prevent FPS drops
-  // GPU rendering competes with canvas rendering for resources, causing lag
-  if (!isCanvasInteracting) {
+  // GPU rendering - Continue during canvas interactions but with lower priority
+  // FIX: Allow preview to continue rendering during panning to prevent freezing
+  // Use requestIdleCallback during interactions to avoid competing with canvas rendering
+  const renderGPU = () => {
     // Check if compute shader test is active
     if (computeShaderTest && computeShaderTest.isEnabled) {
       // Render compute shader test instead of normal renderer
@@ -3938,6 +3938,20 @@ function handleRenderFrame(frameState) {
         }
       }
     }
+  };
+
+  // During canvas interactions, use requestIdleCallback to render with lower priority
+  // This prevents the preview from freezing while still allowing canvas to be responsive
+  if (isCanvasInteracting) {
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(renderGPU, { timeout: 50 }); // Short timeout to ensure preview updates
+    } else {
+      // Fallback: render immediately if requestIdleCallback not available
+      renderGPU();
+    }
+  } else {
+    // Normal rendering when not interacting
+    renderGPU();
   }
 
   // 3D Viewport rendering
