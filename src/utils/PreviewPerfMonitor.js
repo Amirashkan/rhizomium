@@ -67,9 +67,11 @@ export class PreviewPerfMonitor {
     // Setup interaction event listeners
     this._setupInteractionListeners();
 
+    // Always install debug hooks so they're available even when monitor is disabled
+    this._installDebugHooks();
+
     if (this.enabled) {
       this._ensureOverlay();
-      this._installDebugHooks();
     }
   }
   
@@ -706,13 +708,30 @@ export class PreviewPerfMonitor {
   _installDebugHooks() {
     if (window.previewPerfToggleInstalled) return;
     window.previewPerfToggleInstalled = true;
-    window.togglePreviewPerfOverlay = () => this.toggle();
     
-    // Expose benchmarking tools
-    window.performanceBenchmark = getPerformanceBenchmark();
-    window.performanceLogger = getPerformanceLogger();
-    window.performanceDashboard = getPerformanceDashboard();
-    window.performanceAnalyzer = getPerformanceAnalyzer();
+    // Store reference to this instance
+    const instance = this;
+    
+    // Install toggle function
+    window.togglePreviewPerfOverlay = () => {
+      if (instance) {
+        instance.toggle();
+      } else if (window.previewPerfMonitor) {
+        window.previewPerfMonitor.toggle();
+      } else {
+        console.warn("[PreviewPerfMonitor] Instance not available. PreviewPerfMonitor may not be initialized.");
+      }
+    };
+    
+    // Expose benchmarking tools (always available)
+    try {
+      window.performanceBenchmark = getPerformanceBenchmark();
+      window.performanceLogger = getPerformanceLogger();
+      window.performanceDashboard = getPerformanceDashboard();
+      window.performanceAnalyzer = getPerformanceAnalyzer();
+    } catch (error) {
+      console.error("[PreviewPerfMonitor] Failed to initialize performance tools:", error);
+    }
     
     console.info(
       "[PreviewPerfMonitor] Overlay ready. Call window.togglePreviewPerfOverlay() or set localStorage.previewPerfOverlay = 'true' to persist."
