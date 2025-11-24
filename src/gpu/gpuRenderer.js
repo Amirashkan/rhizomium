@@ -960,6 +960,10 @@ export class GPURenderer {
       this.profiler.beginFrame();
     }
 
+    // SEPARATE GPU RENDER QUEUES
+    // Each render() call creates a new command encoder, ensuring canvas and preview
+    // rendering use separate command buffers. This allows independent rendering
+    // without interference between the main canvas render loop and preview render loop.
     const encoder = this.device.createCommandEncoder();
 
     // Execute compute shaders BEFORE fragment shader

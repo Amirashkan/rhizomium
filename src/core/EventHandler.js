@@ -417,6 +417,8 @@ export class EventHandler {
           if (!this._isPanning) {
             this._isPanning = true;
             this._panFrameCounter = 0; // Reset frame counter when panning starts
+            // Emit interaction event immediately when panning starts
+            this._markCanvasInteracting('pan');
           }
           
           // Store the pending pan update position
@@ -697,6 +699,9 @@ export class EventHandler {
         this._panUpdateCount = 0;
         // Mark interaction start time for first-frame immediate updates
         this._interactionStartTime = Date.now();
+        // Emit interaction event immediately when pan starts
+        // This ensures adaptive mode activates immediately
+        this._markCanvasInteracting('pan');
         return;
       }
 

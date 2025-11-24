@@ -45,6 +45,10 @@ export class FloatingGPUPreview {
     this._adaptiveScaleMultiplier = 1;
     this._adaptiveResolutionMultiplier = 1;
     this._adaptiveCooldownTimer = null;
+    this._previewRenderLoopRunning = false;
+    this._previewRafId = null;
+    this._previewFrameSkipCounter = 0;
+    this._previewLastFrameTime = 0;
     this._setupParameterListeners();
     this._setupAnimationLoop();
     this.onAdaptiveSettingsChanged(this.settings.settings.adaptiveQuality);
@@ -264,53 +268,77 @@ _setupParameterListeners() {
 }
 
 _setupAnimationLoop() {
-  // No interval needed - the main GPU renderer already has a render loop
-  // We just need to ensure the preview updates when parameters change
-  
-  // Throttle parameter change renders to avoid performance issues
-  let renderTimeout = null;
-  const throttledRender = () => {
-    if (renderTimeout) return; // Already scheduled
-    renderTimeout = setTimeout(() => {
-      renderTimeout = null;
-      // FIX: Allow preview to render during canvas interactions
-      // The preview is a separate window and should continue rendering independently
-      // Canvas panning should not block the preview from updating
-      if (this.isVisible && typeof window.render === "function") {
-        // Use requestIdleCallback to defer render if possible, but with shorter timeout
-        // This allows rendering even during interactions, just at lower priority
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(() => {
-            if (this.isVisible && typeof window.render === "function") {
-              window.render();
-            }
-          }, { timeout: 50 }); // Shorter timeout to allow rendering during interactions
-        } else {
-          window.render();
-        }
-      }
-    }, 16); // ~60 FPS max for parameter changes
-  };
+  // INDEPENDENT PREVIEW RENDER LOOP
+  // The preview has its own RAF loop that runs independently of the main canvas render loop
+  // This ensures the preview continues rendering even during canvas interactions
   
   const originalShow = this.show.bind(this);
   this.show = () => {
     originalShow();
+    this._startPreviewRenderLoop();
     
-    // Listen for parameter changes and trigger a throttled render
+    // Listen for parameter changes to trigger immediate render
     if (window.editor?.paramPanel) {
-      window.editor.paramPanel.on?.('parameterChanged', throttledRender);
+      window.editor.paramPanel.on?.('parameterChanged', () => {
+        // Trigger immediate render on parameter change
+        if (this.isVisible && typeof window.render === "function") {
+          window.render();
+        }
+      });
     }
   };
 
   const originalHide = this.hide.bind(this);
   this.hide = () => {
-    // Cleanup listeners if needed
-    if (renderTimeout) {
-      clearTimeout(renderTimeout);
-      renderTimeout = null;
-    }
+    this._stopPreviewRenderLoop();
     originalHide();
   };
+}
+
+_startPreviewRenderLoop() {
+  if (this._previewRenderLoopRunning || !this.isVisible) return;
+  
+  this._previewRenderLoopRunning = true;
+  this._previewFrameSkipCounter = 0;
+  this._previewLastFrameTime = performance.now();
+  
+  const renderFrame = (timestamp) => {
+    if (!this._previewRenderLoopRunning || !this.isVisible) {
+      this._previewRenderLoopRunning = false;
+      this._previewRafId = null;
+      return;
+    }
+    
+    // Frame skipping during heavy canvas interactions (render every 2nd frame)
+    const shouldSkipFrame = this.isCanvasInteractionActive && (this._previewFrameSkipCounter % 2 !== 0);
+    
+    if (!shouldSkipFrame && typeof window.render === "function") {
+      // Render preview independently - doesn't depend on canvas interaction state
+      window.render();
+      
+      // Update FPS counter
+      if (this.fpsCounter) {
+        this.fpsCounter.frame();
+      }
+    }
+    
+    this._previewFrameSkipCounter++;
+    this._previewLastFrameTime = timestamp;
+    
+    // Schedule next frame
+    this._previewRafId = requestAnimationFrame(renderFrame);
+  };
+  
+  // Start the loop
+  this._previewRafId = requestAnimationFrame(renderFrame);
+}
+
+_stopPreviewRenderLoop() {
+  this._previewRenderLoopRunning = false;
+  if (this._previewRafId !== null) {
+    cancelAnimationFrame(this._previewRafId);
+    this._previewRafId = null;
+  }
 }
 
   async _rebuildAfterResize() {
@@ -476,11 +504,8 @@ async show() {
       this.fpsCounter.start();
     }
 
-    // FIX: Ensure render loop continues when preview is shown
-    const renderLoopState = window.renderLoop?.getState();
-    if (window.renderLoop && renderLoopState && !renderLoopState.running) {
-      window.renderLoop.start();
-    }
+    // Start independent preview render loop
+    this._startPreviewRenderLoop();
 
     // FIX: Handle visibility changes to ensure rendering continues
     this._setupVisibilityHandler();
@@ -495,6 +520,9 @@ async show() {
     if (!this.isVisible || !this.container) return;
 
     this.fpsCounter.stop();
+    
+    // Stop independent preview render loop
+    this._stopPreviewRenderLoop();
 
     // Cleanup visibility handler
     if (this._visibilityHandler) {
@@ -963,8 +991,19 @@ canvasWrapper.style.cssText = `
   _handleInteractionEvent(event) {
     const detail = event?.detail || {};
     const isActive = !!detail.active;
+    const wasActive = this.isCanvasInteractionActive;
     this.isCanvasInteractionActive = isActive;
-    this._applyAdaptiveInteractionState(isActive, detail.reason || "canvas");
+    
+    // Immediately activate adaptive mode when panning starts
+    if (isActive && !wasActive) {
+      // Activate adaptive mode immediately on pan start
+      this._applyAdaptiveInteractionState(true, detail.reason || "canvas");
+      // Reset frame skip counter to ensure first frame renders
+      this._previewFrameSkipCounter = 0;
+    } else if (!isActive && wasActive) {
+      // Exit adaptive mode after panning ends (with cooldown)
+      this._applyAdaptiveInteractionState(false, detail.reason || "canvas");
+    }
   }
 
   _setupDockedResize() {
@@ -1022,21 +1061,23 @@ canvasWrapper.style.cssText = `
   }
 
   _setupVisibilityHandler() {
-    // FIX: Ensure render loop continues when canvas becomes visible
+    // FIX: Ensure preview render loop continues when canvas becomes visible
     // This prevents the "needs a click to continue rendering" issue
     if (!this.gpuCanvas) return;
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && this.isVisible) {
-        // Ensure render loop is running when page becomes visible
-        const renderLoopState = window.renderLoop?.getState();
-        if (window.renderLoop && renderLoopState && !renderLoopState.running) {
-          window.renderLoop.start();
+        // Restart independent preview render loop if not running
+        if (!this._previewRenderLoopRunning) {
+          this._startPreviewRenderLoop();
         }
         // Trigger a render to refresh the display
         if (typeof window.render === "function") {
           window.render();
         }
+      } else if (document.visibilityState === 'hidden') {
+        // Pause preview render loop when page is hidden to save resources
+        this._stopPreviewRenderLoop();
       }
     };
 
@@ -1045,9 +1086,8 @@ canvasWrapper.style.cssText = `
 
     // Also listen for canvas focus to ensure rendering continues
     this.gpuCanvas.addEventListener('focus', () => {
-      const renderLoopState = window.renderLoop?.getState();
-      if (window.renderLoop && renderLoopState && !renderLoopState.running) {
-        window.renderLoop.start();
+      if (!this._previewRenderLoopRunning && this.isVisible) {
+        this._startPreviewRenderLoop();
       }
     });
 
