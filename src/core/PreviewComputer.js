@@ -35,26 +35,9 @@ export class PreviewComputer {
    * Initialize worker support
    */
   _initWorkerSupport() {
-    if (window.threadSeparationManager) {
-      const manager = window.threadSeparationManager;
-      if (manager.isWorkerAvailable('previewComputer')) {
-        this.queueManager = manager.getQueueManager();
-        this.useWorker = true;
-        
-        // Set up response handler
-        const worker = manager.getWorker('previewComputer');
-        const originalOnMessage = worker.onmessage;
-        worker.onmessage = (e) => {
-          if (e.data.type === 'previewResult') {
-            this._handlePreviewResult(e.data);
-          }
-          // Call original handler for other messages
-          if (originalOnMessage) {
-            originalOnMessage.call(worker, e);
-          }
-        };
-      }
-    }
+    // Force disable worker usage
+    this.useWorker = false;
+    // Worker support is disabled - computation runs synchronously on main thread
   }
   
   /**
@@ -72,94 +55,30 @@ export class PreviewComputer {
   }
   
   /**
-   * Request preview computation (async, non-blocking)
+   * Request preview computation (synchronous)
    */
   async requestPreviewComputation(graph, timeContext, audioContext, callback) {
-    // Throttle requests to prevent queue overflow
-    const now = performance.now();
-    if (now - this.lastPreviewRequestTime < this.previewRequestThrottle) {
-      return; // Skip this request
-    }
-    this.lastPreviewRequestTime = now;
+    // Run computation synchronously
+    const startTime = performance.now();
+    const result = this.computePreviews(graph);
+    const duration = performance.now() - startTime;
     
-    if (!this.useWorker || !this.queueManager) {
-      // Fallback to main thread computation (deferred, non-blocking)
-      // Use requestIdleCallback to avoid blocking canvas interactions
-      if (typeof requestIdleCallback !== 'undefined') {
-        requestIdleCallback(() => {
-          const result = this.computePreviews(graph);
-          if (callback) {
-            callback(result?.previews || {});
-          }
-        }, { timeout: 100 });
-      } else {
-        // Fallback: defer with setTimeout
-        setTimeout(() => {
-          const result = this.computePreviews(graph);
-          if (callback) {
-            callback(result?.previews || {});
-          }
-        }, 0);
-      }
-      return;
+    // Log duration if >16ms
+    if (duration > 16) {
+      console.log(`Preview computation took ${duration.toFixed(2)}ms (>16ms)`);
     }
     
-    // Create immutable snapshot of graph state
-    const graphSnapshot = this._createGraphSnapshot(graph);
-    
-    // Generate unique request ID
-    const requestId = `preview_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Enqueue preview computation request (CRITICAL priority)
-    const message = {
-      id: requestId, // Add ID field for callback tracking
-      type: 'computePreviews',
-      graph: graphSnapshot,
-      timeContext: {
-        time: timeContext?.time || this.animationTime,
-        frame: timeContext?.frame || Math.floor(this.animationTime * 60),
-        deltaTime: timeContext?.deltaTime || 0
-      },
-      audioContext: {
-        audioEnvelope: audioContext?.audioEnvelope || 0,
-        audioEnvelopeBass: audioContext?.audioEnvelopeBass || 0,
-        audioEnvelopeMids: audioContext?.audioEnvelopeMids || 0,
-        audioEnvelopeHighs: audioContext?.audioEnvelopeHighs || 0
-      },
-      timestamp: performance.now()
-    };
-    
-    // Store callback BEFORE enqueueing (in case enqueue returns null)
+    // Invoke callback immediately
     if (callback) {
-      this.pendingPreviewResults.set(requestId, {
-        timestamp: performance.now(),
-        callback: callback
-      });
-      
-      // Set timeout to clean up callback if worker doesn't respond
-      setTimeout(() => {
-        if (this.pendingPreviewResults.has(requestId)) {
-          // Clean up leaked callback
-          this.pendingPreviewResults.delete(requestId);
-          console.warn(`Preview computation request ${requestId} timed out after ${this.previewRequestTimeout}ms`);
-        }
-      }, this.previewRequestTimeout);
+      callback(result?.previews || {});
     }
-    
-    // Fire-and-forget with callback registration
-    this.queueManager.enqueue(
-      'previewComputer',
-      message,
-      MessagePriority.CRITICAL
-    );
   }
   
   /**
    * Create immutable graph snapshot
    */
   _createGraphSnapshot(graph) {
-    // Deep clone to prevent race conditions
-    return JSON.parse(JSON.stringify({
+    const snapshot = {
       nodes: graph.nodes.map(node => ({
         id: node.id,
         type: node.type,
@@ -169,7 +88,15 @@ export class PreviewComputer {
         position: { ...node.position }
       })),
       connections: graph.connections.map(conn => ({ ...conn }))
-    }));
+    };
+    
+    // Use structuredClone when available, otherwise return shallow copy
+    if (typeof structuredClone !== 'undefined') {
+      return structuredClone(snapshot);
+    }
+    
+    // Fallback: return shallow-copied structure
+    return snapshot;
   }
 
   /**
