@@ -1,6 +1,7 @@
 // src/ui/FloatingGPUPreview.js - Fixed version with proper aspect ratio handling
 
 import { PreviewSettings } from "./PreviewSettings.js";
+import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 
 export class FloatingGPUPreview {
   constructor(gpuCanvas) {
@@ -50,9 +51,103 @@ export class FloatingGPUPreview {
     this._previewRafId = null;
     this._previewFrameSkipCounter = 0;
     this._previewLastFrameTime = 0;
+    
+    // Interaction state manager integration
+    this.interactionStateManager = getInteractionStateManager();
+    this._setupInteractionListeners();
+    
     this._setupParameterListeners();
     this._setupAnimationLoop();
     this.onAdaptiveSettingsChanged(this.settings.settings.adaptiveQuality);
+  }
+  
+  /**
+   * Setup listeners for interaction state changes
+   */
+  _setupInteractionListeners() {
+    // Listen to interaction start events
+    this.interactionStateManager.addEventListener('interactionstart', (event) => {
+      this._onInteractionStart(event);
+    });
+    
+    // Listen to interaction end events
+    this.interactionStateManager.addEventListener('interactionend', (event) => {
+      this._onInteractionEnd(event);
+    });
+    
+    // Listen to quality change events (during cooldown)
+    this.interactionStateManager.addEventListener('qualitychange', (event) => {
+      this._onQualityChange(event);
+    });
+    
+    // Listen to cooldown end events
+    this.interactionStateManager.addEventListener('cooldownend', (event) => {
+      this._onCooldownEnd(event);
+    });
+  }
+  
+  /**
+   * Handle interaction start
+   */
+  _onInteractionStart(event) {
+    const config = this._getAdaptiveConfig();
+    if (!config.enabled) return;
+    
+    // Cancel any ongoing cooldown
+    if (this._adaptiveCooldownTimer) {
+      clearTimeout(this._adaptiveCooldownTimer);
+      this._adaptiveCooldownTimer = null;
+    }
+    
+    // Apply reduced quality during interaction
+    if (!this._isAdaptiveActive) {
+      this._isAdaptiveActive = true;
+      this._adaptiveScaleMultiplier = config.interactionScale;
+      this._adaptiveResolutionMultiplier = config.resolutionScale;
+      
+      if (this.isVisible) {
+        this.updateSize();
+      }
+    }
+  }
+  
+  /**
+   * Handle interaction end
+   */
+  _onInteractionEnd(event) {
+    // Quality restoration is handled by cooldown mechanism
+    // We just need to wait for cooldown to complete
+  }
+  
+  /**
+   * Handle quality change during cooldown
+   */
+  _onQualityChange(event) {
+    const config = this._getAdaptiveConfig();
+    if (!config.enabled) return;
+    
+    // Gradually restore quality based on cooldown progress
+    const qualityLevel = event.quality || 1.0;
+    const targetScale = config.interactionScale + (1.0 - config.interactionScale) * qualityLevel;
+    const targetResolution = config.resolutionScale + (1.0 - config.resolutionScale) * qualityLevel;
+    
+    this._adaptiveScaleMultiplier = targetScale;
+    this._adaptiveResolutionMultiplier = targetResolution;
+    
+    if (this.isVisible) {
+      this.updateSize();
+    }
+  }
+  
+  /**
+   * Handle cooldown end
+   */
+  _onCooldownEnd(event) {
+    const config = this._getAdaptiveConfig();
+    if (!config.enabled) return;
+    
+    // Fully restore quality
+    this._exitAdaptiveMode(false, 'cooldown');
   }
 
   _getPerfMonitor() {

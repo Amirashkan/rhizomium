@@ -2,6 +2,7 @@
 import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { MessagePriority } from './AsyncQueueManager.js';
+import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 
 export class PreviewComputer {
   constructor() {
@@ -23,6 +24,10 @@ export class PreviewComputer {
     this.interactionCacheWindow = 250;
     this._interactionMode = false;
     
+    // Interaction state manager integration
+    this.interactionStateManager = getInteractionStateManager();
+    this._setupInteractionListeners();
+    
     // Initialize worker support (deferred, non-blocking)
     if (typeof requestIdleCallback !== 'undefined') {
       requestIdleCallback(() => {
@@ -33,6 +38,23 @@ export class PreviewComputer {
         this._initWorkerSupport();
       }, 2000);
     }
+  }
+  
+  /**
+   * Setup listeners for interaction events
+   */
+  _setupInteractionListeners() {
+    // Listen to interaction start events
+    this.interactionStateManager.addEventListener('interactionstart', (event) => {
+      this._interactionMode = true;
+      this.interactionCacheWindow = 400; // Longer cache window during interactions
+    });
+    
+    // Listen to interaction end events
+    this.interactionStateManager.addEventListener('interactionend', (event) => {
+      this._interactionMode = false;
+      this.interactionCacheWindow = 250; // Shorter cache window when not interacting
+    });
   }
   
   /**
@@ -62,13 +84,18 @@ export class PreviewComputer {
    * Request preview computation (synchronous)
    */
   async requestPreviewComputation(graph, timeContext, audioContext, callback) {
-    if (
-      this._interactionMode &&
-      this.cachedPreviews &&
-      performance.now() - this.lastPreviewComputeTime < this.interactionCacheWindow
-    ) {
+    // Skip computation during interactions if we have cached previews
+    if (this._interactionMode) {
+      if (this.cachedPreviews && performance.now() - this.lastPreviewComputeTime < this.interactionCacheWindow) {
+        if (callback) {
+          callback(this.cachedPreviews);
+        }
+        return;
+      }
+      // If no cache or cache expired, still skip computation during active interactions
+      // to avoid blocking the UI
       if (callback) {
-        callback(this.cachedPreviews);
+        callback(this.cachedPreviews || {});
       }
       return;
     }

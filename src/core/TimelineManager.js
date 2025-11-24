@@ -7,6 +7,7 @@
 
 import { Timeline } from '../data/Timeline.js';
 import { InterpolationSystem } from '../utils/InterpolationSystem.js';
+import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 
 /**
  * TimelineManager - manages timeline state and keyframe evaluation
@@ -23,6 +24,48 @@ export class TimelineManager {
     this.onPlayStateChange = null;      // Callback when play state changes
     this.lastPanelUpdateTime = 0;       // Throttle parameter panel updates
     this.panelUpdateInterval = 100;     // Update panel max once per 100ms
+    
+    // Interaction state manager integration
+    this.interactionStateManager = getInteractionStateManager();
+    this._pausedForInteraction = false;
+    this._wasPlayingBeforeInteraction = false;
+    this._setupInteractionListeners();
+  }
+  
+  /**
+   * Setup listeners for interaction events
+   */
+  _setupInteractionListeners() {
+    // Listen to interaction start events
+    this.interactionStateManager.addEventListener('interactionstart', (event) => {
+      this._onInteractionStart(event);
+    });
+    
+    // Listen to interaction end events
+    this.interactionStateManager.addEventListener('interactionend', (event) => {
+      this._onInteractionEnd(event);
+    });
+  }
+  
+  /**
+   * Handle interaction start - pause timeline updates
+   */
+  _onInteractionStart(event) {
+    if (this.enabled && this.timeline.playing) {
+      this._wasPlayingBeforeInteraction = true;
+      this._pausedForInteraction = true;
+      // Don't actually pause playback, just skip updates
+    }
+  }
+  
+  /**
+   * Handle interaction end - resume timeline updates
+   */
+  _onInteractionEnd(event) {
+    if (this._pausedForInteraction) {
+      this._pausedForInteraction = false;
+      this._wasPlayingBeforeInteraction = false;
+    }
   }
 
   /**
@@ -213,6 +256,11 @@ export class TimelineManager {
    */
   update(deltaTime) {
     if (!this.enabled || !this.timeline.playing) {
+      return;
+    }
+    
+    // Skip updates during interactions to reduce overhead
+    if (this._pausedForInteraction || this.interactionStateManager.isAnyInteractionActive()) {
       return;
     }
 

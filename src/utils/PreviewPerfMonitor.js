@@ -23,6 +23,9 @@ export class PreviewPerfMonitor {
       lastLayoutRead: "-",
       lastLayoutWrite: "-",
       interactionState: "idle",
+      interactionDuration: 0,
+      qualityLevel: 1.0,
+      interactionMetrics: null
     };
     this._lastFrameStart = 0;
     this._overlay = null;
@@ -44,11 +47,128 @@ export class PreviewPerfMonitor {
     
     // Track section timings for budget allocation
     this._currentSections = new Map();
+    
+    // Interaction tracking
+    this._interactionEvents = [];
+    this._maxInteractionEvents = 50;
+    this._interactionMetrics = {
+      totalInteractions: 0,
+      totalInteractionTime: 0,
+      averageInteractionDuration: 0,
+      longestInteraction: 0,
+      interactionsByType: {}
+    };
+    
+    // Setup interaction event listeners
+    this._setupInteractionListeners();
 
     if (this.enabled) {
       this._ensureOverlay();
       this._installDebugHooks();
     }
+  }
+  
+  /**
+   * Setup listeners for interaction events
+   */
+  _setupInteractionListeners() {
+    // Listen to interaction start events
+    this.interactionStateManager.addEventListener('interactionstart', (event) => {
+      this._logInteractionEvent('start', event);
+      this._isInteractionMode = true;
+      this.metrics.interactionState = event.type;
+    });
+    
+    // Listen to interaction end events
+    this.interactionStateManager.addEventListener('interactionend', (event) => {
+      this._logInteractionEvent('end', event);
+      this._updateInteractionMetrics(event);
+    });
+    
+    // Listen to quality change events
+    this.interactionStateManager.addEventListener('qualitychange', (event) => {
+      this.metrics.qualityLevel = event.quality;
+    });
+    
+    // Listen to cooldown end events
+    this.interactionStateManager.addEventListener('cooldownend', (event) => {
+      this._logInteractionEvent('cooldownend', event);
+      if (!this.interactionStateManager.isAnyInteractionActive()) {
+        this._isInteractionMode = false;
+        this.metrics.interactionState = 'idle';
+      }
+    });
+  }
+  
+  /**
+   * Log an interaction event
+   */
+  _logInteractionEvent(type, event) {
+    if (!this.enabled) return;
+    
+    const logEntry = {
+      type,
+      timestamp: performance.now(),
+      interactionType: event.type,
+      duration: event.duration || 0,
+      state: event.state
+    };
+    
+    this._interactionEvents.push(logEntry);
+    
+    // Limit event history
+    if (this._interactionEvents.length > this._maxInteractionEvents) {
+      this._interactionEvents.shift();
+    }
+    
+    // Log to console if enabled (for debugging)
+    if (window.DEBUG_INTERACTION_EVENTS) {
+      console.log(`[PreviewPerfMonitor] Interaction ${type}:`, logEntry);
+    }
+  }
+  
+  /**
+   * Update interaction metrics
+   */
+  _updateInteractionMetrics(event) {
+    if (!event.duration) return;
+    
+    this._interactionMetrics.totalInteractions++;
+    this._interactionMetrics.totalInteractionTime += event.duration;
+    this._interactionMetrics.averageInteractionDuration = 
+      this._interactionMetrics.totalInteractionTime / this._interactionMetrics.totalInteractions;
+    
+    if (event.duration > this._interactionMetrics.longestInteraction) {
+      this._interactionMetrics.longestInteraction = event.duration;
+    }
+    
+    const type = event.type || 'unknown';
+    this._interactionMetrics.interactionsByType[type] = 
+      (this._interactionMetrics.interactionsByType[type] || 0) + 1;
+    
+    // Update metrics in display
+    this.metrics.interactionDuration = event.duration;
+    this.metrics.interactionMetrics = { ...this._interactionMetrics };
+  }
+  
+  /**
+   * Get interaction metrics
+   */
+  getInteractionMetrics() {
+    return {
+      ...this._interactionMetrics,
+      currentInteractionDuration: this.interactionStateManager.getInteractionDuration(),
+      currentInteractionType: this.interactionStateManager.getInteractionType(),
+      qualityLevel: this.interactionStateManager.getQualityLevel(),
+      cooldownActive: this.interactionStateManager.isCooldownActive()
+    };
+  }
+  
+  /**
+   * Get interaction event history
+   */
+  getInteractionEvents() {
+    return [...this._interactionEvents];
   }
 
   beginFrame(frameState = {}) {
@@ -57,8 +177,13 @@ export class PreviewPerfMonitor {
       return;
     }
     
-    // Update budget allocator mode based on interaction state
+    // Update interaction state from manager
     const interactionState = this.interactionStateManager.getState();
+    this._isInteractionMode = interactionState.isInteracting;
+    this.metrics.interactionDuration = interactionState.interactionDuration;
+    this.metrics.qualityLevel = interactionState.currentQualityLevel;
+    
+    // Update budget allocator mode based on interaction state
     if (interactionState.isPanning) {
       this.budgetAllocator.setMode('panning');
     } else {
@@ -83,7 +208,7 @@ export class PreviewPerfMonitor {
     this._frameStarted = true;
     this._lastFrameStart = performance.now();
     this.metrics.rafDelta = Number(frameState.deltaTime) || 0;
-    this.metrics.interactionState = frameState.manual ? "manual" : this.metrics.interactionState;
+    this.metrics.interactionState = frameState.manual ? "manual" : (interactionState.currentInteractionType || "idle");
   }
 
   endFrame(extra = {}) {
@@ -430,24 +555,29 @@ export class PreviewPerfMonitor {
       lastLayoutRead,
       lastLayoutWrite,
       interactionState,
+      interactionDuration,
+      qualityLevel,
+      interactionMetrics,
       budgetExceeded,
       budgetStats,
     } = this.metrics;
     
     const budgets = this.budgetAllocator.getBudgets();
     const qualityMultiplier = this.budgetAllocator.getQualityMultiplier();
+    const interactionQuality = (qualityLevel || 1.0) * 100;
 
     // During interactions, show only high-level metrics (FPS, frame time)
     let lines;
     if (this._isInteractionMode) {
       const fps = frameMs > 0 ? (1000 / frameMs).toFixed(1) : "0.0";
       const budgetStatus = budgetExceeded ? "⚠ EXCEEDED" : "✓ OK";
+      const duration = interactionDuration > 0 ? `${(interactionDuration / 1000).toFixed(1)}s` : "-";
       lines = [
         `Frame: ${frameMs.toFixed(1)} ms (${fps} FPS) ${budgetStatus}`,
         `GPU   : ${gpuMs.toFixed(1)} / ${budgets.gpuPreview.toFixed(1)} ms`,
         `Canvas: ${canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
-        `Quality: ${(qualityMultiplier * 100).toFixed(0)}%`,
-        `State: ${interactionState} [LIGHT]`,
+        `Quality: ${(qualityMultiplier * 100).toFixed(0)}% (${interactionQuality.toFixed(0)}%)`,
+        `State: ${interactionState} [${duration}] [LIGHT]`,
       ];
     } else {
       // Full metrics when not interacting
@@ -458,7 +588,7 @@ export class PreviewPerfMonitor {
         `Canvas: ${canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
         `Other : ${(previewDomMs || 0).toFixed(1)} / ${budgets.other.toFixed(1)} ms`,
         `Preview DOM: ${previewDomMs.toFixed(1)} ms`,
-        `Quality: ${(qualityMultiplier * 100).toFixed(0)}%`,
+        `Quality: ${(qualityMultiplier * 100).toFixed(0)}% (${interactionQuality.toFixed(0)}%)`,
         `Layout R/W: ${layoutReads}/${layoutWrites}`,
         `Last Read: ${lastLayoutRead}`,
         `Last Write: ${lastLayoutWrite}`,
@@ -467,6 +597,14 @@ export class PreviewPerfMonitor {
       
       if (budgetStats) {
         lines.push(`Avg Frame: ${budgetStats.avgFrameTime.toFixed(1)} ms`);
+      }
+      
+      // Show interaction metrics if available
+      if (interactionMetrics && interactionMetrics.totalInteractions > 0) {
+        lines.push(``);
+        lines.push(`Interactions: ${interactionMetrics.totalInteractions}`);
+        lines.push(`Avg Duration: ${interactionMetrics.averageInteractionDuration.toFixed(0)}ms`);
+        lines.push(`Longest: ${interactionMetrics.longestInteraction.toFixed(0)}ms`);
       }
     }
 

@@ -8,11 +8,15 @@
  * - Per-dispatch timing information
  */
 
+import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+
 export class ComputeProfiler {
   constructor(device) {
     this.device = device;
     this.enabled = false;
     this.supportsTimestamps = false;
+    this.interactionStateManager = getInteractionStateManager();
+    this._isInteractionMode = false;
 
     // Timestamp query support
     this.querySet = null;
@@ -42,8 +46,26 @@ export class ComputeProfiler {
     // Query management
     this.maxQueries = 128; // Max query slots
     this.pendingReads = [];
+    
+    // Setup interaction listeners
+    this._setupInteractionListeners();
 
     this._initialize();
+  }
+  
+  /**
+   * Setup listeners for interaction events
+   */
+  _setupInteractionListeners() {
+    // Listen to interaction start events
+    this.interactionStateManager.addEventListener('interactionstart', (event) => {
+      this._isInteractionMode = true;
+    });
+    
+    // Listen to interaction end events
+    this.interactionStateManager.addEventListener('interactionend', (event) => {
+      this._isInteractionMode = false;
+    });
   }
 
   /**
@@ -102,6 +124,30 @@ export class ComputeProfiler {
    */
   beginFrame() {
     if (!this.enabled) return;
+    
+    // Skip detailed profiling during interactions to reduce overhead
+    if (this._isInteractionMode) {
+      // Only track basic frame timing during interactions
+      const now = performance.now();
+      const deltaTime = now - this.lastFrameTime;
+      this.lastFrameTime = now;
+      
+      // Update frame timing
+      this.frameTimes.push(deltaTime);
+      if (this.frameTimes.length > this.maxFrameSamples) {
+        this.frameTimes.shift();
+      }
+      
+      // Calculate FPS from average frame time
+      const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
+      this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
+      this.metrics.frameTime = avgFrameTime;
+      
+      // Reset dispatch tracking (skip detailed tracking during interactions)
+      this.currentFrameDispatches = [];
+      this.dispatchIndex = 0;
+      return;
+    }
 
     const now = performance.now();
     const deltaTime = now - this.lastFrameTime;
