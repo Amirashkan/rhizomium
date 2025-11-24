@@ -1,5 +1,9 @@
 import { getFrameBudgetAllocator } from './FrameBudgetAllocator.js';
 import { getInteractionStateManager } from './InteractionStateManager.js';
+import { getPerformanceLogger } from './PerformanceLogger.js';
+import { getPerformanceBenchmark } from './PerformanceBenchmark.js';
+import { getPerformanceDashboard } from './PerformanceDashboard.js';
+import { getPerformanceAnalyzer } from './PerformanceAnalyzer.js';
 
 const STORAGE_KEY = "previewPerfOverlay";
 const HASH_FLAG = "previewPerf";
@@ -44,6 +48,7 @@ export class PreviewPerfMonitor {
     // Frame budget allocator integration
     this.budgetAllocator = getFrameBudgetAllocator();
     this.interactionStateManager = getInteractionStateManager();
+    this.performanceLogger = getPerformanceLogger();
     
     // Track section timings for budget allocation
     this._currentSections = new Map();
@@ -193,12 +198,17 @@ export class PreviewPerfMonitor {
     // Start frame tracking in budget allocator
     this.budgetAllocator.beginFrame();
     
+    // Start performance logger frame
+    this.performanceLogger.startFrame(this._frameCounter, performance.now());
+    
     // Throttle profiler updates during interactions (every 3-5 frames)
     if (this._isInteractionMode) {
       this._frameCounter++;
       // Only process every Nth frame during interactions
       if (this._frameCounter % FRAME_THROTTLE_INTERACTION !== 0) {
         this._frameStarted = false;
+        // Log frame skip
+        this.performanceLogger.logFrameSkip('interaction_throttle', 16.67);
         return; // Skip this frame
       }
     } else {
@@ -214,6 +224,10 @@ export class PreviewPerfMonitor {
   endFrame(extra = {}) {
     if (!this.enabled || !this._frameStarted || !this._lastFrameStart) {
       this._frameStarted = false;
+      // End logger frame even if not started
+      if (this.performanceLogger.currentFrame) {
+        this.performanceLogger.endFrame();
+      }
       return;
     }
     
@@ -223,6 +237,11 @@ export class PreviewPerfMonitor {
     this.budgetAllocator.recordTime('canvas', this.metrics.canvasMs || 0);
     this.budgetAllocator.recordTime('gpuPreview', this.metrics.gpuMs || 0);
     this.budgetAllocator.recordTime('other', (this.metrics.previewDomMs || 0) + (extra.otherTime || 0));
+    
+    // Log system times to performance logger
+    this.performanceLogger.logSystemTime('canvas', this.metrics.canvasMs || 0);
+    this.performanceLogger.logSystemTime('gpu', this.metrics.gpuMs || 0);
+    this.performanceLogger.logSystemTime('other', (this.metrics.previewDomMs || 0) + (extra.otherTime || 0));
     
     // End frame in budget allocator and get analysis
     const budgetAnalysis = this.budgetAllocator.endFrame();
@@ -253,6 +272,9 @@ export class PreviewPerfMonitor {
       this.metrics.budgetStats = this.budgetAllocator.getStats();
       this._scheduleOverlayUpdate(true);
     }
+    
+    // End performance logger frame
+    this.performanceLogger.endFrame();
     
     this._frameStarted = false;
   }
@@ -685,8 +707,19 @@ export class PreviewPerfMonitor {
     if (window.previewPerfToggleInstalled) return;
     window.previewPerfToggleInstalled = true;
     window.togglePreviewPerfOverlay = () => this.toggle();
+    
+    // Expose benchmarking tools
+    window.performanceBenchmark = getPerformanceBenchmark();
+    window.performanceLogger = getPerformanceLogger();
+    window.performanceDashboard = getPerformanceDashboard();
+    window.performanceAnalyzer = getPerformanceAnalyzer();
+    
     console.info(
       "[PreviewPerfMonitor] Overlay ready. Call window.togglePreviewPerfOverlay() or set localStorage.previewPerfOverlay = 'true' to persist."
+    );
+    console.info(
+      "[PreviewPerfMonitor] Performance tools available:",
+      "window.performanceBenchmark, window.performanceLogger, window.performanceDashboard, window.performanceAnalyzer"
     );
   }
 }
