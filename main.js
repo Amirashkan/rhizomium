@@ -4009,11 +4009,10 @@ function handleRenderFrame(frameState) {
     if (!isDragging) {
       const now = performance.now();
       const previewInterval = isCanvasInteracting
-        ? PREVIEW_UPDATE_INTERVAL * 1.5
-        : PREVIEW_UPDATE_INTERVAL;
-      const shouldUpdatePreviews = (now - lastPreviewUpdate) >= previewInterval;
-
-      if (shouldUpdatePreviews) {
+        ? 100  // 10 FPS during canvas interactions
+        : 33;  // 30 FPS when idle
+      
+      if (now - lastPreviewUpdate >= previewInterval) {
         if (editor?.previewComputer && editor?.graph) {
           const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
           
@@ -4077,17 +4076,20 @@ function handleRenderFrame(frameState) {
       }
     }
 
-    // OPTIMIZATION: Only redraw when canvas is dirty or during interactions
-    // Canvas is marked dirty by: user interactions, preview updates, graph changes
+    // Canvas drawing - throttle during panning
     if (editor?.draw) {
-      // Skip drawing if not dirty and not interacting (unless manual frame)
-      const isDirty = editor._isDirty !== false; // Default to true if not set
-      const needsRedraw = isDirty || isCanvasInteracting || frameState.manual;
-      
-      if (needsRedraw) {
-        const drawToken = previewPerfMonitor?.timeSection("editorDraw");
-        editor.draw(); // draw() will check _isDirty internally
-        previewPerfMonitor?.endSection(drawToken);
+      // During panning, only draw every 2nd frame for smoother performance
+      if (isPanning) {
+        if (gpuFrameSkipCounter % 2 === 0) {
+          const canvasToken = previewPerfMonitor?.timeSection("canvas");
+          editor.draw();
+          previewPerfMonitor?.endSection(canvasToken);
+        }
+      } else {
+        // Normal drawing when not panning
+        const canvasToken = previewPerfMonitor?.timeSection("canvas");
+        editor.draw();
+        previewPerfMonitor?.endSection(canvasToken);
       }
     }
   }

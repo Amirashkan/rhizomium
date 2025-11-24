@@ -10,7 +10,7 @@ const HASH_FLAG = "previewPerf";
 const QUERY_FLAG = "previewPerf";
 const OVERLAY_UPDATE_MS = 250;
 const OVERLAY_UPDATE_MS_INTERACTION = 100; // 10 FPS during interactions
-const FRAME_THROTTLE_INTERACTION = 4; // Update every 4 frames during interactions (3-5 range)
+const FRAME_THROTTLE_INTERACTION = 2; // Update every 2 frames during interactions (less aggressive)
 const IDLE_CALLBACK_TIMEOUT = 100; // ms timeout for requestIdleCallback
 
 export class PreviewPerfMonitor {
@@ -203,24 +203,22 @@ export class PreviewPerfMonitor {
     // Start performance logger frame
     this.performanceLogger.startFrame(this._frameCounter, performance.now());
     
-    // Throttle profiler updates during interactions (every 3-5 frames)
-    if (this._isInteractionMode) {
-      this._frameCounter++;
-      // Only process every Nth frame during interactions
-      if (this._frameCounter % FRAME_THROTTLE_INTERACTION !== 0) {
-        this._frameStarted = false;
-        // Log frame skip
-        this.performanceLogger.logFrameSkip('interaction_throttle', 16.67);
-        return; // Skip this frame
-      }
-    } else {
-      this._frameCounter = 0;
-    }
-    
+    // CRITICAL FIX: Always start frame timing, even during interactions
+    // Only skip detailed metric collection, not frame timing itself
     this._frameStarted = true;
     this._lastFrameStart = performance.now();
     this.metrics.rafDelta = Number(frameState.deltaTime) || 0;
     this.metrics.interactionState = frameState.manual ? "manual" : (interactionState.currentInteractionType || "idle");
+    
+    // Track if this frame should collect detailed metrics
+    if (this._isInteractionMode) {
+      this._frameCounter++;
+      // Only collect detailed metrics every Nth frame, but always measure frame time
+      this._collectDetailedMetrics = (this._frameCounter % FRAME_THROTTLE_INTERACTION === 0);
+    } else {
+      this._frameCounter = 0;
+      this._collectDetailedMetrics = true;
+    }
   }
 
   endFrame(extra = {}) {
@@ -295,14 +293,9 @@ export class PreviewPerfMonitor {
   endSection(token, extra = {}) {
     if (!this.enabled || !token) return 0;
     
-    // Skip detailed dispatch timing during canvas interactions
-    if (this._isInteractionMode && token.name !== "gpu" && token.name !== "canvas") {
-      return 0;
-    }
-    
     const duration = performance.now() - token.start;
     
-    // Record time in budget allocator
+    // Record time in budget allocator (always do this)
     if (token.name === "gpu" || token.name === "preview") {
       this.budgetAllocator.recordTime('gpuPreview', duration);
     } else if (token.name === "canvas") {
@@ -311,20 +304,19 @@ export class PreviewPerfMonitor {
       this.budgetAllocator.recordTime('other', duration);
     }
     
-    // During interactions, defer query resolution to requestIdleCallback
-    if (this._isInteractionMode) {
-      // Batch queries for later resolution
-      this._pendingQueries.push({
-        type: 'section',
-        name: token.name,
-        duration,
-        extra
-      });
-      this._scheduleIdleCallback();
+    // Skip detailed dispatch timing during interactions (but still track GPU/Canvas)
+    if (this._isInteractionMode && !this._collectDetailedMetrics) {
+      // Still record GPU and Canvas times even when throttling
+      if (token.name === "gpu") {
+        this.metrics.gpuMs = duration;
+      } else if (token.name === "canvas") {
+        this.metrics.canvasMs = duration;
+      }
+      // Skip other detailed metrics
       return duration;
     }
     
-    // Normal processing when not in interaction mode
+    // Normal processing when collecting detailed metrics
     if (token.name === "gpu") {
       this.metrics.gpuMs = duration;
     } else if (token.name === "canvas") {
@@ -568,67 +560,50 @@ export class PreviewPerfMonitor {
 
   _updateOverlay() {
     if (!this._overlay) return;
-    const {
-      frameMs,
-      gpuMs,
-      canvasMs,
-      previewDomMs,
-      rafDelta,
-      layoutReads,
-      layoutWrites,
-      lastLayoutRead,
-      lastLayoutWrite,
-      interactionState,
-      interactionDuration,
-      qualityLevel,
-      interactionMetrics,
-      budgetExceeded,
-      budgetStats,
-    } = this.metrics;
     
     const budgets = this.budgetAllocator.getBudgets();
     const qualityMultiplier = this.budgetAllocator.getQualityMultiplier();
-    const interactionQuality = (qualityLevel || 1.0) * 100;
+    const interactionQuality = (this.metrics.qualityLevel || 1.0) * 100;
 
     // During interactions, show only high-level metrics (FPS, frame time)
     let lines;
     if (this._isInteractionMode) {
-      const fps = frameMs > 0 ? (1000 / frameMs).toFixed(1) : "0.0";
-      const budgetStatus = budgetExceeded ? "⚠ EXCEEDED" : "✓ OK";
-      const duration = interactionDuration > 0 ? `${(interactionDuration / 1000).toFixed(1)}s` : "-";
+      const fps = this.metrics.frameMs > 0 ? (1000 / this.metrics.frameMs).toFixed(1) : "0.0";
+      const budgetStatus = this.metrics.budgetExceeded ? "⚠ EXCEEDED" : "✓ OK";
+      const duration = this.metrics.interactionDuration > 0 ? `${(this.metrics.interactionDuration / 1000).toFixed(1)}s` : "-";
       lines = [
-        `Frame: ${frameMs.toFixed(1)} ms (${fps} FPS) ${budgetStatus}`,
-        `GPU   : ${gpuMs.toFixed(1)} / ${budgets.gpuPreview.toFixed(1)} ms`,
-        `Canvas: ${canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
+        `Frame: ${this.metrics.frameMs.toFixed(1)} ms (${fps} FPS) ${budgetStatus}`,
+        `GPU   : ${this.metrics.gpuMs.toFixed(1)} / ${budgets.gpuPreview.toFixed(1)} ms`,
+        `Canvas: ${this.metrics.canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
         `Quality: ${(qualityMultiplier * 100).toFixed(0)}% (${interactionQuality.toFixed(0)}%)`,
-        `State: ${interactionState} [${duration}] [LIGHT]`,
+        `State: ${this.metrics.interactionState} [${duration}] [LIGHT]`,
       ];
     } else {
       // Full metrics when not interacting
-      const budgetStatus = budgetExceeded ? "⚠ EXCEEDED" : "✓ OK";
+      const budgetStatus = this.metrics.budgetExceeded ? "⚠ EXCEEDED" : "✓ OK";
       lines = [
-        `Frame: ${frameMs.toFixed(1)} ms (RAF Δ ${rafDelta.toFixed(1)} ms) ${budgetStatus}`,
-        `GPU   : ${gpuMs.toFixed(1)} / ${budgets.gpuPreview.toFixed(1)} ms`,
-        `Canvas: ${canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
-        `Other : ${(previewDomMs || 0).toFixed(1)} / ${budgets.other.toFixed(1)} ms`,
-        `Preview DOM: ${previewDomMs.toFixed(1)} ms`,
+        `Frame: ${this.metrics.frameMs.toFixed(1)} ms (RAF Δ ${this.metrics.rafDelta.toFixed(1)} ms) ${budgetStatus}`,
+        `GPU   : ${this.metrics.gpuMs.toFixed(1)} / ${budgets.gpuPreview.toFixed(1)} ms`,
+        `Canvas: ${this.metrics.canvasMs.toFixed(1)} / ${budgets.canvas.toFixed(1)} ms`,
+        `Other : ${(this.metrics.previewDomMs || 0).toFixed(1)} / ${budgets.other.toFixed(1)} ms`,
+        `Preview DOM: ${this.metrics.previewDomMs.toFixed(1)} ms`,
         `Quality: ${(qualityMultiplier * 100).toFixed(0)}% (${interactionQuality.toFixed(0)}%)`,
-        `Layout R/W: ${layoutReads}/${layoutWrites}`,
-        `Last Read: ${lastLayoutRead}`,
-        `Last Write: ${lastLayoutWrite}`,
-        `State: ${interactionState}`,
+        `Layout R/W: ${this.metrics.layoutReads}/${this.metrics.layoutWrites}`,
+        `Last Read: ${this.metrics.lastLayoutRead}`,
+        `Last Write: ${this.metrics.lastLayoutWrite}`,
+        `State: ${this.metrics.interactionState}`,
       ];
       
-      if (budgetStats) {
-        lines.push(`Avg Frame: ${budgetStats.avgFrameTime.toFixed(1)} ms`);
+      if (this.metrics.budgetStats) {
+        lines.push(`Avg Frame: ${this.metrics.budgetStats.avgFrameTime.toFixed(1)} ms`);
       }
       
       // Show interaction metrics if available
-      if (interactionMetrics && interactionMetrics.totalInteractions > 0) {
+      if (this.metrics.interactionMetrics && this.metrics.interactionMetrics.totalInteractions > 0) {
         lines.push(``);
-        lines.push(`Interactions: ${interactionMetrics.totalInteractions}`);
-        lines.push(`Avg Duration: ${interactionMetrics.averageInteractionDuration.toFixed(0)}ms`);
-        lines.push(`Longest: ${interactionMetrics.longestInteraction.toFixed(0)}ms`);
+        lines.push(`Interactions: ${this.metrics.interactionMetrics.totalInteractions}`);
+        lines.push(`Avg Duration: ${this.metrics.interactionMetrics.averageInteractionDuration.toFixed(0)}ms`);
+        lines.push(`Longest: ${this.metrics.interactionMetrics.longestInteraction.toFixed(0)}ms`);
       }
     }
 
