@@ -17,6 +17,9 @@ export class ThreadMonitor {
       logLevel: options.logLevel || 'warn', // 'debug', 'info', 'warn', 'error' (default to warn to reduce logging)
       enableRecovery: options.enableRecovery !== false,
       maxRecoveryAttempts: options.maxRecoveryAttempts || 3,
+      stallLogThrottleMs: Number.isFinite(options.stallLogThrottleMs)
+        ? Math.max(0, options.stallLogThrottleMs)
+        : 15000, // limit stall spam to one log every 15s
       ...options
     };
     
@@ -39,6 +42,9 @@ export class ThreadMonitor {
     
     // Event listeners
     this.listeners = new Map();
+
+    // Stall logging throttle (per thread)
+    this.stallLogState = new Map(); // threadName -> { lastLogTime, suppressed }
   }
   
   /**
@@ -269,7 +275,17 @@ export class ThreadMonitor {
     health.status = 'stalled';
     health.consecutiveFailures++;
     
-    this.loggingSystem.log('warn', `Thread ${name} stalled (${timeSinceHeartbeat.toFixed(0)}ms since last heartbeat)`);
+    const throttleDecision = this._updateStallLogState(name);
+    if (throttleDecision.summary) {
+      this.loggingSystem.log(
+        'info',
+        `Thread ${name} stall repeated ${throttleDecision.summary.count}x over ${(throttleDecision.summary.duration / 1000).toFixed(1)}s`
+      );
+    }
+
+    if (throttleDecision.shouldLog) {
+      this.loggingSystem.log('warn', `Thread ${name} stalled (${timeSinceHeartbeat.toFixed(0)}ms since last heartbeat)`);
+    }
     
     // Trigger recovery if enabled
     if (this.options.enableRecovery) {
@@ -278,6 +294,37 @@ export class ThreadMonitor {
     
     // Emit event
     this._emit('stall', { name, timeSinceHeartbeat });
+  }
+
+  /**
+   * Decide whether to log a stall warning (per-thread throttle)
+   */
+  _updateStallLogState(name) {
+    const throttleMs = this.options.stallLogThrottleMs;
+    if (!throttleMs) {
+      return { shouldLog: true, summary: null };
+    }
+
+    const now = performance.now();
+    const state = this.stallLogState.get(name) || { lastLogTime: 0, suppressed: 0 };
+    const elapsed = state.lastLogTime > 0 ? now - state.lastLogTime : Infinity;
+    let summary = null;
+    let shouldLog = true;
+
+    if (state.lastLogTime > 0 && elapsed < throttleMs) {
+      // Suppress this log, increment counter
+      state.suppressed += 1;
+      shouldLog = false;
+    } else {
+      if (state.suppressed > 0 && Number.isFinite(elapsed)) {
+        summary = { count: state.suppressed, duration: elapsed };
+        state.suppressed = 0;
+      }
+      state.lastLogTime = now;
+    }
+
+    this.stallLogState.set(name, state);
+    return { shouldLog, summary };
   }
   
   /**
