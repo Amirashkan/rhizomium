@@ -1251,3 +1251,49 @@ if (lastShaderHash !== hash(wgsl)) {
 ---
 
 **End of Comprehensive Overview**
+
+---
+
+## Part 10: Canvas Redraw Trigger Surface (Nov 2025)
+
+### Overview
+All redraws converge on the `Editor.markDirty()` → `Editor.draw()` → `Renderer.render()` pipeline. The legacy idea of calling `Renderer.requestRedraw()` is effectively implemented via two surfaces: `EventHandler._requestDraw(reason)` (used by interactive tooling) and direct `editor.markDirty(reason)` calls (used by systems running outside the canvas controller). Understanding who calls these entry points is essential for throttling and instrumentation.
+
+### Trigger Catalog
+- **User Input (`src/core/EventHandler.js`):**  
+  Panning, zooming, node dragging, box selection, connection edits, delete key operations, and preview toggle buttons all call `_requestDraw()` with descriptive reasons (`pan`, `node-drag`, `wire-drag`, `box-select`, `toggle-preview`, etc.). `_requestDraw()` now emits diagnostics before setting the dirty flag.
+- **Graph Mutations:**  
+  `src/core/ConnectionManager.js` (connection add/remove), `src/ui/RadialMenu.js` (node creation), `src/core/UndoManager.js` (undo/redo stacks), and `src/core/SaveLoadManager.js` (load steps & retries) call `window.editor.markDirty(<reason>)` after mutating the graph. Reasons include `connection-added`, `node-creation`, `undo-redo`, and `file-load-*`.
+- **Parameter & Expression Updates:**  
+  `src/ui/ParameterPanel.js`, `src/ui/components/TextInputHandler.js`, `src/ui/components/FileInputHandler.js`, `src/utils/ParameterExpressionSystem.js`, `src/midi/MIDIParameterBinding.js`, and `src/core/preview/PreviewIntegration.js` mark the editor dirty while values are typed, dragged, MIDI-driven, or recomputed. Reasons: `parameter-drag`, `parameter-change`, `dependent-update`, `midi-parameter-update`, `time-node-update`, etc.
+- **Automation / Background Warmup:**  
+  `EventHandler._startContinuousWarmup()` + `_checkAndWarmupAfterInactivity()` periodically mark the canvas dirty (`background-warmup`, `warmup`) to keep the 2D context hot. `PreviewIntegration` batches also emit `parameter-change-batch`. These run asynchronously and can fire even without user input.
+- **Dev/Test Utilities:**  
+  `src/utils/PanningTestScenarios.js` replays scripted gestures by directly calling `_requestDraw()`. These only activate when the helper is imported but will appear in diagnostics when in use.
+
+### Propagation Diagram
+```
+┌───────────────┐      ┌────────────────────────┐      ┌──────────────────────┐      ┌────────────────────┐
+│ Trigger Source│ ───▶ │ Dirty Flag Surfaces     │ ───▶ │ Editor.draw()        │ ───▶ │ Renderer.render()   │
+│ (interaction, │      │ - EventHandler._request│      │ - checks _isDirty     │      │ - nodes, wires, UI  │
+│ data, async)  │      │ - window.editor.markDirty│    │ - throttles panning   │      │ - canvas commit     │
+└───────────────┘      │ - Editor.safeDraw       │      │ - clears dirty state  │      └────────────────────┘
+        │              └────────────────────────┘      └──────────────────────┘
+        │                         ▲
+        └─────────────┬───────────┘
+                      │
+   User Input (EventHandler) / Graph Mutations (ConnectionManager, UndoManager) /
+   Parameter + MIDI Feeds (ParameterPanel, ExpressionSystem, MIDI) /
+   Data Sync (SaveLoadManager) / Background Warmup (EventHandler timers)
+```
+
+### Instrumentation
+- **New helper (`src/utils/RedrawDiagnostics.js`):** opt-in logging for redraw analysis.
+  - `window.enableRedrawDiagnostics(true)` turns tracing on (stores ~400 entries).
+  - `window.getRedrawDiagnostics()` dumps `{type, ts, reason, detail}` samples.
+- **Hook points:**
+  - `EventHandler._requestDraw()` → `type: "trigger"` with `reason`, `_isPanning`, `_isCanvasInteracting`.
+  - `Editor.markDirty()` → `type: "dirty"` entries showing reasons + affected regions.
+  - `Editor.draw()` → `type: "commit"` entries capturing the batch of dirty regions/reasons and whether the renderer was in an interaction/throttled state.
+
+With tracing enabled it becomes straightforward to correlate UI gestures or background jobs with actual render commits, highlight redundant dirty calls, and surface latent async triggers (e.g., delayed save/load retries) that might otherwise be mistaken for user interaction.

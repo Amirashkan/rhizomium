@@ -12,6 +12,7 @@ import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
+import { logRedrawDirtyMark, logRedrawCommit } from '../utils/RedrawDiagnostics.js';
 
 const getTimestamp = () => {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -855,6 +856,11 @@ connectGPURenderer(renderFunction) {
       if (this._dirtyDebugLog.length > this._dirtyDebugLogLimit) {
         this._dirtyDebugLog.pop();
       }
+      logRedrawDirtyMark({
+        reason,
+        region,
+        dirtyRegions: this.getDirtyRegions(),
+      });
     }
   }
 
@@ -980,6 +986,12 @@ connectGPURenderer(renderFunction) {
       isInteracting: isInteracting, // Pass interaction state to optimize rendering
       dirtyRegions,
       dirtyReasons,
+    });
+
+    logRedrawCommit({
+      dirtyRegions,
+      dirtyReasons,
+      isInteracting,
     });
 
     // Clear dirty flag after rendering

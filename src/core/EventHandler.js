@@ -1,5 +1,6 @@
 // src/core/EventHandler.js - Complete version with undo system integration
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+import { logRedrawTriggerEvent } from '../utils/RedrawDiagnostics.js';
 
 export class EventHandler {
   constructor(options) {
@@ -185,6 +186,14 @@ export class EventHandler {
   // PERFORMANCE: During panning, always mark dirty so draw() is called every frame
   // Frame-based throttling is handled in editor.draw() to skip actual rendering
   _requestDraw(reason = 'user-interaction') {
+    logRedrawTriggerEvent({
+      source: 'EventHandler._requestDraw',
+      reason,
+      detail: {
+        isCanvasInteracting: this._isCanvasInteracting,
+        isPanning: this._isPanning,
+      },
+    });
     if (this.editor && typeof this.editor.markDirty === 'function') {
       this.editor.markDirty(reason);
     }
