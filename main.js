@@ -4076,8 +4076,15 @@ function handleRenderFrame(frameState) {
       }
     }
 
-    // Canvas drawing - throttle during panning
-    if (editor?.draw) {
+    // Canvas drawing - throttle during panning and skip when editor is clean
+    const editorNeedsCanvasDraw = typeof editor?.isDirty === 'function'
+      ? editor.isDirty()
+      : !!editor?.draw;
+    const sceneIsStatic = !editorNeedsCanvasDraw &&
+      typeof editor?.isSceneStatic === 'function' &&
+      editor.isSceneStatic(120);
+
+    if (editorNeedsCanvasDraw && editor?.draw) {
       // During panning, only draw every 2nd frame for smoother performance
       if (isPanning) {
         if (gpuFrameSkipCounter % 2 === 0) {
@@ -4091,6 +4098,8 @@ function handleRenderFrame(frameState) {
         editor.draw();
         previewPerfMonitor?.endSection(canvasToken);
       }
+    } else if (sceneIsStatic) {
+      previewPerfMonitor?.recordValue('canvasStaticSkip', 1);
     }
   }
   previewPerfMonitor?.endFrame();

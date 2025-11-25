@@ -12,6 +12,13 @@ import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
+
+const getTimestamp = () => {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+};
 export class Editor {
   constructor(graph, onChange, undoManager = null) {
     try {
@@ -25,6 +32,14 @@ export class Editor {
       // Dirty flag optimization
       this._isDirty = true; // Start as dirty for initial render
       this._dirtyReasons = new Set();
+      this._dirtyDebugLog = [];
+      this._dirtyDebugLogLimit = 12;
+      this._staticSceneThresholdMs = 120;
+      this._trackedDirtyRegions = ['general', 'viewport', 'nodes', 'connections', 'previews', 'selection'];
+      this._dirtyRegionState = new Map();
+      this._trackedDirtyRegions.forEach(region => this._dirtyRegionState.set(region, true));
+      this._lastDirtyTimestamp = getTimestamp();
+      this._lastDrawTimestamp = 0;
 
       // MIDI dependency update throttling
       this.midiDependencyUpdatePending = false;
@@ -804,8 +819,11 @@ connectGPURenderer(renderFunction) {
     }
   }
 
-  safeDraw() {
+  safeDraw(reason = 'safe-draw') {
     try {
+      if (!this._isDirty) {
+        this.markDirty(reason);
+      }
       this.draw();
     } catch (error) {
       window.errorHandler?.handleError(error, {
@@ -822,20 +840,98 @@ connectGPURenderer(renderFunction) {
     }
   }
 
-  markDirty(reason = 'unknown') {
+  markDirty(reason = 'unknown', region = 'general') {
     this._isDirty = true;
+    const now = getTimestamp();
+    this._lastDirtyTimestamp = now;
+    this._setRegionDirty(region);
     if (reason) {
       this._dirtyReasons.add(reason);
+      this._dirtyDebugLog.unshift({
+        reason,
+        regions: Array.isArray(region) ? [...region] : [region],
+        timestamp: now,
+      });
+      if (this._dirtyDebugLog.length > this._dirtyDebugLogLimit) {
+        this._dirtyDebugLog.pop();
+      }
     }
   }
 
-  clearDirty() {
+  markRegionDirty(region, reason = region) {
+    this.markDirty(reason, region);
+  }
+
+  _setRegionDirty(region) {
+    if (Array.isArray(region)) {
+      region.forEach(r => this._setRegionDirty(r));
+      return;
+    }
+    const normalized = typeof region === 'string' && region.trim().length ? region : 'general';
+    if (!this._dirtyRegionState.has(normalized)) {
+      this._dirtyRegionState.set(normalized, false);
+    }
+    this._dirtyRegionState.set(normalized, true);
+  }
+
+  getDirtyRegions() {
+    return Array.from(this._dirtyRegionState.entries())
+      .filter(([, isDirty]) => isDirty)
+      .map(([region]) => region);
+  }
+
+  getDirtyDebugInfo(limit = 5) {
+    return this._dirtyDebugLog.slice(0, limit).map(entry => ({ ...entry }));
+  }
+
+  clearDirty(regions = null) {
+    if (regions) {
+      const regionList = Array.isArray(regions) ? regions : [regions];
+      regionList.forEach(region => {
+        const normalized = typeof region === 'string' && region.trim().length ? region : 'general';
+        if (this._dirtyRegionState.has(normalized)) {
+          this._dirtyRegionState.set(normalized, false);
+        }
+      });
+
+      const hasDirtyRegions = Array.from(this._dirtyRegionState.values()).some(Boolean);
+      if (hasDirtyRegions) {
+        return;
+      }
+    }
+
     this._isDirty = false;
     this._dirtyReasons.clear();
+    this._dirtyRegionState.forEach((_, region) => {
+      this._dirtyRegionState.set(region, false);
+    });
+    this._lastDrawTimestamp = getTimestamp();
   }
 
   isDirty() {
     return this._isDirty;
+  }
+
+  hasActiveAnimations() {
+    if (this.expressionSystem?.timeAnimatedNodes && typeof this.expressionSystem.timeAnimatedNodes.size === 'number') {
+      return this.expressionSystem.timeAnimatedNodes.size > 0;
+    }
+    if (typeof this.hasTimeBasedExpressions === 'function') {
+      return this.hasTimeBasedExpressions();
+    }
+    return false;
+  }
+
+  isSceneStatic(thresholdMs = this._staticSceneThresholdMs) {
+    if (this._isDirty) {
+      return false;
+    }
+    const now = getTimestamp();
+    const timeSinceChange = now - this._lastDirtyTimestamp;
+    if (timeSinceChange < thresholdMs) {
+      return false;
+    }
+    return !this.hasActiveAnimations();
   }
 
   draw() {
@@ -873,12 +969,17 @@ connectGPURenderer(renderFunction) {
     // Check if canvas is currently being interacted with (pan, drag, etc.)
     const isInteracting = this.eventHandler?.isCanvasInteracting?.() || false;
     
+    const dirtyRegions = this.getDirtyRegions();
+    const dirtyReasons = Array.from(this._dirtyReasons);
+
     this.renderer.render(this.graph, {
       selection: this.selection.getSelected(),
       dragWire: this.connections.getDragWire(),
       boxSelect: this.selection.getBoxSelect(),
       editor: this,
       isInteracting: isInteracting, // Pass interaction state to optimize rendering
+      dirtyRegions,
+      dirtyReasons,
     });
 
     // Clear dirty flag after rendering
