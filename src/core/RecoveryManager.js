@@ -46,12 +46,16 @@ export class RecoveryManager {
   /**
    * Handle thread stall
    */
-  async handleStall(name, thread) {
+  async handleStall(name, thread, stallLogDecision = null) {
     if (thread.recoveryAttempts >= this.monitor.options.maxRecoveryAttempts) {
       return;
     }
     
-    this.monitor.loggingSystem.log('warn', `Thread ${name} stalled, attempting recovery`);
+    const shouldLog =
+      !stallLogDecision || stallLogDecision.shouldLog !== false;
+    if (shouldLog) {
+      this.monitor.loggingSystem.log('warn', `Thread ${name} stalled, attempting recovery`);
+    }
     
     // For stalls, try to restart the thread
     if (thread.type === 'secondary' && thread.thread instanceof Worker) {

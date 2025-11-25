@@ -289,7 +289,7 @@ export class ThreadMonitor {
     
     // Trigger recovery if enabled
     if (this.options.enableRecovery) {
-      this.recoveryManager.handleStall(name, thread);
+      this.recoveryManager.handleStall(name, thread, throttleDecision);
     }
     
     // Emit event
