@@ -102,27 +102,27 @@ export class AsyncQueueManager {
       message.id = requestId;
       message.type = message.type || 'request';
       
-      // Store promise resolvers
+      // Store promise resolvers with timeout (use default if not provided)
+      const timeout = message.timeout || 30000; // 30s default timeout
       this.pendingRequests.set(requestId, {
         resolve,
         reject,
         workerName,
         timestamp: performance.now(),
-        timeout: message.timeout || 30000 // 30s default timeout
+        timeout: timeout
       });
       
       // Enqueue message
       this.enqueue(workerName, message, priority);
       
-      // Set timeout
-      if (message.timeout) {
-        setTimeout(() => {
-          if (this.pendingRequests.has(requestId)) {
-            this.pendingRequests.delete(requestId);
-            reject(new Error(`Request ${requestId} timed out after ${message.timeout}ms`));
-          }
-        }, message.timeout);
-      }
+      // Set timeout timer (always set, using stored timeout value)
+      setTimeout(() => {
+        if (this.pendingRequests.has(requestId)) {
+          const pending = this.pendingRequests.get(requestId);
+          this.pendingRequests.delete(requestId);
+          reject(new Error(`Request ${requestId} timed out after ${pending.timeout}ms`));
+        }
+      }, timeout);
     });
   }
   

@@ -175,27 +175,27 @@ export class AsyncQueueManager {
       message.id = requestId;
       message.type = message.type || 'request';
       
-      // Store promise resolvers
+      // Store promise resolvers with timeout (use default if not provided)
+      const timeout = message.timeout || 30000; // 30s default timeout
       this.pendingRequests.set(requestId, {
         resolve,
         reject,
         workerName,
         timestamp: performance.now(),
-        timeout: message.timeout || 30000 // 30s default timeout
+        timeout: timeout
       });
       
       // Enqueue message
       this.enqueue(workerName, message, priority);
       
-      // Set timeout
-      if (message.timeout) {
-        setTimeout(() => {
-          if (this.pendingRequests.has(requestId)) {
-            this.pendingRequests.delete(requestId);
-            reject(new Error(`Request ${requestId} timed out after ${message.timeout}ms`));
-          }
-        }, message.timeout);
-      }
+      // Set timeout timer (always set, using stored timeout value)
+      setTimeout(() => {
+        if (this.pendingRequests.has(requestId)) {
+          const pending = this.pendingRequests.get(requestId);
+          this.pendingRequests.delete(requestId);
+          reject(new Error(`Request ${requestId} timed out after ${pending.timeout}ms`));
+        }
+      }, timeout);
     });
   }
   
@@ -633,7 +633,10 @@ export class ExecutionQueue {
       nodeId: data.node?.id
     }));
     
+    // Create a copy of pending expressions before clearing (needed for resolving promises)
+    const pendingMap = new Map(this.pendingExpressions);
     this.pendingExpressions.clear();
+    this.expressionBatchTimer = null;
     
     // Send batch request to worker
     try {
@@ -650,12 +653,12 @@ export class ExecutionQueue {
       for (const result of results) {
         const { key, value, error } = result;
         
+        const pending = pendingMap.get(key);
+        if (!pending) continue;
+        
         if (error) {
           // Reject all resolvers for this expression
-          const pending = this.pendingExpressions.get(key);
-          if (pending) {
-            pending.resolvers.forEach(({ reject }) => reject(new Error(error)));
-          }
+          pending.resolvers.forEach(({ reject }) => reject(new Error(error)));
         } else {
           // Update cache
           this.expressionCache.set(key, {
@@ -664,15 +667,12 @@ export class ExecutionQueue {
           });
           
           // Resolve all resolvers
-          const pending = this.pendingExpressions.get(key);
-          if (pending) {
-            pending.resolvers.forEach(({ resolve }) => resolve(value));
-          }
+          pending.resolvers.forEach(({ resolve }) => resolve(value));
         }
       }
     } catch (error) {
       // Reject all pending promises
-      for (const pending of this.pendingExpressions.values()) {
+      for (const pending of pendingMap.values()) {
         pending.resolvers.forEach(({ reject }) => reject(error));
       }
     }
