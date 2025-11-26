@@ -16,6 +16,10 @@ export default defineConfig({
         '**/*.spec.js'
       ]
     },
+    outputFile: {
+      junit: './test-results/junit.xml'
+    },
+    reporters: ['default'],
     testTimeout: 10000
   }
 });
