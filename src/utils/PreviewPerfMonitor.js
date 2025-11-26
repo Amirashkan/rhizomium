@@ -64,6 +64,21 @@ export class PreviewPerfMonitor {
       interactionsByType: {}
     };
     
+    // Alert system for performance spikes
+    this._alertConfig = {
+      enabled: true,
+      redrawSpikeThreshold: 50, // ms - frame time threshold
+      redrawSpikeWindow: 5, // frames - window to check for spikes
+      consecutiveSpikesThreshold: 3, // consecutive spikes before alert
+      alertCooldown: 5000, // ms - minimum time between alerts
+      onAlert: null // Callback for alerts
+    };
+    this._frameTimeHistory = [];
+    this._lastAlertTime = 0;
+    this._spikeCount = 0;
+    this._alerts = [];
+    this._maxAlerts = 100;
+    
     // Setup interaction event listeners
     this._setupInteractionListeners();
 
@@ -276,7 +291,145 @@ export class PreviewPerfMonitor {
     // End performance logger frame
     this.performanceLogger.endFrame();
     
+    // Check for redraw spikes
+    this._checkRedrawSpikes(frameTime);
+    
     this._frameStarted = false;
+  }
+
+  /**
+   * Check for redraw spikes and trigger alerts
+   * @private
+   */
+  _checkRedrawSpikes(frameTime) {
+    if (!this._alertConfig.enabled) return;
+    
+    // Add to history
+    this._frameTimeHistory.push(frameTime);
+    if (this._frameTimeHistory.length > this._alertConfig.redrawSpikeWindow) {
+      this._frameTimeHistory.shift();
+    }
+    
+    // Check if current frame is a spike
+    const isSpike = frameTime > this._alertConfig.redrawSpikeThreshold;
+    
+    if (isSpike) {
+      this._spikeCount++;
+      
+      // Check if we have consecutive spikes
+      if (this._spikeCount >= this._alertConfig.consecutiveSpikesThreshold) {
+        const now = performance.now();
+        const timeSinceLastAlert = now - this._lastAlertTime;
+        
+        // Only alert if cooldown has passed
+        if (timeSinceLastAlert >= this._alertConfig.alertCooldown) {
+          this._triggerRedrawSpikeAlert(frameTime);
+          this._lastAlertTime = now;
+        }
+      }
+    } else {
+      // Reset spike count if frame is normal
+      this._spikeCount = 0;
+    }
+  }
+
+  /**
+   * Trigger a redraw spike alert
+   * @private
+   */
+  _triggerRedrawSpikeAlert(frameTime) {
+    const alert = {
+      type: 'redraw-spike',
+      timestamp: performance.now(),
+      frameTime: frameTime,
+      threshold: this._alertConfig.redrawSpikeThreshold,
+      consecutiveSpikes: this._spikeCount,
+      interactionState: this.metrics.interactionState,
+      metrics: {
+        gpu: this.metrics.gpuMs,
+        canvas: this.metrics.canvasMs,
+        other: this.metrics.previewDomMs || 0
+      },
+      frameTimeHistory: [...this._frameTimeHistory]
+    };
+    
+    // Store alert
+    this._alerts.push(alert);
+    if (this._alerts.length > this._maxAlerts) {
+      this._alerts.shift();
+    }
+    
+    // Log to console
+    console.warn('[PreviewPerfMonitor] Redraw spike detected:', {
+      frameTime: `${frameTime.toFixed(1)}ms`,
+      threshold: `${this._alertConfig.redrawSpikeThreshold}ms`,
+      consecutiveSpikes: this._spikeCount,
+      state: this.metrics.interactionState
+    });
+    
+    // Call alert callback if provided
+    if (this._alertConfig.onAlert) {
+      try {
+        this._alertConfig.onAlert(alert);
+      } catch (error) {
+        console.error('[PreviewPerfMonitor] Alert callback error:', error);
+      }
+    }
+    
+    // Emit event for external listeners
+    if (typeof window !== 'undefined' && window.dispatchEvent) {
+      window.dispatchEvent(new CustomEvent('perf-alert', { detail: alert }));
+    }
+  }
+
+  /**
+   * Configure alert system
+   * @param {Object} config - Alert configuration
+   */
+  configureAlerts(config) {
+    this._alertConfig = { ...this._alertConfig, ...config };
+  }
+
+  /**
+   * Get recent alerts
+   * @param {number} count - Number of recent alerts to return
+   * @returns {Array} Array of alerts
+   */
+  getAlerts(count = 10) {
+    return this._alerts.slice(-count);
+  }
+
+  /**
+   * Clear alerts
+   */
+  clearAlerts() {
+    this._alerts = [];
+  }
+
+  /**
+   * Get alert statistics
+   * @returns {Object} Alert statistics
+   */
+  getAlertStats() {
+    const recentAlerts = this._alerts.filter(
+      a => performance.now() - a.timestamp < 60000 // Last minute
+    );
+    
+    return {
+      totalAlerts: this._alerts.length,
+      recentAlerts: recentAlerts.length,
+      averageSpikeFrameTime: recentAlerts.length > 0
+        ? recentAlerts.reduce((sum, a) => sum + a.frameTime, 0) / recentAlerts.length
+        : 0,
+      maxSpikeFrameTime: recentAlerts.length > 0
+        ? Math.max(...recentAlerts.map(a => a.frameTime))
+        : 0,
+      alertsByState: recentAlerts.reduce((acc, a) => {
+        const state = a.interactionState || 'unknown';
+        acc[state] = (acc[state] || 0) + 1;
+        return acc;
+      }, {})
+    };
   }
 
   timeSection(name) {

@@ -429,6 +429,198 @@ export class PerformanceBenchmark {
       return false;
     }
   }
+
+  /**
+   * Get predefined test scenarios for throttled paths
+   * @returns {Object} Object containing scenario factories
+   */
+  static getThrottledScenarios() {
+    return {
+      /**
+       * Scenario: Parameter dragging with throttling
+       * Tests performance during rapid parameter updates
+       */
+      parameterDragging: () => ({
+        name: 'Parameter Dragging (Throttled)',
+        setup: async () => {
+          // Simulate entering drag mode
+          const interactionStateManager = getInteractionStateManager();
+          interactionStateManager.setDragging(true);
+          return { interactionStateManager };
+        },
+        onFrame: (frameCount, timestamp) => {
+          // Simulate rapid parameter updates every frame
+          // In real scenario, throttler should limit these
+          if (window.editor?.previewIntegration) {
+            // Trigger parameter change simulation
+            const event = new CustomEvent('parameter-change', {
+              detail: { nodeId: 'test-node', param: 'value', value: Math.random() }
+            });
+            window.dispatchEvent(event);
+          }
+        },
+        cleanup: async (context) => {
+          if (context?.interactionStateManager) {
+            context.interactionStateManager.setDragging(false);
+          }
+        }
+      }),
+
+      /**
+       * Scenario: Canvas panning with throttling
+       * Tests performance during canvas interactions
+       */
+      canvasPanning: () => ({
+        name: 'Canvas Panning (Throttled)',
+        setup: async () => {
+          const interactionStateManager = getInteractionStateManager();
+          interactionStateManager.setPanning(true);
+          return { interactionStateManager };
+        },
+        onFrame: (frameCount, timestamp) => {
+          // Simulate panning updates
+          if (window.editor?.markDirty) {
+            window.editor.markDirty('panning-simulation');
+          }
+        },
+        cleanup: async (context) => {
+          if (context?.interactionStateManager) {
+            context.interactionStateManager.setPanning(false);
+          }
+        }
+      }),
+
+      /**
+       * Scenario: Shader compilation throttling
+       * Tests performance during shader compilation
+       */
+      shaderCompilation: () => ({
+        name: 'Shader Compilation (Throttled)',
+        setup: async () => {
+          const interactionStateManager = getInteractionStateManager();
+          // Simulate compilation mode
+          return { interactionStateManager, compileCount: 0 };
+        },
+        onFrame: (frameCount, timestamp) => {
+          // Simulate periodic shader recompilation
+          if (frameCount % 30 === 0 && window.editor?.graph) {
+            // Trigger shader update simulation
+            if (window.editor.markDirty) {
+              window.editor.markDirty('shader-compile-simulation');
+            }
+          }
+        },
+        cleanup: async (context) => {
+          // Cleanup handled by interaction state manager
+        }
+      }),
+
+      /**
+       * Scenario: Rapid node addition/removal
+       * Tests invalidation and caching during graph changes
+       */
+      rapidGraphChanges: () => ({
+        name: 'Rapid Graph Changes',
+        setup: async () => {
+          return { changeCount: 0 };
+        },
+        onFrame: (frameCount, timestamp) => {
+          // Simulate rapid graph structure changes
+          if (frameCount % 10 === 0 && window.editor?.invalidationManager) {
+            const manager = window.editor.invalidationManager;
+            // Simulate node invalidation
+            manager.invalidateNode({ id: `test-${frameCount}`, x: 0, y: 0, w: 100, h: 80 }, 'rapid-change');
+          }
+        },
+        cleanup: async (context) => {
+          // Cleanup invalidations
+          if (window.editor?.invalidationManager) {
+            window.editor.invalidationManager.clear();
+          }
+        }
+      }),
+
+      /**
+       * Scenario: Cache thrashing
+       * Tests cache performance under memory pressure
+       */
+      cacheThrashing: () => ({
+        name: 'Cache Thrashing',
+        setup: async () => {
+          return { cacheKeys: [] };
+        },
+        onFrame: (frameCount, timestamp) => {
+          // Simulate rapid cache key creation/invalidation
+          if (window.editor?.renderCache) {
+            const cache = window.editor.renderCache;
+            const key = `thrash-${frameCount % 50}`;
+            // Simulate cache operations
+            cache.invalidateKey(key, 'thrashing-test');
+          }
+        },
+        cleanup: async (context) => {
+          // Cache cleanup handled automatically
+        }
+      }),
+
+      /**
+       * Scenario: Mixed interaction modes
+       * Tests performance with multiple simultaneous interactions
+       */
+      mixedInteractions: () => ({
+        name: 'Mixed Interactions (Complex Throttling)',
+        setup: async () => {
+          const interactionStateManager = getInteractionStateManager();
+          interactionStateManager.setDragging(true);
+          interactionStateManager.setPanning(true);
+          return { interactionStateManager };
+        },
+        onFrame: (frameCount, timestamp) => {
+          // Simulate multiple interaction types
+          if (window.editor?.markDirty) {
+            window.editor.markDirty('mixed-interaction');
+          }
+          if (frameCount % 5 === 0 && window.editor?.previewIntegration) {
+            // Periodic preview updates
+            const event = new CustomEvent('parameter-change', {
+              detail: { nodeId: 'test', param: 'value', value: Math.random() }
+            });
+            window.dispatchEvent(event);
+          }
+        },
+        cleanup: async (context) => {
+          if (context?.interactionStateManager) {
+            context.interactionStateManager.setDragging(false);
+            context.interactionStateManager.setPanning(false);
+          }
+        }
+      })
+    };
+  }
+
+  /**
+   * Run all throttled path scenarios
+   * @param {Object} options - Options for running scenarios
+   * @returns {Promise<Object>} Results for all scenarios
+   */
+  async runThrottledScenarios(options = {}) {
+    const scenarios = PerformanceBenchmark.getThrottledScenarios();
+    const results = {};
+    
+    for (const [key, factory] of Object.entries(scenarios)) {
+      try {
+        console.log(`[PerformanceBenchmark] Running scenario: ${key}`);
+        const scenario = factory();
+        const result = await this.runTest(scenario, options);
+        results[key] = result;
+      } catch (error) {
+        console.error(`[PerformanceBenchmark] Scenario ${key} failed:`, error);
+        results[key] = { error: error.message };
+      }
+    }
+    
+    return results;
+  }
 }
 
 // Singleton instance
