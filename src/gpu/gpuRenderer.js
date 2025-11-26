@@ -1,6 +1,8 @@
 // src/gpu/gpuRenderer.js
 // WebGPU renderer with explicit aspect uniform management and safe fallbacks.
 
+import { RenderCache } from './RenderCache.js';
+
 const STAGES = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
 
 // Parse WGSL for @group/@binding declarations so we can allocate resources dynamically.
@@ -63,6 +65,19 @@ export class GPURenderer {
       clientWidth: this.canvas.clientWidth || this.canvas.width || 1,
       clientHeight: this.canvas.clientHeight || this.canvas.height || 1,
     };
+    
+    // Render cache for intermediate artifacts (textures, framebuffers)
+    this.renderCache = new RenderCache(device, {
+      maxMemoryMB: 256,
+      maxEntries: 100,
+      defaultLifetime: 60000 // 60 seconds
+    });
+    
+    // Cache key for MSAA texture
+    this._msaaCacheKey = null;
+    
+    // Setup invalidation hooks if InvalidationManager is available
+    this._setupInvalidationHooks();
   }
 
   clear() {
@@ -71,30 +86,127 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+    // Note: Don't clear renderCache here - it's managed separately
+    // Cache will be cleared when device is lost or explicitly requested
+  }
+  
+  /**
+   * Setup hooks for InvalidationManager integration
+   * @private
+   */
+  _setupInvalidationHooks() {
+    // Hook into global editor's invalidation manager if available
+    if (typeof window !== 'undefined' && window.editor?.invalidationManager) {
+      // Store original invalidateNode method
+      const originalInvalidateNode = window.editor.invalidationManager.invalidateNode.bind(
+        window.editor.invalidationManager
+      );
+      
+      // Wrap to also invalidate cache
+      window.editor.invalidationManager.invalidateNode = (node, reason) => {
+        originalInvalidateNode(node, reason);
+        // Invalidate cache entries for this node
+        if (node && node.id) {
+          this.renderCache.invalidateNode(node.id, reason);
+        }
+      };
+      
+      // Hook into invalidateFull
+      const originalInvalidateFull = window.editor.invalidationManager.invalidateFull.bind(
+        window.editor.invalidationManager
+      );
+      
+      window.editor.invalidationManager.invalidateFull = (reason) => {
+        originalInvalidateFull(reason);
+        // Optionally clear cache on full invalidation
+        // For now, we keep cache as it may still be valid
+        // Uncomment if full invalidation should clear cache:
+        // this.renderCache.clear();
+      };
+    }
+    
+    // Expose cache metrics globally for monitoring
+    if (typeof window !== 'undefined') {
+      window.renderCacheMetrics = () => this.getCacheMetrics();
+    }
+  }
+  
+  /**
+   * Get cache metrics
+   * @returns {Object} Cache metrics
+   */
+  getCacheMetrics() {
+    return this.renderCache.getMetrics();
+  }
+  
+  /**
+   * Clear render cache
+   */
+  clearCache() {
+    this.renderCache.clear();
+    this._msaaCacheKey = null;
+  }
+  
+  /**
+   * Cleanup expired cache entries (call periodically, e.g., every 60 seconds)
+   */
+  cleanupCache() {
+    this.renderCache.cleanup();
   }
 
   // Create or recreate MSAA texture to match canvas size
   _createMSAATexture() {
-    if (this.msaaTexture) {
-      this.msaaTexture.destroy();
+    const width = Math.max(1, this.canvas.width);
+    const height = Math.max(1, this.canvas.height);
+    
+    // Use cache key based on size and sample count
+    const cacheKey = `msaa_${width}x${height}_${this.sampleCount}`;
+    
+    // Check if we can reuse cached texture
+    if (this._msaaCacheKey === cacheKey && this.msaaTexture && 
+        this.msaaTextureSize.width === width && 
+        this.msaaTextureSize.height === height) {
+      // Texture is already correct, no need to recreate
+      return;
+    }
+
+    // Destroy old texture if it exists and wasn't from cache
+    if (this.msaaTexture && this._msaaCacheKey !== cacheKey) {
+      // Only destroy if it's not in cache (cache manages its own lifecycle)
+      if (!this.renderCache.hasKey(this._msaaCacheKey)) {
+        try {
+          this.msaaTexture.destroy();
+        } catch (err) {
+          // Texture may already be destroyed
+        }
+      }
       this.msaaTexture = null;
       this.msaaTextureSize = { width: 0, height: 0 };
     }
 
-    const width = Math.max(1, this.canvas.width);
-    const height = Math.max(1, this.canvas.height);
-
     try {
-      this.msaaTexture = this.device.createTexture({
-        size: [width, height, 1],
-        sampleCount: this.sampleCount,
-        format: this.format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        label: "msaa-render-target",
-      });
+      // Try to get from cache or create new
+      this.msaaTexture = this.renderCache.getOrCreateTexture(
+        cacheKey,
+        { width, height, format: this.format, sampleCount: this.sampleCount },
+        () => {
+          return this.device.createTexture({
+            size: [width, height, 1],
+            sampleCount: this.sampleCount,
+            format: this.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            label: "msaa-render-target",
+          });
+        },
+        {
+          lifetime: 0, // No expiration for MSAA texture (managed by resize)
+          static: false
+        }
+      );
 
       // Store size for validation
       this.msaaTextureSize = { width, height };
+      this._msaaCacheKey = cacheKey;
     } catch (err) {
       console.warn('[GPURenderer] MSAA texture creation failed:', err.message);
       console.warn('[GPURenderer] This usually happens when GPU memory is exhausted (too many nodes/textures)');
@@ -105,6 +217,7 @@ export class GPURenderer {
       this.sampleCount = 1;
       this.msaaTexture = null;
       this.msaaTextureSize = { width: 0, height: 0 };
+      this._msaaCacheKey = null;
 
       // Mark that MSAA is permanently disabled to avoid retry spam
       this._msaaDisabled = true;
