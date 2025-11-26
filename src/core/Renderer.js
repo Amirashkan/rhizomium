@@ -51,8 +51,17 @@ export class Renderer {
       this._clearNodePinCache();
     }
     
-    // Clear canvas
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    // Handle precise invalidation regions
+    const preciseDirtyRegions = renderState.preciseDirtyRegions;
+    const needsFullRedraw = renderState.needsFullRedraw;
+    
+    if (needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0) {
+      // Full canvas clear
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    } else {
+      // Partial clear - only clear dirty regions
+      this._clearDirtyRegions(ctx, preciseDirtyRegions);
+    }
 
     // Always render grid background for visual consistency
     this._renderBackgroundGrid();
@@ -75,11 +84,25 @@ export class Renderer {
       }
     }
 
+    // Determine which nodes/connections to render based on dirty regions
+    const nodesToRender = needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0
+      ? graph.nodes
+      : this._filterNodesByRegions(graph.nodes, preciseDirtyRegions);
+    
+    const connectionsToRender = needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0
+      ? graph.connections
+      : this._filterConnectionsByRegions(graph.connections, nodeMap, preciseDirtyRegions);
+
     // Render connections/wires
-    this._renderConnections(graph.connections, nodeMap);
+    this._renderConnections(connectionsToRender, nodeMap);
 
     // Render parameter reference lines (subtle lines for =node_X references)
-    this._renderParameterReferences(graph.nodes, nodeMap);
+    // Only render if full redraw or if nodes are in dirty regions
+    if (needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0) {
+      this._renderParameterReferences(graph.nodes, nodeMap);
+    } else {
+      this._renderParameterReferences(nodesToRender, nodeMap);
+    }
 
     // Render drag wire if active
     if (renderState.dragWire) {
@@ -87,7 +110,7 @@ export class Renderer {
     }
 
     // Render nodes
-    this._renderNodes(graph.nodes, renderState.selection);
+    this._renderNodes(nodesToRender, renderState.selection);
 
     // Render selection box if active
     if (renderState.boxSelect) {
@@ -1120,5 +1143,148 @@ export class Renderer {
     if (this.scheduler) {
       this.scheduler.destroy();
     }
+  }
+
+  /**
+   * Clear dirty regions on canvas
+   * @private
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   * @param {Array} regions - Array of region objects {x, y, w, h}
+   */
+  _clearDirtyRegions(ctx, regions) {
+    if (!regions || regions.length === 0) {
+      return;
+    }
+
+    // Transform regions from world space to screen space
+    const scale = this.viewport.scale || 1;
+    const offsetX = this.viewport.offsetX || 0;
+    const offsetY = this.viewport.offsetY || 0;
+
+    for (const region of regions) {
+      if (!region || !Number.isFinite(region.x) || !Number.isFinite(region.y) ||
+          !Number.isFinite(region.w) || !Number.isFinite(region.h)) {
+        continue;
+      }
+
+      // Transform to screen coordinates
+      const screenX = region.x * scale + offsetX;
+      const screenY = region.y * scale + offsetY;
+      const screenW = region.w * scale;
+      const screenH = region.h * scale;
+
+      // Clear the region (add padding to ensure we clear everything)
+      const padding = 2;
+      ctx.clearRect(
+        screenX - padding,
+        screenY - padding,
+        screenW + padding * 2,
+        screenH + padding * 2
+      );
+    }
+  }
+
+  /**
+   * Filter nodes that intersect with dirty regions
+   * @private
+   * @param {Array} nodes - Array of node objects
+   * @param {Array} regions - Array of region objects {x, y, w, h}
+   * @returns {Array} Filtered nodes
+   */
+  _filterNodesByRegions(nodes, regions) {
+    if (!nodes || nodes.length === 0 || !regions || regions.length === 0) {
+      return nodes;
+    }
+
+    const filtered = [];
+    for (const node of nodes) {
+      const nodeRegion = {
+        x: node.x || 0,
+        y: node.y || 0,
+        w: node.w || 120,
+        h: node.h || 80
+      };
+
+      // Check if node intersects with any dirty region
+      for (const region of regions) {
+        if (this._regionsIntersect(nodeRegion, region)) {
+          filtered.push(node);
+          break;
+        }
+      }
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Filter connections that intersect with dirty regions
+   * @private
+   * @param {Array} connections - Array of connection objects
+   * @param {Map} nodeMap - Map of node ID to node object
+   * @param {Array} regions - Array of region objects {x, y, w, h}
+   * @returns {Array} Filtered connections
+   */
+  _filterConnectionsByRegions(connections, nodeMap, regions) {
+    if (!connections || connections.length === 0 || !regions || regions.length === 0) {
+      return connections;
+    }
+
+    const filtered = [];
+    for (const conn of connections) {
+      const fromNode = nodeMap.get(conn.from?.nodeId);
+      const toNode = nodeMap.get(conn.to?.nodeId);
+
+      if (!fromNode || !toNode) {
+        // Include connections with missing nodes (will be handled by renderer)
+        filtered.push(conn);
+        continue;
+      }
+
+      // Calculate bounding box for connection
+      const minX = Math.min(fromNode.x || 0, toNode.x || 0);
+      const minY = Math.min(fromNode.y || 0, toNode.y || 0);
+      const maxX = Math.max(
+        (fromNode.x || 0) + (fromNode.w || 120),
+        (toNode.x || 0) + (toNode.w || 120)
+      );
+      const maxY = Math.max(
+        (fromNode.y || 0) + (fromNode.h || 80),
+        (toNode.y || 0) + (toNode.h || 80)
+      );
+
+      const connRegion = {
+        x: minX,
+        y: minY,
+        w: maxX - minX,
+        h: maxY - minY
+      };
+
+      // Check if connection region intersects with any dirty region
+      for (const region of regions) {
+        if (this._regionsIntersect(connRegion, region)) {
+          filtered.push(conn);
+          break;
+        }
+      }
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Check if two regions intersect
+   * @private
+   * @param {Object} a - First region {x, y, w, h}
+   * @param {Object} b - Second region {x, y, w, h}
+   * @returns {boolean}
+   */
+  _regionsIntersect(a, b) {
+    return !(
+      a.x + a.w < b.x ||
+      b.x + b.w < a.x ||
+      a.y + a.h < b.y ||
+      b.y + b.h < a.y
+    );
   }
 }

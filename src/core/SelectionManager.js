@@ -609,6 +609,19 @@ deleteSelected() {
 
         this.undoManager.recordNodeMovement(movements);
       }
+
+      // Invalidate moved nodes for precise redraw
+      if (movements.length > 0 && window.editor?.invalidateNodes) {
+        const movedNodes = [];
+        for (const n of this.graph.nodes) {
+          if (ids.has(n.id)) {
+            movedNodes.push(n);
+          }
+        }
+        if (movedNodes.length > 0) {
+          window.editor.invalidateNodes(movedNodes, 'node-drag');
+        }
+      }
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'move-selected',

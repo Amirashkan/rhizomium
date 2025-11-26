@@ -152,6 +152,11 @@ export class ConnectionManager {
           );
         }
 
+        // Invalidate connection region for precise redraw
+        if (window.editor?.invalidateConnection) {
+          window.editor.invalidateConnection(newConnection, outputNode, inputNode, 'connection-created');
+        }
+
         if (this.onChange) this.onChange();
 
         // Regenerate preview for the target node (the one receiving input)
@@ -239,6 +244,10 @@ export class ConnectionManager {
 
       // Perform the actual removal
       const initialLength = this.graph.connections.length;
+      const removedConnection = this.graph.connections.find(
+        (c) => c.to.nodeId === nodeId && c.to.pin === inputPin
+      );
+
       this.graph.connections = this.graph.connections.filter(
         (c) => !(c.to.nodeId === nodeId && c.to.pin === inputPin),
       );
@@ -246,6 +255,16 @@ export class ConnectionManager {
       // Also remove from node inputs array
       if (targetNode.inputs) {
         targetNode.inputs[inputPin] = null;
+      }
+
+      // Invalidate connection region for precise redraw
+      if (removedConnection && window.editor?.invalidateConnection) {
+        const sourceNode = this.graph.nodes.find(
+          (n) => n.id === removedConnection.from?.nodeId
+        );
+        if (sourceNode && targetNode) {
+          window.editor.invalidateConnection(removedConnection, sourceNode, targetNode, 'connection-removed');
+        }
       }
 
       if (this.graph.connections.length !== initialLength) {

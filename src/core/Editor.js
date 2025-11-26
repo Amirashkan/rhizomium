@@ -13,6 +13,7 @@ import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
 import { logRedrawDirtyMark, logRedrawCommit } from '../utils/RedrawDiagnostics.js';
+import { InvalidationManager } from "./InvalidationManager.js";
 
 const getTimestamp = () => {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -41,6 +42,9 @@ export class Editor {
       this._trackedDirtyRegions.forEach(region => this._dirtyRegionState.set(region, true));
       this._lastDirtyTimestamp = getTimestamp();
       this._lastDrawTimestamp = 0;
+
+      // Precise invalidation system
+      this.invalidationManager = new InvalidationManager();
 
       // MIDI dependency update throttling
       this.midiDependencyUpdatePending = false;
@@ -703,6 +707,9 @@ connectGPURenderer(renderFunction) {
       if (this.previewIntegration) {
         this.previewIntegration.generateNodePreview(node);
       }
+      
+      // Invalidate node region for redraw
+      this.invalidateNode(node, 'preview-update');
     } catch (error) {
 
     }
@@ -860,7 +867,7 @@ connectGPURenderer(renderFunction) {
           region,
           callback: () => {
             // Actual mark dirty happens when scheduler approves
-            this._internalMarkDirty(reason, region);
+            this._internalMarkDirty(reason, region, options);
           }
         });
         return;
@@ -868,17 +875,31 @@ connectGPURenderer(renderFunction) {
     }
     
     // Fallback: immediate mark dirty (no throttling)
-    this._internalMarkDirty(reason, region);
+    this._internalMarkDirty(reason, region, options);
   }
   
   /**
    * Internal mark dirty (bypasses throttling)
    */
-  _internalMarkDirty(reason = 'unknown', region = 'general') {
+  _internalMarkDirty(reason = 'unknown', region = 'general', options = {}) {
     this._isDirty = true;
     const now = getTimestamp();
     this._lastDirtyTimestamp = now;
+    
+    // Handle precise invalidation if node/region provided
+    if (options.node) {
+      this.invalidationManager.invalidateNode(options.node, reason);
+    } else if (options.region && typeof options.region === 'object' && options.region.x !== undefined) {
+      // Region object provided
+      this.invalidationManager.invalidate(options.regionKey || 'region', options.region, reason);
+    } else if (region === 'full' || options.full) {
+      // Full invalidation
+      this.invalidationManager.invalidateFull(reason);
+    }
+    
+    // Legacy region tracking (for backward compatibility)
     this._setRegionDirty(region);
+    
     if (reason) {
       this._dirtyReasons.add(reason);
       this._dirtyDebugLog.unshift({
@@ -895,6 +916,43 @@ connectGPURenderer(renderFunction) {
         dirtyRegions: this.getDirtyRegions(),
       });
     }
+  }
+
+  /**
+   * Mark a specific node as dirty
+   * @param {Object} node - Node to invalidate
+   * @param {string} reason - Reason for invalidation
+   */
+  invalidateNode(node, reason = 'node-update') {
+    if (!node) return;
+    this.invalidationManager.invalidateNode(node, reason);
+    this._isDirty = true;
+    this._lastDirtyTimestamp = getTimestamp();
+  }
+
+  /**
+   * Mark multiple nodes as dirty
+   * @param {Object[]} nodes - Nodes to invalidate
+   * @param {string} reason - Reason for invalidation
+   */
+  invalidateNodes(nodes, reason = 'nodes-update') {
+    if (!Array.isArray(nodes) || nodes.length === 0) return;
+    this.invalidationManager.invalidateNodes(nodes, reason);
+    this._isDirty = true;
+    this._lastDirtyTimestamp = getTimestamp();
+  }
+
+  /**
+   * Mark a connection region as dirty
+   * @param {Object} connection - Connection object
+   * @param {Object} fromNode - Source node
+   * @param {Object} toNode - Target node
+   * @param {string} reason - Reason for invalidation
+   */
+  invalidateConnection(connection, fromNode, toNode, reason = 'connection-update') {
+    this.invalidationManager.invalidateConnection(connection, fromNode, toNode, reason);
+    this._isDirty = true;
+    this._lastDirtyTimestamp = getTimestamp();
   }
   
   /**
@@ -982,6 +1040,8 @@ connectGPURenderer(renderFunction) {
     this._dirtyRegionState.forEach((_, region) => {
       this._dirtyRegionState.set(region, false);
     });
+    // Clear precise invalidation regions
+    this.invalidationManager.clear();
     this._lastDrawTimestamp = getTimestamp();
   }
 
@@ -1048,6 +1108,10 @@ connectGPURenderer(renderFunction) {
     
     const dirtyRegions = this.getDirtyRegions();
     const dirtyReasons = Array.from(this._dirtyReasons);
+    
+    // Get precise dirty regions from invalidation manager
+    const preciseDirtyRegions = this.invalidationManager.getDirtyRegions();
+    const needsFullRedraw = this.invalidationManager.needsFullRedraw();
 
     this.renderer.render(this.graph, {
       selection: this.selection.getSelected(),
@@ -1057,6 +1121,8 @@ connectGPURenderer(renderFunction) {
       isInteracting: isInteracting, // Pass interaction state to optimize rendering
       dirtyRegions,
       dirtyReasons,
+      preciseDirtyRegions, // Precise rectangular regions
+      needsFullRedraw, // Whether full redraw is needed
     });
 
     logRedrawCommit({
@@ -1313,12 +1379,14 @@ connectGPURenderer(renderFunction) {
       }
 
       let movedCount = 0;
+      const movedNodes = [];
       movementData.forEach(({ nodeId, newX, newY }) => {
         const node = this.graph.nodes.find(n => n.id === nodeId);
         if (node) {
           if (typeof newX === 'number' && typeof newY === 'number') {
             node.x = newX;
             node.y = newY;
+            movedNodes.push(node);
             movedCount++;
           } else {
 
@@ -1327,6 +1395,11 @@ connectGPURenderer(renderFunction) {
 
         }
       });
+      
+      // Invalidate all moved nodes
+      if (movedNodes.length > 0) {
+        this.invalidateNodes(movedNodes, 'node-movement');
+      }
 
       if (movedCount > 0) {
         this.onChange('Node Movement Undo/Redo');
