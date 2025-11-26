@@ -215,7 +215,15 @@ export class Editor {
       // Initialize core managers
       this.selection = new SelectionManager(this.graph, this.onChange);
       this.connections = new ConnectionManager(this.graph, this.onChange);
-      this.renderer = new Renderer(this.ctx, this.viewport);
+      // Initialize renderer with optional scheduler configuration
+      const schedulerConfig = this._getSchedulerConfig();
+      this.renderer = new Renderer(this.ctx, this.viewport, schedulerConfig);
+      
+      // Set up redraw callback to integrate with Editor.draw()
+      this.renderer.setRedrawCallback((triggerType, options) => {
+        // Mark dirty and trigger draw through scheduler
+        this._scheduledMarkDirty(triggerType, options);
+      });
       this.menu = new MenuManager(this.graph, this.onChange);
 
       // Ensure snap defaults are synced with selection manager
@@ -841,7 +849,32 @@ connectGPURenderer(renderFunction) {
     }
   }
 
-  markDirty(reason = 'unknown', region = 'general') {
+  markDirty(reason = 'unknown', region = 'general', options = {}) {
+    // If throttling is enabled and renderer has scheduler, use it
+    if (this.renderer && this.renderer.getScheduler && options.useThrottling !== false) {
+      const scheduler = this.renderer.getScheduler();
+      if (scheduler && scheduler.config.enabled) {
+        // Use scheduler to throttle this request
+        scheduler.requestRedraw(reason, {
+          ...options,
+          region,
+          callback: () => {
+            // Actual mark dirty happens when scheduler approves
+            this._internalMarkDirty(reason, region);
+          }
+        });
+        return;
+      }
+    }
+    
+    // Fallback: immediate mark dirty (no throttling)
+    this._internalMarkDirty(reason, region);
+  }
+  
+  /**
+   * Internal mark dirty (bypasses throttling)
+   */
+  _internalMarkDirty(reason = 'unknown', region = 'general') {
     this._isDirty = true;
     const now = getTimestamp();
     this._lastDirtyTimestamp = now;
@@ -862,6 +895,44 @@ connectGPURenderer(renderFunction) {
         dirtyRegions: this.getDirtyRegions(),
       });
     }
+  }
+  
+  /**
+   * Scheduled mark dirty (called by scheduler)
+   */
+  _scheduledMarkDirty(triggerType, options) {
+    const reason = options.reason || triggerType;
+    const region = options.region || 'general';
+    this._internalMarkDirty(reason, region);
+    
+    // Trigger draw if not already scheduled
+    if (this._isDirty && typeof this.draw === 'function') {
+      // Draw will be called by the main render loop
+      // But we can also trigger it here if needed
+      if (options.immediateDraw) {
+        this.draw();
+      }
+    }
+  }
+  
+  /**
+   * Get scheduler configuration (can be overridden)
+   */
+  _getSchedulerConfig() {
+    // Check for global configuration
+    if (window.redrawThrottleConfig) {
+      return window.redrawThrottleConfig;
+    }
+    
+    // Default configuration
+    return {
+      enabled: true,
+      maxFPS: 60,
+      respectAnimationLoop: true,
+      skipFramesDuringPan: true,
+      logThrottled: false,
+      logStats: false
+    };
   }
 
   markRegionDirty(region, reason = region) {

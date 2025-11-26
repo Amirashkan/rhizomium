@@ -1,10 +1,21 @@
 // src/core/Renderer.js
 import { NodeDefs } from "../data/NodeDefs.js";
+import { RedrawScheduler } from "./RedrawScheduler.js";
 
 export class Renderer {
-  constructor(ctx, viewport) {
+  constructor(ctx, viewport, schedulerConfig = null) {
     this.ctx = ctx;
     this.viewport = viewport;
+    
+    // Initialize redraw scheduler
+    this.scheduler = new RedrawScheduler(schedulerConfig);
+    this.scheduler.setRedrawCallback((triggerType, options) => {
+      // This will be set by the Editor when it calls setRedrawCallback
+      if (this._redrawCallback) {
+        this._redrawCallback(triggerType, options);
+      }
+    });
+    this._redrawCallback = null;
     // Cache for temporary canvases used in thumbnail rendering
     // This avoids recreating canvases every frame, which is expensive
     // Format: Map<nodeId, { canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, imageDataHash: string }>
@@ -1051,5 +1062,63 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fill();
+  }
+  
+  /**
+   * Request a redraw with throttling/debouncing
+   * @param {string} triggerType - Type of trigger (e.g., 'mouse-move', 'pan', 'parameter-change')
+   * @param {object} options - Additional options
+   * @param {boolean} options.immediate - Bypass throttling (for critical updates)
+   * @param {string} options.reason - Human-readable reason for debugging
+   * @param {function} options.callback - Callback to execute when redraw is approved
+   */
+  requestRedraw(triggerType = 'unknown', options = {}) {
+    // If callback provided, set it temporarily
+    if (options.callback) {
+      const originalCallback = this._redrawCallback;
+      this._redrawCallback = options.callback;
+      
+      // Request redraw through scheduler
+      this.scheduler.requestRedraw(triggerType, options);
+      
+      // Restore original callback
+      this._redrawCallback = originalCallback;
+    } else {
+      // Use existing callback
+      this.scheduler.requestRedraw(triggerType, options);
+    }
+  }
+  
+  /**
+   * Set the callback function to execute when redraw is approved
+   * @param {function} callback - Function(triggerType, options) to call
+   */
+  setRedrawCallback(callback) {
+    this._redrawCallback = callback;
+  }
+  
+  /**
+   * Get the redraw scheduler instance (for configuration)
+   * @returns {RedrawScheduler}
+   */
+  getScheduler() {
+    return this.scheduler;
+  }
+  
+  /**
+   * Update scheduler configuration
+   * @param {object} config - New configuration
+   */
+  updateSchedulerConfig(config) {
+    this.scheduler.updateConfig(config);
+  }
+  
+  /**
+   * Cleanup - destroy scheduler
+   */
+  destroy() {
+    if (this.scheduler) {
+      this.scheduler.destroy();
+    }
   }
 }
