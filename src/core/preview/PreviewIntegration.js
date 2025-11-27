@@ -119,6 +119,10 @@ updateTimeNodes() {
   this.editor.draw();
 }
   onParameterChange(node, immediate = false) {
+    if (node?.id && this.editor?.previewComputer?.markNodeDirty) {
+      this.editor.previewComputer.markNodeDirty(node.id, 'parameter-change');
+    }
+
     // OPTIMIZATION: Debounce rapid parameter changes (e.g., slider drag)
     // Unless immediate flag is set (e.g., discrete value changes)
     if (!immediate && !this.editor._parameterDragging) {

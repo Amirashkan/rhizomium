@@ -11,6 +11,8 @@ export class PreviewComputer {
     this.lastFrameTime = 0;
     this.lastComputedValues = new Map(); // Store computed values for expression system
     this.lastComputedInputs = new Map(); // Track last known inputs per node
+    this.lastParameterHashes = new Map(); // Track last known parameter hashes per node
+    this._manualDirtyNodes = new Set(); // Dirty flags requested externally
     this.graphStructureHash = null; // Track graph structure changes
     this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
     
@@ -155,6 +157,13 @@ export class PreviewComputer {
     return snapshot;
   }
 
+  markNodeDirty(nodeId, reason = 'manual') {
+    if (!nodeId) {
+      return;
+    }
+    this._manualDirtyNodes.add(nodeId);
+  }
+
   /**
    * Evaluate a parameter value, handling expressions
    * @param {*} value - The parameter value (could be number, string, or expression)
@@ -250,7 +259,7 @@ export class PreviewComputer {
 
       const byId = new Map(nodesToProcess.map((n) => [n.id, n]));
       const ordered = this._topologicalSort(nodesToProcess, byId);
-      const dirtyNodes = this._evaluateDirtyNodes(graph, nodesToProcess, ordered);
+      const { dirtyNodes, parameterHashes } = this._evaluateDirtyNodes(graph, nodesToProcess, ordered);
       const values = new Map(this.lastComputedValues);
       const updatedInputSnapshots = new Map();
 
@@ -1009,6 +1018,9 @@ case "Rectangle": {
       }
 
       this._generateEnhancedThumbnails(graph.nodes, values);
+      if (parameterHashes) {
+        this.lastParameterHashes = new Map(parameterHashes);
+      }
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'preview-computation',
@@ -1645,25 +1657,45 @@ _renderOutputThumbnail(ctx, size, color) {
   _evaluateDirtyNodes(graph, nodes, ordered) {
     const dirtyNodes = new Set();
     const dependentsMap = this._buildDependentsMap(nodes);
-    const currentHash = this._computeGraphStructureHash(graph);
+    const currentStructureHash = this._computeGraphStructureHash(graph);
+    const parameterHashes = new Map();
+    const manualDirtyNodes = new Set(this._manualDirtyNodes);
+    this._manualDirtyNodes.clear();
 
-    if (currentHash !== this.graphStructureHash) {
-      this.graphStructureHash = currentHash;
-      for (const node of ordered) {
-        dirtyNodes.add(node.id);
-      }
-      return dirtyNodes;
+    const structureChanged = currentStructureHash !== this.graphStructureHash;
+    if (structureChanged) {
+      this.graphStructureHash = currentStructureHash;
     }
 
     for (const node of ordered) {
       const currentInputs = this._snapshotNodeInputs(node);
       const previousInputs = this.lastComputedInputs.get(node.id);
-      if (!this._areInputsEqual(previousInputs, currentInputs)) {
+      const currentParamHash = this._computeParameterHash(node);
+      parameterHashes.set(node.id, currentParamHash);
+
+      if (structureChanged) {
+        dirtyNodes.add(node.id);
+        continue;
+      }
+
+      const previousParamHash = this.lastParameterHashes.get(node.id);
+      const paramsChanged = previousParamHash !== currentParamHash;
+      if (paramsChanged || !this._areInputsEqual(previousInputs, currentInputs)) {
         this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
       }
     }
 
-    return dirtyNodes;
+    if (structureChanged) {
+      return { dirtyNodes, parameterHashes };
+    }
+
+    if (manualDirtyNodes.size) {
+      manualDirtyNodes.forEach((nodeId) => {
+        this._markNodeAndDependentsDirty(nodeId, dependentsMap, dirtyNodes);
+      });
+    }
+
+    return { dirtyNodes, parameterHashes };
   }
 
   _computeGraphStructureHash(graph) {
@@ -1687,6 +1719,17 @@ _renderOutputThumbnail(ctx, size, color) {
       return [];
     }
     return node.inputs.map((input) => input ?? null);
+  }
+
+  _computeParameterHash(node) {
+    if (!node || typeof node.params === 'undefined') {
+      return 'no-params';
+    }
+    try {
+      return JSON.stringify(node.params);
+    } catch (error) {
+      return 'param-hash-error';
+    }
   }
 
   _areInputsEqual(prevInputs, nextInputs) {
