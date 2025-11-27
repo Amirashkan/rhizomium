@@ -10,6 +10,8 @@ export class PreviewComputer {
     this.animationTime = 0;
     this.lastFrameTime = 0;
     this.lastComputedValues = new Map(); // Store computed values for expression system
+    this.lastComputedInputs = new Map(); // Track last known inputs per node
+    this.graphStructureHash = null; // Track graph structure changes
     this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
     
     // Worker support
@@ -248,26 +250,34 @@ export class PreviewComputer {
 
       const byId = new Map(nodesToProcess.map((n) => [n.id, n]));
       const ordered = this._topologicalSort(nodesToProcess, byId);
-      const values = new Map();
+      const dirtyNodes = this._evaluateDirtyNodes(graph, nodesToProcess, ordered);
+      const values = new Map(this.lastComputedValues);
+      const updatedInputSnapshots = new Map();
 
       let processedCount = 0;
       for (const node of ordered) {
-        // CRITICAL: Check time budget periodically to prevent lag spikes
-        // If we've exceeded the time budget, stop processing to avoid blocking
-        if (processedCount % 10 === 0) { // Check every 10 nodes
-          const elapsed = performance.now() - startTime;
-          if (elapsed > timeBudget) {
-            // Time budget exceeded - stop processing to avoid blocking
-            // This prevents 3-4 second lag when computePreviews is expensive
-            // Remaining nodes will be processed on next update
-            break;
+        const hasCachedValue = this.lastComputedValues.has(node.id);
+        const needsRecompute = dirtyNodes.has(node.id) || !hasCachedValue;
+
+        if (needsRecompute) {
+          // CRITICAL: Check time budget periodically to prevent lag spikes
+          // If we've exceeded the time budget, stop processing to avoid blocking
+          if (processedCount % 10 === 0) { // Check every 10 dirty nodes
+            const elapsed = performance.now() - startTime;
+            if (elapsed > timeBudget) {
+              // Time budget exceeded - stop processing to avoid blocking
+              // Remaining nodes will be processed on next update
+              break;
+            }
           }
+          processedCount++;
         }
-        processedCount++;
-        let result = null;
+
+        let result = needsRecompute ? null : this.lastComputedValues.get(node.id);
 
         try {
-          switch (node.kind) {
+          if (needsRecompute) {
+            switch (node.kind) {
 
 
 case "ColorRamp": {
@@ -972,6 +982,7 @@ case "Rectangle": {
 
             default:
               result = 0;
+            }
           }
         } catch (error) {
           window.errorHandler?.handleError(error, {
@@ -984,10 +995,18 @@ case "Rectangle": {
 
         values.set(node.id, result);
         node.__preview = result;
+        updatedInputSnapshots.set(node.id, this._snapshotNodeInputs(node));
       }
 
       // Store computed values for expression system access
       this.lastComputedValues = values;
+      if (updatedInputSnapshots.size) {
+        const nextInputs = new Map(this.lastComputedInputs);
+        updatedInputSnapshots.forEach((inputs, nodeId) => {
+          nextInputs.set(nodeId, inputs);
+        });
+        this.lastComputedInputs = nextInputs;
+      }
 
       this._generateEnhancedThumbnails(graph.nodes, values);
     } catch (error) {
@@ -1620,6 +1639,100 @@ _renderOutputThumbnail(ctx, size, color) {
       this._renderColorThumbnail(ctx, size, value);
     } else {
       this._renderFloatThumbnail(ctx, size, typeof value === "number" ? value : 0);
+    }
+  }
+
+  _evaluateDirtyNodes(graph, nodes, ordered) {
+    const dirtyNodes = new Set();
+    const dependentsMap = this._buildDependentsMap(nodes);
+    const currentHash = this._computeGraphStructureHash(graph);
+
+    if (currentHash !== this.graphStructureHash) {
+      this.graphStructureHash = currentHash;
+      for (const node of ordered) {
+        dirtyNodes.add(node.id);
+      }
+      return dirtyNodes;
+    }
+
+    for (const node of ordered) {
+      const currentInputs = this._snapshotNodeInputs(node);
+      const previousInputs = this.lastComputedInputs.get(node.id);
+      if (!this._areInputsEqual(previousInputs, currentInputs)) {
+        this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
+      }
+    }
+
+    return dirtyNodes;
+  }
+
+  _computeGraphStructureHash(graph) {
+    if (!graph) return null;
+    const nodeSignature = graph.nodes
+      .map((node) => {
+        const inputs = (node.inputs || []).map((input) => input ?? 'null').join(',');
+        return `${node.id}:${node.kind}:${inputs}`;
+      })
+      .sort()
+      .join('|');
+    const connections = (graph.connections || [])
+      .map((conn) => `${conn.from?.nodeId ?? conn.source ?? 'x'}>${conn.to?.nodeId ?? conn.target ?? 'y'}:${conn.to?.input ?? conn.input ?? '0'}`)
+      .sort()
+      .join('|');
+    return `${graph.nodes.length}:${graph.connections?.length ?? 0}:${nodeSignature}:${connections}`;
+  }
+
+  _snapshotNodeInputs(node) {
+    if (!node || !Array.isArray(node.inputs)) {
+      return [];
+    }
+    return node.inputs.map((input) => input ?? null);
+  }
+
+  _areInputsEqual(prevInputs, nextInputs) {
+    const a = prevInputs || [];
+    const b = nextInputs || [];
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  _buildDependentsMap(nodes) {
+    const map = new Map();
+    for (const node of nodes) {
+      for (const input of node.inputs || []) {
+        if (!input) continue;
+        if (!map.has(input)) {
+          map.set(input, new Set());
+        }
+        map.get(input).add(node.id);
+      }
+    }
+    return map;
+  }
+
+  _markNodeAndDependentsDirty(nodeId, dependentsMap, dirtySet) {
+    const stack = [nodeId];
+    while (stack.length) {
+      const current = stack.pop();
+      if (!current || dirtySet.has(current)) {
+        continue;
+      }
+      dirtySet.add(current);
+      const dependents = dependentsMap.get(current);
+      if (dependents) {
+        dependents.forEach((depId) => {
+          if (!dirtySet.has(depId)) {
+            stack.push(depId);
+          }
+        });
+      }
     }
   }
 
