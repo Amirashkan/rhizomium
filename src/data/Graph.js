@@ -10,6 +10,10 @@ export class Graph {
     this.connections = [];
     this.selection = new Set();
     this.dirtyNodes = new Set();
+    this.dirtyInputs = new Map(); // nodeId -> Set<inputNodeId>
+    this.lastComputedInputs = new Map(); // nodeId -> serialized inputs snapshot
+    this.computedValueCache = new Map(); // nodeId -> last computed value
+    this.graphStructureHash = null;
     this.nodeMap = new Map(); // id -> node for fast lookup
     this.executionOrder = []; // cached topological sort
     this.isExecutionOrderDirty = true;
@@ -301,7 +305,7 @@ export class Graph {
 
   // ============ Dirty Tracking ============
 
-  markNodeDirty(nodeId) {
+  markNodeDirty(nodeId, reason = 'unspecified') {
     if (!nodeId) return;
 
     this.dirtyNodes.add(nodeId);
@@ -313,20 +317,33 @@ export class Graph {
     }
   }
 
+  markInputDirty(nodeId, inputNodeId) {
+    if (!nodeId || !inputNodeId) return;
+
+    if (!this.dirtyInputs.has(nodeId)) {
+      this.dirtyInputs.set(nodeId, new Set());
+    }
+
+    this.dirtyInputs.get(nodeId).add(inputNodeId);
+    this.markNodeDirty(nodeId, `input:${inputNodeId}`);
+  }
+
   markNodeClean(nodeId) {
     this.dirtyNodes.delete(nodeId);
+    this.dirtyInputs.delete(nodeId);
   }
 
   isNodeDirty(nodeId) {
-    return this.dirtyNodes.has(nodeId);
+    return this.dirtyNodes.has(nodeId) || this.dirtyInputs.has(nodeId);
   }
 
   getDirtyNodes() {
-    return Array.from(this.dirtyNodes);
+    return new Set(this.dirtyNodes);
   }
 
   clearDirtyFlags() {
     this.dirtyNodes.clear();
+    this.dirtyInputs.clear();
   }
 
   markExecutionOrderDirty() {
@@ -462,6 +479,10 @@ export class Graph {
     this.connections = [];
     this.selection.clear();
     this.dirtyNodes.clear();
+    this.dirtyInputs.clear();
+    this.lastComputedInputs.clear();
+    this.computedValueCache.clear();
+    this.graphStructureHash = null;
     this.nodeMap.clear();
     this.executionOrder = [];
     this.isExecutionOrderDirty = true;
