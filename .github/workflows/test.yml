@@ -108,7 +108,32 @@ jobs:
         run: |
           echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Unit Tests: ${{ needs.unit-tests.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Integration Tests: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Performance Tests: ${{ needs.performance-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          
+          # For matrix jobs, needs.<job-id>.result returns the aggregate result
+          # success if all matrix instances succeeded, failure if any failed
+          UNIT_RESULT="${{ needs.unit-tests.result }}"
+          INTEGRATION_RESULT="${{ needs.integration-tests.result }}"
+          PERFORMANCE_RESULT="${{ needs.performance-tests.result }}"
+          
+          # Map results to emoji and status text
+          get_status() {
+            case "$1" in
+              success) echo "✅ Passed" ;;
+              failure) echo "❌ Failed" ;;
+              cancelled) echo "🚫 Cancelled" ;;
+              skipped) echo "⏭️ Skipped" ;;
+              *) echo "❓ Unknown ($1)" ;;
+            esac
+          }
+          
+          echo "| Test Suite | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Unit Tests** (Node 18.x, 20.x) | $(get_status "$UNIT_RESULT") |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Integration Tests** | $(get_status "$INTEGRATION_RESULT") |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Performance Tests** | $(get_status "$PERFORMANCE_RESULT") |" >> $GITHUB_STEP_SUMMARY
+          
+          # Exit with failure if any test suite failed
+          if [ "$UNIT_RESULT" != "success" ] || [ "$INTEGRATION_RESULT" != "success" ] || [ "$PERFORMANCE_RESULT" != "success" ]; then
+            exit 1
+          fi
 
