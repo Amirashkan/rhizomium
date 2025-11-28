@@ -785,8 +785,13 @@ export class UtilityNodes {
           return line;
         });
         // Build block content: all processed lines, then assign final expression to node_X
-        const blockContentLines = [...formattedLines, `node_${sanitizedNodeId} = ${finalExpression};`];
+        // Make sure final expression is properly formatted
+        const finalAssignment = `node_${sanitizedNodeId} = ${finalExpression};`;
+        const blockContentLines = [...formattedLines, finalAssignment];
+        // Join with newlines and proper indentation
         const blockContent = blockContentLines.join('\n  ');
+        // The entire block (var declaration + block) should be a single line in the lines array
+        // The newlines inside will be preserved when inserted into the shader
         compiledCode = `var node_${sanitizedNodeId}: ${validOutputType} = ${defaultValue};
 {
   ${blockContent}
