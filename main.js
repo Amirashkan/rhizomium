@@ -4131,30 +4131,12 @@ function handleRenderFrame(frameState) {
       editor.isSceneStatic(120);
 
     if (editorNeedsCanvasDraw && editor?.draw) {
-      // Smart canvas throttling - only throttle when resources are actually low
-      // Check if adaptive quality is active (indicates resources are low)
-      const adaptiveQualityActive = window.floatingPreview?._isAdaptiveActive || false;
-      const budgetAllocator = previewPerfMonitor?.getBudgetAllocator?.();
-      const stats = budgetAllocator?.getStats?.();
-      const avgFrameTime = stats?.avgFrameTime || 0;
-      const shouldThrottleCanvas = adaptiveQualityActive || (avgFrameTime > 18); // Throttle if adaptive quality is on OR frame time > 18ms
-      
-      // During panning, throttle only if resources are low
-      if (isPanning && shouldThrottleCanvas) {
-        // Throttle to every 2nd frame when resources are low
-        if (gpuFrameSkipCounter % 2 === 0) {
-          const canvasToken = previewPerfMonitor?.timeSection("canvas");
-          editor.draw();
-          previewPerfMonitor?.endSection(canvasToken);
-        } else {
-          previewPerfMonitor?.recordValue('canvasThrottledSkip', 1);
-        }
-      } else {
-        // Normal drawing - full quality when resources are sufficient
-        const canvasToken = previewPerfMonitor?.timeSection("canvas");
-        editor.draw();
-        previewPerfMonitor?.endSection(canvasToken);
-      }
+      // PERFORMANCE: Always draw at 60fps during panning for smooth interaction
+      // Even in empty graphs, panning should be smooth. Throttling causes choppy panning.
+      // Canvas rendering is fast enough to handle 60fps, especially with an empty graph.
+      const canvasToken = previewPerfMonitor?.timeSection("canvas");
+      editor.draw();
+      previewPerfMonitor?.endSection(canvasToken);
     } else if (sceneIsStatic) {
       previewPerfMonitor?.recordValue('canvasStaticSkip', 1);
     }
