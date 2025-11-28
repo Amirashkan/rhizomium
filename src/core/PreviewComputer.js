@@ -165,6 +165,9 @@ export class PreviewComputer {
       return;
     }
     this._manualDirtyNodes.add(nodeId);
+    
+    // Invalidate NodeValueComputer cache for this node and its dependents
+    this._invalidateNodeValueComputerCacheForNode(nodeId);
   }
 
   /**
@@ -1726,6 +1729,9 @@ _renderOutputThumbnail(ctx, size, color) {
       this._cachedTopologicalSort = null;
       this._cachedSortStructureHash = null;
       this._cachedSortById = null;
+      
+      // Invalidate NodeValueComputer cache when structure changes
+      this._invalidateNodeValueComputerCache();
     }
 
     for (const node of nodes) {
@@ -1743,6 +1749,8 @@ _renderOutputThumbnail(ctx, size, color) {
       const paramsChanged = previousParamHash !== currentParamHash;
       if (paramsChanged || !this._areInputsEqual(previousInputs, currentInputs)) {
         this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
+        // Invalidate NodeValueComputer cache for this node and dependents
+        this._invalidateNodeValueComputerCacheForNode(node.id);
       }
     }
 
@@ -1753,6 +1761,8 @@ _renderOutputThumbnail(ctx, size, color) {
     if (manualDirtyNodes.size) {
       manualDirtyNodes.forEach((nodeId) => {
         this._markNodeAndDependentsDirty(nodeId, dependentsMap, dirtyNodes);
+        // Invalidate NodeValueComputer cache for manually marked dirty nodes
+        this._invalidateNodeValueComputerCacheForNode(nodeId);
       });
     }
 
@@ -2216,5 +2226,33 @@ _renderOutputThumbnail(ctx, size, color) {
     const denominator = Math.max(1e-4, edge1 - edge0);
     const t = Math.min(1, Math.max(0, (x - edge0) / denominator));
     return t * t * (3 - 2 * t);
+  }
+
+  /**
+   * Invalidate NodeValueComputer cache for a specific node and its dependents
+   */
+  _invalidateNodeValueComputerCacheForNode(nodeId) {
+    try {
+      const editor = this.editor || window.editor;
+      if (editor?.previewSystem?.nodeValueComputer) {
+        editor.previewSystem.nodeValueComputer.invalidateNodeAndDependents(nodeId);
+      }
+    } catch (error) {
+      // Silently fail if NodeValueComputer is not available
+    }
+  }
+
+  /**
+   * Invalidate all NodeValueComputer cache
+   */
+  _invalidateNodeValueComputerCache() {
+    try {
+      const editor = this.editor || window.editor;
+      if (editor?.previewSystem?.nodeValueComputer) {
+        editor.previewSystem.nodeValueComputer.invalidateCache(null);
+      }
+    } catch (error) {
+      // Silently fail if NodeValueComputer is not available
+    }
   }
 }

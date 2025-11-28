@@ -4,6 +4,15 @@ export class NodeValueComputer {
   constructor(editor) {
     this.editor = editor;
     this.maxRecursionDepth = 50; // Prevent stack overflow
+    
+    // Cache storage: Map<nodeId, { value, inputHash, paramHash }>
+    this._valueCache = new Map();
+    
+    // Track last input hashes per node for invalidation
+    this._lastInputHashes = new Map();
+    
+    // Track last parameter hashes per node for invalidation
+    this._lastParamHashes = new Map();
   }
 
   computeNodeValue(node, visited = new Set()) {
@@ -22,6 +31,20 @@ export class NodeValueComputer {
 
       if (visited.size > this.maxRecursionDepth) {
         throw new Error('Maximum recursion depth exceeded');
+      }
+
+      // Check cache before computing
+      const cachedValue = this._getCachedValue(node);
+      if (cachedValue !== null) {
+        return cachedValue;
+      }
+
+      // Check PreviewComputer cache if available
+      const previewCacheValue = this._getPreviewComputerCacheValue(node);
+      if (previewCacheValue !== null) {
+        // Store in local cache for future use
+        this._setCachedValue(node, previewCacheValue);
+        return previewCacheValue;
       }
 
       visited.add(node.id);
@@ -189,6 +212,12 @@ case "rectanglefield": {
         default:
           result = 0;
       }
+
+      // Store computed value in cache
+      this._setCachedValue(node, result);
+      
+      // Also update PreviewComputer cache if available
+      this._updatePreviewComputerCache(node, result);
 
       visited.delete(node.id);
       return result;
@@ -410,6 +439,317 @@ getNodeParameter(node, paramName, defaultValue = 0) {
       return func(Math);
     } catch (error) {
       throw new Error(`Expression evaluation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Compute hash of node inputs (connected nodes)
+   * This includes both direct input connections and parameter references
+   */
+  _computeInputHash(node) {
+    try {
+      if (!node || !node.id) {
+        return 'no-node';
+      }
+
+      const hashParts = [];
+
+      // Add direct input connections
+      if (this.editor?.graph?.connections) {
+        const inputConnections = this.editor.graph.connections
+          .filter(conn => conn.to?.nodeId === node.id)
+          .map(conn => `${conn.from?.nodeId || 'null'}:${conn.to?.pin || 0}`)
+          .sort();
+        hashParts.push(`inputs:${inputConnections.join(',')}`);
+      }
+
+      // Add node.inputs array if present
+      if (Array.isArray(node.inputs)) {
+        hashParts.push(`inputsArray:${node.inputs.map(i => i || 'null').join(',')}`);
+      }
+
+      // Add parameter references (for expressions that reference other nodes)
+      if (node.params && typeof node.params === 'object') {
+        const paramRefs = [];
+        for (const [key, value] of Object.entries(node.params)) {
+          if (typeof value === 'string' && value.includes('node_')) {
+            // Extract node references from parameter expressions
+            const nodeRefs = value.match(/node_(\w+)/g) || [];
+            if (nodeRefs.length > 0) {
+              paramRefs.push(`${key}:${nodeRefs.sort().join(',')}`);
+            }
+          }
+        }
+        if (paramRefs.length > 0) {
+          hashParts.push(`paramRefs:${paramRefs.sort().join('|')}`);
+        }
+      }
+
+      return hashParts.length > 0 ? hashParts.join('|') : 'no-inputs';
+    } catch (error) {
+      return 'hash-error';
+    }
+  }
+
+  /**
+   * Compute hash of node parameters
+   */
+  _computeParameterHash(node) {
+    try {
+      if (!node || typeof node.params === 'undefined') {
+        return 'no-params';
+      }
+      return JSON.stringify(node.params);
+    } catch (error) {
+      return 'param-hash-error';
+    }
+  }
+
+  /**
+   * Get cached value if inputs and parameters haven't changed
+   */
+  _getCachedValue(node) {
+    try {
+      if (!node || !node.id) {
+        return null;
+      }
+
+      const currentInputHash = this._computeInputHash(node);
+      const currentParamHash = this._computeParameterHash(node);
+
+      // Check if we have a cached value
+      const cached = this._valueCache.get(node.id);
+      if (!cached) {
+        // No cache entry, store current hashes for next time
+        this._lastInputHashes.set(node.id, currentInputHash);
+        this._lastParamHashes.set(node.id, currentParamHash);
+        return null;
+      }
+
+      // Check if inputs or parameters have changed
+      const lastInputHash = this._lastInputHashes.get(node.id);
+      const lastParamHash = this._lastParamHashes.get(node.id);
+
+      if (currentInputHash !== lastInputHash || currentParamHash !== lastParamHash) {
+        // Inputs or parameters changed, invalidate cache
+        this._valueCache.delete(node.id);
+        this._lastInputHashes.set(node.id, currentInputHash);
+        this._lastParamHashes.set(node.id, currentParamHash);
+        return null;
+      }
+
+      // Cache is valid, return cached value
+      return cached.value;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Store computed value in cache
+   */
+  _setCachedValue(node, value) {
+    try {
+      if (!node || !node.id) {
+        return;
+      }
+
+      const inputHash = this._computeInputHash(node);
+      const paramHash = this._computeParameterHash(node);
+
+      this._valueCache.set(node.id, {
+        value: value,
+        inputHash: inputHash,
+        paramHash: paramHash
+      });
+
+      this._lastInputHashes.set(node.id, inputHash);
+      this._lastParamHashes.set(node.id, paramHash);
+    } catch (error) {
+      // Silently fail cache storage
+    }
+  }
+
+  /**
+   * Get value from PreviewComputer cache if available
+   */
+  _getPreviewComputerCacheValue(node) {
+    try {
+      if (!node || !node.id) {
+        return null;
+      }
+
+      // Access PreviewComputer through editor
+      const previewComputer = this.editor?.previewComputer;
+      if (!previewComputer || !previewComputer.lastComputedValues) {
+        return null;
+      }
+
+      // Check if PreviewComputer has a cached value
+      if (previewComputer.lastComputedValues.has(node.id)) {
+        const cachedValue = previewComputer.lastComputedValues.get(node.id);
+        
+        // Verify the value is still valid by checking if node is dirty
+        // If PreviewComputer has marked it dirty, don't use cached value
+        if (previewComputer._manualDirtyNodes && previewComputer._manualDirtyNodes.has(node.id)) {
+          return null;
+        }
+
+        // Check if inputs have changed in PreviewComputer's tracking
+        const lastInputs = previewComputer.lastComputedInputs?.get(node.id);
+        const currentInputs = this._snapshotNodeInputs(node);
+        if (lastInputs && !this._areInputsEqual(lastInputs, currentInputs)) {
+          return null;
+        }
+
+        // Check if parameters have changed
+        const lastParamHash = previewComputer.lastParameterHashes?.get(node.id);
+        const currentParamHash = this._computeParameterHash(node);
+        if (lastParamHash && lastParamHash !== currentParamHash) {
+          return null;
+        }
+
+        return cachedValue;
+      }
+
+      return null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Update PreviewComputer cache with computed value
+   */
+  _updatePreviewComputerCache(node, value) {
+    try {
+      if (!node || !node.id) {
+        return;
+      }
+
+      const previewComputer = this.editor?.previewComputer;
+      if (!previewComputer) {
+        return;
+      }
+
+      // Update PreviewComputer's cache
+      if (previewComputer.lastComputedValues) {
+        previewComputer.lastComputedValues.set(node.id, value);
+      }
+
+      // Update input snapshot
+      if (previewComputer.lastComputedInputs) {
+        const inputSnapshot = this._snapshotNodeInputs(node);
+        previewComputer.lastComputedInputs.set(node.id, inputSnapshot);
+      }
+
+      // Update parameter hash
+      if (previewComputer.lastParameterHashes) {
+        const paramHash = this._computeParameterHash(node);
+        previewComputer.lastParameterHashes.set(node.id, paramHash);
+      }
+    } catch (error) {
+      // Silently fail cache update
+    }
+  }
+
+  /**
+   * Snapshot node inputs for comparison
+   */
+  _snapshotNodeInputs(node) {
+    try {
+      if (!node || !Array.isArray(node.inputs)) {
+        return [];
+      }
+      return node.inputs.map((input) => input ?? null);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Check if two input snapshots are equal
+   */
+  _areInputsEqual(prevInputs, nextInputs) {
+    try {
+      const a = prevInputs || [];
+      const b = nextInputs || [];
+      if (a.length !== b.length) {
+        return false;
+      }
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) {
+          return false;
+        }
+      }
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Invalidate cache for a specific node or all nodes
+   * @param {string|null} nodeId - Node ID to invalidate, or null to invalidate all
+   */
+  invalidateCache(nodeId = null) {
+    try {
+      if (nodeId === null) {
+        // Invalidate all cache
+        this._valueCache.clear();
+        this._lastInputHashes.clear();
+        this._lastParamHashes.clear();
+      } else {
+        // Invalidate specific node
+        this._valueCache.delete(nodeId);
+        this._lastInputHashes.delete(nodeId);
+        this._lastParamHashes.delete(nodeId);
+      }
+    } catch (error) {
+      // Silently fail invalidation
+    }
+  }
+
+  /**
+   * Invalidate cache for a node and all nodes that depend on it
+   * This should be called when a node's output changes
+   */
+  invalidateNodeAndDependents(nodeId) {
+    try {
+      if (!nodeId || !this.editor?.graph) {
+        return;
+      }
+
+      // Invalidate the node itself
+      this.invalidateCache(nodeId);
+
+      // Find all nodes that depend on this node (have it as an input)
+      const dependents = new Set();
+      if (this.editor.graph.connections) {
+        for (const conn of this.editor.graph.connections) {
+          if (conn.from?.nodeId === nodeId) {
+            dependents.add(conn.to?.nodeId);
+          }
+        }
+      }
+
+      // Also check node.inputs arrays
+      if (this.editor.graph.nodes) {
+        for (const node of this.editor.graph.nodes) {
+          if (node.inputs && Array.isArray(node.inputs)) {
+            if (node.inputs.includes(nodeId)) {
+              dependents.add(node.id);
+            }
+          }
+        }
+      }
+
+      // Invalidate all dependents
+      for (const dependentId of dependents) {
+        this.invalidateCache(dependentId);
+      }
+    } catch (error) {
+      // Silently fail invalidation
     }
   }
 }
