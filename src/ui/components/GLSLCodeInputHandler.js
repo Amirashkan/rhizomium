@@ -133,7 +133,7 @@ export class GLSLCodeInputHandler {
       line-height: 1.5;
       white-space: pre;
       overflow: hidden;
-      color: transparent;
+      color: #d4d4d4;
       z-index: 1;
       box-sizing: border-box;
       user-select: none;
@@ -162,7 +162,7 @@ export class GLSLCodeInputHandler {
       max-height: 400px;
       padding: 8px;
       background: transparent;
-      color: #d4d4d4;
+      color: transparent;
       border: none;
       outline: none;
       font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
