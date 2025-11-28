@@ -39,20 +39,10 @@ export class GLSLCodeInputHandler {
     // Setup event handlers
     this.setupEventHandlers(textarea, param, node, valueManager, onChange, lineNumbers, highlightOverlay);
 
-    // Create a wrapper for the textarea and overlay to ensure proper alignment
-    const textareaWrapper = document.createElement('div');
-    textareaWrapper.style.cssText = `
-      position: relative;
-      flex: 1;
-      display: flex;
-      overflow: hidden;
-    `;
-    
-    textareaWrapper.appendChild(highlightOverlay);
-    textareaWrapper.appendChild(textarea);
-    
+    // Put overlay and textarea in same container for perfect alignment
     editorWrapper.appendChild(lineNumbers);
-    editorWrapper.appendChild(textareaWrapper);
+    editorWrapper.appendChild(highlightOverlay);
+    editorWrapper.appendChild(textarea);
     container.appendChild(editorWrapper);
     container.appendChild(helpText);
     div.appendChild(container);
@@ -122,7 +112,7 @@ export class GLSLCodeInputHandler {
     overlay.style.cssText = `
       position: absolute;
       top: 0;
-      left: 0;
+      left: 45px;
       right: 0;
       bottom: 0;
       pointer-events: none;
@@ -140,6 +130,8 @@ export class GLSLCodeInputHandler {
       -webkit-user-select: none;
       -moz-user-select: none;
       -ms-user-select: none;
+      word-wrap: normal;
+      overflow-wrap: normal;
     `;
     return overlay;
   }
@@ -177,7 +169,6 @@ export class GLSLCodeInputHandler {
       position: relative;
       z-index: 10;
       caret-color: #d4d4d4;
-      selection-background-color: rgba(0, 122, 204, 0.3);
     `;
 
     // Handle tab key for indentation
@@ -267,7 +258,7 @@ export class GLSLCodeInputHandler {
     });
 
     // Sync scroll - update overlay position to match textarea scroll
-    textarea.addEventListener('scroll', () => {
+    const syncScroll = () => {
       if (highlightOverlay) {
         // The overlay is absolutely positioned, so we need to adjust its transform
         // to match the textarea's scroll position
@@ -276,13 +267,18 @@ export class GLSLCodeInputHandler {
       if (lineNumbers) {
         lineNumbers.scrollTop = textarea.scrollTop;
       }
-    });
+    };
+    
+    textarea.addEventListener('scroll', syncScroll);
     
     // Also update on resize
     const resizeObserver = new ResizeObserver(() => {
       this.updateEditor(textarea, lineNumbers, highlightOverlay);
+      syncScroll();
     });
-    resizeObserver.observe(textarea);
+    if (window.ResizeObserver) {
+      resizeObserver.observe(textarea);
+    }
 
     // Final update on blur
     textarea.addEventListener('blur', () => {
@@ -321,10 +317,10 @@ export class GLSLCodeInputHandler {
     if (highlightOverlay) {
       const highlighted = this.highlightSyntax(value);
       highlightOverlay.innerHTML = highlighted;
-      // Match textarea dimensions exactly
+      // Match textarea scroll dimensions exactly - these are the full content dimensions
       highlightOverlay.style.height = `${textarea.scrollHeight}px`;
       highlightOverlay.style.width = `${textarea.scrollWidth}px`;
-      // Sync scroll position using transform
+      // Sync scroll position - overlay content needs to move opposite to scroll
       highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
     }
   }
