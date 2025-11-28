@@ -63,17 +63,18 @@ export class Renderer {
       this._clearDirtyRegions(ctx, preciseDirtyRegions);
     }
 
-    // Always render grid background for visual consistency
-    this._renderBackgroundGrid();
-    
     // Store interaction state for optimizations that don't affect visual appearance
     const isInteracting = renderState.isInteracting || false;
     this._isInteracting = isInteracting;
     
-    // Save context and apply viewport transform
+    // Save context and apply viewport transform FIRST
+    // Grid must be drawn in world space (after transform) so it moves correctly with pan
     ctx.save();
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
     ctx.scale(this.viewport.scale, this.viewport.scale);
+    
+    // Render grid background in world space (moves with viewport)
+    this._renderBackgroundGrid();
 
     // PERFORMANCE: Create node lookup map for O(1) access instead of O(n) linear search
     // This is critical for performance with many nodes
@@ -144,10 +145,13 @@ export class Renderer {
     }
 
     const scale = this.viewport.scale || 1;
-    const offsetX = this.viewport.offsetX || 0;
-    const offsetY = this.viewport.offsetY || 0;
-    const width = ctx.canvas.width;
-    const height = ctx.canvas.height;
+    // Grid is now drawn in world space (after viewport transform)
+    // So we need to convert canvas dimensions to world space
+    const width = ctx.canvas.width / scale;
+    const height = ctx.canvas.height / scale;
+    // In world space, offset is 0 (we're already transformed)
+    const offsetX = 0;
+    const offsetY = 0;
 
     // PERFORMANCE: Skip grid rendering during fast panning
     const isFastPanning = this.viewport.isFastPanning && typeof this.viewport.isFastPanning === 'function'
