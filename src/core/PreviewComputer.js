@@ -14,6 +14,9 @@ export class PreviewComputer {
     this.lastParameterHashes = new Map(); // Track last known parameter hashes per node
     this._manualDirtyNodes = new Set(); // Dirty flags requested externally
     this.graphStructureHash = null; // Track graph structure changes
+    this._cachedTopologicalSort = null; // Cached topological sort result
+    this._cachedSortStructureHash = null; // Structure hash when sort was cached
+    this._cachedSortById = null; // Map of node ID to index in cached sort
     this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
     
     // Worker support
@@ -278,7 +281,11 @@ export class PreviewComputer {
       // Filter topological sort to only include dirty nodes and their dependencies
       // This ensures we only process nodes that need recomputation
       const nodesToCompute = this._filterNodesToCompute(nodesToProcess, dirtyNodes, byId);
-      const ordered = this._topologicalSort(nodesToCompute, byId);
+      const ordered = this._topologicalSort(nodesToCompute, byId, {
+        dirtyNodes,
+        structureChanged,
+        allNodes: nodesToProcess
+      });
       
       const values = new Map(this.lastComputedValues);
       const updatedInputSnapshots = new Map();
@@ -1091,7 +1098,10 @@ _generateEnhancedThumbnails(nodes, values) {
   try {
     // Use topological sort to ensure dependencies are processed first
     const byId = new Map(nodes.map((n) => [n.id, n]));
-    const ordered = this._topologicalSort(nodes, byId);
+    // Use cache if structure hasn't changed (no dirty nodes context, so full sort)
+    const ordered = this._topologicalSort(nodes, byId, {
+      allNodes: nodes
+    });
     
     // Process nodes in dependency order
     for (const node of ordered) {
@@ -1712,6 +1722,10 @@ _renderOutputThumbnail(ctx, size, color) {
     const structureChanged = currentStructureHash !== this.graphStructureHash;
     if (structureChanged) {
       this.graphStructureHash = currentStructureHash;
+      // Invalidate topological sort cache when structure changes
+      this._cachedTopologicalSort = null;
+      this._cachedSortStructureHash = null;
+      this._cachedSortById = null;
     }
 
     for (const node of nodes) {
@@ -1917,7 +1931,23 @@ _renderOutputThumbnail(ctx, size, color) {
   }
 
   // Helper functions
-  _topologicalSort(nodes, byId) {
+  _topologicalSort(nodes, byId, options = {}) {
+    const { dirtyNodes = null, structureChanged = false, allNodes = null } = options;
+    
+    // Check if we can use cached sort for incremental updates
+    const canUseCache = !structureChanged && 
+                        this._cachedTopologicalSort !== null && 
+                        this._cachedSortStructureHash === this.graphStructureHash &&
+                        dirtyNodes !== null &&
+                        allNodes !== null &&
+                        dirtyNodes.size > 0;
+
+    if (canUseCache) {
+      // Incremental update: only sort dirty nodes and their dependencies
+      return this._incrementalTopologicalSort(nodes, byId, dirtyNodes, allNodes);
+    }
+
+    // Full sort: compute complete topological sort
     const visited = new Set();
     const result = [];
 
@@ -1952,7 +1982,175 @@ _renderOutputThumbnail(ctx, size, color) {
       visit(node.id);
     }
 
+    // Cache the result if we have all nodes and structure hash
+    if (allNodes && this.graphStructureHash !== null) {
+      this._cachedTopologicalSort = result;
+      this._cachedSortStructureHash = this.graphStructureHash;
+      // Build index map for faster lookups
+      this._cachedSortById = new Map();
+      result.forEach((node, index) => {
+        this._cachedSortById.set(node.id, index);
+      });
+    }
+
     return result;
+  }
+
+  /**
+   * Incremental topological sort: only sort dirty nodes and merge with cached sort
+   * @param {Array} nodesToSort - Nodes to sort (dirty nodes and their dependencies)
+   * @param {Map} byId - Map of node ID to node object
+   * @param {Set} dirtyNodes - Set of dirty node IDs
+   * @param {Array} allNodes - All nodes in the graph
+   * @returns {Array} Merged sorted array maintaining dependency order
+   */
+  _incrementalTopologicalSort(nodesToSort, byId, dirtyNodes, allNodes) {
+    // Get set of nodes that need to be resorted (dirty + their dependencies)
+    const nodesToResort = new Set();
+    for (const node of nodesToSort) {
+      nodesToResort.add(node.id);
+    }
+
+    // Extract non-dirty nodes from cache (maintain their cached order)
+    const cachedNonDirty = [];
+    const cachedNodeSet = new Set();
+    
+    if (this._cachedTopologicalSort) {
+      for (const node of this._cachedTopologicalSort) {
+        if (!nodesToResort.has(node.id) && byId.has(node.id)) {
+          cachedNonDirty.push(node);
+          cachedNodeSet.add(node.id);
+        }
+      }
+    }
+
+    // Sort only the dirty nodes and their dependencies
+    // Note: We visit ALL dependencies (even non-dirty ones) to ensure correct ordering,
+    // but only add nodes in nodesToResort to dirtySorted
+    const visited = new Set();
+    const dirtySorted = [];
+    const allNodesById = new Map(allNodes.map(n => [n.id, n]));
+
+    const visit = (nodeId) => {
+      if (!nodeId || visited.has(nodeId)) return;
+      visited.add(nodeId);
+
+      // Use allNodesById to get node (includes all nodes, not just those in byId)
+      const node = allNodesById.get(nodeId);
+      if (!node) return;
+
+      // Visit edge-based dependencies (inputs) - visit ALL dependencies for correct ordering
+      for (const input of node.inputs || []) {
+        if (input && allNodesById.has(input)) {
+          visit(input);
+        }
+      }
+
+      // Visit expression-based dependencies (parameter references) - visit ALL dependencies
+      if (node.params && typeof node.params === 'object') {
+        for (const paramValue of Object.values(node.params)) {
+          const referencedIds = this._extractNodeReferences(paramValue);
+          for (const refId of referencedIds) {
+            if (allNodesById.has(refId)) {
+              visit(refId);
+            }
+          }
+        }
+      }
+
+      // Only add nodes that need to be resorted to dirtySorted (must be in byId)
+      if (nodesToResort.has(nodeId) && byId.has(nodeId)) {
+        dirtySorted.push(byId.get(nodeId));
+      }
+    };
+
+    // Sort dirty nodes (this will visit all dependencies, but only add nodesToResort to result)
+    for (const node of nodesToSort) {
+      visit(node.id);
+    }
+
+    // Merge: combine cached non-dirty nodes with newly sorted dirty nodes
+    // Strategy: maintain dependency order by ensuring dependencies come before dependents
+    const merged = [];
+    const added = new Set();
+
+    // Helper to check if a node's dependencies are satisfied
+    const dependenciesSatisfied = (node) => {
+      // Check edge-based dependencies
+      for (const input of node.inputs || []) {
+        if (input && !added.has(input)) {
+          return false;
+        }
+      }
+      // Check expression-based dependencies
+      if (node.params && typeof node.params === 'object') {
+        for (const paramValue of Object.values(node.params)) {
+          const referencedIds = this._extractNodeReferences(paramValue);
+          for (const refId of referencedIds) {
+            if (allNodesById.has(refId) && !added.has(refId)) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    };
+
+    // Merge algorithm: process nodes maintaining dependency order
+    let cachedIndex = 0;
+    let dirtyIndex = 0;
+
+    while (cachedIndex < cachedNonDirty.length || dirtyIndex < dirtySorted.length) {
+      // Try to add from cached non-dirty nodes first (if dependencies satisfied)
+      if (cachedIndex < cachedNonDirty.length) {
+        const cachedNode = cachedNonDirty[cachedIndex];
+        if (dependenciesSatisfied(cachedNode)) {
+          merged.push(cachedNode);
+          added.add(cachedNode.id);
+          cachedIndex++;
+          continue;
+        }
+      }
+
+      // Try to add from dirty sorted nodes (if dependencies satisfied)
+      if (dirtyIndex < dirtySorted.length) {
+        const dirtyNode = dirtySorted[dirtyIndex];
+        if (dependenciesSatisfied(dirtyNode)) {
+          merged.push(dirtyNode);
+          added.add(dirtyNode.id);
+          dirtyIndex++;
+          continue;
+        }
+      }
+
+      // If we can't add from either, we have a dependency issue
+      // Fall back to adding from dirty sorted (they should be properly ordered)
+      if (dirtyIndex < dirtySorted.length) {
+        const dirtyNode = dirtySorted[dirtyIndex];
+        merged.push(dirtyNode);
+        added.add(dirtyNode.id);
+        dirtyIndex++;
+      } else if (cachedIndex < cachedNonDirty.length) {
+        // If no more dirty nodes, add remaining cached nodes
+        const cachedNode = cachedNonDirty[cachedIndex];
+        merged.push(cachedNode);
+        added.add(cachedNode.id);
+        cachedIndex++;
+      } else {
+        // Should not happen, but break to avoid infinite loop
+        break;
+      }
+    }
+
+    // Update cache with merged result
+    this._cachedTopologicalSort = merged;
+    this._cachedSortStructureHash = this.graphStructureHash;
+    this._cachedSortById = new Map();
+    merged.forEach((node, index) => {
+      this._cachedSortById.set(node.id, index);
+    });
+
+    return merged;
   }
 
   /**
