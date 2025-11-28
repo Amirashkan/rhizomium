@@ -398,23 +398,82 @@ export class UtilityNodes {
   }
 
   compileCustomGLSL(node, getInput, nodeId) {
-    // Get inputs with type-aware mode to preserve types
-    const input0 = getInput(0, null, "0.0");
-    const input1 = getInput(1, null, "0.0");
-    const input2 = getInput(2, null, "0.0");
-    const input3 = getInput(3, null, "0.0");
+    // Get custom code from node first to analyze what types are needed
+    let code = node.params?.code || node.code || "input0";
+    if (typeof code !== 'string') {
+      code = String(code);
+    }
+
+    // Analyze code to determine expected input types based on usage
+    const inferInputType = (inputIndex) => {
+      const inputName = `input${inputIndex}`;
+      // Match patterns like input0.x, input0.y, (input0).x, input0.r, etc.
+      // Look for input name followed by optional parentheses/whitespace, then dot, then component
+      const inputPattern = new RegExp(`\\b${inputName}\\b[^\\s]*\\.([xyzwrgba])\\b`, 'g');
+      let match;
+      const components = new Set();
+      
+      while ((match = inputPattern.exec(code)) !== null) {
+        if (match[1]) {
+          components.add(match[1]);
+        }
+      }
+      
+      if (components.size === 0) {
+        return null; // No type hints, use default
+      }
+
+      // Determine type based on components accessed
+      if (components.has('x') || components.has('y') || components.has('z') || components.has('w')) {
+        if (components.has('w')) return 'vec4';
+        if (components.has('z')) return 'vec3';
+        if (components.has('y')) return 'vec2';
+        if (components.has('x')) return 'vec2'; // If only x, assume vec2 (common for UV)
+      }
+      
+      if (components.has('r') || components.has('g') || components.has('b') || components.has('a')) {
+        if (components.has('a')) return 'vec4';
+        if (components.has('b')) return 'vec3';
+        return 'vec3'; // RGB
+      }
+
+      return null;
+    };
+
+    // Determine expected types for each input
+    const input0Type = inferInputType(0);
+    const input1Type = inferInputType(1);
+    const input2Type = inferInputType(2);
+    const input3Type = inferInputType(3);
+
+    // Get appropriate defaults based on inferred types
+    const getDefaultForType = (type) => {
+      switch (type) {
+        case 'vec2': return 'vec2<f32>(0.0)';
+        case 'vec3': return 'vec3<f32>(0.0)';
+        case 'vec4': return 'vec4<f32>(0.0)';
+        default: return '0.0';
+      }
+    };
+
+    // Get inputs with appropriate defaults
+    // When type is inferred, pass null as targetType to let getInput handle conversion
+    // but provide the correct default value
+    const input0Default = getDefaultForType(input0Type);
+    const input1Default = getDefaultForType(input1Type);
+    const input2Default = getDefaultForType(input2Type);
+    const input3Default = getDefaultForType(input3Type);
+    
+    const input0 = getInput(0, input0Type || null, input0Default);
+    const input1 = getInput(1, input1Type || null, input1Default);
+    const input2 = getInput(2, input2Type || null, input2Default);
+    const input3 = getInput(3, input3Type || null, input3Default);
 
     // Extract code strings from type-aware results
     const input0Code = typeof input0 === 'object' && input0?.code !== undefined ? input0.code : input0;
     const input1Code = typeof input1 === 'object' && input1?.code !== undefined ? input1.code : input1;
     const input2Code = typeof input2 === 'object' && input2?.code !== undefined ? input2.code : input2;
     const input3Code = typeof input3 === 'object' && input3?.code !== undefined ? input3.code : input3;
-
-    // Get custom code from node
-    let code = node.params?.code || node.code || "input0";
-    if (typeof code !== 'string') {
-      code = String(code);
-    }
 
     // Replace input placeholders with actual input values
     // Use word boundaries to avoid partial matches
