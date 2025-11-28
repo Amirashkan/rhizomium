@@ -619,27 +619,59 @@ export class UtilityNodes {
       const intermediateDeclarations = [];
       const varMap = new Map(); // Map original var names to sanitized names
       
+      // First pass: identify all variable declarations and create the map
       otherLines.forEach((line, idx) => {
         // If the line is already a let declaration, extract the variable name
         const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
         if (letMatch) {
           const varName = letMatch[1];
-          const varValue = letMatch[2];
           const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
           varMap.set(varName, sanitizedVarName);
+        }
+      });
+      
+      // Second pass: process each line, replacing variable references with sanitized names
+      otherLines.forEach((line, idx) => {
+        // If the line is already a let declaration, extract the variable name and value
+        const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
+        if (letMatch) {
+          const varName = letMatch[1];
+          let varValue = letMatch[2];
+          const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+          
+          // Replace any variable references in the value with their sanitized names
+          // Process in reverse order of declaration to avoid conflicts
+          const sortedVars = Array.from(varMap.entries()).reverse();
+          for (const [original, sanitized] of sortedVars) {
+            // Only replace if it's not the current variable being declared
+            if (original !== varName) {
+              varValue = varValue.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+            }
+          }
+          
           intermediateDeclarations.push(`let ${sanitizedVarName} = ${varValue};`);
         } else {
           // Not a let declaration - treat as expression and create a temp variable
+          let expression = line;
+          
+          // Replace any variable references in the expression
+          const sortedVars = Array.from(varMap.entries()).reverse();
+          for (const [original, sanitized] of sortedVars) {
+            expression = expression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+          }
+          
           const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
-          intermediateDeclarations.push(`let ${sanitizedVarName} = ${line};`);
+          intermediateDeclarations.push(`let ${sanitizedVarName} = ${expression};`);
         }
       });
       
       // Process the last line - replace any variable references with sanitized names
       let finalExpression = lastLine;
-      varMap.forEach((sanitized, original) => {
+      // Process in reverse order to handle nested references correctly
+      const sortedVars = Array.from(varMap.entries()).reverse();
+      for (const [original, sanitized] of sortedVars) {
         finalExpression = finalExpression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
-      });
+      }
       
       // Remove any "let" declaration from final expression if present
       const finalMatch = finalExpression.match(/let\s+\w+\s*=\s*(.+);?$/);
