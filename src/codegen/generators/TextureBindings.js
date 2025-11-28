@@ -9,6 +9,10 @@ export class TextureBindings {
   static generate(graph, usedNodes = null) {
     let bindingCode = "";
     let bindingIndex = 3; // 0:u, 1:g, 2:ParamUniforms (if present)
+    
+    // WebGPU limit: maximum 16 sampled textures per stage
+    const MAX_TEXTURES = 16;
+    let textureCount = 0;
 
     // If usedNodes is provided, use that; otherwise use all graph nodes
     const nodesToProcess = usedNodes || (graph.nodes || []);
@@ -26,6 +30,12 @@ export class TextureBindings {
         continue;
       }
 
+      // Check if we've reached the texture limit
+      if (textureCount >= MAX_TEXTURES) {
+        console.warn(`[TextureBindings] Warning: Reached maximum texture limit (${MAX_TEXTURES}). Skipping additional textures.`);
+        break;
+      }
+
       if (node.kind === "Texture2D") {
         const nodeId = this.sanitize(node.id);
 
@@ -33,12 +43,14 @@ export class TextureBindings {
 @group(0) @binding(${bindingIndex}) var texture_${nodeId}: texture_2d<f32>;
 @group(0) @binding(${bindingIndex + 1}) var sampler_${nodeId}: sampler;`;
         bindingIndex += 2;
+        textureCount += 1; // Each texture2D counts as 1 texture
       } else if (node.kind === "TextureCube") {
         const nodeId = this.sanitize(node.id);
         bindingCode += `
 @group(0) @binding(${bindingIndex}) var textureCube_${nodeId}: texture_cube<f32>;
 @group(0) @binding(${bindingIndex + 1}) var samplerCube_${nodeId}: sampler;`;
         bindingIndex += 2;
+        textureCount += 1; // Each textureCube counts as 1 texture
       } else if (node.kind && node.kind.startsWith('Compute')) {
         // CRITICAL: Only add compute bindings for nodes actually in the dependency chain
         // This prevents exceeding the 16-texture-per-stage limit with many unused compute nodes
@@ -52,6 +64,7 @@ export class TextureBindings {
 @group(0) @binding(${bindingIndex}) var compute_node_${nodeId}: texture_2d<f32>;
 @group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${nodeId}: sampler;`;
         bindingIndex += 2;
+        textureCount += 1; // Each compute texture counts as 1 texture
       }
     }
 
