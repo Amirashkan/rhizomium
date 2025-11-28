@@ -3688,9 +3688,40 @@ const PROFILER_UPDATE_OFFSET = Math.random() * 50; // 0-50ms random offset
 
 let lastPreviewUpdate = -PREVIEW_UPDATE_OFFSET; // Start with offset to spread out initial updates
 let lastProfilerUpdate = -PROFILER_UPDATE_OFFSET;
+let lastPreviewAnimationTime = null;
+let lastPreviewStructureHash = null;
 const PROFILER_UPDATE_INTERVAL = 200; // Update profiler overlay every 200ms (5 FPS)
-const PREVIEW_UPDATE_INTERVAL = 500; // ms (further reduced frequency to improve performance - ~2 FPS)
+const PREVIEW_UPDATE_INTERVAL = 100; // 10 FPS preview/dirty check cadence
 const GPU_INTERACTION_REUSE_THRESHOLD = 16; // ms - reuse last GPU frame if render cost exceeds this during interactions
+
+function computePreviewStructureHash(graph) {
+  if (!graph || !Array.isArray(graph.nodes)) {
+    return 'no-graph';
+  }
+
+  const nodeSignature = graph.nodes
+    .filter(Boolean)
+    .map((node) => {
+      const inputs = (node.inputs || []).map((input) => input ?? 'null').join(',');
+      const nodeKind = node.kind || node.type || 'unknown';
+      return `${node.id ?? 'no-id'}:${nodeKind}:${inputs}`;
+    })
+    .sort()
+    .join('|');
+
+  const connectionSignature = (graph.connections || [])
+    .filter(Boolean)
+    .map((connection) => {
+      const from = connection.fromNode ?? connection.from?.nodeId ?? connection.source ?? 'source';
+      const to = connection.toNode ?? connection.to?.nodeId ?? connection.target ?? 'target';
+      const pin = connection.toPin ?? connection.to?.input ?? connection.input ?? '0';
+      return `${from}->${to}:${pin}`;
+    })
+    .sort()
+    .join('|');
+
+  return `${graph.nodes.length}:${graph.connections?.length ?? 0}:${nodeSignature}:${connectionSignature}`;
+}
 
 async function updateShaderFromGraph() {
   try {
@@ -4008,71 +4039,86 @@ function handleRenderFrame(frameState) {
   if (!frameState.manual) {
     if (!isDragging) {
       const now = performance.now();
-      const previewInterval = isCanvasInteracting
-        ? 100  // 10 FPS during canvas interactions
-        : 33;  // 30 FPS when idle
-      
-      if (now - lastPreviewUpdate >= previewInterval) {
+      if (now - lastPreviewUpdate >= PREVIEW_UPDATE_INTERVAL) {
+        lastPreviewUpdate = now;
+
         if (editor?.previewComputer && editor?.graph) {
-          const hadTimeAnimatedNodes = editor.expressionSystem?.timeAnimatedNodes?.size > 0;
-          
-          // Only compute previews if there are time-animated nodes or if explicitly needed
-          // FIX: Allow preview computation during interactions for time-based animations
-          // This prevents preview from freezing while still maintaining performance
-          const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
-          
-          // During interactions, compute time-based previews but skip static ones for performance
-          // When not interacting, compute all previews as normal
-          const queueManager = window.threadSeparationManager?.getQueueManager?.();
-          const previewQueueSize = queueManager?.getQueueSize?.('previewComputer') || 0;
-          const queueBacklogged = previewQueueSize > 5;
-          const shouldComputePreviews = !queueBacklogged && (isCanvasInteracting 
-            ? hadTimeAnimatedNodes // Only time-based during interactions
-            : (hadTimeAnimatedNodes || editor._needsPreviewUpdate)); // All previews when not interacting
-          
-          if (editor.previewComputer?.setInteractionMode) {
-            editor.previewComputer.setInteractionMode(isCanvasInteracting);
+          const previewComputer = editor.previewComputer;
+          const graphInstance = editor.graph;
+          const animationTime = frameState.simTime || performance.now() / 1000;
+          const expressionSystem = editor.expressionSystem || previewComputer.expressionSystem;
+          const hadTimeAnimatedNodes = (expressionSystem?.timeAnimatedNodes?.size || 0) > 0;
+          const timeChanged = hadTimeAnimatedNodes &&
+            (lastPreviewAnimationTime === null || Math.abs(animationTime - lastPreviewAnimationTime) > 1e-4);
+
+          const dirtyNodeCount = graphInstance?.dirtyNodes?.size ?? 0;
+          const dirtyInputCount = graphInstance?.dirtyInputs?.size ?? 0;
+          const parameterValuesChanged = (dirtyNodeCount + dirtyInputCount) > 0;
+
+          const currentStructureHash = computePreviewStructureHash(graphInstance);
+          const structureChanged = currentStructureHash !== lastPreviewStructureHash;
+          if (structureChanged) {
+            // Invalidate topological sort cache only when the structure hash truly changes
+            lastPreviewStructureHash = currentStructureHash;
           }
 
-          if (shouldComputePreviews) {
-            try {
-              // Use async worker-based preview computation to avoid blocking main thread
-              if (editor.previewComputer && typeof editor.previewComputer.requestPreviewComputation === 'function') {
-                editor.previewComputer.requestPreviewComputation(
-                  editor.graph,
-                  { time: frameState.simTime || performance.now() / 1000 },
-                  {},
-                  () => {
-                    // Preview computation completed in worker
-                    if (hadTimeAnimatedNodes && editor.markDirty) {
-                      editor.markDirty('time-animation');
-                    }
-                  }
-                );
-              } else {
-                // Fallback: defer with requestIdleCallback if worker not available
-                if (typeof requestIdleCallback !== 'undefined') {
-                  requestIdleCallback(() => {
-                    editor.previewComputer.computePreviews(editor.graph);
-                    if (hadTimeAnimatedNodes && editor.markDirty) {
-                      editor.markDirty('time-animation');
-                    }
-                  }, { timeout: 100 });
+          const explicitPreviewRequest = !!editor._needsPreviewUpdate;
+          const needsPreviewCompute =
+            (hadTimeAnimatedNodes && timeChanged) ||
+            parameterValuesChanged ||
+            structureChanged ||
+            explicitPreviewRequest;
+
+          if (needsPreviewCompute) {
+            const isCanvasInteracting = editor?.eventHandler?.isCanvasInteracting?.() || false;
+            const queueManager = window.threadSeparationManager?.getQueueManager?.();
+            const previewQueueSize = queueManager?.getQueueSize?.('previewComputer') || 0;
+            const queueBacklogged = previewQueueSize > 5;
+
+            if (!queueBacklogged) {
+              if (previewComputer?.setInteractionMode) {
+                previewComputer.setInteractionMode(isCanvasInteracting);
+              }
+
+              const finalizePreviewUpdate = () => {
+                if (hadTimeAnimatedNodes && editor.markDirty) {
+                  editor.markDirty('time-animation');
+                }
+                graphInstance.clearDirtyFlags?.();
+                lastPreviewAnimationTime = animationTime;
+              };
+
+              try {
+                // Use async worker-based preview computation to avoid blocking main thread
+                if (typeof previewComputer.requestPreviewComputation === 'function') {
+                  previewComputer.requestPreviewComputation(
+                    graphInstance,
+                    { time: animationTime },
+                    {},
+                    () => finalizePreviewUpdate()
+                  );
                 } else {
-                  editor.previewComputer.computePreviews(editor.graph);
-                  if (hadTimeAnimatedNodes && editor.markDirty) {
-                    editor.markDirty('time-animation');
+                  // Fallback: defer with requestIdleCallback if worker not available
+                  if (typeof requestIdleCallback !== 'undefined') {
+                    requestIdleCallback(() => {
+                      previewComputer.computePreviews(graphInstance);
+                      finalizePreviewUpdate();
+                    }, { timeout: 100 });
+                  } else {
+                    previewComputer.computePreviews(graphInstance);
+                    finalizePreviewUpdate();
                   }
                 }
+              } catch (err) {
+                console.warn('[Performance] computePreviews error:', err);
               }
-            } catch (err) {
-              console.warn('[Performance] computePreviews error:', err);
+
+              editor._needsPreviewUpdate = false;
+            } else {
+              previewPerfMonitor?.recordValue?.('previewQueueSkip', 1);
             }
-            
-            editor._needsPreviewUpdate = false;
           }
         }
-        lastPreviewUpdate = now;
       }
     }
 
