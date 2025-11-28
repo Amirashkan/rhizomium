@@ -21,7 +21,9 @@ export class PreviewSettings {
       quality: "high",
       showFPS: false,
       adaptiveQuality: {
-        enabled: true,
+        enabled: false, // Disabled by default - only auto-enables when resources are low
+        lightMode: false, // User can enable "light mode" for always-on adaptive quality
+        autoEnable: true, // Auto-enable when frame times consistently exceed budget
         interactionScale: 0.7,
         resolutionScale: 0.75,
         cooldownMs: 350,
@@ -620,6 +622,8 @@ async _publishAnimation() {
         this._updatePauseState(value);
         break;
       case "adaptiveQuality.enabled":
+      case "adaptiveQuality.lightMode":
+      case "adaptiveQuality.autoEnable":
       case "adaptiveQuality.interactionScale":
       case "adaptiveQuality.resolutionScale":
       case "adaptiveQuality.cooldownMs":
@@ -983,18 +987,23 @@ async _publishAnimation() {
     const config = this.settings.adaptiveQuality || {};
     return [
       this._createCheckbox(
-        "Enable adaptive scaling",
-        "adaptiveQuality.enabled",
-        config.enabled !== false,
+        "Light mode (always use adaptive quality)",
+        "adaptiveQuality.lightMode",
+        config.lightMode === true
+      ),
+      this._createCheckbox(
+        "Auto-enable when resources are low",
+        "adaptiveQuality.autoEnable",
+        config.autoEnable !== false
       ),
       this._createSlider(
-        "Interaction size",
+        "Interaction size scale",
         "adaptiveQuality.interactionScale",
         0.3,
         1,
         config.interactionScale ?? 0.7,
         "x",
-        0.05,
+        0.05
       ),
       this._createSlider(
         "Resolution scale",
@@ -1003,16 +1012,7 @@ async _publishAnimation() {
         1,
         config.resolutionScale ?? 0.75,
         "x",
-        0.05,
-      ),
-      this._createSlider(
-        "Recovery delay",
-        "adaptiveQuality.cooldownMs",
-        100,
-        1000,
-        config.cooldownMs ?? 350,
-        "ms",
-        50,
+        0.05
       ),
     ];
   }

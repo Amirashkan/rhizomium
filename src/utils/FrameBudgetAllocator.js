@@ -51,10 +51,8 @@ export class FrameBudgetAllocator {
       total: 0
     };
     
-    // Quality adjustment state
-    this.qualityMultiplier = 1.0; // 1.0 = full quality, <1.0 = reduced
-    this.qualityAdjustmentEnabled = true;
-    this.minQualityMultiplier = 0.5; // Don't go below 50% quality
+    // Quality multiplier tracking (for monitoring only - actual quality control is in FloatingGPUPreview)
+    // FrameBudgetAllocator no longer controls quality - that's handled by FloatingGPUPreview's smart adaptive system
     
     // Frame time monitoring
     this.frameTimeExceededCount = 0;
@@ -73,8 +71,6 @@ export class FrameBudgetAllocator {
     
     if (this.mode !== mode) {
       this.mode = mode;
-      // Reset quality when switching modes
-      this.qualityMultiplier = 1.0;
     }
   }
   
@@ -87,7 +83,7 @@ export class FrameBudgetAllocator {
       console.warn(`[FrameBudgetAllocator] Unknown category: ${category}`);
       return TARGET_FRAME_TIME_MS * 0.1; // Default 10%
     }
-    return TARGET_FRAME_TIME_MS * budgets[category] * this.qualityMultiplier;
+    return TARGET_FRAME_TIME_MS * budgets[category];
   }
   
   /**
@@ -99,7 +95,7 @@ export class FrameBudgetAllocator {
       canvas: this.getBudget('canvas'),
       gpuPreview: this.getBudget('gpuPreview'),
       other: this.getBudget('other'),
-      total: TARGET_FRAME_TIME_MS * this.qualityMultiplier
+      total: TARGET_FRAME_TIME_MS
     };
   }
   
@@ -159,10 +155,7 @@ export class FrameBudgetAllocator {
       this.frameTimeExceededCount = Math.max(0, this.frameTimeExceededCount - 1);
     }
     
-    // Adjust quality if needed
-    if (this.qualityAdjustmentEnabled) {
-      this._adjustQuality();
-    }
+    // Quality adjustment removed - always use full quality
     
     return {
       ...this.currentFrame,
@@ -232,32 +225,10 @@ export class FrameBudgetAllocator {
   }
   
   /**
-   * Adjust quality based on frame time performance
-   */
-  _adjustQuality() {
-    const avgFrameTime = this._getAverageFrameTime();
-    const targetTime = TARGET_FRAME_TIME_MS;
-    
-    // If consistently exceeding target, reduce quality
-    if (avgFrameTime > targetTime * 1.1 && this.frameTimeExceededCount >= 5) {
-      // Reduce quality by 10%
-      this.qualityMultiplier = Math.max(
-        this.minQualityMultiplier,
-        this.qualityMultiplier * 0.9
-      );
-    }
-    // If performing well, gradually increase quality
-    else if (avgFrameTime < targetTime * 0.8 && this.frameTimeExceededCount === 0) {
-      // Increase quality by 5%
-      this.qualityMultiplier = Math.min(1.0, this.qualityMultiplier * 1.05);
-    }
-  }
-  
-  /**
-   * Get current quality multiplier
+   * Get current quality multiplier (always 1.0 - no quality degradation)
    */
   getQualityMultiplier() {
-    return this.qualityMultiplier;
+    return 1.0; // Always full quality - see PERFORMANCE_WORKAROUND_POLICY.md
   }
   
   /**
@@ -289,7 +260,7 @@ export class FrameBudgetAllocator {
     
     return {
       mode: this.mode,
-      qualityMultiplier: this.qualityMultiplier,
+      qualityMultiplier: 1.0, // Always full quality
       avgFrameTime,
       targetFrameTime: TARGET_FRAME_TIME_MS,
       budgets,
@@ -314,13 +285,11 @@ export class FrameBudgetAllocator {
   }
   
   /**
-   * Enable/disable quality adjustment
+   * Quality adjustment is permanently disabled - always use full quality
+   * See PERFORMANCE_WORKAROUND_POLICY.md
    */
   setQualityAdjustmentEnabled(enabled) {
-    this.qualityAdjustmentEnabled = enabled;
-    if (!enabled) {
-      this.qualityMultiplier = 1.0;
-    }
+    // No-op: quality adjustment removed to prevent quality degradation
   }
 }
 

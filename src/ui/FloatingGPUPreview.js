@@ -34,121 +34,43 @@ export class FloatingGPUPreview {
     this._pendingResizeDimensions = null;
     this._resizeRafId = null;
     this.isCanvasInteractionActive = false;
-    this._handleInteractionEvent = this._handleInteractionEvent.bind(this);
-    window.addEventListener("floating-preview-interaction", this._handleInteractionEvent);
-    this._adaptiveConfig = {
-      enabled: true,
-      interactionScale: 0.7,
-      resolutionScale: 0.75,
-      cooldownMs: 350,
-    };
-    this._isAdaptiveActive = false;
-    this._adaptiveScaleMultiplier = 1;
-    this._adaptiveResolutionMultiplier = 1;
-    this._adaptiveCooldownTimer = null;
-    this._frameBudgetQualityMultiplier = 1.0; // Quality multiplier from frame budget allocator
     this._previewRenderLoopRunning = false;
     this._previewRafId = null;
     this._previewFrameSkipCounter = 0;
     this._previewLastFrameTime = 0;
     
-    // Interaction state manager integration
+    // Smart adaptive quality - only activates when resources are actually low
+    // Disabled by default, can be enabled via "light mode" or auto-enabled when needed
+    this._adaptiveConfig = {
+      enabled: false, // Disabled by default - only auto-enable when resources are low
+      lightMode: false, // User can enable "light mode" to always use adaptive quality
+      autoEnable: true, // Auto-enable when frame times consistently exceed budget
+      interactionScale: 0.7,
+      resolutionScale: 0.75,
+      cooldownMs: 350,
+      // Thresholds for auto-enabling
+      autoEnableThreshold: 20, // ms - enable if avg frame time exceeds this
+      autoEnableFrames: 30, // Number of consecutive frames before enabling
+      autoDisableThreshold: 16, // ms - disable if avg frame time drops below this
+      autoDisableFrames: 60, // Number of consecutive frames before disabling
+    };
+    this._isAdaptiveActive = false;
+    this._adaptiveScaleMultiplier = 1;
+    this._adaptiveResolutionMultiplier = 1;
+    this._adaptiveCooldownTimer = null;
+    this._performanceMonitoringActive = false;
+    this._consecutiveSlowFrames = 0;
+    this._consecutiveFastFrames = 0;
+    
+    // Interaction state manager for monitoring
     this.interactionStateManager = getInteractionStateManager();
-    this._setupInteractionListeners();
+    this._setupPerformanceMonitoring();
     
     this._setupParameterListeners();
     this._setupAnimationLoop();
     this.onAdaptiveSettingsChanged(this.settings.settings.adaptiveQuality);
   }
   
-  /**
-   * Setup listeners for interaction state changes
-   */
-  _setupInteractionListeners() {
-    // Listen to interaction start events
-    this.interactionStateManager.addEventListener('interactionstart', (event) => {
-      this._onInteractionStart(event);
-    });
-    
-    // Listen to interaction end events
-    this.interactionStateManager.addEventListener('interactionend', (event) => {
-      this._onInteractionEnd(event);
-    });
-    
-    // Listen to quality change events (during cooldown)
-    this.interactionStateManager.addEventListener('qualitychange', (event) => {
-      this._onQualityChange(event);
-    });
-    
-    // Listen to cooldown end events
-    this.interactionStateManager.addEventListener('cooldownend', (event) => {
-      this._onCooldownEnd(event);
-    });
-  }
-  
-  /**
-   * Handle interaction start
-   */
-  _onInteractionStart(event) {
-    const config = this._getAdaptiveConfig();
-    if (!config.enabled) return;
-    
-    // Cancel any ongoing cooldown
-    if (this._adaptiveCooldownTimer) {
-      clearTimeout(this._adaptiveCooldownTimer);
-      this._adaptiveCooldownTimer = null;
-    }
-    
-    // Apply reduced quality during interaction
-    if (!this._isAdaptiveActive) {
-      this._isAdaptiveActive = true;
-      this._adaptiveScaleMultiplier = config.interactionScale;
-      this._adaptiveResolutionMultiplier = config.resolutionScale;
-      
-      if (this.isVisible) {
-        this.updateSize();
-      }
-    }
-  }
-  
-  /**
-   * Handle interaction end
-   */
-  _onInteractionEnd(event) {
-    // Quality restoration is handled by cooldown mechanism
-    // We just need to wait for cooldown to complete
-  }
-  
-  /**
-   * Handle quality change during cooldown
-   */
-  _onQualityChange(event) {
-    const config = this._getAdaptiveConfig();
-    if (!config.enabled) return;
-    
-    // Gradually restore quality based on cooldown progress
-    const qualityLevel = event.quality || 1.0;
-    const targetScale = config.interactionScale + (1.0 - config.interactionScale) * qualityLevel;
-    const targetResolution = config.resolutionScale + (1.0 - config.resolutionScale) * qualityLevel;
-    
-    this._adaptiveScaleMultiplier = targetScale;
-    this._adaptiveResolutionMultiplier = targetResolution;
-    
-    if (this.isVisible) {
-      this.updateSize();
-    }
-  }
-  
-  /**
-   * Handle cooldown end
-   */
-  _onCooldownEnd(event) {
-    const config = this._getAdaptiveConfig();
-    if (!config.enabled) return;
-    
-    // Fully restore quality
-    this._exitAdaptiveMode(false, 'cooldown');
-  }
 
   _getPerfMonitor() {
     return window.previewPerfMonitor || null;
@@ -169,62 +91,174 @@ export class FloatingGPUPreview {
     return Math.max(min, Math.min(max, value));
   }
 
+  /**
+   * Setup performance monitoring to auto-enable adaptive quality when needed
+   */
+  _setupPerformanceMonitoring() {
+    // Monitor frame times and auto-enable adaptive quality if resources are low
+    if (!this._adaptiveConfig.autoEnable) return;
+    
+    this._performanceMonitoringActive = true;
+    // Monitoring happens in updateSize() and via frame time callbacks
+  }
+  
+  /**
+   * Check if adaptive quality should be auto-enabled based on performance
+   */
+  _checkPerformanceAndAutoEnable() {
+    if (!this._adaptiveConfig.autoEnable || this._adaptiveConfig.lightMode) {
+      return; // Auto-enable disabled or light mode already handles it
+    }
+    
+    const perfMonitor = this._getPerfMonitor();
+    if (!perfMonitor) return;
+    
+    const budgetAllocator = perfMonitor.getBudgetAllocator?.();
+    if (!budgetAllocator) return;
+    
+    const stats = budgetAllocator.getStats();
+    const avgFrameTime = stats.avgFrameTime || 0;
+    
+    // Check if we should auto-enable
+    if (avgFrameTime > this._adaptiveConfig.autoEnableThreshold) {
+      this._consecutiveSlowFrames++;
+      this._consecutiveFastFrames = 0;
+      
+      if (this._consecutiveSlowFrames >= this._adaptiveConfig.autoEnableFrames && !this._isAdaptiveActive) {
+        // Performance is consistently poor - enable adaptive quality
+        console.log(`[FloatingPreview] Auto-enabling adaptive quality (avg frame time: ${avgFrameTime.toFixed(2)}ms)`);
+        this._enableAdaptiveMode('auto-performance');
+      }
+    } else if (avgFrameTime < this._adaptiveConfig.autoDisableThreshold) {
+      this._consecutiveFastFrames++;
+      this._consecutiveSlowFrames = 0;
+      
+      if (this._consecutiveFastFrames >= this._adaptiveConfig.autoDisableFrames && this._isAdaptiveActive) {
+        // Performance has recovered - disable adaptive quality
+        console.log(`[FloatingPreview] Auto-disabling adaptive quality (avg frame time: ${avgFrameTime.toFixed(2)}ms)`);
+        this._disableAdaptiveMode('auto-performance');
+      }
+    } else {
+      // Reset counters if in middle range
+      this._consecutiveSlowFrames = Math.max(0, this._consecutiveSlowFrames - 1);
+      this._consecutiveFastFrames = Math.max(0, this._consecutiveFastFrames - 1);
+    }
+  }
+
+  _getEffectiveResolution() {
+    const { width, height } = this.settings.settings.resolution;
+    // Apply adaptive resolution multiplier only if adaptive mode is active
+    const multiplier = this._adaptiveResolutionMultiplier || 1;
+    const effectiveWidth = Math.max(64, Math.round(width * multiplier));
+    const effectiveHeight = Math.max(64, Math.round(height * multiplier));
+    return { width: effectiveWidth, height: effectiveHeight, baseWidth: width, baseHeight: height };
+  }
+
+  _getDisplayScale() {
+    const baseScale = this.isDocked ? 0.3 : this.previewScale;
+    // Apply adaptive scale multiplier only if adaptive mode is active
+    return baseScale * (this._adaptiveScaleMultiplier || 1);
+  }
+  
+  /**
+   * Enable adaptive mode (called automatically when resources are low, or manually via light mode)
+   */
+  _enableAdaptiveMode(reason = 'manual') {
+    if (this._isAdaptiveActive) return;
+    
+    const config = this._getAdaptiveConfig();
+    if (!config.enabled && !config.lightMode && reason !== 'auto-performance') {
+      return; // Not enabled
+    }
+    
+    this._isAdaptiveActive = true;
+    this._adaptiveScaleMultiplier = config.interactionScale;
+    this._adaptiveResolutionMultiplier = config.resolutionScale;
+    
+    if (this.isVisible) {
+      this.updateSize();
+    }
+    
+    const perf = this._getPerfMonitor();
+    perf?.recordValue("previewAdaptiveState", `enabled:${reason}`);
+  }
+  
+  /**
+   * Disable adaptive mode (called automatically when performance recovers)
+   */
+  _disableAdaptiveMode(reason = 'manual') {
+    if (!this._isAdaptiveActive) return;
+    
+    const config = this._getAdaptiveConfig();
+    // Don't disable if light mode is enabled (unless explicitly requested)
+    if (config.lightMode && reason === 'auto-performance') {
+      return;
+    }
+    
+    this._isAdaptiveActive = false;
+    this._adaptiveScaleMultiplier = 1;
+    this._adaptiveResolutionMultiplier = 1;
+    
+    if (this.isVisible) {
+      this.updateSize();
+    }
+    
+    const perf = this._getPerfMonitor();
+    perf?.recordValue("previewAdaptiveState", `disabled:${reason}`);
+  }
+  
   _getAdaptiveConfig() {
     return this._adaptiveConfig || {
       enabled: false,
+      lightMode: false,
+      autoEnable: true,
       interactionScale: 1,
       resolutionScale: 1,
       cooldownMs: 300,
     };
   }
-
-  _getEffectiveResolution() {
-    const { width, height } = this.settings.settings.resolution;
-    // Combine adaptive resolution multiplier with frame budget quality multiplier
-    const adaptiveMultiplier = this._adaptiveResolutionMultiplier || 1;
-    const budgetQualityMultiplier = this._frameBudgetQualityMultiplier || 1;
-    const multiplier = adaptiveMultiplier * budgetQualityMultiplier;
-    const effectiveWidth = Math.max(64, Math.round(width * multiplier));
-    const effectiveHeight = Math.max(64, Math.round(height * multiplier));
-    return { width: effectiveWidth, height: effectiveHeight, baseWidth: width, baseHeight: height };
-  }
   
   /**
-   * Apply quality multiplier from frame budget allocator
-   * This dynamically reduces preview resolution if frame budget is exceeded
+   * Handle adaptive settings changes from UI
    */
-  _applyQualityMultiplier(multiplier) {
-    if (typeof multiplier !== 'number' || multiplier < 0.5 || multiplier > 1.0) {
-      return; // Invalid multiplier, ignore
-    }
-    
-    // Only apply if significantly different to avoid constant resizing
-    const currentMultiplier = this._frameBudgetQualityMultiplier || 1.0;
-    if (Math.abs(multiplier - currentMultiplier) < 0.05) {
-      return; // Less than 5% change, skip
-    }
-    
-    this._frameBudgetQualityMultiplier = multiplier;
-    
-    // Update canvas resolution if visible
-    if (this.isVisible && this.gpuCanvas) {
-      const { width, height } = this._getEffectiveResolution();
-      if (this.gpuCanvas.width !== width || this.gpuCanvas.height !== height) {
-        // Update canvas size
-        this.gpuCanvas.width = width;
-        this.gpuCanvas.height = height;
-        
-        // Trigger rebuild if available
-        if (window.rebuild) {
-          window.rebuild();
-        }
-      }
-    }
-  }
+  onAdaptiveSettingsChanged(config = {}) {
+    const normalized = {
+      enabled: config?.enabled === true, // Must be explicitly enabled
+      lightMode: config?.lightMode === true, // Light mode option
+      autoEnable: config?.autoEnable !== false, // Auto-enable by default
+      interactionScale: this._clamp(
+        Number(config?.interactionScale ?? 0.7),
+        0.3,
+        1
+      ),
+      resolutionScale: this._clamp(
+        Number(config?.resolutionScale ?? 0.75),
+        0.25,
+        1
+      ),
+      cooldownMs: Math.max(50, Number(config?.cooldownMs ?? 350)),
+      autoEnableThreshold: Number(config?.autoEnableThreshold ?? 20),
+      autoEnableFrames: Math.max(10, Number(config?.autoEnableFrames ?? 30)),
+      autoDisableThreshold: Number(config?.autoDisableThreshold ?? 16),
+      autoDisableFrames: Math.max(30, Number(config?.autoDisableFrames ?? 60)),
+    };
 
-  _getDisplayScale() {
-    const baseScale = this.isDocked ? 0.3 : this.previewScale;
-    return baseScale * (this._adaptiveScaleMultiplier || 1);
+    this._adaptiveConfig = normalized;
+    
+    // If light mode is enabled, activate adaptive quality
+    if (normalized.lightMode) {
+      this._enableAdaptiveMode('light-mode');
+    } else if (this._isAdaptiveActive && !normalized.enabled && !normalized.autoEnable) {
+      // Disable if explicitly disabled and auto-enable is off
+      this._disableAdaptiveMode('settings');
+    }
+    
+    // Setup monitoring if auto-enable is on
+    if (normalized.autoEnable) {
+      this._setupPerformanceMonitoring();
+    } else {
+      this._performanceMonitoringActive = false;
+    }
   }
 
   _applyDragPosition(left, top) {
@@ -294,81 +328,6 @@ export class FloatingGPUPreview {
     this._applyResizeDimensions(width, height);
   }
 
-  onAdaptiveSettingsChanged(config = {}) {
-    const normalized = {
-      enabled: config?.enabled !== false,
-      interactionScale: this._clamp(
-        Number(config?.interactionScale ?? this._adaptiveConfig.interactionScale ?? 0.7),
-        0.3,
-        1
-      ),
-      resolutionScale: this._clamp(
-        Number(config?.resolutionScale ?? this._adaptiveConfig.resolutionScale ?? 0.75),
-        0.25,
-        1
-      ),
-      cooldownMs: Math.max(50, Number(config?.cooldownMs ?? this._adaptiveConfig.cooldownMs ?? 350)),
-    };
-
-    this._adaptiveConfig = normalized;
-    if (!normalized.enabled) {
-      this._exitAdaptiveMode(true);
-    } else if (this._isAdaptiveActive) {
-      this._adaptiveScaleMultiplier = normalized.interactionScale;
-      this._adaptiveResolutionMultiplier = normalized.resolutionScale;
-      if (this.isVisible) {
-        this.updateSize();
-      }
-    }
-  }
-
-  _applyAdaptiveInteractionState(active, reason = "interaction") {
-    const config = this._getAdaptiveConfig();
-    if (!config.enabled) return;
-
-    if (active) {
-      if (this._adaptiveCooldownTimer) {
-        clearTimeout(this._adaptiveCooldownTimer);
-        this._adaptiveCooldownTimer = null;
-      }
-      if (!this._isAdaptiveActive) {
-        this._isAdaptiveActive = true;
-        this._adaptiveScaleMultiplier = config.interactionScale;
-        this._adaptiveResolutionMultiplier = config.resolutionScale;
-        this._announceAdaptiveState("engaged", reason);
-        this.updateSize();
-      }
-    } else {
-      if (!this._isAdaptiveActive) return;
-      if (this._adaptiveCooldownTimer) {
-        clearTimeout(this._adaptiveCooldownTimer);
-      }
-      this._adaptiveCooldownTimer = setTimeout(() => {
-        this._adaptiveCooldownTimer = null;
-        this._exitAdaptiveMode(false, reason);
-      }, config.cooldownMs);
-    }
-  }
-
-  _exitAdaptiveMode(force = false, reason = "interaction") {
-    if (!force && !this._isAdaptiveActive) return;
-    if (this._adaptiveCooldownTimer) {
-      clearTimeout(this._adaptiveCooldownTimer);
-      this._adaptiveCooldownTimer = null;
-    }
-    this._isAdaptiveActive = false;
-    this._adaptiveScaleMultiplier = 1;
-    this._adaptiveResolutionMultiplier = 1;
-    this._announceAdaptiveState("restored", reason);
-    if (this.isVisible) {
-      this.updateSize();
-    }
-  }
-
-  _announceAdaptiveState(phase, reason) {
-    const perf = this._getPerfMonitor();
-    perf?.recordValue("previewAdaptiveState", `${phase}:${reason}`);
-  }
 
 _setupParameterListeners() {
   // Debounce shader recompilation to prevent cascading updates
@@ -555,6 +514,11 @@ _stopPreviewRenderLoop() {
 
   async updateSize() {
     if (!this.container || this.isFullscreen) return;
+
+    // Check performance and auto-enable adaptive quality if needed
+    if (this._performanceMonitoringActive) {
+      this._checkPerformanceAndAutoEnable();
+    }
 
     const perfToken = this._getPerfMonitor()?.timeSection("previewDom");
     const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
@@ -850,17 +814,19 @@ async show() {
   _updateTitle() {
     const title = this.container?.querySelector(".preview-title");
     if (title) {
-      const baseWidth = this.settings.settings.resolution.width;
-      const baseHeight = this.settings.settings.resolution.height;
-      const effective = this._getEffectiveResolution();
+      const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
       const scaleValue = this.isDocked
         ? "Docked"
-        : `${Math.round(this.previewScale * (this._adaptiveScaleMultiplier || 1) * 100)}%`;
-      const resolutionLabel = this._isAdaptiveActive
-        ? `${baseWidth}×${baseHeight} → ${effective.width}×${effective.height}`
-        : `${baseWidth}×${baseHeight}`;
-      const adaptiveLabel = this._isAdaptiveActive ? " • adaptive" : "";
-      title.textContent = `Preview ${resolutionLabel} (${scaleValue}${adaptiveLabel})`;
+        : `${Math.round(this._getDisplayScale() / (this.isDocked ? 0.3 : 1) * 100)}%`;
+      
+      let resolutionLabel = `${baseWidth}×${baseHeight}`;
+      if (this._isAdaptiveActive && (width !== baseWidth || height !== baseHeight)) {
+        resolutionLabel = `${baseWidth}×${baseHeight} → ${width}×${height}`;
+      }
+      
+      const modeLabel = this._adaptiveConfig.lightMode ? " (light mode)" : 
+                       (this._isAdaptiveActive ? " (adaptive)" : "");
+      title.textContent = `Preview ${resolutionLabel} (${scaleValue}${modeLabel})`;
     }
   }
 
@@ -1166,23 +1132,6 @@ canvasWrapper.style.cssText = `
     header.addEventListener("mousedown", onMouseDown);
   }
 
-  _handleInteractionEvent(event) {
-    const detail = event?.detail || {};
-    const isActive = !!detail.active;
-    const wasActive = this.isCanvasInteractionActive;
-    this.isCanvasInteractionActive = isActive;
-    
-    // Immediately activate adaptive mode when panning starts
-    if (isActive && !wasActive) {
-      // Activate adaptive mode immediately on pan start
-      this._applyAdaptiveInteractionState(true, detail.reason || "canvas");
-      // Reset frame skip counter to ensure first frame renders
-      this._previewFrameSkipCounter = 0;
-    } else if (!isActive && wasActive) {
-      // Exit adaptive mode after panning ends (with cooldown)
-      this._applyAdaptiveInteractionState(false, detail.reason || "canvas");
-    }
-  }
 
   _setupDockedResize() {
     const resizeHandle = this.container.querySelector(".resize-handle-dock");

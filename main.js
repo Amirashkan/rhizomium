@@ -4152,15 +4152,11 @@ function handleRenderFrame(frameState) {
   
   // Apply dynamic quality adjustment based on frame budget
   const budgetAllocator = previewPerfMonitor?.getBudgetAllocator?.();
-  if (budgetAllocator && window.floatingPreview) {
-    const qualityMultiplier = budgetAllocator.getQualityMultiplier();
-    // Apply quality adjustment to preview resolution if needed
-    if (qualityMultiplier < 1.0 && window.floatingPreview._applyQualityMultiplier) {
-      window.floatingPreview._applyQualityMultiplier(qualityMultiplier);
-    } else if (qualityMultiplier >= 1.0 && window.floatingPreview._frameBudgetQualityMultiplier) {
-      // Reset to full quality when budget allows
-      window.floatingPreview._applyQualityMultiplier(1.0);
-    }
+  // Performance monitoring for smart adaptive quality
+  // FloatingGPUPreview now handles its own adaptive quality based on actual resource usage
+  // This is called every frame to allow FloatingGPUPreview to monitor and auto-enable if needed
+  if (window.floatingPreview && typeof window.floatingPreview._checkPerformanceAndAutoEnable === 'function') {
+    window.floatingPreview._checkPerformanceAndAutoEnable();
   }
 }
 

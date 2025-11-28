@@ -116,8 +116,8 @@ export class InteractionStateManager {
       this.currentInteractionType = type;
       this.interactionStartTime = performance.now();
       this.interactionDuration = 0;
-      this.currentQualityLevel = 0.5; // Reduce quality during interaction
-      this.targetQualityLevel = 0.5;
+      // Quality reduction removed - always use full quality
+      // See PERFORMANCE_WORKAROUND_POLICY.md
     }
     
     // Emit interaction start event
