@@ -178,18 +178,22 @@ export class Renderer {
     ctx.save();
     
     // Calculate grid offset for smooth panning
-    const gridOffsetX = offsetX % minorSpacing;
-    const gridOffsetY = offsetY % minorSpacing;
+    // Handle negative offsets correctly using modulo that works for negative numbers
+    const gridOffsetX = ((offsetX % minorSpacing) + minorSpacing) % minorSpacing;
+    const gridOffsetY = ((offsetY % minorSpacing) + minorSpacing) % minorSpacing;
     
     // Draw cached grid with transform offset
     if (this._gridCanvas) {
-      // Calculate how many tiles we need to cover the viewport
-      const tilesX = Math.ceil((width + Math.abs(gridOffsetX)) / this._gridCanvas.width) + 1;
-      const tilesY = Math.ceil((height + Math.abs(gridOffsetY)) / this._gridCanvas.height) + 1;
+      // Calculate starting tile position to cover viewport
+      // Account for negative offsets by starting from negative tiles
+      const startTileX = Math.floor((offsetX - gridOffsetX) / this._gridCanvas.width);
+      const startTileY = Math.floor((offsetY - gridOffsetY) / this._gridCanvas.height);
+      const endTileX = Math.ceil((offsetX + width - gridOffsetX) / this._gridCanvas.width);
+      const endTileY = Math.ceil((offsetY + height - gridOffsetY) / this._gridCanvas.height);
       
-      // Draw grid tiles with offset
-      for (let tx = -1; tx < tilesX; tx++) {
-        for (let ty = -1; ty < tilesY; ty++) {
+      // Draw grid tiles with proper offset to ensure seamless tiling
+      for (let ty = startTileY; ty <= endTileY; ty++) {
+        for (let tx = startTileX; tx <= endTileX; tx++) {
           const x = tx * this._gridCanvas.width + gridOffsetX;
           const y = ty * this._gridCanvas.height + gridOffsetY;
           ctx.drawImage(this._gridCanvas, x, y);
