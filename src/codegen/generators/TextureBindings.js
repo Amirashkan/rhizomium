@@ -17,13 +17,28 @@ export class TextureBindings {
     // If usedNodes is provided, use that; otherwise use all graph nodes
     const nodesToProcess = usedNodes || (graph.nodes || []);
 
-    if (nodesToProcess.length === 0) {
+    // Create a Set of used node IDs for fast lookup
+    const usedNodeIds = usedNodes ? new Set(usedNodes.map(n => n.id)) : null;
+    
+    // Also collect compute node IDs from computeNodeRegistry that are referenced
+    const computeNodeIdsInUse = new Set();
+    if (window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+      // Check if any compute nodes from registry are in the dependency chain
+      for (const [nodeId, nodeData] of window.computeNodeRegistry) {
+        if (usedNodeIds && usedNodeIds.has(nodeId)) {
+          computeNodeIdsInUse.add(nodeId);
+        } else if (!usedNodeIds) {
+          // If no filter, include all compute nodes (for backwards compatibility)
+          computeNodeIdsInUse.add(nodeId);
+        }
+      }
+    }
+
+    if (nodesToProcess.length === 0 && computeNodeIdsInUse.size === 0) {
       return bindingCode;
     }
 
-    // Create a Set of used node IDs for fast lookup
-    const usedNodeIds = usedNodes ? new Set(usedNodes.map(n => n.id)) : null;
-
+    // Process regular graph nodes
     for (const node of nodesToProcess) {
       // Skip this node if we have a filter and it's not in the used nodes
       if (usedNodeIds && !usedNodeIds.has(node.id)) {
@@ -65,7 +80,29 @@ export class TextureBindings {
 @group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${nodeId}: sampler;`;
         bindingIndex += 2;
         textureCount += 1; // Each compute texture counts as 1 texture
+        computeNodeIdsInUse.delete(node.id); // Mark as processed
       }
+    }
+    
+    // Process compute nodes from registry that weren't in the graph nodes
+    for (const nodeId of computeNodeIdsInUse) {
+      // Check if we've reached the texture limit
+      if (textureCount >= MAX_TEXTURES) {
+        console.warn(`[TextureBindings] Warning: Reached maximum texture limit (${MAX_TEXTURES}). Skipping additional compute textures.`);
+        break;
+      }
+      
+      let sanitizedId = this.sanitize(nodeId);
+      // Remove node_ prefix if present (consistent with ComputeNodes.js)
+      if (sanitizedId.startsWith('node_')) {
+        sanitizedId = sanitizedId.substring(5);
+      }
+
+      bindingCode += `
+@group(0) @binding(${bindingIndex}) var compute_node_${sanitizedId}: texture_2d<f32>;
+@group(0) @binding(${bindingIndex + 1}) var sampler_compute_node_${sanitizedId}: sampler;`;
+      bindingIndex += 2;
+      textureCount += 1; // Each compute texture counts as 1 texture
     }
 
     return bindingCode;
