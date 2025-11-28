@@ -446,6 +446,30 @@ export class UtilityNodes {
         }
       }
       
+      // Check for function calls that require vector types
+      // Functions that typically use vec2: distance, length, normalize, etc.
+      // Check if input is used in functions that require vec2
+      if (components.size === 0) {
+        // Check for distance(vec2, vec2) - very common pattern
+        const distancePattern = new RegExp(`\\bdistance\\s*\\([^)]*\\b${inputName}\\b`, 'g');
+        if (distancePattern.test(code)) {
+          return 'vec2'; // distance requires vec2 arguments
+        }
+        
+        // Check for length(vec2) - common pattern
+        const lengthPattern = new RegExp(`\\blength\\s*\\([^)]*\\b${inputName}\\b`, 'g');
+        if (lengthPattern.test(code)) {
+          return 'vec2'; // length with vec2 is common
+        }
+        
+        // Check for atan2(vec2.y, vec2.x) - but this is usually component access
+        // Check for normalize(vec2)
+        const normalizePattern = new RegExp(`\\bnormalize\\s*\\([^)]*\\b${inputName}\\b`, 'g');
+        if (normalizePattern.test(code)) {
+          return 'vec2'; // normalize with vec2 is common
+        }
+      }
+      
       if (components.size === 0) {
         return null; // No type hints, use default
       }
