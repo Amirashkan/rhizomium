@@ -4131,15 +4131,26 @@ function handleRenderFrame(frameState) {
       editor.isSceneStatic(120);
 
     if (editorNeedsCanvasDraw && editor?.draw) {
-      // During panning, only draw every 2nd frame for smoother performance
-      if (isPanning) {
+      // Smart canvas throttling - only throttle when resources are actually low
+      // Check if adaptive quality is active (indicates resources are low)
+      const adaptiveQualityActive = window.floatingPreview?._isAdaptiveActive || false;
+      const budgetAllocator = previewPerfMonitor?.getBudgetAllocator?.();
+      const stats = budgetAllocator?.getStats?.();
+      const avgFrameTime = stats?.avgFrameTime || 0;
+      const shouldThrottleCanvas = adaptiveQualityActive || (avgFrameTime > 18); // Throttle if adaptive quality is on OR frame time > 18ms
+      
+      // During panning, throttle only if resources are low
+      if (isPanning && shouldThrottleCanvas) {
+        // Throttle to every 2nd frame when resources are low
         if (gpuFrameSkipCounter % 2 === 0) {
           const canvasToken = previewPerfMonitor?.timeSection("canvas");
           editor.draw();
           previewPerfMonitor?.endSection(canvasToken);
+        } else {
+          previewPerfMonitor?.recordValue('canvasThrottledSkip', 1);
         }
       } else {
-        // Normal drawing when not panning
+        // Normal drawing - full quality when resources are sufficient
         const canvasToken = previewPerfMonitor?.timeSection("canvas");
         editor.draw();
         previewPerfMonitor?.endSection(canvasToken);

@@ -177,6 +177,7 @@ export class FloatingGPUPreview {
     
     if (this.isVisible) {
       this.updateSize();
+      this._updateAdaptiveIndicator();
     }
     
     const perf = this._getPerfMonitor();
@@ -201,6 +202,7 @@ export class FloatingGPUPreview {
     
     if (this.isVisible) {
       this.updateSize();
+      this._updateAdaptiveIndicator();
     }
     
     const perf = this._getPerfMonitor();
@@ -827,6 +829,67 @@ async show() {
       const modeLabel = this._adaptiveConfig.lightMode ? " (light mode)" : 
                        (this._isAdaptiveActive ? " (adaptive)" : "");
       title.textContent = `Preview ${resolutionLabel} (${scaleValue}${modeLabel})`;
+    }
+    
+    // Update visual indicator badge
+    this._updateAdaptiveIndicator();
+  }
+  
+  /**
+   * Update visual indicator badge when adaptive quality is active
+   */
+  _updateAdaptiveIndicator() {
+    if (!this.container) return;
+    
+    let badge = this.container.querySelector(".adaptive-quality-badge");
+    
+    if (this._isAdaptiveActive) {
+      // Create badge if it doesn't exist
+      if (!badge) {
+        badge = document.createElement("div");
+        badge.className = "adaptive-quality-badge";
+        badge.style.cssText = `
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          background: rgba(255, 165, 0, 0.9);
+          color: #000;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: bold;
+          z-index: 1000;
+          pointer-events: none;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+          animation: pulse 2s ease-in-out infinite;
+        `;
+        
+        // Add pulse animation
+        if (!document.getElementById('adaptive-badge-style')) {
+          const style = document.createElement('style');
+          style.id = 'adaptive-badge-style';
+          style.textContent = `
+            @keyframes pulse {
+              0%, 100% { opacity: 0.9; }
+              50% { opacity: 0.7; }
+            }
+          `;
+          document.head.appendChild(style);
+        }
+        
+        this.container.appendChild(badge);
+      }
+      
+      // Update badge text
+      const reason = this._adaptiveConfig.lightMode ? "Light Mode" : "Auto";
+      badge.textContent = `⚡ ${reason}`;
+      badge.title = `Adaptive quality active: ${reason === "Light Mode" ? "User enabled light mode" : "Auto-enabled due to low resources"}`;
+      badge.style.display = "block";
+    } else {
+      // Hide badge when not active
+      if (badge) {
+        badge.style.display = "none";
+      }
     }
   }
 
