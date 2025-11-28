@@ -64,10 +64,7 @@ export class Renderer {
     }
 
     // PERFORMANCE: Skip grid during panning - it's expensive and not critical during movement
-    const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function' 
-      ? this.viewport.isPanning() 
-      : (this.viewport._isPanning || false);
-    
+    // Reuse isPanning variable already declared above
     if (!isPanning) {
       // Only render grid when not panning - saves significant time
       this._renderBackgroundGrid();
