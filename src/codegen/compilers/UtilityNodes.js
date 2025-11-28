@@ -525,11 +525,86 @@ export class UtilityNodes {
     // Get output type from parameter
     const outputType = node.params?.outputType || "f32";
 
-    // Split code into lines and process
-    const lines = code.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    // Split code into lines, but preserve multi-line expressions
+    // First, remove comments
+    const linesWithoutComments = code.split('\n')
+      .map(line => {
+        // Remove inline comments (// ...)
+        const commentIndex = line.indexOf('//');
+        if (commentIndex >= 0) {
+          return line.substring(0, commentIndex).trim();
+        }
+        return line.trim();
+      })
+      .filter(line => line.length > 0);
     
-    // Remove comment-only lines for compilation (but keep them in the code for user reference)
-    const codeLines = lines.filter(line => !line.startsWith('//'));
+    // Now reconstruct multi-line expressions
+    // Track parentheses/braces/brackets to know when we're in a multi-line expression
+    let reconstructedLines = [];
+    let currentExpression = '';
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let bracketDepth = 0;
+    
+    for (let i = 0; i < linesWithoutComments.length; i++) {
+      const line = linesWithoutComments[i];
+      const trimmedLine = line.trim();
+      
+      // Count parentheses, braces, and brackets in this line
+      let lineParenDepth = 0;
+      let lineBraceDepth = 0;
+      let lineBracketDepth = 0;
+      
+      for (const char of line) {
+        if (char === '(') lineParenDepth++;
+        if (char === ')') lineParenDepth--;
+        if (char === '{') lineBraceDepth++;
+        if (char === '}') lineBraceDepth--;
+        if (char === '<') lineBracketDepth++;
+        if (char === '>') lineBracketDepth--;
+      }
+      
+      // Update global depths
+      parenDepth += lineParenDepth;
+      braceDepth += lineBraceDepth;
+      bracketDepth += lineBracketDepth;
+      
+      // Add to current expression
+      if (currentExpression) {
+        // Add space between lines, but preserve structure
+        currentExpression += ' ' + line;
+      } else {
+        currentExpression = line;
+      }
+      
+      // Check if this is a complete expression
+      // It's complete if:
+      // 1. All parentheses/braces/brackets are closed (depth = 0), AND
+      // 2. The line doesn't end with a comma (which indicates continuation), AND
+      // 3. Either the line ends with semicolon OR it's a complete expression
+      const endsWithComma = trimmedLine.endsWith(',');
+      const endsWithSemicolon = trimmedLine.endsWith(';');
+      const isComplete = parenDepth === 0 && braceDepth === 0 && bracketDepth === 0 && !endsWithComma;
+      
+      if (isComplete) {
+        // Remove trailing semicolon if present (we'll add it when needed)
+        const cleaned = currentExpression.trim().replace(/;+$/, '');
+        reconstructedLines.push(cleaned);
+        currentExpression = '';
+        // Reset depths
+        parenDepth = 0;
+        braceDepth = 0;
+        bracketDepth = 0;
+      }
+    }
+    
+    // If there's a remaining expression (unclosed), add it anyway
+    if (currentExpression) {
+      const cleaned = currentExpression.trim().replace(/;+$/, '');
+      reconstructedLines.push(cleaned);
+    }
+    
+    const codeLines = reconstructedLines;
     
     let compiledCode;
     
