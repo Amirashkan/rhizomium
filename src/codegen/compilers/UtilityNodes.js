@@ -508,6 +508,19 @@ export class UtilityNodes {
     code = code.replace(/\binput1\b/g, `(${input1Code})`);
     code = code.replace(/\binput2\b/g, `(${input2Code})`);
     code = code.replace(/\binput3\b/g, `(${input3Code})`);
+    
+    // Replace built-in variables with their shader equivalents
+    code = code.replace(/\bu_time\b/g, "g.time");
+    code = code.replace(/\btime\b/g, "g.time");
+    code = code.replace(/\baudioEnvelopeBass\b/g, "g.audioEnvelopeBass");
+    code = code.replace(/\baudioEnvelopeMids\b/g, "g.audioEnvelopeMids");
+    code = code.replace(/\baudioEnvelopeHighs\b/g, "g.audioEnvelopeHighs");
+    code = code.replace(/\baudioEnvelopeFull\b/g, "g.audioEnvelopeFull");
+    code = code.replace(/\baudioEnvelope\b/g, "g.audioEnvelope");
+    code = code.replace(/\buv\b/g, "in.uv");
+    code = code.replace(/\bpi\b/g, "3.14159265359");
+    code = code.replace(/\bPI\b/g, "3.14159265359");
+    code = code.replace(/\bE\b/g, "2.71828182846");
 
     // Get output type from parameter
     const outputType = node.params?.outputType || "f32";
