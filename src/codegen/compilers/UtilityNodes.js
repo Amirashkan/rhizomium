@@ -633,8 +633,11 @@ export class UtilityNodes {
       // 1. All parentheses/braces/brackets are closed (depth = 0), AND
       // 2. The line doesn't end with a comma (which indicates continuation), AND
       // 3. Either the line ends with semicolon OR it's a complete expression
+      // BUT: Don't split if we're inside a for/if/while/loop block (braceDepth > 0)
+      // unless we've closed all braces
       const endsWithComma = trimmedLine.endsWith(',');
       const endsWithSemicolon = trimmedLine.endsWith(';');
+      // Only consider complete if all braces are closed (we're not inside a block)
       const isComplete = parenDepth === 0 && braceDepth === 0 && bracketDepth === 0 && !endsWithComma;
       
       if (isComplete) {
@@ -718,6 +721,8 @@ export class UtilityNodes {
           
           if (isStatement) {
             // It's a statement - keep as-is but replace variable references
+            // For statements with braces (for, if, while, etc.), the entire statement
+            // including its body should be on one line (reconstructed by line reconstruction)
             let processedLine = line;
             const sortedVars = Array.from(varMap.entries()).reverse();
             for (const [original, sanitized] of sortedVars) {
@@ -728,6 +733,7 @@ export class UtilityNodes {
               
               if (!isDeclaration) {
                 // Replace variable references, but be careful with word boundaries
+                // For statements with braces, we need to replace references inside the body too
                 processedLine = processedLine.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
               }
             }

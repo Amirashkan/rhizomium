@@ -1,6 +1,25 @@
 // src/ui/components/GLSLCodeInputHandler.js
 // GLSL/WGSL Code Editor for CustomGLSL node
 
+// Inject styles for syntax highlighting
+if (!document.getElementById('glsl-editor-styles')) {
+  const style = document.createElement('style');
+  style.id = 'glsl-editor-styles';
+  style.textContent = `
+    .glsl-keyword { color: #569cd6; }
+    .glsl-type { color: #4ec9b0; }
+    .glsl-function { color: #dcdcaa; }
+    .glsl-number { color: #b5cea8; }
+    .glsl-string { color: #ce9178; }
+    .glsl-comment { color: #6a9955; font-style: italic; }
+    .glsl-input { color: #9cdcfe; font-weight: bold; }
+    .glsl-builtin { color: #4fc1ff; }
+    .glsl-line-even { background: rgba(255, 255, 255, 0.02); }
+    .glsl-line-odd { background: transparent; }
+  `;
+  document.head.appendChild(style);
+}
+
 export class GLSLCodeInputHandler {
   constructor(undoManager = null) {
     this.undoManager = undoManager;
@@ -8,13 +27,19 @@ export class GLSLCodeInputHandler {
 
   create(param, node, div, label, valueManager, onChange) {
     const container = this.createContainer();
+    const editorWrapper = this.createEditorWrapper();
+    const lineNumbers = this.createLineNumbers();
     const textarea = this.createTextarea(param, node, valueManager);
+    const highlightOverlay = this.createHighlightOverlay();
     const helpText = this.createHelpText();
 
     // Setup event handlers
-    this.setupEventHandlers(textarea, param, node, valueManager, onChange);
+    this.setupEventHandlers(textarea, param, node, valueManager, onChange, lineNumbers, highlightOverlay);
 
-    container.appendChild(textarea);
+    editorWrapper.appendChild(lineNumbers);
+    editorWrapper.appendChild(textarea);
+    editorWrapper.appendChild(highlightOverlay);
+    container.appendChild(editorWrapper);
     container.appendChild(helpText);
     div.appendChild(container);
 
@@ -33,6 +58,66 @@ export class GLSLCodeInputHandler {
     return container;
   }
 
+  createEditorWrapper() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'glsl-editor-wrapper';
+    wrapper.style.cssText = `
+      position: relative;
+      display: flex;
+      width: 100%;
+      background: #1e1e1e;
+      border: 1px solid #555;
+      border-radius: 4px;
+      overflow: hidden;
+    `;
+    return wrapper;
+  }
+
+  createLineNumbers() {
+    const lineNumbers = document.createElement('div');
+    lineNumbers.className = 'glsl-line-numbers';
+    lineNumbers.style.cssText = `
+      flex-shrink: 0;
+      padding: 8px 4px 8px 8px;
+      background: #252525;
+      color: #858585;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      text-align: right;
+      user-select: none;
+      border-right: 1px solid #3a3a3a;
+      min-width: 45px;
+      overflow: hidden;
+      box-sizing: border-box;
+    `;
+    lineNumbers.textContent = '1';
+    return lineNumbers;
+  }
+
+  createHighlightOverlay() {
+    const overlay = document.createElement('div');
+    overlay.className = 'glsl-highlight-overlay';
+    overlay.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 45px;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      padding: 8px;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre;
+      overflow: hidden;
+      color: transparent;
+      z-index: 1;
+      box-sizing: border-box;
+    `;
+    return overlay;
+  }
+
   createTextarea(param, node, valueManager) {
     const textarea = document.createElement('textarea');
     textarea.className = 'glsl-code-editor';
@@ -46,14 +131,14 @@ export class GLSLCodeInputHandler {
     textarea.value = String(currentValue);
 
     textarea.style.cssText = `
-      width: 100%;
+      flex: 1;
       min-height: 150px;
       max-height: 400px;
       padding: 8px;
-      background: #1e1e1e;
+      background: transparent;
       color: #d4d4d4;
-      border: 1px solid #555;
-      border-radius: 4px;
+      border: none;
+      outline: none;
       font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
       font-size: 12px;
       line-height: 1.5;
@@ -63,6 +148,9 @@ export class GLSLCodeInputHandler {
       overflow-wrap: normal;
       tab-size: 2;
       box-sizing: border-box;
+      position: relative;
+      z-index: 2;
+      caret-color: #d4d4d4;
     `;
 
     // Handle tab key for indentation
@@ -76,6 +164,7 @@ export class GLSLCodeInputHandler {
         // Insert 2 spaces
         textarea.value = value.substring(0, start) + '  ' + value.substring(end);
         textarea.selectionStart = textarea.selectionEnd = start + 2;
+        this.updateEditor(textarea, null, null);
       }
     });
 
@@ -102,9 +191,12 @@ export class GLSLCodeInputHandler {
     return help;
   }
 
-  setupEventHandlers(textarea, param, node, valueManager, onChange) {
+  setupEventHandlers(textarea, param, node, valueManager, onChange, lineNumbers, highlightOverlay) {
     let inputTimer = null;
     let lastValue = textarea.value;
+
+    // Initial update
+    this.updateEditor(textarea, lineNumbers, highlightOverlay);
 
     // Prevent editor interference
     textarea.addEventListener('keydown', (e) => {
@@ -120,6 +212,7 @@ export class GLSLCodeInputHandler {
     // Capture initial value on focus
     textarea.addEventListener('focus', () => {
       lastValue = textarea.value;
+      this.updateEditor(textarea, lineNumbers, highlightOverlay);
     });
 
     // Real-time input handling with debounce
@@ -127,6 +220,9 @@ export class GLSLCodeInputHandler {
       e.stopPropagation();
 
       const newValue = textarea.value;
+
+      // Update UI immediately
+      this.updateEditor(textarea, lineNumbers, highlightOverlay);
 
       // Clear existing timer
       if (inputTimer) {
@@ -141,6 +237,17 @@ export class GLSLCodeInputHandler {
         }
         inputTimer = null;
       }, 500);
+    });
+
+    // Sync scroll
+    textarea.addEventListener('scroll', () => {
+      if (highlightOverlay) {
+        highlightOverlay.scrollTop = textarea.scrollTop;
+        highlightOverlay.scrollLeft = textarea.scrollLeft;
+      }
+      if (lineNumbers) {
+        lineNumbers.scrollTop = textarea.scrollTop;
+      }
     });
 
     // Final update on blur
@@ -160,6 +267,77 @@ export class GLSLCodeInputHandler {
     textarea.addEventListener('click', (e) => {
       e.stopPropagation();
     });
+  }
+
+  updateEditor(textarea, lineNumbers, highlightOverlay) {
+    const value = textarea.value;
+    const lines = value.split('\n');
+    const lineCount = lines.length || 1;
+
+    // Update line numbers
+    if (lineNumbers) {
+      const lineNumbersHTML = Array.from({ length: lineCount }, (_, i) => i + 1)
+        .map(num => `<div style="min-height: 18px; ${num % 2 === 0 ? 'background: rgba(255,255,255,0.02);' : ''}">${num}</div>`)
+        .join('');
+      lineNumbers.innerHTML = lineNumbersHTML;
+      lineNumbers.style.height = `${textarea.scrollHeight}px`;
+    }
+
+    // Update syntax highlighting with zebra striping
+    if (highlightOverlay) {
+      const highlighted = this.highlightSyntax(value);
+      highlightOverlay.innerHTML = highlighted;
+      highlightOverlay.style.height = `${textarea.scrollHeight}px`;
+      highlightOverlay.style.width = `${textarea.scrollWidth}px`;
+    }
+  }
+
+  highlightSyntax(code) {
+    // GLSL/WGSL syntax highlighting
+    const patterns = [
+      // Keywords
+      { pattern: /\b(let|var|if|else|for|while|loop|switch|case|break|continue|return|discard|fn|struct|const)\b/g, class: 'keyword' },
+      // Types
+      { pattern: /\b(f32|f16|i32|u32|bool|vec2|vec3|vec4|mat2|mat3|mat4|sampler|texture)\b/g, class: 'type' },
+      // Built-in functions
+      { pattern: /\b(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|pow|exp|log|exp2|log2|sqrt|inversesqrt|abs|sign|floor|ceil|round|trunc|fract|mod|min|max|clamp|mix|step|smoothstep|length|distance|dot|cross|normalize|faceForward|reflect|refract|all|any|select|isNan|isInf|isFinite|isNormal|countLeadingZeros|countTrailingZeros|firstTrailingBit|insertBits|extractBits|findLsb|findMsb|pack4x8snorm|pack4x8unorm|pack2x16snorm|pack2x16unorm|pack2x16float|unpack4x8snorm|unpack4x8unorm|unpack2x16snorm|unpack2x16unorm|unpack2x16float|pack4x8i8|pack4x8u8|pack2x16i16|pack2x16u16|unpack4x8i8|unpack4x8u8|unpack2x16i16|unpack2x16u16|textureDimensions|textureNumLayers|textureNumLevels|textureNumSamples|textureSample|textureSampleBias|textureSampleCompare|textureSampleCompareLevel|textureSampleGrad|textureSampleLevel|textureSampleBaseClampToEdge|textureStore|textureLoad|atomicLoad|atomicStore|atomicAdd|atomicSub|atomicMax|atomicMin|atomicAnd|atomicOr|atomicXor|atomicExchange|atomicCompareExchangeWeak)\b/g, class: 'function' },
+      // Numbers
+      { pattern: /\b\d+\.?\d*[f]?\b/g, class: 'number' },
+      // Strings
+      { pattern: /"([^"\\]|\\.)*"/g, class: 'string' },
+      // Comments
+      { pattern: /\/\/.*$/gm, class: 'comment' },
+      { pattern: /\/\*[\s\S]*?\*\//g, class: 'comment' },
+      // Input variables
+      { pattern: /\b(input0|input1|input2|input3)\b/g, class: 'input' },
+      // Built-in variables
+      { pattern: /\b(time|uv|audioEnvelope|audioEnvelopeBass|audioEnvelopeMids|audioEnvelopeHighs|audioEnvelopeFull|PI|E|g\.time|g\.audioEnvelope|in\.uv)\b/g, class: 'builtin' },
+    ];
+
+    let highlighted = code;
+    
+    // Apply highlighting (in reverse order to preserve positions)
+    for (let i = patterns.length - 1; i >= 0; i--) {
+      const { pattern, class: className } = patterns[i];
+      highlighted = highlighted.replace(pattern, (match) => {
+        return `<span class="glsl-${className}">${this.escapeHtml(match)}</span>`;
+      });
+    }
+
+    // Add zebra striping to lines
+    const lines = highlighted.split('\n');
+    const highlightedLines = lines.map((line, idx) => {
+      const bgClass = idx % 2 === 1 ? 'glsl-line-even' : 'glsl-line-odd';
+      return `<div class="${bgClass}">${line || ' '}</div>`;
+    });
+
+    return highlightedLines.join('\n');
+  }
+
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 }
 
