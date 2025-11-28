@@ -393,15 +393,15 @@ export class GLSLCodeInputHandler {
       highlighted = highlighted.replace(marker, `<span class="glsl-${className}">${text}</span>`);
     });
 
-    // Add zebra striping to lines - use spans with display: block to match textarea line height
+    // Add zebra striping to lines - use divs to match textarea line height
     const lines = highlighted.split('\n');
     const highlightedLines = lines.map((line, idx) => {
       const bgClass = idx % 2 === 1 ? 'glsl-line-even' : 'glsl-line-odd';
-      // Use span with display: block to match textarea line height exactly (line-height: 1.5 * 12px = 18px)
-      return `<span class="${bgClass}" style="display: block; min-height: 18px; line-height: 1.5;">${line || ' '}</span>`;
+      // Use div to match textarea line height exactly (line-height: 1.5 * 12px = 18px)
+      return `<div class="${bgClass}" style="min-height: 18px; line-height: 1.5;">${line || ' '}</div>`;
     });
 
-    return highlightedLines.join('\n');
+    return highlightedLines.join('');
   }
 
   escapeHtml(text) {
