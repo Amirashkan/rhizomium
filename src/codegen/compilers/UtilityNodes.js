@@ -449,6 +449,7 @@ export class UtilityNodes {
       // Check for function calls that require vector types
       // Functions that typically use vec2: distance, length, normalize, etc.
       // Check if input is used in functions that require vec2
+      // Also check for arithmetic operations with vec2 literals
       if (components.size === 0) {
         // Check for distance(vec2, vec2) - very common pattern
         const distancePattern = new RegExp(`\\bdistance\\s*\\([^)]*\\b${inputName}\\b`, 'g');
@@ -457,16 +458,41 @@ export class UtilityNodes {
         }
         
         // Check for length(vec2) - common pattern
+        // Also check for length(input - vec2(...)) or length(vec2(...) - input)
         const lengthPattern = new RegExp(`\\blength\\s*\\([^)]*\\b${inputName}\\b`, 'g');
         if (lengthPattern.test(code)) {
-          return 'vec2'; // length with vec2 is common
+          // Check if input is used in arithmetic with vec2
+          const vec2ArithPattern = new RegExp(`\\b${inputName}\\s*[-+*/]\\s*vec2\\s*<`, 'g');
+          const vec2ArithPattern2 = new RegExp(`vec2\\s*<[^>]+>\\s*[-+*/]\\s*\\b${inputName}\\b`, 'g');
+          if (vec2ArithPattern.test(code) || vec2ArithPattern2.test(code)) {
+            return 'vec2'; // Definitely vec2 if used in arithmetic with vec2
+          }
+          // If used in length() without component access, likely vec2
+          return 'vec2';
         }
         
-        // Check for atan2(vec2.y, vec2.x) - but this is usually component access
         // Check for normalize(vec2)
         const normalizePattern = new RegExp(`\\bnormalize\\s*\\([^)]*\\b${inputName}\\b`, 'g');
         if (normalizePattern.test(code)) {
           return 'vec2'; // normalize with vec2 is common
+        }
+        
+        // Check for arithmetic operations with vec2 literals (e.g., input0 - vec2<f32>(5.0, 5.0))
+        // This is a strong indicator that input0 should be vec2
+        // Pattern: input0 - vec2<...> or vec2<...> - input0
+        const vec2ArithPattern = new RegExp(`\\b${inputName}\\s*[-+*/]\\s*vec2\\s*<`, 'g');
+        const vec2ArithPattern2 = new RegExp(`vec2\\s*<[^>]+>\\s*[-+*/]\\s*\\b${inputName}\\b`, 'g');
+        // Also check for patterns like length(input0 - vec2(...)) or distance(input0, vec2(...))
+        // This is more specific - if input0 is used in length() with vec2 arithmetic, it must be vec2
+        const vec2InLengthPattern = new RegExp(`length\\s*\\([^)]*\\b${inputName}\\b[^)]*[-+*/]\\s*vec2\\s*<`, 'g');
+        const vec2InLengthPattern2 = new RegExp(`length\\s*\\([^)]*vec2\\s*<[^)]*[-+*/]\\s*\\b${inputName}\\b`, 'g');
+        // Check for distance(input0, vec2(...)) or distance(vec2(...), input0)
+        const vec2InDistancePattern = new RegExp(`distance\\s*\\([^,)]*\\b${inputName}\\b[^,)]*,\\s*vec2\\s*<`, 'g');
+        const vec2InDistancePattern2 = new RegExp(`distance\\s*\\([^,)]*vec2\\s*<[^,)]*,\\s*\\b${inputName}\\b`, 'g');
+        if (vec2ArithPattern.test(code) || vec2ArithPattern2.test(code) || 
+            vec2InLengthPattern.test(code) || vec2InLengthPattern2.test(code) ||
+            vec2InDistancePattern.test(code) || vec2InDistancePattern2.test(code)) {
+          return 'vec2'; // If used in arithmetic with vec2, it must be vec2
         }
       }
       
