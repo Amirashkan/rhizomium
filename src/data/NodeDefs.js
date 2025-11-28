@@ -154,6 +154,9 @@ function initializeNodeParameters(node, def) {
         case 'expr':
           node.expr = param.default;
           break;
+        case 'code':
+          node.code = param.default;
+          break;
         default:
           node.params[param.name] = param.default;
       }
@@ -174,6 +177,9 @@ function initializeNodeParameters(node, def) {
         break;
       case 'expr':
         node.expr = param.default;
+        break;
+      case 'code':
+        node.code = param.default;
         break;
       default:
         if (!node.props) node.props = {};

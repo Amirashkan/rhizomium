@@ -6,6 +6,7 @@ import { FileInputHandler } from './components/FileInputHandler.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
+import { GLSLCodeInputHandler } from './components/GLSLCodeInputHandler.js';
 import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 
@@ -61,6 +62,7 @@ export class ParameterPanel {
     );
     this.selectInputHandler = new SelectInputHandler(undoManager);
     this.fileInputHandler = new FileInputHandler(undoManager);
+    this.glslCodeInputHandler = new GLSLCodeInputHandler(undoManager);
     
     // Input handlers mapping
     this.inputHandlers = {
@@ -68,6 +70,7 @@ export class ParameterPanel {
       float: this.textInputHandler,
       int: this.textInputHandler,
       expression: this.textInputHandler,
+      glsl: this.glslCodeInputHandler,
       select: this.selectInputHandler,
       file: this.fileInputHandler,
       colorstops: this.colorStopInputHandler,

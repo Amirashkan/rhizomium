@@ -72,7 +72,7 @@ export class UtilityNodes {
       'OutputFinal', 'Expr', 'Remap', 'Posterize',
       'ColorToGrayscale', 'ColorInvert', 'ColorSaturate', 
       'ColorContrast', 'ColorBrightness', 'ColorMix',
-      'HSVToRGB', 'RGBToHSV', 'Select', 'Compare'
+      'HSVToRGB', 'RGBToHSV', 'Select', 'Compare', 'CustomGLSL'
     ].includes(kind);
   }
   
@@ -114,6 +114,8 @@ export class UtilityNodes {
         return this.compileSelect(node, getInput, nodeId);
       case 'Compare':
         return this.compileCompare(node, getInput, nodeId);
+      case 'CustomGLSL':
+        return this.compileCustomGLSL(node, getInput, nodeId);
       default:
         return null;
     }
@@ -392,6 +394,67 @@ export class UtilityNodes {
     return {
       line: `let node_${nodeId} = select(0.0, 1.0, ${comparison});`,
       outputType: "f32"
+    };
+  }
+
+  compileCustomGLSL(node, getInput, nodeId) {
+    // Get inputs with type-aware mode to preserve types
+    const input0 = getInput(0, null, "0.0");
+    const input1 = getInput(1, null, "0.0");
+    const input2 = getInput(2, null, "0.0");
+    const input3 = getInput(3, null, "0.0");
+
+    // Extract code strings from type-aware results
+    const input0Code = typeof input0 === 'object' && input0?.code !== undefined ? input0.code : input0;
+    const input1Code = typeof input1 === 'object' && input1?.code !== undefined ? input1.code : input1;
+    const input2Code = typeof input2 === 'object' && input2?.code !== undefined ? input2.code : input2;
+    const input3Code = typeof input3 === 'object' && input3?.code !== undefined ? input3.code : input3;
+
+    // Get custom code from node
+    let code = node.params?.code || node.code || "input0";
+    if (typeof code !== 'string') {
+      code = String(code);
+    }
+
+    // Replace input placeholders with actual input values
+    // Use word boundaries to avoid partial matches
+    code = code.replace(/\binput0\b/g, `(${input0Code})`);
+    code = code.replace(/\binput1\b/g, `(${input1Code})`);
+    code = code.replace(/\binput2\b/g, `(${input2Code})`);
+    code = code.replace(/\binput3\b/g, `(${input3Code})`);
+
+    // Get output type from parameter
+    const outputType = node.params?.outputType || "f32";
+
+    // Split code into lines and process
+    const lines = code.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    
+    // Remove comment-only lines for compilation (but keep them in the code for user reference)
+    const codeLines = lines.filter(line => !line.startsWith('//'));
+    
+    let compiledCode;
+    
+    if (codeLines.length > 1) {
+      // Multi-line code - wrap in a block
+      // The last non-comment line should be the return value
+      const lastLine = codeLines[codeLines.length - 1];
+      const otherLines = codeLines.slice(0, -1);
+      
+      compiledCode = `{
+  ${otherLines.join('\n  ')}
+  let node_${nodeId} = ${lastLine};
+}`;
+    } else if (codeLines.length === 1) {
+      // Single line - just assign
+      compiledCode = `let node_${nodeId} = ${codeLines[0]};`;
+    } else {
+      // Empty code - use default
+      compiledCode = `let node_${nodeId} = 0.0;`;
+    }
+
+    return {
+      line: compiledCode,
+      outputType: outputType
     };
   }
 }

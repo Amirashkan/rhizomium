@@ -69,4 +69,27 @@ export const UtilityNodes = {
       { name: "epsilon", type: "float", default: 0.001, label: "Epsilon" },
     ],
   },
+
+  CustomGLSL: {
+    label: "Custom GLSL",
+    cat: "Utility",
+    inputs: 4,
+    pinsIn: ["Input 0", "Input 1", "Input 2", "Input 3"],
+    pinsOut: [{ label: "out", type: "f32" }],
+    params: [
+      { 
+        name: "code", 
+        type: "glsl", 
+        default: "// Custom GLSL/WGSL code\n// Use input0, input1, input2, input3 to reference inputs\n// Example: sin(input0) * 2.0\ninput0", 
+        label: "Code" 
+      },
+      {
+        name: "outputType",
+        type: "select",
+        default: "f32",
+        options: ["f32", "vec2", "vec3", "vec4"],
+        label: "Output Type"
+      },
+    ],
+  },
 };
