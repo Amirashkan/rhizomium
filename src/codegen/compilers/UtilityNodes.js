@@ -521,15 +521,46 @@ export class UtilityNodes {
     let compiledCode;
     
     if (codeLines.length > 1) {
-      // Multi-line code - wrap in a block
+      // Multi-line code - process intermediate lines and final expression
       // The last non-comment line should be the return value
       const lastLine = codeLines[codeLines.length - 1];
       const otherLines = codeLines.slice(0, -1);
       
-      compiledCode = `{
-  ${otherLines.join('\n  ')}
-  let node_${sanitizedNodeId} = ${lastLine};
-}`;
+      // Process intermediate lines - they should be let declarations
+      // Extract variable names from intermediate let declarations for use in final expression
+      const intermediateDeclarations = [];
+      const varMap = new Map(); // Map original var names to sanitized names
+      
+      otherLines.forEach((line, idx) => {
+        // If the line is already a let declaration, extract the variable name
+        const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
+        if (letMatch) {
+          const varName = letMatch[1];
+          const varValue = letMatch[2];
+          const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+          varMap.set(varName, sanitizedVarName);
+          intermediateDeclarations.push(`let ${sanitizedVarName} = ${varValue};`);
+        } else {
+          // Not a let declaration - treat as expression and create a temp variable
+          const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+          intermediateDeclarations.push(`let ${sanitizedVarName} = ${line};`);
+        }
+      });
+      
+      // Process the last line - replace any variable references with sanitized names
+      let finalExpression = lastLine;
+      varMap.forEach((sanitized, original) => {
+        finalExpression = finalExpression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+      });
+      
+      // Remove any "let" declaration from final expression if present
+      const finalMatch = finalExpression.match(/let\s+\w+\s*=\s*(.+);?$/);
+      if (finalMatch) {
+        finalExpression = finalMatch[1];
+      }
+      
+      // Combine all declarations - node_X must be at top level, not in a block
+      compiledCode = intermediateDeclarations.join('\n') + `\nlet node_${sanitizedNodeId} = ${finalExpression};`;
     } else if (codeLines.length === 1) {
       // Single line - just assign
       compiledCode = `let node_${sanitizedNodeId} = ${codeLines[0]};`;
