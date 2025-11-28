@@ -511,9 +511,12 @@ export class UtilityNodes {
       compiledCode = `let node_${nodeId} = 0.0;`;
     }
 
+    // Ensure outputType is a valid type string
+    const validOutputType = ['f32', 'vec2', 'vec3', 'vec4'].includes(outputType) ? outputType : 'f32';
+    
     return {
       line: compiledCode,
-      outputType: outputType
+      outputType: validOutputType
     };
   }
 }
