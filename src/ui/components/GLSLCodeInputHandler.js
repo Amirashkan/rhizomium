@@ -135,11 +135,10 @@ export class GLSLCodeInputHandler {
 
       // Debounced update
       inputTimer = setTimeout(() => {
-        if (this.undoManager && textarea.value !== lastValue) {
-          this.undoManager.recordState(`Update ${param.label || param.name}`);
+        if (textarea.value !== lastValue) {
+          valueManager.updateNodeParameter(node, param.name, newValue, onChange);
+          lastValue = newValue;
         }
-        valueManager.updateNodeParameter(node, param.name, newValue, onChange);
-        lastValue = newValue;
         inputTimer = null;
       }, 500);
     });
@@ -152,9 +151,6 @@ export class GLSLCodeInputHandler {
       }
 
       if (textarea.value !== lastValue) {
-        if (this.undoManager) {
-          this.undoManager.recordState(`Update ${param.label || param.name}`);
-        }
         valueManager.updateNodeParameter(node, param.name, textarea.value, onChange);
         lastValue = textarea.value;
       }
