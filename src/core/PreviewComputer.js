@@ -258,31 +258,59 @@ export class PreviewComputer {
         : graph.nodes;
 
       const byId = new Map(nodesToProcess.map((n) => [n.id, n]));
-      const ordered = this._topologicalSort(nodesToProcess, byId);
-      const { dirtyNodes, parameterHashes } = this._evaluateDirtyNodes(graph, nodesToProcess, ordered);
+      
+      // Evaluate dirty nodes first to determine what needs computation
+      const { dirtyNodes, parameterHashes, structureChanged } = this._evaluateDirtyNodes(graph, nodesToProcess, byId);
+      
+      // EARLY RETURN: If no dirty nodes and graph structure unchanged, return cached results
+      if (dirtyNodes.size === 0 && !structureChanged) {
+        // Return cached previews
+        const cachedPreviews = {};
+        for (const node of nodesToProcess) {
+          if (this.lastComputedValues.has(node.id)) {
+            cachedPreviews[node.id] = this.lastComputedValues.get(node.id);
+            node.__preview = cachedPreviews[node.id];
+          }
+        }
+        return { previews: cachedPreviews };
+      }
+
+      // Filter topological sort to only include dirty nodes and their dependencies
+      // This ensures we only process nodes that need recomputation
+      const nodesToCompute = this._filterNodesToCompute(nodesToProcess, dirtyNodes, byId);
+      const ordered = this._topologicalSort(nodesToCompute, byId);
+      
       const values = new Map(this.lastComputedValues);
       const updatedInputSnapshots = new Map();
 
       let processedCount = 0;
       for (const node of ordered) {
+        // Skip nodes that aren't dirty and have unchanged inputs
         const hasCachedValue = this.lastComputedValues.has(node.id);
-        const needsRecompute = dirtyNodes.has(node.id) || !hasCachedValue;
+        const isDirty = dirtyNodes.has(node.id);
+        const needsRecompute = isDirty || !hasCachedValue;
 
-        if (needsRecompute) {
-          // CRITICAL: Check time budget periodically to prevent lag spikes
-          // If we've exceeded the time budget, stop processing to avoid blocking
-          if (processedCount % 10 === 0) { // Check every 10 dirty nodes
-            const elapsed = performance.now() - startTime;
-            if (elapsed > timeBudget) {
-              // Time budget exceeded - stop processing to avoid blocking
-              // Remaining nodes will be processed on next update
-              break;
-            }
-          }
-          processedCount++;
+        if (!needsRecompute) {
+          // Use cached value for non-dirty nodes
+          const cachedValue = this.lastComputedValues.get(node.id);
+          values.set(node.id, cachedValue);
+          node.__preview = cachedValue;
+          continue;
         }
 
-        let result = needsRecompute ? null : this.lastComputedValues.get(node.id);
+        // CRITICAL: Check time budget periodically to prevent lag spikes
+        // If we've exceeded the time budget, stop processing to avoid blocking
+        if (processedCount % 10 === 0) { // Check every 10 dirty nodes
+          const elapsed = performance.now() - startTime;
+          if (elapsed > timeBudget) {
+            // Time budget exceeded - stop processing to avoid blocking
+            // Remaining nodes will be processed on next update
+            break;
+          }
+        }
+        processedCount++;
+
+        let result = null;
 
         try {
           if (needsRecompute) {
@@ -1002,13 +1030,21 @@ case "Rectangle": {
           result = 0;
         }
 
+        // Update cache immediately after computing each node
         values.set(node.id, result);
         node.__preview = result;
         updatedInputSnapshots.set(node.id, this._snapshotNodeInputs(node));
+        
+        // Update cache immediately so subsequent nodes can use the updated value
+        this.lastComputedValues.set(node.id, result);
       }
 
-      // Store computed values for expression system access
-      this.lastComputedValues = values;
+      // Store computed values for expression system access (ensure all are saved)
+      // Merge with existing cache to preserve non-dirty nodes
+      for (const [nodeId, value] of values.entries()) {
+        this.lastComputedValues.set(nodeId, value);
+      }
+      
       if (updatedInputSnapshots.size) {
         const nextInputs = new Map(this.lastComputedInputs);
         updatedInputSnapshots.forEach((inputs, nodeId) => {
@@ -1021,10 +1057,21 @@ case "Rectangle": {
       if (parameterHashes) {
         this.lastParameterHashes = new Map(parameterHashes);
       }
+
+      // Return computed previews
+      const previews = {};
+      for (const node of nodesToProcess) {
+        if (values.has(node.id)) {
+          previews[node.id] = values.get(node.id);
+        }
+      }
+      return { previews };
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'preview-computation',
       });
+      // Return empty previews on error
+      return { previews: {} };
     }
   }
 
@@ -1654,7 +1701,7 @@ _renderOutputThumbnail(ctx, size, color) {
     }
   }
 
-  _evaluateDirtyNodes(graph, nodes, ordered) {
+  _evaluateDirtyNodes(graph, nodes, byId) {
     const dirtyNodes = new Set();
     const dependentsMap = this._buildDependentsMap(nodes);
     const currentStructureHash = this._computeGraphStructureHash(graph);
@@ -1667,7 +1714,7 @@ _renderOutputThumbnail(ctx, size, color) {
       this.graphStructureHash = currentStructureHash;
     }
 
-    for (const node of ordered) {
+    for (const node of nodes) {
       const currentInputs = this._snapshotNodeInputs(node);
       const previousInputs = this.lastComputedInputs.get(node.id);
       const currentParamHash = this._computeParameterHash(node);
@@ -1686,7 +1733,7 @@ _renderOutputThumbnail(ctx, size, color) {
     }
 
     if (structureChanged) {
-      return { dirtyNodes, parameterHashes };
+      return { dirtyNodes, parameterHashes, structureChanged };
     }
 
     if (manualDirtyNodes.size) {
@@ -1695,7 +1742,7 @@ _renderOutputThumbnail(ctx, size, color) {
       });
     }
 
-    return { dirtyNodes, parameterHashes };
+    return { dirtyNodes, parameterHashes, structureChanged: false };
   }
 
   _computeGraphStructureHash(graph) {
@@ -1775,6 +1822,96 @@ _renderOutputThumbnail(ctx, size, color) {
             stack.push(depId);
           }
         });
+      }
+    }
+  }
+
+  /**
+   * Filter nodes to only include dirty nodes and their dependencies
+   * This ensures we only process nodes that need recomputation
+   * @param {Array} allNodes - All nodes in the graph
+   * @param {Set} dirtyNodes - Set of dirty node IDs
+   * @param {Map} byId - Map of node ID to node object
+   * @returns {Array} Filtered array of nodes to compute
+   */
+  _filterNodesToCompute(allNodes, dirtyNodes, byId) {
+    if (dirtyNodes.size === 0) {
+      return [];
+    }
+
+    // Start with dirty nodes
+    const nodesToCompute = new Set(dirtyNodes);
+    
+    // For each dirty node, add all its dependencies (nodes it depends on)
+    // This ensures dependencies are computed before dependents
+    for (const nodeId of dirtyNodes) {
+      const node = byId.get(nodeId);
+      if (!node) continue;
+
+      // Add edge-based dependencies (from inputs)
+      if (node.inputs && Array.isArray(node.inputs)) {
+        for (const inputId of node.inputs) {
+          if (inputId && byId.has(inputId)) {
+            nodesToCompute.add(inputId);
+            // Recursively add dependencies of dependencies
+            this._collectDependencies(inputId, byId, nodesToCompute);
+          }
+        }
+      }
+
+      // Add expression-based dependencies (from parameter references)
+      if (node.params && typeof node.params === 'object') {
+        for (const paramValue of Object.values(node.params)) {
+          const referencedIds = this._extractNodeReferences(paramValue);
+          for (const refId of referencedIds) {
+            if (byId.has(refId)) {
+              nodesToCompute.add(refId);
+              // Recursively add dependencies of dependencies
+              this._collectDependencies(refId, byId, nodesToCompute);
+            }
+          }
+        }
+      }
+    }
+
+    // Convert Set to Array, filtering to only nodes that exist in byId
+    return Array.from(nodesToCompute)
+      .map(id => byId.get(id))
+      .filter(node => node !== undefined);
+  }
+
+  /**
+   * Recursively collect all dependencies of a node
+   * @param {string} nodeId - Node ID to collect dependencies for
+   * @param {Map} byId - Map of node ID to node object
+   * @param {Set} collected - Set to add dependencies to
+   */
+  _collectDependencies(nodeId, byId, collected) {
+    const node = byId.get(nodeId);
+    if (!node || collected.has(nodeId)) {
+      return;
+    }
+
+    // Add edge-based dependencies
+    if (node.inputs && Array.isArray(node.inputs)) {
+      for (const inputId of node.inputs) {
+        if (inputId && byId.has(inputId) && !collected.has(inputId)) {
+          collected.add(inputId);
+          this._collectDependencies(inputId, byId, collected);
+        }
+      }
+    }
+
+    // Add expression-based dependencies
+    if (node.params && typeof node.params === 'object') {
+      for (const paramValue of Object.values(node.params)) {
+        const referencedIds = this._extractNodeReferences(paramValue);
+        for (const refId of referencedIds) {
+          if (byId.has(refId) && !collected.has(refId)) {
+            collected.add(refId);
+            this._collectDependencies(refId, byId, collected);
+          }
+        }
       }
     }
   }
