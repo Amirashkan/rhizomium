@@ -398,10 +398,18 @@ export class UtilityNodes {
   }
 
   compileCustomGLSL(node, getInput, nodeId) {
+    // Ensure nodeId is sanitized (in case it wasn't passed correctly)
+    const sanitizedNodeId = nodeId || node.id.replace(/[^a-zA-Z0-9_]/g, "_");
+    
     // Get custom code from node first to analyze what types are needed
     let code = node.params?.code || node.code || "input0";
     if (typeof code !== 'string') {
       code = String(code);
+    }
+    
+    // If code is empty or only whitespace/comments, provide a default
+    if (!code.trim() || code.trim().split('\n').every(line => line.trim().startsWith('//') || !line.trim())) {
+      code = "0.0";
     }
 
     // Analyze code to determine expected input types based on usage
@@ -501,18 +509,23 @@ export class UtilityNodes {
       
       compiledCode = `{
   ${otherLines.join('\n  ')}
-  let node_${nodeId} = ${lastLine};
+  let node_${sanitizedNodeId} = ${lastLine};
 }`;
     } else if (codeLines.length === 1) {
       // Single line - just assign
-      compiledCode = `let node_${nodeId} = ${codeLines[0]};`;
+      compiledCode = `let node_${sanitizedNodeId} = ${codeLines[0]};`;
     } else {
       // Empty code - use default
-      compiledCode = `let node_${nodeId} = 0.0;`;
+      compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
     }
 
     // Ensure outputType is a valid type string
     const validOutputType = ['f32', 'vec2', 'vec3', 'vec4'].includes(outputType) ? outputType : 'f32';
+    
+    // Ensure we always return a valid result
+    if (!compiledCode || !compiledCode.trim()) {
+      compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
+    }
     
     return {
       line: compiledCode,
