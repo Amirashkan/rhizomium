@@ -26,6 +26,9 @@ export class GLSLCodeInputHandler {
   }
 
   create(param, node, div, label, valueManager, onChange) {
+    // Clear any existing content
+    div.innerHTML = '';
+    
     const container = this.createContainer();
     const editorWrapper = this.createEditorWrapper();
     const lineNumbers = this.createLineNumbers();
@@ -42,6 +45,11 @@ export class GLSLCodeInputHandler {
     container.appendChild(editorWrapper);
     container.appendChild(helpText);
     div.appendChild(container);
+
+    // Force initial update after DOM is ready
+    requestAnimationFrame(() => {
+      this.updateEditor(textarea, lineNumbers, highlightOverlay);
+    });
 
     return div;
   }
@@ -111,7 +119,7 @@ export class GLSLCodeInputHandler {
       line-height: 1.5;
       white-space: pre;
       overflow: hidden;
-      color: transparent;
+      color: #d4d4d4;
       z-index: 1;
       box-sizing: border-box;
     `;
@@ -136,7 +144,7 @@ export class GLSLCodeInputHandler {
       max-height: 400px;
       padding: 8px;
       background: transparent;
-      color: #d4d4d4;
+      color: transparent;
       border: none;
       outline: none;
       font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
