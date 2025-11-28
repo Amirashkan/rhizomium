@@ -118,7 +118,8 @@ export class GLSLCodeInputHandler {
       font-size: 12px;
       line-height: 1.5;
       white-space: pre;
-      overflow: hidden;
+      overflow: auto;
+      overflow-x: hidden;
       color: #d4d4d4;
       z-index: 1;
       box-sizing: border-box;
@@ -297,6 +298,9 @@ export class GLSLCodeInputHandler {
       highlightOverlay.innerHTML = highlighted;
       highlightOverlay.style.height = `${textarea.scrollHeight}px`;
       highlightOverlay.style.width = `${textarea.scrollWidth}px`;
+      // Sync scroll position
+      highlightOverlay.scrollTop = textarea.scrollTop;
+      highlightOverlay.scrollLeft = textarea.scrollLeft;
     }
   }
 
