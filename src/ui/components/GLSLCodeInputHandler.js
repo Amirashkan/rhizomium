@@ -305,9 +305,21 @@ export class GLSLCodeInputHandler {
   }
 
   highlightSyntax(code) {
-    // GLSL/WGSL syntax highlighting
+    // First escape all HTML to prevent injection
+    let highlighted = this.escapeHtml(code);
+    
+    // GLSL/WGSL syntax highlighting - apply in order, avoiding overlapping matches
+    // Use a marker system to avoid re-matching already highlighted content
+    const markers = new Map();
+    let markerIndex = 0;
+    
     const patterns = [
-      // Keywords
+      // Comments first (they can contain anything)
+      { pattern: /\/\/.*$/gm, class: 'comment' },
+      { pattern: /\/\*[\s\S]*?\*\//g, class: 'comment' },
+      // Strings (they can contain anything except unescaped quotes)
+      { pattern: /"([^"\\]|\\.)*"/g, class: 'string' },
+      // Keywords (must be whole words, not inside other tokens)
       { pattern: /\b(let|var|if|else|for|while|loop|switch|case|break|continue|return|discard|fn|struct|const)\b/g, class: 'keyword' },
       // Types
       { pattern: /\b(f32|f16|i32|u32|bool|vec2|vec3|vec4|mat2|mat3|mat4|sampler|texture)\b/g, class: 'type' },
@@ -315,26 +327,25 @@ export class GLSLCodeInputHandler {
       { pattern: /\b(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|pow|exp|log|exp2|log2|sqrt|inversesqrt|abs|sign|floor|ceil|round|trunc|fract|mod|min|max|clamp|mix|step|smoothstep|length|distance|dot|cross|normalize|faceForward|reflect|refract|all|any|select|isNan|isInf|isFinite|isNormal|countLeadingZeros|countTrailingZeros|firstTrailingBit|insertBits|extractBits|findLsb|findMsb|pack4x8snorm|pack4x8unorm|pack2x16snorm|pack2x16unorm|pack2x16float|unpack4x8snorm|unpack4x8unorm|unpack2x16snorm|unpack2x16unorm|unpack2x16float|pack4x8i8|pack4x8u8|pack2x16i16|pack2x16u16|unpack4x8i8|unpack4x8u8|unpack2x16i16|unpack2x16u16|textureDimensions|textureNumLayers|textureNumLevels|textureNumSamples|textureSample|textureSampleBias|textureSampleCompare|textureSampleCompareLevel|textureSampleGrad|textureSampleLevel|textureSampleBaseClampToEdge|textureStore|textureLoad|atomicLoad|atomicStore|atomicAdd|atomicSub|atomicMax|atomicMin|atomicAnd|atomicOr|atomicXor|atomicExchange|atomicCompareExchangeWeak)\b/g, class: 'function' },
       // Numbers
       { pattern: /\b\d+\.?\d*[f]?\b/g, class: 'number' },
-      // Strings
-      { pattern: /"([^"\\]|\\.)*"/g, class: 'string' },
-      // Comments
-      { pattern: /\/\/.*$/gm, class: 'comment' },
-      { pattern: /\/\*[\s\S]*?\*\//g, class: 'comment' },
       // Input variables
       { pattern: /\b(input0|input1|input2|input3)\b/g, class: 'input' },
       // Built-in variables
       { pattern: /\b(time|uv|audioEnvelope|audioEnvelopeBass|audioEnvelopeMids|audioEnvelopeHighs|audioEnvelopeFull|PI|E|g\.time|g\.audioEnvelope|in\.uv)\b/g, class: 'builtin' },
     ];
 
-    let highlighted = code;
-    
-    // Apply highlighting (in reverse order to preserve positions)
-    for (let i = patterns.length - 1; i >= 0; i--) {
-      const { pattern, class: className } = patterns[i];
+    // Apply highlighting using markers to avoid nested matches
+    for (const { pattern, class: className } of patterns) {
       highlighted = highlighted.replace(pattern, (match) => {
-        return `<span class="glsl-${className}">${this.escapeHtml(match)}</span>`;
+        const marker = `__MARKER_${markerIndex++}__`;
+        markers.set(marker, { text: match, class: className });
+        return marker;
       });
     }
+
+    // Replace markers with HTML spans
+    markers.forEach(({ text, class: className }, marker) => {
+      highlighted = highlighted.replace(marker, `<span class="glsl-${className}">${text}</span>`);
+    });
 
     // Add zebra striping to lines
     const lines = highlighted.split('\n');
