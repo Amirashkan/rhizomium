@@ -750,7 +750,17 @@ export class UtilityNodes {
           }
         };
         const defaultValue = getDefaultForOutputType(validOutputType);
-        const blockContent = processedLines.join('\n  ') + `\n  node_${sanitizedNodeId} = ${finalExpression};`;
+        // Ensure all statements end with semicolons (except blocks)
+        const formattedLines = processedLines.map(line => {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.endsWith(';') && !trimmed.endsWith('}') && !trimmed.endsWith('{')) {
+            return line + ';';
+          }
+          return line;
+        });
+        // Build block content: all processed lines, then assign final expression to node_X
+        const blockContentLines = [...formattedLines, `node_${sanitizedNodeId} = ${finalExpression};`];
+        const blockContent = blockContentLines.join('\n  ');
         compiledCode = `var node_${sanitizedNodeId}: ${validOutputType} = ${defaultValue};
 {
   ${blockContent}
