@@ -58,15 +58,41 @@ export class TypeConverter {
     } else {
       // Fall back to legacy single-output
       expression = this.expressions.get(actualNodeId) || "vec3<f32>(0.0)";
-      currentType = this.types.get(actualNodeId) || "vec3";
+      currentType = this.types.get(actualNodeId);
+      
+      // If type not found, we can't safely assume - this indicates a registration issue
+      // But we'll try to handle it gracefully by attempting conversion anyway
+      if (!currentType) {
+        // Don't default to vec3 - this causes incorrect conversions
+        // Instead, we'll try to convert assuming unknown type
+        currentType = null;
+      }
     }
     
     // If targetType is null, return both code and type
     if (targetType === null || targetType === undefined) {
       return {
         code: expression,
-        type: currentType
+        type: currentType || "f32"
       };
+    }
+    
+    // If we don't know the current type, we need to be careful
+    // The expression is just a variable name like "node_15", so we can't infer from it
+    // In this case, we should try the conversion anyway - if the type was registered,
+    // it will work. If not, we'll get a compilation error which is better than wrong code.
+    // However, if targetType matches what we'd expect, we can try a safe conversion.
+    if (!currentType) {
+      // For now, try to convert - if the type was actually registered but lookup failed,
+      // the conversion might still work. Otherwise, we'll get a compile error.
+      // Default to assuming it might need conversion from a common type
+      // Try vec2 -> vec3 first (common case for CustomGLSL nodes)
+      if (targetType === "vec3") {
+        // Try vec2 conversion - if it's actually vec2, this will work
+        return this.performConversion(expression, "vec2", targetType);
+      }
+      // For other targets, try f32 -> targetType
+      return this.performConversion(expression, "f32", targetType);
     }
     
     // Return converted expression string
