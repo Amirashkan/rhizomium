@@ -39,9 +39,20 @@ export class GLSLCodeInputHandler {
     // Setup event handlers
     this.setupEventHandlers(textarea, param, node, valueManager, onChange, lineNumbers, highlightOverlay);
 
+    // Create a wrapper for the textarea and overlay to ensure proper alignment
+    const textareaWrapper = document.createElement('div');
+    textareaWrapper.style.cssText = `
+      position: relative;
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    `;
+    
+    textareaWrapper.appendChild(highlightOverlay);
+    textareaWrapper.appendChild(textarea);
+    
     editorWrapper.appendChild(lineNumbers);
-    editorWrapper.appendChild(textarea);
-    editorWrapper.appendChild(highlightOverlay);
+    editorWrapper.appendChild(textareaWrapper);
     container.appendChild(editorWrapper);
     container.appendChild(helpText);
     div.appendChild(container);
@@ -78,6 +89,8 @@ export class GLSLCodeInputHandler {
       border-radius: 4px;
       overflow: hidden;
     `;
+    // Store reference for overlay positioning
+    this.wrapper = wrapper;
     return wrapper;
   }
 
@@ -95,7 +108,7 @@ export class GLSLCodeInputHandler {
       text-align: right;
       user-select: none;
       border-right: 1px solid #3a3a3a;
-      min-width: 45px;
+      width: 45px;
       overflow: hidden;
       box-sizing: border-box;
     `;
@@ -109,20 +122,24 @@ export class GLSLCodeInputHandler {
     overlay.style.cssText = `
       position: absolute;
       top: 0;
-      left: 45px;
+      left: 0;
       right: 0;
       bottom: 0;
       pointer-events: none;
       padding: 8px;
+      margin: 0;
       font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
       font-size: 12px;
       line-height: 1.5;
       white-space: pre;
-      overflow: auto;
-      overflow-x: hidden;
-      color: #d4d4d4;
+      overflow: hidden;
+      color: transparent;
       z-index: 1;
       box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
     `;
     return overlay;
   }
@@ -145,7 +162,7 @@ export class GLSLCodeInputHandler {
       max-height: 400px;
       padding: 8px;
       background: transparent;
-      color: transparent;
+      color: #d4d4d4;
       border: none;
       outline: none;
       font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -158,8 +175,9 @@ export class GLSLCodeInputHandler {
       tab-size: 2;
       box-sizing: border-box;
       position: relative;
-      z-index: 2;
+      z-index: 10;
       caret-color: #d4d4d4;
+      selection-background-color: rgba(0, 122, 204, 0.3);
     `;
 
     // Handle tab key for indentation
@@ -248,16 +266,23 @@ export class GLSLCodeInputHandler {
       }, 500);
     });
 
-    // Sync scroll
+    // Sync scroll - update overlay position to match textarea scroll
     textarea.addEventListener('scroll', () => {
       if (highlightOverlay) {
-        highlightOverlay.scrollTop = textarea.scrollTop;
-        highlightOverlay.scrollLeft = textarea.scrollLeft;
+        // The overlay is absolutely positioned, so we need to adjust its transform
+        // to match the textarea's scroll position
+        highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
       }
       if (lineNumbers) {
         lineNumbers.scrollTop = textarea.scrollTop;
       }
     });
+    
+    // Also update on resize
+    const resizeObserver = new ResizeObserver(() => {
+      this.updateEditor(textarea, lineNumbers, highlightOverlay);
+    });
+    resizeObserver.observe(textarea);
 
     // Final update on blur
     textarea.addEventListener('blur', () => {
@@ -296,11 +321,11 @@ export class GLSLCodeInputHandler {
     if (highlightOverlay) {
       const highlighted = this.highlightSyntax(value);
       highlightOverlay.innerHTML = highlighted;
+      // Match textarea dimensions exactly
       highlightOverlay.style.height = `${textarea.scrollHeight}px`;
       highlightOverlay.style.width = `${textarea.scrollWidth}px`;
-      // Sync scroll position
-      highlightOverlay.scrollTop = textarea.scrollTop;
-      highlightOverlay.scrollLeft = textarea.scrollLeft;
+      // Sync scroll position using transform
+      highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
     }
   }
 
