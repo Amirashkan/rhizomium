@@ -144,15 +144,12 @@ export class Renderer {
       return;
     }
 
-    const scale = this.viewport.scale || 1;
     // Grid is now drawn in world space (after viewport transform)
-    // So we need to convert canvas dimensions to world space
+    // So spacing is in world units, not screen pixels
+    const scale = this.viewport.scale || 1;
     const width = ctx.canvas.width / scale;
     const height = ctx.canvas.height / scale;
-    // In world space, offset is 0 (we're already transformed)
-    const offsetX = 0;
-    const offsetY = 0;
-
+    
     // PERFORMANCE: Skip grid rendering during fast panning
     const isFastPanning = this.viewport.isFastPanning && typeof this.viewport.isFastPanning === 'function'
       ? this.viewport.isFastPanning()
@@ -163,11 +160,12 @@ export class Renderer {
     }
     this._skipGridRendering = false;
 
-    // PERFORMANCE: Use transform-based grid rendering with offscreen canvas
-    // Only regenerate grid when scale or grid size changes
-    const minorSpacing = gridSize * scale;
+    // Grid spacing in world space (gridSize is already in world units)
+    // The grid tile is rendered in screen space, so spacing needs to account for scale
+    const minorSpacing = gridSize * scale; // Screen pixels per grid unit
     const majorSpacing = minorSpacing * 5;
     
+    // Cache key based on grid size and scale (scale affects visual appearance)
     const cacheKey = `${gridSize}_${scale.toFixed(2)}`;
     const needsRegenerate = !this._gridCanvas || 
                            this._gridCacheKey !== cacheKey;
@@ -177,67 +175,70 @@ export class Renderer {
       this._gridCacheKey = cacheKey;
     }
 
-    // PERFORMANCE: Use transform to pan the grid instead of recalculating lines
-    // This is much faster during panning
-    ctx.save();
-    
-    // Calculate grid offset for smooth panning
-    // Handle negative offsets correctly using modulo that works for negative numbers
-    const gridOffsetX = ((offsetX % minorSpacing) + minorSpacing) % minorSpacing;
-    const gridOffsetY = ((offsetY % minorSpacing) + minorSpacing) % minorSpacing;
-    
-    // Draw cached grid with transform offset
-    if (this._gridCanvas) {
-      // Calculate starting tile position to cover viewport
-      // Account for negative offsets by starting from negative tiles
-      const startTileX = Math.floor((offsetX - gridOffsetX) / this._gridCanvas.width);
-      const startTileY = Math.floor((offsetY - gridOffsetY) / this._gridCanvas.height);
-      const endTileX = Math.ceil((offsetX + width - gridOffsetX) / this._gridCanvas.width);
-      const endTileY = Math.ceil((offsetY + height - gridOffsetY) / this._gridCanvas.height);
+    // Draw grid tiles - grid is fixed in world space, tiles from (0,0)
+    // The viewport transform is already applied, so we're in world space
+    // After transform: screen (0,0) -> world (-offsetX/scale, -offsetY/scale)
+    //                  screen (width,height) -> world ((width-offsetX)/scale, (height-offsetY)/scale)
+    if (this._gridCanvas && this._gridTileSizeWorld) {
+      const tileSizeWorld = this._gridTileSizeWorld;
+      const canvasWidth = ctx.canvas.width;
+      const canvasHeight = ctx.canvas.height;
       
-      // Draw grid tiles with proper offset to ensure seamless tiling
+      // Calculate visible world bounds from screen bounds
+      // After viewport transform, screen coordinates map to world coordinates
+      const worldLeft = -this.viewport.offsetX / scale;
+      const worldTop = -this.viewport.offsetY / scale;
+      const worldRight = (canvasWidth - this.viewport.offsetX) / scale;
+      const worldBottom = (canvasHeight - this.viewport.offsetY) / scale;
+      
+      // Calculate which tiles are visible in world space
+      const startTileX = Math.floor(worldLeft / tileSizeWorld) - 1;
+      const endTileX = Math.ceil(worldRight / tileSizeWorld) + 1;
+      const startTileY = Math.floor(worldTop / tileSizeWorld) - 1;
+      const endTileY = Math.ceil(worldBottom / tileSizeWorld) + 1;
+      
+      // Draw grid tiles - grid is fixed in world space at origin (0,0)
+      // Tiles are positioned at integer multiples of tileSizeWorld
       for (let ty = startTileY; ty <= endTileY; ty++) {
         for (let tx = startTileX; tx <= endTileX; tx++) {
-          const x = tx * this._gridCanvas.width + gridOffsetX;
-          const y = ty * this._gridCanvas.height + gridOffsetY;
-          ctx.drawImage(this._gridCanvas, x, y);
+          const x = tx * tileSizeWorld;
+          const y = ty * tileSizeWorld;
+          // Draw with explicit size to ensure correct scaling in world space
+          ctx.drawImage(this._gridCanvas, x, y, tileSizeWorld, tileSizeWorld);
         }
       }
     }
-    
-    ctx.restore();
-    
-    // Update last grid offset for next frame
-    this._lastGridOffsetX = offsetX;
-    this._lastGridOffsetY = offsetY;
   }
   
   /**
    * Regenerate the grid on an offscreen canvas
    * This is only called when scale or grid size changes
+   * Grid is rendered in screen space (pixels) for the offscreen canvas
    */
   _regenerateGrid(gridSize, scale, width, height) {
+    // Grid spacing in screen pixels (for offscreen canvas rendering)
     const minorSpacing = gridSize * scale;
     const majorSpacing = minorSpacing * 5;
     
     // Create or resize offscreen canvas
     // Use a tile size that's a multiple of major spacing for efficient repetition
     // Make it large enough to cover most viewports but not too large
-    const tileSize = Math.max(Math.ceil(majorSpacing) * 10, 500);
+    // Tile size is in screen pixels
+    const tileSizePixels = Math.max(Math.ceil(majorSpacing) * 10, 500);
     
     if (!this._gridCanvas || 
-        this._gridCanvas.width !== tileSize || 
-        this._gridCanvas.height !== tileSize) {
+        this._gridCanvas.width !== tileSizePixels || 
+        this._gridCanvas.height !== tileSizePixels) {
       this._gridCanvas = document.createElement('canvas');
-      this._gridCanvas.width = tileSize;
-      this._gridCanvas.height = tileSize;
+      this._gridCanvas.width = tileSizePixels;
+      this._gridCanvas.height = tileSizePixels;
       this._gridCtx = this._gridCanvas.getContext('2d');
     }
     
     const gridCtx = this._gridCtx;
-    gridCtx.clearRect(0, 0, tileSize, tileSize);
+    gridCtx.clearRect(0, 0, tileSizePixels, tileSizePixels);
     
-    // Draw grid lines on the tile
+    // Draw grid lines on the tile (in screen pixels)
     const drawLines = (spacing, alpha) => {
       if (!Number.isFinite(spacing) || spacing < 4) {
         return;
@@ -248,17 +249,17 @@ export class Renderer {
       gridCtx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
 
       // Vertical lines
-      for (let x = 0; x <= tileSize; x += spacing) {
+      for (let x = 0; x <= tileSizePixels; x += spacing) {
         const px = Math.round(x) + 0.5;
         gridCtx.moveTo(px, 0);
-        gridCtx.lineTo(px, tileSize);
+        gridCtx.lineTo(px, tileSizePixels);
       }
 
       // Horizontal lines
-      for (let y = 0; y <= tileSize; y += spacing) {
+      for (let y = 0; y <= tileSizePixels; y += spacing) {
         const py = Math.round(y) + 0.5;
         gridCtx.moveTo(0, py);
-        gridCtx.lineTo(tileSize, py);
+        gridCtx.lineTo(tileSizePixels, py);
       }
 
       gridCtx.stroke();
@@ -267,6 +268,9 @@ export class Renderer {
     // Draw both minor and major grid lines
     drawLines(minorSpacing, 0.025);
     drawLines(majorSpacing, 0.07);
+    
+    // Store tile size in world space for drawing
+    this._gridTileSizeWorld = tileSizePixels / scale;
   }
 
   _renderConnections(connections, nodeMap) {
