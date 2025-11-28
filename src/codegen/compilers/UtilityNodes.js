@@ -548,6 +548,7 @@ export class UtilityNodes {
 
     // Get output type from parameter
     const outputType = node.params?.outputType || "f32";
+    const validOutputType = ['f32', 'vec2', 'vec3', 'vec4'].includes(outputType) ? outputType : 'f32';
 
     // Split code into lines, but preserve multi-line expressions
     // First, remove comments
@@ -638,73 +639,183 @@ export class UtilityNodes {
       const lastLine = codeLines[codeLines.length - 1];
       const otherLines = codeLines.slice(0, -1);
       
-      // Process intermediate lines - they should be let declarations
-      // Extract variable names from intermediate let declarations for use in final expression
-      const intermediateDeclarations = [];
-      const varMap = new Map(); // Map original var names to sanitized names
+      // Check if code contains statements (var, for, if, etc.) that need block scope
+      const hasStatements = codeLines.some(line => 
+        /^\s*(var|for|if|while|loop|switch|break|continue|return|discard)\b/.test(line)
+      );
       
-      // First pass: identify all variable declarations and create the map
-      otherLines.forEach((line, idx) => {
-        // If the line is already a let declaration, extract the variable name
-        const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
-        if (letMatch) {
-          const varName = letMatch[1];
-          const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
-          varMap.set(varName, sanitizedVarName);
-        }
-      });
-      
-      // Second pass: process each line, replacing variable references with sanitized names
-      otherLines.forEach((line, idx) => {
-        // If the line is already a let declaration, extract the variable name and value
-        const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
-        if (letMatch) {
-          const varName = letMatch[1];
-          let varValue = letMatch[2];
-          const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+      if (hasStatements) {
+        // Code contains statements - need to use a block scope
+        // Process statements and expressions, replacing variable references
+        const varMap = new Map(); // Map original var names to sanitized names
+        
+        // First pass: identify all variable declarations (let and var)
+        otherLines.forEach((line, idx) => {
+          const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
+          const varMatch = line.match(/var\s+(\w+)\s*[=:]\s*(.+);?$/);
+          if (letMatch) {
+            const varName = letMatch[1];
+            const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+            varMap.set(varName, sanitizedVarName);
+          } else if (varMatch) {
+            const varName = varMatch[1];
+            // Keep var declarations as-is (they're mutable), but track the name
+            // Don't sanitize var names - they need to stay as-is for the block scope
+            varMap.set(varName, varName);
+          }
+        });
+        
+        // Second pass: process each line
+        const processedLines = [];
+        otherLines.forEach((line, idx) => {
+          // Trim the line for checking
+          const trimmedLine = line.trim();
           
-          // Replace any variable references in the value with their sanitized names
-          // Process in reverse order of declaration to avoid conflicts
-          const sortedVars = Array.from(varMap.entries()).reverse();
-          for (const [original, sanitized] of sortedVars) {
-            // Only replace if it's not the current variable being declared
-            if (original !== varName) {
-              varValue = varValue.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+          // Check if it's a statement (var, for, if, etc.)
+          const isStatement = /^(var|for|if|while|loop|switch|break|continue|return|discard)\b/.test(trimmedLine);
+          
+          if (isStatement) {
+            // It's a statement - keep as-is but replace variable references
+            let processedLine = line;
+            const sortedVars = Array.from(varMap.entries()).reverse();
+            for (const [original, sanitized] of sortedVars) {
+              // Only replace if it's not the declaration itself
+              // Check for var/let declarations more carefully - match the exact pattern
+              const declarationPattern = new RegExp(`\\b(var|let)\\s+${original}\\b`);
+              const isDeclaration = declarationPattern.test(line);
+              
+              if (!isDeclaration) {
+                // Replace variable references, but be careful with word boundaries
+                processedLine = processedLine.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+              }
+            }
+            processedLines.push(processedLine);
+          } else {
+            // It's an expression or let declaration
+            const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
+            if (letMatch) {
+              const varName = letMatch[1];
+              let varValue = letMatch[2];
+              const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+              
+              // Replace variable references in the value
+              const sortedVars = Array.from(varMap.entries()).reverse();
+              for (const [original, sanitized] of sortedVars) {
+                if (original !== varName) {
+                  varValue = varValue.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+                }
+              }
+              
+              processedLines.push(`let ${sanitizedVarName} = ${varValue};`);
+              varMap.set(varName, sanitizedVarName);
+            } else {
+              // Pure expression - create a temp variable
+              let expression = line;
+              const sortedVars = Array.from(varMap.entries()).reverse();
+              for (const [original, sanitized] of sortedVars) {
+                expression = expression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+              }
+              const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+              processedLines.push(`let ${sanitizedVarName} = ${expression};`);
+              // Note: we don't add to varMap for pure expressions
             }
           }
-          
-          intermediateDeclarations.push(`let ${sanitizedVarName} = ${varValue};`);
-        } else {
-          // Not a let declaration - treat as expression and create a temp variable
-          let expression = line;
-          
-          // Replace any variable references in the expression
-          const sortedVars = Array.from(varMap.entries()).reverse();
-          for (const [original, sanitized] of sortedVars) {
-            expression = expression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
-          }
-          
-          const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
-          intermediateDeclarations.push(`let ${sanitizedVarName} = ${expression};`);
+        });
+        
+        // Process the last line
+        let finalExpression = lastLine;
+        const sortedVars = Array.from(varMap.entries()).reverse();
+        for (const [original, sanitized] of sortedVars) {
+          finalExpression = finalExpression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
         }
-      });
-      
-      // Process the last line - replace any variable references with sanitized names
-      let finalExpression = lastLine;
-      // Process in reverse order to handle nested references correctly
-      const sortedVars = Array.from(varMap.entries()).reverse();
-      for (const [original, sanitized] of sortedVars) {
-        finalExpression = finalExpression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+        
+        // Remove "let" or "var" from final expression if present
+        const finalLetMatch = finalExpression.match(/let\s+\w+\s*=\s*(.+);?$/);
+        const finalVarMatch = finalExpression.match(/var\s+\w+\s*[=:]\s*(.+);?$/);
+        if (finalLetMatch) {
+          finalExpression = finalLetMatch[1];
+        } else if (finalVarMatch) {
+          finalExpression = finalVarMatch[1];
+        }
+        
+        // Wrap in a block - but node_X needs to be accessible outside
+        // Use var so we can assign it inside the block
+        // Get default value for the output type
+        const getDefaultForOutputType = (type) => {
+          switch (type) {
+            case 'vec2': return 'vec2<f32>(0.0)';
+            case 'vec3': return 'vec3<f32>(0.0)';
+            case 'vec4': return 'vec4<f32>(0.0)';
+            default: return '0.0';
+          }
+        };
+        const defaultValue = getDefaultForOutputType(validOutputType);
+        const blockContent = processedLines.join('\n  ') + `\n  node_${sanitizedNodeId} = ${finalExpression};`;
+        compiledCode = `var node_${sanitizedNodeId}: ${validOutputType} = ${defaultValue};
+{
+  ${blockContent}
+}`;
+      } else {
+        // No statements - just expressions and let declarations
+        // Process intermediate lines - they should be let declarations
+        const intermediateDeclarations = [];
+        const varMap = new Map(); // Map original var names to sanitized names
+        
+        // First pass: identify all variable declarations and create the map
+        otherLines.forEach((line, idx) => {
+          const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
+          if (letMatch) {
+            const varName = letMatch[1];
+            const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+            varMap.set(varName, sanitizedVarName);
+          }
+        });
+        
+        // Second pass: process each line, replacing variable references with sanitized names
+        otherLines.forEach((line, idx) => {
+          const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
+          if (letMatch) {
+            const varName = letMatch[1];
+            let varValue = letMatch[2];
+            const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+            
+            // Replace any variable references in the value with their sanitized names
+            const sortedVars = Array.from(varMap.entries()).reverse();
+            for (const [original, sanitized] of sortedVars) {
+              if (original !== varName) {
+                varValue = varValue.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+              }
+            }
+            
+            intermediateDeclarations.push(`let ${sanitizedVarName} = ${varValue};`);
+          } else {
+            // Not a let declaration - treat as expression and create a temp variable
+            let expression = line;
+            const sortedVars = Array.from(varMap.entries()).reverse();
+            for (const [original, sanitized] of sortedVars) {
+              expression = expression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+            }
+            const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+            intermediateDeclarations.push(`let ${sanitizedVarName} = ${expression};`);
+          }
+        });
+        
+        // Process the last line - replace any variable references with sanitized names
+        let finalExpression = lastLine;
+        const sortedVars = Array.from(varMap.entries()).reverse();
+        for (const [original, sanitized] of sortedVars) {
+          finalExpression = finalExpression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+        }
+        
+        // Remove any "let" declaration from final expression if present
+        const finalMatch = finalExpression.match(/let\s+\w+\s*=\s*(.+);?$/);
+        if (finalMatch) {
+          finalExpression = finalMatch[1];
+        }
+        
+        // Combine all declarations - node_X must be at top level, not in a block
+        compiledCode = intermediateDeclarations.join('\n') + `\nlet node_${sanitizedNodeId} = ${finalExpression};`;
       }
-      
-      // Remove any "let" declaration from final expression if present
-      const finalMatch = finalExpression.match(/let\s+\w+\s*=\s*(.+);?$/);
-      if (finalMatch) {
-        finalExpression = finalMatch[1];
-      }
-      
-      // Combine all declarations - node_X must be at top level, not in a block
-      compiledCode = intermediateDeclarations.join('\n') + `\nlet node_${sanitizedNodeId} = ${finalExpression};`;
     } else if (codeLines.length === 1) {
       // Single line - just assign
       compiledCode = `let node_${sanitizedNodeId} = ${codeLines[0]};`;
@@ -712,9 +823,6 @@ export class UtilityNodes {
       // Empty code - use default
       compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
     }
-
-    // Ensure outputType is a valid type string
-    const validOutputType = ['f32', 'vec2', 'vec3', 'vec4'].includes(outputType) ? outputType : 'f32';
     
     // Ensure we always return a valid result
     if (!compiledCode || !compiledCode.trim()) {
