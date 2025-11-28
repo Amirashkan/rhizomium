@@ -115,7 +115,16 @@ export class UtilityNodes {
       case 'Compare':
         return this.compileCompare(node, getInput, nodeId);
       case 'CustomGLSL':
-        return this.compileCustomGLSL(node, getInput, nodeId);
+        try {
+          return this.compileCustomGLSL(node, getInput, nodeId);
+        } catch (error) {
+          console.error('Error compiling CustomGLSL node:', error);
+          // Return a safe fallback
+          return {
+            line: `let node_${nodeId} = 0.0;`,
+            outputType: 'f32'
+          };
+        }
       default:
         return null;
     }
@@ -411,6 +420,16 @@ export class UtilityNodes {
     if (!code.trim() || code.trim().split('\n').every(line => line.trim().startsWith('//') || !line.trim())) {
       code = "0.0";
     }
+    
+    // Debug logging
+    if (window.DEBUG_CUSTOM_GLSL) {
+      console.log(`[CustomGLSL] Compiling node ${sanitizedNodeId}:`, {
+        nodeId: node.id,
+        sanitizedNodeId,
+        codeLength: code.length,
+        codePreview: code.substring(0, 100)
+      });
+    }
 
     // Analyze code to determine expected input types based on usage
     const inferInputType = (inputIndex) => {
@@ -525,6 +544,20 @@ export class UtilityNodes {
     // Ensure we always return a valid result
     if (!compiledCode || !compiledCode.trim()) {
       compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
+    }
+    
+    // Double-check that the line contains the variable declaration
+    if (!compiledCode.includes(`node_${sanitizedNodeId}`)) {
+      console.warn(`[CustomGLSL] Node ${sanitizedNodeId} did not generate proper variable declaration. Generated code:`, compiledCode);
+      compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
+    }
+    
+    // Debug logging
+    if (window.DEBUG_CUSTOM_GLSL) {
+      console.log(`[CustomGLSL] Node ${sanitizedNodeId} compiled:`, {
+        line: compiledCode.substring(0, 200),
+        outputType: validOutputType
+      });
     }
     
     return {
