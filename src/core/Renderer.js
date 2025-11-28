@@ -63,12 +63,8 @@ export class Renderer {
       this._clearDirtyRegions(ctx, preciseDirtyRegions);
     }
 
-    // PERFORMANCE: Skip grid during panning - it's expensive and not critical during movement
-    // Reuse isPanning variable already declared above
-    if (!isPanning) {
-      // Only render grid when not panning - saves significant time
-      this._renderBackgroundGrid();
-    }
+    // Always render grid background for visual consistency
+    this._renderBackgroundGrid();
     
     // Store interaction state for optimizations that don't affect visual appearance
     const isInteracting = renderState.isInteracting || false;

@@ -35,6 +35,9 @@ export class EventHandler {
     // Performance optimization: throttle node/wire drag updates to max 60fps
     this._dragUpdateScheduled = false;
     this._pendingDragEvent = null;
+    // CRITICAL: Batch draw requests - only mark dirty once per frame
+    this._drawRequestedThisFrame = false;
+    this._drawRequestFrameReset = null;
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
     this._lastMouseMoveTime = Date.now();
