@@ -39,10 +39,20 @@ export class GLSLCodeInputHandler {
     // Setup event handlers
     this.setupEventHandlers(textarea, param, node, valueManager, onChange, lineNumbers, highlightOverlay);
 
-    // Put overlay and textarea in same container for perfect alignment
+    // Create a wrapper for textarea and overlay to ensure they align perfectly
+    const textareaContainer = document.createElement('div');
+    textareaContainer.style.cssText = `
+      position: relative;
+      flex: 1;
+      display: block;
+      overflow: hidden;
+    `;
+    
+    textareaContainer.appendChild(highlightOverlay);
+    textareaContainer.appendChild(textarea);
+    
     editorWrapper.appendChild(lineNumbers);
-    editorWrapper.appendChild(highlightOverlay);
-    editorWrapper.appendChild(textarea);
+    editorWrapper.appendChild(textareaContainer);
     container.appendChild(editorWrapper);
     container.appendChild(helpText);
     div.appendChild(container);
@@ -50,6 +60,10 @@ export class GLSLCodeInputHandler {
     // Force initial update after DOM is ready
     requestAnimationFrame(() => {
       this.updateEditor(textarea, lineNumbers, highlightOverlay);
+      // Ensure scroll is synced on initial load
+      if (highlightOverlay) {
+        highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
+      }
     });
 
     return div;
@@ -112,7 +126,7 @@ export class GLSLCodeInputHandler {
     overlay.style.cssText = `
       position: absolute;
       top: 0;
-      left: 45px;
+      left: 0;
       right: 0;
       bottom: 0;
       pointer-events: none;
@@ -122,7 +136,7 @@ export class GLSLCodeInputHandler {
       font-size: 12px;
       line-height: 1.5;
       white-space: pre;
-      overflow: hidden;
+      overflow: visible;
       color: #d4d4d4;
       z-index: 1;
       box-sizing: border-box;
@@ -149,7 +163,13 @@ export class GLSLCodeInputHandler {
     textarea.value = String(currentValue);
 
     textarea.style.cssText = `
-      flex: 1;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
       min-height: 150px;
       max-height: 400px;
       padding: 8px;
@@ -162,11 +182,11 @@ export class GLSLCodeInputHandler {
       line-height: 1.5;
       resize: vertical;
       overflow-y: auto;
+      overflow-x: auto;
       white-space: pre;
       overflow-wrap: normal;
       tab-size: 2;
       box-sizing: border-box;
-      position: relative;
       z-index: 10;
       caret-color: #d4d4d4;
     `;
@@ -262,7 +282,9 @@ export class GLSLCodeInputHandler {
       if (highlightOverlay) {
         // The overlay is absolutely positioned, so we need to adjust its transform
         // to match the textarea's scroll position
-        highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
+        requestAnimationFrame(() => {
+          highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
+        });
       }
       if (lineNumbers) {
         lineNumbers.scrollTop = textarea.scrollTop;
@@ -307,7 +329,7 @@ export class GLSLCodeInputHandler {
     // Update line numbers
     if (lineNumbers) {
       const lineNumbersHTML = Array.from({ length: lineCount }, (_, i) => i + 1)
-        .map(num => `<div style="min-height: 18px; ${num % 2 === 0 ? 'background: rgba(255,255,255,0.02);' : ''}">${num}</div>`)
+        .map(num => `<div style="min-height: 18px; line-height: 1.5; ${num % 2 === 0 ? 'background: rgba(255,255,255,0.02);' : ''}">${num}</div>`)
         .join('');
       lineNumbers.innerHTML = lineNumbersHTML;
       lineNumbers.style.height = `${textarea.scrollHeight}px`;
@@ -321,7 +343,10 @@ export class GLSLCodeInputHandler {
       highlightOverlay.style.height = `${textarea.scrollHeight}px`;
       highlightOverlay.style.width = `${textarea.scrollWidth}px`;
       // Sync scroll position - overlay content needs to move opposite to scroll
-      highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(() => {
+        highlightOverlay.style.transform = `translateY(-${textarea.scrollTop}px) translateX(-${textarea.scrollLeft}px)`;
+      });
     }
   }
 
@@ -368,11 +393,12 @@ export class GLSLCodeInputHandler {
       highlighted = highlighted.replace(marker, `<span class="glsl-${className}">${text}</span>`);
     });
 
-    // Add zebra striping to lines
+    // Add zebra striping to lines - use spans with display: block to match textarea line height
     const lines = highlighted.split('\n');
     const highlightedLines = lines.map((line, idx) => {
       const bgClass = idx % 2 === 1 ? 'glsl-line-even' : 'glsl-line-odd';
-      return `<div class="${bgClass}">${line || ' '}</div>`;
+      // Use span with display: block to match textarea line height exactly (line-height: 1.5 * 12px = 18px)
+      return `<span class="${bgClass}" style="display: block; min-height: 18px; line-height: 1.5;">${line || ' '}</span>`;
     });
 
     return highlightedLines.join('\n');
