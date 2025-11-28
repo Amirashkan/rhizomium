@@ -676,13 +676,29 @@ export class UtilityNodes {
         const varMap = new Map(); // Map original var names to sanitized names
         
         // First pass: identify all variable declarations (let and var)
+        // Also check which variables are assigned to later (need to be var, not let)
+        const assignedVars = new Set();
+        otherLines.forEach((line) => {
+          // Check for assignment statements (variable = ...)
+          const assignmentMatch = line.match(/^(\w+)\s*=\s*(.+);?$/);
+          if (assignmentMatch) {
+            assignedVars.add(assignmentMatch[1]);
+          }
+        });
+        
         otherLines.forEach((line, idx) => {
           const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
           const varMatch = line.match(/var\s+(\w+)\s*[=:]\s*(.+);?$/);
           if (letMatch) {
             const varName = letMatch[1];
-            const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
-            varMap.set(varName, sanitizedVarName);
+            // If this variable is assigned to later, we need to track it as a var, not let
+            if (assignedVars.has(varName)) {
+              // This will be converted to var in the second pass
+              varMap.set(varName, varName); // Keep original name for var
+            } else {
+              const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+              varMap.set(varName, sanitizedVarName);
+            }
           } else if (varMatch) {
             const varName = varMatch[1];
             // Keep var declarations as-is (they're mutable), but track the name
@@ -717,33 +733,67 @@ export class UtilityNodes {
             }
             processedLines.push(processedLine);
           } else {
-            // It's an expression or let declaration
-            const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
-            if (letMatch) {
-              const varName = letMatch[1];
-              let varValue = letMatch[2];
-              const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+            // Check if it's an assignment statement (variable = expression;)
+            // This is different from a let declaration - assignments modify existing variables
+            const assignmentMatch = line.match(/^(\w+)\s*=\s*(.+);?$/);
+            if (assignmentMatch) {
+              const varName = assignmentMatch[1];
+              let varValue = assignmentMatch[2];
               
               // Replace variable references in the value
               const sortedVars = Array.from(varMap.entries()).reverse();
               for (const [original, sanitized] of sortedVars) {
+                // Replace references to other variables, but keep the target variable name as-is
                 if (original !== varName) {
                   varValue = varValue.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
                 }
               }
               
-              processedLines.push(`let ${sanitizedVarName} = ${varValue};`);
-              varMap.set(varName, sanitizedVarName);
+              // Keep assignment as-is (it modifies an existing variable)
+              processedLines.push(`${varName} = ${varValue};`);
             } else {
-              // Pure expression - create a temp variable
-              let expression = line;
-              const sortedVars = Array.from(varMap.entries()).reverse();
-              for (const [original, sanitized] of sortedVars) {
-                expression = expression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+              // It's a let declaration or expression
+              const letMatch = line.match(/let\s+(\w+)\s*=\s*(.+);?$/);
+              if (letMatch) {
+                const varName = letMatch[1];
+                let varValue = letMatch[2];
+                
+                // If this variable is assigned to later, convert let to var
+                if (assignedVars.has(varName)) {
+                  // Convert to var - keep original name
+                  const sortedVars = Array.from(varMap.entries()).reverse();
+                  for (const [original, sanitized] of sortedVars) {
+                    if (original !== varName) {
+                      varValue = varValue.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+                    }
+                  }
+                  processedLines.push(`var ${varName} = ${varValue};`);
+                } else {
+                  // Regular let declaration - sanitize the name
+                  const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+                  
+                  // Replace variable references in the value
+                  const sortedVars = Array.from(varMap.entries()).reverse();
+                  for (const [original, sanitized] of sortedVars) {
+                    if (original !== varName) {
+                      varValue = varValue.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+                    }
+                  }
+                  
+                  processedLines.push(`let ${sanitizedVarName} = ${varValue};`);
+                  varMap.set(varName, sanitizedVarName);
+                }
+              } else {
+                // Pure expression - create a temp variable
+                let expression = line;
+                const sortedVars = Array.from(varMap.entries()).reverse();
+                for (const [original, sanitized] of sortedVars) {
+                  expression = expression.replace(new RegExp(`\\b${original}\\b`, 'g'), sanitized);
+                }
+                const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
+                processedLines.push(`let ${sanitizedVarName} = ${expression};`);
+                // Note: we don't add to varMap for pure expressions
               }
-              const sanitizedVarName = `temp_${sanitizedNodeId}_${idx}`;
-              processedLines.push(`let ${sanitizedVarName} = ${expression};`);
-              // Note: we don't add to varMap for pure expressions
             }
           }
         });
