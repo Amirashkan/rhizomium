@@ -51,7 +51,6 @@ export class EventHandler {
     this._firstFrameOfInteraction = false; // Track first frame of any interaction
     this._interactionStartTime = 0; // Track when interaction started
     this._nodeDragUpdateCount = 0; // Track number of node drag updates for immediate rendering
-    this._panUpdateCount = 0; // Track number of pan updates for immediate rendering
     // PERFORMANCE: Track active canvas interactions to skip GPU rendering during pan/drag
     this._isCanvasInteracting = false;
     this._canvasInteractionEndTimer = null;
@@ -482,50 +481,16 @@ export class EventHandler {
           }
 
           // Only schedule one update per animation frame for performance
-          // BUT: Always do immediate update for first pan movements to prevent lag
-          // Use counter-based approach for more reliable immediate updates
-          const now = Date.now();
-          // Ensure interaction start time is set (should be set by warmup, but ensure it's set)
-          if (!this._interactionStartTime) {
-            this._interactionStartTime = now;
-          }
-          const timeSinceStart = now - this._interactionStartTime;
-          // PERFORMANCE: Reset pan update count periodically during continuous panning
-          // This prevents accumulation and ensures smooth performance
-          if (this._panUpdateCount > 100) {
-            this._panUpdateCount = 0; // Reset to prevent accumulation
-            this._interactionStartTime = now; // Reset interaction start time
-          }
-          
-          // For panning, ALWAYS use immediate updates for first 20 pan updates
-          // This ensures smooth panning without any lag after inactivity
-          const shouldUseImmediate = this._panUpdateCount < 20 || timeSinceStart < 3000 || this._justWarmedUp;
-          
-          if (shouldUseImmediate && this._pendingPanUpdate) {
-            // Immediate update - bypass RAF to prevent lag during first period
-            // Do this synchronously to ensure it happens before any other processing
-            
-            // CRITICAL: Increment pan update count
-            this._panUpdateCount++;
-            
-            const { clientX, clientY } = this._pendingPanUpdate;
-            this._pendingPanUpdate = null;
-            this._panUpdateScheduled = false;
-            
-            // Update pan state immediately
-            if (this.viewport.updatePan(clientX, clientY)) {
-              // Mark canvas as interacting to skip GPU rendering during pan
-              this._markCanvasInteracting('pan');
-              // Use RAF batching for smooth performance
-              this._requestDraw('pan');
-            }
-          } else if (!this._panUpdateScheduled) {
+          // Always use RAF batching to prevent double renders
+          if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
             requestAnimationFrame(() => {
               this._panUpdateScheduled = false;
               if (this._pendingPanUpdate) {
                 const { clientX, clientY } = this._pendingPanUpdate;
                 if (this.viewport.updatePan(clientX, clientY)) {
+                  // Mark canvas as interacting to skip GPU rendering during pan
+                  this._markCanvasInteracting('pan');
                   this._requestDraw('pan');
                 }
                 this._pendingPanUpdate = null;
@@ -745,9 +710,7 @@ export class EventHandler {
         this._panFrameCounter = 0;
         // Update interaction state manager
         this.interactionStateManager.setPanning(true);
-        // CRITICAL: Reset pan update count to force immediate updates for first pan movements
-        this._panUpdateCount = 0;
-        // Mark interaction start time for first-frame immediate updates
+        // Mark interaction start time
         this._interactionStartTime = Date.now();
         // Emit interaction event immediately when pan starts
         // This ensures adaptive mode activates immediately
@@ -997,7 +960,6 @@ export class EventHandler {
       this._interactionStartTime = 0;
       this._firstFrameOfInteraction = false;
       this._nodeDragUpdateCount = 0; // Reset drag update count
-      this._panUpdateCount = 0; // Reset pan update count
 
       const pos = this._getCanvasPosition(e);
 
