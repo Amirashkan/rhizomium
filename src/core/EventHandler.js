@@ -58,6 +58,12 @@ export class EventHandler {
     this._isPanning = false;
     this._panFrameCounter = 0; // Frame counter for panning throttling
     this._panFrameSkipThreshold = 2; // Skip every 2nd frame (redraw every 2 frames = ~30fps during pan)
+    // STEP 4: Cache interaction state per frame to reduce overhead of state checks
+    this._cachedInteractionState = {
+      isPanning: false,
+      isCanvasInteracting: false,
+      valid: false, // Indicates if cache is valid for current frame
+    };
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -216,6 +222,10 @@ export class EventHandler {
         this._panUpdateScheduled = false;
       }
       
+      // STEP 4: Reset interaction state cache at the start of each new frame
+      // This ensures we get fresh state values for the new frame
+      this._cachedInteractionState.valid = false;
+      
       // Reset pending flag at the start of each new frame
       this._pendingDrawRequest = null;
       this._drawRequestFrameId = null;
@@ -242,8 +252,16 @@ export class EventHandler {
   }
   
   // Check if panning is currently active
+  // STEP 4: Use cached value per frame to reduce overhead of state checks
   isPanning() {
-    return this._isPanning;
+    // Check if cache is valid for current frame
+    if (!this._cachedInteractionState.valid) {
+      // Cache miss or new frame - update cache
+      this._cachedInteractionState.isPanning = this._isPanning;
+      this._cachedInteractionState.isCanvasInteracting = this._isCanvasInteracting;
+      this._cachedInteractionState.valid = true;
+    }
+    return this._cachedInteractionState.isPanning;
   }
   
   // Get current pan frame counter (for editor.draw() to check)
@@ -278,12 +296,20 @@ export class EventHandler {
     });
   }
 
+  // STEP 4: Invalidate interaction state cache when state changes
+  // This ensures cached values are refreshed when state is updated
+  _invalidateInteractionStateCache() {
+    this._cachedInteractionState.valid = false;
+  }
+
   // Mark canvas as actively interacting (pan, drag, etc.)
   // This allows GPU rendering to be skipped during interactions for better performance
   _markCanvasInteracting(reason = 'canvas') {
     const wasInteracting = this._isCanvasInteracting;
     this._isCanvasInteracting = true;
+    // STEP 4: Invalidate cache when state changes
     if (!wasInteracting) {
+      this._invalidateInteractionStateCache();
       this._emitFloatingPreviewInteraction(true, reason);
     }
     
@@ -302,6 +328,8 @@ export class EventHandler {
         return;
       }
       this._isCanvasInteracting = false;
+      // STEP 4: Invalidate cache when state changes
+      this._invalidateInteractionStateCache();
       this._canvasInteractionEndTimer = null;
       this._emitFloatingPreviewInteraction(false, reason);
       // Resume continuous warmup after interaction ends
@@ -325,8 +353,16 @@ export class EventHandler {
   }
 
   // Check if canvas is currently being interacted with
+  // STEP 4: Use cached value per frame to reduce overhead of state checks
   isCanvasInteracting() {
-    return this._isCanvasInteracting;
+    // Check if cache is valid for current frame
+    if (!this._cachedInteractionState.valid) {
+      // Cache miss or new frame - update cache
+      this._cachedInteractionState.isPanning = this._isPanning;
+      this._cachedInteractionState.isCanvasInteracting = this._isCanvasInteracting;
+      this._cachedInteractionState.valid = true;
+    }
+    return this._cachedInteractionState.isCanvasInteracting;
   }
 
   // Check for inactivity and warm up GPU if needed
@@ -434,6 +470,10 @@ export class EventHandler {
         this.viewport.stopPan();
         // Clear panning state and reset frame counter
         this._isPanning = false;
+        // STEP 4: Invalidate cache when panning state changes
+        if (wasPanning) {
+          this._invalidateInteractionStateCache();
+        }
         this._panFrameCounter = 0;
         // Update interaction state manager
         this.interactionStateManager.setPanning(false);
@@ -475,6 +515,8 @@ export class EventHandler {
           // Set panning flag if not already set
           if (!this._isPanning) {
             this._isPanning = true;
+            // STEP 4: Invalidate cache when panning state changes
+            this._invalidateInteractionStateCache();
             this._panFrameCounter = 0; // Reset frame counter when panning starts
             // Update interaction state manager
             this.interactionStateManager.setPanning(true);
@@ -712,6 +754,8 @@ export class EventHandler {
         this.viewport.startPan(e.clientX, e.clientY);
         // Set panning flag and reset frame counter
         this._isPanning = true;
+        // STEP 4: Invalidate cache when panning state changes
+        this._invalidateInteractionStateCache();
         this._panFrameCounter = 0;
         // Update interaction state manager
         this.interactionStateManager.setPanning(true);
