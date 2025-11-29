@@ -35,13 +35,8 @@ export class EventHandler {
     // Performance optimization: throttle node/wire drag updates to max 60fps
     this._dragUpdateScheduled = false;
     this._pendingDragEvent = null;
-    // CRITICAL: Batch draw requests - only mark dirty once per frame
-    this._drawRequestedThisFrame = false;
-    this._drawRequestFrameReset = null;
-    // Draw request deduplication system
+    // Draw request deduplication system - unified RAF for all draw requests
     this._pendingDrawRequest = null; // Track if a draw is already scheduled
-    this._drawRequestFrameId = null; // Track the current frame ID for deduplication
-    this._lastFrameTime = 0; // Track last frame time for frame detection
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
     this._lastMouseMoveTime = Date.now();
@@ -192,25 +187,20 @@ export class EventHandler {
   }
 
   // Mark canvas dirty and request render (optimization for dirty flag system)
-  // PERFORMANCE: During interactions, just mark dirty - main loop handles rendering
-  // This prevents double rendering (RAF callback + main loop) which causes FPS drops
+  // PERFORMANCE: Unified RAF system - single RAF handles all draw requests and pan updates
+  // This prevents double rendering and ensures only one RAF is active at a time
   // The main render loop already calls editor.draw() every frame if dirty
-  // PERFORMANCE: During panning, always mark dirty so draw() is called every frame
   // Frame-based throttling is handled in editor.draw() to skip actual rendering
-  // STEP 3: Unified RAF system - single RAF handles all draw requests and pan updates
   _requestDraw(reason = 'user-interaction') {
     // Check if a draw request is already pending for the current frame
-    // Use requestAnimationFrame to detect frame boundaries
+    // If so, ignore duplicate requests - they'll be processed in the existing RAF callback
     if (this._pendingDrawRequest !== null) {
-      // Draw request already pending for this frame - ignore duplicate
-      // Pan updates will be processed in the existing RAF callback
       return;
     }
     
-    // Mark that we have a pending draw request for this frame
     // Schedule unified RAF callback that processes both draw requests and pan updates
-    this._pendingDrawRequest = requestAnimationFrame((frameTime) => {
-      // STEP 3: Process pan updates in the same RAF callback to avoid multiple RAFs
+    this._pendingDrawRequest = requestAnimationFrame(() => {
+      // Process pan updates in the same RAF callback to avoid multiple RAFs
       // This ensures only one RAF is active at a time and pan updates are batched
       if (this._pendingPanUpdate && this._panUpdateScheduled) {
         const { clientX, clientY } = this._pendingPanUpdate;
@@ -228,11 +218,7 @@ export class EventHandler {
       
       // Reset pending flag at the start of each new frame
       this._pendingDrawRequest = null;
-      this._drawRequestFrameId = null;
-      this._lastFrameTime = frameTime;
     });
-    // Store the frame ID for deduplication tracking
-    this._drawRequestFrameId = this._pendingDrawRequest;
     
     logRedrawTriggerEvent({
       source: 'EventHandler._requestDraw',
@@ -536,12 +522,10 @@ export class EventHandler {
             }
           }
 
-          // STEP 3: Use unified RAF system - don't schedule separate pan RAF
-          // Mark that we have a pending pan update and use _requestDraw() unified RAF
-          // The pan update will be processed in the _requestDraw() RAF callback
+          // Use unified RAF system - pan updates are processed in _requestDraw() RAF callback
+          // This ensures only one RAF is active at a time and eliminates double renders
           if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
-            // Use unified RAF system - pan update will be processed in _requestDraw() callback
             this._requestDraw('pan');
           }
 
