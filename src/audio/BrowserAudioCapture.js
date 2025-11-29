@@ -1,5 +1,4 @@
 /**
-<<<<<<< HEAD
  * BrowserAudioCapture.js
  *
  * Captures audio from uploaded files and extracts envelope
@@ -10,6 +9,8 @@
  * 2. Audio plays in browser
  * 3. Real-time envelope extraction controls shader parameters
  */
+
+import { PRIORITY } from '../core/UnifiedRAFManager.js';
 
 export class BrowserAudioCapture {
     constructor() {
@@ -71,8 +72,11 @@ export class BrowserAudioCapture {
             error: []
         };
 
-        // Start processing loop
-        this._startProcessingLoop();
+        // Handler name for UnifiedRAFManager
+        this._handlerName = 'browserAudioCapture';
+
+        // Register with UnifiedRAFManager - handler will be enabled/disabled based on isPlaying
+        this._registerRAFHandler();
     }
 
     /**
@@ -141,6 +145,8 @@ export class BrowserAudioCapture {
         try {
             await this.audioElement.play();
             this.isPlaying = true;
+            // Enable RAF handler when playing starts
+            this._enableRAFHandler();
             this._emit('started');
         } catch (error) {
 
@@ -156,6 +162,8 @@ export class BrowserAudioCapture {
         if (this.audioElement) {
             this.audioElement.pause();
             this.isPlaying = false;
+            // Disable RAF handler when paused
+            this._disableRAFHandler();
             this._emit('stopped');
         }
     }
@@ -169,6 +177,9 @@ export class BrowserAudioCapture {
             this.audioElement.currentTime = 0;
             this.isPlaying = false;
         }
+
+        // Disable RAF handler when stopped
+        this._disableRAFHandler();
 
         this._followerValue = 0;
         this._adsrValue = 0;
@@ -491,42 +502,47 @@ export class BrowserAudioCapture {
     }
 
     /**
-     * Start processing loop
+     * Register handler with UnifiedRAFManager
+     * Uses LOW priority since audio processing is less critical than rendering
      */
-    _startProcessingLoop() {
-        let lastShaderRebuildValue = 0;
-        const REBUILD_THRESHOLD = 0.05; // Rebuild if value changes by more than 5%
-        let lastRebuildTime = 0;
-        const MIN_REBUILD_INTERVAL = 50; // Min 50ms between rebuilds (~20fps max)
+    _registerRAFHandler() {
+        // Register handler with UnifiedRAFManager to use unified RAF loop
+        // This consolidates all RAF-based updates into a single loop for better performance
+        if (window.renderLoop?.rafManager) {
+            window.renderLoop.rafManager.registerHandler(
+                this._handlerName,
+                (frameInfo) => {
+                    // Process audio - this will handle both playing and non-playing states
+                    this._processAudio();
+                },
+                PRIORITY.LOW,
+                {
+                    // Condition: only execute if audio is playing and render loop is not paused
+                    condition: (frameInfo) => {
+                        return this.isPlaying && !frameInfo.paused;
+                    },
+                    enabled: false, // Start disabled, will be enabled when playing starts
+                }
+            );
+        }
+    }
 
-        const processFrame = () => {
-            this._processAudio();
+    /**
+     * Enable RAF handler (when audio starts playing)
+     */
+    _enableRAFHandler() {
+        if (window.renderLoop?.rafManager) {
+            window.renderLoop.rafManager.setHandlerEnabled(this._handlerName, true);
+        }
+    }
 
-            // TEMPORARILY DISABLED: Auto-rebuild causing infinite loop
-            // TODO: Need to fix rebuild triggering preview which triggers rebuild
-            // if (this.isPlaying && typeof window.rebuild === 'function') {
-            //     const now = performance.now();
-            //     const valueDelta = Math.abs(this._envelopeValue - lastShaderRebuildValue);
-
-            //     if (valueDelta > REBUILD_THRESHOLD && now - lastRebuildTime >= MIN_REBUILD_INTERVAL) {
-            //         // Only rebuild if there are nodes using audioEnvelope expressions
-            //         const hasAudioExpressions = window.editor?.graph?.nodes?.some(node =>
-            //             node.params && Object.values(node.params).some(val =>
-            //                 typeof val === 'string' && val.includes('audioEnvelope')
-            //             )
-            //         );
-
-            //         if (hasAudioExpressions) {
-            //             window.rebuild();
-            //             lastShaderRebuildValue = this._envelopeValue;
-            //             lastRebuildTime = now;
-            //         }
-            //     }
-            // }
-
-            requestAnimationFrame(processFrame);
-        };
-        processFrame();
+    /**
+     * Disable RAF handler (when audio pauses/stops)
+     */
+    _disableRAFHandler() {
+        if (window.renderLoop?.rafManager) {
+            window.renderLoop.rafManager.setHandlerEnabled(this._handlerName, false);
+        }
     }
 
     /**

@@ -1,6 +1,8 @@
 // src/core/RenderLoop.js
 // Centralized render loop controller supporting display V-Sync and fixed timestep modes.
 
+import { UnifiedRAFManager } from './UnifiedRAFManager.js';
+
 const DEFAULT_FIXED_FPS = 60;
 const MIN_FIXED_FPS = 1;
 const MAX_FIXED_FPS = 240;
@@ -34,6 +36,10 @@ export class RenderLoop {
     this._accumulator = 0;
     this._simTime = 0;
     this._frameIndex = 0;
+    
+    // Unified RAF Manager for coordinating all RAF-based handlers
+    // RenderLoop becomes the single RAF coordinator
+    this.rafManager = new UnifiedRAFManager();
   }
 
   start() {
@@ -182,6 +188,10 @@ export class RenderLoop {
       deltaTime: appliedDelta,
       rawDeltaTime,
     });
+
+    // Process all registered RAF handlers before the main onFrame callback
+    // This makes RenderLoop the single RAF coordinator
+    this.rafManager.processFrame(frameInfo);
 
     this.onFrame(frameInfo);
   }

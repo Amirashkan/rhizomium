@@ -2,6 +2,19 @@
 
 This guide covers the GPU performance monitoring, profiling, and testing features for the GLSL Node Editor.
 
+## ⚠️ CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS ⚠️
+
+**30 FPS IS NEVER ACCEPTED. ALL OPTIMIZATIONS MUST TARGET 60 FPS.**
+
+- **Target frame time:** <16.67ms (60 FPS)
+- **Throttling values:** Use 16.67ms (60 FPS), NOT 33.33ms (30 FPS)
+- **Frame skipping:** Should target 60 FPS, not 30 FPS
+- **Any code that limits performance to 30 FPS must be changed to 60 FPS**
+
+This is a non-negotiable requirement. If you see any 30 FPS throttling, frame skipping that results in 30 FPS, or comments mentioning 30 FPS as acceptable, you MUST change it to 60 FPS.
+
+---
+
 ## Table of Contents
 
 1. [Overview](#overview)
@@ -53,9 +66,29 @@ The GPU performance monitoring system provides:
 
 ## Performance Monitoring
 
-### Automatic Setup
+### Frame Timing Monitoring
 
-The performance monitor is **automatically initialized** when you start the application:
+The application includes comprehensive frame timing monitoring via the `UnifiedRAFManager`:
+
+```javascript
+// Get frame statistics
+const stats = window.renderLoop?.rafManager?.getFrameStats();
+
+// Key metrics:
+// - frameDropCount: Frames exceeding 16.67ms (60fps budget)
+// - frameDropRate: Percentage of dropped frames
+// - handlerStats: Per-handler execution times
+// - executionOrder: Handler execution order and timing
+```
+
+**Automatic Warnings:**
+The system automatically logs warnings when frames exceed the 60fps budget, identifying slow handlers.
+
+**See [Frame Timing Monitoring Guide](docs/frame-timing-monitoring.md) for complete documentation.**
+
+### GPU Performance Monitor Setup
+
+The GPU performance monitor is **automatically initialized** when you start the application:
 
 ```javascript
 // Performance monitor is created during initialization

@@ -35,9 +35,8 @@ export class EventHandler {
     // Performance optimization: throttle node/wire drag updates to max 60fps
     this._dragUpdateScheduled = false;
     this._pendingDragEvent = null;
-    // CRITICAL: Batch draw requests - only mark dirty once per frame
-    this._drawRequestedThisFrame = false;
-    this._drawRequestFrameReset = null;
+    // Draw request deduplication system - unified RAF for all draw requests
+    this._pendingDrawRequest = null; // Track if a draw is already scheduled
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
     this._lastMouseMoveTime = Date.now();
@@ -47,14 +46,19 @@ export class EventHandler {
     this._firstFrameOfInteraction = false; // Track first frame of any interaction
     this._interactionStartTime = 0; // Track when interaction started
     this._nodeDragUpdateCount = 0; // Track number of node drag updates for immediate rendering
-    this._panUpdateCount = 0; // Track number of pan updates for immediate rendering
     // PERFORMANCE: Track active canvas interactions to skip GPU rendering during pan/drag
     this._isCanvasInteracting = false;
     this._canvasInteractionEndTimer = null;
     // PERFORMANCE: Track panning state separately for frame-based throttling
     this._isPanning = false;
     this._panFrameCounter = 0; // Frame counter for panning throttling
-    this._panFrameSkipThreshold = 2; // Skip every 2nd frame (redraw every 2 frames = ~30fps during pan)
+    this._panFrameSkipThreshold = 1; // No frame skipping (redraw every frame = 60fps during pan)
+    // STEP 4: Cache interaction state per frame to reduce overhead of state checks
+    this._cachedInteractionState = {
+      isPanning: false,
+      isCanvasInteracting: false,
+      valid: false, // Indicates if cache is valid for current frame
+    };
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -183,12 +187,15 @@ export class EventHandler {
   }
 
   // Mark canvas dirty and request render (optimization for dirty flag system)
-  // PERFORMANCE: During interactions, just mark dirty - main loop handles rendering
-  // This prevents double rendering (RAF callback + main loop) which causes FPS drops
+  // PERFORMANCE: Unified RAF system - single RAF handles all draw requests and pan updates
+  // This prevents double rendering and ensures only one RAF is active at a time
   // The main render loop already calls editor.draw() every frame if dirty
-  // PERFORMANCE: During panning, always mark dirty so draw() is called every frame
   // Frame-based throttling is handled in editor.draw() to skip actual rendering
   _requestDraw(reason = 'user-interaction') {
+    // CRITICAL: Always mark dirty FIRST, even if a RAF is already pending
+    // This ensures all interactions (pan, box-select, node-drag, wire-drag, etc.)
+    // properly mark the editor as dirty, even when they share the same RAF callback
+    // The deduplication below only prevents scheduling multiple RAFs, not marking dirty
     logRedrawTriggerEvent({
       source: 'EventHandler._requestDraw',
       reason,
@@ -200,6 +207,36 @@ export class EventHandler {
     if (this.editor && typeof this.editor.markDirty === 'function') {
       this.editor.markDirty(reason);
     }
+    
+    // Check if a draw request is already pending for the current frame
+    // If so, ignore duplicate RAF scheduling - they'll be processed in the existing RAF callback
+    // Note: We already marked dirty above, so the draw will happen even if we skip RAF scheduling
+    if (this._pendingDrawRequest !== null) {
+      return;
+    }
+    
+    // Schedule unified RAF callback that processes both draw requests and pan updates
+    this._pendingDrawRequest = requestAnimationFrame(() => {
+      // Process pan updates in the same RAF callback to avoid multiple RAFs
+      // This ensures only one RAF is active at a time and pan updates are batched
+      if (this._pendingPanUpdate && this._panUpdateScheduled) {
+        const { clientX, clientY } = this._pendingPanUpdate;
+        if (this.viewport.updatePan(clientX, clientY)) {
+          // Mark canvas as interacting to skip GPU rendering during pan
+          this._markCanvasInteracting('pan');
+        }
+        this._pendingPanUpdate = null;
+        this._panUpdateScheduled = false;
+      }
+      
+      // STEP 4: Reset interaction state cache at the start of each new frame
+      // This ensures we get fresh state values for the new frame
+      this._cachedInteractionState.valid = false;
+      
+      // Reset pending flag at the start of each new frame
+      this._pendingDrawRequest = null;
+    });
+    
     // Don't schedule separate RAF callback - main loop already handles rendering
     // Calling _requestRender() here causes double rendering during interactions
     // Main loop runs at 60fps and checks _isDirty flag, so we don't need separate RAF
@@ -207,8 +244,16 @@ export class EventHandler {
   }
   
   // Check if panning is currently active
+  // STEP 4: Use cached value per frame to reduce overhead of state checks
   isPanning() {
-    return this._isPanning;
+    // Check if cache is valid for current frame
+    if (!this._cachedInteractionState.valid) {
+      // Cache miss or new frame - update cache
+      this._cachedInteractionState.isPanning = this._isPanning;
+      this._cachedInteractionState.isCanvasInteracting = this._isCanvasInteracting;
+      this._cachedInteractionState.valid = true;
+    }
+    return this._cachedInteractionState.isPanning;
   }
   
   // Get current pan frame counter (for editor.draw() to check)
@@ -243,12 +288,20 @@ export class EventHandler {
     });
   }
 
+  // STEP 4: Invalidate interaction state cache when state changes
+  // This ensures cached values are refreshed when state is updated
+  _invalidateInteractionStateCache() {
+    this._cachedInteractionState.valid = false;
+  }
+
   // Mark canvas as actively interacting (pan, drag, etc.)
   // This allows GPU rendering to be skipped during interactions for better performance
   _markCanvasInteracting(reason = 'canvas') {
     const wasInteracting = this._isCanvasInteracting;
     this._isCanvasInteracting = true;
+    // STEP 4: Invalidate cache when state changes
     if (!wasInteracting) {
+      this._invalidateInteractionStateCache();
       this._emitFloatingPreviewInteraction(true, reason);
     }
     
@@ -267,6 +320,8 @@ export class EventHandler {
         return;
       }
       this._isCanvasInteracting = false;
+      // STEP 4: Invalidate cache when state changes
+      this._invalidateInteractionStateCache();
       this._canvasInteractionEndTimer = null;
       this._emitFloatingPreviewInteraction(false, reason);
       // Resume continuous warmup after interaction ends
@@ -290,8 +345,16 @@ export class EventHandler {
   }
 
   // Check if canvas is currently being interacted with
+  // STEP 4: Use cached value per frame to reduce overhead of state checks
   isCanvasInteracting() {
-    return this._isCanvasInteracting;
+    // Check if cache is valid for current frame
+    if (!this._cachedInteractionState.valid) {
+      // Cache miss or new frame - update cache
+      this._cachedInteractionState.isPanning = this._isPanning;
+      this._cachedInteractionState.isCanvasInteracting = this._isCanvasInteracting;
+      this._cachedInteractionState.valid = true;
+    }
+    return this._cachedInteractionState.isCanvasInteracting;
   }
 
   // Check for inactivity and warm up GPU if needed
@@ -399,6 +462,10 @@ export class EventHandler {
         this.viewport.stopPan();
         // Clear panning state and reset frame counter
         this._isPanning = false;
+        // STEP 4: Invalidate cache when panning state changes
+        if (wasPanning) {
+          this._invalidateInteractionStateCache();
+        }
         this._panFrameCounter = 0;
         // Update interaction state manager
         this.interactionStateManager.setPanning(false);
@@ -440,6 +507,8 @@ export class EventHandler {
           // Set panning flag if not already set
           if (!this._isPanning) {
             this._isPanning = true;
+            // STEP 4: Invalidate cache when panning state changes
+            this._invalidateInteractionStateCache();
             this._panFrameCounter = 0; // Reset frame counter when panning starts
             // Update interaction state manager
             this.interactionStateManager.setPanning(true);
@@ -459,56 +528,11 @@ export class EventHandler {
             }
           }
 
-          // Only schedule one update per animation frame for performance
-          // BUT: Always do immediate update for first pan movements to prevent lag
-          // Use counter-based approach for more reliable immediate updates
-          const now = Date.now();
-          // Ensure interaction start time is set (should be set by warmup, but ensure it's set)
-          if (!this._interactionStartTime) {
-            this._interactionStartTime = now;
-          }
-          const timeSinceStart = now - this._interactionStartTime;
-          // PERFORMANCE: Reset pan update count periodically during continuous panning
-          // This prevents accumulation and ensures smooth performance
-          if (this._panUpdateCount > 100) {
-            this._panUpdateCount = 0; // Reset to prevent accumulation
-            this._interactionStartTime = now; // Reset interaction start time
-          }
-          
-          // For panning, ALWAYS use immediate updates for first 20 pan updates
-          // This ensures smooth panning without any lag after inactivity
-          const shouldUseImmediate = this._panUpdateCount < 20 || timeSinceStart < 3000 || this._justWarmedUp;
-          
-          if (shouldUseImmediate && this._pendingPanUpdate) {
-            // Immediate update - bypass RAF to prevent lag during first period
-            // Do this synchronously to ensure it happens before any other processing
-            
-            // CRITICAL: Increment pan update count
-            this._panUpdateCount++;
-            
-            const { clientX, clientY } = this._pendingPanUpdate;
-            this._pendingPanUpdate = null;
-            this._panUpdateScheduled = false;
-            
-            // Update pan state immediately
-            if (this.viewport.updatePan(clientX, clientY)) {
-              // Mark canvas as interacting to skip GPU rendering during pan
-              this._markCanvasInteracting('pan');
-              // Use RAF batching for smooth performance
-              this._requestDraw('pan');
-            }
-          } else if (!this._panUpdateScheduled) {
+          // Use unified RAF system - pan updates are processed in _requestDraw() RAF callback
+          // This ensures only one RAF is active at a time and eliminates double renders
+          if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
-            requestAnimationFrame(() => {
-              this._panUpdateScheduled = false;
-              if (this._pendingPanUpdate) {
-                const { clientX, clientY } = this._pendingPanUpdate;
-                if (this.viewport.updatePan(clientX, clientY)) {
-                  this._requestDraw('pan');
-                }
-                this._pendingPanUpdate = null;
-              }
-            });
+            this._requestDraw('pan');
           }
 
           e.preventDefault();
@@ -720,12 +744,12 @@ export class EventHandler {
         this.viewport.startPan(e.clientX, e.clientY);
         // Set panning flag and reset frame counter
         this._isPanning = true;
+        // STEP 4: Invalidate cache when panning state changes
+        this._invalidateInteractionStateCache();
         this._panFrameCounter = 0;
         // Update interaction state manager
         this.interactionStateManager.setPanning(true);
-        // CRITICAL: Reset pan update count to force immediate updates for first pan movements
-        this._panUpdateCount = 0;
-        // Mark interaction start time for first-frame immediate updates
+        // Mark interaction start time
         this._interactionStartTime = Date.now();
         // Emit interaction event immediately when pan starts
         // This ensures adaptive mode activates immediately
@@ -975,7 +999,6 @@ export class EventHandler {
       this._interactionStartTime = 0;
       this._firstFrameOfInteraction = false;
       this._nodeDragUpdateCount = 0; // Reset drag update count
-      this._panUpdateCount = 0; // Reset pan update count
 
       const pos = this._getCanvasPosition(e);
 

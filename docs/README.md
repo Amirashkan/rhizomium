@@ -57,6 +57,7 @@ Ready to create? You're just a few clicks away:
 
 - **[Shader Compilation](shader-compilation.md)** - How nodes become GPU shaders
 - **[Performance Tips](performance.md)** - Optimize complex visuals
+- **[Frame Timing Monitoring](frame-timing-monitoring.md)** - Track RAF performance and frame drops
 - **[FAQ](faq-web.md)** - Common questions answered
 
 ---
@@ -127,6 +128,17 @@ There's no "right" way to create - explore, experiment, and evolve.
 ---
 
 ## 🛠️ For Developers
+
+### ⚠️ CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS ⚠️
+
+**30 FPS IS NEVER ACCEPTED. ALL OPTIMIZATIONS MUST TARGET 60 FPS.**
+
+- **Target frame time:** <16.67ms (60 FPS)
+- **Throttling values:** Use 16.67ms (60 FPS), NOT 33.33ms (30 FPS)
+- **Frame skipping:** Should target 60 FPS, not 30 FPS
+- **Any code that limits performance to 30 FPS must be changed to 60 FPS**
+
+This is a non-negotiable requirement. If you see any 30 FPS throttling, frame skipping that results in 30 FPS, or comments mentioning 30 FPS as acceptable, you MUST change it to 60 FPS.
 
 Want to run Rhizomium locally or deploy your own instance?
 

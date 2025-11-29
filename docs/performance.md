@@ -2,6 +2,17 @@
 
 Optimize your Rhizomium node graphs for smooth, real-time performance.
 
+## ⚠️ CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS ⚠️
+
+**30 FPS IS NEVER ACCEPTED. ALL OPTIMIZATIONS MUST TARGET 60 FPS.**
+
+- **Target frame time:** <16.67ms (60 FPS)
+- **Throttling values:** Use 16.67ms (60 FPS), NOT 33.33ms (30 FPS)
+- **Frame skipping:** Should target 60 FPS, not 30 FPS
+- **Any code that limits performance to 30 FPS must be changed to 60 FPS**
+
+This is a non-negotiable requirement. If you see any 30 FPS throttling, frame skipping that results in 30 FPS, or comments mentioning 30 FPS as acceptable, you MUST change it to 60 FPS.
+
 ---
 
 ## Understanding Performance
@@ -459,6 +470,38 @@ This is worst-case scenario. Normal graphs should be much faster.
 ---
 
 ## Performance Monitoring
+
+### Frame Timing Monitoring
+
+The application includes built-in frame timing monitoring that tracks RAF (RequestAnimationFrame) performance:
+
+**Access via Console:**
+```javascript
+// Get comprehensive frame statistics
+const stats = window.renderLoop?.rafManager?.getFrameStats();
+console.log(stats);
+
+// Check frame drop rate
+console.log(`Frame drop rate: ${stats.frameDropRate.toFixed(2)}%`);
+
+// Find slow handlers
+Object.entries(stats.handlerStats).forEach(([name, handlerStats]) => {
+  if (handlerStats.averageTime > 1.0) {
+    console.log(`${name}: ${handlerStats.averageTime.toFixed(2)}ms avg`);
+  }
+});
+```
+
+**Key Metrics:**
+- **frameDropCount**: Frames exceeding 16.67ms (60fps budget)
+- **frameDropRate**: Percentage of dropped frames
+- **handlerStats**: Per-handler execution times
+- **executionOrder**: Which handlers ran and in what order
+
+**Automatic Warnings:**
+The system automatically logs warnings when frames exceed the 60fps budget, including details about slow handlers.
+
+**See [Frame Timing Monitoring Guide](frame-timing-monitoring.md) for complete documentation.**
 
 ### Browser DevTools
 
