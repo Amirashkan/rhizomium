@@ -192,8 +192,25 @@ export class EventHandler {
   // The main render loop already calls editor.draw() every frame if dirty
   // Frame-based throttling is handled in editor.draw() to skip actual rendering
   _requestDraw(reason = 'user-interaction') {
+    // CRITICAL: Always mark dirty FIRST, even if a RAF is already pending
+    // This ensures all interactions (pan, box-select, node-drag, wire-drag, etc.)
+    // properly mark the editor as dirty, even when they share the same RAF callback
+    // The deduplication below only prevents scheduling multiple RAFs, not marking dirty
+    logRedrawTriggerEvent({
+      source: 'EventHandler._requestDraw',
+      reason,
+      detail: {
+        isCanvasInteracting: this._isCanvasInteracting,
+        isPanning: this._isPanning,
+      },
+    });
+    if (this.editor && typeof this.editor.markDirty === 'function') {
+      this.editor.markDirty(reason);
+    }
+    
     // Check if a draw request is already pending for the current frame
-    // If so, ignore duplicate requests - they'll be processed in the existing RAF callback
+    // If so, ignore duplicate RAF scheduling - they'll be processed in the existing RAF callback
+    // Note: We already marked dirty above, so the draw will happen even if we skip RAF scheduling
     if (this._pendingDrawRequest !== null) {
       return;
     }
@@ -220,17 +237,6 @@ export class EventHandler {
       this._pendingDrawRequest = null;
     });
     
-    logRedrawTriggerEvent({
-      source: 'EventHandler._requestDraw',
-      reason,
-      detail: {
-        isCanvasInteracting: this._isCanvasInteracting,
-        isPanning: this._isPanning,
-      },
-    });
-    if (this.editor && typeof this.editor.markDirty === 'function') {
-      this.editor.markDirty(reason);
-    }
     // Don't schedule separate RAF callback - main loop already handles rendering
     // Calling _requestRender() here causes double rendering during interactions
     // Main loop runs at 60fps and checks _isDirty flag, so we don't need separate RAF
