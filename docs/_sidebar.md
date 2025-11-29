@@ -18,6 +18,7 @@
 * Advanced Topics
   * [Shader Compilation](shader-compilation.md)
   * [Performance Tips](performance.md)
+  * [Frame Timing Monitoring](frame-timing-monitoring.md)
 
 ---
 

@@ -471,6 +471,38 @@ This is worst-case scenario. Normal graphs should be much faster.
 
 ## Performance Monitoring
 
+### Frame Timing Monitoring
+
+The application includes built-in frame timing monitoring that tracks RAF (RequestAnimationFrame) performance:
+
+**Access via Console:**
+```javascript
+// Get comprehensive frame statistics
+const stats = window.renderLoop?.rafManager?.getFrameStats();
+console.log(stats);
+
+// Check frame drop rate
+console.log(`Frame drop rate: ${stats.frameDropRate.toFixed(2)}%`);
+
+// Find slow handlers
+Object.entries(stats.handlerStats).forEach(([name, handlerStats]) => {
+  if (handlerStats.averageTime > 1.0) {
+    console.log(`${name}: ${handlerStats.averageTime.toFixed(2)}ms avg`);
+  }
+});
+```
+
+**Key Metrics:**
+- **frameDropCount**: Frames exceeding 16.67ms (60fps budget)
+- **frameDropRate**: Percentage of dropped frames
+- **handlerStats**: Per-handler execution times
+- **executionOrder**: Which handlers ran and in what order
+
+**Automatic Warnings:**
+The system automatically logs warnings when frames exceed the 60fps budget, including details about slow handlers.
+
+**See [Frame Timing Monitoring Guide](frame-timing-monitoring.md) for complete documentation.**
+
 ### Browser DevTools
 
 **Check frame rate:**

@@ -57,6 +57,7 @@ Ready to create? You're just a few clicks away:
 
 - **[Shader Compilation](shader-compilation.md)** - How nodes become GPU shaders
 - **[Performance Tips](performance.md)** - Optimize complex visuals
+- **[Frame Timing Monitoring](frame-timing-monitoring.md)** - Track RAF performance and frame drops
 - **[FAQ](faq-web.md)** - Common questions answered
 
 ---
