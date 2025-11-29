@@ -203,36 +203,67 @@ export class UnifiedRAFManager {
   }
 
   /**
-   * Main frame handler
+   * Process a frame - can be called externally by a parent RAF loop (e.g., RenderLoop)
+   * This allows UnifiedRAFManager to work as a handler coordinator without managing its own RAF loop
    * 
-   * @param {number} timestamp - Current timestamp from RAF
+   * @param {Object} frameInfo - Frame information object from parent loop
+   * @param {number} frameInfo.frameIndex - Current frame index
+   * @param {number} frameInfo.deltaTime - Delta time in seconds
+   * @param {number} frameInfo.realTime - Real time in seconds
+   * @param {number} [frameInfo.timestamp] - Optional timestamp (defaults to performance.now())
+   * @param {number} [frameInfo.frameTime] - Optional frame time in ms (calculated if not provided)
    */
-  _onFrame(timestamp) {
-    if (!this._running) {
-      this._rafId = null;
-      return;
-    }
-    
-    // Calculate frame time
+  processFrame(frameInfo) {
     const frameStartTime = performance.now();
-    let frameTime = 0;
     
-    if (this._frameStats.lastTimestamp !== null) {
-      frameTime = timestamp - this._frameStats.lastTimestamp;
+    // Ensure frame counter is initialized
+    if (this._frameStats.startTime === null) {
+      this._frameStats.startTime = performance.now();
+      this._frameStats.lastTimestamp = null;
+      this._frameCounter = 0;
     }
     
-    this._frameStats.lastTimestamp = timestamp;
-    this._frameCounter++;
+    // Update frame counter from frameInfo if available, otherwise increment
+    if (typeof frameInfo.frameIndex === 'number') {
+      this._frameCounter = frameInfo.frameIndex;
+    } else {
+      this._frameCounter++;
+    }
     
-    // Build frame info object
-    const frameInfo = {
-      timestamp,
+    // Calculate frame time if not provided
+    let frameTime = frameInfo.frameTime;
+    if (frameTime === undefined) {
+      const timestamp = frameInfo.timestamp || performance.now();
+      if (this._frameStats.lastTimestamp !== null) {
+        frameTime = timestamp - this._frameStats.lastTimestamp;
+      } else {
+        frameTime = 0;
+      }
+      this._frameStats.lastTimestamp = timestamp;
+    }
+    
+    // Build enhanced frame info object with all expected properties
+    const enhancedFrameInfo = {
+      timestamp: frameInfo.timestamp || performance.now(),
       frameIndex: this._frameCounter,
-      deltaTime: frameTime / 1000, // Convert to seconds
-      frameTime, // In milliseconds
-      realTime: performance.now() * 0.001, // Real time in seconds
+      deltaTime: frameInfo.deltaTime || (frameTime / 1000),
+      frameTime: frameTime,
+      realTime: frameInfo.realTime || (performance.now() * 0.001),
+      ...frameInfo, // Include any additional properties from parent frameInfo
     };
     
+    // Process handlers (shared logic with _onFrame)
+    this._processHandlers(enhancedFrameInfo, frameStartTime);
+  }
+
+  /**
+   * Internal method to process all handlers for a frame
+   * Shared between _onFrame (self-managed RAF) and processFrame (external RAF)
+   * 
+   * @param {Object} frameInfo - Frame information object
+   * @param {number} frameStartTime - Start time of frame processing
+   */
+  _processHandlers(frameInfo, frameStartTime) {
     // Get handlers sorted by priority
     const handlers = Array.from(this._handlers.values())
       .filter(h => h.enabled)
@@ -308,6 +339,41 @@ export class UnifiedRAFManager {
     this._frameStats.lastFrameTime = totalFrameTime;
     this._frameStats.handlersExecuted += handlersExecuted;
     this._frameStats.handlersSkipped += handlersSkipped;
+  }
+
+  /**
+   * Main frame handler (for self-managed RAF loop)
+   * 
+   * @param {number} timestamp - Current timestamp from RAF
+   */
+  _onFrame(timestamp) {
+    if (!this._running) {
+      this._rafId = null;
+      return;
+    }
+    
+    // Calculate frame time
+    const frameStartTime = performance.now();
+    let frameTime = 0;
+    
+    if (this._frameStats.lastTimestamp !== null) {
+      frameTime = timestamp - this._frameStats.lastTimestamp;
+    }
+    
+    this._frameStats.lastTimestamp = timestamp;
+    this._frameCounter++;
+    
+    // Build frame info object
+    const frameInfo = {
+      timestamp,
+      frameIndex: this._frameCounter,
+      deltaTime: frameTime / 1000, // Convert to seconds
+      frameTime, // In milliseconds
+      realTime: performance.now() * 0.001, // Real time in seconds
+    };
+    
+    // Process handlers using shared logic
+    this._processHandlers(frameInfo, frameStartTime);
     
     // Schedule next frame
     this._rafId = null;
