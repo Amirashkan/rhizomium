@@ -10,7 +10,7 @@ const DEFAULT_TRIGGER_CONFIG = {
   'mouse-move': { throttle: 16.67, debounce: null, priority: 'high' },
   'mouse-drag': { throttle: 16.67, debounce: null, priority: 'high' },
   'pan': { throttle: 16.67, debounce: null, priority: 'normal' },
-  'zoom': { throttle: null, debounce: 50, priority: 'high' },
+  'zoom': { throttle: 16.67, debounce: null, priority: 'high' },
   'selection': { throttle: null, debounce: null, priority: 'critical' },
   'box-select': { throttle: 16.67, debounce: null, priority: 'normal' },
   
