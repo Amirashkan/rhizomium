@@ -14,6 +14,7 @@ import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingM
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
 import { logRedrawDirtyMark, logRedrawCommit } from '../utils/RedrawDiagnostics.js';
 import { InvalidationManager } from "./InvalidationManager.js";
+import { PRIORITY } from './UnifiedRAFManager.js';
 
 const getTimestamp = () => {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -51,6 +52,11 @@ export class Editor {
       this.pendingMidiDependencyUpdates = new Map();
       this.midiPreviewUpdateTimer = null;
       this.midiPreviewUpdateDelay = 500; // ms - delay before updating previews after MIDI stops
+      
+      // Animation context initialization
+      this.animationTime = 0;
+      this.animationFrame = 0;
+      this._animationContextHandlerName = null; // Will be set when animation loop is set up
 
       // Set basic properties FIRST
       this.graph = graph;
@@ -307,23 +313,52 @@ export class Editor {
   }
 
 setupOptimizedGPUAnimationLoop() {
-  const animate = (timestamp) => {
-    this.updateAnimationContext(timestamp / 1000, this.animationFrame);
-    this.animationFrame++;
-    
-    // Safety check - only render if function exists
-    if (window.render && typeof window.render === 'function') {
-      try {
-        window.render();
-      } catch (error) {
-
-      }
-    }
-    
-    this.gpuAnimationRequestId = requestAnimationFrame(animate);
-  };
+  // MIGRATED: Use UnifiedRAFManager instead of separate RAF loop
+  // This eliminates duplicate GPU render calls and consolidates all RAF-based updates
+  // Animation context must be updated with HIGH priority before GPU rendering happens
+  // RenderLoop's handleRenderFrame will use the updated animation context
   
-  this.gpuAnimationRequestId = requestAnimationFrame(animate);
+  // Handler name for UnifiedRAFManager
+  this._animationContextHandlerName = 'editorAnimationContext';
+  
+  // Register handler with UnifiedRAFManager to use unified RAF loop
+  // HIGH priority ensures animation context is updated before GPU rendering
+  if (window.renderLoop?.rafManager) {
+    window.renderLoop.rafManager.registerHandler(
+      this._animationContextHandlerName,
+      (frameInfo) => {
+        // Convert realTime from seconds to milliseconds for timestamp comparison
+        const timestamp = frameInfo.timestamp || (frameInfo.realTime * 1000);
+        const timeInSeconds = frameInfo.realTime || (timestamp / 1000);
+        
+        // Update animation context with current time and frame
+        // This ensures expressions have access to current time/frame values
+        this.updateAnimationContext(timeInSeconds, frameInfo.frameIndex || this.animationFrame);
+        
+        // Increment frame counter if not provided by frameInfo
+        if (typeof frameInfo.frameIndex !== 'number') {
+          this.animationFrame++;
+        } else {
+          this.animationFrame = frameInfo.frameIndex;
+        }
+      },
+      PRIORITY.HIGH, // HIGH priority - must run before GPU rendering
+      {
+        // Condition: only execute if render loop is not paused
+        condition: (frameInfo) => {
+          return !frameInfo.paused; // Skip if render loop is paused
+        }
+      }
+    );
+  } else {
+    // Fallback: If RenderLoop is not available yet, wait and retry
+    // This can happen if Editor is initialized before RenderLoop
+    setTimeout(() => {
+      if (window.renderLoop?.rafManager) {
+        this.setupOptimizedGPUAnimationLoop();
+      }
+    }, 100);
+  }
 }
 
 // ADDITIONAL FIX: Add method to manually connect GPU renderer
@@ -2220,15 +2255,10 @@ connectGPURenderer(renderFunction) {
 
   dispose() {
     try {
-      // Clean up GPU animation loop
-      if (this.gpuAnimationLoop) {
-        clearInterval(this.gpuAnimationLoop);
-        this.gpuAnimationLoop = null;
-      }
-      
-      if (this.gpuAnimationRequestId) {
-        cancelAnimationFrame(this.gpuAnimationRequestId);
-        this.gpuAnimationRequestId = null;
+      // Unregister animation context handler from UnifiedRAFManager
+      if (window.renderLoop?.rafManager && this._animationContextHandlerName) {
+        window.renderLoop.rafManager.unregisterHandler(this._animationContextHandlerName);
+        this._animationContextHandlerName = null;
       }
       
       if (this.rebuildTimeout) {
