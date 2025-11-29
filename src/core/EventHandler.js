@@ -52,7 +52,7 @@ export class EventHandler {
     // PERFORMANCE: Track panning state separately for frame-based throttling
     this._isPanning = false;
     this._panFrameCounter = 0; // Frame counter for panning throttling
-    this._panFrameSkipThreshold = 2; // Skip every 2nd frame (redraw every 2 frames = ~30fps during pan)
+    this._panFrameSkipThreshold = 1; // No frame skipping (redraw every frame = 60fps during pan)
     // STEP 4: Cache interaction state per frame to reduce overhead of state checks
     this._cachedInteractionState = {
       isPanning: false,

@@ -9,23 +9,23 @@ const DEFAULT_TRIGGER_CONFIG = {
   // User Interaction Events
   'mouse-move': { throttle: 16.67, debounce: null, priority: 'high' },
   'mouse-drag': { throttle: 16.67, debounce: null, priority: 'high' },
-  'pan': { throttle: 33.33, debounce: null, priority: 'normal' },
+  'pan': { throttle: 16.67, debounce: null, priority: 'normal' },
   'zoom': { throttle: null, debounce: 50, priority: 'high' },
   'selection': { throttle: null, debounce: null, priority: 'critical' },
-  'box-select': { throttle: 33.33, debounce: null, priority: 'normal' },
+  'box-select': { throttle: 16.67, debounce: null, priority: 'normal' },
   
   // Graph Structure Changes
   'node-add': { throttle: null, debounce: null, priority: 'high' },
   'node-remove': { throttle: null, debounce: null, priority: 'high' },
-  'node-move': { throttle: 33.33, debounce: null, priority: 'normal' },
+  'node-move': { throttle: 16.67, debounce: null, priority: 'normal' },
   'connection-add': { throttle: null, debounce: 100, priority: 'normal' },
   'connection-remove': { throttle: null, debounce: null, priority: 'high' },
   'graph-change': { throttle: null, debounce: 150, priority: 'normal' },
   
   // Parameter Updates
-  'parameter-change': { throttle: 33.33, debounce: 200, priority: 'normal' },
-  'parameter-drag': { throttle: 33.33, debounce: null, priority: 'normal' },
-  'midi-input': { throttle: 33.33, debounce: 100, priority: 'normal' },
+  'parameter-change': { throttle: 16.67, debounce: 200, priority: 'normal' },
+  'parameter-drag': { throttle: 16.67, debounce: null, priority: 'normal' },
+  'midi-input': { throttle: 16.67, debounce: 100, priority: 'normal' },
   'expression-update': { throttle: null, debounce: 300, priority: 'normal' },
   
   // Preview Updates
@@ -36,7 +36,7 @@ const DEFAULT_TRIGGER_CONFIG = {
   // Animation & Time-Based
   'animation-frame': { throttle: 16.67, debounce: null, priority: 'high' },
   'time-update': { throttle: 16.67, debounce: null, priority: 'high' },
-  'audio-envelope': { throttle: 33.33, debounce: null, priority: 'normal' },
+  'audio-envelope': { throttle: 16.67, debounce: null, priority: 'normal' },
   
   // Background & System Events
   'autosave': { throttle: null, debounce: 2000, priority: 'idle' },
@@ -45,7 +45,7 @@ const DEFAULT_TRIGGER_CONFIG = {
   'observer-update': { throttle: null, debounce: 200, priority: 'low' },
   
   // Fallback for unknown triggers
-  'unknown': { throttle: 33.33, debounce: null, priority: 'normal' }
+  'unknown': { throttle: 16.67, debounce: null, priority: 'normal' }
 };
 
 const PRIORITY_ORDER = {

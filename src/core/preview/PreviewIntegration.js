@@ -35,8 +35,8 @@ export class PreviewIntegration {
           // Convert realTime from seconds to milliseconds for timestamp comparison
           const timestamp = frameInfo.realTime * 1000;
           // OPTIMIZATION: Only update time nodes if enough time has passed
-          // Limit to 30 FPS max for time updates (33.33ms between updates)
-          if (timestamp - this.lastTimeUpdate >= 33.33) {
+          // Limit to 60 FPS max for time updates (16.67ms between updates)
+          if (timestamp - this.lastTimeUpdate >= 16.67) {
             this.updateTimeNodes();
             this.lastTimeUpdate = timestamp;
           }

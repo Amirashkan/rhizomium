@@ -1182,7 +1182,7 @@ isIncomplete(value) {
 
         // Throttle shader rebuilds during drag to avoid performance issues
         let lastRebuildTime = 0;
-        const REBUILD_THROTTLE_MS = 33; // ~30fps max rebuild rate
+        const REBUILD_THROTTLE_MS = 16.67; // ~60fps max rebuild rate
 
         const onMouseMove = (e) => {
           if (!isDragging) return;
