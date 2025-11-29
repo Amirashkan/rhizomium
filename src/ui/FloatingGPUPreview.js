@@ -2,6 +2,7 @@
 
 import { PreviewSettings } from "./PreviewSettings.js";
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+import { PRIORITY } from '../core/UnifiedRAFManager.js';
 
 export class FloatingGPUPreview {
   constructor(gpuCanvas) {
@@ -35,9 +36,8 @@ export class FloatingGPUPreview {
     this._resizeRafId = null;
     this.isCanvasInteractionActive = false;
     this._previewRenderLoopRunning = false;
-    this._previewRafId = null;
-    this._previewFrameSkipCounter = 0;
-    this._previewLastFrameTime = 0;
+    this._handlerName = 'floatingGPUPreview'; // Handler name for UnifiedRAFManager
+    this._lastRenderTime = 0; // Track last render time for 60 FPS throttling
     
     // Smart adaptive quality - only activates when resources are actually low
     // Disabled by default, can be enabled via "light mode" or auto-enabled when needed
@@ -413,55 +413,60 @@ _setupAnimationLoop() {
 _startPreviewRenderLoop() {
   if (this._previewRenderLoopRunning || !this.isVisible) return;
   
-  // PERFORMANCE: Run a loop that ensures preview maintains 60 FPS
+  // PERFORMANCE: Register with UnifiedRAFManager instead of creating own RAF
+  // This consolidates all RAF-based updates into a single loop for better performance
   // Always render at 60 FPS to ensure smooth preview, regardless of main loop state
   // The GPU renderer can handle being called multiple times per frame gracefully
   
   this._previewRenderLoopRunning = true;
-  this._previewFrameSkipCounter = 0;
-  this._previewLastFrameTime = performance.now();
   this._lastRenderTime = 0;
   
-  const renderFrame = (timestamp) => {
-    if (!this._previewRenderLoopRunning || !this.isVisible) {
-      this._previewRenderLoopRunning = false;
-      this._previewRafId = null;
-      return;
-    }
-    
-    // Always render at 60 FPS to ensure smooth preview
-    // Check if enough time has passed (target 60 FPS = 16.67ms per frame)
-    const timeSinceLastRender = timestamp - this._lastRenderTime;
-    const minFrameInterval = 16.67; // ~60 FPS
-    const shouldRender = timeSinceLastRender >= minFrameInterval;
-    
-    if (shouldRender && typeof window.render === "function") {
-      // Render the preview - GPU renderer handles duplicate calls gracefully
-      window.render();
-      this._lastRenderTime = timestamp;
-      
-      // Update FPS counter
-      if (this.fpsCounter) {
-        this.fpsCounter.frame();
+  // Register handler with UnifiedRAFManager to use unified RAF loop
+  if (window.renderLoop?.rafManager) {
+    window.renderLoop.rafManager.registerHandler(
+      this._handlerName,
+      (frameInfo) => {
+        // Convert realTime from seconds to milliseconds for timestamp comparison
+        const timestamp = frameInfo.timestamp || (frameInfo.realTime * 1000);
+        
+        // Always render at 60 FPS to ensure smooth preview
+        // Check if enough time has passed (target 60 FPS = 16.67ms per frame)
+        const timeSinceLastRender = timestamp - this._lastRenderTime;
+        const minFrameInterval = 16.67; // ~60 FPS
+        const shouldRender = timeSinceLastRender >= minFrameInterval;
+        
+        if (shouldRender && typeof window.render === "function") {
+          // Render the preview - GPU renderer handles duplicate calls gracefully
+          window.render();
+          this._lastRenderTime = timestamp;
+          
+          // Update FPS counter
+          if (this.fpsCounter) {
+            this.fpsCounter.frame();
+          }
+        }
+      },
+      PRIORITY.NORMAL,
+      {
+        // Condition: only execute if preview is visible and loop should be running
+        condition: (frameInfo) => {
+          return (
+            this.isVisible &&
+            this._previewRenderLoopRunning &&
+            !frameInfo.paused // Skip if render loop is paused
+          );
+        }
       }
-    }
-    
-    this._previewFrameSkipCounter++;
-    this._previewLastFrameTime = timestamp;
-    
-    // Schedule next frame
-    this._previewRafId = requestAnimationFrame(renderFrame);
-  };
-  
-  // Start the loop
-  this._previewRafId = requestAnimationFrame(renderFrame);
+    );
+  }
 }
 
 _stopPreviewRenderLoop() {
   this._previewRenderLoopRunning = false;
-  if (this._previewRafId !== null) {
-    cancelAnimationFrame(this._previewRafId);
-    this._previewRafId = null;
+  
+  // Unregister handler from UnifiedRAFManager
+  if (window.renderLoop?.rafManager) {
+    window.renderLoop.rafManager.unregisterHandler(this._handlerName);
   }
 }
 
