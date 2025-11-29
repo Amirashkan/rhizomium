@@ -38,6 +38,10 @@ export class EventHandler {
     // CRITICAL: Batch draw requests - only mark dirty once per frame
     this._drawRequestedThisFrame = false;
     this._drawRequestFrameReset = null;
+    // Draw request deduplication system
+    this._pendingDrawRequest = null; // Track if a draw is already scheduled
+    this._drawRequestFrameId = null; // Track the current frame ID for deduplication
+    this._lastFrameTime = 0; // Track last frame time for frame detection
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
     this._lastMouseMoveTime = Date.now();
@@ -189,6 +193,24 @@ export class EventHandler {
   // PERFORMANCE: During panning, always mark dirty so draw() is called every frame
   // Frame-based throttling is handled in editor.draw() to skip actual rendering
   _requestDraw(reason = 'user-interaction') {
+    // Check if a draw request is already pending for the current frame
+    // Use requestAnimationFrame to detect frame boundaries
+    if (this._pendingDrawRequest !== null) {
+      // Draw request already pending for this frame - ignore duplicate
+      return;
+    }
+    
+    // Mark that we have a pending draw request for this frame
+    // Schedule frame reset at the start of the next frame
+    this._pendingDrawRequest = requestAnimationFrame((frameTime) => {
+      // Reset pending flag at the start of each new frame
+      this._pendingDrawRequest = null;
+      this._drawRequestFrameId = null;
+      this._lastFrameTime = frameTime;
+    });
+    // Store the frame ID for deduplication tracking
+    this._drawRequestFrameId = this._pendingDrawRequest;
+    
     logRedrawTriggerEvent({
       source: 'EventHandler._requestDraw',
       reason,
