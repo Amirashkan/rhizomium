@@ -191,17 +191,31 @@ export class EventHandler {
   // The main render loop already calls editor.draw() every frame if dirty
   // PERFORMANCE: During panning, always mark dirty so draw() is called every frame
   // Frame-based throttling is handled in editor.draw() to skip actual rendering
+  // STEP 3: Unified RAF system - single RAF handles all draw requests and pan updates
   _requestDraw(reason = 'user-interaction') {
     // Check if a draw request is already pending for the current frame
     // Use requestAnimationFrame to detect frame boundaries
     if (this._pendingDrawRequest !== null) {
       // Draw request already pending for this frame - ignore duplicate
+      // Pan updates will be processed in the existing RAF callback
       return;
     }
     
     // Mark that we have a pending draw request for this frame
-    // Schedule frame reset at the start of the next frame
+    // Schedule unified RAF callback that processes both draw requests and pan updates
     this._pendingDrawRequest = requestAnimationFrame((frameTime) => {
+      // STEP 3: Process pan updates in the same RAF callback to avoid multiple RAFs
+      // This ensures only one RAF is active at a time and pan updates are batched
+      if (this._pendingPanUpdate && this._panUpdateScheduled) {
+        const { clientX, clientY } = this._pendingPanUpdate;
+        if (this.viewport.updatePan(clientX, clientY)) {
+          // Mark canvas as interacting to skip GPU rendering during pan
+          this._markCanvasInteracting('pan');
+        }
+        this._pendingPanUpdate = null;
+        this._panUpdateScheduled = false;
+      }
+      
       // Reset pending flag at the start of each new frame
       this._pendingDrawRequest = null;
       this._drawRequestFrameId = null;
@@ -480,22 +494,13 @@ export class EventHandler {
             }
           }
 
-          // Only schedule one update per animation frame for performance
-          // Always use RAF batching to prevent double renders
+          // STEP 3: Use unified RAF system - don't schedule separate pan RAF
+          // Mark that we have a pending pan update and use _requestDraw() unified RAF
+          // The pan update will be processed in the _requestDraw() RAF callback
           if (!this._panUpdateScheduled) {
             this._panUpdateScheduled = true;
-            requestAnimationFrame(() => {
-              this._panUpdateScheduled = false;
-              if (this._pendingPanUpdate) {
-                const { clientX, clientY } = this._pendingPanUpdate;
-                if (this.viewport.updatePan(clientX, clientY)) {
-                  // Mark canvas as interacting to skip GPU rendering during pan
-                  this._markCanvasInteracting('pan');
-                  this._requestDraw('pan');
-                }
-                this._pendingPanUpdate = null;
-              }
-            });
+            // Use unified RAF system - pan update will be processed in _requestDraw() callback
+            this._requestDraw('pan');
           }
 
           e.preventDefault();
