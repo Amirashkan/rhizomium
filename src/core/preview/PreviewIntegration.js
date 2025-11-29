@@ -1,13 +1,15 @@
 // src/core/preview/PreviewIntegration.js
 // OPTIMIZED VERSION - Fixes timer spam and unnecessary updates
 
+import { PRIORITY } from '../UnifiedRAFManager.js';
+
 export class PreviewIntegration {
   constructor(editor, previewSystem) {
     this.editor = editor;
     this.previewSystem = previewSystem;
     this.timeUpdateInterval = null;
     this.lastTimeUpdate = 0;
-    this.frameRequestId = null;
+    this._handlerName = 'previewIntegration'; // Handler name for UnifiedRAFManager
 
     // Debouncing for parameter changes
     this.parameterChangeTimeout = null;
@@ -24,33 +26,35 @@ export class PreviewIntegration {
       this.updateAllPreviews();
     }
 
-    // OPTIMIZATION: Use requestAnimationFrame instead of setInterval
-    // This syncs with display refresh rate and is much more efficient
-    this.startAnimationLoop();
-  }
-
-  startAnimationLoop() {
-    if (this.frameRequestId) {
-      cancelAnimationFrame(this.frameRequestId);
-    }
-
-    const animate = (timestamp) => {
-      // PERFORMANCE: Skip during parameter drag
-      if (!this.editor._parameterDragging) {
-        if (this.editor.isPreviewEnabled && this.previewSystem) {
+    // Register handler with UnifiedRAFManager to use unified RAF loop
+    // This consolidates all RAF-based updates into a single loop for better performance
+    if (window.renderLoop?.rafManager) {
+      window.renderLoop.rafManager.registerHandler(
+        this._handlerName,
+        (frameInfo) => {
+          // Convert realTime from seconds to milliseconds for timestamp comparison
+          const timestamp = frameInfo.realTime * 1000;
           // OPTIMIZATION: Only update time nodes if enough time has passed
           // Limit to 30 FPS max for time updates (33.33ms between updates)
           if (timestamp - this.lastTimeUpdate >= 33.33) {
             this.updateTimeNodes();
             this.lastTimeUpdate = timestamp;
           }
+        },
+        PRIORITY.NORMAL,
+        {
+          // Condition: only execute if preview is enabled, system exists, and not during parameter drag
+          condition: (frameInfo) => {
+            return (
+              this.editor.isPreviewEnabled &&
+              this.previewSystem &&
+              !this.editor._parameterDragging &&
+              !frameInfo.paused // Skip if render loop is paused
+            );
+          }
         }
-      }
-
-      this.frameRequestId = requestAnimationFrame(animate);
-    };
-
-    this.frameRequestId = requestAnimationFrame(animate);
+      );
+    }
   }
 
   updateAllPreviews() {
@@ -321,16 +325,16 @@ updateTimeNodes() {
     }
   }
 
-  // OPTIMIZATION: Cleanup method with proper animation frame cancellation
+  // OPTIMIZATION: Cleanup method with proper handler unregistration
   destroy() {
     if (this.timeUpdateInterval) {
       clearInterval(this.timeUpdateInterval);
       this.timeUpdateInterval = null;
     }
 
-    if (this.frameRequestId) {
-      cancelAnimationFrame(this.frameRequestId);
-      this.frameRequestId = null;
+    // Unregister handler from UnifiedRAFManager
+    if (window.renderLoop?.rafManager) {
+      window.renderLoop.rafManager.unregisterHandler(this._handlerName);
     }
 
     if (this.parameterChangeTimeout) {
@@ -362,16 +366,16 @@ updateTimeNodes() {
   }
 
   // OPTIMIZATION: Add method to pause/resume animation for better control
+  // Uses UnifiedRAFManager's enable/disable functionality
   pauseAnimation() {
-    if (this.frameRequestId) {
-      cancelAnimationFrame(this.frameRequestId);
-      this.frameRequestId = null;
+    if (window.renderLoop?.rafManager) {
+      window.renderLoop.rafManager.setHandlerEnabled(this._handlerName, false);
     }
   }
 
   resumeAnimation() {
-    if (!this.frameRequestId) {
-      this.startAnimationLoop();
+    if (window.renderLoop?.rafManager) {
+      window.renderLoop.rafManager.setHandlerEnabled(this._handlerName, true);
     }
   }
 
