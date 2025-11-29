@@ -38,9 +38,14 @@ export class UnifiedRAFManager {
       lastFrameTime: 0,
       handlersExecuted: 0,
       handlersSkipped: 0,
+      frameDropCount: 0, // Count of frames exceeding 16.67ms (60fps budget)
       startTime: null,
       lastTimestamp: null,
     };
+    
+    // Track execution order for recent frames (last 10 frames)
+    this._executionOrderHistory = [];
+    this._maxExecutionOrderHistory = 10;
     
     // Per-handler statistics
     this._handlerStats = new Map();
@@ -269,6 +274,9 @@ export class UnifiedRAFManager {
       .filter(h => h.enabled)
       .sort((a, b) => a.priority - b.priority);
     
+    // Track execution order for this frame
+    const executionOrder = [];
+    
     // Execute handlers in priority order
     let handlersExecuted = 0;
     let handlersSkipped = 0;
@@ -315,6 +323,13 @@ export class UnifiedRAFManager {
         handler.averageTime = handler.totalTime / handler.executionCount;
         handler.minTime = Math.min(handler.minTime, handlerTime);
         handler.maxTime = Math.max(handler.maxTime, handlerTime);
+        
+        // Track execution order with timing
+        executionOrder.push({
+          name: handler.name,
+          priority: handler.priority,
+          executionTime: handlerTime,
+        });
       } catch (error) {
         // Handle error
         if (handler.onError) {
@@ -331,6 +346,50 @@ export class UnifiedRAFManager {
     
     // Update frame statistics
     const totalFrameTime = performance.now() - frameStartTime;
+    const TARGET_FRAME_TIME_MS = 16.67; // 60 FPS budget
+    
+    // Track frame drops (frames exceeding 60fps budget)
+    if (totalFrameTime > TARGET_FRAME_TIME_MS) {
+      this._frameStats.frameDropCount++;
+      
+      // Log warning with detailed information
+      const slowHandlers = executionOrder
+        .filter(h => h.executionTime > 1.0) // Handlers taking more than 1ms
+        .sort((a, b) => b.executionTime - a.executionTime)
+        .slice(0, 5); // Top 5 slowest handlers
+      
+      console.warn(
+        `[UnifiedRAFManager] Frame time exceeded 60fps budget: ${totalFrameTime.toFixed(2)}ms (target: ${TARGET_FRAME_TIME_MS}ms)`,
+        {
+          frameIndex: this._frameCounter,
+          totalFrameTime: totalFrameTime.toFixed(2),
+          handlersExecuted,
+          handlersSkipped,
+          slowHandlers: slowHandlers.map(h => ({
+            name: h.name,
+            time: h.executionTime.toFixed(2) + 'ms',
+            priority: h.priority,
+          })),
+        }
+      );
+    }
+    
+    // Store execution order in history (keep last N frames)
+    this._executionOrderHistory.push({
+      frameIndex: this._frameCounter,
+      frameTime: totalFrameTime,
+      executionOrder: executionOrder.map(h => h.name),
+      handlerTimings: executionOrder.map(h => ({
+        name: h.name,
+        time: h.executionTime,
+      })),
+    });
+    
+    // Limit history size
+    if (this._executionOrderHistory.length > this._maxExecutionOrderHistory) {
+      this._executionOrderHistory.shift();
+    }
+    
     this._frameStats.frameCount++;
     this._frameStats.totalFrameTime += totalFrameTime;
     this._frameStats.averageFrameTime = this._frameStats.totalFrameTime / this._frameStats.frameCount;
@@ -392,6 +451,16 @@ export class UnifiedRAFManager {
       ? (performance.now() - this._frameStats.startTime) / 1000 
       : 0;
     
+    // Calculate frame drop rate
+    const frameDropRate = this._frameStats.frameCount > 0
+      ? (this._frameStats.frameDropCount / this._frameStats.frameCount) * 100
+      : 0;
+    
+    // Get most recent execution order
+    const lastExecutionOrder = this._executionOrderHistory.length > 0
+      ? this._executionOrderHistory[this._executionOrderHistory.length - 1]
+      : null;
+    
     return {
       // Overall stats
       running: this._running,
@@ -405,6 +474,11 @@ export class UnifiedRAFManager {
       maxFrameTime: this._frameStats.maxFrameTime,
       lastFrameTime: this._frameStats.lastFrameTime,
       
+      // Frame drop tracking (60fps budget: 16.67ms)
+      frameDropCount: this._frameStats.frameDropCount,
+      frameDropRate: frameDropRate, // Percentage of frames that exceeded budget
+      targetFrameTime: 16.67, // 60fps budget in ms
+      
       // Handler stats
       totalHandlers: this._handlers.size,
       handlersExecuted: this._frameStats.handlersExecuted,
@@ -413,20 +487,37 @@ export class UnifiedRAFManager {
         ? this._frameStats.handlersExecuted / this._frameStats.frameCount 
         : 0,
       
-      // Per-handler stats
+      // Handler execution order (from most recent frame)
+      lastExecutionOrder: lastExecutionOrder ? {
+        frameIndex: lastExecutionOrder.frameIndex,
+        frameTime: lastExecutionOrder.frameTime,
+        handlerOrder: lastExecutionOrder.executionOrder,
+        handlerTimings: lastExecutionOrder.handlerTimings,
+      } : null,
+      
+      // Execution order history (last N frames)
+      executionOrderHistory: this._executionOrderHistory.map(entry => ({
+        frameIndex: entry.frameIndex,
+        frameTime: entry.frameTime,
+        handlerOrder: entry.executionOrder,
+        handlerTimings: entry.handlerTimings,
+      })),
+      
+      // Per-handler stats (includes average execution times)
       handlerStats: Object.fromEntries(
         Array.from(this._handlerStats.entries()).map(([name, stats]) => [
           name,
           {
             executionCount: stats.executionCount,
             skipCount: this._handlers.get(name)?.skipCount || 0,
-            averageTime: stats.averageTime,
+            averageTime: stats.averageTime, // Average execution time in ms
             minTime: stats.minTime === Infinity ? 0 : stats.minTime,
             maxTime: stats.maxTime,
             lastExecutionTime: stats.lastExecutionTime,
             executionRate: this._frameStats.frameCount > 0 
               ? stats.executionCount / this._frameStats.frameCount 
               : 0,
+            totalTime: stats.totalTime, // Total time spent in this handler
           }
         ])
       ),
@@ -446,9 +537,13 @@ export class UnifiedRAFManager {
       lastFrameTime: 0,
       handlersExecuted: 0,
       handlersSkipped: 0,
+      frameDropCount: 0,
       startTime: this._frameStats.startTime || performance.now(),
       lastTimestamp: this._frameStats.lastTimestamp,
     };
+    
+    // Reset execution order history
+    this._executionOrderHistory = [];
     
     // Reset handler stats
     for (const [name, stats] of this._handlerStats.entries()) {
