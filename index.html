@@ -6,6 +6,126 @@
   <title>Rhizomium — Compose. Evolve. Perform.</title>
   <link rel="icon" type="image/png" href="assets/logo.png" />
   <link rel="stylesheet" href="landing.css" />
+  <style>
+    /* Disabled button styles */
+    .btn.primary.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+      position: relative;
+    }
+
+    /* Hover popup container */
+    .compatibility-popup {
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-bottom: 10px;
+      background: rgba(20, 20, 30, 0.98);
+      border: 1px solid rgba(163, 83, 46, 0.5);
+      border-radius: 8px;
+      padding: 16px 20px;
+      min-width: 300px;
+      max-width: 400px;
+      color: #EAE7E4;
+      font-size: 14px;
+      line-height: 1.6;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      z-index: 1000;
+    }
+
+    @media (max-width: 768px) {
+      .compatibility-popup {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: auto;
+        max-width: calc(100vw - 40px);
+        min-width: 280px;
+        margin-bottom: 0;
+        bottom: auto;
+      }
+    }
+
+    .compatibility-popup.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .compatibility-popup::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: rgba(20, 20, 30, 0.98);
+    }
+
+    @media (max-width: 768px) {
+      .compatibility-popup::after {
+        /* Position arrow to point to button on mobile - calculate dynamically */
+        top: 100%;
+        left: var(--arrow-left, 50%);
+        transform: translateX(-50%);
+      }
+    }
+
+    .compatibility-popup-title {
+      font-weight: 600;
+      color: #ff6b6b;
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+
+    .compatibility-popup-details {
+      margin: 12px 0;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .compatibility-popup-details strong {
+      color: #A3532E;
+    }
+
+    .compatibility-popup-solutions {
+      margin-top: 12px;
+      font-size: 13px;
+    }
+
+    .compatibility-popup-solutions h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #A3532E;
+    }
+
+    .compatibility-popup-solutions ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .compatibility-popup-solutions li {
+      margin: 4px 0;
+    }
+
+    /* Button wrapper for positioning popup */
+    .btn-wrapper {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+    }
+    
+    .btn-wrapper .btn {
+      align-self: center;
+    }
+  </style>
 </head>
 
 <body>
@@ -16,7 +136,10 @@
       <h1 class="tagline">Compose. Evolve. Perform.</h1>
 
       <div class="buttons">
-        <a href="/studio" class="btn primary">Launch Studio</a>
+        <div class="btn-wrapper">
+          <a href="/studio" id="launch-studio-btn" class="btn primary">Launch Studio</a>
+          <div id="compatibility-popup" class="compatibility-popup"></div>
+        </div>
         <a href="/docs" class="btn ghost">Documentation</a>
       </div>
     </section>
@@ -84,6 +207,128 @@
 
   document.querySelectorAll("section").forEach(s => observer.observe(s));
 </script>
+
+  <!-- Device Compatibility Check -->
+  <script type="module">
+    import { DeviceDetector } from './src/utils/DeviceDetector.js';
+
+    async function checkCompatibility() {
+      const btn = document.getElementById('launch-studio-btn');
+      const popup = document.getElementById('compatibility-popup');
+      const wrapper = btn.parentElement;
+
+      const support = await DeviceDetector.checkSupport();
+
+      if (!support.supported) {
+        // Disable the button
+        btn.classList.add('disabled');
+        btn.href = '#';
+        btn.addEventListener('click', (e) => e.preventDefault());
+
+        // Build popup content
+        let title = 'Device Not Supported';
+        let details = '';
+        let solutions = '';
+
+        if (support.reason === 'mobile') {
+          title = 'Mobile Device Detected';
+          details = `
+            <strong>Device Type:</strong> ${support.details.deviceType}<br>
+            <strong>Browser:</strong> ${support.details.browser}<br>
+            <strong>WebGPU:</strong> ${support.details.webGPU ? 'Available' : 'Not Available'}
+          `;
+          solutions = `
+            <h4>To use this application:</h4>
+            <ul>
+              <li>Please use a desktop or laptop computer</li>
+              <li>Use Chrome 113+, Edge 113+, or Opera 99+</li>
+              <li>Ensure WebGPU is enabled in your browser</li>
+            </ul>
+          `;
+        } else if (support.reason === 'webgpu') {
+          title = 'WebGPU Not Available';
+          details = `
+            <strong>Browser:</strong> ${support.details.browser} ${support.details.browserVersion}<br>
+            <strong>Device Type:</strong> ${support.details.deviceType}<br>
+            <strong>Browser Supported:</strong> ${support.details.browserSupported ? 'Yes' : 'No'}
+          `;
+          solutions = `
+            <h4>To enable WebGPU:</h4>
+            <ul>
+              <li><strong>Chrome/Edge:</strong> Update to version 113 or later</li>
+              <li><strong>Chrome:</strong> Go to chrome://flags and enable "Unsafe WebGPU"</li>
+              <li><strong>Opera:</strong> Update to version 99 or later</li>
+              <li>Visit <a href="https://webgpu.io" target="_blank" style="color: #A3532E;">webgpu.io</a> to test WebGPU support</li>
+            </ul>
+          `;
+        } else if (support.reason === 'browser') {
+          title = 'Unsupported Browser';
+          details = `
+            <strong>Browser:</strong> ${support.details.browser} ${support.details.browserVersion}<br>
+            <strong>Device Type:</strong> ${support.details.deviceType}<br>
+            <strong>WebGPU:</strong> ${support.details.webGPU ? 'Available' : 'Not Available'}
+          `;
+          solutions = `
+            <h4>Recommended browsers:</h4>
+            <ul>
+              <li><strong>Chrome 113+</strong> (Recommended)</li>
+              <li><strong>Edge 113+</strong> (Recommended)</li>
+              <li><strong>Opera 99+</strong></li>
+              <li>Firefox and Safari have limited WebGPU support</li>
+            </ul>
+          `;
+        }
+
+        popup.innerHTML = `
+          <div class="compatibility-popup-title">${title}</div>
+          <div>This application requires a desktop browser with WebGPU support.</div>
+          <div class="compatibility-popup-details">${details}</div>
+          <div class="compatibility-popup-solutions">${solutions}</div>
+        `;
+
+        // Show popup on hover
+        const showPopup = () => {
+          popup.classList.add('show');
+          
+          // On mobile, calculate arrow position to point to button
+          if (window.innerWidth <= 768) {
+            const btnRect = btn.getBoundingClientRect();
+            const popupRect = popup.getBoundingClientRect();
+            const btnCenterX = btnRect.left + btnRect.width / 2;
+            const popupCenterX = popupRect.left + popupRect.width / 2;
+            const offsetX = btnCenterX - popupCenterX;
+            const arrowLeft = 50 + (offsetX / popupRect.width) * 100;
+            // Clamp arrow position to stay within reasonable bounds (20% to 80%)
+            const clampedArrowLeft = Math.max(20, Math.min(80, arrowLeft));
+            popup.style.setProperty('--arrow-left', `${clampedArrowLeft}%`);
+          }
+        };
+
+        wrapper.addEventListener('mouseenter', showPopup);
+        wrapper.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          showPopup();
+        });
+
+        wrapper.addEventListener('mouseleave', () => {
+          popup.classList.remove('show');
+        });
+
+        // Hide on touch outside
+        document.addEventListener('touchstart', (e) => {
+          if (!wrapper.contains(e.target) && !popup.contains(e.target)) {
+            popup.classList.remove('show');
+          }
+        });
+      }
+      // If compatible, do nothing - button works normally
+    }
+
+    // Run compatibility check
+    checkCompatibility().catch(error => {
+      console.error('Compatibility check failed:', error);
+    });
+  </script>
 
 </body>
 </html>

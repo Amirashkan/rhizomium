@@ -57,8 +57,140 @@
         margin-right: 4px;
       }
     </style>
+    <style>
+      /* Device Warning Overlay */
+      #device-warning-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        z-index: 10000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        color: #ffffff;
+      }
+
+      #device-warning-overlay.show {
+        display: flex;
+      }
+
+      .warning-container {
+        max-width: 600px;
+        padding: 40px;
+        background: rgba(30, 30, 46, 0.95);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: center;
+      }
+
+      .warning-icon {
+        font-size: 64px;
+        margin-bottom: 20px;
+        opacity: 0.9;
+      }
+
+      .warning-title {
+        font-size: 28px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        color: #ff6b6b;
+      }
+
+      .warning-message {
+        font-size: 16px;
+        line-height: 1.6;
+        margin-bottom: 24px;
+        color: #e0e0e0;
+      }
+
+      .warning-details {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 24px;
+        text-align: left;
+        font-size: 14px;
+      }
+
+      .warning-details strong {
+        color: #4ecdc4;
+      }
+
+      .warning-solutions {
+        text-align: left;
+        margin-bottom: 24px;
+      }
+
+      .warning-solutions h3 {
+        font-size: 18px;
+        margin-bottom: 12px;
+        color: #4ecdc4;
+      }
+
+      .warning-solutions ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .warning-solutions li {
+        padding: 8px 0;
+        padding-left: 24px;
+        position: relative;
+      }
+
+      .warning-solutions li:before {
+        content: "→";
+        position: absolute;
+        left: 0;
+        color: #4ecdc4;
+      }
+
+      .warning-button {
+        background: #4ecdc4;
+        color: #1a1a2e;
+        border: none;
+        padding: 12px 24px;
+        font-size: 16px;
+        font-weight: 600;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .warning-button:hover {
+        background: #45b8b0;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(78, 205, 196, 0.3);
+      }
+
+      .warning-button:active {
+        transform: translateY(0);
+      }
+    </style>
   </head>
   <body>
+    <!-- Device Warning Overlay -->
+    <div id="device-warning-overlay">
+      <div class="warning-container">
+        <div class="warning-icon">⚠️</div>
+        <div class="warning-title" id="warning-title">Device Not Supported</div>
+        <div class="warning-message" id="warning-message">
+          This application requires a desktop browser with WebGPU support.
+        </div>
+        <div class="warning-details" id="warning-details"></div>
+        <div class="warning-solutions" id="warning-solutions"></div>
+        <button class="warning-button" id="warning-dismiss" onclick="document.getElementById('device-warning-overlay').classList.remove('show')">
+          I Understand
+        </button>
+      </div>
+    </div>
+
     <!-- Top Menu Bar - Rhizomium Menu -->
     <div id="top-menu-bar">
       <!-- File Menu -->
@@ -293,6 +425,102 @@
       </div>
       <pre id="code" tabindex="0"></pre>
     </div>
+
+    <!-- Device Detection Script -->
+    <script type="module">
+      import { DeviceDetector } from '../src/utils/DeviceDetector.js';
+
+      async function checkDeviceSupport() {
+        const overlay = document.getElementById('device-warning-overlay');
+        const titleEl = document.getElementById('warning-title');
+        const messageEl = document.getElementById('warning-message');
+        const detailsEl = document.getElementById('warning-details');
+        const solutionsEl = document.getElementById('warning-solutions');
+
+        const support = await DeviceDetector.checkSupport();
+
+        if (!support.supported) {
+          overlay.classList.add('show');
+
+          let title = 'Device Not Supported';
+          let message = 'This application requires a desktop browser with WebGPU support.';
+          let details = '';
+          let solutions = '';
+
+          if (support.reason === 'mobile') {
+            title = 'Mobile Device Detected';
+            message = 'This application is designed for desktop computers and is not optimized for mobile devices.';
+            details = `
+              <strong>Device Type:</strong> ${support.details.deviceType}<br>
+              <strong>Browser:</strong> ${support.details.browser}<br>
+              <strong>WebGPU:</strong> ${support.details.webGPU ? 'Available' : 'Not Available'}
+            `;
+            solutions = `
+              <h3>To use this application:</h3>
+              <ul>
+                <li>Please use a desktop or laptop computer</li>
+                <li>Use Chrome 113+, Edge 113+, or Opera 99+</li>
+                <li>Ensure WebGPU is enabled in your browser</li>
+              </ul>
+            `;
+          } else if (support.reason === 'webgpu') {
+            title = 'WebGPU Not Available';
+            message = 'Your browser or device does not support WebGPU, which is required for this application.';
+            details = `
+              <strong>Browser:</strong> ${support.details.browser} ${support.details.browserVersion}<br>
+              <strong>Device Type:</strong> ${support.details.deviceType}<br>
+              <strong>Browser Supported:</strong> ${support.details.browserSupported ? 'Yes' : 'No'}
+            `;
+            solutions = `
+              <h3>To enable WebGPU:</h3>
+              <ul>
+                <li><strong>Chrome/Edge:</strong> Update to version 113 or later</li>
+                <li><strong>Chrome:</strong> Go to chrome://flags and enable "Unsafe WebGPU"</li>
+                <li><strong>Opera:</strong> Update to version 99 or later</li>
+                <li>Visit <a href="https://webgpu.io" target="_blank" style="color: #4ecdc4;">webgpu.io</a> to test WebGPU support</li>
+              </ul>
+            `;
+          } else if (support.reason === 'browser') {
+            title = 'Unsupported Browser';
+            message = `Your browser (${support.details.browser} ${support.details.browserVersion}) may not fully support this application.`;
+            details = `
+              <strong>Browser:</strong> ${support.details.browser} ${support.details.browserVersion}<br>
+              <strong>Device Type:</strong> ${support.details.deviceType}<br>
+              <strong>WebGPU:</strong> ${support.details.webGPU ? 'Available' : 'Not Available'}
+            `;
+            solutions = `
+              <h3>Recommended browsers:</h3>
+              <ul>
+                <li><strong>Chrome 113+</strong> (Recommended)</li>
+                <li><strong>Edge 113+</strong> (Recommended)</li>
+                <li><strong>Opera 99+</strong></li>
+                <li>Firefox and Safari have limited WebGPU support</li>
+              </ul>
+            `;
+          }
+
+          titleEl.textContent = title;
+          messageEl.textContent = message;
+          detailsEl.innerHTML = details;
+          solutionsEl.innerHTML = solutions;
+
+          // Prevent app initialization
+          window.__deviceCheckFailed = true;
+        } else {
+          // Device is supported, allow app to initialize
+          window.__deviceCheckPassed = true;
+        }
+      }
+
+      // Run device check immediately
+      checkDeviceSupport().catch(error => {
+        console.error('Device check failed:', error);
+        // On error, show warning but allow app to try loading
+        document.getElementById('device-warning-overlay').classList.add('show');
+        document.getElementById('warning-title').textContent = 'Device Check Failed';
+        document.getElementById('warning-message').textContent = 'Unable to verify device compatibility. The application may not work correctly.';
+      });
+    </script>
 
     <script type="module" src="../main.js?v=43c7367"></script>
     <div id="err-overlay" class="hidden">
