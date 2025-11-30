@@ -38,6 +38,19 @@
       z-index: 1000;
     }
 
+    @media (max-width: 768px) {
+      .compatibility-popup {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: calc(100vw - 40px);
+        max-width: 400px;
+        margin-bottom: 0;
+        bottom: auto;
+      }
+    }
+
     .compatibility-popup.show {
       opacity: 1;
       pointer-events: auto;
@@ -51,6 +64,15 @@
       transform: translateX(-50%);
       border: 6px solid transparent;
       border-top-color: rgba(20, 20, 30, 0.98);
+    }
+
+    @media (max-width: 768px) {
+      .compatibility-popup::after {
+        /* Position arrow to point to button on mobile - calculate dynamically */
+        top: 100%;
+        left: var(--arrow-left, 50%);
+        transform: translateX(-50%);
+      }
     }
 
     .compatibility-popup-title {
@@ -264,12 +286,38 @@
         `;
 
         // Show popup on hover
-        wrapper.addEventListener('mouseenter', () => {
+        const showPopup = () => {
           popup.classList.add('show');
+          
+          // On mobile, calculate arrow position to point to button
+          if (window.innerWidth <= 768) {
+            const btnRect = btn.getBoundingClientRect();
+            const popupRect = popup.getBoundingClientRect();
+            const btnCenterX = btnRect.left + btnRect.width / 2;
+            const popupCenterX = popupRect.left + popupRect.width / 2;
+            const offsetX = btnCenterX - popupCenterX;
+            const arrowLeft = 50 + (offsetX / popupRect.width) * 100;
+            // Clamp arrow position to stay within reasonable bounds (20% to 80%)
+            const clampedArrowLeft = Math.max(20, Math.min(80, arrowLeft));
+            popup.style.setProperty('--arrow-left', `${clampedArrowLeft}%`);
+          }
+        };
+
+        wrapper.addEventListener('mouseenter', showPopup);
+        wrapper.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          showPopup();
         });
 
         wrapper.addEventListener('mouseleave', () => {
           popup.classList.remove('show');
+        });
+
+        // Hide on touch outside
+        document.addEventListener('touchstart', (e) => {
+          if (!wrapper.contains(e.target) && !popup.contains(e.target)) {
+            popup.classList.remove('show');
+          }
         });
       }
       // If compatible, do nothing - button works normally
