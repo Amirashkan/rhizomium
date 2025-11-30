@@ -4280,10 +4280,68 @@ function setupPageVisibilityHandler() {
 // Initialize when DOM is ready
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
-    initialize();
-    setupPageVisibilityHandler();
+    // Check if device check failed
+    if (window.__deviceCheckFailed) {
+      console.warn('App initialization skipped due to unsupported device');
+      return;
+    }
+    // Wait a bit for device check to complete if it's still running
+    if (typeof window.__deviceCheckPassed === 'undefined') {
+      const checkInterval = setInterval(() => {
+        if (window.__deviceCheckFailed) {
+          clearInterval(checkInterval);
+          console.warn('App initialization skipped due to unsupported device');
+          return;
+        }
+        if (window.__deviceCheckPassed) {
+          clearInterval(checkInterval);
+          initialize();
+          setupPageVisibilityHandler();
+        }
+      }, 100);
+      // Timeout after 2 seconds - proceed anyway if check is taking too long
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (!window.__deviceCheckFailed) {
+          initialize();
+          setupPageVisibilityHandler();
+        }
+      }, 2000);
+    } else {
+      initialize();
+      setupPageVisibilityHandler();
+    }
   });
 } else {
-  initialize();
-  setupPageVisibilityHandler();
+  // Check if device check failed
+  if (window.__deviceCheckFailed) {
+    console.warn('App initialization skipped due to unsupported device');
+    return;
+  }
+  // Wait a bit for device check to complete if it's still running
+  if (typeof window.__deviceCheckPassed === 'undefined') {
+    const checkInterval = setInterval(() => {
+      if (window.__deviceCheckFailed) {
+        clearInterval(checkInterval);
+        console.warn('App initialization skipped due to unsupported device');
+        return;
+      }
+      if (window.__deviceCheckPassed) {
+        clearInterval(checkInterval);
+        initialize();
+        setupPageVisibilityHandler();
+      }
+    }, 100);
+    // Timeout after 2 seconds - proceed anyway if check is taking too long
+    setTimeout(() => {
+      clearInterval(checkInterval);
+      if (!window.__deviceCheckFailed) {
+        initialize();
+        setupPageVisibilityHandler();
+      }
+    }, 2000);
+  } else {
+    initialize();
+    setupPageVisibilityHandler();
+  }
 }
