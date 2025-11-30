@@ -1629,29 +1629,27 @@ if (document.readyState === "loading") {
   // Check if device check failed
   if (window.__deviceCheckFailed) {
     console.warn('App initialization skipped due to unsupported device');
-    return;
-  }
-  // Wait a bit for device check to complete if it's still running
-  if (typeof window.__deviceCheckPassed === 'undefined') {
-    const checkInterval = setInterval(() => {
-      if (window.__deviceCheckFailed) {
-        clearInterval(checkInterval);
-        console.warn('App initialization skipped due to unsupported device');
-        return;
-      }
-      if (window.__deviceCheckPassed) {
-        clearInterval(checkInterval);
-        initialize();
-      }
-    }, 100);
-    // Timeout after 2 seconds - proceed anyway if check is taking too long
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      if (!window.__deviceCheckFailed) {
-        initialize();
-      }
-    }, 2000);
   } else {
-    initialize();
+    // Wait a bit for device check to complete if it's still running
+    if (typeof window.__deviceCheckPassed === 'undefined') {
+      const checkInterval = setInterval(() => {
+        if (window.__deviceCheckFailed) {
+          clearInterval(checkInterval);
+          console.warn('App initialization skipped due to unsupported device');
+        } else if (window.__deviceCheckPassed) {
+          clearInterval(checkInterval);
+          initialize();
+        }
+      }, 100);
+      // Timeout after 2 seconds - proceed anyway if check is taking too long
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (!window.__deviceCheckFailed) {
+          initialize();
+        }
+      }, 2000);
+    } else {
+      initialize();
+    }
   }
 }
