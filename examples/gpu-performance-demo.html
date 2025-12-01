@@ -271,24 +271,50 @@
       }
     };
 
+    // Initialize GPU device for demo page
+    async function initializeGPUDevice() {
+      if (window.gpuRenderer?.device) {
+        return window.gpuRenderer.device;
+      }
+
+      try {
+        if (!navigator.gpu) {
+          throw new Error('WebGPU not supported in this browser');
+        }
+
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+          throw new Error('No GPU adapter available');
+        }
+
+        const device = await adapter.requestDevice();
+        console.log('✅ GPU device initialized for demo');
+        return device;
+      } catch (error) {
+        console.error('Failed to initialize GPU device:', error);
+        throw error;
+      }
+    }
+
     // Test runners
     window.runAllTests = async function() {
       console.log('Running all performance tests...');
       const resultsDiv = document.getElementById('test-results');
-      resultsDiv.innerHTML = '<div class="info">Running tests...</div>';
+      resultsDiv.innerHTML = '<div class="info">Initializing GPU device and running tests...</div>';
 
       try {
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
+        }
+
         // Try to get or create GPUPerformanceTest
         if (!window.gpuPerformanceTest) {
-          // Try to initialize it if device is available
-          if (window.gpuRenderer?.device) {
-            console.log('Initializing GPUPerformanceTest...');
-            const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
-            window.gpuPerformanceTest = new GPUPerformanceTest(window.gpuRenderer.device);
-            console.log('GPUPerformanceTest initialized');
-          } else {
-            throw new Error('GPUPerformanceTest not found and GPU device not available. Please ensure the main application is loaded.');
-          }
+          console.log('Initializing GPUPerformanceTest...');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
+          console.log('✅ GPUPerformanceTest initialized');
         }
 
         const results = await window.gpuPerformanceTest.runAllTests();
@@ -322,14 +348,16 @@
       const resultsDiv = document.getElementById('test-results');
 
       try {
-        // Auto-initialize if needed
-        if (!window.gpuPerformanceTest && window.gpuRenderer?.device) {
-          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
-          window.gpuPerformanceTest = new GPUPerformanceTest(window.gpuRenderer.device);
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
         }
-        
+
+        // Auto-initialize if needed
         if (!window.gpuPerformanceTest) {
-          throw new Error('GPUPerformanceTest not found');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
         }
 
         const result = window.gpuPerformanceTest.testProfilerDisplay();
@@ -356,14 +384,16 @@
       const resultsDiv = document.getElementById('test-results');
 
       try {
-        // Auto-initialize if needed
-        if (!window.gpuPerformanceTest && window.gpuRenderer?.device) {
-          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
-          window.gpuPerformanceTest = new GPUPerformanceTest(window.gpuRenderer.device);
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
         }
-        
+
+        // Auto-initialize if needed
         if (!window.gpuPerformanceTest) {
-          throw new Error('GPUPerformanceTest not found');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
         }
 
         window.gpuPerformanceTest.testFieldToWorldMapping();
@@ -404,17 +434,19 @@
     window.testSceneGraph = async function() {
       console.log('Testing scene graph stability...');
       const resultsDiv = document.getElementById('test-results');
-      resultsDiv.innerHTML = '<div class="info">Running GPU stability tests...</div>';
+      resultsDiv.innerHTML = '<div class="info">Initializing GPU device and running stability tests...</div>';
 
       try {
-        // Auto-initialize if needed
-        if (!window.gpuPerformanceTest && window.gpuRenderer?.device) {
-          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
-          window.gpuPerformanceTest = new GPUPerformanceTest(window.gpuRenderer.device);
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
         }
-        
+
+        // Auto-initialize if needed
         if (!window.gpuPerformanceTest) {
-          throw new Error('GPUPerformanceTest not found');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
         }
 
         const result = await window.gpuPerformanceTest.testSceneGraphUpdates();
@@ -532,6 +564,9 @@
 
     // Auto-check for GPUPerformanceTest on load
     function checkGPUTestAvailability() {
+      const existingStatus = document.getElementById('gpu-test-status');
+      if (existingStatus) existingStatus.remove();
+      
       const statusDiv = document.createElement('div');
       statusDiv.id = 'gpu-test-status';
       statusDiv.style.cssText = 'margin: 10px 0; padding: 10px; border-radius: 4px;';
@@ -542,14 +577,23 @@
       } else if (window.gpuRenderer?.device) {
         statusDiv.className = 'warning';
         statusDiv.innerHTML = '<strong>⚠️ GPU Device Available</strong> - GPUPerformanceTest will be initialized when you run tests.';
+      } else if (navigator.gpu) {
+        statusDiv.className = 'info';
+        statusDiv.innerHTML = '<strong>ℹ️ WebGPU Available</strong> - GPU device will be initialized automatically when you run tests.';
       } else {
         statusDiv.className = 'error';
-        statusDiv.innerHTML = '<strong>❌ GPU Not Available</strong> - Please load the main application first at <a href="../editor/index.html" style="color: #00ff00;">/editor/index.html</a> or <a href="../studio.html" style="color: #00ff00;">/studio</a>';
+        statusDiv.innerHTML = '<strong>❌ WebGPU Not Supported</strong> - Please use Chrome 113+, Edge 113+, or enable WebGPU in your browser flags.';
       }
       
       const testSection = document.querySelector('.section h2');
       if (testSection && testSection.textContent.includes('Run Performance Tests')) {
-        testSection.parentElement.insertBefore(statusDiv, testSection.nextSibling);
+        const parent = testSection.parentElement;
+        const nextSibling = testSection.nextElementSibling;
+        if (nextSibling && nextSibling.id === 'test-results') {
+          parent.insertBefore(statusDiv, nextSibling);
+        } else {
+          parent.insertBefore(statusDiv, testSection.nextSibling);
+        }
       }
     }
 
