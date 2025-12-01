@@ -37,7 +37,9 @@
 
 **Steps:**
 
-1. **Start the server:**
+1. **Start the server (choose one method):**
+
+   **Option A: Flask Server (Full Features)**
    ```bash
    # Windows
    START_SERVER.bat
@@ -45,10 +47,19 @@
    # Or manually
    python rhizo_server.py
    ```
+   Then open: `http://127.0.0.1:5000/studio`
+
+   **Option B: Simple HTTP Server (GPU Tests Only)**
+   ```bash
+   # Python 3
+   python -m http.server 8000
+   ```
+   Then open: `http://localhost:8000/studio` or `http://localhost:8000/examples/gpu-performance-demo.html`
 
 2. **Open the application:**
-   - Navigate to: `http://127.0.0.1:5000/studio`
-   - Or open: `examples/gpu-performance-demo.html` directly
+   - Flask server: `http://127.0.0.1:5000/studio`
+   - Simple server: `http://localhost:8000/studio`
+   - Or open: `examples/gpu-performance-demo.html` directly (file:// protocol)
 
 3. **Run GPU tests in browser console (F12):**
    ```javascript
@@ -187,6 +198,31 @@ console.log('JSON Results:', jsonResults);
 2. Install dependencies: `pip install -r requirements.txt`
 3. Check if port 5000 is available
 4. Try different port: `python rhizo_server.py --port 5001`
+
+**Issue:** `ModuleNotFoundError: No module named 'flask'`
+
+**Solution:**
+1. Install Flask: `pip install flask flask-cors`
+2. If pip has network/SSL issues, try:
+   - `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org flask flask-cors`
+   - Or use a different network/VPN
+   - Or install from offline wheel files
+
+**Alternative: Use Simple HTTP Server (for GPU tests only)**
+
+If Flask installation fails, you can use Python's built-in HTTP server for GPU tests:
+
+```bash
+# Python 3
+python -m http.server 8000
+
+# Then open in browser:
+# http://localhost:8000/studio
+# or
+# http://localhost:8000/examples/gpu-performance-demo.html
+```
+
+**Note:** Simple HTTP server won't support external viewer features, but GPU performance tests will work.
 
 ### WebGPU Not Available
 
