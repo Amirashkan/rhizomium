@@ -246,7 +246,7 @@
         window.profilerOverlay.show();
         console.log('✓ Profiler overlay shown');
       } else {
-        console.error('✗ Profiler overlay not found');
+        console.log('ℹ️ Profiler overlay not available (optional component - requires main application)');
       }
     };
 
@@ -254,6 +254,8 @@
       if (window.profilerOverlay) {
         window.profilerOverlay.hide();
         console.log('✓ Profiler overlay hidden');
+      } else {
+        console.log('ℹ️ Profiler overlay not available (optional component)');
       }
     };
 
@@ -261,6 +263,8 @@
       if (window.profilerOverlay) {
         window.profilerOverlay.toggle();
         console.log('✓ Profiler overlay toggled');
+      } else {
+        console.log('ℹ️ Profiler overlay not available (optional component)');
       }
     };
 
@@ -268,6 +272,8 @@
       if (window.profilerOverlay) {
         window.profilerOverlay.toggleExpanded();
         console.log('✓ Profiler overlay details toggled');
+      } else {
+        console.log('ℹ️ Profiler overlay not available (optional component)');
       }
     };
 
@@ -523,13 +529,22 @@
       }
     };
 
+    // Visualize mapping (3D visualization - placeholder for now)
+    window.visualizeMapping = async function() {
+      console.log('Visualizing field mapping in 3D...');
+      const resultsDiv = document.getElementById('mapping-results');
+      
+      resultsDiv.innerHTML = '<div class="info"><strong>3D Visualization</strong><br>This feature requires the main application with 3D viewport. Open the main app at <a href="../editor/index.html" style="color: #00ff00;">/editor/index.html</a> to see 3D field visualization.</div>';
+      console.log('ℹ️ 3D visualization requires the main application with 3D viewport');
+    };
+
     // Profiler controls
     window.enableProfiler = function() {
       if (window.computeProfiler) {
         window.computeProfiler.setEnabled(true);
         console.log('✓ Profiler enabled');
       } else {
-        console.error('✗ Profiler not found');
+        console.log('ℹ️ Profiler not available (optional component - requires main application)');
       }
     };
 
@@ -537,6 +552,8 @@
       if (window.computeProfiler) {
         window.computeProfiler.setEnabled(false);
         console.log('✓ Profiler disabled');
+      } else {
+        console.log('ℹ️ Profiler not available (optional component)');
       }
     };
 
@@ -544,6 +561,8 @@
       if (window.computeProfiler) {
         window.computeProfiler.reset();
         console.log('✓ Profiler reset');
+      } else {
+        console.log('ℹ️ Profiler not available (optional component)');
       }
     };
 
@@ -559,6 +578,17 @@
             <pre>${JSON.stringify(metrics, null, 2)}</pre>
           </div>
         `;
+      } else {
+        const resultsDiv = document.getElementById('test-results');
+        resultsDiv.innerHTML = `
+          <div class="info">
+            <strong>Profiler Not Available</strong><br>
+            Profiler is an optional component that requires the main application to be loaded.
+            <br><br>
+            <a href="../editor/index.html" style="color: #00ff00;">Open Main Application</a> to access profiler features.
+          </div>
+        `;
+        console.log('ℹ️ Profiler not available (optional component)');
       }
     };
 
