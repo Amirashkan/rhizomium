@@ -12,7 +12,7 @@ export class PreviewThrottler {
     };
 
     this.mode = 'idle';
-    this.lastUpdate = 0;
+    this.lastUpdate = 0; // Will be set on first update
     this.pendingUpdate = null;
     this.updateTimeout = null;
 
@@ -33,7 +33,7 @@ export class PreviewThrottler {
       
       // If there's a pending update, reschedule it with the new interval
       if (this.pendingUpdate && this.updateTimeout) {
-        const now = performance.now();
+        const now = this._getTime();
         const elapsed = now - this.lastUpdate;
         const newInterval = this.intervals[this.mode];
         const oldDelay = this.intervals[oldMode] - elapsed;
@@ -48,7 +48,7 @@ export class PreviewThrottler {
           this.updateTimeout = setTimeout(() => {
             if (this.pendingUpdate) {
               this.pendingUpdate();
-              this.lastUpdate = performance.now();
+              this.lastUpdate = this._getTime();
               this.pendingUpdate = null;
             }
             this.updateTimeout = null;
@@ -73,16 +73,16 @@ export class PreviewThrottler {
     if (immediate) {
       this.cancelPending();
       updateFn();
-      this.lastUpdate = performance.now();
+      this.lastUpdate = this._getTime();
       return;
     }
 
-    const now = performance.now();
-    const elapsed = now - this.lastUpdate;
+    const now = this._getTime();
     const interval = this.intervals[this.mode];
+    const elapsed = this.lastUpdate === 0 ? interval : (now - this.lastUpdate);
 
-    if (elapsed >= interval) {
-      // Enough time has passed, execute immediately
+    if (elapsed >= interval || this.lastUpdate === 0) {
+      // Enough time has passed, or this is the first update - execute immediately
       this.cancelPending();
       updateFn();
       this.lastUpdate = now;
@@ -100,12 +100,24 @@ export class PreviewThrottler {
       this.updateTimeout = setTimeout(() => {
         if (this.pendingUpdate) {
           this.pendingUpdate();
-          this.lastUpdate = performance.now();
+          this.lastUpdate = this._getTime();
           this.pendingUpdate = null;
         }
         this.updateTimeout = null;
       }, delay);
     }
+  }
+
+  /**
+   * Get current time - works with both real and fake timers
+   * @private
+   */
+  _getTime() {
+    // Use Date.now() which works with fake timers, fallback to performance.now()
+    if (typeof Date !== 'undefined' && Date.now) {
+      return Date.now();
+    }
+    return performance.now();
   }
 
   /**

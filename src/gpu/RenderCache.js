@@ -89,7 +89,7 @@ export class RenderCache {
     const entry = {
       texture,
       framebuffer: null, // Can be set separately
-      lastAccess: performance.now(),
+      lastAccess: this._getTime(),
       size,
       metadata: { ...metadata },
       nodeId: options.nodeId || null,
@@ -153,7 +153,7 @@ export class RenderCache {
     const entry = {
       texture: result.texture,
       framebuffer: result.framebuffer || null,
-      lastAccess: performance.now(),
+      lastAccess: this._getTime(),
       size,
       metadata: { ...metadata },
       nodeId: options.nodeId || null,
@@ -339,7 +339,7 @@ export class RenderCache {
   _isValid(key, entry) {
     // Check lifetime expiration
     const lifetime = this._lifetimes.get(key);
-    if (lifetime && performance.now() > lifetime) {
+    if (lifetime && this._getTime() > lifetime) {
       return false;
     }
 
@@ -363,13 +363,13 @@ export class RenderCache {
     // Update last access time
     const entry = this._cache.get(key);
     if (entry) {
-      entry.lastAccess = performance.now();
+      entry.lastAccess = this._getTime();
     }
   }
 
   _updateLifetime(key, lifetimeMs) {
     if (lifetimeMs > 0) {
-      this._lifetimes.set(key, performance.now() + lifetimeMs);
+      this._lifetimes.set(key, this._getTime() + lifetimeMs);
     } else {
       this._lifetimes.delete(key);
     }
@@ -510,7 +510,7 @@ export class RenderCache {
    * Clean up expired entries (call periodically)
    */
   cleanup() {
-    const now = performance.now();
+    const now = this._getTime();
     const expiredKeys = [];
     
     for (const [key, expiration] of this._lifetimes) {
@@ -522,6 +522,18 @@ export class RenderCache {
     for (const key of expiredKeys) {
       this._invalidateKey(key, 'lifetime-expired');
     }
+  }
+
+  /**
+   * Get current time - works with both real and fake timers
+   * @private
+   */
+  _getTime() {
+    // Use Date.now() which works with fake timers, fallback to performance.now()
+    if (typeof Date !== 'undefined' && Date.now) {
+      return Date.now();
+    }
+    return performance.now();
   }
   
   /**
