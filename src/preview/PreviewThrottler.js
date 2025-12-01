@@ -12,7 +12,7 @@ export class PreviewThrottler {
     };
 
     this.mode = 'idle';
-    this.lastUpdate = 0;
+    this.lastUpdate = 0; // Will be set on first update
     this.pendingUpdate = null;
     this.updateTimeout = null;
 
@@ -27,8 +27,40 @@ export class PreviewThrottler {
    * @param {string} mode - One of: idle, edit, drag, compile
    */
   setMode(mode) {
-    if (this.intervals[mode] !== undefined) {
+    if (this.intervals[mode] !== undefined && this.mode !== mode) {
+      const oldMode = this.mode;
       this.mode = mode;
+      
+      // If there's a pending update, reschedule it with the new interval
+      if (this.pendingUpdate && this.updateTimeout) {
+        const now = this._getTime();
+        const elapsed = now - this.lastUpdate;
+        const newInterval = this.intervals[this.mode];
+        const oldDelay = this.intervals[oldMode] - elapsed;
+        
+        // Clear the old timeout
+        clearTimeout(this.updateTimeout);
+        this.updateTimeout = null;
+        
+        // Reschedule with new interval if needed
+        if (elapsed < newInterval) {
+          const newDelay = newInterval - elapsed;
+          this.updateTimeout = setTimeout(() => {
+            if (this.pendingUpdate) {
+              this.pendingUpdate();
+              this.lastUpdate = this._getTime();
+              this.pendingUpdate = null;
+            }
+            this.updateTimeout = null;
+          }, newDelay);
+        } else {
+          // Enough time has passed, execute immediately
+          const updateFn = this.pendingUpdate;
+          this.pendingUpdate = null;
+          updateFn();
+          this.lastUpdate = now;
+        }
+      }
     }
   }
 
@@ -41,35 +73,51 @@ export class PreviewThrottler {
     if (immediate) {
       this.cancelPending();
       updateFn();
-      this.lastUpdate = performance.now();
+      this.lastUpdate = this._getTime();
       return;
     }
 
-    const now = performance.now();
-    const elapsed = now - this.lastUpdate;
+    const now = this._getTime();
     const interval = this.intervals[this.mode];
+    const elapsed = this.lastUpdate === 0 ? interval : (now - this.lastUpdate);
 
-    if (elapsed >= interval) {
-      // Enough time has passed, execute immediately
+    if (elapsed >= interval || this.lastUpdate === 0) {
+      // Enough time has passed, or this is the first update - execute immediately
       this.cancelPending();
       updateFn();
       this.lastUpdate = now;
     } else {
-      // Schedule for later
+      // Schedule for later - always reschedule if there's already a pending update
       this.pendingUpdate = updateFn;
 
-      if (!this.updateTimeout) {
-        const delay = interval - elapsed;
-        this.updateTimeout = setTimeout(() => {
-          if (this.pendingUpdate) {
-            this.pendingUpdate();
-            this.lastUpdate = performance.now();
-            this.pendingUpdate = null;
-          }
-          this.updateTimeout = null;
-        }, delay);
+      // Cancel existing timeout and reschedule with current interval
+      if (this.updateTimeout) {
+        clearTimeout(this.updateTimeout);
+        this.updateTimeout = null;
       }
+      
+      const delay = interval - elapsed;
+      this.updateTimeout = setTimeout(() => {
+        if (this.pendingUpdate) {
+          this.pendingUpdate();
+          this.lastUpdate = this._getTime();
+          this.pendingUpdate = null;
+        }
+        this.updateTimeout = null;
+      }, delay);
     }
+  }
+
+  /**
+   * Get current time - works with both real and fake timers
+   * @private
+   */
+  _getTime() {
+    // Use Date.now() which works with fake timers, fallback to performance.now()
+    if (typeof Date !== 'undefined' && Date.now) {
+      return Date.now();
+    }
+    return performance.now();
   }
 
   /**

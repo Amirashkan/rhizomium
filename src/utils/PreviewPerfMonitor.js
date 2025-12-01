@@ -246,7 +246,10 @@ export class PreviewPerfMonitor {
       return;
     }
     
-    const frameTime = performance.now() - this._lastFrameStart;
+    // Allow frameTime to be overridden in extra for testing
+    const frameTime = extra.frameTime !== undefined 
+      ? extra.frameTime 
+      : performance.now() - this._lastFrameStart;
     
     // Record times in budget allocator
     this.budgetAllocator.recordTime('canvas', this.metrics.canvasMs || 0);

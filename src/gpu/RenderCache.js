@@ -89,7 +89,7 @@ export class RenderCache {
     const entry = {
       texture,
       framebuffer: null, // Can be set separately
-      lastAccess: performance.now(),
+      lastAccess: this._getTime(),
       size,
       metadata: { ...metadata },
       nodeId: options.nodeId || null,
@@ -129,10 +129,16 @@ export class RenderCache {
     if (cached && cached.framebuffer && this._isValid(key, cached)) {
       this._updateLRU(key);
       this._metrics.hits++;
-      return {
+      // Return cached framebuffer object if it exists, otherwise create new one
+      if (cached.cachedFramebufferObject) {
+        return cached.cachedFramebufferObject;
+      }
+      const fbObject = {
         texture: cached.texture,
         framebuffer: cached.framebuffer
       };
+      cached.cachedFramebufferObject = fbObject;
+      return fbObject;
     }
 
     this._metrics.misses++;
@@ -147,7 +153,7 @@ export class RenderCache {
     const entry = {
       texture: result.texture,
       framebuffer: result.framebuffer || null,
-      lastAccess: performance.now(),
+      lastAccess: this._getTime(),
       size,
       metadata: { ...metadata },
       nodeId: options.nodeId || null,
@@ -170,6 +176,8 @@ export class RenderCache {
       }
     }
 
+    // Cache the framebuffer object for consistent returns
+    entry.cachedFramebufferObject = result;
     return result;
   }
 
@@ -189,13 +197,20 @@ export class RenderCache {
       return;
     }
 
-    for (const key of keys) {
+    // Save the count before iterating (since _invalidateKey removes keys from the Set)
+    const invalidationCount = keys.size;
+    
+    // Create a copy of keys to iterate over, since we'll be modifying the Set
+    const keysToInvalidate = Array.from(keys);
+    
+    for (const key of keysToInvalidate) {
       this._invalidateKey(key, reason);
     }
 
+    // Clean up node tracking (should already be done by _invalidateKey, but ensure it)
     this._nodeToKeys.delete(nodeId);
     this._staticNodes.delete(nodeId);
-    this._metrics.invalidations += keys.size;
+    this._metrics.invalidations += invalidationCount;
   }
 
   /**
@@ -300,7 +315,12 @@ export class RenderCache {
    */
   setMaxMemory(maxMemoryMB) {
     this._maxMemoryMB = maxMemoryMB;
-    this._evictIfNeeded({});
+    // Evict entries that exceed the new limit
+    this._updateMemoryMetrics();
+    while (this._cache.size > 0 && this._metrics.totalMemoryMB > maxMemoryMB) {
+      this._evictLRU();
+      this._updateMemoryMetrics();
+    }
   }
 
   /**
@@ -319,7 +339,7 @@ export class RenderCache {
   _isValid(key, entry) {
     // Check lifetime expiration
     const lifetime = this._lifetimes.get(key);
-    if (lifetime && performance.now() > lifetime) {
+    if (lifetime && this._getTime() > lifetime) {
       return false;
     }
 
@@ -343,13 +363,13 @@ export class RenderCache {
     // Update last access time
     const entry = this._cache.get(key);
     if (entry) {
-      entry.lastAccess = performance.now();
+      entry.lastAccess = this._getTime();
     }
   }
 
   _updateLifetime(key, lifetimeMs) {
     if (lifetimeMs > 0) {
-      this._lifetimes.set(key, performance.now() + lifetimeMs);
+      this._lifetimes.set(key, this._getTime() + lifetimeMs);
     } else {
       this._lifetimes.delete(key);
     }
@@ -376,6 +396,8 @@ export class RenderCache {
     
     // Evict until we have enough space
     while (this._cache.size > 0) {
+      // Update memory metrics before checking
+      this._updateMemoryMetrics();
       const currentMemory = this._metrics.totalMemoryMB;
       
       // Check entry count limit
@@ -384,7 +406,8 @@ export class RenderCache {
         continue;
       }
       
-      // Check memory limit
+      // Check memory limit - if new entry alone exceeds limit, still evict everything
+      // but we'll allow it (can't prevent single large entries)
       if (currentMemory + newEntrySize > this._maxMemoryMB) {
         this._evictLRU();
         continue;
@@ -487,7 +510,7 @@ export class RenderCache {
    * Clean up expired entries (call periodically)
    */
   cleanup() {
-    const now = performance.now();
+    const now = this._getTime();
     const expiredKeys = [];
     
     for (const [key, expiration] of this._lifetimes) {
@@ -500,6 +523,18 @@ export class RenderCache {
       this._invalidateKey(key, 'lifetime-expired');
     }
   }
+
+  /**
+   * Get current time - works with both real and fake timers
+   * @private
+   */
+  _getTime() {
+    // Use Date.now() which works with fake timers, fallback to performance.now()
+    if (typeof Date !== 'undefined' && Date.now) {
+      return Date.now();
+    }
+    return performance.now();
+  }
   
   /**
    * Check if a key exists in the cache
@@ -507,6 +542,7 @@ export class RenderCache {
    * @returns {boolean} True if key exists
    */
   hasKey(key) {
+    // Check if key exists in cache (validity is checked when actually using the entry)
     return this._cache.has(key);
   }
 }

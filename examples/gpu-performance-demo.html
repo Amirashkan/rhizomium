@@ -246,7 +246,7 @@
         window.profilerOverlay.show();
         console.log('✓ Profiler overlay shown');
       } else {
-        console.error('✗ Profiler overlay not found');
+        console.log('ℹ️ Profiler overlay not available (optional component - requires main application)');
       }
     };
 
@@ -254,6 +254,8 @@
       if (window.profilerOverlay) {
         window.profilerOverlay.hide();
         console.log('✓ Profiler overlay hidden');
+      } else {
+        console.log('ℹ️ Profiler overlay not available (optional component)');
       }
     };
 
@@ -261,6 +263,8 @@
       if (window.profilerOverlay) {
         window.profilerOverlay.toggle();
         console.log('✓ Profiler overlay toggled');
+      } else {
+        console.log('ℹ️ Profiler overlay not available (optional component)');
       }
     };
 
@@ -268,18 +272,55 @@
       if (window.profilerOverlay) {
         window.profilerOverlay.toggleExpanded();
         console.log('✓ Profiler overlay details toggled');
+      } else {
+        console.log('ℹ️ Profiler overlay not available (optional component)');
       }
     };
+
+    // Initialize GPU device for demo page
+    async function initializeGPUDevice() {
+      if (window.gpuRenderer?.device) {
+        return window.gpuRenderer.device;
+      }
+
+      try {
+        if (!navigator.gpu) {
+          throw new Error('WebGPU not supported in this browser');
+        }
+
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+          throw new Error('No GPU adapter available');
+        }
+
+        const device = await adapter.requestDevice();
+        console.log('✅ GPU device initialized for demo');
+        return device;
+      } catch (error) {
+        console.error('Failed to initialize GPU device:', error);
+        throw error;
+      }
+    }
 
     // Test runners
     window.runAllTests = async function() {
       console.log('Running all performance tests...');
       const resultsDiv = document.getElementById('test-results');
-      resultsDiv.innerHTML = '<div class="info">Running tests...</div>';
+      resultsDiv.innerHTML = '<div class="info">Initializing GPU device and running tests...</div>';
 
       try {
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
+        }
+
+        // Try to get or create GPUPerformanceTest
         if (!window.gpuPerformanceTest) {
-          throw new Error('GPUPerformanceTest not found. Please ensure the main application is loaded.');
+          console.log('Initializing GPUPerformanceTest...');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
+          console.log('✅ GPUPerformanceTest initialized');
         }
 
         const results = await window.gpuPerformanceTest.runAllTests();
@@ -308,13 +349,21 @@
       }
     };
 
-    window.testProfiler = function() {
+    window.testProfiler = async function() {
       console.log('Testing profiler display...');
       const resultsDiv = document.getElementById('test-results');
 
       try {
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
+        }
+
+        // Auto-initialize if needed
         if (!window.gpuPerformanceTest) {
-          throw new Error('GPUPerformanceTest not found');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
         }
 
         const result = window.gpuPerformanceTest.testProfilerDisplay();
@@ -336,13 +385,21 @@
       }
     };
 
-    window.testMapping = function() {
+    window.testMapping = async function() {
       console.log('Testing field mapping...');
       const resultsDiv = document.getElementById('test-results');
 
       try {
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
+        }
+
+        // Auto-initialize if needed
         if (!window.gpuPerformanceTest) {
-          throw new Error('GPUPerformanceTest not found');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
         }
 
         window.gpuPerformanceTest.testFieldToWorldMapping();
@@ -383,11 +440,19 @@
     window.testSceneGraph = async function() {
       console.log('Testing scene graph stability...');
       const resultsDiv = document.getElementById('test-results');
-      resultsDiv.innerHTML = '<div class="info">Running GPU stability tests...</div>';
+      resultsDiv.innerHTML = '<div class="info">Initializing GPU device and running stability tests...</div>';
 
       try {
+        // Get or create GPU device
+        let device = window.gpuRenderer?.device;
+        if (!device) {
+          device = await initializeGPUDevice();
+        }
+
+        // Auto-initialize if needed
         if (!window.gpuPerformanceTest) {
-          throw new Error('GPUPerformanceTest not found');
+          const { GPUPerformanceTest } = await import('../src/test/GPUPerformanceTest.js');
+          window.gpuPerformanceTest = new GPUPerformanceTest(device);
         }
 
         const result = await window.gpuPerformanceTest.testSceneGraphUpdates();
@@ -464,13 +529,22 @@
       }
     };
 
+    // Visualize mapping (3D visualization - placeholder for now)
+    window.visualizeMapping = async function() {
+      console.log('Visualizing field mapping in 3D...');
+      const resultsDiv = document.getElementById('mapping-results');
+      
+      resultsDiv.innerHTML = '<div class="info"><strong>3D Visualization</strong><br>This feature requires the main application with 3D viewport. Open the main app at <a href="../editor/index.html" style="color: #00ff00;">/editor/index.html</a> to see 3D field visualization.</div>';
+      console.log('ℹ️ 3D visualization requires the main application with 3D viewport');
+    };
+
     // Profiler controls
     window.enableProfiler = function() {
       if (window.computeProfiler) {
         window.computeProfiler.setEnabled(true);
         console.log('✓ Profiler enabled');
       } else {
-        console.error('✗ Profiler not found');
+        console.log('ℹ️ Profiler not available (optional component - requires main application)');
       }
     };
 
@@ -478,6 +552,8 @@
       if (window.computeProfiler) {
         window.computeProfiler.setEnabled(false);
         console.log('✓ Profiler disabled');
+      } else {
+        console.log('ℹ️ Profiler not available (optional component)');
       }
     };
 
@@ -485,6 +561,8 @@
       if (window.computeProfiler) {
         window.computeProfiler.reset();
         console.log('✓ Profiler reset');
+      } else {
+        console.log('ℹ️ Profiler not available (optional component)');
       }
     };
 
@@ -500,8 +578,58 @@
             <pre>${JSON.stringify(metrics, null, 2)}</pre>
           </div>
         `;
+      } else {
+        const resultsDiv = document.getElementById('test-results');
+        resultsDiv.innerHTML = `
+          <div class="info">
+            <strong>Profiler Not Available</strong><br>
+            Profiler is an optional component that requires the main application to be loaded.
+            <br><br>
+            <a href="../editor/index.html" style="color: #00ff00;">Open Main Application</a> to access profiler features.
+          </div>
+        `;
+        console.log('ℹ️ Profiler not available (optional component)');
       }
     };
+
+    // Auto-check for GPUPerformanceTest on load
+    function checkGPUTestAvailability() {
+      const existingStatus = document.getElementById('gpu-test-status');
+      if (existingStatus) existingStatus.remove();
+      
+      const statusDiv = document.createElement('div');
+      statusDiv.id = 'gpu-test-status';
+      statusDiv.style.cssText = 'margin: 10px 0; padding: 10px; border-radius: 4px;';
+      
+      if (window.gpuPerformanceTest) {
+        statusDiv.className = 'success';
+        statusDiv.innerHTML = '<strong>✅ GPU Performance Test Ready!</strong> Click "Run All Tests" to begin.';
+      } else if (window.gpuRenderer?.device) {
+        statusDiv.className = 'warning';
+        statusDiv.innerHTML = '<strong>⚠️ GPU Device Available</strong> - GPUPerformanceTest will be initialized when you run tests.';
+      } else if (navigator.gpu) {
+        statusDiv.className = 'info';
+        statusDiv.innerHTML = '<strong>ℹ️ WebGPU Available</strong> - GPU device will be initialized automatically when you run tests.';
+      } else {
+        statusDiv.className = 'error';
+        statusDiv.innerHTML = '<strong>❌ WebGPU Not Supported</strong> - Please use Chrome 113+, Edge 113+, or enable WebGPU in your browser flags.';
+      }
+      
+      const testSection = document.querySelector('.section h2');
+      if (testSection && testSection.textContent.includes('Run Performance Tests')) {
+        const parent = testSection.parentElement;
+        const nextSibling = testSection.nextElementSibling;
+        if (nextSibling && nextSibling.id === 'test-results') {
+          parent.insertBefore(statusDiv, nextSibling);
+        } else {
+          parent.insertBefore(statusDiv, testSection.nextSibling);
+        }
+      }
+    }
+
+    // Check on load and periodically
+    setTimeout(checkGPUTestAvailability, 500);
+    setInterval(checkGPUTestAvailability, 2000);
 
     // Initial log
     console.log('═══════════════════════════════════════════════════════════');
@@ -509,8 +637,14 @@
     console.log('═══════════════════════════════════════════════════════════');
     console.log('');
     console.log('✓ Demo page loaded');
-    console.log('ℹ️ This demo requires the main application to be loaded');
-    console.log('ℹ️ If features are not working, please load index.html first');
+    if (window.gpuPerformanceTest) {
+      console.log('✅ GPUPerformanceTest is available!');
+    } else if (window.gpuRenderer?.device) {
+      console.log('⚠️ GPU device available, but GPUPerformanceTest not found. It will be initialized when you run tests.');
+    } else {
+      console.log('ℹ️ This demo requires the main application to be loaded');
+      console.log('ℹ️ If features are not working, please load the main app first');
+    }
     console.log('');
     console.log('Keyboard shortcuts:');
     console.log('  Ctrl+P       - Toggle profiler overlay');

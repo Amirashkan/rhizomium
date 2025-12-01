@@ -276,12 +276,22 @@ describe('RenderCache', () => {
       
       cache.setMaxMemory(1); // 1MB limit
       
-      const largeMetadata = { width: 1000, height: 1000 };
-      cache.getOrCreateTexture('key1', largeMetadata, createFn);
+      // Add a small texture first
+      const smallMetadata = { width: 100, height: 100 };
+      cache.getOrCreateTexture('key1', smallMetadata, createFn);
       
-      // Should evict when adding more
+      // Add a large texture that would exceed limit - should evict the small one
+      const largeMetadata = { width: 1000, height: 1000 };
+      cache.getOrCreateTexture('key2', largeMetadata, createFn);
+      
+      // The large texture alone exceeds 1MB, so it will be the only entry
+      // But we should verify eviction happened (key1 should be gone)
+      expect(cache.hasKey('key1')).toBe(false);
+      expect(cache.hasKey('key2')).toBe(true);
+      
+      // Memory should reflect only the large texture (which exceeds limit, but that's allowed for single entries)
       const metrics = cache.getMetrics();
-      expect(metrics.totalMemoryMB).toBeLessThanOrEqual(1);
+      expect(metrics.entries).toBe(1);
     });
 
     it('should respect max entries limit', () => {

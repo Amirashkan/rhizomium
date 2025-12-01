@@ -229,14 +229,18 @@ describe('PreviewThrottler', () => {
       
       updateFn.mockClear();
       
+      // Reset throttler state for next test
+      throttler.lastUpdate = 0;
+      
       // Test drag mode (50ms)
       throttler.setMode('drag');
-      throttler.requestUpdate(updateFn);
-      throttler.requestUpdate(updateFn);
+      throttler.requestUpdate(updateFn); // First call executes immediately
+      throttler.requestUpdate(updateFn); // Second call is scheduled
+      expect(updateFn).toHaveBeenCalledTimes(1); // First call executed
       vi.advanceTimersByTime(30);
-      expect(updateFn).toHaveBeenCalledTimes(1); // Still throttled
-      vi.advanceTimersByTime(30);
-      expect(updateFn).toHaveBeenCalledTimes(2);
+      expect(updateFn).toHaveBeenCalledTimes(1); // Still throttled (need 50ms total)
+      vi.advanceTimersByTime(30); // Total 60ms now
+      expect(updateFn).toHaveBeenCalledTimes(2); // Second call executed
     });
 
     it('should handle rapid mode switches correctly', () => {
