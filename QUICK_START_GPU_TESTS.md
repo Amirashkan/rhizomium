@@ -14,9 +14,14 @@ python -m http.server 8000
 ### Step 2: Open in Browser
 
 Open one of these URLs:
-- **Main Application (Recommended):** `http://localhost:8000/editor/index.html`
+
+**If deployed on Vercel:**
+- **Main Application (Recommended):** `https://your-project.vercel.app/studio`
+- **GPU Demo Page:** `https://your-project.vercel.app/examples/gpu-performance-demo.html`
+
+**If using local HTTP server:**
+- **Main Application:** `http://localhost:8000/editor/index.html`
 - **GPU Demo Page:** `http://localhost:8000/examples/gpu-performance-demo.html`
-- **Direct File:** Open `editor/index.html` directly (file:// protocol)
 
 ### Step 3: Run Tests
 

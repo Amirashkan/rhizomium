@@ -10,15 +10,13 @@ The HTTP server has been started on port 8000.
 
 Open one of these URLs in your browser:
 
-**Option A: Main Application (Recommended for GPU Tests)**
-```
-http://localhost:8000/editor/index.html
-```
+**If deployed on Vercel:**
+- **Main Application:** `https://your-project.vercel.app/studio`
+- **GPU Demo Page:** `https://your-project.vercel.app/examples/gpu-performance-demo.html`
 
-**Option B: GPU Performance Demo**
-```
-http://localhost:8000/examples/gpu-performance-demo.html
-```
+**If using local HTTP server:**
+- **Main Application:** `http://localhost:8000/editor/index.html`
+- **GPU Demo Page:** `http://localhost:8000/examples/gpu-performance-demo.html`
 *Note: Demo page requires main application to be loaded first*
 
 **Option C: Direct File**

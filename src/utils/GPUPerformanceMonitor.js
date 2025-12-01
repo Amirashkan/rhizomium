@@ -32,11 +32,22 @@ export class GPUPerformanceMonitor {
    * Initialize the performance monitor
    */
   initialize(device) {
+    // Create test runner FIRST (before early returns)
+    // This ensures GPUPerformanceTest is always available if device exists
+    if (device) {
+      try {
+        this.testRunner = new GPUPerformanceTest(device);
+        window.gpuPerformanceTest = this.testRunner;
+      } catch (error) {
+        console.error('[GPUPerformanceMonitor] Failed to create GPUPerformanceTest:', error);
+      }
+    }
 
     this.profiler = window.computeProfiler;
     this.overlay = window.profilerOverlay;
 
     if (!this.profiler || !this.overlay) {
+      // Still return false, but test runner is already created above
       return false;
     }
 
@@ -47,12 +58,6 @@ export class GPUPerformanceMonitor {
 
     // Setup enhanced keyboard shortcuts
     this._setupKeyboardShortcuts();
-
-    // Create test runner
-    if (device) {
-      this.testRunner = new GPUPerformanceTest(device);
-      window.gpuPerformanceTest = this.testRunner;
-    }
 
     // Setup performance monitoring
     if (this.options.enableWarnings) {
