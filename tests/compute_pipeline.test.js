@@ -131,7 +131,7 @@ describe('Compute Pipeline Validation', () => {
 
     // Verify uniform buffer is created
     expect(manager.uniformBuffer).toBeTruthy();
-    expect(manager.uniformBuffer.size).toBe(32); // 8 floats * 4 bytes
+    expect(manager.uniformBuffer.size).toBe(64); // 16 floats * 4 bytes (expanded buffer)
 
     // Update parameters and verify propagation
     node.params.scale = 12.0;

@@ -209,6 +209,19 @@ export class FloatingGPUPreview {
     perf?.recordValue("previewAdaptiveState", `disabled:${reason}`);
   }
   
+  /**
+   * Apply adaptive interaction state (for testing and internal use)
+   * @param {boolean} active - Whether adaptive mode should be active
+   * @param {string} reason - Reason for the state change
+   */
+  _applyAdaptiveInteractionState(active, reason = 'test') {
+    if (active) {
+      this._enableAdaptiveMode(reason);
+    } else {
+      this._disableAdaptiveMode(reason);
+    }
+  }
+  
   _getAdaptiveConfig() {
     return this._adaptiveConfig || {
       enabled: false,
