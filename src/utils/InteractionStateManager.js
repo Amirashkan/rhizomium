@@ -12,6 +12,7 @@ export class InteractionStateManager {
     this.isPanning = false;
     this.isDragging = false;
     this.isZooming = false;
+    this.isEditing = false;
     this.isInteracting = false; // Any interaction active
     
     // Interaction tracking
@@ -94,6 +95,23 @@ export class InteractionStateManager {
         this._startInteraction('zooming');
       } else {
         this._endInteraction('zooming');
+      }
+    }
+  }
+
+  /**
+   * Set editing state
+   */
+  setEditing(isEditing) {
+    if (this.isEditing !== isEditing) {
+      this.isEditing = isEditing;
+      this._updateInteractionState();
+      this._updateThrottling();
+      this._notifyCallbacks('editing', isEditing);
+      if (isEditing) {
+        this._startInteraction('editing');
+      } else {
+        this._endInteraction('editing');
       }
     }
   }
@@ -244,13 +262,14 @@ export class InteractionStateManager {
    */
   _updateInteractionState() {
     const wasInteracting = this.isInteracting;
-    this.isInteracting = this.isPanning || this.isDragging || this.isZooming;
+    this.isInteracting = this.isPanning || this.isDragging || this.isZooming || this.isEditing;
     
     // Update current interaction type
     if (this.isInteracting) {
       if (this.isPanning) this.currentInteractionType = 'panning';
       else if (this.isDragging) this.currentInteractionType = 'dragging';
       else if (this.isZooming) this.currentInteractionType = 'zooming';
+      else if (this.isEditing) this.currentInteractionType = 'editing';
       
       // Update duration if interaction is ongoing
       if (this.interactionStartTime) {
@@ -290,6 +309,13 @@ export class InteractionStateManager {
       this.shouldThrottle.backgroundWarmup = true;
       this.shouldThrottle.preview = false;
     }
+    // During editing: moderate throttling
+    else if (this.isEditing) {
+      this.shouldThrottle.timeline = false;
+      this.shouldThrottle.uiPanels = false;
+      this.shouldThrottle.backgroundWarmup = true;
+      this.shouldThrottle.preview = false;
+    }
     // No interaction: no throttling
     else {
       this.shouldThrottle.timeline = false;
@@ -321,6 +347,7 @@ export class InteractionStateManager {
       isPanning: this.isPanning,
       isDragging: this.isDragging,
       isZooming: this.isZooming,
+      isEditing: this.isEditing,
       isInteracting: this.isInteracting,
       currentInteractionType: this.currentInteractionType,
       interactionDuration: this.interactionDuration,
@@ -479,6 +506,50 @@ export class InteractionStateManager {
         console.error('[InteractionStateManager] Callback error:', error);
       }
     });
+  }
+
+  /**
+   * Reset all interaction state to initial values
+   */
+  reset() {
+    // Cancel any ongoing timers
+    if (this.qualityRestoreTimer) {
+      clearInterval(this.qualityRestoreTimer);
+      this.qualityRestoreTimer = null;
+    }
+
+    // Reset interaction states
+    this.isPanning = false;
+    this.isDragging = false;
+    this.isZooming = false;
+    this.isEditing = false;
+    this.isInteracting = false;
+    
+    // Reset interaction tracking
+    this.currentInteractionType = null;
+    this.interactionStartTime = null;
+    this.interactionDuration = 0;
+    this.lastInteractionEndTime = null;
+    
+    // Reset cooldown
+    this.cooldownActive = false;
+    this.cooldownStartTime = null;
+    this.currentQualityLevel = 1.0;
+    this.targetQualityLevel = 1.0;
+    
+    // Reset throttling decisions
+    this.shouldThrottle = {
+      timeline: false,
+      uiPanels: false,
+      backgroundWarmup: false,
+      preview: false
+    };
+    
+    // Clear interaction history
+    this.interactionHistory = [];
+    
+    // Notify callbacks of reset
+    this._notifyCallbacks('reset', true);
   }
 }
 
