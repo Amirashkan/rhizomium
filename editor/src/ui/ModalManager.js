@@ -6,7 +6,7 @@
 export class ModalManager {
   constructor() {
     this.modals = [];
-    this.zIndexBase = 10000;
+    this.zIndexBase = 10002; // Higher than FileManager (10001) to appear on top
     this.addStyles();
   }
 
@@ -29,6 +29,7 @@ export class ModalManager {
         justify-content: center;
         opacity: 0;
         transition: opacity 0.2s ease;
+        pointer-events: auto;
       }
 
       .modal-overlay.visible {
@@ -399,8 +400,6 @@ export class ModalManager {
     document.addEventListener('keydown', escHandler);
 
     overlay._escHandler = escHandler;
-    overlay._zIndex = this.zIndexBase + this.modals.length;
-    overlay.style.zIndex = overlay._zIndex;
 
     return overlay;
   }
@@ -408,9 +407,14 @@ export class ModalManager {
   showModal(modal, onClose) {
     modal._onClose = onClose;
     this.modals.push(modal);
+    
+    // Set z-index before appending to ensure it's on top of FileManager and other modals
+    const zIndex = this.zIndexBase + this.modals.length;
+    modal.style.zIndex = zIndex;
+    
     document.body.appendChild(modal);
 
-    // Trigger animation
+    // Trigger animation immediately
     requestAnimationFrame(() => {
       modal.classList.add('visible');
     });
