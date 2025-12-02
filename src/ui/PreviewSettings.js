@@ -240,13 +240,18 @@ async _publishAnimation() {
 
   const duration = Math.min(300, Math.max(1, Number(durationInput)));
 
-  // Try multiple codec options, including H.264/MP4
+  // Prioritize MP4/H.264 codec options (required/preferred)
   const mimeCandidates = [
+    "video/mp4;codecs=avc1.42E01E", // H.264 Baseline Profile
+    "video/mp4;codecs=avc1.4D001E", // H.264 Main Profile
+    "video/mp4;codecs=avc1.64001E", // H.264 High Profile
+    "video/mp4;codecs=h264",
+    "video/mp4;codecs=avc1",
+    "video/mp4",
+    // Fallback to WebM if MP4 not available
     "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
-    "video/mp4;codecs=h264",
     "video/webm",
-    "video/mp4",
   ];
   const mimeType = mimeCandidates.find((candidate) => {
     try {
@@ -257,8 +262,13 @@ async _publishAnimation() {
   });
 
   if (!mimeType) {
-    await modalManager.alert("No supported video encoder found for this browser.", 'Browser Compatibility');
+    await modalManager.alert("No supported video encoder found for this browser. MP4/H.264 is preferred but not available.", 'Browser Compatibility');
     return;
+  }
+
+  // Log warning if MP4 is not available (but still allow WebM fallback)
+  if (!mimeType.includes('mp4')) {
+    console.warn(`MP4/H.264 not available, using fallback: ${mimeType}. For MP4 support, use Chrome/Edge or Firefox with hardware acceleration enabled.`);
   }
 
   // Determine file extension based on mime type
@@ -1749,13 +1759,18 @@ for (let y = 0; y < height; y++) {
 
     const duration = Math.min(300, Math.max(1, Number(durationInput)));
 
-    // Try multiple codec options, including H.264/MP4
+    // Prioritize MP4/H.264 codec options (required/preferred)
     const mimeCandidates = [
+      "video/mp4;codecs=avc1.42E01E", // H.264 Baseline Profile
+      "video/mp4;codecs=avc1.4D001E", // H.264 Main Profile
+      "video/mp4;codecs=avc1.64001E", // H.264 High Profile
+      "video/mp4;codecs=h264",
+      "video/mp4;codecs=avc1",
+      "video/mp4",
+      // Fallback to WebM if MP4 not available
       "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
-      "video/mp4;codecs=h264",
       "video/webm",
-      "video/mp4",
     ];
     const mimeType = mimeCandidates.find((candidate) => {
       try {
@@ -1766,8 +1781,13 @@ for (let y = 0; y < height; y++) {
     });
 
     if (!mimeType) {
-      await modalManager.alert("No supported video encoder found for this browser.", 'Browser Compatibility');
+      await modalManager.alert("No supported video encoder found for this browser. MP4/H.264 is preferred but not available.", 'Browser Compatibility');
       return;
+    }
+
+    // Log warning if MP4 is not available (but still allow WebM fallback)
+    if (!mimeType.includes('mp4')) {
+      console.warn(`MP4/H.264 not available, using fallback: ${mimeType}. For MP4 support, use Chrome/Edge or Firefox with hardware acceleration enabled.`);
     }
 
     // Determine file extension based on mime type
