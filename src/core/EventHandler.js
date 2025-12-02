@@ -1003,7 +1003,9 @@ export class EventHandler {
       const pos = this._getCanvasPosition(e);
 
       // End wire drag - support bidirectional connections
-      if (this.connections.getDragWire()) {
+      // Don't end wire drag if radial menu is open (user might be selecting a node to connect)
+      const isRadialMenuOpen = this.menu?.radialMenu?.isVisible;
+      if (this.connections.getDragWire() && !isRadialMenuOpen) {
         const dragWire = this.connections.getDragWire();
         let target = null;
 

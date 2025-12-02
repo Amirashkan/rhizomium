@@ -19,6 +19,7 @@ export class RadialMenu {
     this.showingSearch = false;
     this.selectedCategoryIndex = -1;
     this.selectedNodeIndex = -1;
+    this._isCreatingNode = false; // Flag to track if we're creating a node
   }
 
   show(canvasX, canvasY, clientX, clientY, categories) {
@@ -63,6 +64,9 @@ export class RadialMenu {
   }
 
   hide() {
+    const wasVisible = this.isVisible;
+    const isCreatingNode = this._isCreatingNode;
+    
     if (this.element) {
       this.element.remove();
       this.element = null;
@@ -83,6 +87,22 @@ export class RadialMenu {
       document.removeEventListener("click", this._boundClickHandler);
       document.removeEventListener("contextmenu", this._boundClickHandler);
     }
+    
+    // If menu was visible and is being closed without creating a node,
+    // and there's an active wire drag, cancel it
+    if (wasVisible && !isCreatingNode && window.eventHandler && window.eventHandler.connections) {
+      const dragWire = window.eventHandler.connections.getDragWire();
+      if (dragWire) {
+        // Cancel the wire drag by ending it without a target
+        window.eventHandler.connections.endWireDrag(dragWire.pos, null);
+        if (window.eventHandler._requestDraw) {
+          window.eventHandler._requestDraw('wire-drag-cancel');
+        }
+      }
+    }
+    
+    // Reset the flag
+    this._isCreatingNode = false;
   }
 
   _handleDocumentClick(e) {
@@ -890,6 +910,9 @@ export class RadialMenu {
   }
 
 _createNode(kind) {
+  // Set flag to prevent wire drag cancellation when hiding menu
+  this._isCreatingNode = true;
+  
   // Warm up GPU/canvas before node creation to prevent lag
   if (window.eventHandler && typeof window.eventHandler._checkAndWarmupAfterInactivity === 'function') {
     window.eventHandler._checkAndWarmupAfterInactivity();
