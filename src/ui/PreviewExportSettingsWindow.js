@@ -436,7 +436,7 @@ export class PreviewExportSettingsWindow {
       }
     });
 
-    ["720p", "1080p", "1440p", "4K", "8K", "custom"].forEach((preset) => {
+    ["720p", "1080p", "1440p", "2K", "4K", "5K", "8K", "custom"].forEach((preset) => {
       const option = document.createElement("option");
       option.value = preset;
       option.textContent = preset === "custom" ? "Custom" : preset;
@@ -695,7 +695,7 @@ export class PreviewExportSettingsWindow {
     // Use refreshRate from shared settings object (not fps)
     fpsInput.value = this.settings.refreshRate || 30;
     fpsInput.min = 1;
-    fpsInput.max = 60;
+    fpsInput.max = 120;
     fpsInput.style.cssText = `
       flex: 1;
       padding: 6px 8px;
@@ -767,7 +767,7 @@ export class PreviewExportSettingsWindow {
       }
     });
 
-    const exportAnimBtn = this._createButton("Export Animation (WebM)", async () => {
+    const exportAnimBtn = this._createButton("Export Animation (MP4/WebM)", async () => {
       if (this.floatingPreview?.settings?._exportAnimation) {
         await this.floatingPreview.settings._exportAnimation();
       }
@@ -1076,7 +1076,9 @@ export class PreviewExportSettingsWindow {
       "720p": { width: 1280, height: 720 },
       "1080p": { width: 1920, height: 1080 },
       "1440p": { width: 2560, height: 1440 },
+      "2K": { width: 2048, height: 1080 },
       "4K": { width: 3840, height: 2160 },
+      "5K": { width: 5120, height: 2880 },
       "8K": { width: 7680, height: 4320 },
       "custom": { width: null, height: null },
     };

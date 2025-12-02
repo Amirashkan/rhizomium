@@ -199,6 +199,74 @@ export class ModalManager {
         font-size: 13px;
         opacity: 0.9;
       }
+
+      /* Progress bar modal styles */
+      .progress-modal {
+        background: rgba(28, 28, 30, 0.98);
+        backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 24px;
+        min-width: 400px;
+        max-width: 500px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+      }
+
+      .progress-title {
+        color: #ffffff;
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 8px 0;
+      }
+
+      .progress-message {
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 14px;
+        margin: 0 0 20px 0;
+      }
+
+      .progress-bar-container {
+        width: 100%;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+
+      .progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #007AFF, #0056CC);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+        width: 0%;
+      }
+
+      .progress-bar-fill.indeterminate {
+        background: linear-gradient(90deg, #007AFF, #0056CC, #007AFF);
+        background-size: 200% 100%;
+        animation: progress-shimmer 1.5s ease-in-out infinite;
+        width: 100%;
+      }
+
+      @keyframes progress-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      .progress-percentage {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 12px;
+        text-align: right;
+        margin-top: 4px;
+      }
+
+      .progress-details {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 12px;
+        margin-top: 8px;
+        font-family: monospace;
+      }
     `;
     document.head.appendChild(styles);
   }
@@ -446,6 +514,100 @@ export class ModalManager {
         this.modals.splice(index, 1);
       }
     }, 300);
+  }
+
+  /**
+   * Show a progress bar modal
+   * Returns an object with methods to update progress
+   */
+  showProgress(title = 'Processing...', initialMessage = '') {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.pointerEvents = 'auto';
+
+    const modal = document.createElement('div');
+    modal.className = 'progress-modal';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'progress-title';
+    titleEl.textContent = title;
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'progress-message';
+    messageEl.textContent = initialMessage;
+
+    const progressContainer = document.createElement('div');
+    progressContainer.className = 'progress-bar-container';
+
+    const progressFill = document.createElement('div');
+    progressFill.className = 'progress-bar-fill indeterminate';
+
+    const percentageEl = document.createElement('div');
+    percentageEl.className = 'progress-percentage';
+    percentageEl.textContent = '';
+
+    const detailsEl = document.createElement('div');
+    detailsEl.className = 'progress-details';
+    detailsEl.textContent = '';
+
+    progressContainer.appendChild(progressFill);
+    modal.appendChild(titleEl);
+    modal.appendChild(messageEl);
+    modal.appendChild(progressContainer);
+    modal.appendChild(percentageEl);
+    modal.appendChild(detailsEl);
+    overlay.appendChild(modal);
+
+    // Set z-index
+    const zIndex = this.zIndexBase + this.modals.length + 1;
+    overlay.style.zIndex = zIndex;
+
+    document.body.appendChild(overlay);
+
+    // Animate in
+    requestAnimationFrame(() => {
+      overlay.classList.add('visible');
+    });
+
+    // Return control object
+    return {
+      update: (progress, message, details) => {
+        if (typeof progress === 'number') {
+          const clamped = Math.max(0, Math.min(100, progress));
+          progressFill.classList.remove('indeterminate');
+          progressFill.style.width = `${clamped}%`;
+          percentageEl.textContent = `${Math.round(clamped)}%`;
+        } else {
+          // Indeterminate mode
+          progressFill.classList.add('indeterminate');
+          percentageEl.textContent = '';
+        }
+
+        if (message !== undefined) {
+          messageEl.textContent = message;
+        }
+
+        if (details !== undefined) {
+          detailsEl.textContent = details;
+        }
+      },
+      close: () => {
+        overlay.classList.remove('visible');
+        setTimeout(() => {
+          if (overlay.parentElement) {
+            overlay.parentElement.removeChild(overlay);
+          }
+        }, 300);
+      },
+      setIndeterminate: (indeterminate) => {
+        if (indeterminate) {
+          progressFill.classList.add('indeterminate');
+          percentageEl.textContent = '';
+        } else {
+          progressFill.classList.remove('indeterminate');
+        }
+      }
+    };
   }
 
   /**
