@@ -117,12 +117,23 @@ export class ThreadSeparationManager {
    */
   async _initWorker(name, scriptPath) {
     return new Promise((resolve, reject) => {
+      let timeoutId = null;
+      let resolved = false;
+      
       try {
         const worker = new Worker(scriptPath, { type: 'module' });
         
         // Set up message handler
         worker.onmessage = (e) => {
           if (e.data.type === 'ready') {
+            if (resolved) return; // Already resolved/rejected
+            resolved = true;
+            
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
+            
             // Worker is ready
             this.workers.set(name, worker);
             this.queueManager.registerWorker(name, worker);
@@ -138,28 +149,60 @@ export class ThreadSeparationManager {
             console.log(`Worker ${name} initialized`);
             resolve(worker);
           } else if (e.data.type === 'error') {
+            if (resolved) return;
+            resolved = true;
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
             reject(new Error(e.data.error));
           }
         };
         
         worker.onerror = (error) => {
+          if (resolved) return;
+          resolved = true;
+          
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          
           console.error(`Worker ${name} error:`, error);
-          reject(error);
+          // Don't reject - fallback to main thread instead
+          console.warn(`Worker ${name} failed, will use main thread fallback`);
+          this.fallbackToMainThread.set(name, true);
+          resolve(null); // Resolve with null to continue initialization
         };
         
         // Send init message
         worker.postMessage({ type: 'init', id: Date.now() });
         
-        // Timeout after 5 seconds
-        setTimeout(() => {
-          if (!this.workers.has(name)) {
-            reject(new Error(`Worker ${name} initialization timeout`));
+        // Timeout after 10 seconds (increased from 5)
+        timeoutId = setTimeout(() => {
+          if (!resolved && !this.workers.has(name)) {
+            resolved = true;
+            console.warn(`Worker ${name} initialization timeout, will use main thread fallback`);
+            worker.terminate(); // Clean up the worker
+            this.fallbackToMainThread.set(name, true);
+            resolve(null); // Resolve with null to continue initialization
           }
-        }, 5000);
+        }, 10000);
         
       } catch (error) {
+        if (resolved) return;
+        resolved = true;
+        
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        
         console.error(`Failed to create worker ${name}:`, error);
-        reject(error);
+        // Don't reject - fallback to main thread instead
+        console.warn(`Worker ${name} creation failed, will use main thread fallback`);
+        this.fallbackToMainThread.set(name, true);
+        resolve(null); // Resolve with null to continue initialization
       }
     });
   }

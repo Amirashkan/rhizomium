@@ -350,11 +350,34 @@ export class ErrorHandler {
     const detailsEl = notification.querySelector('.error-details');
     if (detailsEl) {
       detailsEl.addEventListener('click', () => {
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(detailsEl);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          
+          // Check if element is still in the DOM and has a parent
+          if (!detailsEl.parentNode) {
+            console.warn('Cannot select text: element has no parent');
+            return;
+          }
+          
+          range.selectNodeContents(detailsEl);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } catch (error) {
+          // Handle InvalidNodeTypeError and other DOM errors gracefully
+          console.warn('Failed to select text:', error);
+          // Fallback: try to copy text to clipboard
+          try {
+            const text = detailsEl.textContent || detailsEl.innerText;
+            if (navigator.clipboard && text) {
+              navigator.clipboard.writeText(text).catch(() => {
+                // Clipboard API failed, ignore
+              });
+            }
+          } catch (clipboardError) {
+            // Ignore clipboard errors
+          }
+        }
       });
     }
 
