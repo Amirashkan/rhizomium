@@ -2180,8 +2180,10 @@ _renderOutputThumbnail(ctx, size, color) {
       return [];
     }
 
-    // Extract all node references in the format: node_<id>
-    const nodeRefPattern = /node_(\w+)/g;
+    // Extract all node references in the format: node_<id> or node_<id>_rgba, etc.
+    // This regex captures node_123, node_5, node_27_rgba, etc.
+    // It extracts only the numeric ID part, stopping at suffixes like _rgba, _xyz, etc.
+    const nodeRefPattern = /node_(\d+)(?:_\w+)?/g;
     const matches = trimmed.matchAll(nodeRefPattern);
 
     const nodeIds = [];
