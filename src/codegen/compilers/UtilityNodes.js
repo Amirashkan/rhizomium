@@ -409,9 +409,8 @@ export class UtilityNodes {
   }
 
   compileSwitch(node, getInput, nodeId) {
-    const selector = getInput(0, "f32", "0.0");
     const outputType = node.params?.outputType || "f32";
-    const numOptions = Math.max(2, Math.min(7, Math.floor(node.params?.numOptions || 4)));
+    const selectParam = Math.max(0, Math.min(3, Math.floor(node.params?.select || 0)));
     
     // Get default values based on output type
     const getDefaultForType = (type) => {
@@ -425,38 +424,24 @@ export class UtilityNodes {
     
     const defaultValue = getDefaultForType(outputType);
     
-    // Get inputs for the number of options specified
-    const inputs = [];
-    for (let i = 0; i < numOptions; i++) {
-      inputs.push(getInput(i + 1, outputType, defaultValue)); // +1 because input 0 is Selector
-    }
+    // Get all inputs
+    const a = getInput(0, outputType, defaultValue);
+    const b = getInput(1, outputType, defaultValue);
+    const c = getInput(2, outputType, defaultValue);
+    const d = getInput(3, outputType, defaultValue);
     
-    // Convert selector to integer and clamp to valid range [0, numOptions-1]
-    // Use WGSL switch statement for efficient selection
-    const typeStr = outputType === 'f32' ? 'f32' : `${outputType}<f32>`;
-    const maxIndex = numOptions - 1;
-    
-    // Build switch cases dynamically
-    let switchCases = '';
-    for (let i = 0; i < numOptions; i++) {
-      switchCases += `    case ${i}: {
-      node_${nodeId} = ${inputs[i]};
+    // Select which input to output based on parameter
+    let selectedInput;
+    switch (selectParam) {
+      case 0: selectedInput = a; break;
+      case 1: selectedInput = b; break;
+      case 2: selectedInput = c; break;
+      case 3: selectedInput = d; break;
+      default: selectedInput = a; break;
     }
-`;
-    }
-    
-    const switchCode = `var node_${nodeId}: ${typeStr} = ${defaultValue};
-{
-  let selector_${nodeId} = i32(clamp(floor(${selector}), 0.0, ${maxIndex}.0));
-  switch (selector_${nodeId}) {
-${switchCases}    default: {
-      node_${nodeId} = ${inputs[0]};
-    }
-  }
-}`;
     
     return {
-      line: switchCode,
+      line: `let node_${nodeId} = ${selectedInput};`,
       outputType: outputType
     };
   }

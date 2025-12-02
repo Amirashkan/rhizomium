@@ -73,17 +73,17 @@ export const UtilityNodes = {
   Switch: {
     label: "Switch",
     cat: "Utility",
-    inputs: 8, // Max inputs: Selector + up to 7 options
-    pinsIn: ["Selector", "A", "B", "C", "D", "E", "F", "G"],
+    inputs: 4,
+    pinsIn: ["A", "B", "C", "D"],
     pinsOut: [{ label: "out", type: "f32" }],
     params: [
       {
-        name: "numOptions",
+        name: "select",
         type: "int",
-        default: 4,
-        min: 2,
-        max: 7,
-        label: "Number of Options"
+        default: 0,
+        min: 0,
+        max: 3,
+        label: "Select"
       },
       {
         name: "outputType",
