@@ -48,6 +48,9 @@ export class FileManager {
         </div>
         
         <div class="file-manager-toolbar">
+          <button id="file-manager-save-btn" class="file-manager-toolbar-btn file-manager-toolbar-btn-save" title="Save Current Project">
+            <span>💾</span> Save
+          </button>
           <button id="file-manager-refresh-btn" class="file-manager-toolbar-btn" title="Refresh">
             <span>↻</span> Refresh
           </button>
@@ -243,6 +246,16 @@ export class FileManager {
       .file-manager-toolbar-btn-primary:hover {
         background: linear-gradient(135deg, #5dddd4 0%, #54b09d 100%);
         box-shadow: 0 4px 12px rgba(78, 205, 196, 0.3);
+      }
+
+      .file-manager-toolbar-btn-save {
+        background: linear-gradient(135deg, #007AFF 0%, #0056CC 100%);
+        border-color: #007AFF;
+      }
+
+      .file-manager-toolbar-btn-save:hover {
+        background: linear-gradient(135deg, #0088FF 0%, #0066DD 100%);
+        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
       }
 
       .file-manager-path {
@@ -482,6 +495,9 @@ export class FileManager {
         this.hide();
       }
     });
+
+    const saveBtn = this.dialog.querySelector("#file-manager-save-btn");
+    saveBtn.addEventListener("click", () => this.handleSave());
 
     const refreshBtn = this.dialog.querySelector("#file-manager-refresh-btn");
     refreshBtn.addEventListener("click", () => this.refreshFiles());
@@ -750,6 +766,81 @@ export class FileManager {
     } catch (error) {
       console.error('Failed to delete file:', error);
       alert(`Failed to delete file: ${error.message}`);
+    }
+  }
+
+  async handleSave() {
+    if (!this.saveLoadManager) {
+      alert('SaveLoadManager not available');
+      return;
+    }
+
+    // Get filename from user
+    const defaultName = `project-${new Date().toISOString().slice(0, 10)}.json`;
+    const fileName = prompt('Enter filename:', defaultName);
+    
+    if (!fileName) {
+      return; // User cancelled
+    }
+
+    // Ensure .json extension
+    const finalFileName = fileName.endsWith('.json') ? fileName : `${fileName}.json`;
+
+    try {
+      // Export current project data
+      const projectData = this.saveLoadManager.exportProject({
+        includeMetadata: true,
+        includePreviews: false,
+        includeViewport: true
+      });
+
+      // Convert to JSON string
+      const jsonContent = JSON.stringify(projectData, null, 2);
+
+      // Create a Blob and File object
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const file = new File([blob], finalFileName, { type: 'application/json' });
+
+      // Upload using FormData (same as handleUpload)
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('path', this.currentPath);
+
+      const response = await fetch(
+        `${this.tenderworldBaseUrl}/api/files/upload`,
+        {
+          method: 'POST',
+          body: formData,
+          credentials: 'include'
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed: ${response.status}`);
+      }
+
+      // Refresh file list and show success
+      await this.loadFiles();
+      
+      if (typeof updateStatus === 'function') {
+        updateStatus(`Project saved: ${finalFileName}`);
+      }
+
+      // Show success message in the dialog
+      const infoEl = this.dialog.querySelector("#file-manager-info");
+      const originalText = infoEl.textContent;
+      infoEl.textContent = `✓ Saved ${finalFileName} successfully`;
+      infoEl.style.color = '#4ecdc4';
+      
+      setTimeout(() => {
+        infoEl.textContent = originalText;
+        infoEl.style.color = '';
+      }, 3000);
+
+    } catch (error) {
+      console.error('Failed to save project:', error);
+      alert(`Failed to save project: ${error.message}`);
     }
   }
 
