@@ -131,6 +131,9 @@ for (let y = 0; y < height; y++) {
             } catch {
               resolve({});
             }
+          } else if (xhr.status === 413) {
+            const fileSizeMB = blob.size / 1024 / 1024;
+            reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try reducing resolution.`));
           } else {
             reject(new Error(`Upload failed (${xhr.status})`));
           }
@@ -168,6 +171,15 @@ for (let y = 0; y < height; y++) {
         if (shouldSignIn) {
           window.open('https://art.tenderworld.org', '_blank');
         }
+      } else if (err.message.includes('413') || err.message.includes('too large') || err.message.includes('File too large')) {
+        const fileSizeMB = blob.size / 1024 / 1024;
+        await modalManager.alert(
+          `Upload failed: File is too large (${fileSizeMB.toFixed(2)} MB).\n\n` +
+          `To reduce file size, try:\n` +
+          `• Lower resolution (currently ${width}x${height})\n` +
+          `• The server may have a limit around 50-100 MB`,
+          'File Too Large'
+        );
       } else {
         await modalManager.alert(`Publish failed: ${err?.message || err}`, 'Upload Error');
       }
@@ -311,36 +323,73 @@ async _publishAnimation() {
     // Wait a frame to ensure resize is complete
     await new Promise(resolve => requestAnimationFrame(resolve));
 
-    progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]}`);
+    progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS`);
 
+    // Create stream with explicit frame rate
     const stream = canvas.captureStream(fps);
+    
+    // CRITICAL: Set frame rate constraint on video track for proper MP4 playback speed
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack && videoTrack.getSettings) {
+      const settings = videoTrack.getSettings();
+      // Apply frame rate constraint if supported
+      if (videoTrack.applyConstraints) {
+        try {
+          await videoTrack.applyConstraints({
+            frameRate: { ideal: fps, max: fps }
+          });
+        } catch (err) {
+          console.warn('Could not set frame rate constraint:', err);
+        }
+      }
+    }
+
     const chunks = [];
 
-    let renderInterval = null;
-    if (typeof renderer.render === "function" || typeof window.render === "function") {
-      const frameInterval = Math.max(1, Math.floor(1000 / fps));
-      renderInterval = setInterval(() => {
+    // Use requestAnimationFrame for more accurate frame timing
+    let renderRequestId = null;
+    let lastRenderTime = 0;
+    const frameInterval = 1000 / fps;
+    
+    const renderFrame = (currentTime) => {
+      const elapsed = currentTime - lastRenderTime;
+      if (elapsed >= frameInterval) {
         try {
           if (typeof window.render === "function") {
             window.render();
           } else {
             renderer.render();
           }
+          lastRenderTime = currentTime;
         } catch (error) {
           console.warn("Render tick failed during animation export:", error);
         }
-      }, frameInterval);
-    }
+      }
+      renderRequestId = requestAnimationFrame(renderFrame);
+    };
+
+    // Start render loop
+    lastRenderTime = performance.now();
+    renderRequestId = requestAnimationFrame(renderFrame);
 
     let recorder;
     try {
-      recorder = new MediaRecorder(stream, {
+      // MediaRecorder options with frame rate support
+      const recorderOptions = {
         mimeType,
         videoBitsPerSecond: adaptiveBitrate,
-      });
+      };
+      
+      // Add frameRate if supported (some browsers support this)
+      if (MediaRecorder.isTypeSupported(`${mimeType.split(';')[0]};framerate=${fps}`)) {
+        // Some browsers support frameRate in mimeType
+        recorderOptions.mimeType = `${mimeType.split(';')[0]};framerate=${fps}`;
+      }
+      
+      recorder = new MediaRecorder(stream, recorderOptions);
     } catch (error) {
-      if (renderInterval) {
-        clearInterval(renderInterval);
+      if (renderRequestId) {
+        cancelAnimationFrame(renderRequestId);
       }
       stream.getTracks().forEach((track) => track.stop());
       progress.close();
@@ -360,7 +409,9 @@ async _publishAnimation() {
       recorder.onstop = () => resolve();
     });
 
-    recorder.start();
+    // Start recorder with timeslice for better frame rate control (optional, helps with some codecs)
+    // Using timeslice of 100ms ensures regular data chunks
+    recorder.start(100);
 
     // Phase 2: Recording (10-70%)
     const startTime = Date.now();
@@ -396,8 +447,8 @@ async _publishAnimation() {
       return;
     } finally {
       clearTimeout(stopTimer);
-      if (renderInterval) {
-        clearInterval(renderInterval);
+      if (renderRequestId) {
+        cancelAnimationFrame(renderRequestId);
       }
       stream.getTracks().forEach((track) => track.stop());
     }
@@ -414,8 +465,30 @@ async _publishAnimation() {
     const blob = new Blob(chunks, { type: mimeType });
     const timestamp = Date.now();
     const filename = `shader-${targetWidth}x${targetHeight}-${fps}fps-${timestamp}.${fileExt}`;
+    const fileSizeMB = blob.size / 1024 / 1024;
+    const maxFileSizeMB = 100; // Typical server limit (adjust if known)
 
-    progress.update(80, 'Preparing upload...', `File size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+    progress.update(80, 'Preparing upload...', `File size: ${fileSizeMB.toFixed(2)} MB`);
+
+    // Check file size before upload
+    if (fileSizeMB > maxFileSizeMB) {
+      progress.close();
+      const shouldContinue = await modalManager.confirm(
+        `Warning: File size is ${fileSizeMB.toFixed(2)} MB, which exceeds the typical upload limit (${maxFileSizeMB} MB).\n\n` +
+        `The upload may fail. To reduce file size, try:\n` +
+        `• Lower resolution (currently ${targetWidth}x${targetHeight})\n` +
+        `• Lower FPS (currently ${fps})\n` +
+        `• Shorter duration\n\n` +
+        `Would you like to try uploading anyway?`,
+        'File Too Large',
+        { confirmLabel: 'Try Upload', cancelLabel: 'Cancel' }
+      );
+      if (!shouldContinue) {
+        return;
+      }
+      // Reopen progress
+      progress.update(80, 'Preparing upload...', `File size: ${fileSizeMB.toFixed(2)} MB (large)`);
+    }
 
     try {
       const formData = new FormData();
@@ -445,6 +518,8 @@ async _publishAnimation() {
             } catch {
               resolve({});
             }
+          } else if (xhr.status === 413) {
+            reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try reducing resolution, FPS, or duration.`));
           } else {
             reject(new Error(`Upload failed (${xhr.status})`));
           }
@@ -484,6 +559,16 @@ async _publishAnimation() {
         if (shouldSignIn) {
           window.open('https://art.tenderworld.org', '_blank');
         }
+      } else if (err.message.includes('413') || err.message.includes('too large') || err.message.includes('File too large')) {
+        await modalManager.alert(
+          `Upload failed: File is too large (${fileSizeMB.toFixed(2)} MB).\n\n` +
+          `To reduce file size, try:\n` +
+          `• Lower resolution (e.g., 1920x1080 instead of ${targetWidth}x${targetHeight})\n` +
+          `• Lower FPS (e.g., 30 instead of ${fps})\n` +
+          `• Shorter duration\n` +
+          `• The server may have a limit around 50-100 MB`,
+          'File Too Large'
+        );
       } else {
         await modalManager.alert(`Upload failed: ${err?.message || err}`, 'Upload Error');
       }
@@ -1831,36 +1916,73 @@ for (let y = 0; y < height; y++) {
       // Wait a frame to ensure resize is complete
       await new Promise(resolve => requestAnimationFrame(resolve));
 
-      progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]}`);
+      progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS`);
 
+      // Create stream with explicit frame rate
       const stream = canvas.captureStream(fps);
+      
+      // CRITICAL: Set frame rate constraint on video track for proper MP4 playback speed
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack && videoTrack.getSettings) {
+        const settings = videoTrack.getSettings();
+        // Apply frame rate constraint if supported
+        if (videoTrack.applyConstraints) {
+          try {
+            await videoTrack.applyConstraints({
+              frameRate: { ideal: fps, max: fps }
+            });
+          } catch (err) {
+            console.warn('Could not set frame rate constraint:', err);
+          }
+        }
+      }
+
       const chunks = [];
 
-      let renderInterval = null;
-      if (typeof renderer.render === "function" || typeof window.render === "function") {
-        const frameInterval = Math.max(1, Math.floor(1000 / fps));
-        renderInterval = setInterval(() => {
+      // Use requestAnimationFrame for more accurate frame timing
+      let renderRequestId = null;
+      let lastRenderTime = 0;
+      const frameInterval = 1000 / fps;
+      
+      const renderFrame = (currentTime) => {
+        const elapsed = currentTime - lastRenderTime;
+        if (elapsed >= frameInterval) {
           try {
             if (typeof window.render === "function") {
               window.render();
             } else {
               renderer.render();
             }
+            lastRenderTime = currentTime;
           } catch (error) {
             console.warn("Render tick failed during animation export:", error);
           }
-        }, frameInterval);
-      }
+        }
+        renderRequestId = requestAnimationFrame(renderFrame);
+      };
+
+      // Start render loop
+      lastRenderTime = performance.now();
+      renderRequestId = requestAnimationFrame(renderFrame);
 
       let recorder;
       try {
-        recorder = new MediaRecorder(stream, {
+        // MediaRecorder options with frame rate support
+        const recorderOptions = {
           mimeType,
           videoBitsPerSecond: adaptiveBitrate,
-        });
+        };
+        
+        // Add frameRate if supported (some browsers support this)
+        if (MediaRecorder.isTypeSupported(`${mimeType.split(';')[0]};framerate=${fps}`)) {
+          // Some browsers support frameRate in mimeType
+          recorderOptions.mimeType = `${mimeType.split(';')[0]};framerate=${fps}`;
+        }
+        
+        recorder = new MediaRecorder(stream, recorderOptions);
       } catch (error) {
-        if (renderInterval) {
-          clearInterval(renderInterval);
+        if (renderRequestId) {
+          cancelAnimationFrame(renderRequestId);
         }
         stream.getTracks().forEach((track) => track.stop());
         progress.close();
@@ -1880,7 +2002,9 @@ for (let y = 0; y < height; y++) {
         recorder.onstop = () => resolve();
       });
 
-      recorder.start();
+      // Start recorder with timeslice for better frame rate control (optional, helps with some codecs)
+      // Using timeslice of 100ms ensures regular data chunks
+      recorder.start(100);
 
       // Phase 2: Recording (10-90%)
       const startTime = Date.now();
@@ -1916,8 +2040,8 @@ for (let y = 0; y < height; y++) {
         return;
       } finally {
         clearTimeout(stopTimer);
-        if (renderInterval) {
-          clearInterval(renderInterval);
+        if (renderRequestId) {
+          cancelAnimationFrame(renderRequestId);
         }
         stream.getTracks().forEach((track) => track.stop());
       }
