@@ -61,11 +61,15 @@ export class PreviewSettings {
     const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
     const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
 
+    const progress = modalManager.showProgress('Publishing Image', 'Capturing frame...');
+
     try {
+      progress.update(20, 'Capturing frame from GPU...', `${width}x${height}`);
       // Capture frame
       const capture = await renderer.captureFrame({ width, height });
       const { pixels, bytesPerRow } = capture;
 
+      progress.update(40, 'Processing image data...', 'Converting pixel format...');
       const exportCanvas = document.createElement('canvas');
       exportCanvas.width = width;
       exportCanvas.height = height;
@@ -89,8 +93,10 @@ for (let y = 0; y < height; y++) {
 }
       ctx.putImageData(imageData, 0, 0);
 
+      progress.update(60, 'Creating image file...', 'Encoding WebP...');
       const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
       if (!blob) {
+        progress.close();
         await modalManager.alert('Failed to create image blob', 'Error');
         return;
       }
@@ -99,34 +105,61 @@ for (let y = 0; y < height; y++) {
       const timestamp = Date.now();
       const filename = `shader-${timestamp}.webp`;
       
+      progress.update(70, 'Preparing upload...', `File size: ${(blob.size / 1024).toFixed(2)} KB`);
+      
       const formData = new FormData();
       formData.append('file', blob, filename);
 
-      const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
+      // Track upload progress
+      const xhr = new XMLHttpRequest();
+      const uploadPromise = new Promise((resolve, reject) => {
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const uploadPercent = 70 + (e.loaded / e.total) * 25; // 70-95%
+            progress.update(
+              uploadPercent,
+              'Uploading to gallery...',
+              `${(e.loaded / 1024).toFixed(2)} KB / ${(e.total / 1024).toFixed(2)} KB`
+            );
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              resolve({});
+            }
+          } else {
+            reject(new Error(`Upload failed (${xhr.status})`));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
       });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error?.error || `Upload failed (${response.status})`);
-      }
+      xhr.open('POST', 'https://art.tenderworld.org/api/rhizo-upload');
+      xhr.withCredentials = true;
+      xhr.send(formData);
 
-      const data = await response.json();
-      
+      const data = await uploadPromise;
+
       if (!data.url) {
         throw new Error('No URL returned from upload');
       }
 
-      // Show success message and open publish page
-      modalManager.toast('Image uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
+      progress.update(100, 'Upload complete!', 'Opening publish page...');
+
       setTimeout(() => {
+        progress.close();
+        modalManager.toast('Image uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
         window.open(`https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`, '_blank');
-      }, 1000);
+      }, 500);
 
     } catch (err) {
-
+      progress.close();
       if (err.message.includes('401') || err.message.includes('Unauthorized')) {
         const shouldSignIn = await modalManager.confirm(
           'You need to sign in to share your work.\n\nWould you like to go to the gallery and sign in?',
@@ -237,7 +270,13 @@ async _publishAnimation() {
   const fpsMultiplier = Math.max(1, fps / 30);
   const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5));
 
+  // Show progress bar
+  const progress = modalManager.showProgress('Publishing Animation', 'Preparing export...');
+
   try {
+    // Phase 1: Preparation (0-10%)
+    progress.update(5, 'Resizing canvas to target resolution...', `${targetWidth}x${targetHeight}`);
+    
     // Resize canvas to target resolution for export
     const gpuRenderer = window.gpuRenderer;
     if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
@@ -250,6 +289,8 @@ async _publishAnimation() {
     // Update preview size to match
     this.floatingPreview.updateSize();
     
+    progress.update(8, 'Initializing renderer...', '');
+    
     // Render a frame to ensure everything is initialized
     if (typeof window.render === "function") {
       window.render();
@@ -259,6 +300,8 @@ async _publishAnimation() {
 
     // Wait a frame to ensure resize is complete
     await new Promise(resolve => requestAnimationFrame(resolve));
+
+    progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]}`);
 
     const stream = canvas.captureStream(fps);
     const chunks = [];
@@ -290,6 +333,7 @@ async _publishAnimation() {
         clearInterval(renderInterval);
       }
       stream.getTracks().forEach((track) => track.stop());
+      progress.close();
       await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
       return;
     }
@@ -307,18 +351,37 @@ async _publishAnimation() {
     });
 
     recorder.start();
-    modalManager.toast(`Recording ${duration}s animation at ${fps} FPS, ${targetWidth}x${targetHeight}...`, 'info', 'Share to Gallery');
+
+    // Phase 2: Recording (10-70%)
+    const startTime = Date.now();
+    const totalDurationMs = duration * 1000;
+    
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progressPercent = Math.min(70, 10 + (elapsed / totalDurationMs) * 60);
+      const remaining = Math.max(0, duration - (elapsed / 1000));
+      const currentFps = chunks.length > 0 ? (chunks.length / (elapsed / 1000)).toFixed(1) : '0';
+      
+      progress.update(
+        progressPercent,
+        `Recording... ${remaining.toFixed(1)}s remaining`,
+        `${currentFps} FPS captured | ${(chunks.reduce((sum, c) => sum + c.size, 0) / 1024 / 1024).toFixed(2)} MB`
+      );
+    }, 100); // Update every 100ms
 
     const stopTimer = setTimeout(() => {
       if (recorder.state === "recording") {
         recorder.stop();
       }
-    }, duration * 1000);
+    }, totalDurationMs);
 
     try {
       await recordingPromise;
+      clearInterval(progressInterval);
     } catch (error) {
+      clearInterval(progressInterval);
       console.error("Animation recording failed:", error);
+      progress.close();
       await modalManager.alert("Animation recording failed: " + error.message, 'Recording Error');
       return;
     } finally {
@@ -330,45 +393,78 @@ async _publishAnimation() {
     }
 
     if (!chunks.length) {
+      progress.close();
       await modalManager.alert("Recording produced no data.", 'Recording Error');
       return;
     }
 
-    // Create blob and upload
+    // Phase 3: Creating blob (70-80%)
+    progress.update(70, 'Creating video file...', 'Processing chunks...');
+
     const blob = new Blob(chunks, { type: mimeType });
     const timestamp = Date.now();
     const filename = `shader-${targetWidth}x${targetHeight}-${fps}fps-${timestamp}.${fileExt}`;
+
+    progress.update(80, 'Preparing upload...', `File size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
 
     try {
       const formData = new FormData();
       formData.append('file', blob, filename);
 
-      modalManager.toast('Uploading animation...', 'info', 'Share to Gallery');
+      // Phase 4: Uploading (80-95%)
+      progress.update(80, 'Uploading to gallery...', 'Please wait...');
 
-      const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
+      // Track upload progress if supported
+      const xhr = new XMLHttpRequest();
+      const uploadPromise = new Promise((resolve, reject) => {
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const uploadPercent = 80 + (e.loaded / e.total) * 15; // 80-95%
+            progress.update(
+              uploadPercent,
+              'Uploading to gallery...',
+              `${(e.loaded / 1024 / 1024).toFixed(2)} MB / ${(e.total / 1024 / 1024).toFixed(2)} MB`
+            );
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              resolve({});
+            }
+          } else {
+            reject(new Error(`Upload failed (${xhr.status})`));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
       });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error?.error || `Upload failed (${response.status})`);
-      }
+      xhr.open('POST', 'https://art.tenderworld.org/api/rhizo-upload');
+      xhr.withCredentials = true;
+      xhr.send(formData);
 
-      const data = await response.json();
+      const data = await uploadPromise;
 
       if (!data.url) {
         throw new Error('No URL returned from upload');
       }
 
-      // Show success message and open publish page
-      modalManager.toast('Animation uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
+      // Phase 5: Complete (95-100%)
+      progress.update(100, 'Upload complete!', 'Opening publish page...');
+
       setTimeout(() => {
+        progress.close();
+        modalManager.toast('Animation uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
         window.open(`https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`, '_blank');
-      }, 1000);
+      }, 500);
 
     } catch (err) {
+      progress.close();
       console.error("Upload failed:", err);
       if (err.message.includes('401') || err.message.includes('Unauthorized')) {
         const shouldSignIn = await modalManager.confirm(
@@ -397,6 +493,7 @@ async _publishAnimation() {
       this.floatingPreview.updateSize();
     }
   } catch (err) {
+    progress.close();
     // Ensure canvas is restored even on error
     const gpuRenderer = window.gpuRenderer;
     if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
@@ -1520,17 +1617,22 @@ _createExportButtons() {
     const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
     const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
 
+    const progress = modalManager.showProgress('Exporting PNG', 'Capturing frame...');
+
     try {
+      progress.update(30, 'Capturing frame from GPU...', `${width}x${height}`);
       const capture = await renderer.captureFrame({ width, height });
       const { pixels, bytesPerRow } = capture;
 
+      progress.update(50, 'Processing image data...', 'Converting pixel format...');
+      
       const exportCanvas = document.createElement('canvas');
       exportCanvas.width = width;
       exportCanvas.height = height;
       const ctx = exportCanvas.getContext('2d');
       const imageData = ctx.createImageData(width, height);
 
- for (let y = 0; y < height; y++) {
+for (let y = 0; y < height; y++) {
   const srcOffset = y * bytesPerRow;
   const dstOffset = y * width * 4;
   
@@ -1548,11 +1650,15 @@ _createExportButtons() {
 
       ctx.putImageData(imageData, 0, 0);
 
+      progress.update(80, 'Creating PNG file...', 'Encoding image...');
       const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, "image/png"));
       if (!blob) {
+        progress.close();
         await modalManager.alert("Failed to create image blob", 'Error');
         return;
       }
+
+      progress.update(95, 'Preparing download...', `File size: ${(blob.size / 1024).toFixed(2)} KB`);
 
       const link = document.createElement("a");
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
@@ -1560,11 +1666,16 @@ _createExportButtons() {
       link.href = URL.createObjectURL(blob);
       link.click();
 
-      modalManager.toast(`PNG exported: ${link.download}`, 'success', 'Export Complete');
+      progress.update(100, 'Export complete!', link.download);
+      
+      setTimeout(() => {
+        progress.close();
+        modalManager.toast(`PNG exported: ${link.download}`, 'success', 'Export Complete');
+      }, 500);
 
       setTimeout(() => URL.revokeObjectURL(link.href), 100);
     } catch (error) {
-
+      progress.close();
       await modalManager.alert("Export failed: " + error.message + "\n\nMake sure the preview is actively rendering.", 'Export Error');
     }
   }
@@ -1669,7 +1780,13 @@ _createExportButtons() {
     const fpsMultiplier = Math.max(1, fps / 30); // Scale with FPS
     const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5)); // Cap at 100 Mbps
 
+    // Show progress bar
+    const progress = modalManager.showProgress('Exporting Animation', 'Preparing export...');
+
     try {
+      // Phase 1: Preparation (0-10%)
+      progress.update(5, 'Resizing canvas to target resolution...', `${targetWidth}x${targetHeight}`);
+      
       // Resize canvas to target resolution for export
       const gpuRenderer = window.gpuRenderer;
       if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
@@ -1682,6 +1799,8 @@ _createExportButtons() {
       // Update preview size to match
       this.floatingPreview.updateSize();
       
+      progress.update(8, 'Initializing renderer...', '');
+      
       // Render a frame to ensure everything is initialized
       if (typeof window.render === "function") {
         window.render();
@@ -1691,6 +1810,8 @@ _createExportButtons() {
 
       // Wait a frame to ensure resize is complete
       await new Promise(resolve => requestAnimationFrame(resolve));
+
+      progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]}`);
 
       const stream = canvas.captureStream(fps);
       const chunks = [];
@@ -1722,6 +1843,7 @@ _createExportButtons() {
           clearInterval(renderInterval);
         }
         stream.getTracks().forEach((track) => track.stop());
+        progress.close();
         await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
         return;
       }
@@ -1739,18 +1861,37 @@ _createExportButtons() {
       });
 
       recorder.start();
-      modalManager.toast(`Recording ${duration}s animation at ${fps} FPS, ${targetWidth}x${targetHeight}...`, 'info', 'Export Animation');
+
+      // Phase 2: Recording (10-90%)
+      const startTime = Date.now();
+      const totalDurationMs = duration * 1000;
+      
+      const progressInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const progressPercent = Math.min(90, 10 + (elapsed / totalDurationMs) * 80);
+        const remaining = Math.max(0, duration - (elapsed / 1000));
+        const currentFps = chunks.length > 0 ? (chunks.length / (elapsed / 1000)).toFixed(1) : '0';
+        
+        progress.update(
+          progressPercent,
+          `Recording... ${remaining.toFixed(1)}s remaining`,
+          `${currentFps} FPS captured | ${(chunks.reduce((sum, c) => sum + c.size, 0) / 1024 / 1024).toFixed(2)} MB`
+        );
+      }, 100); // Update every 100ms
 
       const stopTimer = setTimeout(() => {
         if (recorder.state === "recording") {
           recorder.stop();
         }
-      }, duration * 1000);
+      }, totalDurationMs);
 
       try {
         await recordingPromise;
+        clearInterval(progressInterval);
       } catch (error) {
+        clearInterval(progressInterval);
         console.error("Animation export failed:", error);
+        progress.close();
         await modalManager.alert("Animation export failed: " + error.message, 'Export Error');
         return;
       } finally {
@@ -1762,21 +1903,35 @@ _createExportButtons() {
       }
 
       if (!chunks.length) {
+        progress.close();
         await modalManager.alert("Recording produced no data.", 'Export Error');
         return;
       }
 
+      // Phase 3: Finalizing (90-100%)
+      progress.update(90, 'Finalizing video...', 'Creating blob...');
+
       const blob = new Blob(chunks, { type: mimeType });
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+
+      progress.update(95, 'Preparing download...', `File size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
 
       const link = document.createElement("a");
       link.download = `shader-${targetWidth}x${targetHeight}-${fps}fps-${timestamp}.${fileExt}`;
       link.href = URL.createObjectURL(blob);
       link.click();
 
-      modalManager.toast(`Animation exported: ${link.download}`, 'success', 'Export Complete');
+      progress.update(100, 'Export complete!', link.download);
+      
+      setTimeout(() => {
+        progress.close();
+        modalManager.toast(`Animation exported: ${link.download}`, 'success', 'Export Complete');
+      }, 500);
 
       setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (error) {
+      progress.close();
+      throw error;
     } finally {
       // Restore original canvas size
       const gpuRenderer = window.gpuRenderer;
