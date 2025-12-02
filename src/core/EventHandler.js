@@ -696,7 +696,11 @@ export class EventHandler {
         return;
       }
 
-      this.menu.hide();
+      // Don't close menu if there's an active wire drag (user might be selecting a node to connect)
+      const hasActiveWireDrag = this.connections?.getDragWire();
+      if (!hasActiveWireDrag) {
+        this.menu.hide();
+      }
 
       // Check for output pin drag (wire creation)
       const hitOut = this.connections.hitOutputPin(
@@ -1003,7 +1007,9 @@ export class EventHandler {
       const pos = this._getCanvasPosition(e);
 
       // End wire drag - support bidirectional connections
-      if (this.connections.getDragWire()) {
+      // Don't end wire drag if radial menu is open (user might be selecting a node to connect)
+      const isRadialMenuOpen = this.menu?.radialMenu?.isVisible;
+      if (this.connections.getDragWire() && !isRadialMenuOpen) {
         const dragWire = this.connections.getDragWire();
         let target = null;
 
@@ -1064,6 +1070,24 @@ export class EventHandler {
         this.paramPanel.hide();
       }
 
+      // Tab key: Open radial menu when wire is being dragged
+      if (e.key === "Tab" && document.activeElement === document.body) {
+        const dragWire = this.connections.getDragWire();
+        if (dragWire) {
+          e.preventDefault();
+          // Get current wire position (canvas coordinates)
+          const canvasX = dragWire.pos.x;
+          const canvasY = dragWire.pos.y;
+          // Convert canvas coordinates to screen coordinates (relative to canvas)
+          const screenPos = this.viewport.canvasToScreen(canvasX, canvasY);
+          // Convert to client coordinates (absolute screen position)
+          const rect = this.canvas.getBoundingClientRect();
+          const clientX = rect.left + screenPos.x;
+          const clientY = rect.top + screenPos.y;
+          this.menu.showRadialMenu(canvasX, canvasY, clientX, clientY);
+        }
+      }
+
       // SIMPLIFIED: Use SelectionManager's undo-aware deleteSelected directly
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -1084,7 +1108,9 @@ export class EventHandler {
         return;
       }
 
-      if (this.menu && !this.menu.contains(e.target)) {
+      // Don't close menu if there's an active wire drag (user might be selecting a node to connect)
+      const hasActiveWireDrag = this.connections?.getDragWire();
+      if (this.menu && !this.menu.contains(e.target) && !hasActiveWireDrag) {
         this.menu.hide();
       }
 
