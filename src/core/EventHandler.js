@@ -1064,6 +1064,24 @@ export class EventHandler {
         this.paramPanel.hide();
       }
 
+      // Tab key: Open radial menu when wire is being dragged
+      if (e.key === "Tab" && document.activeElement === document.body) {
+        const dragWire = this.connections.getDragWire();
+        if (dragWire) {
+          e.preventDefault();
+          // Get current wire position (canvas coordinates)
+          const canvasX = dragWire.pos.x;
+          const canvasY = dragWire.pos.y;
+          // Convert canvas coordinates to screen coordinates (relative to canvas)
+          const screenPos = this.viewport.canvasToScreen(canvasX, canvasY);
+          // Convert to client coordinates (absolute screen position)
+          const rect = this.canvas.getBoundingClientRect();
+          const clientX = rect.left + screenPos.x;
+          const clientY = rect.top + screenPos.y;
+          this.menu.showRadialMenu(canvasX, canvasY, clientX, clientY);
+        }
+      }
+
       // SIMPLIFIED: Use SelectionManager's undo-aware deleteSelected directly
       if (
         (e.key === "Delete" || e.key === "Backspace") &&

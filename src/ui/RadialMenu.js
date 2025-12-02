@@ -1,5 +1,5 @@
 // src/ui/RadialMenu.js
-import { makeNode } from "../data/NodeDefs.js";
+import { makeNode, NodeDefs } from "../data/NodeDefs.js";
 
 export class RadialMenu {
   constructor(graph, onChange) {
@@ -904,12 +904,63 @@ _createNode(kind) {
     window.onNodeCreated(node);
   }
 
+  // Check if there's an active wire drag and connect the new node
+  let shouldConnectToWire = false;
+  let connectionInfo = null;
+  if (window.eventHandler && window.eventHandler.connections) {
+    const dragWire = window.eventHandler.connections.getDragWire();
+    if (dragWire) {
+      shouldConnectToWire = true;
+      connectionInfo = dragWire;
+    }
+  }
+
   // CRITICAL ORDER OF OPERATIONS (do not reorder these steps):
 
   // 1. Hide the radial menu FIRST so it doesn't overlay the canvas
   this.hide();
 
-  // 2. Immediately redraw the UI canvas so the new node appears visually
+  // 2. Connect to wire if one was being dragged
+  if (shouldConnectToWire && connectionInfo && window.eventHandler && window.eventHandler.connections) {
+    try {
+      const connections = window.eventHandler.connections;
+      const nodeDef = NodeDefs[kind];
+      
+      // Determine which pin to connect based on drag direction
+      if (connectionInfo.isFromInput) {
+        // Dragging from input: connect first output (pin 0) of new node to the input
+        // Check if node has outputs
+        const outputCount = (nodeDef?.pinsOut || []).length || (nodeDef ? 1 : 0);
+        if (outputCount > 0) {
+          const outputPin = 0; // First output pin
+          const hitPin = {
+            nodeId: node.id,
+            pin: outputPin
+          };
+          // Use the current wire position for connection
+          connections.endWireDrag(connectionInfo.pos, hitPin);
+        }
+      } else {
+        // Dragging from output: connect the output to first input (pin 0) of new node
+        // Check if node has inputs
+        const inputCount = nodeDef?.inputs || 0;
+        if (inputCount > 0) {
+          const inputPin = 0; // First input pin
+          const hitPin = {
+            nodeId: node.id,
+            pin: inputPin
+          };
+          // Use the current wire position for connection
+          connections.endWireDrag(connectionInfo.pos, hitPin);
+        }
+      }
+    } catch (error) {
+      console.warn('[RadialMenu] Failed to connect node to wire:', error);
+      // Continue with node creation even if connection fails
+    }
+  }
+
+  // 3. Immediately redraw the UI canvas so the new node appears visually
   //    IMPORTANT: editor.draw() renders the 2D UI canvas (node boxes, wires, etc.)
   //    This is SEPARATE from GPU shader compilation which happens later in onChange
   //    Without this call, the node exists in the graph but is invisible until next redraw
@@ -932,7 +983,7 @@ _createNode(kind) {
     }, 1000);
   }
 
-  // 3. Delay GPU shader compilation (onChange calls updateShaderFromGraph)
+  // 4. Delay GPU shader compilation (onChange calls updateShaderFromGraph)
   //    The 50ms delay allows GPU bind groups to settle and prevents mismatch errors
   //    NOTE: updateShaderFromGraph() updates the GPU shader but does NOT redraw the canvas
   //    That's why we need the explicit editor.draw() call above
