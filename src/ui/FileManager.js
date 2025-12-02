@@ -530,10 +530,32 @@ export class FileManager {
     const infoEl = this.dialog.querySelector("#file-manager-info");
 
     try {
+      // Check if we're on a domain that can access TenderWorld API
+      const currentOrigin = window.location.origin;
+      const isTenderWorldDomain = currentOrigin.includes('tenderworld.org') || 
+                                   currentOrigin.includes('localhost') ||
+                                   currentOrigin.includes('127.0.0.1');
+      
+      if (!isTenderWorldDomain) {
+        // CORS will block this request, show helpful message
+        userInfoEl.textContent = 'Cloud file manager unavailable';
+        userInfoEl.classList.remove('authenticated');
+        loginBtn.style.display = 'none';
+        infoEl.textContent = 'File Manager is only available when running on TenderWorld domains. Use local save/load instead.';
+        this.showEmptyState('File Manager requires TenderWorld domain access');
+        return;
+      }
+
       // Check authentication
       const authResponse = await fetch(`${this.tenderworldBaseUrl}/api/auth/check`, {
         method: 'GET',
         credentials: 'include'
+      }).catch(err => {
+        // Handle network/CORS errors gracefully
+        if (err.name === 'TypeError' && err.message.includes('fetch')) {
+          throw new Error('Network error: Unable to connect to TenderWorld API. This may be a CORS issue.');
+        }
+        throw err;
       });
 
       if (authResponse.ok) {
@@ -553,11 +575,21 @@ export class FileManager {
       }
     } catch (error) {
       console.error('Authentication check failed:', error);
+      const errorMessage = error.message || 'Unknown error';
+      const isCorsError = errorMessage.includes('CORS') || errorMessage.includes('fetch') || 
+                         errorMessage.includes('blocked');
+      
       userInfoEl.textContent = 'Not signed in';
       userInfoEl.classList.remove('authenticated');
-      loginBtn.style.display = 'block';
-      infoEl.textContent = 'Please sign in to TenderWorld to access your cloud files';
-      this.showEmptyState('Please sign in to access your files');
+      loginBtn.style.display = isCorsError ? 'none' : 'block';
+      
+      if (isCorsError) {
+        infoEl.textContent = 'File Manager unavailable: CORS restrictions prevent access to TenderWorld API from this domain.';
+        this.showEmptyState('File Manager requires TenderWorld domain access');
+      } else {
+        infoEl.textContent = 'Please sign in to TenderWorld to access your cloud files';
+        this.showEmptyState('Please sign in to access your files');
+      }
     }
   }
 

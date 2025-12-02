@@ -72,7 +72,7 @@ export class UtilityNodes {
       'OutputFinal', 'Expr', 'Remap', 'Posterize',
       'ColorToGrayscale', 'ColorInvert', 'ColorSaturate', 
       'ColorContrast', 'ColorBrightness', 'ColorMix',
-      'HSVToRGB', 'RGBToHSV', 'Select', 'Compare', 'CustomGLSL'
+      'HSVToRGB', 'RGBToHSV', 'Select', 'Compare', 'Switch', 'CustomGLSL'
     ].includes(kind);
   }
   
@@ -80,9 +80,11 @@ export class UtilityNodes {
    * Compile utility nodes
    * @param {Object} node 
    * @param {Function} getInput 
+   * @param {Function} getParam - Optional parameter resolver
+   * @param {Object} context - Optional context with typeConverter
    * @returns {Object} { line, outputType }
    */
-  compile(node, getInput) {
+  compile(node, getInput, getParam = null, context = null) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
     
     switch (node.kind) {
@@ -114,6 +116,8 @@ export class UtilityNodes {
         return this.compileSelect(node, getInput, nodeId);
       case 'Compare':
         return this.compileCompare(node, getInput, nodeId);
+      case 'Switch':
+        return this.compileSwitch(node, getInput, nodeId);
       case 'CustomGLSL':
         try {
           return this.compileCustomGLSL(node, getInput, nodeId);
@@ -403,6 +407,70 @@ export class UtilityNodes {
     return {
       line: `let node_${nodeId} = select(0.0, 1.0, ${comparison});`,
       outputType: "f32"
+    };
+  }
+
+  compileSwitch(node, getInput, nodeId) {
+    const selectParam = Math.max(0, Math.min(3, Math.floor(node.params?.select || 0)));
+    
+    // OPTIMIZED: Only evaluate the selected input to avoid compiling unused node graphs
+    // This significantly improves performance when switching between complex inputs
+    
+    // Helper to get output type from node definition
+    const getNodeOutputType = (inputId) => {
+      if (!inputId || !window.editor?.graph?.nodes) return null;
+      const sourceNode = window.editor.graph.nodes.find(n => n.id === inputId);
+      if (!sourceNode || !window.NodeDefs) return null;
+      const nodeDef = window.NodeDefs[sourceNode.kind];
+      if (!nodeDef || !nodeDef.pinsOut || nodeDef.pinsOut.length === 0) return null;
+      return nodeDef.pinsOut[0].type || null;
+    };
+    
+    // Only get the selected input - unselected inputs won't be evaluated
+    const selectedIndex = selectParam;
+    const selectedInput = getInput(selectedIndex, null, "vec3<f32>(0.0)");
+    
+    // Extract code and type from selected input
+    const getCode = (input) => {
+      if (typeof input === 'object' && input !== null && input.code !== undefined) {
+        return input.code;
+      }
+      return input || "vec3<f32>(0.0)";
+    };
+    
+    const getType = (input, index) => {
+      // First try to get type from the input object
+      if (typeof input === 'object' && input !== null && input.type !== undefined) {
+        // If type is f32 but we have a connected input, try to get actual type from node definition
+        if (input.type === "f32" && node.inputs?.[index]) {
+          const actualType = getNodeOutputType(node.inputs[index]);
+          if (actualType && actualType !== "f32") {
+            return actualType;
+          }
+        }
+        return input.type;
+      }
+      // For string inputs, try to infer type from the value
+      if (typeof input === 'string') {
+        if (input.includes('vec3')) return "vec3";
+        if (input.includes('vec2')) return "vec2";
+        if (input.includes('vec4')) return "vec4";
+      }
+      // If we have a connected input, try to get type from node definition
+      if (node.inputs?.[index]) {
+        const actualType = getNodeOutputType(node.inputs[index]);
+        if (actualType) return actualType;
+      }
+      return "vec3"; // Default to vec3 for colors
+    };
+    
+    const code = getCode(selectedInput);
+    const outputType = getType(selectedInput, selectedIndex);
+    
+    // Output only the selected input (unselected inputs are not evaluated!)
+    return {
+      line: `let node_${nodeId} = ${code};`,
+      outputType: outputType || "vec3"
     };
   }
 
