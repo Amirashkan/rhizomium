@@ -2,48 +2,17 @@
 // GPU Shader Module Cache Foundation
 // Caches compiled GPUShaderModule objects to avoid recompiling identical WGSL code
 
-/**
- * Fast hash function (djb2 algorithm)
- * Good for performance-critical paths where cryptographic security isn't needed
- * @param {string} str - String to hash
- * @returns {string} - Hexadecimal hash string
- */
-function djb2Hash(str) {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i);
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  // Convert to positive hex string
-  return Math.abs(hash).toString(16);
-}
-
-/**
- * Cryptographic hash function (SHA-256) using Web Crypto API
- * More robust but slower than djb2 - use when collision resistance is important
- * @param {string} str - String to hash
- * @returns {Promise<string>} - Hexadecimal hash string
- */
-async function sha256Hash(str) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(str);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
+import { hashString } from '../utils/hashUtils.js';
 
 /**
  * Hash WGSL source code
- * Uses SHA-256 if available, falls back to djb2 for synchronous operation
+ * Uses SHA-256 if cryptographic option is true, otherwise djb2 (fast, synchronous)
  * @param {string} wgslCode - WGSL shader source code
  * @param {boolean} useCryptographic - If true, use SHA-256 (async), otherwise djb2 (sync)
  * @returns {Promise<string>|string} - Hash string
  */
 export function hashWGSL(wgslCode, useCryptographic = false) {
-  if (useCryptographic && typeof crypto !== 'undefined' && crypto.subtle) {
-    return sha256Hash(wgslCode);
-  }
-  return djb2Hash(wgslCode);
+  return hashString(wgslCode, { cryptographic: useCryptographic });
 }
 
 /**
@@ -162,14 +131,14 @@ export class ShaderModuleCache {
    * This is a convenience method that combines hashing, checking cache, and creating/storing
    * @param {GPUDevice} device - WebGPU device
    * @param {string} wgslCode - WGSL source code
-   * @returns {Promise<GPUShaderModule>} - Cached or newly created shader module
+   * @returns {Promise<GPUShaderModule>|GPUShaderModule} - Cached or newly created shader module
    */
   async getOrCreate(device, wgslCode) {
     if (!device || !wgslCode) {
       throw new Error('[ShaderModuleCache] Device and WGSL code are required');
     }
 
-    // Hash the WGSL code
+    // Hash the WGSL code (may be sync or async depending on useCryptographicHash)
     const hash = await hashWGSL(wgslCode, this.useCryptographicHash);
     
     // Check cache first
