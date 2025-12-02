@@ -131,6 +131,9 @@ for (let y = 0; y < height; y++) {
             } catch {
               resolve({});
             }
+          } else if (xhr.status === 413) {
+            const fileSizeMB = blob.size / 1024 / 1024;
+            reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try reducing resolution.`));
           } else {
             reject(new Error(`Upload failed (${xhr.status})`));
           }
@@ -168,6 +171,15 @@ for (let y = 0; y < height; y++) {
         if (shouldSignIn) {
           window.open('https://art.tenderworld.org', '_blank');
         }
+      } else if (err.message.includes('413') || err.message.includes('too large') || err.message.includes('File too large')) {
+        const fileSizeMB = blob.size / 1024 / 1024;
+        await modalManager.alert(
+          `Upload failed: File is too large (${fileSizeMB.toFixed(2)} MB).\n\n` +
+          `To reduce file size, try:\n` +
+          `• Lower resolution (currently ${width}x${height})\n` +
+          `• The server may have a limit around 50-100 MB`,
+          'File Too Large'
+        );
       } else {
         await modalManager.alert(`Publish failed: ${err?.message || err}`, 'Upload Error');
       }
@@ -274,11 +286,48 @@ async _publishAnimation() {
   // Determine file extension based on mime type
   const fileExt = mimeType.includes('mp4') ? 'mp4' : 'webm';
 
-  // Calculate adaptive bitrate based on resolution and FPS
+  // Calculate optimized bitrate for efficient compression
+  // Goal: Balance quality and file size for upload compatibility
   const pixels = targetWidth * targetHeight;
-  const baseBitrate = Math.max(2_000_000, pixels * 2);
-  const fpsMultiplier = Math.max(1, fps / 30);
-  const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5));
+  const megapixels = pixels / 1_000_000;
+  
+  // More efficient bitrate calculation based on resolution and FPS
+  // Formula optimized for H.264/MP4 encoding efficiency
+  let baseBitrate;
+  if (megapixels <= 1) {
+    // HD and below: 1.5 bits per pixel
+    baseBitrate = pixels * 1.5;
+  } else if (megapixels <= 2.5) {
+    // 2K range: 1.2 bits per pixel (more efficient)
+    baseBitrate = pixels * 1.2;
+  } else if (megapixels <= 8) {
+    // 4K range: 1.0 bits per pixel
+    baseBitrate = pixels * 1.0;
+  } else {
+    // 8K+: 0.8 bits per pixel
+    baseBitrate = pixels * 0.8;
+  }
+  
+  // FPS scaling (more conservative)
+  const fpsMultiplier = Math.max(1, Math.sqrt(fps / 30)); // Square root for less aggressive scaling
+  
+  // Calculate bitrate with duration consideration for file size management
+  const estimatedBitrate = Math.floor(baseBitrate * fpsMultiplier);
+  
+  // For uploads, estimate file size and adjust if needed
+  const estimatedFileSizeMB = (estimatedBitrate * duration) / (8 * 1024 * 1024);
+  const maxTargetSizeMB = 50; // Target max 50MB for reliable uploads
+  
+  let adaptiveBitrate = estimatedBitrate;
+  if (estimatedFileSizeMB > maxTargetSizeMB) {
+    // Scale down bitrate to target file size
+    const scaleFactor = maxTargetSizeMB / estimatedFileSizeMB;
+    adaptiveBitrate = Math.floor(estimatedBitrate * scaleFactor * 0.95); // 95% to leave margin
+    console.log(`Bitrate optimized: ${(estimatedBitrate/1_000_000).toFixed(1)}Mbps -> ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps for target file size`);
+  }
+  
+  // Ensure minimum quality (1 Mbps) and maximum (50 Mbps for efficiency)
+  adaptiveBitrate = Math.max(1_000_000, Math.min(50_000_000, adaptiveBitrate));
 
   // Show progress bar
   const progress = modalManager.showProgress('Publishing Animation', 'Preparing export...');
@@ -311,36 +360,111 @@ async _publishAnimation() {
     // Wait a frame to ensure resize is complete
     await new Promise(resolve => requestAnimationFrame(resolve));
 
-    progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]}`);
+    const estimatedSizeMB = ((adaptiveBitrate * duration) / (8 * 1024 * 1024)).toFixed(1);
+    progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS | Bitrate: ${(adaptiveBitrate/1_000_000).toFixed(1)} Mbps | Est. size: ~${estimatedSizeMB} MB`);
 
+    // Create stream with explicit frame rate
     const stream = canvas.captureStream(fps);
+    
+    // CRITICAL: Set frame rate constraint on video track for proper MP4 playback speed
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack && videoTrack.getSettings) {
+      const settings = videoTrack.getSettings();
+      // Apply frame rate constraint if supported
+      if (videoTrack.applyConstraints) {
+        try {
+          await videoTrack.applyConstraints({
+            frameRate: { ideal: fps, max: fps }
+          });
+        } catch (err) {
+          console.warn('Could not set frame rate constraint:', err);
+        }
+      }
+    }
+
     const chunks = [];
 
-    let renderInterval = null;
-    if (typeof renderer.render === "function" || typeof window.render === "function") {
-      const frameInterval = Math.max(1, Math.floor(1000 / fps));
-      renderInterval = setInterval(() => {
-        try {
-          if (typeof window.render === "function") {
-            window.render();
-          } else {
-            renderer.render();
-          }
-        } catch (error) {
-          console.warn("Render tick failed during animation export:", error);
-        }
-      }, frameInterval);
+    // Pause main render loop to avoid conflicts
+    const mainRenderLoop = window.renderLoop;
+    const wasPaused = mainRenderLoop?.paused || false;
+    if (mainRenderLoop && typeof mainRenderLoop.pause === 'function') {
+      mainRenderLoop.pause();
     }
+
+      // Non-blocking render loop using requestAnimationFrame with FPS throttling
+      // This ensures renders don't block the main thread while maintaining target FPS
+      let renderRequestId = null;
+      let isRecording = true;
+      const frameIntervalMs = 1000 / fps;
+      let lastRenderTime = performance.now();
+      
+      const renderLoop = (currentTime) => {
+        if (!isRecording) return;
+        
+        const elapsed = currentTime - lastRenderTime;
+        
+        // Only render if enough time has passed for target FPS
+        if (elapsed >= frameIntervalMs) {
+          try {
+            if (typeof window.render === "function") {
+              window.render();
+            } else if (renderer && renderer.render) {
+              renderer.render();
+            }
+          } catch (error) {
+            console.warn("Render tick failed during animation export:", error);
+          }
+          lastRenderTime = currentTime;
+        }
+        
+        // Continue the loop
+        renderRequestId = requestAnimationFrame(renderLoop);
+      };
+      
+      // Start the render loop
+      renderRequestId = requestAnimationFrame(renderLoop);
+
+    // Render a few frames before starting recording to stabilize
+    for (let i = 0; i < 3; i++) {
+      if (typeof window.render === "function") {
+        window.render();
+      } else if (renderer && renderer.render) {
+        renderer.render();
+      }
+      await new Promise(resolve => setTimeout(resolve, frameIntervalMs));
+    }
+    
+    // Small delay to let the render loop stabilize
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     let recorder;
     try {
-      recorder = new MediaRecorder(stream, {
+      // MediaRecorder options optimized for efficient encoding
+      const recorderOptions = {
         mimeType,
         videoBitsPerSecond: adaptiveBitrate,
-      });
+        // Additional options for better compression (if supported)
+        // Note: These may not be supported by all browsers
+      };
+      
+      // Try to add frameRate constraint if supported
+      const baseMimeType = mimeType.split(';')[0];
+      if (MediaRecorder.isTypeSupported(`${baseMimeType};framerate=${fps}`)) {
+        recorderOptions.mimeType = `${baseMimeType};framerate=${fps}`;
+      }
+      
+      // Log encoding settings for debugging
+      console.log(`Encoding settings: ${targetWidth}x${targetHeight} @ ${fps}fps, ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps, ${mimeType}`);
+      
+      recorder = new MediaRecorder(stream, recorderOptions);
     } catch (error) {
-      if (renderInterval) {
-        clearInterval(renderInterval);
+      isRecording = false;
+      if (renderRequestId) {
+        cancelAnimationFrame(renderRequestId);
+      }
+      // Resume main render loop
+      if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+        mainRenderLoop.start();
       }
       stream.getTracks().forEach((track) => track.stop());
       progress.close();
@@ -360,7 +484,9 @@ async _publishAnimation() {
       recorder.onstop = () => resolve();
     });
 
-    recorder.start();
+    // Start recorder with timeslice for better frame rate control (optional, helps with some codecs)
+    // Using timeslice of 100ms ensures regular data chunks
+    recorder.start(100);
 
     // Phase 2: Recording (10-70%)
     const startTime = Date.now();
@@ -396,8 +522,13 @@ async _publishAnimation() {
       return;
     } finally {
       clearTimeout(stopTimer);
-      if (renderInterval) {
-        clearInterval(renderInterval);
+      isRecording = false;
+      if (renderRequestId) {
+        cancelAnimationFrame(renderRequestId);
+      }
+      // Resume main render loop
+      if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+        mainRenderLoop.start();
       }
       stream.getTracks().forEach((track) => track.stop());
     }
@@ -414,8 +545,30 @@ async _publishAnimation() {
     const blob = new Blob(chunks, { type: mimeType });
     const timestamp = Date.now();
     const filename = `shader-${targetWidth}x${targetHeight}-${fps}fps-${timestamp}.${fileExt}`;
+    const fileSizeMB = blob.size / 1024 / 1024;
+    const maxFileSizeMB = 100; // Typical server limit (adjust if known)
 
-    progress.update(80, 'Preparing upload...', `File size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+    progress.update(80, 'Preparing upload...', `File size: ${fileSizeMB.toFixed(2)} MB`);
+
+    // Check file size before upload
+    if (fileSizeMB > maxFileSizeMB) {
+      progress.close();
+      const shouldContinue = await modalManager.confirm(
+        `Warning: File size is ${fileSizeMB.toFixed(2)} MB, which exceeds the typical upload limit (${maxFileSizeMB} MB).\n\n` +
+        `The upload may fail. To reduce file size, try:\n` +
+        `• Lower resolution (currently ${targetWidth}x${targetHeight})\n` +
+        `• Lower FPS (currently ${fps})\n` +
+        `• Shorter duration\n\n` +
+        `Would you like to try uploading anyway?`,
+        'File Too Large',
+        { confirmLabel: 'Try Upload', cancelLabel: 'Cancel' }
+      );
+      if (!shouldContinue) {
+        return;
+      }
+      // Reopen progress
+      progress.update(80, 'Preparing upload...', `File size: ${fileSizeMB.toFixed(2)} MB (large)`);
+    }
 
     try {
       const formData = new FormData();
@@ -445,6 +598,8 @@ async _publishAnimation() {
             } catch {
               resolve({});
             }
+          } else if (xhr.status === 413) {
+            reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try reducing resolution, FPS, or duration.`));
           } else {
             reject(new Error(`Upload failed (${xhr.status})`));
           }
@@ -484,6 +639,16 @@ async _publishAnimation() {
         if (shouldSignIn) {
           window.open('https://art.tenderworld.org', '_blank');
         }
+      } else if (err.message.includes('413') || err.message.includes('too large') || err.message.includes('File too large')) {
+        await modalManager.alert(
+          `Upload failed: File is too large (${fileSizeMB.toFixed(2)} MB).\n\n` +
+          `To reduce file size, try:\n` +
+          `• Lower resolution (e.g., 1920x1080 instead of ${targetWidth}x${targetHeight})\n` +
+          `• Lower FPS (e.g., 30 instead of ${fps})\n` +
+          `• Shorter duration\n` +
+          `• The server may have a limit around 50-100 MB`,
+          'File Too Large'
+        );
       } else {
         await modalManager.alert(`Upload failed: ${err?.message || err}`, 'Upload Error');
       }
@@ -1793,12 +1958,49 @@ for (let y = 0; y < height; y++) {
     // Determine file extension based on mime type
     const fileExt = mimeType.includes('mp4') ? 'mp4' : 'webm';
 
-    // Calculate adaptive bitrate based on resolution and FPS
-    // Higher resolution and FPS = higher bitrate
+    // Calculate optimized bitrate for efficient compression
+    // Goal: Balance quality and file size for upload compatibility
     const pixels = targetWidth * targetHeight;
-    const baseBitrate = Math.max(2_000_000, pixels * 2); // Minimum 2 Mbps, ~2 bits per pixel
-    const fpsMultiplier = Math.max(1, fps / 30); // Scale with FPS
-    const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5)); // Cap at 100 Mbps
+    const megapixels = pixels / 1_000_000;
+    
+    // More efficient bitrate calculation based on resolution and FPS
+    // Formula optimized for H.264/MP4 encoding efficiency
+    // Lower multiplier for better compression while maintaining quality
+    let baseBitrate;
+    if (megapixels <= 1) {
+      // HD and below: 1.5 bits per pixel
+      baseBitrate = pixels * 1.5;
+    } else if (megapixels <= 2.5) {
+      // 2K range: 1.2 bits per pixel (more efficient)
+      baseBitrate = pixels * 1.2;
+    } else if (megapixels <= 8) {
+      // 4K range: 1.0 bits per pixel
+      baseBitrate = pixels * 1.0;
+    } else {
+      // 8K+: 0.8 bits per pixel
+      baseBitrate = pixels * 0.8;
+    }
+    
+    // FPS scaling (more conservative)
+    const fpsMultiplier = Math.max(1, Math.sqrt(fps / 30)); // Square root for less aggressive scaling
+    
+    // Calculate bitrate with duration consideration for file size management
+    const estimatedBitrate = Math.floor(baseBitrate * fpsMultiplier);
+    
+    // For uploads, estimate file size and adjust if needed
+    const estimatedFileSizeMB = (estimatedBitrate * duration) / (8 * 1024 * 1024);
+    const maxTargetSizeMB = 50; // Target max 50MB for reliable uploads
+    
+    let adaptiveBitrate = estimatedBitrate;
+    if (estimatedFileSizeMB > maxTargetSizeMB) {
+      // Scale down bitrate to target file size
+      const scaleFactor = maxTargetSizeMB / estimatedFileSizeMB;
+      adaptiveBitrate = Math.floor(estimatedBitrate * scaleFactor * 0.95); // 95% to leave margin
+      console.log(`Bitrate optimized: ${(estimatedBitrate/1_000_000).toFixed(1)}Mbps -> ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps for target file size`);
+    }
+    
+    // Ensure minimum quality (1 Mbps) and maximum (50 Mbps for efficiency)
+    adaptiveBitrate = Math.max(1_000_000, Math.min(50_000_000, adaptiveBitrate));
 
     // Show progress bar
     const progress = modalManager.showProgress('Exporting Animation', 'Preparing export...');
@@ -1831,36 +2033,108 @@ for (let y = 0; y < height; y++) {
       // Wait a frame to ensure resize is complete
       await new Promise(resolve => requestAnimationFrame(resolve));
 
-      progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]}`);
+      const estimatedSizeMB = ((adaptiveBitrate * duration) / (8 * 1024 * 1024)).toFixed(1);
+      progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS | Bitrate: ${(adaptiveBitrate/1_000_000).toFixed(1)} Mbps | Est. size: ~${estimatedSizeMB} MB`);
 
+      // Create stream with explicit frame rate
       const stream = canvas.captureStream(fps);
+      
+      // CRITICAL: Set frame rate constraint on video track for proper MP4 playback speed
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack && videoTrack.getSettings) {
+        const settings = videoTrack.getSettings();
+        // Apply frame rate constraint if supported
+        if (videoTrack.applyConstraints) {
+          try {
+            await videoTrack.applyConstraints({
+              frameRate: { ideal: fps, max: fps }
+            });
+          } catch (err) {
+            console.warn('Could not set frame rate constraint:', err);
+          }
+        }
+      }
+
       const chunks = [];
 
-      let renderInterval = null;
-      if (typeof renderer.render === "function" || typeof window.render === "function") {
-        const frameInterval = Math.max(1, Math.floor(1000 / fps));
-        renderInterval = setInterval(() => {
+      // Pause main render loop to avoid conflicts
+      const mainRenderLoop = window.renderLoop;
+      const wasPaused = mainRenderLoop?.paused || false;
+      if (mainRenderLoop && typeof mainRenderLoop.pause === 'function') {
+        mainRenderLoop.pause();
+      }
+
+      // Non-blocking render loop using requestAnimationFrame with FPS throttling
+      // This ensures renders don't block the main thread while maintaining target FPS
+      let renderRequestId = null;
+      let isRecording = true;
+      const frameIntervalMs = 1000 / fps;
+      let lastRenderTime = performance.now();
+      
+      const renderLoop = (currentTime) => {
+        if (!isRecording) return;
+        
+        const elapsed = currentTime - lastRenderTime;
+        
+        // Only render if enough time has passed for target FPS
+        if (elapsed >= frameIntervalMs) {
           try {
             if (typeof window.render === "function") {
               window.render();
-            } else {
+            } else if (renderer && renderer.render) {
               renderer.render();
             }
           } catch (error) {
             console.warn("Render tick failed during animation export:", error);
           }
-        }, frameInterval);
+          lastRenderTime = currentTime;
+        }
+        
+        // Continue the loop
+        renderRequestId = requestAnimationFrame(renderLoop);
+      };
+      
+      // Start the render loop
+      renderRequestId = requestAnimationFrame(renderLoop);
+
+      // Render a few frames before starting recording to stabilize
+      for (let i = 0; i < 3; i++) {
+        if (typeof window.render === "function") {
+          window.render();
+        } else if (renderer && renderer.render) {
+          renderer.render();
+        }
+        await new Promise(resolve => setTimeout(resolve, frameIntervalMs));
       }
 
       let recorder;
       try {
-        recorder = new MediaRecorder(stream, {
+        // MediaRecorder options optimized for efficient encoding
+        const recorderOptions = {
           mimeType,
           videoBitsPerSecond: adaptiveBitrate,
-        });
+          // Additional options for better compression (if supported)
+          // Note: These may not be supported by all browsers
+        };
+        
+        // Try to add frameRate constraint if supported
+        const baseMimeType = mimeType.split(';')[0];
+        if (MediaRecorder.isTypeSupported(`${baseMimeType};framerate=${fps}`)) {
+          recorderOptions.mimeType = `${baseMimeType};framerate=${fps}`;
+        }
+        
+        // Log encoding settings for debugging
+        console.log(`Encoding settings: ${targetWidth}x${targetHeight} @ ${fps}fps, ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps, ${mimeType}`);
+        
+        recorder = new MediaRecorder(stream, recorderOptions);
       } catch (error) {
-        if (renderInterval) {
-          clearInterval(renderInterval);
+        isRecording = false;
+        if (renderRequestId) {
+          cancelAnimationFrame(renderRequestId);
+        }
+        // Resume main render loop
+        if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+          mainRenderLoop.start();
         }
         stream.getTracks().forEach((track) => track.stop());
         progress.close();
@@ -1880,7 +2154,9 @@ for (let y = 0; y < height; y++) {
         recorder.onstop = () => resolve();
       });
 
-      recorder.start();
+      // Start recorder with timeslice for better frame rate control (optional, helps with some codecs)
+      // Using timeslice of 100ms ensures regular data chunks
+      recorder.start(100);
 
       // Phase 2: Recording (10-90%)
       const startTime = Date.now();
@@ -1916,8 +2192,13 @@ for (let y = 0; y < height; y++) {
         return;
       } finally {
         clearTimeout(stopTimer);
-        if (renderInterval) {
-          clearInterval(renderInterval);
+        isRecording = false;
+        if (renderRequestId) {
+          cancelAnimationFrame(renderRequestId);
+        }
+        // Resume main render loop
+        if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+          mainRenderLoop.start();
         }
         stream.getTracks().forEach((track) => track.stop());
       }
