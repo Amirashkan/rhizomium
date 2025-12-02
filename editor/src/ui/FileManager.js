@@ -1,4 +1,6 @@
 // src/ui/FileManager.js - Cloud File Manager for TenderWorld
+import { modalManager } from './ModalManager.js';
+
 export class FileManager {
   constructor(saveLoadManager) {
     this.saveLoadManager = saveLoadManager;
@@ -737,12 +739,17 @@ export class FileManager {
       }
     } catch (error) {
       console.error('Failed to open file:', error);
-      alert(`Failed to open file: ${error.message}`);
+      await modalManager.alert(`Failed to open file: ${error.message}`, 'Error');
     }
   }
 
   async handleDelete(filePath, fileType) {
-    if (!confirm(`Delete this ${fileType}? This action cannot be undone.`)) {
+    const confirmed = await modalManager.confirm(
+      `Delete this ${fileType}? This action cannot be undone.`,
+      'Confirm Delete',
+      { danger: true, confirmLabel: 'Delete', cancelLabel: 'Cancel' }
+    );
+    if (!confirmed) {
       return;
     }
 
@@ -765,19 +772,24 @@ export class FileManager {
       }
     } catch (error) {
       console.error('Failed to delete file:', error);
-      alert(`Failed to delete file: ${error.message}`);
+      await modalManager.alert(`Failed to delete file: ${error.message}`, 'Error');
     }
   }
 
   async handleSave() {
     if (!this.saveLoadManager) {
-      alert('SaveLoadManager not available');
+      await modalManager.alert('SaveLoadManager not available', 'Error');
       return;
     }
 
     // Get filename from user
     const defaultName = `project-${new Date().toISOString().slice(0, 10)}.json`;
-    const fileName = prompt('Enter filename:', defaultName);
+    const fileName = await modalManager.prompt(
+      'Enter filename:',
+      'Save Project',
+      defaultName,
+      { placeholder: 'Enter filename...' }
+    );
     
     if (!fileName) {
       return; // User cancelled
@@ -840,7 +852,7 @@ export class FileManager {
 
     } catch (error) {
       console.error('Failed to save project:', error);
-      alert(`Failed to save project: ${error.message}`);
+      await modalManager.alert(`Failed to save project: ${error.message}`, 'Error');
     }
   }
 
@@ -877,14 +889,19 @@ export class FileManager {
         }
       } catch (error) {
         console.error('Upload failed:', error);
-        alert(`Upload failed: ${error.message}`);
+        await modalManager.alert(`Upload failed: ${error.message}`, 'Error');
       }
     };
     input.click();
   }
 
   async handleNewFolder() {
-    const folderName = prompt('Enter folder name:');
+    const folderName = await modalManager.prompt(
+      'Enter folder name:',
+      'New Folder',
+      '',
+      { placeholder: 'Folder name...' }
+    );
     if (!folderName) return;
 
     try {
@@ -913,7 +930,7 @@ export class FileManager {
       }
     } catch (error) {
       console.error('Failed to create folder:', error);
-      alert(`Failed to create folder: ${error.message}`);
+      await modalManager.alert(`Failed to create folder: ${error.message}`, 'Error');
     }
   }
 
