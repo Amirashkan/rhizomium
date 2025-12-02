@@ -106,7 +106,9 @@ export class RadialMenu {
   }
 
   _handleDocumentClick(e) {
-    if (e.button === 0 && (!this.element || !this.element.contains(e.target))) {
+    // Don't close menu if there's an active wire drag (user might be selecting a node to connect)
+    const hasActiveWireDrag = window.eventHandler?.connections?.getDragWire();
+    if (e.button === 0 && (!this.element || !this.element.contains(e.target)) && !hasActiveWireDrag) {
       this.hide();
     }
   }

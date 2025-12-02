@@ -696,7 +696,11 @@ export class EventHandler {
         return;
       }
 
-      this.menu.hide();
+      // Don't close menu if there's an active wire drag (user might be selecting a node to connect)
+      const hasActiveWireDrag = this.connections?.getDragWire();
+      if (!hasActiveWireDrag) {
+        this.menu.hide();
+      }
 
       // Check for output pin drag (wire creation)
       const hitOut = this.connections.hitOutputPin(
@@ -1104,7 +1108,9 @@ export class EventHandler {
         return;
       }
 
-      if (this.menu && !this.menu.contains(e.target)) {
+      // Don't close menu if there's an active wire drag (user might be selecting a node to connect)
+      const hasActiveWireDrag = this.connections?.getDragWire();
+      if (this.menu && !this.menu.contains(e.target) && !hasActiveWireDrag) {
         this.menu.hide();
       }
 
