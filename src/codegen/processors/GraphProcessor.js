@@ -485,9 +485,10 @@ processGraph(graph) {
       // Extract the expression part after =
       const expression = paramValue.trim().slice(1);
 
-      // Match all node references in the format: node_<id>
-      // This regex captures node_123, node_5, etc.
-      const nodeRefPattern = /node_(\w+)/g;
+      // Match all node references in the format: node_<id> or node_<id>_rgba, etc.
+      // This regex captures node_123, node_5, node_27_rgba, etc.
+      // It extracts only the numeric ID part, stopping at suffixes like _rgba, _xyz, etc.
+      const nodeRefPattern = /node_(\d+)(?:_\w+)?/g;
       const matches = expression.matchAll(nodeRefPattern);
 
       const nodeIds = [];
