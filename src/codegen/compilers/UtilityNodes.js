@@ -413,6 +413,9 @@ export class UtilityNodes {
   compileSwitch(node, getInput, nodeId) {
     const selectParam = Math.max(0, Math.min(3, Math.floor(node.params?.select || 0)));
     
+    // OPTIMIZED: Only evaluate the selected input to avoid compiling unused node graphs
+    // This significantly improves performance when switching between complex inputs
+    
     // Helper to get output type from node definition
     const getNodeOutputType = (inputId) => {
       if (!inputId || !window.editor?.graph?.nodes) return null;
@@ -423,13 +426,11 @@ export class UtilityNodes {
       return nodeDef.pinsOut[0].type || null;
     };
     
-    // Get inputs with their natural types
-    const a = getInput(0, null, "vec3<f32>(0.0)");
-    const b = getInput(1, null, "vec3<f32>(0.0)");
-    const c = getInput(2, null, "vec3<f32>(0.0)");
-    const d = getInput(3, null, "vec3<f32>(0.0)");
+    // Only get the selected input - unselected inputs won't be evaluated
+    const selectedIndex = selectParam;
+    const selectedInput = getInput(selectedIndex, null, "vec3<f32>(0.0)");
     
-    // Extract code and type from inputs
+    // Extract code and type from selected input
     const getCode = (input) => {
       if (typeof input === 'object' && input !== null && input.code !== undefined) {
         return input.code;
@@ -463,20 +464,13 @@ export class UtilityNodes {
       return "vec3"; // Default to vec3 for colors
     };
     
-    const inputs = [
-      { code: getCode(a), type: getType(a, 0) },
-      { code: getCode(b), type: getType(b, 1) },
-      { code: getCode(c), type: getType(c, 2) },
-      { code: getCode(d), type: getType(d, 3) }
-    ];
+    const code = getCode(selectedInput);
+    const outputType = getType(selectedInput, selectedIndex);
     
-    // Get the selected input
-    const selected = inputs[selectParam] || inputs[0];
-    
-    // Output the selected input's code and type (preserves colors!)
+    // Output only the selected input (unselected inputs are not evaluated!)
     return {
-      line: `let node_${nodeId} = ${selected.code};`,
-      outputType: selected.type || "vec3"
+      line: `let node_${nodeId} = ${code};`,
+      outputType: outputType || "vec3"
     };
   }
 
