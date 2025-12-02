@@ -384,43 +384,31 @@ async _publishAnimation() {
 
     const chunks = [];
 
-    // Use precise setInterval for recording to maintain exact frame rate
-    // requestAnimationFrame is tied to display refresh rate and can cause timing issues
+    // Pause main render loop to avoid conflicts
+    const mainRenderLoop = window.renderLoop;
+    const wasPaused = mainRenderLoop?.paused || false;
+    if (mainRenderLoop && typeof mainRenderLoop.pause === 'function') {
+      mainRenderLoop.pause();
+    }
+
+    // Simple render loop at target FPS for recording
+    // canvas.captureStream(fps) will request frames at the specified rate
     let renderInterval = null;
     const frameIntervalMs = 1000 / fps;
-    let frameCount = 0;
-    let lastFrameTime = performance.now();
     
-    // Disable any existing render loops to avoid conflicts
-    const originalRenderLoop = window.renderLoop;
-    if (originalRenderLoop && originalRenderLoop.pause) {
-      originalRenderLoop.pause();
-    }
-    
-    // Precise render loop for recording
-    // Use a tighter interval for more accurate timing
-    const intervalMs = Math.max(1, Math.floor(frameIntervalMs));
+    // Use setInterval to render at exact target FPS
+    // Don't wrap in requestAnimationFrame - let the browser handle async rendering
     renderInterval = setInterval(() => {
-      const now = performance.now();
-      const elapsed = now - lastFrameTime;
-      
-      // Render if enough time has passed (with small tolerance)
-      if (elapsed >= frameIntervalMs * 0.85) { // 85% threshold for consistent timing
-        try {
-          // Render synchronously to ensure frame is ready before capture
-          if (typeof window.render === "function") {
-            window.render();
-          } else if (renderer && renderer.render) {
-            renderer.render();
-          }
-          
-          frameCount++;
-          lastFrameTime = now;
-        } catch (error) {
-          console.warn("Render tick failed during animation export:", error);
+      try {
+        if (typeof window.render === "function") {
+          window.render();
+        } else if (renderer && renderer.render) {
+          renderer.render();
         }
+      } catch (error) {
+        console.warn("Render tick failed during animation export:", error);
       }
-    }, intervalMs);
+    }, Math.max(1, Math.floor(frameIntervalMs)));
 
     // Render a few frames before starting recording to stabilize
     for (let i = 0; i < 3; i++) {
@@ -431,6 +419,9 @@ async _publishAnimation() {
       }
       await new Promise(resolve => setTimeout(resolve, frameIntervalMs));
     }
+    
+    // Small delay to let the render loop stabilize
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     let recorder;
     try {
@@ -456,8 +447,9 @@ async _publishAnimation() {
       if (renderInterval) {
         clearInterval(renderInterval);
       }
-      if (originalRenderLoop && originalRenderLoop.resume) {
-        originalRenderLoop.resume();
+      // Resume main render loop
+      if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+        mainRenderLoop.start();
       }
       stream.getTracks().forEach((track) => track.stop());
       progress.close();
@@ -518,8 +510,9 @@ async _publishAnimation() {
       if (renderInterval) {
         clearInterval(renderInterval);
       }
-      if (originalRenderLoop && originalRenderLoop.resume) {
-        originalRenderLoop.resume();
+      // Resume main render loop
+      if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+        mainRenderLoop.start();
       }
       stream.getTracks().forEach((track) => track.stop());
     }
@@ -2048,43 +2041,31 @@ for (let y = 0; y < height; y++) {
 
       const chunks = [];
 
-      // Use precise setInterval for recording to maintain exact frame rate
-      // requestAnimationFrame is tied to display refresh rate and can cause timing issues
+      // Pause main render loop to avoid conflicts
+      const mainRenderLoop = window.renderLoop;
+      const wasPaused = mainRenderLoop?.paused || false;
+      if (mainRenderLoop && typeof mainRenderLoop.pause === 'function') {
+        mainRenderLoop.pause();
+      }
+
+      // Simple render loop at target FPS for recording
+      // canvas.captureStream(fps) will request frames at the specified rate
       let renderInterval = null;
       const frameIntervalMs = 1000 / fps;
-      let frameCount = 0;
-      let lastFrameTime = performance.now();
       
-      // Disable any existing render loops to avoid conflicts
-      const originalRenderLoop = window.renderLoop;
-      if (originalRenderLoop && originalRenderLoop.pause) {
-        originalRenderLoop.pause();
-      }
-      
-      // Precise render loop for recording
-      // Use a tighter interval for more accurate timing
-      const intervalMs = Math.max(1, Math.floor(frameIntervalMs));
+      // Use setInterval to render at exact target FPS
+      // Don't wrap in requestAnimationFrame - let the browser handle async rendering
       renderInterval = setInterval(() => {
-        const now = performance.now();
-        const elapsed = now - lastFrameTime;
-        
-        // Render if enough time has passed (with small tolerance)
-        if (elapsed >= frameIntervalMs * 0.85) { // 85% threshold for consistent timing
-          try {
-            // Render synchronously to ensure frame is ready before capture
-            if (typeof window.render === "function") {
-              window.render();
-            } else if (renderer && renderer.render) {
-              renderer.render();
-            }
-            
-            frameCount++;
-            lastFrameTime = now;
-          } catch (error) {
-            console.warn("Render tick failed during animation export:", error);
+        try {
+          if (typeof window.render === "function") {
+            window.render();
+          } else if (renderer && renderer.render) {
+            renderer.render();
           }
+        } catch (error) {
+          console.warn("Render tick failed during animation export:", error);
         }
-      }, intervalMs);
+      }, Math.max(1, Math.floor(frameIntervalMs)));
 
       // Render a few frames before starting recording to stabilize
       for (let i = 0; i < 3; i++) {
@@ -2120,8 +2101,9 @@ for (let y = 0; y < height; y++) {
         if (renderInterval) {
           clearInterval(renderInterval);
         }
-        if (originalRenderLoop && originalRenderLoop.resume) {
-          originalRenderLoop.resume();
+        // Resume main render loop
+        if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+          mainRenderLoop.start();
         }
         stream.getTracks().forEach((track) => track.stop());
         progress.close();
@@ -2182,9 +2164,9 @@ for (let y = 0; y < height; y++) {
         if (renderInterval) {
           clearInterval(renderInterval);
         }
-        // Restore original render loop
-        if (originalRenderLoop && originalRenderLoop.resume) {
-          originalRenderLoop.resume();
+        // Resume main render loop
+        if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
+          mainRenderLoop.start();
         }
         stream.getTracks().forEach((track) => track.stop());
       }
