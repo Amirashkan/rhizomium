@@ -767,7 +767,7 @@ export class PreviewExportSettingsWindow {
       }
     });
 
-    const exportAnimBtn = this._createButton("Export Animation (WebM)", async () => {
+    const exportAnimBtn = this._createButton("Export Animation (MP4/WebM)", async () => {
       if (this.floatingPreview?.settings?._exportAnimation) {
         await this.floatingPreview.settings._exportAnimation();
       }

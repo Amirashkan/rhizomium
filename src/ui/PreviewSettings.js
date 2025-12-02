@@ -1525,7 +1525,7 @@ _createExportButtons() {
 
   // Local export
   const exportPNG = this._createButton("Export as PNG", () => this._exportPNG());
-  const exportAnim = this._createButton("Export Animation (WebM)", () => this._exportAnimation());
+  const exportAnim = this._createButton("Export Animation (MP4/WebM)", () => this._exportAnimation());
 
   container.appendChild(shareImage);
   container.appendChild(shareAnim);
