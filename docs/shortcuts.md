@@ -87,7 +87,8 @@ When shortcuts list `Ctrl`, Mac users should use `Cmd` instead.
 
 | Shortcut | Action | Description |
 |----------|--------|-------------|
-| `Ctrl+P` | Toggle Preview | Show/hide preview window |
+| `Ctrl+P` | Toggle Profiler | Show/hide performance profiler overlay |
+| `Ctrl+Shift+P` | Preview Toggle | Alternative preview toggle (if available) |
 | `Ctrl+Space` | Quick Node Search | Open node search (if available) |
 | `Ctrl+B` | Backups | Open backup dialog |
 | `Ctrl+V` | VJ Control | Toggle VJ Control panel |
@@ -164,11 +165,15 @@ When snap is enabled, arrow key movement uses grid size.
 
 ## Audio Shortcuts
 
-Audio controls are primarily in the Audio Settings panel:
-
+**Audio:**
 - Click **Audio Settings** button in toolbar
 - No dedicated keyboard shortcuts
 - See [Audio Reactivity Guide](audio-web.md)
+
+**MIDI:**
+- Click **MIDI Settings** button in toolbar
+- **MIDI Learn** - Click parameter + Learn button, then move controller
+- See [MIDI Controller Guide](midi.md) for setup
 
 ---
 
@@ -185,13 +190,36 @@ When parameter panel is open:
 | `Enter` | Apply Expression | Confirm expression |
 | `Esc` | Cancel Edit | Close parameter panel |
 
-### Timeline (VJ Mode)
+### Timeline & Animation
 
-When timeline panel is open:
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Ctrl+T` | Toggle Timeline | Open/close timeline panel |
+| `K` | Add Keyframe | Add keyframe at current time |
+| `Space` | Play/Pause | Start/stop timeline playback |
+| `←` `→` | Move Playhead | Step timeline left/right |
+| `Ctrl+Shift+R` | Reset Timeline | Reset to start |
 
+**When timeline panel is open:**
 - **Keyframe Controls** - Use timeline UI
 - **Scene Switching** - Use VJ Control panel
-- See VJ mode documentation for details
+- See [Timeline Guide](timeline.md) for details
+
+### Performance Profiler
+
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| `Ctrl+P` | Toggle Profiler | Show/hide performance overlay |
+| `Ctrl+Shift+P` | Run Tests | Execute performance tests |
+| `Ctrl+Shift+R` | Reset Profiler | Clear profiler statistics |
+| `Ctrl+Shift+E` | Toggle Profiling | Enable/disable profiling |
+
+**In profiler overlay:**
+- **+** - Expand to show detailed breakdown
+- **−** - Collapse to compact view
+- **×** - Close overlay
+
+See [Performance Profiler Guide](profiler.md) for details.
 
 ---
 

@@ -47,7 +47,9 @@ The horizontal menu bar with buttons and controls:
 - **Rebuild** - Recompile shader
 - **Console** - View generated WGSL code
 - **Audio Settings** - Configure audio reactivity
-- **Timeline** - Open keyframe timeline (VJ mode)
+- **MIDI Settings** - Connect and map MIDI controllers
+- **Timeline** - Open keyframe timeline (Ctrl+T)
+- **Profiler** - Performance monitoring overlay (Ctrl+P)
 - **VJ Control** - Scene management panel
 - **Open External Viewer** - Launch fullscreen window (local only)
 
@@ -255,8 +257,9 @@ Opens when you double-click a node:
 **Expression (=):**
 - Click **=** button to enable
 - Write math formulas
-- Reference `time`, `audio.bass`, etc.
+- Reference `time`, `audioEnvelope`, `mouse.x`, etc.
 - Real-time evaluation
+- See [Parameter Expressions Guide](parameter-expressions.md) for details
 
 ---
 
@@ -342,6 +345,81 @@ Configure audio reactivity:
 - Level meters
 
 See [Audio Reactivity Guide](audio-web.md) for details.
+
+---
+
+## MIDI Settings Panel
+
+Control parameters with MIDI controllers:
+
+**Open:** Click "MIDI Settings" button in toolbar
+
+**Features:**
+- **Device Detection** - Automatically lists connected MIDI controllers
+- **MIDI Learn** - Easy parameter mapping
+- **Binding Management** - View and edit MIDI mappings
+- **Activity Monitor** - Real-time MIDI input display
+
+**Quick Setup:**
+1. Connect MIDI controller via USB
+2. Click "Enable MIDI" and grant permission
+3. Click parameter field → Click "MIDI Learn"
+4. Move controller knob/slider
+5. Parameter is now mapped!
+
+See [MIDI Controller Integration Guide](midi.md) for complete instructions.
+
+---
+
+## Timeline Panel
+
+Create keyframe animations:
+
+**Open:** Click "Timeline" button or press **Ctrl+T**
+
+**Features:**
+- **Keyframe Editor** - Add, edit, delete keyframes
+- **Playback Controls** - Play, pause, scrub timeline
+- **Interpolation** - Linear, ease, bezier curves
+- **Multiple Tracks** - Animate multiple parameters
+- **Loop Support** - Seamless looping animations
+
+**Quick Start:**
+1. Enable Timeline toggle
+2. Set playhead to start time
+3. Adjust parameter value
+4. Click "Add Keyframe" (or press K)
+5. Move playhead, adjust value, add another keyframe
+6. Click Play to see animation!
+
+See [Timeline & Keyframes Guide](timeline.md) for detailed instructions.
+
+---
+
+## Performance Profiler
+
+Monitor real-time performance:
+
+**Open:** Press **Ctrl+P** or click Profiler button
+
+**Displays:**
+- **FPS** - Frames per second (target: 60)
+- **Frame Time** - Milliseconds per frame
+- **Compute Time** - GPU compute shader timing
+- **Dispatch Breakdown** - Per-node performance
+
+**Color Coding:**
+- 🟢 Green (≥60 FPS) - Excellent
+- 🟡 Yellow (30-59 FPS) - Acceptable
+- 🔴 Red (<30 FPS) - Poor
+
+**Controls:**
+- **+** - Expand to see detailed breakdown
+- **−** - Collapse to compact view
+- **×** - Close overlay
+- **Ctrl+Shift+R** - Reset statistics
+
+See [Performance Profiler Guide](profiler.md) for detailed information.
 
 ---
 
@@ -446,8 +524,13 @@ Double-click the node. Make sure you're clicking the node body, not a pin.
 ## Next Steps
 
 - **[Keyboard Shortcuts](shortcuts.md)** - Learn all shortcuts
+- **[Parameter Expressions](parameter-expressions.md)** - Animate with math
+- **[MIDI Controllers](midi.md)** - Hardware control setup
+- **[Timeline Animation](timeline.md)** - Keyframe system
 - **[Performance Tips](performance.md)** - Optimize your graphs
+- **[Performance Profiler](profiler.md)** - Monitor performance
 - **[Node Reference](node-reference.md)** - Explore all nodes
+- **[Compute Nodes](compute-nodes.md)** - GPU-accelerated effects
 - **[Quick Start Guide](quickstart-web.md)** - Build your first graph
 
 ---

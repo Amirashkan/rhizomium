@@ -217,9 +217,13 @@ Time → Sine → [Parameter Input]
 Congratulations! You've created your first Rhizomium visual. Here's what to explore next:
 
 1. **[Node Reference](node-reference.md)** - Learn about all available nodes
-2. **[Audio Reactivity](audio.md)** - Connect visuals to sound
-3. **[Save & Load](save-load.md)** - Save your creations
-4. **[External Viewer](external-viewer.md)** - Output to multiple displays
+2. **[Parameter Expressions](parameter-expressions.md)** - Create animated parameters with math
+3. **[Compute Nodes](compute-nodes.md)** - GPU-accelerated effects and simulations
+4. **[Audio Reactivity](audio-web.md)** - Connect visuals to sound
+5. **[MIDI Controller Integration](midi.md)** - Control parameters with hardware controllers
+6. **[Timeline & Keyframes](timeline.md)** - Create smooth animations
+7. **[3D Field Visualization](field-visualization.md)** - Visualize compute outputs in 3D
+8. **[Save & Load](save-load-web.md)** - Save your creations
 
 ---
 

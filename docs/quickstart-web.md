@@ -127,7 +127,11 @@ Ready to learn more?
 1. **[Your First Graph](guide.md)** - Detailed step-by-step tutorial
 2. **[Interface Overview](interface.md)** - Learn all the features
 3. **[Node Reference](node-reference.md)** - Explore 90+ nodes
-4. **[Audio Reactivity](audio-web.md)** - Make visuals react to sound
+4. **[Parameter Expressions](parameter-expressions.md)** - Animate with math formulas
+5. **[Compute Nodes](compute-nodes.md)** - GPU-accelerated effects
+6. **[Audio Reactivity](audio-web.md)** - Make visuals react to sound
+7. **[MIDI Controllers](midi.md)** - Control with hardware
+8. **[Timeline Animation](timeline.md)** - Create keyframe animations
 
 ---
 

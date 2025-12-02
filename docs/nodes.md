@@ -80,12 +80,12 @@ Rhizomium automatically converts between compatible types:
 
 ## Node Categories
 
-Rhizomium organizes nodes into 7 categories:
+Rhizomium organizes nodes into 8 categories:
 
 ### 1. Input Nodes
 Provide data sources and constants.
 
-**Examples**: UV, Time, Mouse, Float constants
+**Examples**: UV, Time, Mouse, Audio, Float constants
 
 **Use**: Starting points for your graph
 
@@ -130,6 +130,15 @@ Manipulate UV coordinates and space.
 **Examples**: Rotate, Scale, Tile, Kaleidoscope
 
 **Use**: Warping and distorting space
+
+### 8. Compute Nodes
+GPU-accelerated pre-processing effects.
+
+**Examples**: ComputeNoise, ComputeBlur, ComputeParticles, ReactionDiffusion
+
+**Use**: Particle systems, simulations, complex effects
+
+**Note:** See [Compute Nodes Guide](compute-nodes.md) for detailed information.
 
 ---
 
