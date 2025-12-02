@@ -369,7 +369,12 @@ Yes! Use the **Texture 2D** node:
 
 ### Does Rhizomium support MIDI input?
 
-MIDI support depends on the browser's Web MIDI API. This feature may be added in future versions. Currently not implemented.
+Yes! Rhizomium supports MIDI controllers via the Web MIDI API. Connect your MIDI controller and map knobs/sliders to any parameter. See the [MIDI Controller Integration Guide](midi.md) for setup instructions.
+
+**Requirements:**
+- Chrome 43+ or Edge 79+ (Web MIDI API support)
+- MIDI controller connected via USB
+- Browser permission granted for MIDI access
 
 ### What about VR/AR support?
 
@@ -474,8 +479,14 @@ VR/AR is not currently supported. Rhizomium focuses on 2D generative visuals. We
 - [Quick Start Guide](quickstart-web.md) - Get started in 5 minutes
 - [Interface Overview](interface.md) - Learn the UI
 - [Keyboard Shortcuts](shortcuts.md) - Speed up workflow
+- [Parameter Expressions](parameter-expressions.md) - Animate with math
+- [Compute Nodes](compute-nodes.md) - GPU-accelerated effects
+- [MIDI Controllers](midi.md) - Hardware control
+- [Timeline Animation](timeline.md) - Keyframe system
+- [3D Visualization](field-visualization.md) - 3D field rendering
 - [Audio Guide](audio-web.md) - Audio reactivity
 - [Performance Tips](performance.md) - Optimize graphs
+- [Performance Profiler](profiler.md) - Monitor performance
 - [Node Reference](node-reference.md) - Complete node catalog
 
 ### I found a bug. How do I report it?
