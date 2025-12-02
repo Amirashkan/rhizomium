@@ -286,11 +286,48 @@ async _publishAnimation() {
   // Determine file extension based on mime type
   const fileExt = mimeType.includes('mp4') ? 'mp4' : 'webm';
 
-  // Calculate adaptive bitrate based on resolution and FPS
+  // Calculate optimized bitrate for efficient compression
+  // Goal: Balance quality and file size for upload compatibility
   const pixels = targetWidth * targetHeight;
-  const baseBitrate = Math.max(2_000_000, pixels * 2);
-  const fpsMultiplier = Math.max(1, fps / 30);
-  const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5));
+  const megapixels = pixels / 1_000_000;
+  
+  // More efficient bitrate calculation based on resolution and FPS
+  // Formula optimized for H.264/MP4 encoding efficiency
+  let baseBitrate;
+  if (megapixels <= 1) {
+    // HD and below: 1.5 bits per pixel
+    baseBitrate = pixels * 1.5;
+  } else if (megapixels <= 2.5) {
+    // 2K range: 1.2 bits per pixel (more efficient)
+    baseBitrate = pixels * 1.2;
+  } else if (megapixels <= 8) {
+    // 4K range: 1.0 bits per pixel
+    baseBitrate = pixels * 1.0;
+  } else {
+    // 8K+: 0.8 bits per pixel
+    baseBitrate = pixels * 0.8;
+  }
+  
+  // FPS scaling (more conservative)
+  const fpsMultiplier = Math.max(1, Math.sqrt(fps / 30)); // Square root for less aggressive scaling
+  
+  // Calculate bitrate with duration consideration for file size management
+  const estimatedBitrate = Math.floor(baseBitrate * fpsMultiplier);
+  
+  // For uploads, estimate file size and adjust if needed
+  const estimatedFileSizeMB = (estimatedBitrate * duration) / (8 * 1024 * 1024);
+  const maxTargetSizeMB = 50; // Target max 50MB for reliable uploads
+  
+  let adaptiveBitrate = estimatedBitrate;
+  if (estimatedFileSizeMB > maxTargetSizeMB) {
+    // Scale down bitrate to target file size
+    const scaleFactor = maxTargetSizeMB / estimatedFileSizeMB;
+    adaptiveBitrate = Math.floor(estimatedBitrate * scaleFactor * 0.95); // 95% to leave margin
+    console.log(`Bitrate optimized: ${(estimatedBitrate/1_000_000).toFixed(1)}Mbps -> ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps for target file size`);
+  }
+  
+  // Ensure minimum quality (1 Mbps) and maximum (50 Mbps for efficiency)
+  adaptiveBitrate = Math.max(1_000_000, Math.min(50_000_000, adaptiveBitrate));
 
   // Show progress bar
   const progress = modalManager.showProgress('Publishing Animation', 'Preparing export...');
@@ -323,7 +360,8 @@ async _publishAnimation() {
     // Wait a frame to ensure resize is complete
     await new Promise(resolve => requestAnimationFrame(resolve));
 
-    progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS`);
+    const estimatedSizeMB = ((adaptiveBitrate * duration) / (8 * 1024 * 1024)).toFixed(1);
+    progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS | Bitrate: ${(adaptiveBitrate/1_000_000).toFixed(1)} Mbps | Est. size: ~${estimatedSizeMB} MB`);
 
     // Create stream with explicit frame rate
     const stream = canvas.captureStream(fps);
@@ -374,17 +412,22 @@ async _publishAnimation() {
 
     let recorder;
     try {
-      // MediaRecorder options with frame rate support
+      // MediaRecorder options optimized for efficient encoding
       const recorderOptions = {
         mimeType,
         videoBitsPerSecond: adaptiveBitrate,
+        // Additional options for better compression (if supported)
+        // Note: These may not be supported by all browsers
       };
       
-      // Add frameRate if supported (some browsers support this)
-      if (MediaRecorder.isTypeSupported(`${mimeType.split(';')[0]};framerate=${fps}`)) {
-        // Some browsers support frameRate in mimeType
-        recorderOptions.mimeType = `${mimeType.split(';')[0]};framerate=${fps}`;
+      // Try to add frameRate constraint if supported
+      const baseMimeType = mimeType.split(';')[0];
+      if (MediaRecorder.isTypeSupported(`${baseMimeType};framerate=${fps}`)) {
+        recorderOptions.mimeType = `${baseMimeType};framerate=${fps}`;
       }
+      
+      // Log encoding settings for debugging
+      console.log(`Encoding settings: ${targetWidth}x${targetHeight} @ ${fps}fps, ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps, ${mimeType}`);
       
       recorder = new MediaRecorder(stream, recorderOptions);
     } catch (error) {
@@ -1878,12 +1921,49 @@ for (let y = 0; y < height; y++) {
     // Determine file extension based on mime type
     const fileExt = mimeType.includes('mp4') ? 'mp4' : 'webm';
 
-    // Calculate adaptive bitrate based on resolution and FPS
-    // Higher resolution and FPS = higher bitrate
+    // Calculate optimized bitrate for efficient compression
+    // Goal: Balance quality and file size for upload compatibility
     const pixels = targetWidth * targetHeight;
-    const baseBitrate = Math.max(2_000_000, pixels * 2); // Minimum 2 Mbps, ~2 bits per pixel
-    const fpsMultiplier = Math.max(1, fps / 30); // Scale with FPS
-    const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5)); // Cap at 100 Mbps
+    const megapixels = pixels / 1_000_000;
+    
+    // More efficient bitrate calculation based on resolution and FPS
+    // Formula optimized for H.264/MP4 encoding efficiency
+    // Lower multiplier for better compression while maintaining quality
+    let baseBitrate;
+    if (megapixels <= 1) {
+      // HD and below: 1.5 bits per pixel
+      baseBitrate = pixels * 1.5;
+    } else if (megapixels <= 2.5) {
+      // 2K range: 1.2 bits per pixel (more efficient)
+      baseBitrate = pixels * 1.2;
+    } else if (megapixels <= 8) {
+      // 4K range: 1.0 bits per pixel
+      baseBitrate = pixels * 1.0;
+    } else {
+      // 8K+: 0.8 bits per pixel
+      baseBitrate = pixels * 0.8;
+    }
+    
+    // FPS scaling (more conservative)
+    const fpsMultiplier = Math.max(1, Math.sqrt(fps / 30)); // Square root for less aggressive scaling
+    
+    // Calculate bitrate with duration consideration for file size management
+    const estimatedBitrate = Math.floor(baseBitrate * fpsMultiplier);
+    
+    // For uploads, estimate file size and adjust if needed
+    const estimatedFileSizeMB = (estimatedBitrate * duration) / (8 * 1024 * 1024);
+    const maxTargetSizeMB = 50; // Target max 50MB for reliable uploads
+    
+    let adaptiveBitrate = estimatedBitrate;
+    if (estimatedFileSizeMB > maxTargetSizeMB) {
+      // Scale down bitrate to target file size
+      const scaleFactor = maxTargetSizeMB / estimatedFileSizeMB;
+      adaptiveBitrate = Math.floor(estimatedBitrate * scaleFactor * 0.95); // 95% to leave margin
+      console.log(`Bitrate optimized: ${(estimatedBitrate/1_000_000).toFixed(1)}Mbps -> ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps for target file size`);
+    }
+    
+    // Ensure minimum quality (1 Mbps) and maximum (50 Mbps for efficiency)
+    adaptiveBitrate = Math.max(1_000_000, Math.min(50_000_000, adaptiveBitrate));
 
     // Show progress bar
     const progress = modalManager.showProgress('Exporting Animation', 'Preparing export...');
@@ -1916,7 +1996,8 @@ for (let y = 0; y < height; y++) {
       // Wait a frame to ensure resize is complete
       await new Promise(resolve => requestAnimationFrame(resolve));
 
-      progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS`);
+      const estimatedSizeMB = ((adaptiveBitrate * duration) / (8 * 1024 * 1024)).toFixed(1);
+      progress.update(10, 'Starting recording...', `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS | Bitrate: ${(adaptiveBitrate/1_000_000).toFixed(1)} Mbps | Est. size: ~${estimatedSizeMB} MB`);
 
       // Create stream with explicit frame rate
       const stream = canvas.captureStream(fps);
@@ -1967,17 +2048,22 @@ for (let y = 0; y < height; y++) {
 
       let recorder;
       try {
-        // MediaRecorder options with frame rate support
+        // MediaRecorder options optimized for efficient encoding
         const recorderOptions = {
           mimeType,
           videoBitsPerSecond: adaptiveBitrate,
+          // Additional options for better compression (if supported)
+          // Note: These may not be supported by all browsers
         };
         
-        // Add frameRate if supported (some browsers support this)
-        if (MediaRecorder.isTypeSupported(`${mimeType.split(';')[0]};framerate=${fps}`)) {
-          // Some browsers support frameRate in mimeType
-          recorderOptions.mimeType = `${mimeType.split(';')[0]};framerate=${fps}`;
+        // Try to add frameRate constraint if supported
+        const baseMimeType = mimeType.split(';')[0];
+        if (MediaRecorder.isTypeSupported(`${baseMimeType};framerate=${fps}`)) {
+          recorderOptions.mimeType = `${baseMimeType};framerate=${fps}`;
         }
+        
+        // Log encoding settings for debugging
+        console.log(`Encoding settings: ${targetWidth}x${targetHeight} @ ${fps}fps, ${(adaptiveBitrate/1_000_000).toFixed(1)}Mbps, ${mimeType}`);
         
         recorder = new MediaRecorder(stream, recorderOptions);
       } catch (error) {
