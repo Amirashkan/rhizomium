@@ -391,24 +391,38 @@ async _publishAnimation() {
       mainRenderLoop.pause();
     }
 
-    // Simple render loop at target FPS for recording
-    // canvas.captureStream(fps) will request frames at the specified rate
-    let renderInterval = null;
-    const frameIntervalMs = 1000 / fps;
-    
-    // Use setInterval to render at exact target FPS
-    // Don't wrap in requestAnimationFrame - let the browser handle async rendering
-    renderInterval = setInterval(() => {
-      try {
-        if (typeof window.render === "function") {
-          window.render();
-        } else if (renderer && renderer.render) {
-          renderer.render();
+      // Non-blocking render loop using requestAnimationFrame with FPS throttling
+      // This ensures renders don't block the main thread while maintaining target FPS
+      let renderRequestId = null;
+      let isRecording = true;
+      const frameIntervalMs = 1000 / fps;
+      let lastRenderTime = performance.now();
+      
+      const renderLoop = (currentTime) => {
+        if (!isRecording) return;
+        
+        const elapsed = currentTime - lastRenderTime;
+        
+        // Only render if enough time has passed for target FPS
+        if (elapsed >= frameIntervalMs) {
+          try {
+            if (typeof window.render === "function") {
+              window.render();
+            } else if (renderer && renderer.render) {
+              renderer.render();
+            }
+          } catch (error) {
+            console.warn("Render tick failed during animation export:", error);
+          }
+          lastRenderTime = currentTime;
         }
-      } catch (error) {
-        console.warn("Render tick failed during animation export:", error);
-      }
-    }, Math.max(1, Math.floor(frameIntervalMs)));
+        
+        // Continue the loop
+        renderRequestId = requestAnimationFrame(renderLoop);
+      };
+      
+      // Start the render loop
+      renderRequestId = requestAnimationFrame(renderLoop);
 
     // Render a few frames before starting recording to stabilize
     for (let i = 0; i < 3; i++) {
@@ -444,8 +458,9 @@ async _publishAnimation() {
       
       recorder = new MediaRecorder(stream, recorderOptions);
     } catch (error) {
-      if (renderInterval) {
-        clearInterval(renderInterval);
+      isRecording = false;
+      if (renderRequestId) {
+        cancelAnimationFrame(renderRequestId);
       }
       // Resume main render loop
       if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
@@ -507,8 +522,9 @@ async _publishAnimation() {
       return;
     } finally {
       clearTimeout(stopTimer);
-      if (renderInterval) {
-        clearInterval(renderInterval);
+      isRecording = false;
+      if (renderRequestId) {
+        cancelAnimationFrame(renderRequestId);
       }
       // Resume main render loop
       if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
@@ -2048,24 +2064,38 @@ for (let y = 0; y < height; y++) {
         mainRenderLoop.pause();
       }
 
-      // Simple render loop at target FPS for recording
-      // canvas.captureStream(fps) will request frames at the specified rate
-      let renderInterval = null;
+      // Non-blocking render loop using requestAnimationFrame with FPS throttling
+      // This ensures renders don't block the main thread while maintaining target FPS
+      let renderRequestId = null;
+      let isRecording = true;
       const frameIntervalMs = 1000 / fps;
+      let lastRenderTime = performance.now();
       
-      // Use setInterval to render at exact target FPS
-      // Don't wrap in requestAnimationFrame - let the browser handle async rendering
-      renderInterval = setInterval(() => {
-        try {
-          if (typeof window.render === "function") {
-            window.render();
-          } else if (renderer && renderer.render) {
-            renderer.render();
+      const renderLoop = (currentTime) => {
+        if (!isRecording) return;
+        
+        const elapsed = currentTime - lastRenderTime;
+        
+        // Only render if enough time has passed for target FPS
+        if (elapsed >= frameIntervalMs) {
+          try {
+            if (typeof window.render === "function") {
+              window.render();
+            } else if (renderer && renderer.render) {
+              renderer.render();
+            }
+          } catch (error) {
+            console.warn("Render tick failed during animation export:", error);
           }
-        } catch (error) {
-          console.warn("Render tick failed during animation export:", error);
+          lastRenderTime = currentTime;
         }
-      }, Math.max(1, Math.floor(frameIntervalMs)));
+        
+        // Continue the loop
+        renderRequestId = requestAnimationFrame(renderLoop);
+      };
+      
+      // Start the render loop
+      renderRequestId = requestAnimationFrame(renderLoop);
 
       // Render a few frames before starting recording to stabilize
       for (let i = 0; i < 3; i++) {
@@ -2098,8 +2128,9 @@ for (let y = 0; y < height; y++) {
         
         recorder = new MediaRecorder(stream, recorderOptions);
       } catch (error) {
-        if (renderInterval) {
-          clearInterval(renderInterval);
+        isRecording = false;
+        if (renderRequestId) {
+          cancelAnimationFrame(renderRequestId);
         }
         // Resume main render loop
         if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
@@ -2161,8 +2192,9 @@ for (let y = 0; y < height; y++) {
         return;
       } finally {
         clearTimeout(stopTimer);
-        if (renderInterval) {
-          clearInterval(renderInterval);
+        isRecording = false;
+        if (renderRequestId) {
+          cancelAnimationFrame(renderRequestId);
         }
         // Resume main render loop
         if (mainRenderLoop && typeof mainRenderLoop.start === 'function' && !wasPaused) {
