@@ -497,3 +497,4 @@ export class ModalManager {
 
 // Create singleton instance
 export const modalManager = new ModalManager();
+
