@@ -409,40 +409,43 @@ export class UtilityNodes {
   }
 
   compileSwitch(node, getInput, nodeId) {
-    const outputType = node.params?.outputType || "f32";
     const selectParam = Math.max(0, Math.min(3, Math.floor(node.params?.select || 0)));
     
-    // Get default values based on output type
-    const getDefaultForType = (type) => {
-      switch (type) {
-        case 'vec2': return 'vec2<f32>(0.0)';
-        case 'vec3': return 'vec3<f32>(0.0)';
-        case 'vec4': return 'vec4<f32>(0.0)';
-        default: return '0.0';
+    // Get inputs with their natural types (use null to preserve types)
+    const a = getInput(0, null, "0.0");
+    const b = getInput(1, null, "0.0");
+    const c = getInput(2, null, "0.0");
+    const d = getInput(3, null, "0.0");
+    
+    // Extract code and type from inputs
+    const getCode = (input) => {
+      if (typeof input === 'object' && input !== null && input.code !== undefined) {
+        return input.code;
       }
+      return input || "0.0";
     };
     
-    const defaultValue = getDefaultForType(outputType);
+    const getType = (input) => {
+      if (typeof input === 'object' && input !== null && input.type !== undefined) {
+        return input.type;
+      }
+      return "f32"; // Default for unconnected inputs
+    };
     
-    // Get all inputs
-    const a = getInput(0, outputType, defaultValue);
-    const b = getInput(1, outputType, defaultValue);
-    const c = getInput(2, outputType, defaultValue);
-    const d = getInput(3, outputType, defaultValue);
+    const inputs = [
+      { code: getCode(a), type: getType(a) },
+      { code: getCode(b), type: getType(b) },
+      { code: getCode(c), type: getType(c) },
+      { code: getCode(d), type: getType(d) }
+    ];
     
-    // Select which input to output based on parameter
-    let selectedInput;
-    switch (selectParam) {
-      case 0: selectedInput = a; break;
-      case 1: selectedInput = b; break;
-      case 2: selectedInput = c; break;
-      case 3: selectedInput = d; break;
-      default: selectedInput = a; break;
-    }
+    // Get the selected input
+    const selected = inputs[selectParam] || inputs[0];
     
+    // Output the selected input's code and type (preserves colors!)
     return {
-      line: `let node_${nodeId} = ${selectedInput};`,
-      outputType: outputType
+      line: `let node_${nodeId} = ${selected.code};`,
+      outputType: selected.type
     };
   }
 
