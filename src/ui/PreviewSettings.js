@@ -165,41 +165,55 @@ async _publishAnimation() {
     return;
   }
 
+  // Get resolution from settings
+  const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
+  const targetWidth = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
+  const targetHeight = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
+
+  // Store original canvas size to restore later
+  const originalWidth = canvas.width;
+  const originalHeight = canvas.height;
+  const originalStyleWidth = canvas.style.width;
+  const originalStyleHeight = canvas.style.height;
+
   const defaultFps = Math.max(1, this.settings.refreshRate || 30);
-  const fpsInput = await modalManager.prompt("Frames per second for the recording (1-60)?", 'Animation Settings', String(defaultFps), {
+  const fpsInput = await modalManager.prompt("Frames per second for the recording (1-120)?", 'Animation Settings', String(defaultFps), {
     inputType: 'number',
     placeholder: '30',
     validator: (value) => {
       const fps = Number(value);
-      if (!Number.isFinite(fps) || fps <= 0 || fps > 60) {
-        return 'Please enter a valid FPS value between 1 and 60';
+      if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {
+        return 'Please enter a valid FPS value between 1 and 120';
       }
       return null;
     }
   });
   if (fpsInput === null) return;
 
-  const fps = Math.min(60, Math.max(1, Number(fpsInput)));
+  const fps = Math.min(120, Math.max(1, Number(fpsInput)));
 
-  const durationInput = await modalManager.prompt("Duration in seconds (1-60)?", 'Animation Settings', "5", {
+  const durationInput = await modalManager.prompt("Duration in seconds (1-300)?", 'Animation Settings', "5", {
     inputType: 'number',
     placeholder: '5',
     validator: (value) => {
       const duration = Number(value);
-      if (!Number.isFinite(duration) || duration <= 0 || duration > 60) {
-        return 'Please enter a valid duration between 1 and 60 seconds';
+      if (!Number.isFinite(duration) || duration <= 0 || duration > 300) {
+        return 'Please enter a valid duration between 1 and 300 seconds';
       }
       return null;
     }
   });
   if (durationInput === null) return;
 
-  const duration = Math.min(60, Math.max(1, Number(durationInput)));
+  const duration = Math.min(300, Math.max(1, Number(durationInput)));
 
+  // Try multiple codec options, including H.264/MP4
   const mimeCandidates = [
     "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
+    "video/mp4;codecs=h264",
     "video/webm",
+    "video/mp4",
   ];
   const mimeType = mimeCandidates.find((candidate) => {
     try {
@@ -210,137 +224,191 @@ async _publishAnimation() {
   });
 
   if (!mimeType) {
-    await modalManager.alert("No supported WebM encoder found for this browser.", 'Browser Compatibility');
+    await modalManager.alert("No supported video encoder found for this browser.", 'Browser Compatibility');
     return;
   }
 
-  this.floatingPreview.updateSize();
-  if (typeof window.render === "function") {
-    window.render();
-  } else {
-    renderer.render();
-  }
+  // Determine file extension based on mime type
+  const fileExt = mimeType.includes('mp4') ? 'mp4' : 'webm';
 
-  const stream = canvas.captureStream(fps);
-  const chunks = [];
-
-  let renderInterval = null;
-  if (typeof renderer.render === "function" || typeof window.render === "function") {
-    const frameInterval = Math.max(1, Math.floor(1000 / fps));
-    renderInterval = setInterval(() => {
-      try {
-        if (typeof window.render === "function") {
-          window.render();
-        } else {
-          renderer.render();
-        }
-      } catch (error) {
-
-      }
-    }, frameInterval);
-  }
-
-  let recorder;
-  try {
-    recorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond: 8_000_000,
-    });
-  } catch (error) {
-    if (renderInterval) {
-      clearInterval(renderInterval);
-    }
-    stream.getTracks().forEach((track) => track.stop());
-    await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
-    return;
-  }
-
-  const recordingPromise = new Promise((resolve, reject) => {
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size) {
-        chunks.push(event.data);
-      }
-    };
-    recorder.onerror = (event) => {
-      reject(event.error || new Error("Recording error"));
-    };
-    recorder.onstop = () => resolve();
-  });
-
-  recorder.start();
-
-  const stopTimer = setTimeout(() => {
-    if (recorder.state === "recording") {
-      recorder.stop();
-    }
-  }, duration * 1000);
+  // Calculate adaptive bitrate based on resolution and FPS
+  const pixels = targetWidth * targetHeight;
+  const baseBitrate = Math.max(2_000_000, pixels * 2);
+  const fpsMultiplier = Math.max(1, fps / 30);
+  const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5));
 
   try {
-    await recordingPromise;
-  } catch (error) {
-
-    await modalManager.alert("Animation recording failed: " + error.message, 'Recording Error');
-    return;
-  } finally {
-    clearTimeout(stopTimer);
-    if (renderInterval) {
-      clearInterval(renderInterval);
-    }
-    stream.getTracks().forEach((track) => track.stop());
-  }
-
-  if (!chunks.length) {
-    await modalManager.alert("Recording produced no data.", 'Recording Error');
-    return;
-  }
-
-  // Create blob and upload
-  const blob = new Blob(chunks, { type: mimeType });
-  const timestamp = Date.now();
-  const filename = `shader-${timestamp}.webm`;
-
-  try {
-    const formData = new FormData();
-    formData.append('file', blob, filename);
-
-    modalManager.toast('Uploading animation...', 'info', 'Share to Gallery');
-
-    const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error?.error || `Upload failed (${response.status})`);
-    }
-
-    const data = await response.json();
-
-    if (!data.url) {
-      throw new Error('No URL returned from upload');
-    }
-
-    // Show success message and open publish page
-    modalManager.toast('Animation uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
-    setTimeout(() => {
-      window.open(`https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`, '_blank');
-    }, 1000);
-
-  } catch (err) {
-
-    if (err.message.includes('401') || err.message.includes('Unauthorized')) {
-      const shouldSignIn = await modalManager.confirm(
-        'You need to sign in to share your work.\n\nWould you like to go to the gallery and sign in?',
-        'Sign In Required'
-      );
-      if (shouldSignIn) {
-        window.open('https://art.tenderworld.org', '_blank');
-      }
+    // Resize canvas to target resolution for export
+    const gpuRenderer = window.gpuRenderer;
+    if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+      await gpuRenderer.resizeCanvasSync(targetWidth, targetHeight);
     } else {
-      await modalManager.alert(`Upload failed: ${err?.message || err}`, 'Upload Error');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
     }
+    
+    // Update preview size to match
+    this.floatingPreview.updateSize();
+    
+    // Render a frame to ensure everything is initialized
+    if (typeof window.render === "function") {
+      window.render();
+    } else {
+      renderer.render();
+    }
+
+    // Wait a frame to ensure resize is complete
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    const stream = canvas.captureStream(fps);
+    const chunks = [];
+
+    let renderInterval = null;
+    if (typeof renderer.render === "function" || typeof window.render === "function") {
+      const frameInterval = Math.max(1, Math.floor(1000 / fps));
+      renderInterval = setInterval(() => {
+        try {
+          if (typeof window.render === "function") {
+            window.render();
+          } else {
+            renderer.render();
+          }
+        } catch (error) {
+          console.warn("Render tick failed during animation export:", error);
+        }
+      }, frameInterval);
+    }
+
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: adaptiveBitrate,
+      });
+    } catch (error) {
+      if (renderInterval) {
+        clearInterval(renderInterval);
+      }
+      stream.getTracks().forEach((track) => track.stop());
+      await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
+      return;
+    }
+
+    const recordingPromise = new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size) {
+          chunks.push(event.data);
+        }
+      };
+      recorder.onerror = (event) => {
+        reject(event.error || new Error("Recording error"));
+      };
+      recorder.onstop = () => resolve();
+    });
+
+    recorder.start();
+    modalManager.toast(`Recording ${duration}s animation at ${fps} FPS, ${targetWidth}x${targetHeight}...`, 'info', 'Share to Gallery');
+
+    const stopTimer = setTimeout(() => {
+      if (recorder.state === "recording") {
+        recorder.stop();
+      }
+    }, duration * 1000);
+
+    try {
+      await recordingPromise;
+    } catch (error) {
+      console.error("Animation recording failed:", error);
+      await modalManager.alert("Animation recording failed: " + error.message, 'Recording Error');
+      return;
+    } finally {
+      clearTimeout(stopTimer);
+      if (renderInterval) {
+        clearInterval(renderInterval);
+      }
+      stream.getTracks().forEach((track) => track.stop());
+    }
+
+    if (!chunks.length) {
+      await modalManager.alert("Recording produced no data.", 'Recording Error');
+      return;
+    }
+
+    // Create blob and upload
+    const blob = new Blob(chunks, { type: mimeType });
+    const timestamp = Date.now();
+    const filename = `shader-${targetWidth}x${targetHeight}-${fps}fps-${timestamp}.${fileExt}`;
+
+    try {
+      const formData = new FormData();
+      formData.append('file', blob, filename);
+
+      modalManager.toast('Uploading animation...', 'info', 'Share to Gallery');
+
+      const response = await fetch('https://art.tenderworld.org/api/rhizo-upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error?.error || `Upload failed (${response.status})`);
+      }
+
+      const data = await response.json();
+
+      if (!data.url) {
+        throw new Error('No URL returned from upload');
+      }
+
+      // Show success message and open publish page
+      modalManager.toast('Animation uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
+      setTimeout(() => {
+        window.open(`https://art.tenderworld.org/gallery/publish?url=${encodeURIComponent(data.url)}`, '_blank');
+      }, 1000);
+
+    } catch (err) {
+      console.error("Upload failed:", err);
+      if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+        const shouldSignIn = await modalManager.confirm(
+          'You need to sign in to share your work.\n\nWould you like to go to the gallery and sign in?',
+          'Sign In Required'
+        );
+        if (shouldSignIn) {
+          window.open('https://art.tenderworld.org', '_blank');
+        }
+      } else {
+        await modalManager.alert(`Upload failed: ${err?.message || err}`, 'Upload Error');
+      }
+    } finally {
+      // Restore original canvas size
+      const gpuRenderer = window.gpuRenderer;
+      if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+        await gpuRenderer.resizeCanvasSync(originalWidth, originalHeight);
+      } else {
+        canvas.width = originalWidth;
+        canvas.height = originalHeight;
+      }
+      canvas.style.width = originalStyleWidth;
+      canvas.style.height = originalStyleHeight;
+      
+      // Update preview size back to original
+      this.floatingPreview.updateSize();
+    }
+  } catch (err) {
+    // Ensure canvas is restored even on error
+    const gpuRenderer = window.gpuRenderer;
+    if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+      await gpuRenderer.resizeCanvasSync(originalWidth, originalHeight);
+    } else {
+      canvas.width = originalWidth;
+      canvas.height = originalHeight;
+    }
+    canvas.style.width = originalStyleWidth;
+    canvas.style.height = originalStyleHeight;
+    this.floatingPreview.updateSize();
+    throw err;
   }
 }
 
@@ -1028,13 +1096,13 @@ async _publishAnimation() {
       "Width",
       this.settings.resolution.width,
       128,
-      4096,
+      7680,
     );
     const heightInput = this._createNumberInput(
       "Height",
       this.settings.resolution.height,
       128,
-      4096,
+      4320,
     );
 
     const widthInputElement = widthInput.querySelector("input");
@@ -1526,41 +1594,57 @@ _createExportButtons() {
       return;
     }
 
+    // Get resolution from settings
+    const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
+    const targetWidth = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
+    const targetHeight = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
+
+    // Store original canvas size to restore later
+    const originalWidth = canvas.width;
+    const originalHeight = canvas.height;
+    const originalStyleWidth = canvas.style.width;
+    const originalStyleHeight = canvas.style.height;
+
+    // Get FPS from settings or prompt
     const defaultFps = Math.max(1, this.settings.refreshRate || 30);
-    const fpsInput = await modalManager.prompt("Frames per second for the recording (1-60)?", 'Animation Settings', String(defaultFps), {
+    const fpsInput = await modalManager.prompt("Frames per second for the recording (1-120)?", 'Animation Settings', String(defaultFps), {
       inputType: 'number',
       placeholder: '30',
       validator: (value) => {
         const fps = Number(value);
-        if (!Number.isFinite(fps) || fps <= 0 || fps > 60) {
-          return 'Please enter a valid FPS value between 1 and 60';
+        if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {
+          return 'Please enter a valid FPS value between 1 and 120';
         }
         return null;
       }
     });
     if (fpsInput === null) return;
 
-    const fps = Math.min(60, Math.max(1, Number(fpsInput)));
+    const fps = Math.min(120, Math.max(1, Number(fpsInput)));
 
-    const durationInput = await modalManager.prompt("Duration in seconds (1-60)?", 'Animation Settings', "5", {
+    // Get duration - increased limit to 300 seconds (5 minutes)
+    const durationInput = await modalManager.prompt("Duration in seconds (1-300)?", 'Animation Settings', "5", {
       inputType: 'number',
       placeholder: '5',
       validator: (value) => {
         const duration = Number(value);
-        if (!Number.isFinite(duration) || duration <= 0 || duration > 60) {
-          return 'Please enter a valid duration between 1 and 60 seconds';
+        if (!Number.isFinite(duration) || duration <= 0 || duration > 300) {
+          return 'Please enter a valid duration between 1 and 300 seconds';
         }
         return null;
       }
     });
     if (durationInput === null) return;
 
-    const duration = Math.min(60, Math.max(1, Number(durationInput)));
+    const duration = Math.min(300, Math.max(1, Number(durationInput)));
 
+    // Try multiple codec options, including H.264/MP4
     const mimeCandidates = [
       "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
+      "video/mp4;codecs=h264",
       "video/webm",
+      "video/mp4",
     ];
     const mimeType = mimeCandidates.find((candidate) => {
       try {
@@ -1571,104 +1655,142 @@ _createExportButtons() {
     });
 
     if (!mimeType) {
-      await modalManager.alert("No supported WebM encoder found for this browser.", 'Browser Compatibility');
+      await modalManager.alert("No supported video encoder found for this browser.", 'Browser Compatibility');
       return;
     }
 
-    this.floatingPreview.updateSize();
-    if (typeof window.render === "function") {
-      window.render();
-    } else {
-      renderer.render();
-    }
+    // Determine file extension based on mime type
+    const fileExt = mimeType.includes('mp4') ? 'mp4' : 'webm';
 
-    const stream = canvas.captureStream(fps);
-    const chunks = [];
+    // Calculate adaptive bitrate based on resolution and FPS
+    // Higher resolution and FPS = higher bitrate
+    const pixels = targetWidth * targetHeight;
+    const baseBitrate = Math.max(2_000_000, pixels * 2); // Minimum 2 Mbps, ~2 bits per pixel
+    const fpsMultiplier = Math.max(1, fps / 30); // Scale with FPS
+    const adaptiveBitrate = Math.min(100_000_000, Math.floor(baseBitrate * fpsMultiplier * 1.5)); // Cap at 100 Mbps
 
-    let renderInterval = null;
-    if (typeof renderer.render === "function" || typeof window.render === "function") {
-      const frameInterval = Math.max(1, Math.floor(1000 / fps));
-      renderInterval = setInterval(() => {
-        try {
-          if (typeof window.render === "function") {
-            window.render();
-          } else {
-            renderer.render();
+    try {
+      // Resize canvas to target resolution for export
+      const gpuRenderer = window.gpuRenderer;
+      if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+        await gpuRenderer.resizeCanvasSync(targetWidth, targetHeight);
+      } else {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+      }
+      
+      // Update preview size to match
+      this.floatingPreview.updateSize();
+      
+      // Render a frame to ensure everything is initialized
+      if (typeof window.render === "function") {
+        window.render();
+      } else {
+        renderer.render();
+      }
+
+      // Wait a frame to ensure resize is complete
+      await new Promise(resolve => requestAnimationFrame(resolve));
+
+      const stream = canvas.captureStream(fps);
+      const chunks = [];
+
+      let renderInterval = null;
+      if (typeof renderer.render === "function" || typeof window.render === "function") {
+        const frameInterval = Math.max(1, Math.floor(1000 / fps));
+        renderInterval = setInterval(() => {
+          try {
+            if (typeof window.render === "function") {
+              window.render();
+            } else {
+              renderer.render();
+            }
+          } catch (error) {
+            console.warn("Render tick failed during animation export:", error);
           }
-        } catch (error) {
+        }, frameInterval);
+      }
 
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: adaptiveBitrate,
+        });
+      } catch (error) {
+        if (renderInterval) {
+          clearInterval(renderInterval);
         }
-      }, frameInterval);
-    }
+        stream.getTracks().forEach((track) => track.stop());
+        await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
+        return;
+      }
 
-    let recorder;
-    try {
-      recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: 8_000_000,
+      const recordingPromise = new Promise((resolve, reject) => {
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size) {
+            chunks.push(event.data);
+          }
+        };
+        recorder.onerror = (event) => {
+          reject(event.error || new Error("Recording error"));
+        };
+        recorder.onstop = () => resolve();
       });
-    } catch (error) {
-      if (renderInterval) {
-        clearInterval(renderInterval);
-      }
-      stream.getTracks().forEach((track) => track.stop());
-      await modalManager.alert("Unable to start recorder: " + error.message, 'Recording Error');
-      return;
-    }
 
-    const recordingPromise = new Promise((resolve, reject) => {
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size) {
-          chunks.push(event.data);
+      recorder.start();
+      modalManager.toast(`Recording ${duration}s animation at ${fps} FPS, ${targetWidth}x${targetHeight}...`, 'info', 'Export Animation');
+
+      const stopTimer = setTimeout(() => {
+        if (recorder.state === "recording") {
+          recorder.stop();
         }
-      };
-      recorder.onerror = (event) => {
-        reject(event.error || new Error("Recording error"));
-      };
-      recorder.onstop = () => resolve();
-    });
+      }, duration * 1000);
 
-    recorder.start();
-    modalManager.toast(`Recording ${duration}s animation at ${fps} FPS...`, 'info', 'Export Animation');
-
-    const stopTimer = setTimeout(() => {
-      if (recorder.state === "recording") {
-        recorder.stop();
+      try {
+        await recordingPromise;
+      } catch (error) {
+        console.error("Animation export failed:", error);
+        await modalManager.alert("Animation export failed: " + error.message, 'Export Error');
+        return;
+      } finally {
+        clearTimeout(stopTimer);
+        if (renderInterval) {
+          clearInterval(renderInterval);
+        }
+        stream.getTracks().forEach((track) => track.stop());
       }
-    }, duration * 1000);
 
-    try {
-      await recordingPromise;
-    } catch (error) {
+      if (!chunks.length) {
+        await modalManager.alert("Recording produced no data.", 'Export Error');
+        return;
+      }
 
-      await modalManager.alert("Animation export failed: " + error.message, 'Export Error');
-      return;
+      const blob = new Blob(chunks, { type: mimeType });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+
+      const link = document.createElement("a");
+      link.download = `shader-${targetWidth}x${targetHeight}-${fps}fps-${timestamp}.${fileExt}`;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+
+      modalManager.toast(`Animation exported: ${link.download}`, 'success', 'Export Complete');
+
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     } finally {
-      clearTimeout(stopTimer);
-      if (renderInterval) {
-        clearInterval(renderInterval);
+      // Restore original canvas size
+      const gpuRenderer = window.gpuRenderer;
+      if (gpuRenderer && gpuRenderer.resizeCanvasSync) {
+        await gpuRenderer.resizeCanvasSync(originalWidth, originalHeight);
+      } else {
+        canvas.width = originalWidth;
+        canvas.height = originalHeight;
       }
-      stream.getTracks().forEach((track) => track.stop());
+      canvas.style.width = originalStyleWidth;
+      canvas.style.height = originalStyleHeight;
+      
+      // Update preview size back to original
+      this.floatingPreview.updateSize();
     }
-
-    if (!chunks.length) {
-      await modalManager.alert("Recording produced no data.", 'Export Error');
-      return;
-    }
-
-    const blob = new Blob(chunks, { type: mimeType });
-    const resolution = this.settings.resolution || { width: canvas.width, height: canvas.height };
-    const width = Math.max(1, Math.floor(resolution.width || canvas.width || 1));
-    const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-
-    const link = document.createElement("a");
-    link.download = `shader-${width}x${height}-${timestamp}.webm`;
-    link.href = URL.createObjectURL(blob);
-    link.click();
-
-    modalManager.toast(`Animation exported: ${link.download}`, 'success', 'Export Complete');
-
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
 }
