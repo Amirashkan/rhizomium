@@ -1,6 +1,8 @@
 // src/gpu/gpuRenderer.js
 // WebGPU renderer with explicit aspect uniform management and safe fallbacks.
 
+import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
+
 const STAGES = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
 
 // Parse WGSL for @group/@binding declarations so we can allocate resources dynamically.
@@ -48,6 +50,9 @@ export class GPURenderer {
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+    
+    // PERFORMANCE: Shader module cache to avoid recompiling identical WGSL code
+    this.shaderCache = shaderModuleCache;
   }
 
   clear() {
@@ -400,7 +405,23 @@ export class GPURenderer {
       console.log("[GPURenderer] Shader changed - recreating pipeline");
       this._lastShaderSource = wgslCode;
 
-      this.shaderModule = this.device.createShaderModule({ code: wgslCode });
+      // PERFORMANCE: Compute WGSL hash and check cache before creating shader module
+      // Use synchronous djb2 hash to keep setShaderSource synchronous
+      const wgslHash = hashWGSL(wgslCode, false);
+      
+      // Check cache for existing compiled module
+      let cachedModule = this.shaderCache.get(wgslHash);
+      
+      if (cachedModule) {
+        console.log(`[GPURenderer] Using cached shader module (hash: ${wgslHash.substring(0, 16)}...)`);
+        this.shaderModule = cachedModule;
+      } else {
+        // Create new shader module and store in cache
+        console.log(`[GPURenderer] Compiling new shader module (hash: ${wgslHash.substring(0, 16)}...)`);
+        this.shaderModule = this.device.createShaderModule({ code: wgslCode });
+        this.shaderCache.set(wgslHash, this.shaderModule);
+      }
+
       this.resources = {};
       this._lastAspectWritten = null;
       const bindingMap = analyzeBindings(wgslCode);

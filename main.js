@@ -5,6 +5,7 @@ import { buildWGSL } from "./src/codegen/glslBuilder.js";
 import { Editor } from "./src/core/Editor.js";
 import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
+import { FileManager } from "./src/ui/FileManager.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
 import { OutputDisplayWindow } from "./src/ui/OutputDisplayWindow.js";
 import { Graph } from "./src/data/Graph.js";
@@ -165,6 +166,7 @@ let graph = new Graph();
 let editor = null;
 let saveLoadManager = null;
 let backupDialog = null;
+let fileManager = null;
 let welcomeWindow = null;
 let outputDisplayWindow = null;
 let undoManager = null;
@@ -468,6 +470,7 @@ async function initialize() {
     editor.saveLoadManager = saveLoadManager;
 
     backupDialog = new BackupDialog(saveLoadManager);
+    fileManager = new FileManager(saveLoadManager);
 
     welcomeWindow = new WelcomeWindow({
       saveLoadManager: saveLoadManager,
@@ -616,6 +619,7 @@ async function initialize() {
     window.editor = editor;
     window.saveLoadManager = saveLoadManager;
     window.backupDialog = backupDialog;
+    window.fileManager = fileManager;
     window.welcomeWindow = welcomeWindow;
     window.outputDisplayWindow = outputDisplayWindow;
     window.rebuild = updateShaderFromGraph;
@@ -1947,6 +1951,15 @@ function setupUIEventHandlers() {
     backupsBtn.addEventListener("click", (e) => {
       e.preventDefault();
       backupDialog.show();
+    });
+  }
+
+  // File Manager button
+  const fileManagerBtn = removeExistingHandlers("btn-file-manager");
+  if (fileManagerBtn && fileManager) {
+    fileManagerBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      fileManager.show();
     });
   }
 
