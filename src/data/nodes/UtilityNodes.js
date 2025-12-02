@@ -70,6 +70,23 @@ export const UtilityNodes = {
     ],
   },
 
+  Switch: {
+    label: "Switch",
+    cat: "Utility",
+    inputs: 5,
+    pinsIn: ["Selector", "A", "B", "C", "D"],
+    pinsOut: [{ label: "out", type: "f32" }],
+    params: [
+      {
+        name: "outputType",
+        type: "select",
+        default: "f32",
+        options: ["f32", "vec2", "vec3", "vec4"],
+        label: "Output Type"
+      },
+    ],
+  },
+
   CustomGLSL: {
     label: "Custom GLSL",
     cat: "Utility",

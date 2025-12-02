@@ -72,7 +72,7 @@ export class UtilityNodes {
       'OutputFinal', 'Expr', 'Remap', 'Posterize',
       'ColorToGrayscale', 'ColorInvert', 'ColorSaturate', 
       'ColorContrast', 'ColorBrightness', 'ColorMix',
-      'HSVToRGB', 'RGBToHSV', 'Select', 'Compare', 'CustomGLSL'
+      'HSVToRGB', 'RGBToHSV', 'Select', 'Compare', 'Switch', 'CustomGLSL'
     ].includes(kind);
   }
   
@@ -114,6 +114,8 @@ export class UtilityNodes {
         return this.compileSelect(node, getInput, nodeId);
       case 'Compare':
         return this.compileCompare(node, getInput, nodeId);
+      case 'Switch':
+        return this.compileSwitch(node, getInput, nodeId);
       case 'CustomGLSL':
         try {
           return this.compileCustomGLSL(node, getInput, nodeId);
@@ -403,6 +405,57 @@ export class UtilityNodes {
     return {
       line: `let node_${nodeId} = select(0.0, 1.0, ${comparison});`,
       outputType: "f32"
+    };
+  }
+
+  compileSwitch(node, getInput, nodeId) {
+    const selector = getInput(0, "f32", "0.0");
+    const outputType = node.params?.outputType || "f32";
+    
+    // Get default values based on output type
+    const getDefaultForType = (type) => {
+      switch (type) {
+        case 'vec2': return 'vec2<f32>(0.0)';
+        case 'vec3': return 'vec3<f32>(0.0)';
+        case 'vec4': return 'vec4<f32>(0.0)';
+        default: return '0.0';
+      }
+    };
+    
+    const defaultValue = getDefaultForType(outputType);
+    const a = getInput(1, outputType, defaultValue);
+    const b = getInput(2, outputType, defaultValue);
+    const c = getInput(3, outputType, defaultValue);
+    const d = getInput(4, outputType, defaultValue);
+    
+    // Convert selector to integer and clamp to valid range [0, 3]
+    // Use WGSL switch statement for efficient selection
+    const typeStr = outputType === 'f32' ? 'f32' : `${outputType}<f32>`;
+    const switchCode = `var node_${nodeId}: ${typeStr} = ${defaultValue};
+{
+  let selector_${nodeId} = i32(clamp(floor(${selector}), 0.0, 3.0));
+  switch (selector_${nodeId}) {
+    case 0: {
+      node_${nodeId} = ${a};
+    }
+    case 1: {
+      node_${nodeId} = ${b};
+    }
+    case 2: {
+      node_${nodeId} = ${c};
+    }
+    case 3: {
+      node_${nodeId} = ${d};
+    }
+    default: {
+      node_${nodeId} = ${a};
+    }
+  }
+}`;
+    
+    return {
+      line: switchCode,
+      outputType: outputType
     };
   }
 
