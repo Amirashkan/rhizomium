@@ -376,6 +376,12 @@ deleteSelected() {
       (c) => ids.has(c.from.nodeId) || ids.has(c.to.nodeId)
     );
 
+    // Auto-reconnect wires when nodes are deleted
+    // For each deleted node, reconnect incoming connections to outgoing connections
+    for (const nodeToDelete of nodesToDelete) {
+      this._autoReconnectWires(nodeToDelete, ids);
+    }
+
     // Clean up input references for connections being removed
     for (const conn of connectionsToRemove) {
       // Find the target node and clear its input
@@ -405,6 +411,151 @@ deleteSelected() {
     });
   }
 }
+
+  // Helper method to automatically reconnect wires when a node is deleted
+  // Connects incoming connections to outgoing connections, bypassing the deleted node
+  _autoReconnectWires(nodeToDelete, deletedNodeIds) {
+    try {
+      if (!nodeToDelete || !nodeToDelete.id) {
+        return;
+      }
+
+      // Find all incoming connections (connections TO the node being deleted)
+      const incomingConnections = this.graph.connections.filter(
+        (c) => c.to.nodeId === nodeToDelete.id && !deletedNodeIds.has(c.from.nodeId)
+      );
+
+      // Find all outgoing connections (connections FROM the node being deleted)
+      const outgoingConnections = this.graph.connections.filter(
+        (c) => c.from.nodeId === nodeToDelete.id && !deletedNodeIds.has(c.to.nodeId)
+      );
+
+      // If no incoming or outgoing connections, nothing to reconnect
+      if (incomingConnections.length === 0 || outgoingConnections.length === 0) {
+        return;
+      }
+
+      // For each incoming connection, try to connect it to each outgoing connection's target
+      for (const incomingConn of incomingConnections) {
+        const sourceNodeId = incomingConn.from.nodeId;
+        const sourcePin = incomingConn.from.pin || 0;
+
+        // Skip if source node is also being deleted
+        if (deletedNodeIds.has(sourceNodeId)) {
+          continue;
+        }
+
+        for (const outgoingConn of outgoingConnections) {
+          const targetNodeId = outgoingConn.to.nodeId;
+          const targetPin = outgoingConn.to.pin || 0;
+
+          // Skip if target node is also being deleted
+          if (deletedNodeIds.has(targetNodeId)) {
+            continue;
+          }
+
+          // Skip self-connections
+          if (sourceNodeId === targetNodeId) {
+            continue;
+          }
+
+          // Validate the connection is possible
+          if (!this._isReconnectionValid(sourceNodeId, sourcePin, targetNodeId, targetPin)) {
+            continue;
+          }
+
+          // Check if connection already exists
+          const existingConnection = this.graph.connections.find(
+            (c) => c.from.nodeId === sourceNodeId &&
+                   c.from.pin === sourcePin &&
+                   c.to.nodeId === targetNodeId &&
+                   c.to.pin === targetPin
+          );
+
+          if (existingConnection) {
+            continue; // Connection already exists, skip
+          }
+
+          // Create the new connection
+          const newConnection = {
+            from: { nodeId: sourceNodeId, pin: sourcePin },
+            to: { nodeId: targetNodeId, pin: targetPin },
+          };
+
+          this.graph.connections.push(newConnection);
+
+          // Update target node's inputs array
+          const targetNode = this.graph.nodes.find((n) => n.id === targetNodeId);
+          if (targetNode) {
+            if (!targetNode.inputs) {
+              targetNode.inputs = [];
+            }
+            // Update the input to point to the new source
+            // This should be safe because we found an outgoing connection from deleted node to this target
+            targetNode.inputs[targetPin] = sourceNodeId;
+          }
+
+          // Record for undo if available
+          if (window.onConnectionCreated && typeof window.onConnectionCreated === 'function') {
+            window.onConnectionCreated(
+              sourceNodeId,
+              targetNodeId,
+              targetPin,
+              sourcePin
+            );
+          }
+        }
+      }
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'auto-reconnect-wires',
+        nodeId: nodeToDelete?.id
+      });
+    }
+  }
+
+  // Helper method to validate if a reconnection is valid
+  _isReconnectionValid(fromNodeId, fromPin, toNodeId, toPin) {
+    try {
+      const fromNode = this.graph.nodes.find((n) => n.id === fromNodeId);
+      const toNode = this.graph.nodes.find((n) => n.id === toNodeId);
+
+      if (!fromNode || !toNode) {
+        return false;
+      }
+
+      // Prevent self-connections
+      if (fromNodeId === toNodeId) {
+        return false;
+      }
+
+      // Check if pins exist
+      const fromDef = NodeDefs[fromNode.kind];
+      const toDef = NodeDefs[toNode.kind];
+
+      if (!fromDef || !toDef) {
+        return false;
+      }
+
+      const fromOutPins = fromDef.pinsOut || [];
+      const toInPins = toDef.pinsIn || [];
+
+      if (fromPin >= fromOutPins.length || toPin >= toInPins.length) {
+        return false;
+      }
+
+      // Basic type compatibility check (can be enhanced later)
+      // For now, allow all connections that pass the above checks
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'reconnection-validation',
+        fromNodeId,
+        toNodeId
+      });
+      return false;
+    }
+  }
 
   // Helper method to find all connections involving a node
   _findAllNodeConnections(node) {
