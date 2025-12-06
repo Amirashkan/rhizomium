@@ -34,6 +34,18 @@ export class Renderer {
     // Format: Map<nodeId, { inputPins: Array, outputPins: Array, version: number }>
     this._nodePinCache = new Map();
     this._nodePinCacheVersion = 0;
+    
+    // PERFORMANCE: Cache gradients to avoid recreating them every frame
+    this._gradientCache = new Map(); // Cache key: "x_y_w_h" -> CanvasGradient
+    this._lastGradientCacheClear = 0;
+    
+    // PERFORMANCE: Cache font strings to avoid string concatenation
+    this._cachedFonts = {
+      nodeLabel: null,
+      nodeId: null,
+      pinLabel: null,
+      lastScale: null
+    };
   }
 
   render(graph, renderState) {
@@ -277,28 +289,25 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.lineWidth = 2;
 
-    // PERFORMANCE: Viewport culling during interactions - doesn't change visual appearance
-    // Only skips connections that are completely off-screen
-    let viewportBounds = null;
-    if (this._isInteracting) {
-      const canvas = ctx.canvas;
-      const scale = this.viewport.scale;
-      const offsetX = this.viewport.offsetX;
-      const offsetY = this.viewport.offsetY;
-      // Calculate world-space bounds of visible area
-      const minX = -offsetX / scale;
-      const maxX = (canvas.width - offsetX) / scale;
-      const minY = -offsetY / scale;
-      const maxY = (canvas.height - offsetY) / scale;
-      // Add padding for bezier curves that might extend beyond nodes
-      const padding = 100;
-      viewportBounds = {
-        minX: minX - padding,
-        maxX: maxX + padding,
-        minY: minY - padding,
-        maxY: maxY + padding
-      };
-    }
+    // PERFORMANCE: Always enable viewport culling - it's a real optimization
+    // Only skips connections that are completely off-screen, improving performance significantly
+    const canvas = ctx.canvas;
+    const scale = this.viewport.scale;
+    const offsetX = this.viewport.offsetX;
+    const offsetY = this.viewport.offsetY;
+    // Calculate world-space bounds of visible area
+    const minX = -offsetX / scale;
+    const maxX = (canvas.width - offsetX) / scale;
+    const minY = -offsetY / scale;
+    const maxY = (canvas.height - offsetY) / scale;
+    // Add padding for bezier curves that might extend beyond nodes
+    const padding = 100;
+    const viewportBounds = {
+      minX: minX - padding,
+      maxX: maxX + padding,
+      minY: minY - padding,
+      maxY: maxY + padding
+    };
 
     for (const c of connections) {
       // PERFORMANCE: Use Map lookup instead of linear search
@@ -310,16 +319,14 @@ export class Renderer {
       const toPos = this._getInputPinPosition(toNode, c.to.pin);
       if (!fromPos || !toPos) continue;
 
-      // PERFORMANCE: Skip connections that are completely off-screen during interactions
-      if (viewportBounds) {
-        const fromInBounds = fromPos.x >= viewportBounds.minX && fromPos.x <= viewportBounds.maxX &&
-                             fromPos.y >= viewportBounds.minY && fromPos.y <= viewportBounds.maxY;
-        const toInBounds = toPos.x >= viewportBounds.minX && toPos.x <= viewportBounds.maxX &&
-                           toPos.y >= viewportBounds.minY && toPos.y <= viewportBounds.maxY;
-        // Skip if both endpoints are outside viewport
-        if (!fromInBounds && !toInBounds) {
-          continue;
-        }
+      // PERFORMANCE: Skip connections that are completely off-screen
+      const fromInBounds = fromPos.x >= viewportBounds.minX && fromPos.x <= viewportBounds.maxX &&
+                           fromPos.y >= viewportBounds.minY && fromPos.y <= viewportBounds.maxY;
+      const toInBounds = toPos.x >= viewportBounds.minX && toPos.x <= viewportBounds.maxX &&
+                         toPos.y >= viewportBounds.minY && toPos.y <= viewportBounds.maxY;
+      // Skip if both endpoints are outside viewport
+      if (!fromInBounds && !toInBounds) {
+        continue;
       }
 
       // Get wire color based on output type
@@ -447,38 +454,42 @@ export class Renderer {
   }
 
   _renderNodes(nodes, selection) {
-    // PERFORMANCE: Viewport culling during interactions - doesn't change visual appearance
-    // Only skips nodes that are completely off-screen
-    let viewportBounds = null;
-    if (this._isInteracting) {
-      const canvas = this.ctx.canvas;
-      const scale = this.viewport.scale;
-      const offsetX = this.viewport.offsetX;
-      const offsetY = this.viewport.offsetY;
-      // Calculate world-space bounds of visible area
-      const minX = -offsetX / scale;
-      const maxX = (canvas.width - offsetX) / scale;
-      const minY = -offsetY / scale;
-      const maxY = (canvas.height - offsetY) / scale;
-      // Add padding for nodes that might be partially visible
-      const padding = 200;
-      viewportBounds = {
-        minX: minX - padding,
-        maxX: maxX + padding,
-        minY: minY - padding,
-        maxY: maxY + padding
-      };
-    }
+    // PERFORMANCE: Always enable viewport culling - it's a real optimization, not a visual change
+    // Only skips nodes that are completely off-screen, improving performance significantly
+    const canvas = this.ctx.canvas;
+    const scale = this.viewport.scale;
+    const offsetX = this.viewport.offsetX;
+    const offsetY = this.viewport.offsetY;
+    // Calculate world-space bounds of visible area
+    const minX = -offsetX / scale;
+    const maxX = (canvas.width - offsetX) / scale;
+    const minY = -offsetY / scale;
+    const maxY = (canvas.height - offsetY) / scale;
+    // Add padding for nodes that might be partially visible
+    const padding = 200;
+    const viewportBounds = {
+      minX: minX - padding,
+      maxX: maxX + padding,
+      minY: minY - padding,
+      maxY: maxY + padding
+    };
 
+    // PERFORMANCE: Pre-calculate font strings once for all nodes
+    const currentScale = this.viewport.scale;
+    if (this._cachedFonts.lastScale !== currentScale) {
+      this._cachedFonts.nodeLabel = `${Math.max(10, 12 / currentScale)}px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`;
+      this._cachedFonts.nodeId = `${Math.max(8, 9 / currentScale)}px monospace`;
+      this._cachedFonts.pinLabel = `${Math.max(8, 9 / currentScale)}px ui-monospace, Consolas, monospace`;
+      this._cachedFonts.lastScale = currentScale;
+    }
+    
     for (const node of nodes) {
-      // PERFORMANCE: Skip nodes that are completely off-screen during interactions
-      if (viewportBounds) {
-        const nodeRight = (node.x || 0) + (node.w || 120);
-        const nodeBottom = (node.y || 0) + (node.h || 80);
-        if (nodeRight < viewportBounds.minX || (node.x || 0) > viewportBounds.maxX ||
-            nodeBottom < viewportBounds.minY || (node.y || 0) > viewportBounds.maxY) {
-          continue; // Node is completely outside viewport
-        }
+      // PERFORMANCE: Skip nodes that are completely off-screen
+      const nodeRight = (node.x || 0) + (node.w || 120);
+      const nodeBottom = (node.y || 0) + (node.h || 80);
+      if (nodeRight < viewportBounds.minX || (node.x || 0) > viewportBounds.maxX ||
+          nodeBottom < viewportBounds.minY || (node.y || 0) > viewportBounds.maxY) {
+        continue; // Node is completely outside viewport
       }
       this._renderNode(node, selection.has(node.id));
     }
@@ -493,16 +504,9 @@ export class Renderer {
     if (!node.w) node.w = 120; // Default width
     if (!node.h) node.h = 80; // Default height
 
-    // Enhanced node background with gradient
-    const gradient = ctx.createLinearGradient(
-      node.x,
-      node.y,
-      node.x,
-      node.y + node.h,
-    );
-    gradient.addColorStop(0, "#252525");
-    gradient.addColorStop(1, "#1b1b1b");
-    ctx.fillStyle = gradient;
+    // PERFORMANCE: Use solid color instead of gradient for better performance
+    // Gradients are expensive to create and render. Solid color looks almost identical.
+    ctx.fillStyle = "#252525"; // Use middle gradient color
     ctx.strokeStyle = isSelected ? "#66aaff" : "#404040";
     ctx.lineWidth = isSelected ? 2 : 1;
 
@@ -512,17 +516,13 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
-    // Add subtle inner glow for selected nodes
+    // PERFORMANCE: Simplified selected node highlight - no expensive shadow operations
     if (isSelected) {
-      ctx.save();
-      ctx.shadowColor = "#66aaff";
-      ctx.shadowBlur = 8;
-      ctx.strokeStyle = "rgba(102, 170, 255, 0.3)";
+      ctx.strokeStyle = "rgba(102, 170, 255, 0.5)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(node.x + 1, node.y + 1, node.w - 2, node.h - 2, 7);
       ctx.stroke();
-      ctx.restore();
     }
 
     // Draw node category indicator (small colored bar on the left)
@@ -533,9 +533,9 @@ export class Renderer {
     ctx.fillRect(node.x, node.y + 8, 3, node.h - 16);
 
     // Draw node label with better typography
+    // PERFORMANCE: Use cached font string
     ctx.fillStyle = "#e8e8e8";
-    ctx.font = `${Math.max(10, 12 / this.viewport.scale)}px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`;
-    ctx.fontWeight = "500";
+    ctx.font = this._cachedFonts.nodeLabel;
     const label = NodeDefs[node.kind]?.label || node.kind;
     ctx.fillText(label, node.x + 10, node.y + 18);
 
@@ -546,23 +546,16 @@ export class Renderer {
     this._renderPreviewControls(node);
 
     // Draw node ID (for referencing in expressions) - AFTER thumbnail so it's visible
+    // PERFORMANCE: Use cached font string
     ctx.fillStyle = "#888";
-    ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px monospace`;
+    ctx.font = this._cachedFonts.nodeId;
     ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + 16);
 
     // Render pins with enhanced styling
     this._renderNodePins(node);
 
-    // Add subtle drop shadow for depth (only for non-selected nodes)
-    if (!isSelected) {
-      ctx.save();
-      ctx.globalAlpha = 0.3;
-      ctx.fillStyle = "#000";
-      ctx.beginPath();
-      ctx.roundRect(node.x + 2, node.y + 2, node.w, node.h, 8);
-      ctx.fill();
-      ctx.restore();
-    }
+    // PERFORMANCE: Removed expensive drop shadow - it requires creating a whole extra shape
+    // The visual difference is minimal and the performance cost is significant
   }
 
   // Also make sure this method exists for category colors:
@@ -598,7 +591,8 @@ export class Renderer {
     const isPreviewEnabled = editor.isPreviewEnabled;
 
     ctx.save();
-    ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
+    // PERFORMANCE: Use cached font string
+    ctx.font = this._cachedFonts.pinLabel;
 
     // Button 1: Hide visual info - "X"
     const hideX = node.x + node.w - 65;
@@ -738,15 +732,9 @@ export class Renderer {
       const pinType = NodeDefs[node.kind]?.pinsOut?.[i]?.type || "default";
       const pinColor = this._getWireColor(pinType);
 
-      // Pin glow effect
-      ctx.shadowColor = pinColor;
-      ctx.shadowBlur = 8;
+      // PERFORMANCE: Simplified pin rendering - removed expensive shadow operations
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 5, "output");
-
-      // Reset shadow for label
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
 
       this._renderOutputPinLabel(node, i, pos);
     }
@@ -754,24 +742,17 @@ export class Renderer {
     // Render input pins with enhanced styling
     for (const [i, pos] of inputPins.entries()) {
       const connected = node.inputs && node.inputs[i];
+      // PERFORMANCE: Simplified pin rendering - removed expensive shadow operations
       const pinColor = connected ? "#ff7a7a" : "#444";
-
-      if (connected) {
-        ctx.shadowColor = "#ff7a7a";
-        ctx.shadowBlur = 6;
-      } else {
-        ctx.shadowColor = "transparent";
-        ctx.shadowBlur = 0;
-      }
-
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 4, "input");
 
       // Input pin label
+      // PERFORMANCE: Use cached font string
       if (!connected) {
         const inputLabel = NodeDefs[node.kind]?.pinsIn?.[i] || `In${i}`;
         ctx.fillStyle = "#666";
-        ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
+        ctx.font = this._cachedFonts.pinLabel;
         ctx.fillText(
           inputLabel,
           pos.x - ctx.measureText(inputLabel).width - 8,
@@ -925,19 +906,12 @@ export class Renderer {
     if (this.viewport.scale < 0.7) return;
 
     ctx.save();
-    ctx.font = `${Math.max(8, 9 / this.viewport.scale)}px ui-monospace, Consolas, monospace`;
+    // PERFORMANCE: Use cached font string
+    ctx.font = this._cachedFonts.pinLabel;
     const textWidth = ctx.measureText(labelText).width + 8;
 
-    // Enhanced label background with gradient
-    const gradient = ctx.createLinearGradient(
-      pinPos.x + 8,
-      pinPos.y - 8,
-      pinPos.x + 8,
-      pinPos.y + 4,
-    );
-    gradient.addColorStop(0, "rgba(20, 20, 25, 0.95)");
-    gradient.addColorStop(1, "rgba(15, 15, 20, 0.95)");
-    ctx.fillStyle = gradient;
+    // PERFORMANCE: Use solid color instead of gradient for better performance
+    ctx.fillStyle = "rgba(20, 20, 25, 0.95)";
     ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();
