@@ -46,6 +46,9 @@ export class Renderer {
       pinLabel: null,
       lastScale: null
     };
+    
+    // PERFORMANCE: Cache wire colors to avoid repeated NodeDefs lookups
+    this._wireColorCache = new Map();
   }
 
   render(graph, renderState) {
@@ -54,6 +57,10 @@ export class Renderer {
     if (renderState.editor) {
       window.editor = renderState.editor; // Make editor accessible
     }
+    
+    // PERFORMANCE: Clear pin position cache at start of each frame
+    // This ensures we recalculate when node positions change, but cache within the same frame
+    this._nodePinCache.clear();
     
     // PERFORMANCE: Clear node pin cache when panning stops
     const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function' 
@@ -329,10 +336,19 @@ export class Renderer {
         continue;
       }
 
-      // Get wire color based on output type
-      const srcType =
-        NodeDefs[fromNode.kind]?.pinsOut?.[c.from.pin]?.type || "default";
-      const color = this._getWireColor(srcType);
+      // PERFORMANCE: Cache wire color lookup - NodeDefs access is expensive
+      // Create cache key from node kind and pin index
+      const wireColorKey = `${fromNode.kind}_${c.from.pin}`;
+      let color = this._wireColorCache?.get(wireColorKey);
+      if (!color) {
+        const srcType = NodeDefs[fromNode.kind]?.pinsOut?.[c.from.pin]?.type || "default";
+        color = this._getWireColor(srcType);
+        // Initialize cache if needed
+        if (!this._wireColorCache) {
+          this._wireColorCache = new Map();
+        }
+        this._wireColorCache.set(wireColorKey, color);
+      }
 
       ctx.strokeStyle = color;
       this._drawBezierCurve(fromPos.x, fromPos.y, toPos.x, toPos.y);
@@ -958,19 +974,18 @@ export class Renderer {
 
   // Helper methods
   _getNodePinPositions(node) {
-    // PERFORMANCE: Cache pin positions during panning
-    // Pin positions only change when node moves, not during panning
-    const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function' 
-      ? this.viewport.isPanning() 
-      : (this.viewport._isPanning || false);
+    // PERFORMANCE: Cache pin positions per frame - they only change when node position changes
+    // This prevents recalculating pin positions multiple times per frame for the same node
+    // (e.g., when rendering multiple connections from/to the same node)
     
-    if (isPanning) {
-      const cached = this._nodePinCache.get(node.id);
-      if (cached && cached.version === this._nodePinCacheVersion) {
-        return { inputPins: cached.inputPins, outputPins: cached.outputPins };
-      }
+    // Check if we have a cached result for this node in the current frame
+    const cacheKey = `${node.id}_${node.x}_${node.y}`;
+    const cached = this._nodePinCache.get(cacheKey);
+    if (cached) {
+      return { inputPins: cached.inputPins, outputPins: cached.outputPins };
     }
     
+    // Calculate pin positions
     const inputPins = [];
     for (let i = 0; i < (NodeDefs[node.kind]?.inputs || 0); i++) {
       inputPins.push({ x: node.x + 8, y: node.y + 32 + i * 18 });
@@ -982,14 +997,8 @@ export class Renderer {
       outputPins.push({ x: node.x + node.w - 8, y: node.y + 32 + i * 18 });
     }
     
-    // Cache the result during panning
-    if (isPanning) {
-      this._nodePinCache.set(node.id, {
-        inputPins,
-        outputPins,
-        version: this._nodePinCacheVersion
-      });
-    }
+    // Cache the result (will be cleared at start of next frame)
+    this._nodePinCache.set(cacheKey, { inputPins, outputPins });
 
     return { inputPins, outputPins };
   }
