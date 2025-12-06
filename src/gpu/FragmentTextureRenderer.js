@@ -18,6 +18,7 @@
  */
 
 import { NodeDefs } from '../data/NodeDefs.js';
+import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 
 export class FragmentTextureRenderer {
   constructor(device) {
@@ -29,6 +30,9 @@ export class FragmentTextureRenderer {
 
     // Cache: nodeId -> shader code (for detecting changes)
     this.shaderCache = new Map();
+
+    // PERFORMANCE: Use centralized shader module cache to avoid recompiling identical WGSL
+    this.shaderModuleCache = shaderModuleCache;
 
     // PERFORMANCE: Track parameter hashes to avoid unnecessary renders
     // Only re-render fragment nodes when inputs/parameters actually change
@@ -227,11 +231,18 @@ export class FragmentTextureRenderer {
    */
   async _buildPipeline(nodeId, shaderCode, width, height) {
     try {
-      // Create shader module
-      const shaderModule = this.device.createShaderModule({
-        code: shaderCode,
-        label: `fragment-texture-shader-${nodeId}`
-      });
+      // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
+      const wgslHash = hashWGSL(shaderCode, false);
+      let shaderModule = this.shaderModuleCache.get(wgslHash);
+      
+      if (!shaderModule) {
+        // Create shader module if not cached
+        shaderModule = this.device.createShaderModule({
+          code: shaderCode,
+          label: `fragment-texture-shader-${nodeId}`
+        });
+        this.shaderModuleCache.set(wgslHash, shaderModule);
+      }
 
       // Create output texture
       const texture = this.device.createTexture({

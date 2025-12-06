@@ -1,6 +1,7 @@
 import { globalResourceRegistry } from './ResourceTracker.js';
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
+import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 
 /**
  * ComputeShaderManager
@@ -12,6 +13,9 @@ export class ComputeShaderManager {
     this.node = node; // Store node reference to access parameters
     this.computePipeline = null;
     this.bindGroup = null;
+    
+    // PERFORMANCE: Use centralized shader module cache to avoid recompiling identical WGSL
+    this.shaderModuleCache = shaderModuleCache;
 
     // Ping-pong textures for feedback
     this.storageTextureA = null;  // Write target
@@ -340,11 +344,18 @@ export class ComputeShaderManager {
    */
   async createComputePipeline(wgslSource) {
     try {
-      // Create shader module
-      const shaderModule = this.device.createShaderModule({
-        code: wgslSource,
-        label: 'Compute Shader Module'
-      });
+      // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
+      const wgslHash = hashWGSL(wgslSource, false);
+      let shaderModule = this.shaderModuleCache.get(wgslHash);
+      
+      if (!shaderModule) {
+        // Create shader module if not cached
+        shaderModule = this.device.createShaderModule({
+          code: wgslSource,
+          label: 'Compute Shader Module'
+        });
+        this.shaderModuleCache.set(wgslHash, shaderModule);
+      }
 
       // Build bind group layout entries
       // Standard layout:

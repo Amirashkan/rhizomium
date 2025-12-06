@@ -4,6 +4,7 @@
 import { PreviewThrottler } from './PreviewThrottler.js';
 import { GPUPreviewRenderer } from './GPUPreviewRenderer.js';
 import { buildWGSL } from '../codegen/glslBuilder.js';
+import { shaderModuleCache, hashWGSL } from '../gpu/ShaderModuleCache.js';
 
 export class ShaderPreviewManager {
   constructor(editor, device, format) {
@@ -23,8 +24,11 @@ export class ShaderPreviewManager {
     // Track nodes pending preview update
     this.pendingNodes = new Set();
 
-    // Cache for compiled preview shaders
+    // Cache for compiled preview shaders (nodeId -> shader code for change detection)
     this.shaderCache = new Map();
+    
+    // PERFORMANCE: Use centralized shader module cache to avoid recompiling identical WGSL
+    this.shaderModuleCache = shaderModuleCache;
   }
 
   /**
@@ -336,10 +340,18 @@ export class ShaderPreviewManager {
    */
   async createPreviewPipeline(wgsl, nodeId) {
     try {
-      const shaderModule = this.device.createShaderModule({
-        label: `preview-shader-${nodeId}`,
-        code: wgsl
-      });
+      // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
+      const wgslHash = hashWGSL(wgsl, false);
+      let shaderModule = this.shaderModuleCache.get(wgslHash);
+      
+      if (!shaderModule) {
+        // Create shader module if not cached
+        shaderModule = this.device.createShaderModule({
+          label: `preview-shader-${nodeId}`,
+          code: wgsl
+        });
+        this.shaderModuleCache.set(wgslHash, shaderModule);
+      }
 
       // Check for compilation errors
       const compilationInfo = await shaderModule.getCompilationInfo();

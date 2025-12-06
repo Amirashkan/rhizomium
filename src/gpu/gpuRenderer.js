@@ -2,6 +2,7 @@
 // WebGPU renderer with explicit aspect uniform management and safe fallbacks.
 
 import { RenderCache } from './RenderCache.js';
+import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 
 const STAGES = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
 
@@ -55,6 +56,9 @@ export class GPURenderer {
     this.msaaTextureSize = { width: 0, height: 0 }; // Track MSAA texture size for validation
     this.profiler = null; // ComputeProfiler instance
     this._currentWgslCode = null; // Store current WGSL code for pipeline recreation
+    
+    // PERFORMANCE: Shader module cache to avoid recompiling identical WGSL code
+    this.shaderCache = shaderModuleCache;
     
     // CRITICAL PERFORMANCE FIX: Cache canvas dimensions to avoid layout reads during render
     // Reading clientWidth/clientHeight forces synchronous layout recalculation, blocking the main thread
@@ -808,7 +812,21 @@ export class GPURenderer {
       // Store WGSL code for potential pipeline recreation
       this._currentWgslCode = wgslCode;
 
-      this.shaderModule = this.device.createShaderModule({ code: wgslCode });
+      // PERFORMANCE: Compute WGSL hash and check cache before creating shader module
+      // Use synchronous djb2 hash to keep setShaderSource synchronous
+      const wgslHash = hashWGSL(wgslCode, false);
+      
+      // Check cache for existing compiled module
+      let cachedModule = this.shaderCache.get(wgslHash);
+      
+      if (cachedModule) {
+        this.shaderModule = cachedModule;
+      } else {
+        // Create new shader module and store in cache
+        this.shaderModule = this.device.createShaderModule({ code: wgslCode });
+        this.shaderCache.set(wgslHash, this.shaderModule);
+      }
+
       this.resources = {};
       this._lastAspectWritten = null;
       this._warnedMissingParamBuffer = false; // Reset warning flag on new shader
