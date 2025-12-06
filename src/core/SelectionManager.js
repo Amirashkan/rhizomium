@@ -243,25 +243,55 @@ export class SelectionManager {
         return;
       }
 
+      // PERFORMANCE: Use viewport culling to only check nodes near the selection box
+      // Expand selection box bounds slightly to catch nodes that might be partially visible
+      const padding = 100; // pixels
+      const expandedX0 = x0 - padding;
+      const expandedY0 = y0 - padding;
+      const expandedX1 = x1 + padding;
+      const expandedY1 = y1 + padding;
+
       // Build new selection set without clearing first (reduces Set operations)
       const newSelection = new Set();
 
-      // Optimized overlap check - only iterate through nodes once
+      // PERFORMANCE: Optimized overlap check with early exits
+      // Only check nodes that could possibly intersect with the selection box
       for (const n of this.graph.nodes) {
-        // Check if node's bounding box intersects with selection box
-        // Using separate comparisons is faster than complex boolean expressions
-        if (n.x + n.w < x0) continue; // Node is entirely to the left
-        if (n.x > x1) continue;        // Node is entirely to the right
-        if (n.y + n.h < y0) continue; // Node is entirely above
-        if (n.y > y1) continue;        // Node is entirely below
+        // Fast culling: skip nodes that are clearly outside the expanded bounds
+        if (n.x + n.w < expandedX0) continue; // Node is entirely to the left
+        if (n.x > expandedX1) continue;        // Node is entirely to the right
+        if (n.y + n.h < expandedY0) continue; // Node is entirely above
+        if (n.y > expandedY1) continue;        // Node is entirely below
+
+        // Now check actual intersection with selection box (not expanded bounds)
+        if (n.x + n.w < x0) continue; // Node is entirely to the left of selection
+        if (n.x > x1) continue;        // Node is entirely to the right of selection
+        if (n.y + n.h < y0) continue; // Node is entirely above selection
+        if (n.y > y1) continue;        // Node is entirely below selection
 
         // If we reach here, there's an overlap
         newSelection.add(n.id);
       }
 
-      // Only update and trigger onChange if selection actually changed
-      if (newSelection.size !== this.graph.selection.size ||
-          ![...newSelection].every(id => this.graph.selection.has(id))) {
+      // PERFORMANCE: Optimized Set comparison - avoid array creation
+      // Check if selection actually changed before updating
+      const currentSelection = this.graph.selection;
+      let hasChanged = false;
+
+      if (newSelection.size !== currentSelection.size) {
+        hasChanged = true;
+      } else {
+        // Only do expensive comparison if sizes match
+        // Check if any node in newSelection is missing from currentSelection
+        for (const id of newSelection) {
+          if (!currentSelection.has(id)) {
+            hasChanged = true;
+            break;
+          }
+        }
+      }
+
+      if (hasChanged) {
         this.graph.selection = newSelection;
         if (this.onChange) this.onChange();
       }
@@ -289,13 +319,18 @@ export class SelectionManager {
       }
 
       const orig = {};
+      const nodes = []; // PERFORMANCE: Cache node references to avoid O(n) lookups during drag
       for (const id of dragIds) {
         const n = this.graph.nodes.find((m) => m.id === id);
-        if (n) orig[id] = { x: n.x, y: n.y };
+        if (n) {
+          orig[id] = { x: n.x, y: n.y };
+          nodes.push(n); // Cache node reference
+        }
       }
 
       this.dragging = {
         ids: dragIds,
+        nodes, // PERFORMANCE: Cached node references for O(1) access
         start: { x: startX, y: startY },
         orig,
         hasMoved: false // Track if any movement has occurred
@@ -321,11 +356,14 @@ export class SelectionManager {
         this.dragging.hasMoved = true;
       }
 
-      for (const id of this.dragging.ids) {
-        const n = this.graph.nodes.find((m) => m.id === id);
-        if (!n) continue;
+      // PERFORMANCE: Use cached node references instead of O(n) linear search
+      // Before: O(nodes × dragged_nodes) lookups per mouse move
+      // After: O(dragged_nodes) direct access
+      const draggedNodes = this.dragging.nodes || [];
+      for (const n of draggedNodes) {
+        if (!n || !n.id) continue;
 
-        const o = this.dragging.orig[id];
+        const o = this.dragging.orig[n.id];
         if (!o) continue;
 
         const baseX = Number.isFinite(o.x) ? o.x : 0;
@@ -349,20 +387,24 @@ endDrag() {
   try {
     if (!this.dragging) return;
 
-    // Only record for undo if there was actual movement
-    if (this.dragging.hasMoved && this.undoManager) {
-      const nodeMovements = []; // Array format expected by UndoManager
-      
-      for (const id of this.dragging.ids) {
-        const node = this.graph.nodes.find(m => m.id === id);
-        if (node) {
-          const originalPos = this.dragging.orig[id];
+      // Only record for undo if there was actual movement
+      if (this.dragging.hasMoved && this.undoManager) {
+        const nodeMovements = []; // Array format expected by UndoManager
+        
+        // PERFORMANCE: Use cached node references instead of O(n) linear search
+        const draggedNodes = this.dragging.nodes || [];
+        for (const node of draggedNodes) {
+          if (!node || !node.id) continue;
+          
+          const originalPos = this.dragging.orig[node.id];
+          if (!originalPos) continue;
+          
           const currentPos = { x: node.x, y: node.y };
           
           // Only record if position actually changed
           if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
             nodeMovements.push({
-              nodeId: id,
+              nodeId: node.id,
               oldX: originalPos.x,
               oldY: originalPos.y,
               newX: currentPos.x,

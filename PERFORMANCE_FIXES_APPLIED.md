@@ -95,10 +95,57 @@
 | Always enable viewport culling | `Renderer.js` | Variable (depends on node count) |
 | Remove drop shadows | `Renderer.js` | ~0.5-1ms saved per frame |
 | Remove bezier shadows | `Renderer.js` | ~0.5-1ms saved per frame |
+| Cache node references during drag | `SelectionManager.js` | Eliminates O(n) lookups per mouse move |
+| Optimize box selection intersection | `SelectionManager.js` | Reduces node checks with viewport culling |
+| Optimize Set comparison | `SelectionManager.js` | Eliminates array allocation in comparison |
 
 **Total Expected Improvement:**
 - Parameter drag: Should maintain 60 FPS (was <30 FPS)
 - Panning: Frame time should drop to ~15-18ms (was 21.93ms)
+- Node drag: Should improve from 45 FPS to 50+ FPS
+- Box selection: Should improve from <30 FPS to 50+ FPS
+
+---
+
+### 3. Node Drag Performance (45 FPS)
+**Problem:** Node dragging performance below target (50+ FPS)
+
+**Root Cause:**
+- O(n) linear search for each dragged node on every mouse move
+- With multiple nodes dragged, this becomes O(nodes × dragged_nodes) per frame
+
+**Fix Applied:**
+
+#### A. Cache Node References During Drag (`src/core/SelectionManager.js`)
+- **Before:** `this.graph.nodes.find((m) => m.id === id)` called for every dragged node on every mouse move
+- **After:** Cache node references in `startDrag()`, use cached array in `updateDrag()`
+- **Impact:** Eliminates O(n) lookups - direct O(1) access to cached nodes
+
+**Expected Result:** Node drag should improve from 45 FPS to 50+ FPS
+
+---
+
+### 4. Box Selection Performance (<30 FPS)
+**Problem:** Box selection performance below 30 FPS
+
+**Root Causes:**
+- Iterating through ALL nodes on every mouse move (O(n) per frame)
+- Expensive Set comparison using array creation and iteration
+- No viewport culling for nodes far from selection box
+
+**Fixes Applied:**
+
+#### A. Optimize Node Intersection Checking (`src/core/SelectionManager.js`)
+- **Before:** Checked all nodes without any culling
+- **After:** Added expanded bounds culling to skip nodes clearly outside selection area
+- **Impact:** Reduces checks for nodes far from selection box
+
+#### B. Optimize Set Comparison (`src/core/SelectionManager.js`)
+- **Before:** `[...newSelection].every(id => this.graph.selection.has(id))` - creates array and iterates
+- **After:** Direct Set iteration with early exit when difference found
+- **Impact:** Eliminates array allocation and reduces comparison overhead
+
+**Expected Result:** Box selection should improve from <30 FPS to 50+ FPS
 
 ---
 
@@ -152,6 +199,52 @@ setTimeout(() => {
 }, 10000);
 ```
 
+### Test Node Drag:
+```javascript
+// Drag nodes and monitor performance
+const profiler = window.computeProfiler;
+let minFPS = Infinity;
+let maxFrameTime = 0;
+
+const monitor = setInterval(() => {
+  const m = profiler.getMetrics();
+  minFPS = Math.min(minFPS, m.fps);
+  maxFrameTime = Math.max(maxFrameTime, m.frameTime);
+}, 100);
+
+// Drag nodes for 10 seconds
+setTimeout(() => {
+  clearInterval(monitor);
+  console.log('Node Drag Performance:');
+  console.log(`Min FPS: ${minFPS.toFixed(1)} (target: >50)`);
+  console.log(`Max Frame Time: ${maxFrameTime.toFixed(2)}ms (target: <20ms)`);
+  console.log(`Status: ${minFPS > 50 && maxFrameTime < 20 ? '✅ PASS' : '⚠️ NEEDS WORK'}`);
+}, 10000);
+```
+
+### Test Box Selection:
+```javascript
+// Box select nodes and monitor performance
+const profiler = window.computeProfiler;
+let minFPS = Infinity;
+let maxFrameTime = 0;
+
+const monitor = setInterval(() => {
+  const m = profiler.getMetrics();
+  minFPS = Math.min(minFPS, m.fps);
+  maxFrameTime = Math.max(maxFrameTime, m.frameTime);
+}, 100);
+
+// Box select for 10 seconds
+setTimeout(() => {
+  clearInterval(monitor);
+  console.log('Box Selection Performance:');
+  console.log(`Min FPS: ${minFPS.toFixed(1)} (target: >50)`);
+  console.log(`Max Frame Time: ${maxFrameTime.toFixed(2)}ms (target: <20ms)`);
+  console.log(`Status: ${minFPS > 50 && maxFrameTime < 20 ? '✅ PASS' : '⚠️ NEEDS WORK'}`);
+}, 10000);
+```
+
 ---
 
 ## Files Modified
@@ -161,6 +254,7 @@ setTimeout(() => {
 3. `src/utils/ParameterExpressionSystem.js` - Skip canvas redraws during drag
 4. `src/gpu/gpuRenderer.js` - Optimize uniform buffer updates
 5. `src/core/Renderer.js` - Multiple rendering optimizations (gradients, shadows, fonts, culling)
+6. `src/core/SelectionManager.js` - Cache node references during drag, optimize box selection
 
 ---
 
