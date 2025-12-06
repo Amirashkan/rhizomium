@@ -48,7 +48,8 @@ export class GPURenderer {
     });
 
     this.pipeline = null;
-    this.bindGroups = [];
+    this.bindGroups = []; // Sparse array indexed by group index (not layout index)
+    this.bindGroupIndices = []; // Array of actual group indices that have bind groups
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
@@ -96,6 +97,7 @@ export class GPURenderer {
   clear() {
     this.pipeline = null;
     this.bindGroups = [];
+    this.bindGroupIndices = [];
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
@@ -1001,10 +1003,11 @@ export class GPURenderer {
     
     // Get sorted group indices
     const groupIndices = Array.from(resourcesByGroup.keys()).sort((a, b) => a - b);
-    // CRITICAL FIX: Use sparse array to preserve layout index correlation
-    // Don't filter undefined entries - they represent failed bind group creation
-    // The array indices must match the pipeline's layout indices
+    // CRITICAL FIX: Store bind groups at their actual group index positions (not layout index)
+    // WebGPU's setBindGroup requires the actual @group() value from the shader, not a compact index
+    // Use sparse array indexed by group index, and track which group indices exist
     const newBindGroups = [];
+    const newBindGroupIndices = [];
     
     // Build bind groups for each group index (only for groups that have resources)
     for (const groupIndex of groupIndices) {
@@ -1030,26 +1033,28 @@ export class GPURenderer {
 
       try {
         // Find the layout index for this group
-        // The layout index corresponds to the position in the pipeline's bind group layouts
-        // We need to find which layout index corresponds to this group index
+        // The layout index corresponds to the position in the pipeline's bind group layouts array
+        // This is used to get the correct layout from the pipeline
         const layoutIndex = groupIndices.indexOf(groupIndex);
         
-        newBindGroups[layoutIndex] = this.device.createBindGroup({
+        // CRITICAL FIX: Store bind group at actual group index, not layout index
+        // This ensures setBindGroup(groupIndex, ...) works correctly
+        newBindGroups[groupIndex] = this.device.createBindGroup({
           layout: this.pipeline.getBindGroupLayout(layoutIndex),
           entries,
         });
+        newBindGroupIndices.push(groupIndex);
       } catch (err) {
         console.error(`[GPURenderer] Failed to create bind group ${groupIndex} (layout ${groupIndices.indexOf(groupIndex)}):`, err);
-        // CRITICAL: Leave undefined at this index to preserve layout correlation
-        // Don't create a bind group - the entry will remain undefined
-        // This ensures array indices match pipeline layout indices
+        // Skip failed bind groups - they won't be added to newBindGroupIndices
       }
     }
     
-    // CRITICAL FIX: Preserve sparse array structure - don't filter undefined entries
-    // Array indices must match pipeline layout indices for correct resource binding
-    // Undefined entries represent failed bind group creation and will be skipped during rendering
+    // CRITICAL FIX: Store bind groups indexed by actual group index (sparse array)
+    // Also store the list of group indices for efficient iteration during rendering
+    // This ensures setBindGroup(groupIndex, ...) uses the correct group index from the shader
     this.bindGroups = newBindGroups;
+    this.bindGroupIndices = newBindGroupIndices;
     this._lastResourceHash = resourceHash;
     
     // Cache the bind groups (limit cache size to prevent memory leaks)
@@ -1278,11 +1283,13 @@ export class GPURenderer {
     }
 
     pass.setPipeline(this.pipeline);
-    // CRITICAL FIX: Preserve layout index correlation - skip undefined entries
-    // Array indices must match pipeline layout indices, but skip failed bind groups
-    for (let i = 0; i < this.bindGroups.length; i++) {
-      if (this.bindGroups[i] !== undefined) {
-        pass.setBindGroup(i, this.bindGroups[i]);
+    // CRITICAL FIX: Use actual group indices from shader, not array indices
+    // WebGPU's setBindGroup requires the @group() value from the shader, not a compact index
+    // Iterate over bindGroupIndices to get the actual group index values
+    for (const groupIndex of this.bindGroupIndices) {
+      const bindGroup = this.bindGroups[groupIndex];
+      if (bindGroup !== undefined) {
+        pass.setBindGroup(groupIndex, bindGroup);
       }
     }
 
@@ -1396,11 +1403,13 @@ export class GPURenderer {
     });
 
     pass.setPipeline(this.pipeline);
-    // CRITICAL FIX: Preserve layout index correlation - skip undefined entries
-    // Array indices must match pipeline layout indices, but skip failed bind groups
-    for (let i = 0; i < this.bindGroups.length; i++) {
-      if (this.bindGroups[i] !== undefined) {
-        pass.setBindGroup(i, this.bindGroups[i]);
+    // CRITICAL FIX: Use actual group indices from shader, not array indices
+    // WebGPU's setBindGroup requires the @group() value from the shader, not a compact index
+    // Iterate over bindGroupIndices to get the actual group index values
+    for (const groupIndex of this.bindGroupIndices) {
+      const bindGroup = this.bindGroups[groupIndex];
+      if (bindGroup !== undefined) {
+        pass.setBindGroup(groupIndex, bindGroup);
       }
     }
     pass.draw(3, 1, 0, 0);
