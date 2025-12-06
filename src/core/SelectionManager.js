@@ -381,42 +381,38 @@ export class SelectionManager {
     }
   }
 
-// Replace the endDrag() method in your SelectionManager with this fixed version:
-
 endDrag() {
   try {
     if (!this.dragging) return;
 
-      // Only record for undo if there was actual movement
-      if (this.dragging.hasMoved && this.undoManager) {
-        const nodeMovements = []; // Array format expected by UndoManager
+    // Only record for undo if there was actual movement
+    if (this.dragging.hasMoved && this.undoManager) {
+      const nodeMovements = []; // Array format expected by UndoManager
+      
+      // PERFORMANCE: Use cached node references instead of O(n) linear search
+      const draggedNodes = this.dragging.nodes || [];
+      for (const node of draggedNodes) {
+        if (!node || !node.id) continue;
         
-        // PERFORMANCE: Use cached node references instead of O(n) linear search
-        const draggedNodes = this.dragging.nodes || [];
-        for (const node of draggedNodes) {
-          if (!node || !node.id) continue;
-          
-          const originalPos = this.dragging.orig[node.id];
-          if (!originalPos) continue;
-          
-          const currentPos = { x: node.x, y: node.y };
-          
-          // Only record if position actually changed
-          if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
-            nodeMovements.push({
-              nodeId: node.id,
-              oldX: originalPos.x,
-              oldY: originalPos.y,
-              newX: currentPos.x,
-              newY: currentPos.y
-            });
-          }
+        const originalPos = this.dragging.orig[node.id];
+        if (!originalPos) continue;
+        
+        const currentPos = { x: node.x, y: node.y };
+        
+        // Only record if position actually changed
+        if (originalPos.x !== currentPos.x || originalPos.y !== currentPos.y) {
+          nodeMovements.push({
+            nodeId: node.id,
+            oldX: originalPos.x,
+            oldY: originalPos.y,
+            newX: currentPos.x,
+            newY: currentPos.y
+          });
         }
       }
 
       // Record for undo if any nodes actually moved
       if (nodeMovements.length > 0) {
-
         this.undoManager.recordNodeMovement(nodeMovements);
       }
     }
