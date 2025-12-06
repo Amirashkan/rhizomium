@@ -1052,18 +1052,14 @@ export class Renderer {
     const ctx = this.ctx;
     const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
 
-    // Add subtle shadow to wires
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
-    ctx.shadowBlur = 3;
-    ctx.shadowOffsetY = 1;
+    // PERFORMANCE: Removed expensive shadow operations
+    // Shadows require GPU compositing and are very expensive
+    // The visual difference is minimal but the performance cost is significant
 
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.bezierCurveTo(x1 + dx, y1, x2 - dx, y2, x2, y2);
     ctx.stroke();
-
-    ctx.restore();
   }
 
   _drawPin(x, y, radius) {

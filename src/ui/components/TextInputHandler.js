@@ -445,16 +445,11 @@ input.addEventListener("input", (e) => {
             window.updateUniformsOnly(node.id, param.name, currentDragValue);
           }
 
-          // PERFORMANCE FIX: Only mark dirty, don't call draw() directly
-          // The render loop will handle drawing at 60fps, preventing excessive redraws
-          // Mouse move events can fire 100+ times/sec, but we only need 60fps rendering
-          if (window.editor) {
-            if (window.editor.markDirty) {
-              window.editor.markDirty('parameter-drag');
-            }
-            // Removed direct draw() call - let render loop handle it at 60fps
-            // This prevents frame drops from 100+ draw() calls per second
-          }
+          // PERFORMANCE FIX: Don't mark canvas dirty during parameter drag
+          // Canvas doesn't need to redraw - only GPU preview needs to update
+          // Canvas redraws are expensive and cause frame drops
+          // The GPU preview shows parameter changes in real-time via uniforms
+          // Canvas will redraw on mouseup when we call updateNodeParameter
 
           e.preventDefault();
           e.stopPropagation(); // Prevent EventHandler from processing this event

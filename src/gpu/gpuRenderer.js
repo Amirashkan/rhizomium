@@ -669,14 +669,20 @@ export class GPURenderer {
 
     // PERFORMANCE: Reuse Float32Array buffer to avoid allocation every frame
     // This reduces GC pressure and frame time variance
-    const values = Array.from(uniformManager.uniformValues.values());
+    const uniformCount = uniformManager.uniformValues.size;
     
     // Reuse buffer if size matches, otherwise create new one
-    if (!this._paramUniformBuffer || this._paramUniformBuffer.length !== values.length) {
+    if (!this._paramUniformBuffer || this._paramUniformBuffer.length !== uniformCount) {
+      // Only create array when buffer size changes
+      const values = Array.from(uniformManager.uniformValues.values());
       this._paramUniformBuffer = new Float32Array(values);
     } else {
-      // Copy values into existing buffer
-      this._paramUniformBuffer.set(values);
+      // PERFORMANCE: Directly copy values into existing buffer without creating intermediate array
+      // This avoids Array.from() overhead on every update
+      let i = 0;
+      for (const value of uniformManager.uniformValues.values()) {
+        this._paramUniformBuffer[i++] = value;
+      }
     }
 
     this.device.queue.writeBuffer(target.buffer, 0, this._paramUniformBuffer.buffer, 0, this._paramUniformBuffer.byteLength);
