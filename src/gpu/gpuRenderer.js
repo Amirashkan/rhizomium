@@ -64,6 +64,11 @@ export class GPURenderer {
     this._bindGroupCache = new Map(); // Map<resourceHash, bindGroups[]>
     this._lastResourceHash = null; // Hash of all resources for current bind groups
     
+    // CRITICAL FIX: Track texture view IDs for unique hash generation
+    // Texture views are object references that change, so we need unique IDs to distinguish them
+    this._textureViewIds = new WeakMap(); // Map<GPUTextureView, string>
+    this._textureViewIdCounter = 0; // Counter for generating unique texture view IDs
+    
     // CRITICAL PERFORMANCE FIX: Cache canvas dimensions to avoid layout reads during render
     // Reading clientWidth/clientHeight forces synchronous layout recalculation, blocking the main thread
     // This causes FPS drops during panning. Cache is updated only on explicit resize events.
@@ -898,6 +903,25 @@ export class GPURenderer {
   }
 
   /**
+   * Get or create a unique identifier for a texture view
+   * @param {GPUTextureView} textureView - Texture view
+   * @returns {string} - Unique texture view identifier
+   * @private
+   */
+  _getTextureViewId(textureView) {
+    if (!textureView) {
+      return 'null';
+    }
+    
+    let viewId = this._textureViewIds.get(textureView);
+    if (!viewId) {
+      viewId = `texview_${this._textureViewIdCounter++}`;
+      this._textureViewIds.set(textureView, viewId);
+    }
+    return viewId;
+  }
+
+  /**
    * Generate a hash of all resources in bind groups for caching
    * This allows us to reuse bind groups when resources haven't changed
    * @private
@@ -923,11 +947,11 @@ export class GPURenderer {
         // Samplers are stable objects, but we track their existence
         parts.push(`samp:1`);
       } else if (resource.textureView) {
-        // Texture views are the actual references that change
-        // Use a simple identifier - texture views are object references
-        // We can't hash the object itself, but we track if it changed via reference comparison
-        // The textureResourceHashes map tracks actual changes, this is just for quick comparison
-        parts.push(`tex:1`);
+        // CRITICAL FIX: Use unique texture view ID instead of generic "tex:1"
+        // Different texture views must generate different hashes to prevent incorrect cache hits
+        // This ensures bind groups are rebuilt when compute shader outputs change
+        const viewId = this._getTextureViewId(resource.textureView);
+        parts.push(`tex:${viewId}`);
       }
     }
     
