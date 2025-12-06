@@ -445,14 +445,15 @@ input.addEventListener("input", (e) => {
             window.updateUniformsOnly(node.id, param.name, currentDragValue);
           }
 
-          // Mark dirty and redraw canvas to update labels in real-time during drag
+          // PERFORMANCE FIX: Only mark dirty, don't call draw() directly
+          // The render loop will handle drawing at 60fps, preventing excessive redraws
+          // Mouse move events can fire 100+ times/sec, but we only need 60fps rendering
           if (window.editor) {
             if (window.editor.markDirty) {
               window.editor.markDirty('parameter-drag');
             }
-            if (window.editor.draw) {
-              window.editor.draw();
-            }
+            // Removed direct draw() call - let render loop handle it at 60fps
+            // This prevents frame drops from 100+ draw() calls per second
           }
 
           e.preventDefault();

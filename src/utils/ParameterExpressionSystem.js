@@ -1206,14 +1206,15 @@ isIncomplete(value) {
             window.updateUniformsOnly(node.id, param.name, input.value);
           }
 
-          // Mark dirty and redraw canvas to update labels in real-time during drag
+          // PERFORMANCE FIX: Only mark dirty, don't call draw() directly
+          // The render loop will handle drawing at 60fps, preventing excessive redraws
+          // Mouse move events can fire 100+ times/sec, but we only need 60fps rendering
           if (window.editor) {
             if (window.editor.markDirty) {
               window.editor.markDirty('parameter-drag');
             }
-            if (window.editor.draw) {
-              window.editor.draw();
-            }
+            // Removed direct draw() call - let render loop handle it at 60fps
+            // This prevents frame drops from 100+ draw() calls per second
           }
 
           e.preventDefault();
@@ -1565,18 +1566,13 @@ updateNodePreview(node) {
       window.editor.previewIntegration.generateNodePreview(node);
     }
     
-    // DEBOUNCE editor.draw() - prevent spam during drag
-    if (this._drawDebounceTimeout) {
-      clearTimeout(this._drawDebounceTimeout);
+    // PERFORMANCE FIX: Only mark dirty, don't call draw() directly
+    // The render loop will handle drawing at 60fps automatically
+    // Debouncing to 50ms still causes unnecessary draws - let render loop handle it
+    if (window.editor?.markDirty) {
+      window.editor.markDirty('expression-preview-update');
     }
-    
-    this._drawDebounceTimeout = setTimeout(() => {
-      if (window.editor?.draw) {
-        if (window.editor.markDirty) window.editor.markDirty('expression-preview-update');
-        window.editor.draw();
-
-      }
-    }, 50); // Batch draws that happen within 50ms
+    // Removed debounced draw() call - render loop handles drawing at 60fps
     
   } catch (error) {
 
