@@ -232,8 +232,9 @@ export class FragmentTextureRenderer {
   async _buildPipeline(nodeId, shaderCode, width, height) {
     try {
       // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
+      // CRITICAL FIX: Cache is now device-specific - pass device to get/set
       const wgslHash = hashWGSL(shaderCode, false);
-      let shaderModule = this.shaderModuleCache.get(wgslHash);
+      let shaderModule = this.shaderModuleCache.get(this.device, wgslHash);
       
       if (!shaderModule) {
         // Create shader module if not cached
@@ -241,7 +242,7 @@ export class FragmentTextureRenderer {
           code: shaderCode,
           label: `fragment-texture-shader-${nodeId}`
         });
-        this.shaderModuleCache.set(wgslHash, shaderModule);
+        this.shaderModuleCache.set(this.device, wgslHash, shaderModule);
       }
 
       // Create output texture

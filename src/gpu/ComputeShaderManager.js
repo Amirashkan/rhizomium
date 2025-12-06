@@ -345,8 +345,9 @@ export class ComputeShaderManager {
   async createComputePipeline(wgslSource) {
     try {
       // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
+      // CRITICAL FIX: Cache is now device-specific - pass device to get/set
       const wgslHash = hashWGSL(wgslSource, false);
-      let shaderModule = this.shaderModuleCache.get(wgslHash);
+      let shaderModule = this.shaderModuleCache.get(this.device, wgslHash);
       
       if (!shaderModule) {
         // Create shader module if not cached
@@ -354,7 +355,7 @@ export class ComputeShaderManager {
           code: wgslSource,
           label: 'Compute Shader Module'
         });
-        this.shaderModuleCache.set(wgslHash, shaderModule);
+        this.shaderModuleCache.set(this.device, wgslHash, shaderModule);
       }
 
       // Build bind group layout entries

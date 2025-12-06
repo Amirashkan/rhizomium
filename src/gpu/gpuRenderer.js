@@ -812,15 +812,16 @@ export class GPURenderer {
       // Use synchronous djb2 hash to keep setShaderSource synchronous
       const wgslHash = hashWGSL(wgslCode, false);
       
+      // CRITICAL FIX: Cache is now device-specific - pass device to get/set
       // Check cache for existing compiled module
-      let cachedModule = this.shaderCache.get(wgslHash);
+      let cachedModule = this.shaderCache.get(this.device, wgslHash);
       
       if (cachedModule) {
         this.shaderModule = cachedModule;
       } else {
         // Create new shader module and store in cache
         this.shaderModule = this.device.createShaderModule({ code: wgslCode });
-        this.shaderCache.set(wgslHash, this.shaderModule);
+        this.shaderCache.set(this.device, wgslHash, this.shaderModule);
       }
 
       this.resources = {};

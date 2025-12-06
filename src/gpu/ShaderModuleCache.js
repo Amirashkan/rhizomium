@@ -53,15 +53,30 @@ export function hashWGSL(wgslCode, useCryptographic = false) {
  * GPU Shader Module Cache
  * Caches compiled GPUShaderModule objects to avoid recompiling identical WGSL code
  * 
- * Map structure: wgslHash -> { module: GPUShaderModule, lastUsed: timestamp, useCount: number }
+ * CRITICAL: GPUShaderModule objects are device-specific and cannot be reused across devices.
+ * Cache keys include both device identity and WGSL hash to ensure correct device association.
+ * 
+ * Map structure: deviceId:wgslHash -> { module: GPUShaderModule, lastUsed: timestamp, useCount: number }
  */
 export class ShaderModuleCache {
   constructor() {
     /**
-     * Cache map: wgslHash -> { module, lastUsed, useCount }
+     * Cache map: deviceId:wgslHash -> { module, lastUsed, useCount }
      * @type {Map<string, {module: GPUShaderModule, lastUsed: number, useCount: number}>}
      */
     this.cache = new Map();
+    
+    /**
+     * Map to assign unique IDs to GPU devices
+     * Uses WeakMap so devices can be garbage collected
+     * @type {WeakMap<GPUDevice, string>}
+     */
+    this._deviceIds = new WeakMap();
+    
+    /**
+     * Counter for generating unique device IDs
+     */
+    this._deviceIdCounter = 0;
     
     /**
      * Total number of cache hits
@@ -80,13 +95,52 @@ export class ShaderModuleCache {
   }
 
   /**
-   * Get a cached shader module by hash
+   * Get or create a unique identifier for a GPU device
+   * @param {GPUDevice} device - WebGPU device
+   * @returns {string} - Unique device identifier
+   * @private
+   */
+  _getDeviceId(device) {
+    if (!device) {
+      throw new Error('[ShaderModuleCache] Device is required');
+    }
+    
+    let deviceId = this._deviceIds.get(device);
+    if (!deviceId) {
+      deviceId = `device_${this._deviceIdCounter++}`;
+      this._deviceIds.set(device, deviceId);
+    }
+    return deviceId;
+  }
+
+  /**
+   * Create a composite cache key from device and WGSL hash
+   * @param {GPUDevice} device - WebGPU device
+   * @param {string} hash - WGSL hash
+   * @returns {string} - Composite cache key
+   * @private
+   */
+  _makeCacheKey(device, hash) {
+    const deviceId = this._getDeviceId(device);
+    return `${deviceId}:${hash}`;
+  }
+
+  /**
+   * Get a cached shader module by device and hash
    * Updates lastUsed timestamp and increments useCount
+   * @param {GPUDevice} device - WebGPU device (required for device-specific lookup)
    * @param {string} hash - WGSL hash
    * @returns {GPUShaderModule|null} - Cached module or null if not found
    */
-  get(hash) {
-    const entry = this.cache.get(hash);
+  get(device, hash) {
+    if (!device) {
+      console.warn('[ShaderModuleCache] Device is required for cache lookup');
+      this.misses++;
+      return null;
+    }
+    
+    const key = this._makeCacheKey(device, hash);
+    const entry = this.cache.get(key);
     if (entry) {
       entry.lastUsed = performance.now();
       entry.useCount++;
@@ -99,17 +153,19 @@ export class ShaderModuleCache {
 
   /**
    * Store a shader module in the cache
+   * @param {GPUDevice} device - WebGPU device (required for device-specific storage)
    * @param {string} hash - WGSL hash
    * @param {GPUShaderModule} module - Compiled GPUShaderModule
    */
-  set(hash, module) {
-    if (!hash || !module) {
-      console.warn('[ShaderModuleCache] Invalid hash or module provided');
+  set(device, hash, module) {
+    if (!device || !hash || !module) {
+      console.warn('[ShaderModuleCache] Device, hash, and module are required');
       return;
     }
 
+    const key = this._makeCacheKey(device, hash);
     const now = performance.now();
-    this.cache.set(hash, {
+    this.cache.set(key, {
       module,
       lastUsed: now,
       useCount: 1
@@ -153,11 +209,16 @@ export class ShaderModuleCache {
 
   /**
    * Remove a specific entry from the cache
+   * @param {GPUDevice} device - WebGPU device
    * @param {string} hash - WGSL hash to remove
    * @returns {boolean} - True if entry was removed, false if not found
    */
-  delete(hash) {
-    return this.cache.delete(hash);
+  delete(device, hash) {
+    if (!device) {
+      return false;
+    }
+    const key = this._makeCacheKey(device, hash);
+    return this.cache.delete(key);
   }
 
   /**
@@ -175,8 +236,8 @@ export class ShaderModuleCache {
     // Hash the WGSL code (may be sync or async depending on useCryptographicHash)
     const hash = await hashWGSL(wgslCode, this.useCryptographicHash);
     
-    // Check cache first
-    const cached = this.get(hash);
+    // Check cache first (now device-specific)
+    const cached = this.get(device, hash);
     if (cached) {
       return cached;
     }
@@ -184,8 +245,8 @@ export class ShaderModuleCache {
     // Create new shader module
     const module = device.createShaderModule({ code: wgslCode });
     
-    // Store in cache
-    this.set(hash, module);
+    // Store in cache (now device-specific)
+    this.set(device, hash, module);
     
     return module;
   }
