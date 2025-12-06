@@ -62,7 +62,8 @@ export class GPURenderer {
     this.shaderCache = shaderModuleCache;
     
     // PERFORMANCE: Bind group cache - cache bind groups by resource hash to avoid unnecessary rebuilds
-    this._bindGroupCache = new Map(); // Map<resourceHash, bindGroups[]>
+    // Cache stores both bindGroups and bindGroupIndices for complete restoration
+    this._bindGroupCache = new Map(); // Map<resourceHash, {bindGroups: GPUBindGroup[], bindGroupIndices: number[]}>
     this._lastResourceHash = null; // Hash of all resources for current bind groups
     
     // CRITICAL FIX: Track texture view IDs for unique hash generation
@@ -980,10 +981,24 @@ export class GPURenderer {
     // Generate resource hash to check if we can reuse cached bind groups
     const resourceHash = this._generateResourceHash();
     
-    // Check cache first (unless forced rebuild)
-    if (!forceRebuild && resourceHash === this._lastResourceHash && this.bindGroups.length > 0) {
-      // Resources haven't changed, reuse cached bind groups
-      return false;
+    // CRITICAL FIX: Check cache first before rebuilding
+    // The cache stores both bindGroups and bindGroupIndices for complete restoration
+    if (!forceRebuild) {
+      // First check if we have a cache entry for this resource hash
+      const cached = this._bindGroupCache.get(resourceHash);
+      if (cached) {
+        // Restore both bind groups and indices from cache
+        this.bindGroups = cached.bindGroups;
+        this.bindGroupIndices = cached.bindGroupIndices;
+        this._lastResourceHash = resourceHash;
+        return false; // Cache hit - no rebuild needed
+      }
+      
+      // Fallback: if hash matches and bind groups exist, reuse them (backward compatibility)
+      if (resourceHash === this._lastResourceHash && this.bindGroups.length > 0) {
+        // Resources haven't changed, reuse existing bind groups
+        return false;
+      }
     }
 
     // Resources changed or cache miss - rebuild bind groups
@@ -1057,13 +1072,18 @@ export class GPURenderer {
     this.bindGroupIndices = newBindGroupIndices;
     this._lastResourceHash = resourceHash;
     
-    // Cache the bind groups (limit cache size to prevent memory leaks)
+    // CRITICAL FIX: Cache both bind groups and indices for complete restoration
+    // Limit cache size to prevent memory leaks
     if (this._bindGroupCache.size > 10) {
       // Remove oldest entry (simple FIFO)
       const firstKey = this._bindGroupCache.keys().next().value;
       this._bindGroupCache.delete(firstKey);
     }
-    this._bindGroupCache.set(resourceHash, this.bindGroups);
+    // Store both bindGroups and bindGroupIndices in cache for complete restoration
+    this._bindGroupCache.set(resourceHash, {
+      bindGroups: this.bindGroups,
+      bindGroupIndices: this.bindGroupIndices
+    });
     
     return true;
   }
