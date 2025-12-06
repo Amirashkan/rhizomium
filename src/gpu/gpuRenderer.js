@@ -976,6 +976,9 @@ export class GPURenderer {
     
     // Get sorted group indices
     const groupIndices = Array.from(resourcesByGroup.keys()).sort((a, b) => a - b);
+    // CRITICAL FIX: Use sparse array to preserve layout index correlation
+    // Don't filter undefined entries - they represent failed bind group creation
+    // The array indices must match the pipeline's layout indices
     const newBindGroups = [];
     
     // Build bind groups for each group index (only for groups that have resources)
@@ -1012,12 +1015,16 @@ export class GPURenderer {
         });
       } catch (err) {
         console.error(`[GPURenderer] Failed to create bind group ${groupIndex} (layout ${groupIndices.indexOf(groupIndex)}):`, err);
-        // Continue with other groups
+        // CRITICAL: Leave undefined at this index to preserve layout correlation
+        // Don't create a bind group - the entry will remain undefined
+        // This ensures array indices match pipeline layout indices
       }
     }
     
-    // Filter out undefined entries (in case of errors)
-    this.bindGroups = newBindGroups.filter(bg => bg !== undefined);
+    // CRITICAL FIX: Preserve sparse array structure - don't filter undefined entries
+    // Array indices must match pipeline layout indices for correct resource binding
+    // Undefined entries represent failed bind group creation and will be skipped during rendering
+    this.bindGroups = newBindGroups;
     this._lastResourceHash = resourceHash;
     
     // Cache the bind groups (limit cache size to prevent memory leaks)
@@ -1246,8 +1253,12 @@ export class GPURenderer {
     }
 
     pass.setPipeline(this.pipeline);
+    // CRITICAL FIX: Preserve layout index correlation - skip undefined entries
+    // Array indices must match pipeline layout indices, but skip failed bind groups
     for (let i = 0; i < this.bindGroups.length; i++) {
-      pass.setBindGroup(i, this.bindGroups[i]);
+      if (this.bindGroups[i] !== undefined) {
+        pass.setBindGroup(i, this.bindGroups[i]);
+      }
     }
 
     pass.draw(3, 1, 0, 0);
@@ -1360,8 +1371,12 @@ export class GPURenderer {
     });
 
     pass.setPipeline(this.pipeline);
+    // CRITICAL FIX: Preserve layout index correlation - skip undefined entries
+    // Array indices must match pipeline layout indices, but skip failed bind groups
     for (let i = 0; i < this.bindGroups.length; i++) {
-      pass.setBindGroup(i, this.bindGroups[i]);
+      if (this.bindGroups[i] !== undefined) {
+        pass.setBindGroup(i, this.bindGroups[i]);
+      }
     }
     pass.draw(3, 1, 0, 0);
     pass.end();
