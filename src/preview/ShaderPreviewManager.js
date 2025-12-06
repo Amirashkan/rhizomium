@@ -341,8 +341,9 @@ export class ShaderPreviewManager {
   async createPreviewPipeline(wgsl, nodeId) {
     try {
       // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
+      // CRITICAL FIX: Cache is now device-specific - pass device to get/set
       const wgslHash = hashWGSL(wgsl, false);
-      let shaderModule = this.shaderModuleCache.get(wgslHash);
+      let shaderModule = this.shaderModuleCache.get(this.device, wgslHash);
       
       if (!shaderModule) {
         // Create shader module if not cached
@@ -350,7 +351,7 @@ export class ShaderPreviewManager {
           label: `preview-shader-${nodeId}`,
           code: wgsl
         });
-        this.shaderModuleCache.set(wgslHash, shaderModule);
+        this.shaderModuleCache.set(this.device, wgslHash, shaderModule);
       }
 
       // Check for compilation errors
