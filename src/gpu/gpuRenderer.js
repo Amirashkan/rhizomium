@@ -1071,8 +1071,10 @@ export class GPURenderer {
         
         if (previousTextureView !== currentTextureView) {
           texturesChanged = true;
-          this._computeTextureHashes.set(resourceKey, currentTextureView);
         }
+        
+        // Always update hash map with current texture view for next frame comparison
+        this._computeTextureHashes.set(resourceKey, currentTextureView);
       }
     }
 
