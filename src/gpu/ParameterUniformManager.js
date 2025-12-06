@@ -61,17 +61,18 @@ analyzeNode(node) {
         numericValue = parseFloat(value) || 0;
       }
 
-      // DEBUG: Log colorize parameter for ComputeNoise nodes
-      if (node.kind === 'ComputeNoise' && paramName === 'colorize') {
-        console.log('[ParameterUniformManager] ComputeNoise colorize:', {
-          nodeId: node.id,
-          originalValue: paramValue,
-          processedValue: value,
-          typeOfValue: typeof value,
-          numericValue: numericValue,
-          paramKey: paramKey
-        });
-      }
+      // DEBUG: Log colorize parameter for ComputeNoise nodes (disabled to reduce console spam)
+      // Uncomment only when debugging ComputeNoise colorize parameter issues
+      // if (node.kind === 'ComputeNoise' && paramName === 'colorize') {
+      //   console.log('[ParameterUniformManager] ComputeNoise colorize:', {
+      //     nodeId: node.id,
+      //     originalValue: paramValue,
+      //     processedValue: value,
+      //     typeOfValue: typeof value,
+      //     numericValue: numericValue,
+      //     paramKey: paramKey
+      //   });
+      // }
 
       this.uniformValues.set(paramKey, numericValue);
     }
