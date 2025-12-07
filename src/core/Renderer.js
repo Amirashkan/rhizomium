@@ -58,9 +58,13 @@ export class Renderer {
       window.editor = renderState.editor; // Make editor accessible
     }
     
-    // PERFORMANCE: Clear pin position cache at start of each frame
+    // PERFORMANCE: Clear caches at start of each frame
     // This ensures we recalculate when node positions change, but cache within the same frame
     this._nodePinCache.clear();
+    // Clear wire color cache to prevent unbounded growth (though it's unlikely to grow much)
+    if (this._wireColorCache) {
+      this._wireColorCache.clear();
+    }
     
     // PERFORMANCE: Clear node pin cache when panning stops
     const isPanning = this.viewport.isPanning && typeof this.viewport.isPanning === 'function' 

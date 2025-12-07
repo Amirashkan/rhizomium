@@ -278,15 +278,25 @@ export class SelectionManager {
       const currentSelection = this.graph.selection;
       let hasChanged = false;
 
+      // Fast path: sizes differ means selection changed
       if (newSelection.size !== currentSelection.size) {
         hasChanged = true;
       } else {
-        // Only do expensive comparison if sizes match
+        // Sizes match - check if contents differ
         // Check if any node in newSelection is missing from currentSelection
         for (const id of newSelection) {
           if (!currentSelection.has(id)) {
             hasChanged = true;
             break;
+          }
+        }
+        // If not found yet, check if any node in currentSelection is missing from newSelection
+        if (!hasChanged) {
+          for (const id of currentSelection) {
+            if (!newSelection.has(id)) {
+              hasChanged = true;
+              break;
+            }
           }
         }
       }
