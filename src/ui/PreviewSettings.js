@@ -1892,10 +1892,10 @@ for (let y = 0; y < height; y++) {
     const originalStyleHeight = canvas.style.height;
 
     // Get FPS from settings or prompt
-    const defaultFps = Math.max(1, this.settings.refreshRate || 30);
+    const defaultFps = Math.max(1, this.settings.refreshRate || 60);
     const fpsInput = await modalManager.prompt("Frames per second for the recording (1-120)?", 'Animation Settings', String(defaultFps), {
       inputType: 'number',
-      placeholder: '30',
+      placeholder: '60',
       validator: (value) => {
         const fps = Number(value);
         if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {
