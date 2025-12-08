@@ -75,6 +75,18 @@ export class PreviewIntegration {
 
       return;
     }
+    
+    // ENHANCEMENT: Check if this is a compute node and update GPU texture thumbnail
+    if (window.shaderPreviewManager && node?.kind) {
+      const nodeKind = node.kind.toLowerCase();
+      if (window.shaderPreviewManager.isComputeNode(nodeKind)) {
+        // Update GPU texture thumbnail for compute nodes
+        window.shaderPreviewManager.updateComputeNodePreview(node).catch(err => {
+          // Silently fail if GPU readback fails, fallback to regular preview
+        });
+      }
+    }
+    
     // OPTIMIZATION: Allow caller to skip compute if they already computed all values
     // Use async worker-based computation to avoid blocking canvas interactions
     if (!skipCompute && this.editor?.previewComputer && this.editor?.graph) {
@@ -86,11 +98,21 @@ export class PreviewIntegration {
         () => {
           // Preview computation completed, now generate the preview
           this.previewSystem.generateNodePreview(node);
+          
+          // ENHANCEMENT: Force redraw after preview generation for real-time visibility
+          if (this.editor.markDirty) {
+            this.editor.markDirty('preview-update');
+          }
         }
       );
       return; // Exit early, preview will be generated in callback
     }
     this.previewSystem.generateNodePreview(node);
+    
+    // ENHANCEMENT: Force redraw after preview generation for real-time visibility
+    if (this.editor.markDirty) {
+      this.editor.markDirty('preview-update');
+    }
   }
 
 updateTimeNodes() {
@@ -150,10 +172,10 @@ updateTimeNodes() {
         clearTimeout(this.parameterChangeTimeout);
       }
 
-      // Set new timeout to process batch
+      // Set new timeout to process batch - Reduced for more responsive updates
       this.parameterChangeTimeout = setTimeout(() => {
         this.processPendingParameterChanges();
-      }, 16); // ~60fps debounce (one frame)
+      }, 8); // ~120fps debounce for smoother real-time updates
 
       return;
     }

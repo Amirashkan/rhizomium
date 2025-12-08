@@ -25,7 +25,7 @@ export class PreviewSystem {
     }
 
     this.editor = editor;
-    this.size = 48;
+    this.size = 64; // Increased from 48 for better visibility
     this._sortCache = null;
     this._sortCacheKey = null;
 

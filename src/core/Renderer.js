@@ -682,7 +682,7 @@ export class Renderer {
     // Smart positioning based on thumbnail size
     let thumbX, thumbY;
 
-    if (thumbSize <= 64) {
+    if (thumbSize <= 96) {
       // Small/Medium: Traditional positioning
       thumbX = node.x + node.w - thumbSize - padding;
       thumbY = node.y + padding;
@@ -694,12 +694,12 @@ export class Renderer {
 
     ctx.save();
 
-    // Thumbnail background
-    ctx.fillStyle = "#0a0a0a";
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 1;
+    // Enhanced thumbnail background with better contrast
+    ctx.fillStyle = "#000000"; // Darker background for better contrast
+    ctx.strokeStyle = "#555"; // Brighter border for visibility
+    ctx.lineWidth = 2; // Thicker border for clarity
     ctx.beginPath();
-    ctx.roundRect(thumbX - 1, thumbY - 1, thumbSize + 2, thumbSize + 2, 4);
+    ctx.roundRect(thumbX - 2, thumbY - 2, thumbSize + 4, thumbSize + 4, 5);
     ctx.fill();
     ctx.stroke();
 
@@ -709,6 +709,7 @@ export class Renderer {
 
     // Handle both ImageData and Canvas thumbnails
     if (node.__thumb instanceof HTMLCanvasElement) {
+      // Draw thumbnail with better quality
       ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
     } else if (node.__thumb instanceof ImageData) {
       // PERFORMANCE: Cache temporary canvases per node to avoid recreating every frame
@@ -726,16 +727,28 @@ export class Renderer {
       // putImageData is blocking but necessary - the real fix needs to happen where thumbnails are created
       // Thumbnails should be converted to canvas elements, not ImageData
       const tempCtx = tempCanvas.getContext("2d");
+      tempCtx.imageSmoothingEnabled = true;
+      tempCtx.imageSmoothingQuality = "high";
       tempCtx.putImageData(node.__thumb, 0, 0);
       ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
     }
 
-    // Inner border for clarity
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
-    ctx.lineWidth = 1;
+    // Enhanced inner border for better visibility
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.roundRect(thumbX, thumbY, thumbSize, thumbSize, 3);
     ctx.stroke();
+
+    // Add subtle glow effect for better visibility
+    ctx.shadowColor = "rgba(102, 170, 255, 0.3)";
+    ctx.shadowBlur = 4;
+    ctx.strokeStyle = "rgba(102, 170, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(thumbX + 1, thumbY + 1, thumbSize - 2, thumbSize - 2, 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0; // Reset shadow
 
     ctx.restore();
   }
