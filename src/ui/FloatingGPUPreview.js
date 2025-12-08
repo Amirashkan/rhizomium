@@ -439,29 +439,15 @@ _startPreviewRenderLoop() {
     window.renderLoop.rafManager.registerHandler(
       this._handlerName,
       (frameInfo) => {
-        // Convert realTime from seconds to milliseconds for timestamp comparison
-        const timestamp = frameInfo.timestamp || (frameInfo.realTime * 1000);
+        // In fixed mode, RenderLoop calls _step() multiple times per RAF frame
+        // to achieve the target refresh rate. We should render every time the handler
+        // is called, not throttle based on timestamp (which would prevent multiple
+        // renders within the same RAF frame).
+        // In vsync mode, render every RAF frame (naturally matches display refresh rate).
         
-        // Determine if we should throttle based on timing mode
-        const timingMode = this.settings?.settings?.timingMode || "vsync";
-        let shouldRender = true;
-        
-        if (timingMode === "fixed") {
-          // In fixed mode, throttle to the configured refresh rate
-          const refreshRate = this.settings?.settings?.refreshRate || 60;
-          const minFrameInterval = 1000 / refreshRate; // Calculate interval from refresh rate
-          const timeSinceLastRender = timestamp - this._lastRenderTime;
-          shouldRender = timeSinceLastRender >= minFrameInterval;
-        } else {
-          // In vsync mode, render every RAF frame (no throttling)
-          // This will naturally match the display refresh rate
-          shouldRender = true;
-        }
-        
-        if (shouldRender && typeof window.render === "function") {
+        if (typeof window.render === "function") {
           // Render the preview - GPU renderer handles duplicate calls gracefully
           window.render();
-          this._lastRenderTime = timestamp;
           
           // Update FPS counter
           if (this.fpsCounter) {
