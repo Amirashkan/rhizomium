@@ -693,7 +693,7 @@ export class PreviewExportSettingsWindow {
     // Store data attribute for synchronization (using refreshRate key)
     fpsInput.setAttribute('data-setting-key', 'refreshRate');
     // Use refreshRate from shared settings object (not fps)
-    fpsInput.value = this.settings.refreshRate || 30;
+    fpsInput.value = this.settings.refreshRate || 60;
     fpsInput.min = 1;
     fpsInput.max = 120;
     fpsInput.style.cssText = `

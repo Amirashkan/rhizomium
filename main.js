@@ -2124,9 +2124,9 @@ function setupPreviewSettingsMenu() {
   // Animation Settings - FPS
   const fpsInput = document.getElementById("preview-fps");
   if (fpsInput) {
-    fpsInput.value = previewSettings.refreshRate || 30;
+    fpsInput.value = previewSettings.refreshRate || 60;
     fpsInput.addEventListener("change", (e) => {
-      const value = parseInt(e.target.value) || 30;
+      const value = parseInt(e.target.value) || 60;
       settings.updateSetting("refreshRate", Math.min(60, Math.max(1, value)));
     });
   }
