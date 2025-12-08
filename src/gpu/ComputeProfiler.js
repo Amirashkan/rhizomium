@@ -124,40 +124,10 @@ export class ComputeProfiler {
   /**
    * Begin frame profiling
    * PERFORMANCE: Optimized to use cached sum instead of reduce() for O(1) FPS calculation
+   * FIX: Only track FPS when compute dispatches actually occur, not on every render frame
    */
   beginFrame() {
     if (!this.enabled) return;
-    
-    const now = performance.now();
-    let deltaTime = now - this.lastFrameTime;
-    this.lastFrameTime = now;
-    
-    // Safeguard: Handle edge cases (clock adjustment, tab inactive)
-    // Clamp deltaTime to reasonable range (0-1000ms) to prevent FPS calculation errors
-    if (deltaTime < 0) {
-      // Clock went backwards (system clock adjustment) - skip this frame
-      return;
-    }
-    if (deltaTime > 1000) {
-      // Tab was inactive for >1 second - cap at 1000ms to prevent skewing average
-      deltaTime = 1000;
-    }
-    
-    // Update frame timing with incremental sum update (O(1) instead of O(n))
-    this.frameTimes.push(deltaTime);
-    this._frameTimeSum += deltaTime;
-    
-    if (this.frameTimes.length > this.maxFrameSamples) {
-      // Remove oldest frame time from sum
-      const removed = this.frameTimes.shift();
-      this._frameTimeSum -= removed;
-    }
-    
-    // Calculate FPS from cached sum (O(1) instead of O(n) reduce)
-    const frameCount = this.frameTimes.length;
-    const avgFrameTime = frameCount > 0 ? this._frameTimeSum / frameCount : 0;
-    this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
-    this.metrics.frameTime = avgFrameTime;
     
     // Skip detailed profiling during interactions to reduce overhead
     if (this._isInteractionMode) {
@@ -172,6 +142,9 @@ export class ComputeProfiler {
     // Reset dispatch tracking for new frame
     this.currentFrameDispatches = [];
     this.dispatchIndex = 0;
+    
+    // Track frame start time for FPS calculation (will be used if dispatches occur)
+    this._frameStartTime = performance.now();
   }
 
   /**
@@ -260,6 +233,47 @@ export class ComputeProfiler {
     this.metrics.dispatches = [...this.currentFrameDispatches];
     this.metrics.activeWorkgroups = this.currentFrameDispatches.length;
     this.metrics.totalWorkgroups = totalWorkgroups;
+
+    // FIX: Only update FPS when compute dispatches actually occur
+    // This ensures compute profiler FPS reflects compute dispatch rate, not render frame rate
+    if (this.currentFrameDispatches.length > 0 && this._frameStartTime !== undefined) {
+      let deltaTime = this._frameStartTime - this.lastFrameTime;
+      
+      // Skip first frame in FPS calculation (need at least 2 frames to calculate delta)
+      if (this.frameTimes.length > 0) {
+        // Safeguard: Handle edge cases (clock adjustment, tab inactive)
+        // Clamp deltaTime to reasonable range (0-1000ms) to prevent FPS calculation errors
+        if (deltaTime >= 0) {
+          if (deltaTime > 1000) {
+            // Tab was inactive for >1 second - cap at 1000ms to prevent skewing average
+            deltaTime = 1000;
+          }
+          
+          // Only update FPS if we have a valid deltaTime (not the first frame)
+          if (deltaTime > 0) {
+            // Update frame timing with incremental sum update (O(1) instead of O(n))
+            this.frameTimes.push(deltaTime);
+            this._frameTimeSum += deltaTime;
+            
+            if (this.frameTimes.length > this.maxFrameSamples) {
+              // Remove oldest frame time from sum
+              const removed = this.frameTimes.shift();
+              this._frameTimeSum -= removed;
+            }
+            
+            // Calculate FPS from cached sum (O(1) instead of O(n) reduce)
+            const frameCount = this.frameTimes.length;
+            const avgFrameTime = frameCount > 0 ? this._frameTimeSum / frameCount : 0;
+            this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
+            this.metrics.frameTime = avgFrameTime;
+          }
+        }
+        // If deltaTime < 0 (clock went backwards), just update lastFrameTime but don't calculate FPS
+      }
+      
+      // Update lastFrameTime for next dispatch frame (always update, even on first frame or clock issues)
+      this.lastFrameTime = this._frameStartTime;
+    }
 
     // Resolve GPU timestamp queries if available
     if (this.supportsTimestamps && this.querySet && this.currentFrameDispatches.length > 0) {
