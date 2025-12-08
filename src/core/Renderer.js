@@ -750,7 +750,58 @@ export class Renderer {
     ctx.stroke();
     ctx.shadowBlur = 0; // Reset shadow
 
+    // ENHANCEMENT: Display numeric value overlay for scalar outputs (including audio envelope)
+    this._renderNumericValueOverlay(ctx, node, thumbX, thumbY, thumbSize);
+
     ctx.restore();
+  }
+
+  _renderNumericValueOverlay(ctx, node, thumbX, thumbY, thumbSize) {
+    // Check if node outputs a scalar value (number, not array/vector)
+    const previewValue = node.__preview;
+    
+    // Only show numeric overlay for scalar outputs
+    if (previewValue === undefined || previewValue === null) return;
+    if (Array.isArray(previewValue)) return; // Skip vectors/arrays
+    if (typeof previewValue !== 'number') return;
+    if (isNaN(previewValue) || !isFinite(previewValue)) return;
+
+    // Format the number for display
+    let displayText;
+    if (Math.abs(previewValue) < 0.01 && previewValue !== 0) {
+      displayText = previewValue.toExponential(2);
+    } else if (Math.abs(previewValue) >= 1000) {
+      displayText = previewValue.toExponential(2);
+    } else {
+      displayText = previewValue.toFixed(3);
+    }
+
+    // Calculate font size based on thumbnail size
+    const fontSize = Math.max(8, Math.min(thumbSize * 0.25, 14));
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+
+    // Draw background for text readability
+    const textMetrics = ctx.measureText(displayText);
+    const textWidth = textMetrics.width;
+    const textHeight = fontSize;
+    const padding = 2;
+    const bgX = thumbX + (thumbSize - textWidth) / 2 - padding;
+    const bgY = thumbY + thumbSize - padding - textHeight;
+    const bgWidth = textWidth + padding * 2;
+    const bgHeight = textHeight + padding * 2;
+
+    // Semi-transparent dark background for text
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+
+    // Draw text with high contrast
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+    ctx.shadowBlur = 2;
+    ctx.fillText(displayText, thumbX + thumbSize / 2, thumbY + thumbSize - padding);
+    ctx.shadowBlur = 0; // Reset shadow
   }
 
   _renderNodePins(node) {
