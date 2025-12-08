@@ -129,8 +129,19 @@ export class ComputeProfiler {
     if (!this.enabled) return;
     
     const now = performance.now();
-    const deltaTime = now - this.lastFrameTime;
+    let deltaTime = now - this.lastFrameTime;
     this.lastFrameTime = now;
+    
+    // Safeguard: Handle edge cases (clock adjustment, tab inactive)
+    // Clamp deltaTime to reasonable range (0-1000ms) to prevent FPS calculation errors
+    if (deltaTime < 0) {
+      // Clock went backwards (system clock adjustment) - skip this frame
+      return;
+    }
+    if (deltaTime > 1000) {
+      // Tab was inactive for >1 second - cap at 1000ms to prevent skewing average
+      deltaTime = 1000;
+    }
     
     // Update frame timing with incremental sum update (O(1) instead of O(n))
     this.frameTimes.push(deltaTime);
