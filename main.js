@@ -3900,9 +3900,6 @@ function updateStatus(message, type = "info") {
   }
 }
 
-// PERFORMANCE: Track GPU frame skipping during canvas interactions
-let gpuFrameSkipCounter = 0;
-
 function handleRenderFrame(frameState) {
   previewPerfMonitor?.beginFrame(frameState);
   // PERFORMANCE: Skip expensive operations during parameter drag
@@ -3932,15 +3929,15 @@ function handleRenderFrame(frameState) {
     timelinePanel.update();
   }
 
-  // GPU rendering - Continue during canvas interactions but with frame throttling
-  // FIX: Allow preview to continue rendering during panning to prevent freezing
-  // Use frame skipping during interactions (render every 2nd frame) to reduce load
+  // GPU rendering - Always render every frame, even during interactions
+  // PERFORMANCE: GPU renderer is async and non-blocking, so throttling is unnecessary
+  // Frame skipping was causing compute profiler to show artificially low FPS
   const gpuBudgetExceeded =
     isCanvasInteracting &&
     (previewPerfMonitor?.getMetric("gpuMs") || 0) > GPU_INTERACTION_REUSE_THRESHOLD;
   previewPerfMonitor?.recordValue("gpuReuseActive", gpuBudgetExceeded ? 1 : 0);
-  const shouldRenderGPU =
-    !gpuBudgetExceeded && (!isCanvasInteracting || (gpuFrameSkipCounter % 2 === 0));
+  // Only skip GPU rendering if budget is exceeded (reuse last frame), otherwise render every frame
+  const shouldRenderGPU = !gpuBudgetExceeded;
   
   if (shouldRenderGPU) {
     const gpuToken = previewPerfMonitor?.timeSection("gpu");
@@ -4006,13 +4003,6 @@ function handleRenderFrame(frameState) {
         }
       }
     }
-  }
-  
-  // Increment frame skip counter during interactions for throttling
-  if (isCanvasInteracting) {
-    gpuFrameSkipCounter++;
-  } else {
-    gpuFrameSkipCounter = 0; // Reset when not interacting
   }
 
   // 3D Viewport rendering
@@ -4133,6 +4123,12 @@ function handleRenderFrame(frameState) {
           }
         }
       }
+    }
+
+    // Reset interaction state cache at the start of each frame
+    // This ensures fresh state values for the new frame
+    if (editor?.eventHandler?._invalidateInteractionStateCache) {
+      editor.eventHandler._invalidateInteractionStateCache();
     }
 
     // Canvas drawing - throttle during panning and skip when editor is clean

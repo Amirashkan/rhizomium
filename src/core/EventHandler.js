@@ -26,17 +26,9 @@ export class EventHandler {
     this._pendingContextMenu = null;
     // Track last cursor position for paste/duplicate
     this.lastCanvasPos = { x: 0, y: 0 };
-    // Performance optimization: throttle rendering with requestAnimationFrame
-    this._pendingFrame = null;
-    this._needsRender = false;
     // Performance optimization: throttle pan updates to max 60fps
     this._panUpdateScheduled = false;
     this._pendingPanUpdate = null;
-    // Performance optimization: throttle node/wire drag updates to max 60fps
-    this._dragUpdateScheduled = false;
-    this._pendingDragEvent = null;
-    // Draw request deduplication system - unified RAF for all draw requests
-    this._pendingDrawRequest = null; // Track if a draw is already scheduled
     // Track user activity to detect inactivity and warm up GPU
     this._lastInteractionTime = Date.now();
     this._lastMouseMoveTime = Date.now();
@@ -192,10 +184,9 @@ export class EventHandler {
   // The main render loop already calls editor.draw() every frame if dirty
   // Frame-based throttling is handled in editor.draw() to skip actual rendering
   _requestDraw(reason = 'user-interaction') {
-    // CRITICAL: Always mark dirty FIRST, even if a RAF is already pending
+    // CRITICAL: Always mark dirty FIRST
     // This ensures all interactions (pan, box-select, node-drag, wire-drag, etc.)
-    // properly mark the editor as dirty, even when they share the same RAF callback
-    // The deduplication below only prevents scheduling multiple RAFs, not marking dirty
+    // properly mark the editor as dirty
     logRedrawTriggerEvent({
       source: 'EventHandler._requestDraw',
       reason,
@@ -208,39 +199,21 @@ export class EventHandler {
       this.editor.markDirty(reason);
     }
     
-    // Check if a draw request is already pending for the current frame
-    // If so, ignore duplicate RAF scheduling - they'll be processed in the existing RAF callback
-    // Note: We already marked dirty above, so the draw will happen even if we skip RAF scheduling
-    if (this._pendingDrawRequest !== null) {
-      return;
+    // Process pan updates synchronously if pending
+    // The main render loop runs at 60fps and will handle drawing when dirty
+    // No need to schedule a separate RAF callback - that causes competing RAFs and frame drops
+    if (reason === 'pan' && this._pendingPanUpdate && this._panUpdateScheduled) {
+      const { clientX, clientY } = this._pendingPanUpdate;
+      if (this.viewport.updatePan(clientX, clientY)) {
+        // Mark canvas as interacting to skip GPU rendering during pan
+        this._markCanvasInteracting('pan');
+      }
+      this._pendingPanUpdate = null;
+      this._panUpdateScheduled = false;
     }
     
-    // Schedule unified RAF callback that processes both draw requests and pan updates
-    this._pendingDrawRequest = requestAnimationFrame(() => {
-      // Process pan updates in the same RAF callback to avoid multiple RAFs
-      // This ensures only one RAF is active at a time and pan updates are batched
-      if (this._pendingPanUpdate && this._panUpdateScheduled) {
-        const { clientX, clientY } = this._pendingPanUpdate;
-        if (this.viewport.updatePan(clientX, clientY)) {
-          // Mark canvas as interacting to skip GPU rendering during pan
-          this._markCanvasInteracting('pan');
-        }
-        this._pendingPanUpdate = null;
-        this._panUpdateScheduled = false;
-      }
-      
-      // STEP 4: Reset interaction state cache at the start of each new frame
-      // This ensures we get fresh state values for the new frame
-      this._cachedInteractionState.valid = false;
-      
-      // Reset pending flag at the start of each new frame
-      this._pendingDrawRequest = null;
-    });
-    
-    // Don't schedule separate RAF callback - main loop already handles rendering
-    // Calling _requestRender() here causes double rendering during interactions
-    // Main loop runs at 60fps and checks _isDirty flag, so we don't need separate RAF
-    // this._requestRender(); // REMOVED: Causes double rendering
+    // NOTE: Interaction state cache reset is handled in the main render loop
+    // No RAF callback needed - main loop already runs at 60fps
   }
   
   // Check if panning is currently active
@@ -276,16 +249,10 @@ export class EventHandler {
     this._panFrameCounter = 0;
   }
 
-  // Throttled render using requestAnimationFrame for better performance
+  // DEPRECATED: Use _requestDraw() instead - main render loop handles drawing
+  // Kept for backward compatibility but delegates to _requestDraw()
   _requestRender() {
-    if (this._pendingFrame !== null) {
-      return; // Frame already scheduled
-    }
-
-    this._pendingFrame = requestAnimationFrame(() => {
-      this._pendingFrame = null;
-      this.onDraw();
-    });
+    this._requestDraw('legacy-render');
   }
 
   // STEP 4: Invalidate interaction state cache when state changes
@@ -613,7 +580,7 @@ export class EventHandler {
               zoomDelta,
             )
           ) {
-            this._requestRender();
+            this._requestDraw('zoom-drag');
           }
           this._zoomDragState.lastY = e.clientY;
         }
@@ -865,41 +832,14 @@ export class EventHandler {
         }
       }
 
-      // Check if we're in any drag state that needs throttling
-      const isDraggingWire = this.connections.getDragWire();
-      const isDraggingNodes = this.selection.getDragging();
-      const isBoxSelecting = this.selection.getBoxSelect();
+        // Check if we're in any drag state
+        const isDraggingWire = this.connections.getDragWire();
+        const isDraggingNodes = this.selection.getDragging();
+        const isBoxSelecting = this.selection.getBoxSelect();
 
-      if (isDraggingWire || isDraggingNodes || isBoxSelecting) {
-        // Store the pending event for throttled processing
-        this._pendingDragEvent = e;
-
-        // Only schedule one update per animation frame for performance
-        // BUT: Always do immediate update for first 2 SECONDS of interaction to prevent lag
-        // Longer inactivity = longer immediate update window needed
-        const now = Date.now();
-        // Ensure interaction start time is set (should be set by warmup, but ensure it's set)
-        if (!this._interactionStartTime) {
-          this._interactionStartTime = now;
-        }
-        const timeSinceStart = now - this._interactionStartTime;
-        // For 2+ seconds of inactivity, use longer immediate window (3 seconds)
-        // ALWAYS use immediate updates for first 3 seconds after any warmup or interaction start
-        const immediateWindow = this._justWarmedUp ? 3000 : Math.max(2000, Math.min(3000, 2500));
-        const isFirstPeriod = !this._dragUpdateScheduled || timeSinceStart < immediateWindow;
-        
-        // CRITICAL: For node dragging, ALWAYS use immediate updates for first 20 drag updates
-        // This ensures smooth dragging without any lag after inactivity
-        // Use count-based approach instead of time-based for more reliable immediate updates
-        const isNodeDragging = this.selection?.getDragging();
-        const shouldUseImmediate = isNodeDragging 
-          ? (this._nodeDragUpdateCount < 20 || timeSinceStart < 3000)
-          : (this._justWarmedUp || isFirstPeriod);
-        
-        if (shouldUseImmediate && this._pendingDragEvent) {
-          // Immediate update - bypass RAF to prevent lag during first period
-          // Do this synchronously to ensure it happens before any other processing
-          
+        if (isDraggingWire || isDraggingNodes || isBoxSelecting) {
+          // Process drag updates synchronously - main render loop handles 60fps throttling
+          // No RAF callback needed - that causes competing RAFs and frame drops
           // Pre-warm getBoundingClientRect before first drag update to prevent lag
           if (this.canvas && this._justWarmedUp) {
             this.canvas.getBoundingClientRect();
@@ -908,12 +848,8 @@ export class EventHandler {
             }
           }
           
-          const pendingEvent = this._pendingDragEvent;
-          this._pendingDragEvent = null;
-          this._dragUpdateScheduled = false;
-
-          // Calculate canvas position once per frame
-          const pos = this._getCanvasPosition(pendingEvent);
+          // Calculate canvas position
+          const pos = this._getCanvasPosition(e);
 
           // Track cursor position for paste/duplicate operations
           this.lastCanvasPos = { x: pos.x, y: pos.y };
@@ -921,9 +857,7 @@ export class EventHandler {
           // Handle wire dragging
           if (this.connections.getDragWire()) {
             this.connections.updateWireDrag(pos);
-            // Mark canvas as interacting to skip GPU rendering during drag
             this._markCanvasInteracting('wire-drag');
-            // Use RAF batching for smooth performance
             this._requestDraw('wire-drag');
             return;
           }
@@ -931,58 +865,19 @@ export class EventHandler {
           // Handle box selection
           if (this.selection.getBoxSelect()) {
             this.selection.updateBoxSelect(pos.x, pos.y);
-            // Mark canvas as interacting to skip GPU rendering during selection
             this._markCanvasInteracting('box-select');
-            // Use RAF batching for smooth performance
             this._requestDraw('box-select');
             return;
           }
 
           // Handle node dragging
           if (this.selection.getDragging()) {
-            // Mark canvas as interacting to skip GPU rendering during drag
             this._markCanvasInteracting('node-drag');
-            // Update drag position
             this.selection.updateDrag(pos.x, pos.y);
-            // Use RAF batching for smooth performance
             this._requestDraw('node-drag');
+            // Track drag update count for performance monitoring
+            this._nodeDragUpdateCount++;
           }
-        } else if (!this._dragUpdateScheduled) {
-          this._dragUpdateScheduled = true;
-          requestAnimationFrame(() => {
-            this._dragUpdateScheduled = false;
-            if (this._pendingDragEvent) {
-              const pendingEvent = this._pendingDragEvent;
-              this._pendingDragEvent = null;
-
-              // Calculate canvas position once per frame
-              const pos = this._getCanvasPosition(pendingEvent);
-
-              // Track cursor position for paste/duplicate operations
-              this.lastCanvasPos = { x: pos.x, y: pos.y };
-
-              // Handle wire dragging
-              if (this.connections.getDragWire()) {
-                this.connections.updateWireDrag(pos);
-                this._requestDraw('wire-drag-update');
-                return;
-              }
-
-              // Handle box selection
-              if (this.selection.getBoxSelect()) {
-                this.selection.updateBoxSelect(pos.x, pos.y);
-                this._requestDraw('box-select-update');
-                return;
-              }
-
-              // Handle node dragging
-              if (this.selection.getDragging()) {
-                this.selection.updateDrag(pos.x, pos.y);
-                this._requestDraw('node-drag-update');
-              }
-            }
-          });
-        }
       } else {
         // Not dragging anything - still need to track cursor for paste/duplicate
         const pos = this._getCanvasPosition(e);
@@ -993,9 +888,6 @@ export class EventHandler {
     // Mouse up - end interactions
     window.addEventListener("mouseup", (e) => {
       this._zoomDragState = null;
-      // Clear any pending drag updates
-      this._pendingDragEvent = null;
-      this._dragUpdateScheduled = false;
       // Clear any pending pan updates
       this._pendingPanUpdate = null;
       this._panUpdateScheduled = false;

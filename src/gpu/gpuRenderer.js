@@ -2,6 +2,7 @@
 // WebGPU renderer with explicit aspect uniform management and safe fallbacks.
 
 import { RenderCache } from './RenderCache.js';
+import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 
 const STAGES = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
 
@@ -47,7 +48,8 @@ export class GPURenderer {
     });
 
     this.pipeline = null;
-    this.bindGroups = [];
+    this.bindGroups = []; // Sparse array indexed by group index (not layout index)
+    this.bindGroupIndices = []; // Array of actual group indices that have bind groups
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
@@ -55,6 +57,19 @@ export class GPURenderer {
     this.msaaTextureSize = { width: 0, height: 0 }; // Track MSAA texture size for validation
     this.profiler = null; // ComputeProfiler instance
     this._currentWgslCode = null; // Store current WGSL code for pipeline recreation
+    
+    // PERFORMANCE: Shader module cache to avoid recompiling identical WGSL code
+    this.shaderCache = shaderModuleCache;
+    
+    // PERFORMANCE: Bind group cache - cache bind groups by resource hash to avoid unnecessary rebuilds
+    // Cache stores both bindGroups and bindGroupIndices for complete restoration
+    this._bindGroupCache = new Map(); // Map<resourceHash, {bindGroups: GPUBindGroup[], bindGroupIndices: number[]}>
+    this._lastResourceHash = null; // Hash of all resources for current bind groups
+    
+    // CRITICAL FIX: Track texture view IDs for unique hash generation
+    // Texture views are object references that change, so we need unique IDs to distinguish them
+    this._textureViewIds = new WeakMap(); // Map<GPUTextureView, string>
+    this._textureViewIdCounter = 0; // Counter for generating unique texture view IDs
     
     // CRITICAL PERFORMANCE FIX: Cache canvas dimensions to avoid layout reads during render
     // Reading clientWidth/clientHeight forces synchronous layout recalculation, blocking the main thread
@@ -83,9 +98,13 @@ export class GPURenderer {
   clear() {
     this.pipeline = null;
     this.bindGroups = [];
+    this.bindGroupIndices = [];
     this.resources = {};
     this.shaderModule = null;
     this._lastAspectWritten = null;
+    // Clear bind group cache when clearing renderer
+    this._bindGroupCache.clear();
+    this._lastResourceHash = null;
     // Note: Don't clear renderCache here - it's managed separately
     // Cache will be cleared when device is lost or explicitly requested
   }
@@ -571,9 +590,11 @@ export class GPURenderer {
       multisample: { count: this.sampleCount }, // Enable MSAA
     });
 
-    this.bindGroups = groupIndices.map((groupIndex, layoutIndex) => {
+    // PERFORMANCE: Create resources first, then use optimized rebuild method
+    // This ensures resources are created before we try to build bind groups
+    groupIndices.forEach((groupIndex) => {
       const bindings = bindingMap.groups[groupIndex];
-      const entries = Object.keys(bindings).map((bindingKey) => {
+      Object.keys(bindings).forEach((bindingKey) => {
         const binding = parseInt(bindingKey, 10);
         const meta = bindings[binding];
         const resourceKey = `${groupIndex}:${binding}`;
@@ -581,25 +602,12 @@ export class GPURenderer {
         if (!this.resources[resourceKey]) {
           this.resources[resourceKey] = this._createResourceForBinding(meta);
         }
-
-        const resource = this.resources[resourceKey];
-        if (resource.buffer) {
-          return { binding, resource: { buffer: resource.buffer } };
-        }
-        if (resource.sampler) {
-          return { binding, resource: resource.sampler };
-        }
-        if (resource.textureView) {
-          return { binding, resource: resource.textureView };
-        }
-        throw new Error(`Unsupported resource for binding ${resourceKey}`);
-      });
-
-      return this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(layoutIndex),
-        entries,
       });
     });
+
+    // PERFORMANCE: Use optimized rebuild method with caching
+    // This will build bind groups and cache them for future reuse
+    this._rebuildBindGroups(true); // Force rebuild since this is initial setup
   }
 
   _getUniformByVarName(name) {
@@ -661,14 +669,20 @@ export class GPURenderer {
 
     // PERFORMANCE: Reuse Float32Array buffer to avoid allocation every frame
     // This reduces GC pressure and frame time variance
-    const values = Array.from(uniformManager.uniformValues.values());
+    const uniformCount = uniformManager.uniformValues.size;
     
     // Reuse buffer if size matches, otherwise create new one
-    if (!this._paramUniformBuffer || this._paramUniformBuffer.length !== values.length) {
+    if (!this._paramUniformBuffer || this._paramUniformBuffer.length !== uniformCount) {
+      // Only create array when buffer size changes
+      const values = Array.from(uniformManager.uniformValues.values());
       this._paramUniformBuffer = new Float32Array(values);
     } else {
-      // Copy values into existing buffer
-      this._paramUniformBuffer.set(values);
+      // PERFORMANCE: Directly copy values into existing buffer without creating intermediate array
+      // This avoids Array.from() overhead on every update
+      let i = 0;
+      for (const value of uniformManager.uniformValues.values()) {
+        this._paramUniformBuffer[i++] = value;
+      }
     }
 
     this.device.queue.writeBuffer(target.buffer, 0, this._paramUniformBuffer.buffer, 0, this._paramUniformBuffer.byteLength);
@@ -808,7 +822,22 @@ export class GPURenderer {
       // Store WGSL code for potential pipeline recreation
       this._currentWgslCode = wgslCode;
 
-      this.shaderModule = this.device.createShaderModule({ code: wgslCode });
+      // PERFORMANCE: Compute WGSL hash and check cache before creating shader module
+      // Use synchronous djb2 hash to keep setShaderSource synchronous
+      const wgslHash = hashWGSL(wgslCode, false);
+      
+      // CRITICAL FIX: Cache is now device-specific - pass device to get/set
+      // Check cache for existing compiled module
+      let cachedModule = this.shaderCache.get(this.device, wgslHash);
+      
+      if (cachedModule) {
+        this.shaderModule = cachedModule;
+      } else {
+        // Create new shader module and store in cache
+        this.shaderModule = this.device.createShaderModule({ code: wgslCode });
+        this.shaderCache.set(this.device, wgslHash, this.shaderModule);
+      }
+
       this.resources = {};
       this._lastAspectWritten = null;
       this._warnedMissingParamBuffer = false; // Reset warning flag on new shader
@@ -874,42 +903,195 @@ export class GPURenderer {
       return;
     }
 
-    // PERFORMANCE: Rebuild bind groups with updated texture resources
-    // Use for loop instead of map to avoid creating intermediate arrays (reduces GC pressure)
+    // PERFORMANCE: Use optimized rebuild method with caching
+    // This will only rebuild if resources actually changed
+    this._rebuildBindGroups(true); // Force rebuild since textures changed
+
+    // Mark that we've updated the bind groups
+    texManager.bindGroup = {};
+  }
+
+  /**
+   * Get or create a unique identifier for a texture view
+   * @param {GPUTextureView} textureView - Texture view
+   * @returns {string} - Unique texture view identifier
+   * @private
+   */
+  _getTextureViewId(textureView) {
+    if (!textureView) {
+      return 'null';
+    }
+    
+    let viewId = this._textureViewIds.get(textureView);
+    if (!viewId) {
+      viewId = `texview_${this._textureViewIdCounter++}`;
+      this._textureViewIds.set(textureView, viewId);
+    }
+    return viewId;
+  }
+
+  /**
+   * Generate a hash of all resources in bind groups for caching
+   * This allows us to reuse bind groups when resources haven't changed
+   * @private
+   * @returns {string} Hash string representing current resource state
+   */
+  _generateResourceHash() {
+    // Create a hash from all resource references
+    // This is a fast way to detect if any resources changed
+    const parts = [];
+    
+    // Sort resource keys for consistent hashing
+    const sortedKeys = Object.keys(this.resources).sort();
+    
+    for (const resourceKey of sortedKeys) {
+      const resource = this.resources[resourceKey];
+      parts.push(resourceKey);
+      
+      if (resource.buffer) {
+        // Use buffer size and label for identification
+        // Buffer objects themselves are stable, but we track size changes
+        parts.push(`buf:${resource.buffer.size || 0}:${resource.buffer.label || ''}`);
+      } else if (resource.sampler) {
+        // Samplers are stable objects, but we track their existence
+        parts.push(`samp:1`);
+      } else if (resource.textureView) {
+        // CRITICAL FIX: Use unique texture view ID instead of generic "tex:1"
+        // Different texture views must generate different hashes to prevent incorrect cache hits
+        // This ensures bind groups are rebuilt when compute shader outputs change
+        const viewId = this._getTextureViewId(resource.textureView);
+        parts.push(`tex:${viewId}`);
+      }
+    }
+    
+    // Simple hash function (djb2)
+    let hash = 5381;
+    const str = parts.join('|');
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash) + str.charCodeAt(i);
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(16);
+  }
+
+  /**
+   * Rebuild bind groups from resources
+   * This is the core method that creates bind groups - now with caching support
+   * @private
+   * @param {boolean} forceRebuild - If true, force rebuild even if hash matches
+   * @returns {boolean} True if bind groups were rebuilt, false if cached
+   */
+  _rebuildBindGroups(forceRebuild = false) {
+    if (!this.pipeline) return false;
+
+    // Generate resource hash to check if we can reuse cached bind groups
+    const resourceHash = this._generateResourceHash();
+    
+    // CRITICAL FIX: Check cache first before rebuilding
+    // The cache stores both bindGroups and bindGroupIndices for complete restoration
+    if (!forceRebuild) {
+      // First check if we have a cache entry for this resource hash
+      const cached = this._bindGroupCache.get(resourceHash);
+      if (cached) {
+        // Restore both bind groups and indices from cache
+        this.bindGroups = cached.bindGroups;
+        this.bindGroupIndices = cached.bindGroupIndices;
+        this._lastResourceHash = resourceHash;
+        return false; // Cache hit - no rebuild needed
+      }
+      
+      // Fallback: if hash matches and bind groups exist, reuse them (backward compatibility)
+      if (resourceHash === this._lastResourceHash && this.bindGroups.length > 0) {
+        // Resources haven't changed, reuse existing bind groups
+        return false;
+      }
+    }
+
+    // Resources changed or cache miss - rebuild bind groups
+    // Group resources by their group index
+    const resourcesByGroup = new Map();
+    
+    for (const resourceKey in this.resources) {
+      const [groupStr, bindingStr] = resourceKey.split(":");
+      const group = parseInt(groupStr, 10);
+      const binding = parseInt(bindingStr, 10);
+      
+      if (!resourcesByGroup.has(group)) {
+        resourcesByGroup.set(group, []);
+      }
+      resourcesByGroup.get(group).push({ binding, resourceKey, resource: this.resources[resourceKey] });
+    }
+    
+    // Get sorted group indices
+    const groupIndices = Array.from(resourcesByGroup.keys()).sort((a, b) => a - b);
+    // CRITICAL FIX: Store bind groups at their actual group index positions (not layout index)
+    // WebGPU's setBindGroup requires the actual @group() value from the shader, not a compact index
+    // Use sparse array indexed by group index, and track which group indices exist
     const newBindGroups = [];
-    for (let layoutIndex = 0; layoutIndex < this.bindGroups.length; layoutIndex++) {
+    const newBindGroupIndices = [];
+    
+    // Build bind groups for each group index (only for groups that have resources)
+    for (const groupIndex of groupIndices) {
+      const groupResources = resourcesByGroup.get(groupIndex);
       const entries = [];
 
       // Collect all resources for this group
-      for (const resourceKey in this.resources) {
-        const [groupStr, bindingStr] = resourceKey.split(":");
-        const group = parseInt(groupStr, 10);
-        const binding = parseInt(bindingStr, 10);
-
-        if (group === layoutIndex) {
-          const resource = this.resources[resourceKey];
-          if (resource.buffer) {
-            entries.push({ binding, resource: { buffer: resource.buffer } });
-          } else if (resource.sampler) {
-            entries.push({ binding, resource: resource.sampler });
-          } else if (resource.textureView) {
-            entries.push({ binding, resource: resource.textureView });
-          }
+      for (const { binding, resource } of groupResources) {
+        if (resource.buffer) {
+          entries.push({ binding, resource: { buffer: resource.buffer } });
+        } else if (resource.sampler) {
+          entries.push({ binding, resource: resource.sampler });
+        } else if (resource.textureView) {
+          entries.push({ binding, resource: resource.textureView });
         }
       }
+
+      // Skip empty groups (shouldn't happen, but safety check)
+      if (entries.length === 0) continue;
 
       // Sort entries by binding number to ensure correct order
       entries.sort((a, b) => a.binding - b.binding);
 
-      newBindGroups.push(this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(layoutIndex),
-        entries,
-      }));
+      try {
+        // Find the layout index for this group
+        // The layout index corresponds to the position in the pipeline's bind group layouts array
+        // This is used to get the correct layout from the pipeline
+        const layoutIndex = groupIndices.indexOf(groupIndex);
+        
+        // CRITICAL FIX: Store bind group at actual group index, not layout index
+        // This ensures setBindGroup(groupIndex, ...) works correctly
+        newBindGroups[groupIndex] = this.device.createBindGroup({
+          layout: this.pipeline.getBindGroupLayout(layoutIndex),
+          entries,
+        });
+        newBindGroupIndices.push(groupIndex);
+      } catch (err) {
+        console.error(`[GPURenderer] Failed to create bind group ${groupIndex} (layout ${groupIndices.indexOf(groupIndex)}):`, err);
+        // Skip failed bind groups - they won't be added to newBindGroupIndices
+      }
     }
+    
+    // CRITICAL FIX: Store bind groups indexed by actual group index (sparse array)
+    // Also store the list of group indices for efficient iteration during rendering
+    // This ensures setBindGroup(groupIndex, ...) uses the correct group index from the shader
     this.bindGroups = newBindGroups;
-
-    // Mark that we've updated the bind groups
-    texManager.bindGroup = {};
+    this.bindGroupIndices = newBindGroupIndices;
+    this._lastResourceHash = resourceHash;
+    
+    // CRITICAL FIX: Cache both bind groups and indices for complete restoration
+    // Limit cache size to prevent memory leaks
+    if (this._bindGroupCache.size > 10) {
+      // Remove oldest entry (simple FIFO)
+      const firstKey = this._bindGroupCache.keys().next().value;
+      this._bindGroupCache.delete(firstKey);
+    }
+    // Store both bindGroups and bindGroupIndices in cache for complete restoration
+    this._bindGroupCache.set(resourceHash, {
+      bindGroups: this.bindGroups,
+      bindGroupIndices: this.bindGroupIndices
+    });
+    
+    return true;
   }
 
   /**
@@ -944,14 +1126,18 @@ export class GPURenderer {
         
         // Check if texture actually changed by comparing texture view reference
         const previousTextureView = this._computeTextureHashes.get(resourceKey);
+        
+        // Apply external texture resource (updates resource.textureView)
+        this._applyExternalTextureResource(resource);
+        
         const currentTextureView = resource.textureView;
         
         if (previousTextureView !== currentTextureView) {
           texturesChanged = true;
-          this._computeTextureHashes.set(resourceKey, currentTextureView);
         }
-
-        this._applyExternalTextureResource(resource);
+        
+        // Always update hash map with current texture view for next frame comparison
+        this._computeTextureHashes.set(resourceKey, currentTextureView);
       }
     }
 
@@ -960,40 +1146,8 @@ export class GPURenderer {
       return;
     }
 
-    // PERFORMANCE: Rebuild bind groups with updated compute texture resources
-    // Use for loop instead of map to avoid creating intermediate arrays (reduces GC pressure)
-    const newBindGroups = [];
-    for (let layoutIndex = 0; layoutIndex < this.bindGroups.length; layoutIndex++) {
-      const entries = [];
-
-      // Collect all resources for this group
-      for (const resourceKey in this.resources) {
-        const [groupStr, bindingStr] = resourceKey.split(":");
-        const group = parseInt(groupStr, 10);
-        const binding = parseInt(bindingStr, 10);
-
-        if (group === layoutIndex) {
-          const resource = this.resources[resourceKey];
-          if (resource.buffer) {
-            entries.push({ binding, resource: { buffer: resource.buffer } });
-          } else if (resource.sampler) {
-            entries.push({ binding, resource: resource.sampler });
-          } else if (resource.textureView) {
-            entries.push({ binding, resource: resource.textureView });
-          }
-        }
-      }
-
-      // Sort entries by binding number to ensure correct order
-      entries.sort((a, b) => a.binding - b.binding);
-
-      newBindGroups.push(this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(layoutIndex),
-        entries,
-      }));
-    }
-    this.bindGroups = newBindGroups;
-
+    // PERFORMANCE: Use optimized rebuild method with caching
+    this._rebuildBindGroups(true); // Force rebuild since textures changed
   }
 
   async render(config) {
@@ -1006,6 +1160,8 @@ export class GPURenderer {
 
     // REMOVED: Frame-in-flight protection was too aggressive and broke preview
     // The real fix needs to be at the GPU context level, not render call limiting
+    // NOTE: Frame skipping during interactions is handled at the render loop level (main.js)
+    // to coordinate GPU and canvas rendering properly
 
     const {
       size,
@@ -1077,7 +1233,8 @@ export class GPURenderer {
     // Each render() call creates a new command encoder, ensuring canvas and preview
     // rendering use separate command buffers. This allows independent rendering
     // without interference between the main canvas render loop and preview render loop.
-    const encoder = this.device.createCommandEncoder();
+    // PERFORMANCE: Label encoder for better GPU profiling/debugging
+    const encoder = this.device.createCommandEncoder({ label: 'gpu-render-encoder' });
 
     // Execute compute shaders BEFORE fragment shader
     if (window.computeExecutor && window.computeExecutor.initialized) {
@@ -1112,6 +1269,7 @@ export class GPURenderer {
         // After compute execution, nodeOutputs has been updated with fresh textures
         // We need to update bind groups BEFORE the fragment render pass begins
         // PERFORMANCE: Only update if textures actually changed to avoid expensive bind group recreation
+        // The _updateComputeTextureBindings method now uses optimized caching
         this._updateComputeTextureBindings();
       }
     }
@@ -1151,8 +1309,14 @@ export class GPURenderer {
     }
 
     pass.setPipeline(this.pipeline);
-    for (let i = 0; i < this.bindGroups.length; i++) {
-      pass.setBindGroup(i, this.bindGroups[i]);
+    // CRITICAL FIX: Use actual group indices from shader, not array indices
+    // WebGPU's setBindGroup requires the @group() value from the shader, not a compact index
+    // Iterate over bindGroupIndices to get the actual group index values
+    for (const groupIndex of this.bindGroupIndices) {
+      const bindGroup = this.bindGroups[groupIndex];
+      if (bindGroup !== undefined) {
+        pass.setBindGroup(groupIndex, bindGroup);
+      }
     }
 
     pass.draw(3, 1, 0, 0);
@@ -1265,8 +1429,14 @@ export class GPURenderer {
     });
 
     pass.setPipeline(this.pipeline);
-    for (let i = 0; i < this.bindGroups.length; i++) {
-      pass.setBindGroup(i, this.bindGroups[i]);
+    // CRITICAL FIX: Use actual group indices from shader, not array indices
+    // WebGPU's setBindGroup requires the @group() value from the shader, not a compact index
+    // Iterate over bindGroupIndices to get the actual group index values
+    for (const groupIndex of this.bindGroupIndices) {
+      const bindGroup = this.bindGroups[groupIndex];
+      if (bindGroup !== undefined) {
+        pass.setBindGroup(groupIndex, bindGroup);
+      }
     }
     pass.draw(3, 1, 0, 0);
     pass.end();

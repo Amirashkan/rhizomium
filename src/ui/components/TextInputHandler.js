@@ -445,15 +445,11 @@ input.addEventListener("input", (e) => {
             window.updateUniformsOnly(node.id, param.name, currentDragValue);
           }
 
-          // Mark dirty and redraw canvas to update labels in real-time during drag
-          if (window.editor) {
-            if (window.editor.markDirty) {
-              window.editor.markDirty('parameter-drag');
-            }
-            if (window.editor.draw) {
-              window.editor.draw();
-            }
-          }
+          // PERFORMANCE FIX: Don't mark canvas dirty during parameter drag
+          // Canvas doesn't need to redraw - only GPU preview needs to update
+          // Canvas redraws are expensive and cause frame drops
+          // The GPU preview shows parameter changes in real-time via uniforms
+          // Canvas will redraw on mouseup when we call updateNodeParameter
 
           e.preventDefault();
           e.stopPropagation(); // Prevent EventHandler from processing this event

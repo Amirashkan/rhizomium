@@ -123,13 +123,25 @@ updateTimeNodes() {
   this.editor.draw();
 }
   onParameterChange(node, immediate = false) {
+    // PERFORMANCE FIX: Skip ALL preview updates during parameter drag
+    // Preview updates are expensive and cause frame drops. Only update uniforms during drag.
+    // Preview updates will happen on mouseup via the normal parameter change flow.
+    if (this.editor._parameterDragging) {
+      // During drag, only mark node as dirty for later processing
+      // Don't trigger expensive preview computations
+      if (node?.id && this.editor?.previewComputer?.markNodeDirty) {
+        this.editor.previewComputer.markNodeDirty(node.id, 'parameter-change');
+      }
+      return; // Skip all preview updates during drag
+    }
+
     if (node?.id && this.editor?.previewComputer?.markNodeDirty) {
       this.editor.previewComputer.markNodeDirty(node.id, 'parameter-change');
     }
 
     // OPTIMIZATION: Debounce rapid parameter changes (e.g., slider drag)
     // Unless immediate flag is set (e.g., discrete value changes)
-    if (!immediate && !this.editor._parameterDragging) {
+    if (!immediate) {
       // For rapid changes, collect affected nodes and process in batch
       this.pendingParameterChanges.set(node.id, node);
 

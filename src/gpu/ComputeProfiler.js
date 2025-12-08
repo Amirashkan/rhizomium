@@ -38,6 +38,8 @@ export class ComputeProfiler {
     this.lastFrameTime = performance.now();
     this.frameTimes = [];
     this.maxFrameSamples = 60;
+    // PERFORMANCE: Cache sum of frame times to avoid O(n) reduce() every frame
+    this._frameTimeSum = 0;
 
     // Dispatch tracking
     this.currentFrameDispatches = [];
@@ -121,49 +123,50 @@ export class ComputeProfiler {
 
   /**
    * Begin frame profiling
+   * PERFORMANCE: Optimized to use cached sum instead of reduce() for O(1) FPS calculation
    */
   beginFrame() {
     if (!this.enabled) return;
     
+    const now = performance.now();
+    let deltaTime = now - this.lastFrameTime;
+    this.lastFrameTime = now;
+    
+    // Safeguard: Handle edge cases (clock adjustment, tab inactive)
+    // Clamp deltaTime to reasonable range (0-1000ms) to prevent FPS calculation errors
+    if (deltaTime < 0) {
+      // Clock went backwards (system clock adjustment) - skip this frame
+      return;
+    }
+    if (deltaTime > 1000) {
+      // Tab was inactive for >1 second - cap at 1000ms to prevent skewing average
+      deltaTime = 1000;
+    }
+    
+    // Update frame timing with incremental sum update (O(1) instead of O(n))
+    this.frameTimes.push(deltaTime);
+    this._frameTimeSum += deltaTime;
+    
+    if (this.frameTimes.length > this.maxFrameSamples) {
+      // Remove oldest frame time from sum
+      const removed = this.frameTimes.shift();
+      this._frameTimeSum -= removed;
+    }
+    
+    // Calculate FPS from cached sum (O(1) instead of O(n) reduce)
+    const frameCount = this.frameTimes.length;
+    const avgFrameTime = frameCount > 0 ? this._frameTimeSum / frameCount : 0;
+    this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
+    this.metrics.frameTime = avgFrameTime;
+    
     // Skip detailed profiling during interactions to reduce overhead
     if (this._isInteractionMode) {
-      // Only track basic frame timing during interactions
-      const now = performance.now();
-      const deltaTime = now - this.lastFrameTime;
-      this.lastFrameTime = now;
-      
-      // Update frame timing
-      this.frameTimes.push(deltaTime);
-      if (this.frameTimes.length > this.maxFrameSamples) {
-        this.frameTimes.shift();
-      }
-      
-      // Calculate FPS from average frame time
-      const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
-      this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
-      this.metrics.frameTime = avgFrameTime;
-      
       // Reset dispatch tracking (skip detailed tracking during interactions)
       this.currentFrameDispatches = [];
       this.dispatchIndex = 0;
       return;
     }
 
-    const now = performance.now();
-    const deltaTime = now - this.lastFrameTime;
-
-    // Update frame timing
-    this.frameTimes.push(deltaTime);
-    if (this.frameTimes.length > this.maxFrameSamples) {
-      this.frameTimes.shift();
-    }
-
-    // Calculate FPS from average frame time
-    const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
-    this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
-    this.metrics.frameTime = avgFrameTime;
-
-    this.lastFrameTime = now;
     this.frameCount++;
 
     // Reset dispatch tracking for new frame
@@ -346,6 +349,7 @@ export class ComputeProfiler {
   reset() {
     this.frameCount = 0;
     this.frameTimes = [];
+    this._frameTimeSum = 0;
     this.currentFrameDispatches = [];
     this.metrics = {
       fps: 0,
