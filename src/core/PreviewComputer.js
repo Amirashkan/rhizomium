@@ -3,6 +3,7 @@ import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { MessagePriority } from './AsyncQueueManager.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+import { NodeDefs } from '../data/NodeDefs.js';
 
 export class PreviewComputer {
   constructor() {
@@ -105,6 +106,12 @@ export class PreviewComputer {
         callback(this.cachedPreviews || {});
       }
       return;
+    }
+
+    // Use provided time context if available, otherwise use current time
+    // This ensures time-based expressions use the correct time value
+    if (timeContext?.time !== undefined) {
+      this.animationTime = timeContext.time;
     }
 
     // Run computation synchronously
@@ -1165,12 +1172,57 @@ case "Compare":
         this._renderOutputThumbnail(ctx, size, node.__preview, node); // Pass node here
         break;
         
-      // ... rest of cases ...
+      default:
+        // ENHANCEMENT: For nodes without specific thumbnail rendering, use preview value
+        // Check node output type to determine appropriate thumbnail rendering
+        const nodeDef = NodeDefs[node.kind];
+        const outputType = nodeDef?.pinsOut?.[0]?.type;
+        const previewValue = values.get(node.id) ?? node.__preview;
+        
+        if (previewValue !== undefined && previewValue !== null) {
+          if (outputType === 'f32' && typeof previewValue === 'number' && !Array.isArray(previewValue)) {
+            // Only render float thumbnail for scalar (f32) outputs
+            this._renderFloatThumbnail(ctx, size, previewValue);
+          } else if (Array.isArray(previewValue)) {
+            // Render vector/array value
+            if (previewValue.length >= 3) {
+              this._renderColorThumbnail(ctx, size, previewValue);
+            } else if (previewValue.length === 2) {
+              this._renderVec2Thumbnail(ctx, size, previewValue);
+            } else {
+              this._renderDefaultThumbnail(ctx, size, previewValue);
+            }
+          } else {
+            // For non-scalar outputs, use default thumbnail rendering
+            this._renderDefaultThumbnail(ctx, size, previewValue);
+          }
+        } else {
+          // Fallback: render generic thumbnail
+          this._renderDefaultThumbnail(ctx, size, 0);
+        }
+        break;
     }
 
     return canvas;
   } catch (error) {
-    // ... error handling ...
+    window.errorHandler?.handleError(error, {
+      component: 'thumbnail-creation',
+      nodeId: node?.id,
+      nodeKind: node?.kind
+    });
+    // Return error thumbnail
+    const size = this.previewSize;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#2d1b1b";
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#ff4444";
+    ctx.font = "8px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("ERR", size / 2, size / 2);
+    return canvas;
   }
 }
 _renderStripeThumbnail(ctx, size, node) {
@@ -1456,10 +1508,38 @@ _renderOutputThumbnail(ctx, size, color, node) {
     ctx.fillStyle = `hsl(${hue}, 90%, 60%)`;
     ctx.fillRect(size * 0.1, size - barHeight, size * 0.8, barHeight);
 
-    ctx.fillStyle = "#fff";
-    ctx.font = "10px monospace";
+    // ENHANCEMENT: Display numeric value prominently with better formatting
+    let displayText;
+    if (Math.abs(value) < 0.01 && value !== 0) {
+      displayText = value.toExponential(2);
+    } else if (Math.abs(value) >= 1000) {
+      displayText = value.toExponential(2);
+    } else {
+      displayText = value.toFixed(3);
+    }
+
+    // Draw background for better readability
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    const fontSize = Math.max(10, Math.min(size * 0.25, 14));
+    ctx.font = `bold ${fontSize}px monospace`;
     ctx.textAlign = "center";
-    ctx.fillText(value.toFixed(2), size / 2, size / 2 + 3);
+    ctx.textBaseline = "middle";
+    const textMetrics = ctx.measureText(displayText);
+    const textWidth = textMetrics.width;
+    const textHeight = fontSize;
+    const padding = 3;
+    const bgX = (size - textWidth) / 2 - padding;
+    const bgY = size / 2 - textHeight / 2 - padding;
+    const bgWidth = textWidth + padding * 2;
+    const bgHeight = textHeight + padding * 2;
+    ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+
+    // Draw text with high contrast
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+    ctx.shadowBlur = 2;
+    ctx.fillText(displayText, size / 2, size / 2);
+    ctx.shadowBlur = 0; // Reset shadow
   }
 
   _renderVec2Thumbnail(ctx, size, vec) {
@@ -1710,7 +1790,24 @@ _renderOutputThumbnail(ctx, size, color) {
     if (isVector) {
       this._renderColorThumbnail(ctx, size, value);
     } else {
-      this._renderFloatThumbnail(ctx, size, typeof value === "number" ? value : 0);
+      // Don't render float thumbnail for default - use a generic pattern instead
+      // Float thumbnails should only be used for scalar (f32) outputs explicitly
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(0, 0, size, size);
+      
+      // Draw a subtle pattern to indicate generic output
+      ctx.strokeStyle = "#444";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < size; i += 4) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, size);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(size, i);
+        ctx.stroke();
+      }
     }
   }
 

@@ -263,8 +263,8 @@ export class Editor {
         this.menu.setUndoManager(this.undoManager);
       }
 
-      // Preview system settings
-      this.previewSizes = { small: 32, medium: 64, large: 96 };
+      // Preview system settings - Increased sizes for better visibility
+      this.previewSizes = { small: 48, medium: 96, large: 128 };
       
     } catch (error) {
       window.errorHandler?.handleError(error, {

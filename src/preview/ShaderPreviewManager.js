@@ -157,25 +157,44 @@ export class ShaderPreviewManager {
       return;
     }
 
-    if (this.enableCPUReadback) {
+    // ENHANCEMENT: Always enable CPU readback for thumbnails to show real-time data
+    // This ensures thumbnails always display the actual GPU output
+    try {
       // Readback compute texture to CPU for thumbnail
-      try {
-        const pixels = await this.readbackComputeTexture(computeInfo.texture);
-        const imageData = this.gpuRenderer.pixelsToImageData(pixels, computeInfo.texture.width);
+      const pixels = await this.readbackComputeTexture(computeInfo.texture);
+      const imageData = this.gpuRenderer.pixelsToImageData(pixels, computeInfo.texture.width);
 
-        // Create canvas from ImageData
-        const canvas = document.createElement('canvas');
-        canvas.width = imageData.width;
-        canvas.height = imageData.height;
-        const ctx = canvas.getContext('2d');
-        ctx.putImageData(imageData, 0, 0);
+      // Create canvas from ImageData with high-quality rendering
+      const canvas = document.createElement('canvas');
+      // Use larger size for better visibility (match preview system size)
+      const thumbSize = 64; // Match PreviewSystem size
+      canvas.width = thumbSize;
+      canvas.height = thumbSize;
+      const ctx = canvas.getContext('2d');
+      
+      // Enable high-quality image smoothing
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // Create temporary canvas for source image
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = imageData.width;
+      tempCanvas.height = imageData.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.putImageData(imageData, 0, 0);
+      
+      // Scale to thumbnail size with high quality
+      ctx.drawImage(tempCanvas, 0, 0, thumbSize, thumbSize);
 
-        node.__thumb = canvas;
-      } catch (error) {
-
+      // Store thumbnail on node for rendering
+      node.__thumb = canvas;
+      
+      // Mark node as dirty to trigger redraw
+      if (window.editor?.markDirty) {
+        window.editor.markDirty('compute-thumbnail-update');
       }
-    } else {
-      // Just mark that we have a GPU texture (no CPU readback)
+    } catch (error) {
+      // Fallback: mark GPU preview available even if readback fails
       node.__gpuPreview = computeInfo;
     }
   }

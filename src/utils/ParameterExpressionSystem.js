@@ -3,6 +3,7 @@
 import { getAudioEnvelope } from '../audio/BrowserAudioCapture.js';
 import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
 import { MessagePriority } from '../core/AsyncQueueManager.js';
+import { NodeDefs } from '../data/NodeDefs.js';
 
 export class ParameterExpressionSystem {
   constructor() {
@@ -236,7 +237,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       if (!this.isExpression(expression)) {
         return this.parseValue(expression);
       }
-  if ((expression.includes('time') || expression.includes('audioEnvelope')) && node) {
+  if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame')) && node) {
     // Mark this node as needing continuous updates
     if (!this.timeAnimatedNodes) {
       this.timeAnimatedNodes = new Set();
@@ -304,7 +305,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         return this.parseValue(expression);
       }
       
-      if ((expression.includes('time') || expression.includes('audioEnvelope')) && node) {
+      if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame')) && node) {
         // Mark this node as needing continuous updates
         if (!this.timeAnimatedNodes) {
           this.timeAnimatedNodes = new Set();
@@ -1204,6 +1205,22 @@ isIncomplete(value) {
           // Update GPU uniforms immediately
           if (typeof window.updateUniformsOnly === 'function') {
             window.updateUniformsOnly(node.id, param.name, input.value);
+          }
+
+          // FIX: Update node.__preview for scalar outputs to enable real-time numeric overlay updates
+          // Check if this node outputs a scalar (f32) value
+          const nodeDef = NodeDefs[node.kind];
+          const outputType = nodeDef?.pinsOut?.[0]?.type;
+          if (outputType === 'f32') {
+            // For scalar outputs, update preview value immediately for numeric overlay
+            // This allows the numeric overlay to update in real-time during drag
+            const numValue = parseFloat(input.value) || 0;
+            node.__preview = numValue;
+            
+            // Force immediate canvas redraw to show updated numeric overlay
+            if (window.editor?.draw) {
+              window.editor.draw();
+            }
           }
 
           // PERFORMANCE FIX: Don't mark canvas dirty during parameter drag
