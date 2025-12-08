@@ -35,7 +35,7 @@ export class ComputeProfiler {
 
     // Frame timing
     this.frameCount = 0;
-    this.lastFrameTime = null; // Will be initialized on first dispatch frame
+    this.lastFrameTime = performance.now();
     this.frameTimes = [];
     this.maxFrameSamples = 60;
     // PERFORMANCE: Cache sum of frame times to avoid O(n) reduce() every frame
@@ -124,10 +124,40 @@ export class ComputeProfiler {
   /**
    * Begin frame profiling
    * PERFORMANCE: Optimized to use cached sum instead of reduce() for O(1) FPS calculation
-   * FIX: Only track FPS when compute dispatches actually occur, not on every render frame
    */
   beginFrame() {
     if (!this.enabled) return;
+    
+    const now = performance.now();
+    let deltaTime = now - this.lastFrameTime;
+    this.lastFrameTime = now;
+    
+    // Safeguard: Handle edge cases (clock adjustment, tab inactive)
+    // Clamp deltaTime to reasonable range (0-1000ms) to prevent FPS calculation errors
+    if (deltaTime < 0) {
+      // Clock went backwards (system clock adjustment) - skip this frame
+      return;
+    }
+    if (deltaTime > 1000) {
+      // Tab was inactive for >1 second - cap at 1000ms to prevent skewing average
+      deltaTime = 1000;
+    }
+    
+    // Update frame timing with incremental sum update (O(1) instead of O(n))
+    this.frameTimes.push(deltaTime);
+    this._frameTimeSum += deltaTime;
+    
+    if (this.frameTimes.length > this.maxFrameSamples) {
+      // Remove oldest frame time from sum
+      const removed = this.frameTimes.shift();
+      this._frameTimeSum -= removed;
+    }
+    
+    // Calculate FPS from cached sum (O(1) instead of O(n) reduce)
+    const frameCount = this.frameTimes.length;
+    const avgFrameTime = frameCount > 0 ? this._frameTimeSum / frameCount : 0;
+    this.metrics.fps = avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
+    this.metrics.frameTime = avgFrameTime;
     
     // Skip detailed profiling during interactions to reduce overhead
     if (this._isInteractionMode) {
@@ -142,9 +172,6 @@ export class ComputeProfiler {
     // Reset dispatch tracking for new frame
     this.currentFrameDispatches = [];
     this.dispatchIndex = 0;
-    
-    // Track frame start time for FPS calculation (will be used if dispatches occur)
-    this._frameStartTime = performance.now();
   }
 
   /**
