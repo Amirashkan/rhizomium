@@ -4015,10 +4015,8 @@ function handleRenderFrame(frameState) {
     viewportPanel.update();
   }
 
-  // FPS counter - ALWAYS update for performance monitoring
-  if (!frameState.manual && floatingPreview?.fpsCounter) {
-    floatingPreview.fpsCounter.frame();
-  }
+  // FPS counter is handled by FloatingGPUPreview in its own render loop
+  // This ensures it only counts actual preview refresh frames, not render loop frames
 
   // Update compute profiler overlay - Continue updating during interactions
   // FIX: Allow profiler to continue updating during panning to prevent freezing
