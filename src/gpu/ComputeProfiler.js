@@ -35,7 +35,7 @@ export class ComputeProfiler {
 
     // Frame timing
     this.frameCount = 0;
-    this.lastFrameTime = performance.now();
+    this.lastFrameTime = null; // Will be initialized on first dispatch frame
     this.frameTimes = [];
     this.maxFrameSamples = 60;
     // PERFORMANCE: Cache sum of frame times to avoid O(n) reduce() every frame
@@ -236,11 +236,23 @@ export class ComputeProfiler {
 
     // FIX: Only update FPS when compute dispatches actually occur
     // This ensures compute profiler FPS reflects compute dispatch rate, not render frame rate
-    if (this.currentFrameDispatches.length > 0 && this._frameStartTime !== undefined) {
-      let deltaTime = this._frameStartTime - this.lastFrameTime;
+    if (this.currentFrameDispatches.length > 0) {
+      // Use frame start time if available, otherwise use the earliest dispatch start time
+      let frameStartTime = this._frameStartTime;
+      if (frameStartTime === undefined && this.currentFrameDispatches.length > 0) {
+        // Fallback: use the earliest dispatch start time as frame start
+        frameStartTime = Math.min(...this.currentFrameDispatches.map(d => d.startTime));
+      }
+      if (frameStartTime === undefined) {
+        frameStartTime = performance.now();
+      }
       
-      // Skip first frame in FPS calculation (need at least 2 frames to calculate delta)
-      if (this.frameTimes.length > 0) {
+      // Initialize lastFrameTime on first dispatch frame (skip FPS calculation for first frame)
+      if (this.lastFrameTime === null) {
+        this.lastFrameTime = frameStartTime;
+      } else {
+        let deltaTime = frameStartTime - this.lastFrameTime;
+        
         // Safeguard: Handle edge cases (clock adjustment, tab inactive)
         // Clamp deltaTime to reasonable range (0-1000ms) to prevent FPS calculation errors
         if (deltaTime >= 0) {
@@ -249,7 +261,7 @@ export class ComputeProfiler {
             deltaTime = 1000;
           }
           
-          // Only update FPS if we have a valid deltaTime (not the first frame)
+          // Only update FPS if we have a valid deltaTime
           if (deltaTime > 0) {
             // Update frame timing with incremental sum update (O(1) instead of O(n))
             this.frameTimes.push(deltaTime);
@@ -269,10 +281,10 @@ export class ComputeProfiler {
           }
         }
         // If deltaTime < 0 (clock went backwards), just update lastFrameTime but don't calculate FPS
+        
+        // Update lastFrameTime for next dispatch frame
+        this.lastFrameTime = frameStartTime;
       }
-      
-      // Update lastFrameTime for next dispatch frame (always update, even on first frame or clock issues)
-      this.lastFrameTime = this._frameStartTime;
     }
 
     // Resolve GPU timestamp queries if available
@@ -362,6 +374,7 @@ export class ComputeProfiler {
    */
   reset() {
     this.frameCount = 0;
+    this.lastFrameTime = null; // Reset to null so FPS calculation restarts properly
     this.frameTimes = [];
     this._frameTimeSum = 0;
     this.currentFrameDispatches = [];
