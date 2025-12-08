@@ -4030,11 +4030,15 @@ function handleRenderFrame(frameState) {
     floatingPreview.fpsCounter.frame();
   }
 
-  // Update compute profiler overlay - Continue updating during interactions
-  // FIX: Allow profiler to continue updating during panning to prevent freezing
+  // Update compute profiler overlay - Throttle more aggressively during interactions
+  // PERFORMANCE: Reduce update frequency during interactions to reduce overhead
   if (profilerOverlay && computeProfiler) {
     const now = performance.now();
-    const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
+    // Use longer interval during interactions to reduce overhead
+    const updateInterval = isCanvasInteracting 
+      ? PROFILER_UPDATE_INTERVAL * 2  // 400ms during interactions
+      : PROFILER_UPDATE_INTERVAL;     // 200ms normally
+    const shouldUpdateProfiler = (now - lastProfilerUpdate) >= updateInterval;
     if (shouldUpdateProfiler) {
       const metrics = computeProfiler.getMetrics();
       profilerOverlay.update(metrics);
