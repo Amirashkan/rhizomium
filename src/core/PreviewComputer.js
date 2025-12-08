@@ -3,6 +3,7 @@ import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { MessagePriority } from './AsyncQueueManager.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
+import { NodeDefs } from '../data/NodeDefs.js';
 
 export class PreviewComputer {
   constructor() {
@@ -1167,11 +1168,14 @@ case "Compare":
         
       default:
         // ENHANCEMENT: For nodes without specific thumbnail rendering, use preview value
-        // This ensures scalar outputs (including audio envelope) display numeric values
+        // Check node output type to determine appropriate thumbnail rendering
+        const nodeDef = NodeDefs[node.kind];
+        const outputType = nodeDef?.pinsOut?.[0]?.type;
         const previewValue = values.get(node.id) ?? node.__preview;
+        
         if (previewValue !== undefined && previewValue !== null) {
-          if (typeof previewValue === 'number' && !Array.isArray(previewValue)) {
-            // Render scalar value with numeric display
+          if (outputType === 'f32' && typeof previewValue === 'number' && !Array.isArray(previewValue)) {
+            // Only render float thumbnail for scalar (f32) outputs
             this._renderFloatThumbnail(ctx, size, previewValue);
           } else if (Array.isArray(previewValue)) {
             // Render vector/array value
@@ -1183,6 +1187,7 @@ case "Compare":
               this._renderDefaultThumbnail(ctx, size, previewValue);
             }
           } else {
+            // For non-scalar outputs, use default thumbnail rendering
             this._renderDefaultThumbnail(ctx, size, previewValue);
           }
         } else {
@@ -1779,7 +1784,24 @@ _renderOutputThumbnail(ctx, size, color) {
     if (isVector) {
       this._renderColorThumbnail(ctx, size, value);
     } else {
-      this._renderFloatThumbnail(ctx, size, typeof value === "number" ? value : 0);
+      // Don't render float thumbnail for default - use a generic pattern instead
+      // Float thumbnails should only be used for scalar (f32) outputs explicitly
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(0, 0, size, size);
+      
+      // Draw a subtle pattern to indicate generic output
+      ctx.strokeStyle = "#444";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < size; i += 4) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, size);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(size, i);
+        ctx.stroke();
+      }
     }
   }
 

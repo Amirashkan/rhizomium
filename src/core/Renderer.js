@@ -757,6 +757,13 @@ export class Renderer {
   }
 
   _renderNumericValueOverlay(ctx, node, thumbX, thumbY, thumbSize) {
+    // Check if node outputs a scalar value (f32 type)
+    const nodeDef = NodeDefs[node.kind];
+    const outputType = nodeDef?.pinsOut?.[0]?.type;
+    
+    // Only show numeric overlay for scalar (f32) outputs
+    if (outputType !== 'f32') return;
+    
     // Check if node outputs a scalar value (number, not array/vector)
     const previewValue = node.__preview;
     
