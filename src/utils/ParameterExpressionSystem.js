@@ -237,7 +237,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       if (!this.isExpression(expression)) {
         return this.parseValue(expression);
       }
-  if ((expression.includes('time') || expression.includes('audioEnvelope')) && node) {
+  if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame')) && node) {
     // Mark this node as needing continuous updates
     if (!this.timeAnimatedNodes) {
       this.timeAnimatedNodes = new Set();
@@ -305,7 +305,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         return this.parseValue(expression);
       }
       
-      if ((expression.includes('time') || expression.includes('audioEnvelope')) && node) {
+      if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame')) && node) {
         // Mark this node as needing continuous updates
         if (!this.timeAnimatedNodes) {
           this.timeAnimatedNodes = new Set();

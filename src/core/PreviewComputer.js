@@ -108,6 +108,12 @@ export class PreviewComputer {
       return;
     }
 
+    // Use provided time context if available, otherwise use current time
+    // This ensures time-based expressions use the correct time value
+    if (timeContext?.time !== undefined) {
+      this.animationTime = timeContext.time;
+    }
+
     // Run computation synchronously
     const startTime = performance.now();
     const result = this.computePreviews(graph);

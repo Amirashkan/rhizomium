@@ -128,21 +128,86 @@ updateTimeNodes() {
 
   // Update nodes that have time-based expressions
   const expressionSystem = window.editor?.paramPanel?.expressionSystem;
-  if (expressionSystem?.timeAnimatedNodes && expressionSystem.timeAnimatedNodes.size > 0) {
-    expressionSystem.timeAnimatedNodes.forEach(nodeId => {
+  if (!expressionSystem?.timeAnimatedNodes || expressionSystem.timeAnimatedNodes.size === 0) {
+    return;
+  }
+
+  // Collect all nodes that need updates: time-animated nodes + their dependents
+  const nodesToUpdate = new Set();
+  const timeAnimatedNodeIds = Array.from(expressionSystem.timeAnimatedNodes);
+  
+  // Add time-animated nodes themselves
+  timeAnimatedNodeIds.forEach(nodeId => {
+    nodesToUpdate.add(nodeId);
+  });
+
+  // Find all downstream nodes that depend on time-animated nodes
+  if (this.editor.graph.connections) {
+    const findDependents = (nodeId, visited = new Set()) => {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+
+      this.editor.graph.connections
+        .filter(conn => conn.from.nodeId === nodeId)
+        .forEach(conn => {
+          nodesToUpdate.add(conn.to.nodeId);
+          findDependents(conn.to.nodeId, visited);
+        });
+    };
+
+    timeAnimatedNodeIds.forEach(nodeId => {
+      findDependents(nodeId);
+    });
+  }
+
+  if (nodesToUpdate.size === 0) {
+    return;
+  }
+
+  // CRITICAL: Actually recompute preview values, not just regenerate thumbnails
+  // This ensures node.__preview gets updated with new numeric values for time-based expressions
+  if (this.editor?.previewComputer && this.editor?.graph) {
+    this.editor.previewComputer.requestPreviewComputation(
+      this.editor.graph,
+      { time: performance.now() / 1000 },
+      {},
+      () => {
+        // After computation, regenerate thumbnails for all affected nodes
+        const nodesArray = Array.from(nodesToUpdate)
+          .map(nodeId => this.editor.graph.nodes.find(n => n.id === nodeId))
+          .filter(Boolean);
+
+        nodesArray.forEach(node => {
+          // Generate preview thumbnail with newly computed values
+          this.generateNodePreview(node, true); // skip compute since we just did it
+        });
+
+        // Refresh parameter panel displays to show updated values
+        if (this.editor.paramPanel?.refreshParameterDisplays) {
+          this.editor.paramPanel.refreshParameterDisplays();
+        }
+
+        // Mark dirty and redraw to show updated numeric overlays and thumbnails
+        if (this.editor.markDirty) {
+          this.editor.markDirty('time-node-update');
+        }
+        this.editor.draw();
+      }
+    );
+  } else {
+    // Fallback: if no preview computer, at least try to regenerate thumbnails
+    timeAnimatedNodeIds.forEach(nodeId => {
       const node = this.editor.graph.nodes.find(n => n.id === nodeId);
       if (node) {
-        this.previewSystem.generateNodePreview(node);
+        this.generateNodePreview(node);
       }
     });
 
-    // Mark dirty since we updated time-animated node previews
     if (this.editor.markDirty) {
       this.editor.markDirty('time-node-update');
     }
+    this.editor.draw();
   }
-
-  this.editor.draw();
 }
   onParameterChange(node, immediate = false) {
     // PERFORMANCE FIX: Skip ALL preview updates during parameter drag
