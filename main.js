@@ -2124,9 +2124,9 @@ function setupPreviewSettingsMenu() {
   // Animation Settings - FPS
   const fpsInput = document.getElementById("preview-fps");
   if (fpsInput) {
-    fpsInput.value = previewSettings.refreshRate || 30;
+    fpsInput.value = previewSettings.refreshRate || 60;
     fpsInput.addEventListener("change", (e) => {
-      const value = parseInt(e.target.value) || 30;
+      const value = parseInt(e.target.value) || 60;
       settings.updateSetting("refreshRate", Math.min(60, Math.max(1, value)));
     });
   }
@@ -3955,6 +3955,12 @@ function handleRenderFrame(frameState) {
       const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
       previewPerfMonitor?.endSection(gpuToken);
       previewPerfMonitor?.attachAsyncMetric("gpuQueueWaitMs", renderPromise);
+      
+      // Update preview FPS counter when GPU actually renders
+      if (floatingPreview?.fpsCounter && floatingPreview.isVisible) {
+        floatingPreview.fpsCounter.frame();
+      }
+      
       renderPromise.catch(err => {
         // Silently handle render errors to avoid breaking render loop
         // Errors are already logged in gpuRenderer.render()
@@ -4015,10 +4021,8 @@ function handleRenderFrame(frameState) {
     viewportPanel.update();
   }
 
-  // FPS counter - ALWAYS update for performance monitoring
-  if (!frameState.manual && floatingPreview?.fpsCounter) {
-    floatingPreview.fpsCounter.frame();
-  }
+  // FPS counter is handled by FloatingGPUPreview in its own render loop
+  // This ensures it only counts actual preview refresh frames, not render loop frames
 
   // Update compute profiler overlay - Continue updating during interactions
   // FIX: Allow profiler to continue updating during panning to prevent freezing

@@ -428,7 +428,7 @@ _startPreviewRenderLoop() {
   
   // PERFORMANCE: Register with UnifiedRAFManager instead of creating own RAF
   // This consolidates all RAF-based updates into a single loop for better performance
-  // Always render at 60 FPS to ensure smooth preview, regardless of main loop state
+  // Render at the configured refresh rate to ensure smooth preview
   // The GPU renderer can handle being called multiple times per frame gracefully
   
   this._previewRenderLoopRunning = true;
@@ -439,25 +439,12 @@ _startPreviewRenderLoop() {
     window.renderLoop.rafManager.registerHandler(
       this._handlerName,
       (frameInfo) => {
-        // Convert realTime from seconds to milliseconds for timestamp comparison
-        const timestamp = frameInfo.timestamp || (frameInfo.realTime * 1000);
-        
-        // Always render at 60 FPS to ensure smooth preview
-        // Check if enough time has passed (target 60 FPS = 16.67ms per frame)
-        const timeSinceLastRender = timestamp - this._lastRenderTime;
-        const minFrameInterval = 16.67; // ~60 FPS
-        const shouldRender = timeSinceLastRender >= minFrameInterval;
-        
-        if (shouldRender && typeof window.render === "function") {
-          // Render the preview - GPU renderer handles duplicate calls gracefully
-          window.render();
-          this._lastRenderTime = timestamp;
-          
-          // Update FPS counter
-          if (this.fpsCounter) {
-            this.fpsCounter.frame();
-          }
-        }
+        // This handler is called every time RenderLoop._step() is called.
+        // In fixed mode, _step() is called multiple times per RAF frame to achieve
+        // the target refresh rate. In vsync mode, it's called once per RAF frame.
+        // The actual GPU rendering happens in handleRenderFrame (called from onFrame),
+        // and the FPS counter is updated there when the GPU actually renders.
+        // This handler exists to ensure the preview render loop is registered and active.
       },
       PRIORITY.NORMAL,
       {

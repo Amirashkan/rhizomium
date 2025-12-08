@@ -12,7 +12,7 @@ export class PreviewSettings {
     this.settings = {
       resolution: { width: 512, height: 512 },
       refreshRate: 60,
-      timingMode: "vsync",
+      timingMode: "fixed",
       wireframe: false,
       showNormals: false,
       debugChannel: "none",
@@ -221,10 +221,10 @@ async _publishAnimation() {
   const originalStyleWidth = canvas.style.width;
   const originalStyleHeight = canvas.style.height;
 
-  const defaultFps = Math.max(1, this.settings.refreshRate || 30);
+  const defaultFps = Math.max(1, this.settings.refreshRate || 60);
   const fpsInput = await modalManager.prompt("Frames per second for the recording (1-120)?", 'Animation Settings', String(defaultFps), {
     inputType: 'number',
-    placeholder: '30',
+    placeholder: '60',
     validator: (value) => {
       const fps = Number(value);
       if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {
@@ -1892,10 +1892,10 @@ for (let y = 0; y < height; y++) {
     const originalStyleHeight = canvas.style.height;
 
     // Get FPS from settings or prompt
-    const defaultFps = Math.max(1, this.settings.refreshRate || 30);
+    const defaultFps = Math.max(1, this.settings.refreshRate || 60);
     const fpsInput = await modalManager.prompt("Frames per second for the recording (1-120)?", 'Animation Settings', String(defaultFps), {
       inputType: 'number',
-      placeholder: '30',
+      placeholder: '60',
       validator: (value) => {
         const fps = Number(value);
         if (!Number.isFinite(fps) || fps <= 0 || fps > 120) {

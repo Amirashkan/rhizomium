@@ -348,6 +348,7 @@ export class ComputeProfiler {
    */
   reset() {
     this.frameCount = 0;
+    this.lastFrameTime = performance.now();
     this.frameTimes = [];
     this._frameTimeSum = 0;
     this.currentFrameDispatches = [];
