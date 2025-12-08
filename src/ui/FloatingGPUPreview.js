@@ -439,21 +439,12 @@ _startPreviewRenderLoop() {
     window.renderLoop.rafManager.registerHandler(
       this._handlerName,
       (frameInfo) => {
-        // In fixed mode, RenderLoop calls _step() multiple times per RAF frame
-        // to achieve the target refresh rate. We should render every time the handler
-        // is called, not throttle based on timestamp (which would prevent multiple
-        // renders within the same RAF frame).
-        // In vsync mode, render every RAF frame (naturally matches display refresh rate).
-        
-        if (typeof window.render === "function") {
-          // Render the preview - GPU renderer handles duplicate calls gracefully
-          window.render();
-          
-          // Update FPS counter
-          if (this.fpsCounter) {
-            this.fpsCounter.frame();
-          }
-        }
+        // This handler is called every time RenderLoop._step() is called.
+        // In fixed mode, _step() is called multiple times per RAF frame to achieve
+        // the target refresh rate. In vsync mode, it's called once per RAF frame.
+        // The actual GPU rendering happens in handleRenderFrame (called from onFrame),
+        // and the FPS counter is updated there when the GPU actually renders.
+        // This handler exists to ensure the preview render loop is registered and active.
       },
       PRIORITY.NORMAL,
       {

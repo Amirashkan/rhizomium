@@ -3955,6 +3955,12 @@ function handleRenderFrame(frameState) {
       const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
       previewPerfMonitor?.endSection(gpuToken);
       previewPerfMonitor?.attachAsyncMetric("gpuQueueWaitMs", renderPromise);
+      
+      // Update preview FPS counter when GPU actually renders
+      if (floatingPreview?.fpsCounter && floatingPreview.isVisible) {
+        floatingPreview.fpsCounter.frame();
+      }
+      
       renderPromise.catch(err => {
         // Silently handle render errors to avoid breaking render loop
         // Errors are already logged in gpuRenderer.render()
