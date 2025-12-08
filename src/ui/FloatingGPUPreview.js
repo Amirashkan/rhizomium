@@ -428,7 +428,7 @@ _startPreviewRenderLoop() {
   
   // PERFORMANCE: Register with UnifiedRAFManager instead of creating own RAF
   // This consolidates all RAF-based updates into a single loop for better performance
-  // Always render at 60 FPS to ensure smooth preview, regardless of main loop state
+  // Render at the configured refresh rate to ensure smooth preview
   // The GPU renderer can handle being called multiple times per frame gracefully
   
   this._previewRenderLoopRunning = true;
@@ -442,11 +442,21 @@ _startPreviewRenderLoop() {
         // Convert realTime from seconds to milliseconds for timestamp comparison
         const timestamp = frameInfo.timestamp || (frameInfo.realTime * 1000);
         
-        // Always render at 60 FPS to ensure smooth preview
-        // Check if enough time has passed (target 60 FPS = 16.67ms per frame)
-        const timeSinceLastRender = timestamp - this._lastRenderTime;
-        const minFrameInterval = 16.67; // ~60 FPS
-        const shouldRender = timeSinceLastRender >= minFrameInterval;
+        // Determine if we should throttle based on timing mode
+        const timingMode = this.settings?.settings?.timingMode || "vsync";
+        let shouldRender = true;
+        
+        if (timingMode === "fixed") {
+          // In fixed mode, throttle to the configured refresh rate
+          const refreshRate = this.settings?.settings?.refreshRate || 60;
+          const minFrameInterval = 1000 / refreshRate; // Calculate interval from refresh rate
+          const timeSinceLastRender = timestamp - this._lastRenderTime;
+          shouldRender = timeSinceLastRender >= minFrameInterval;
+        } else {
+          // In vsync mode, render every RAF frame (no throttling)
+          // This will naturally match the display refresh rate
+          shouldRender = true;
+        }
         
         if (shouldRender && typeof window.render === "function") {
           // Render the preview - GPU renderer handles duplicate calls gracefully
