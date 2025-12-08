@@ -4135,6 +4135,12 @@ function handleRenderFrame(frameState) {
       }
     }
 
+    // Reset interaction state cache at the start of each frame
+    // This ensures fresh state values for the new frame
+    if (editor?.eventHandler?._invalidateInteractionStateCache) {
+      editor.eventHandler._invalidateInteractionStateCache();
+    }
+
     // Canvas drawing - throttle during panning and skip when editor is clean
     const editorNeedsCanvasDraw = typeof editor?.isDirty === 'function'
       ? editor.isDirty()
