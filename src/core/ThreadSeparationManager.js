@@ -243,7 +243,10 @@ export class ThreadSeparationManager {
         name: 'ExecutionQueue',
         type: 'primary',
         thread: window.executionQueue,
-        priority: 'critical'
+        priority: 'critical',
+        heartbeatCallback: () => {
+          return !!(window.executionQueue);
+        }
       });
     }
   }
