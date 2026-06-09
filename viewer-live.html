@@ -276,6 +276,9 @@
                 this.uniformValuesArray = [];
                 this.uniformKeys = []; // Maps array index -> "nodeId.paramName"
 
+                // Texture2D node textures uploaded from the editor
+                this.uploadedTextures = new Map(); // sanitizedNodeId -> textureView
+
                 // Compute nodes state
                 this.computeNodes = [];
                 this.computePipelines = new Map();
@@ -411,8 +414,8 @@
                 }
             }
 
-            handleShaderUpdate(data) {
-                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes, nodeOutputValues, audioEnvelope } = data;
+            async handleShaderUpdate(data) {
+                const { shaderCode, uniformValues, uniformKeys, resolution, computeNodes, fragmentNodes, nodeOutputValues, audioEnvelope, textures } = data;
 
                 if (!shaderCode) {
                     console.error('[LiveViewer] No shader code received!');
@@ -500,6 +503,11 @@
                     });
                 }
 
+                // Upload Texture2D textures from the editor before compiling
+                if (textures && typeof textures === 'object') {
+                    await this._uploadTextures(textures);
+                }
+
                 // Compile shader
                 this.compileShader(shaderCode);
 
@@ -507,6 +515,48 @@
                 if (!this.isRunning) {
                     this.startRendering();
                 }
+            }
+
+            /**
+             * Upload Texture2D node textures received from the editor.
+             * @param {Object} textures - Map of sanitizedNodeId -> { dataUrl, filename }
+             */
+            async _uploadTextures(textures) {
+                if (!this.device) return;
+                const entries = Object.entries(textures);
+                if (entries.length === 0) return;
+
+                console.log(`[LiveViewer] Uploading ${entries.length} texture(s) from editor`);
+
+                await Promise.all(entries.map(async ([nodeId, info]) => {
+                    try {
+                        const img = new Image();
+                        await new Promise((resolve, reject) => {
+                            img.onload = resolve;
+                            img.onerror = reject;
+                            img.src = info.dataUrl;
+                        });
+
+                        const bitmap = await createImageBitmap(img);
+
+                        const texture = this.device.createTexture({
+                            size: [bitmap.width, bitmap.height, 1],
+                            format: 'rgba8unorm',
+                            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+                        });
+
+                        this.device.queue.copyExternalImageToTexture(
+                            { source: bitmap },
+                            { texture },
+                            [bitmap.width, bitmap.height]
+                        );
+
+                        this.uploadedTextures.set(nodeId, texture.createView());
+                        console.log(`[LiveViewer] Uploaded texture for node ${nodeId} (${bitmap.width}x${bitmap.height})`);
+                    } catch (err) {
+                        console.warn(`[LiveViewer] Failed to upload texture for node ${nodeId}:`, err);
+                    }
+                }));
             }
 
             handleUniformUpdate(data) {
@@ -3243,6 +3293,17 @@
                     if (fragmentOutput && fragmentOutput.texture) {
                         // console.log(`[LiveViewer] Using fragment output texture for ${varName} (nodeId: ${nodeId})`);
                         return { textureView: fragmentOutput.texture.createView() };
+                    }
+
+                    // Check for Texture2D node texture uploaded from the editor
+                    const uploadedView = this.uploadedTextures.get(nodeId);
+                    if (uploadedView) {
+                        return { textureView: uploadedView };
+                    }
+                    // Try the raw varName in case it wasn't prefixed
+                    const uploadedViewRaw = this.uploadedTextures.get(varName);
+                    if (uploadedViewRaw) {
+                        return { textureView: uploadedViewRaw };
                     }
 
                     // Create dummy texture as fallback
