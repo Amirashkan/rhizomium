@@ -22,7 +22,7 @@ export class TransformNodes {
    * @returns {boolean}
    */
 handles(kind) {
-  return ['Transform2D','Scale2D','Rotate2D','Translate2D','TileAndOffset',
+  return ['Transform2D','Scale2D','Rotate2D','TileAndOffset',
           'Flip2D','Twirl','Spherize','UVToColor'].includes(kind);
 }
 
@@ -45,8 +45,6 @@ handles(kind) {
         return this.compileScale2D(node, getInput, nodeId);
       case 'Rotate2D':
         return this.compileOptimizedRotate2D(node, getInput, nodeId);
-      case 'Translate2D':
-        return this.compileTranslate2D(node, getInput, nodeId);
       case 'TileAndOffset':
         return this.compileTileAndOffset(node, getInput, nodeId);
       case 'Flip2D':
@@ -308,31 +306,6 @@ getShaderParam(node, name, defaultValue) {
     }
 
     const line = `let node_${nodeId} = (${uv} - vec2<f32>(${centerX}, ${centerY})) * vec2<f32>(${scaleX}, ${scaleY}) + vec2<f32>(${centerX}, ${centerY});`;
-
-    return {
-      line,
-      outputType: "vec2"
-    };
-  }
-
-  /**
-   * Compile 2D translation transformation
-   */
-  compileTranslate2D(node, getInput, nodeId) {
-    const uv = getInput(0, "vec2", "in.uv");
-    
-    const translateX = this.getShaderParam(node, 'translateX', 0.0);
-    const translateY = this.getShaderParam(node, 'translateY', 0.0);
-
-    // OPTIMIZATION: Check if it's no translation
-    if (translateX === '0.0' && translateY === '0.0') {
-      return {
-        line: `let node_${nodeId} = ${uv};`,
-        outputType: "vec2"
-      };
-    }
-
-    const line = `let node_${nodeId} = ${uv} + vec2<f32>(${translateX}, ${translateY});`;
 
     return {
       line,

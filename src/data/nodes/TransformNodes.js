@@ -3,6 +3,10 @@
 /**
  * Transform node definitions for UV coordinate manipulation
  *
+ * NOTE: All nodes here operate on UV coordinates in the fragment shader (vec2 in/out).
+ * They are NOT compatible with compute node outputs (which are vec4 textures).
+ * Use ComputeTransform for transforming compute node outputs in the compute pipeline.
+ *
  * Note: Kaleidoscope has been moved to ComputeKaleidoscope for better
  * performance and additional features (animation support).
  */
@@ -10,7 +14,7 @@ export const TransformNodes = {
   // === BASIC TRANSFORMS ===
   Transform2D: {
     label: "Transform 2D",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -27,7 +31,7 @@ export const TransformNodes = {
 
   Scale2D: {
     label: "Scale 2D",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -41,7 +45,7 @@ export const TransformNodes = {
 
   Rotate2D: {
     label: "Rotate 2D",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -52,21 +56,9 @@ export const TransformNodes = {
     ],
   },
 
-  Translate2D: {
-    label: "Translate 2D",
-    cat: "Modifiers",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "vec2" }],
-    params: [
-      { name: "translateX", type: "float", default: 0.0, label: "Translate X" },
-      { name: "translateY", type: "float", default: 0.0, label: "Translate Y" },
-    ],
-  },
-
   TileAndOffset: {
     label: "Tile and Offset",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -80,7 +72,7 @@ export const TransformNodes = {
 
   Flip2D: {
     label: "Flip 2D",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -93,7 +85,7 @@ export const TransformNodes = {
   // === COORDINATE CONVERSION ===
   UVToColor: {
     label: "UV to Color",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec3" }],
@@ -102,7 +94,7 @@ export const TransformNodes = {
 
   PolarCoordinates: {
     label: "Polar Coordinates",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -117,7 +109,7 @@ export const TransformNodes = {
   // === DISTORTION EFFECTS ===
   Spherize: {
     label: "Spherize",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -131,7 +123,7 @@ export const TransformNodes = {
 
   Twirl: {
     label: "Twirl",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 1,
     pinsIn: ["UV"],
     pinsOut: [{ label: "out", type: "vec2" }],
@@ -145,7 +137,7 @@ export const TransformNodes = {
 
   Displacement: {
     label: "Displacement",
-    cat: "Modifiers",
+    cat: "Transform",
     inputs: 2,
     pinsIn: ["UV", "Offset"],
     pinsOut: [{ label: "out", type: "vec2" }],
