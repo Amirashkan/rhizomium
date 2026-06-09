@@ -536,6 +536,16 @@
                 if (this.currentShader) {
                     this.compileShader(this.currentShader);
                 }
+
+                // Reinitialize compute nodes so their textures and resolution
+                // uniforms are recreated at the new canvas dimensions.
+                if (this.computeNodes.length > 0) {
+                    this.computePipelines.clear();
+                    this.computeOutputs.clear();
+                    for (const nodeData of this.computeNodes) {
+                        this.initializeComputeNode(nodeData);
+                    }
+                }
             }
 
             handleParameterUpdate(data) {
@@ -1020,9 +1030,16 @@
                         label: `compute-${nodeId}`
                     });
 
-                    // Create output texture
-                    const width = resolution[0];
-                    const height = resolution[1];
+                    // Always use the canvas dimensions for the compute texture so the
+                    // aspect-ratio correction baked into every compute shader matches the
+                    // display canvas.  Using the registry's stored resolution (which may
+                    // be square or a different ratio) caused stretching on 16:9 displays
+                    // and zooming on 1:1 displays.
+                    const width = this.currentWidth;
+                    const height = this.currentHeight;
+                    // Keep nodeData.resolution in sync so executeComputeNode reads the
+                    // same dimensions when writing the uniform buffer.
+                    nodeData.resolution = [width, height];
 
                     let outputTexture;
                     let storageTextureA = null;
