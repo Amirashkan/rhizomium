@@ -694,7 +694,7 @@ async function initialize() {
             const uniformManager = window.nodeCompiler.uniformManager;
             if (uniformManager && uniformManager.uniformValues.size > 0) {
               const values = Array.from(uniformManager.uniformValues.values());
-              const timeSec = performance.now() * 0.001;
+              const timeSec = window.renderLoop?._simTime ?? performance.now() * 0.001;
               
               // CRITICAL: For compute nodes, also include the node's current params
               // since compute node parameters may not be in uniformKeys
