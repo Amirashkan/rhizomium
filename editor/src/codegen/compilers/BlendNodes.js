@@ -19,23 +19,19 @@ export class BlendNodes {
 
   handles(kind) {
     return [
-      'SDFAdd', 'SDFSubtract', 'SDFUnion', 'SDFIntersection',
+      'SDFUnion', 'SDFIntersection',
       'SDFSmoothUnion', 'SDFSmoothIntersection', 'SDFSmoothSubtraction'
     ].includes(kind);
   }
 
   compile(node, getInput) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
-    
+
     if (this.uniformManager) {
       this.uniformManager.analyzeNode(node);
     }
-    
+
     switch (node.kind) {
-      case 'SDFAdd':
-        return this.compileAdd(node, getInput, nodeId);
-      case 'SDFSubtract':
-        return this.compileSubtract(node, getInput, nodeId);
       case 'SDFUnion':
         return this.compileUnion(node, getInput, nodeId);
       case 'SDFIntersection':
@@ -113,26 +109,6 @@ export class BlendNodes {
     }
 
     return result;
-  }
-
-  compileAdd(node, getInput, nodeId) {
-    const a = getInput(0, "f32", "0.0");
-    const b = getInput(1, "f32", "0.0");
-    
-    const line = `
-  let node_${nodeId} = ${a} + ${b};`;
-    
-    return { line, outputType: "f32" };
-  }
-
-  compileSubtract(node, getInput, nodeId) {
-    const a = getInput(0, "f32", "0.0");
-    const b = getInput(1, "f32", "0.0");
-    
-    const line = `
-  let node_${nodeId} = ${a} - ${b};`;
-    
-    return { line, outputType: "f32" };
   }
 
   compileUnion(node, getInput, nodeId) {

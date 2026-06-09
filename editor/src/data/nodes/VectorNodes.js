@@ -136,42 +136,6 @@ export const VectorNodes = {
   },
 
   // Vector Arithmetic
-  VectorAdd: {
-    label: "Vector Add",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorSubtract: {
-    label: "Vector Subtract",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorMultiply: {
-    label: "Vector Multiply",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
-  VectorDivide: {
-    label: "Vector Divide",
-    cat: "Vector",
-    inputs: 2,
-    pinsIn: ["A", "B"],
-    pinsOut: [{ label: "out", type: "vec3" }],
-    params: [],
-  },
-
   VectorScale: {
     label: "Vector Scale",
     cat: "Vector",

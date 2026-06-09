@@ -22,45 +22,6 @@ export const TransformNodes = {
     ],
   },
 
-  Scale2D: {
-    label: "Scale 2D",
-    cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "vec2" }],
-    params: [
-      { name: "scaleX", type: "float", default: 1.0, label: "Scale X" },
-      { name: "scaleY", type: "float", default: 1.0, label: "Scale Y" },
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
-    ],
-  },
-
-  Rotate2D: {
-    label: "Rotate 2D",
-    cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "vec2" }],
-    params: [
-      { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
-    ],
-  },
-
-  Translate2D: {
-    label: "Translate 2D",
-    cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: [{ label: "out", type: "vec2" }],
-    params: [
-      { name: "translateX", type: "float", default: 0.0, label: "Translate X" },
-      { name: "translateY", type: "float", default: 0.0, label: "Translate Y" },
-    ],
-  },
-
   TileAndOffset: {
     label: "Tile and Offset",
     cat: "Transform",
