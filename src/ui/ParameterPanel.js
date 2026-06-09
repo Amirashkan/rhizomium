@@ -7,6 +7,7 @@ import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
 import { GLSLCodeInputHandler } from './components/GLSLCodeInputHandler.js';
+import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
 import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 
@@ -63,6 +64,12 @@ export class ParameterPanel {
     this.selectInputHandler = new SelectInputHandler(undoManager);
     this.fileInputHandler = new FileInputHandler(undoManager);
     this.glslCodeInputHandler = new GLSLCodeInputHandler(undoManager);
+    try {
+      this.wgslCodeInputHandler = new WGSLCodeInputHandler(undoManager);
+    } catch (e) {
+      console.error('[ParameterPanel] Failed to initialize WGSLCodeInputHandler:', e);
+      this.wgslCodeInputHandler = null;
+    }
     
     // Input handlers mapping
     this.inputHandlers = {
@@ -71,6 +78,7 @@ export class ParameterPanel {
       int: this.textInputHandler,
       expression: this.textInputHandler,
       glsl: this.glslCodeInputHandler,
+      'wgsl-code': this.wgslCodeInputHandler,
       select: this.selectInputHandler,
       file: this.fileInputHandler,
       colorstops: this.colorStopInputHandler,
@@ -1895,6 +1903,12 @@ updateDependentExpressions(node) {
     return false;
   }
 
+  setDevice(device) {
+    if (this.wgslCodeInputHandler) {
+      this.wgslCodeInputHandler.setDevice(device);
+    }
+  }
+
   destroy() {
     if (this.resizeHandle && this._onResizeMouseDown) {
       this.resizeHandle.removeEventListener('mousedown', this._onResizeMouseDown);
@@ -1920,6 +1934,10 @@ updateDependentExpressions(node) {
     
     if (this.textInputHandler && this.textInputHandler.destroy) {
       this.textInputHandler.destroy();
+    }
+
+    if (this.wgslCodeInputHandler && this.wgslCodeInputHandler.destroy) {
+      this.wgslCodeInputHandler.destroy();
     }
     
     if (this.bindingSystem) {
