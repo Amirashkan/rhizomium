@@ -16,6 +16,7 @@ self.onmessage = async (e) => {
         redoStack = [];
         currentVersion = 0;
         self.postMessage({ type: 'ready', id });
+        startHeartbeat();
         break;
         
       case 'recordState':
@@ -153,12 +154,16 @@ async function redo(currentVersion) {
   };
 }
 
-// Send periodic heartbeats
-setInterval(() => {
-  self.postMessage({
-    type: 'heartbeat',
-    timestamp: performance.now(),
-    workerTime: performance.now()
-  });
-}, 1000); // Every second
+let heartbeatStarted = false;
+function startHeartbeat() {
+  if (heartbeatStarted) return;
+  heartbeatStarted = true;
+  setInterval(() => {
+    self.postMessage({
+      type: 'heartbeat',
+      timestamp: performance.now(),
+      workerTime: performance.now()
+    });
+  }, 1000);
+}
 
