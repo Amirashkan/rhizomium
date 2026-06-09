@@ -295,6 +295,7 @@
                 this.isRunning = false;
                 this.startTime = performance.now();
                 this.syncedTime = null; // Time synced from main editor
+                this.timeOffset = null; // Offset to align local clock with editor clock
 
                 // Statistics
                 this.frameCount = 0;
@@ -783,6 +784,14 @@
                             }
                         });
                     }
+                }
+
+                // Sync time offset from editor so viewer shows the same frame.
+                // We store the delta between editor time and our local clock, then
+                // advance using our own clock each frame — no jumps, correct sync.
+                if (typeof time === 'number') {
+                    const localTime = (performance.now() - this.startTime) / 1000;
+                    this.timeOffset = time - localTime;
                 }
 
                 // Update audio envelope values if provided
@@ -3289,7 +3298,8 @@
 
                 try {
                     // Get current time
-                    const time = this.syncedTime !== null ? this.syncedTime : (performance.now() - this.startTime) / 1000;
+                    const localTime = (performance.now() - this.startTime) / 1000;
+                    const time = this.timeOffset !== null ? localTime + this.timeOffset : localTime;
 
                     // Execute fragment nodes FIRST (their outputs feed into compute nodes)
                     if (this.fragmentNodes.length > 0) {
@@ -3367,8 +3377,9 @@
             }
 
             updateUniforms() {
-                // Use synced time from editor if available, otherwise use local time
-                const time = this.syncedTime !== null ? this.syncedTime : (performance.now() - this.startTime) / 1000;
+                // Use editor-synced offset so viewer matches editor's time, advancing smoothly via local clock
+                const localTime = (performance.now() - this.startTime) / 1000;
+                const time = this.timeOffset !== null ? localTime + this.timeOffset : localTime;
 
                 // Update aspect uniform
                 if (this.resources['u']) {
