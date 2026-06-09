@@ -520,16 +520,23 @@ export class LiveShaderStream {
         // nodes that reference it (e.g., =node_X) get updated values in the viewer
         const nodeOutputValues = this._computeNodeOutputValues();
 
+        // Only include uniformValues/uniformKeys when non-empty so the viewer
+        // never overwrites its stored parameter mapping with empty arrays.
+        // An empty-values tick is purely a time-sync message.
         const message = {
             type: 'parameter_update',
-            uniformValues: uniformValues,
-            uniformKeys: uniformKeys, // Include keys for mapping
-            computeNodeParams: computeNodeParams, // Include compute node params if provided
             audioEnvelope: audioEnvelope, // Include audio envelope values
             nodeOutputValues: nodeOutputValues, // Include updated node output values for parameter references
             time: time,
             timestamp: Date.now()
         };
+        if (uniformValues.length > 0) {
+            message.uniformValues = uniformValues;
+            message.uniformKeys = uniformKeys;
+        }
+        if (computeNodeParams) {
+            message.computeNodeParams = computeNodeParams;
+        }
 
         this.channel.postMessage(message);
         this.uniformUpdatesSent++;
