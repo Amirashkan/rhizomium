@@ -241,6 +241,15 @@ export class ThreadMonitor {
         break; // Out of time, continue next cycle
       }
       
+      // For primary threads with a heartbeatCallback, call it to refresh lastHeartbeat
+      if (thread.heartbeatCallback) {
+        try {
+          if (thread.heartbeatCallback()) {
+            thread.lastHeartbeat = performance.now();
+          }
+        } catch (e) { /* ignore */ }
+      }
+
       // Check for stalls (only if significant time has passed)
       const timeSinceHeartbeat = performance.now() - thread.lastHeartbeat;
       if (timeSinceHeartbeat > this.options.stallTimeout) {
