@@ -785,11 +785,6 @@
                     }
                 }
 
-                // Update synced time if provided
-                if (typeof time === 'number') {
-                    this.syncedTime = time;
-                }
-
                 // Update audio envelope values if provided
                 // CRITICAL: This allows audioEnvelope expressions to work in the external viewer
                 if (audioEnvelope && typeof audioEnvelope === 'object') {
