@@ -695,12 +695,13 @@ export class GPURenderer {
     }
 
     const uniformManager = window.nodeCompiler?.uniformManager;
-    if (!uniformManager || uniformManager.uniformValues.size === 0) {
-      return;
-    }
 
     // Get values in order (same as _updateParameterUniforms)
-    const values = Array.from(uniformManager.uniformValues.values());
+    // Use empty array when no uniform parameters exist (e.g. compute-only graphs)
+    // so that the time sync message is still sent every frame.
+    const values = uniformManager?.uniformValues?.size > 0
+      ? Array.from(uniformManager.uniformValues.values())
+      : [];
 
     // DEBUG: Log every 60 frames (once per second at 60fps) during drag
     if (window.editor?._parameterDragging && this._dragUpdateCount % 60 === 0) {
