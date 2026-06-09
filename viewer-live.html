@@ -480,10 +480,12 @@
                     this.initializeFragmentNodes(fragmentNodes);
                 }
 
-                // Initialize compute nodes if provided
+                // Initialize compute nodes if provided — only reinitialize nodes whose WGSL
+                // actually changed to avoid destroying/recreating stateless nodes (e.g. ComputeNoise)
+                // on every parameter change of any connected node, which caused a 1-2 frame jump.
                 if (computeNodes && Array.isArray(computeNodes)) {
                     console.log(`[LiveViewer] Received ${computeNodes.length} compute nodes`);
-                    this.initializeComputeNodes(computeNodes);
+                    this._smartUpdateComputeNodes(computeNodes);
                 }
 
                 // Update audio envelope values if provided (from initial shader update)
@@ -1009,6 +1011,42 @@
                 } catch (error) {
                     console.error(`[LiveViewer] Error initializing fragment node ${nodeId}:`, error);
                     console.error(`[LiveViewer] WGSL code:`, wgslCode);
+                }
+            }
+
+            /**
+             * Smart compute node update: only reinitializes nodes whose WGSL changed.
+             * For nodes whose shader is unchanged, just updates params so parameter changes
+             * from connected nodes are reflected without tearing down the pipeline/texture.
+             */
+            _smartUpdateComputeNodes(newComputeNodes) {
+                this.computeNodes = newComputeNodes;
+
+                // Build sets of currently-alive node IDs for cleanup
+                const newNodeIds = new Set(newComputeNodes.map(n => String(n.nodeId)));
+
+                // Remove nodes that no longer exist in the graph
+                for (const nodeId of [...this.computePipelines.keys()]) {
+                    if (!newNodeIds.has(nodeId)) {
+                        this.computePipelines.delete(nodeId);
+                        this.computeOutputs.delete(nodeId);
+                    }
+                }
+
+                for (const nodeData of newComputeNodes) {
+                    const nodeId = String(nodeData.nodeId);
+                    const existing = this.computePipelines.get(nodeId);
+
+                    if (!existing || existing.nodeData.wgslCode !== nodeData.wgslCode) {
+                        // WGSL changed or node is new — full reinitialize
+                        this.computePipelines.delete(nodeId);
+                        this.computeOutputs.delete(nodeId);
+                        this.initializeComputeNode(nodeData);
+                    } else {
+                        // WGSL is identical — just refresh params so live parameter
+                        // changes from connected nodes are picked up next frame.
+                        existing.nodeData = nodeData;
+                    }
                 }
             }
 
