@@ -99,10 +99,10 @@ export class ThreadSeparationManager {
       await this._initWorker('parameterExpression', 'workers/parameter-expression-worker.js');
       
       // SaveLoadManager Worker
-      await this._initWorker('saveLoad', 'workers/save-load-worker.js');
-      
+      await this._initWorker('saveLoad', 'workers/save-load-worker.js', { type: 'classic' });
+
       // UndoManager Worker
-      await this._initWorker('undoManager', 'workers/undo-manager-worker.js');
+      await this._initWorker('undoManager', 'workers/undo-manager-worker.js', { type: 'classic' });
       
       console.log('All workers initialized successfully');
     } catch (error) {
@@ -115,13 +115,13 @@ export class ThreadSeparationManager {
   /**
    * Initialize a single worker
    */
-  async _initWorker(name, scriptPath) {
+  async _initWorker(name, scriptPath, workerOptions = { type: 'module' }) {
     return new Promise((resolve, reject) => {
       let timeoutId = null;
       let resolved = false;
-      
+
       try {
-        const worker = new Worker(scriptPath, { type: 'module' });
+        const worker = new Worker(scriptPath, workerOptions);
         
         // Set up message handler
         worker.onmessage = (e) => {
