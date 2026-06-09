@@ -254,12 +254,22 @@ await window.textureManager.uploadTexture(node.id, file);
       if (window.editor?.previewIntegration) {
         window.editor.previewIntegration.generateNodePreview(node);
       }
-      
+
       // Trigger editor redraw
       if (window.editor?.safeDraw) {
         window.editor.safeDraw();
       } else if (window.editor?.draw) {
         window.editor.draw();
+      }
+
+      // Force GPU pipeline rebuild so the new texture replaces the dummy binding.
+      // The WGSL doesn't change on texture upload, so the renderer's dedup check
+      // would skip the rebuild — clearing _lastShaderSource bypasses that guard.
+      if (window.gpuRenderer) {
+        window.gpuRenderer._lastShaderSource = null;
+      }
+      if (typeof window.rebuild === 'function') {
+        window.rebuild();
       }
 
       // Call the onChange callback
