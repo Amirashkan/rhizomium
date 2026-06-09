@@ -1,11 +1,16 @@
 // src/data/nodes/TransformNodes.js
 
 /**
- * Transform node definitions for UV coordinate manipulation
+ * Transform node definitions for UV coordinate manipulation.
  *
- * NOTE: All nodes here operate on UV coordinates in the fragment shader (vec2 in/out).
- * They are NOT compatible with compute node outputs (which are vec4 textures).
- * Use ComputeTransform for transforming compute node outputs in the compute pipeline.
+ * Context-aware: when the optional "Texture" pin (pin 1) is connected to a
+ * compute node or Texture2D node, the transform is applied to the sampling UV
+ * and the node outputs a vec4 colour instead of a vec2 UV.  When no texture is
+ * connected the node behaves as a pure UV modifier (vec2 output) that feeds into
+ * downstream texture samplers.
+ *
+ * Use ComputeTransform when you need to transform a compute texture without any
+ * downstream texture sampler in the fragment shader.
  *
  * Note: Kaleidoscope has been moved to ComputeKaleidoscope for better
  * performance and additional features (animation support).
@@ -15,29 +20,29 @@ export const TransformNodes = {
   Transform2D: {
     label: "Transform 2D",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "translateX", type: "float", default: 0.0, label: "Translate X" },
       { name: "translateY", type: "float", default: 0.0, label: "Translate Y" },
-      { name: "scaleX", type: "float", default: 1.0, label: "Scale X" },
-      { name: "scaleY", type: "float", default: 1.0, label: "Scale Y" },
-      { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "scaleX",    type: "float", default: 1.0, label: "Scale X" },
+      { name: "scaleY",    type: "float", default: 1.0, label: "Scale Y" },
+      { name: "rotation",  type: "float", default: 0.0, label: "Rotation" },
+      { name: "centerX",   type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY",   type: "float", default: 0.5, label: "Center Y" },
     ],
   },
 
   Scale2D: {
     label: "Scale 2D",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "scaleX", type: "float", default: 1.0, label: "Scale X" },
-      { name: "scaleY", type: "float", default: 1.0, label: "Scale Y" },
+      { name: "scaleX",  type: "float", default: 1.0, label: "Scale X" },
+      { name: "scaleY",  type: "float", default: 1.0, label: "Scale Y" },
       { name: "centerX", type: "float", default: 0.5, label: "Center X" },
       { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
     ],
@@ -46,21 +51,21 @@ export const TransformNodes = {
   Rotate2D: {
     label: "Rotate 2D",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "centerX",  type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY",  type: "float", default: 0.5, label: "Center Y" },
     ],
   },
 
   TileAndOffset: {
     label: "Tile and Offset",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "tilingX", type: "float", default: 1.0, label: "Tiling X" },
@@ -73,8 +78,8 @@ export const TransformNodes = {
   Flip2D: {
     label: "Flip 2D",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "flipX", type: "bool", default: false, label: "Flip X" },
@@ -83,6 +88,7 @@ export const TransformNodes = {
   },
 
   // === COORDINATE CONVERSION ===
+  // UVToColor: converts UV into a colour visualization — texture pin not applicable.
   UVToColor: {
     label: "UV to Color",
     cat: "Transform",
@@ -95,13 +101,13 @@ export const TransformNodes = {
   PolarCoordinates: {
     label: "Polar Coordinates",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
-      { name: "radialScale", type: "float", default: 1.0, label: "Radial Scale" },
+      { name: "centerX",      type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY",      type: "float", default: 0.5, label: "Center Y" },
+      { name: "radialScale",  type: "float", default: 1.0, label: "Radial Scale" },
       { name: "angularScale", type: "float", default: 1.0, label: "Angular Scale" },
     ],
   },
@@ -110,31 +116,32 @@ export const TransformNodes = {
   Spherize: {
     label: "Spherize",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "centerX",  type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY",  type: "float", default: 0.5, label: "Center Y" },
       { name: "strength", type: "float", default: 0.5, label: "Strength" },
-      { name: "radius", type: "float", default: 0.5, label: "Radius" },
+      { name: "radius",   type: "float", default: 0.5, label: "Radius" },
     ],
   },
 
   Twirl: {
     label: "Twirl",
     cat: "Transform",
-    inputs: 1,
-    pinsIn: ["UV"],
+    inputs: 2,
+    pinsIn: ["UV", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "centerX", type: "float", default: 0.5, label: "Center X" },
-      { name: "centerY", type: "float", default: 0.5, label: "Center Y" },
+      { name: "centerX",  type: "float", default: 0.5, label: "Center X" },
+      { name: "centerY",  type: "float", default: 0.5, label: "Center Y" },
       { name: "strength", type: "float", default: 1.0, label: "Strength" },
-      { name: "radius", type: "float", default: 0.5, label: "Radius" },
+      { name: "radius",   type: "float", default: 0.5, label: "Radius" },
     ],
   },
 
+  // Displacement already uses pin 1 for the "Offset" field — unchanged.
   Displacement: {
     label: "Displacement",
     cat: "Transform",
@@ -142,9 +149,9 @@ export const TransformNodes = {
     pinsIn: ["UV", "Offset"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
-      { name: "strength", type: "float", default: 0.2, label: "Strength" },
-      { name: "centered", type: "boolean", default: true, label: "Center Input" },
-      { name: "wrap", type: "boolean", default: false, label: "Wrap UV" },
+      { name: "strength", type: "float",   default: 0.2,  label: "Strength" },
+      { name: "centered", type: "boolean", default: true,  label: "Center Input" },
+      { name: "wrap",     type: "boolean", default: false, label: "Wrap UV" },
     ],
   },
 };
