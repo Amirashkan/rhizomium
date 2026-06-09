@@ -532,19 +532,20 @@
                 
                 this.updateCanvasDisplaySize();
 
-                // Recompile shader with new resolution
-                if (this.currentShader) {
-                    this.compileShader(this.currentShader);
-                }
-
-                // Reinitialize compute nodes so their textures and resolution
-                // uniforms are recreated at the new canvas dimensions.
+                // Reinitialize compute nodes FIRST so their textures are at the new
+                // canvas dimensions before the shader recompile binds them.
                 if (this.computeNodes.length > 0) {
                     this.computePipelines.clear();
                     this.computeOutputs.clear();
                     for (const nodeData of this.computeNodes) {
                         this.initializeComputeNode(nodeData);
                     }
+                }
+
+                // Recompile shader after compute nodes are ready so createBindGroups
+                // finds the freshly-created output textures in computeOutputs.
+                if (this.currentShader) {
+                    this.compileShader(this.currentShader);
                 }
             }
 
