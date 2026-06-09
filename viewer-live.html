@@ -508,8 +508,12 @@
                     await this._uploadTextures(textures);
                 }
 
-                // Compile shader
-                this.compileShader(shaderCode);
+                // Skip recompilation if shader code hasn't changed — avoids pipeline teardown
+                // and the resulting frame skip/jump when only uniforms changed (e.g. parameter drag).
+                // Mirrors the cache check in gpuRenderer.js setShaderSource().
+                if (shaderCode !== this.currentShader || !this.pipeline) {
+                    this.compileShader(shaderCode);
+                }
 
                 // Start rendering if not already running
                 if (!this.isRunning) {
