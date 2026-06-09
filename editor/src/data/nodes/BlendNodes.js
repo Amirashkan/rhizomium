@@ -2,34 +2,6 @@
 // NEW FILE - Blend operations for combining distance fields
 
 export const BlendNodes = {
-  SDFAdd: {
-    label: 'Add (SDF)',
-    cat: 'Blend',
-    inputs: 2,
-    pinsIn: [
-      { label: 'A', type: 'float' },
-      { label: 'B', type: 'float' }
-    ],
-    pinsOut: [
-      { label: 'Result', type: 'float' }
-    ],
-    params: []
-  },
-
-  SDFSubtract: {
-    label: 'Subtract (SDF)',
-    cat: 'Blend',
-    inputs: 2,
-    pinsIn: [
-      { label: 'A', type: 'float' },
-      { label: 'B', type: 'float' }
-    ],
-    pinsOut: [
-      { label: 'Result', type: 'float' }
-    ],
-    params: []
-  },
-
   SDFUnion: {
     label: 'Union (Min)',
     cat: 'Blend',
