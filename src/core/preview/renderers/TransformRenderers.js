@@ -11,7 +11,6 @@ export class TransformRenderers {
       'transform2d': (ctx, node) => this.renderTransform2D(ctx, node),
       'scale2d': (ctx, node) => this.renderScale2D(ctx, node),
       'rotate2d': (ctx, node) => this.renderRotate2D(ctx, node),
-      'translate2d': (ctx, node) => this.renderTranslate2D(ctx, node),
       'tileandoffset': (ctx, node) => this.renderTileAndOffset(ctx, node),
       'flip2d': (ctx, node) => this.renderFlip2D(ctx, node),
       'spherize': (ctx, node) => this.renderSpherize(ctx, node),
@@ -636,43 +635,6 @@ export class TransformRenderers {
     this.renderUVGrid(ctx, transformFunc, "ROTATE", {
       rot: rotation,
       cx: centerX !== 0.5 ? centerX : undefined
-    });
-
-    if (this.hasExpressions(node)) {
-      this.drawExpressionIndicator(ctx);
-    }
-  }
-
-  renderTranslate2D(ctx, node) {
-    const translateX = this.toSafeNumber(this.getParameterValue(node, "translateX", 0.0), 0.0);
-    const translateY = this.toSafeNumber(this.getParameterValue(node, "translateY", 0.0), 0.0);
-
-    // Check for input
-    const inputCanvas = this.getInputPreview(node);
-    
-    if (inputCanvas) {
-      this.applyImageTransform(ctx, inputCanvas, {
-        translateX, translateY,
-        scaleX: 1, scaleY: 1,
-        rotation: 0,
-        centerX: 0.5, centerY: 0.5
-      });
-      
-      if (this.hasExpressions(node)) {
-        this.drawExpressionIndicator(ctx);
-      }
-      return;
-    }
-
-    // No input - show UV grid
-    const transformFunc = (u, v) => ({
-      u: u + translateX,
-      v: v + translateY
-    });
-
-    this.renderUVGrid(ctx, transformFunc, "MOVE", {
-      tx: translateX,
-      ty: translateY
     });
 
     if (this.hasExpressions(node)) {
