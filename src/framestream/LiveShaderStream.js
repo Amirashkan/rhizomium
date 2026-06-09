@@ -133,6 +133,9 @@ export class LiveShaderStream {
         // Serialize fragment nodes that are inputs to compute nodes
         const fragmentNodes = this._serializeFragmentNodes(computeNodes);
 
+        // Serialize Texture2D node data URLs so the external viewer can upload them
+        const textures = this._serializeTextures();
+
         // Extract parameter keys for mapping array indices back to node parameters
         const uniformKeys = [];
         if (window.nodeCompiler?.uniformManager?.uniformValues) {
@@ -177,12 +180,34 @@ export class LiveShaderStream {
             fragmentNodes: fragmentNodes, // Include fragment node data for local rendering
             nodeOutputValues: nodeOutputValues, // Node output values for parameter reference evaluation
             audioEnvelope: audioEnvelope, // Include audio envelope values
+            textures: textures, // Texture2D data URLs keyed by node ID
             timestamp: Date.now()
         };
 
         this.channel.postMessage(message);
         this.shaderUpdatesSent++;
 
+    }
+
+    /**
+     * Serialize Texture2D node data so the external viewer can upload them locally.
+     * Returns a plain object keyed by sanitized node ID -> { dataUrl, filename }.
+     */
+    _serializeTextures() {
+        const result = {};
+        const texManager = typeof window !== 'undefined' ? window.textureManager : null;
+        if (!texManager || !texManager.textures) return result;
+
+        for (const [nodeId, info] of texManager.textures.entries()) {
+            if (info && info.dataUrl) {
+                const sanitizedId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+                result[sanitizedId] = {
+                    dataUrl: info.dataUrl,
+                    filename: info.filename || ''
+                };
+            }
+        }
+        return result;
     }
 
     /**
