@@ -572,10 +572,10 @@ _stopPreviewRenderLoop() {
     if (sizeChanged) {
       // Update tracked size before rebuild
       this._lastCanvasSize = { width, height };
-      
-      // CRITICAL: Wait for GPU resize operations to complete before rebuilding
-      // This prevents "destroyed texture" errors by ensuring textures are recreated
-      this._rebuildAfterResize();
+
+      // Await the full rebuild so the render loop only restarts after
+      // initialize() completes and new textures/bind groups are in place.
+      await this._rebuildAfterResize();
     } else {
       // Ensure render loop continues even if size didn't change
       const renderLoopState = window.renderLoop?.getState();

@@ -1033,18 +1033,10 @@ async _publishAnimation() {
       }
     }
 
-    // Let floatingPreview.updateSize() handle the resize using resizeCanvasSync
-    // This ensures proper texture recreation and prevents "destroyed texture" errors
+    // updateSize() now awaits _rebuildAfterResize(), which restarts the render
+    // loop itself once initialize() has fully completed. No need for a
+    // redundant restart here that could fire before rebuild is done.
     await this.floatingPreview.updateSize();
-    
-    // Restart render loop after resize completes
-    setTimeout(() => {
-      if (window.renderLoop && window.renderLoop.start) {
-        window.renderLoop.start();
-      } else if (typeof window.render === "function") {
-        window.render();
-      }
-    }, 100);
   }
 
   _updateQuality(quality) {
