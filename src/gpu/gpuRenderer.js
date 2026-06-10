@@ -1346,7 +1346,9 @@ export class GPURenderer {
       // This prevents "Destroyed texture/buffer used in submit" errors that occur when
       // the synchronous flush races with in-flight GPU commands or concurrent async execute().
       const ce = window.computeExecutor;
-      if (ce?._pendingDestroys?.length) {
+      // Don't flush while initialize() is rebuilding managers: old textures must
+      // stay alive until new bind groups are in place (see _reinitializing flag).
+      if (ce?._pendingDestroys?.length && !ce?._reinitializing) {
         const destroyFns = ce._pendingDestroys.splice(0);
         const fence = this._lastFramePromise || Promise.resolve();
         fence.then(() => {
