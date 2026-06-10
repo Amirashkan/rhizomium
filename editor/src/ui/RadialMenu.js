@@ -551,6 +551,21 @@ export class RadialMenu {
       label.style.pointerEvents = "none";
       label.textContent = nodeItem.label;
       this.svg.appendChild(label);
+
+      if (nodeItem.kind?.startsWith('Compute')) {
+        const badge = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        badge.setAttribute("x", labelX);
+        badge.setAttribute("y", labelY + 13);
+        badge.setAttribute("text-anchor", "middle");
+        badge.setAttribute("dominant-baseline", "central");
+        badge.setAttribute("fill", "#7eb8f7");
+        badge.setAttribute("font-size", "9");
+        badge.setAttribute("font-weight", "600");
+        badge.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+        badge.style.pointerEvents = "none";
+        badge.textContent = "GPU";
+        this.svg.appendChild(badge);
+      }
     });
   }
 
@@ -706,6 +721,21 @@ export class RadialMenu {
       label.style.pointerEvents = "none";
       label.textContent = nodeItem.label;
       this.svg.appendChild(label);
+
+      if (nodeItem.kind?.startsWith('Compute')) {
+        const badge = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        badge.setAttribute("x", labelX);
+        badge.setAttribute("y", labelY + 13);
+        badge.setAttribute("text-anchor", "middle");
+        badge.setAttribute("dominant-baseline", "central");
+        badge.setAttribute("fill", "#7eb8f7");
+        badge.setAttribute("font-size", "9");
+        badge.setAttribute("font-weight", "600");
+        badge.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+        badge.style.pointerEvents = "none";
+        badge.textContent = "GPU";
+        this.svg.appendChild(badge);
+      }
     });
 
     if (category.items.length > this.maxVisibleNodes) {
