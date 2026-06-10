@@ -71,6 +71,10 @@ export class ComputeExecutor {
 
     // Callbacks flushed after GPU finishes the current frame via onSubmittedWorkDone().then().
     this._pendingDestroys = [];
+
+    // Set true while initialize() is rebuilding managers so gpuRenderer won't flush
+    // _pendingDestroys until the new textures are ready and bound.
+    this._reinitializing = false;
   }
 
   _deferDestroy(fn) {
@@ -118,6 +122,11 @@ export class ComputeExecutor {
 
     // Clean up old resources if reinitializing
     if (this.initialized) {
+      // Hold old textures alive until the new managers are ready and bound.
+      // gpuRenderer checks _reinitializing before flushing _pendingDestroys, so
+      // the old GPUTextures won't be destroyed until after _reinitializing = false.
+      this._reinitializing = true;
+
       const oldManagers = [...this.computeManagers.values()];
       const oldFallback = this.fallbackTexture;
       this._deferDestroy(() => {
@@ -143,6 +152,7 @@ export class ComputeExecutor {
 
     this.updateExecutionOrder();
     this.initialized = true;
+    this._reinitializing = false;
   }
 
   /**
