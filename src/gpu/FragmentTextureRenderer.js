@@ -44,10 +44,13 @@ export class FragmentTextureRenderer {
    * Call this when graph structure changes (nodes added/removed, connections changed)
    */
   clearCache() {
-    // Destroy textures before clearing cache
-    for (const cached of this.textureCache.values()) {
-      if (cached.texture) {
-        cached.texture.destroy();
+    const textures = [...this.textureCache.values()].map(c => c.texture).filter(Boolean);
+    if (textures.length) {
+      const ce = window.computeExecutor;
+      if (ce?._deferDestroy) {
+        ce._deferDestroy(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } });
+      } else {
+        setTimeout(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } }, 0);
       }
     }
     this.textureCache.clear();
@@ -894,10 +897,13 @@ export class FragmentTextureRenderer {
    * Clear the texture cache
    */
   clearCache() {
-    // Destroy all cached textures
-    for (const cached of this.textureCache.values()) {
-      if (cached.texture) {
-        cached.texture.destroy();
+    const textures = [...this.textureCache.values()].map(c => c.texture).filter(Boolean);
+    if (textures.length) {
+      const ce = window.computeExecutor;
+      if (ce?._deferDestroy) {
+        ce._deferDestroy(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } });
+      } else {
+        setTimeout(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } }, 0);
       }
     }
     this.textureCache.clear();
@@ -908,22 +914,22 @@ export class FragmentTextureRenderer {
    * Remove a specific node from cache
    */
   invalidateNode(nodeId) {
-    // Remove all cache entries for this node
     const keysToDelete = [];
-    for (const [key, _] of this.textureCache.entries()) {
-      if (key.startsWith(`${nodeId}_`)) {
-        keysToDelete.push(key);
+    for (const [key] of this.textureCache.entries()) {
+      if (key.startsWith(`${nodeId}_`)) keysToDelete.push(key);
+    }
+
+    const textures = keysToDelete.map(k => this.textureCache.get(k)?.texture).filter(Boolean);
+    if (textures.length) {
+      const ce = window.computeExecutor;
+      if (ce?._deferDestroy) {
+        ce._deferDestroy(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } });
+      } else {
+        setTimeout(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } }, 0);
       }
     }
 
-    for (const key of keysToDelete) {
-      const cached = this.textureCache.get(key);
-      if (cached?.texture) {
-        cached.texture.destroy();
-      }
-      this.textureCache.delete(key);
-    }
-
+    for (const key of keysToDelete) this.textureCache.delete(key);
     this.shaderCache.delete(nodeId);
   }
 }
