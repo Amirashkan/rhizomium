@@ -1230,6 +1230,14 @@ export class GPURenderer {
       this.profiler.beginFrame();
     }
 
+    // Flush deferred GPU resource destructions queued during the previous frame.
+    // At this point the previous frame's encoder has already been submitted, so it
+    // is safe to destroy any textures it may have referenced.
+    if (window.computeExecutor?._pendingDestroys?.length) {
+      for (const fn of window.computeExecutor._pendingDestroys) fn();
+      window.computeExecutor._pendingDestroys.length = 0;
+    }
+
     // SEPARATE GPU RENDER QUEUES
     // Each render() call creates a new command encoder, ensuring canvas and preview
     // rendering use separate command buffers. This allows independent rendering
