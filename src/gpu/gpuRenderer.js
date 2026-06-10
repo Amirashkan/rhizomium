@@ -1262,15 +1262,17 @@ export class GPURenderer {
         console.warn('[GPURenderer] Compute execution error:', computeErr);
       }
 
-      // PERFORMANCE: Only update bind groups if compute nodes were actually dispatched
-      // This avoids unnecessary bind group rebuilds when compute shaders didn't run
+      // Always sync bind groups when compute is initialized.
+      // The method uses texture-object identity caching so the actual bind group
+      // rebuild only happens when the underlying GPUTexture changes — calling it
+      // every frame is cheap when nothing has changed.
+      // We need to call it unconditionally (not only on dispatch) because:
+      //   - On first load the fragment pipeline may compile AFTER the first dispatch,
+      //     leaving bind groups with dummy textures that never get refreshed.
+      //   - After re-initialization the old texture is destroyed before the next
+      //     dispatch, so we must update before the pending-destroy flush.
       const computeExecutor = window.computeExecutor;
-      const hasDispatchedNodes = computeExecutor && computeExecutor.dispatchedThisFrame && computeExecutor.dispatchedThisFrame.size > 0;
-      // Also update bindings when pending destroys exist: the old manager's outputTexture
-      // is about to be freed, so we must point bind groups at the new texture first.
-      const hasPendingDestroys = (window.computeExecutor?._pendingDestroys?.length ?? 0) > 0;
-
-      if (hasDispatchedNodes || hasPendingDestroys) {
+      if (computeExecutor?.initialized) {
         this._updateComputeTextureBindings();
       }
     }
