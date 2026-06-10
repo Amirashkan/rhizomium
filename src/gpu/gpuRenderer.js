@@ -1337,16 +1337,19 @@ export class GPURenderer {
       // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
 
-      // Flush deferred GPU resource destructions after submit, but only when
-      // ComputeExecutor has fully finished (re)initializing. If initialize() is
-      // still mid-way (async awaits inside it), old textures must stay alive so
-      // that any frames rendered before the new bind groups are established still
-      // have valid texture references. Once _initializing is false the new
-      // textures are in place and it is safe to release the old ones.
+      // Flush deferred GPU resource destructions AFTER the GPU finishes processing the
+      // submitted commands. We capture and clear the pending list now (so new entries
+      // added by initialize() during the async window don't get destroyed too early),
+      // then actually call destroy() once the GPU is done with this frame's work.
+      // This prevents "Destroyed texture/buffer used in submit" errors that occur when
+      // the synchronous flush races with in-flight GPU commands or concurrent async execute().
       const ce = window.computeExecutor;
-      if (ce?._pendingDestroys?.length && !ce._initializing) {
-        for (const fn of ce._pendingDestroys) fn();
-        ce._pendingDestroys.length = 0;
+      if (ce?._pendingDestroys?.length) {
+        const destroyFns = ce._pendingDestroys.splice(0);
+        const fence = this._lastFramePromise || Promise.resolve();
+        fence.then(() => {
+          for (const fn of destroyFns) { try { fn(); } catch (_) {} }
+        }).catch(() => {});
       }
     } catch (submitErr) {
       console.error('[GPURenderer] Failed to submit command buffer:', submitErr);
