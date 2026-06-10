@@ -1018,19 +1018,17 @@ export class ComputeShaderManager {
    * Clean up resources
    */
   destroy() {
-    // Use resource tracker if available (it will handle all tracked resources)
-    if (this.resourceTracker) {
-      this.resourceTracker.destroy();
-    } else {
-      // Fallback: manual cleanup if no tracker
-      this.storageTexture?.destroy();
-      this.storageTextureA?.destroy();
-      this.storageTextureB?.destroy();
-      this.outputTexture?.destroy();
-      this.uniformBuffer?.destroy();
-      this.colorStopsBuffer?.destroy();
-      this.fallbackInputTexture?.destroy();
-    }
+    // Explicitly destroy each resource owned by this manager.
+    // Do NOT call this.resourceTracker.destroy() — the tracker is shared across
+    // all managers for the same node (globalResourceRegistry.getOrCreate reuses it),
+    // so calling tracker.destroy() would also kill the NEW manager's resources.
+    this.storageTexture?.destroy();
+    this.storageTextureA?.destroy();
+    this.storageTextureB?.destroy();
+    this.outputTexture?.destroy();
+    this.uniformBuffer?.destroy();
+    this.colorStopsBuffer?.destroy();
+    this.fallbackInputTexture?.destroy();
 
     this.computePipeline = null;
     this.bindGroup = null;
@@ -1041,6 +1039,5 @@ export class ComputeShaderManager {
     this.uniformBuffer = null;
     this.colorStopsBuffer = null;
     this.fallbackInputTexture = null;
-
   }
 }
