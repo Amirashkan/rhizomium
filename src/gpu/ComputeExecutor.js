@@ -118,6 +118,9 @@ export class ComputeExecutor {
       return;
     }
 
+    this._initializing = true;
+    try {
+
     // Clean up old resources if reinitializing
     if (this.initialized) {
       // Defer GPU resource destruction until pending GPU work completes.
@@ -150,7 +153,10 @@ export class ComputeExecutor {
     // Compute execution order after all nodes are initialized
     this.updateExecutionOrder();
 
-    this.initialized = true;
+      this.initialized = true;
+    } finally {
+      this._initializing = false;
+    }
   }
 
   /**

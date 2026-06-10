@@ -1337,14 +1337,16 @@ export class GPURenderer {
       // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
 
-      // Flush deferred GPU resource destructions NOW, after submit.
-      // Textures referenced by this frame's encoder are safe to free once submit() has been
-      // called — the GPU has received the command buffer, so destroying the JS-side objects
-      // cannot affect execution. Flushing here (not at frame start) ensures the bind groups
-      // are still valid throughout the entire encode+submit sequence above.
-      if (window.computeExecutor?._pendingDestroys?.length) {
-        for (const fn of window.computeExecutor._pendingDestroys) fn();
-        window.computeExecutor._pendingDestroys.length = 0;
+      // Flush deferred GPU resource destructions after submit, but only when
+      // ComputeExecutor has fully finished (re)initializing. If initialize() is
+      // still mid-way (async awaits inside it), old textures must stay alive so
+      // that any frames rendered before the new bind groups are established still
+      // have valid texture references. Once _initializing is false the new
+      // textures are in place and it is safe to release the old ones.
+      const ce = window.computeExecutor;
+      if (ce?._pendingDestroys?.length && !ce._initializing) {
+        for (const fn of ce._pendingDestroys) fn();
+        ce._pendingDestroys.length = 0;
       }
     } catch (submitErr) {
       console.error('[GPURenderer] Failed to submit command buffer:', submitErr);
