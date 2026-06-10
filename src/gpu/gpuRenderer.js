@@ -1230,14 +1230,6 @@ export class GPURenderer {
       this.profiler.beginFrame();
     }
 
-    // Flush deferred GPU resource destructions queued during the previous frame.
-    // At this point the previous frame's encoder has already been submitted, so it
-    // is safe to destroy any textures it may have referenced.
-    if (window.computeExecutor?._pendingDestroys?.length) {
-      for (const fn of window.computeExecutor._pendingDestroys) fn();
-      window.computeExecutor._pendingDestroys.length = 0;
-    }
-
     // SEPARATE GPU RENDER QUEUES
     // Each render() call creates a new command encoder, ensuring canvas and preview
     // rendering use separate command buffers. This allows independent rendering
@@ -1340,10 +1332,20 @@ export class GPURenderer {
       // PERFORMANCE: Submit command buffer immediately without waiting
       // This allows the render loop to continue while GPU processes the frame
       this.device.queue.submit([encoder.finish()]);
-      
+
       // Store promise for frame presentation - allows frame capture to wait for GPU work
       // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
+
+      // Flush deferred GPU resource destructions NOW, after submit.
+      // Textures referenced by this frame's encoder are safe to free once submit() has been
+      // called — the GPU has received the command buffer, so destroying the JS-side objects
+      // cannot affect execution. Flushing here (not at frame start) ensures the bind groups
+      // are still valid throughout the entire encode+submit sequence above.
+      if (window.computeExecutor?._pendingDestroys?.length) {
+        for (const fn of window.computeExecutor._pendingDestroys) fn();
+        window.computeExecutor._pendingDestroys.length = 0;
+      }
     } catch (submitErr) {
       console.error('[GPURenderer] Failed to submit command buffer:', submitErr);
       console.error('[GPURenderer] This likely means GPU memory is exhausted or the device was lost');
