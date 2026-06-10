@@ -332,6 +332,7 @@ export class ComputeShaderManager {
    */
   createUniformBuffer() {
     this.uniformBuffer = this.device.createBuffer({
+      label: 'Compute Uniform Buffer',
       size: 64, // 16 floats * 4 bytes = 64 bytes (expanded for more parameters)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });

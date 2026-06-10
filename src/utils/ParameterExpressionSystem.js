@@ -1509,7 +1509,12 @@ setValue(node, paramName, value) {
       if (window.computeExecutor && window.computeExecutor.computeManagers) {
         const manager = window.computeExecutor.computeManagers.get(nodeId);
         if (manager && manager.destroy) {
-          manager.destroy();
+          const ce = window.computeExecutor;
+          if (ce._deferDestroy) {
+            ce._deferDestroy(() => { try { manager.destroy(); } catch (_) {} });
+          } else {
+            setTimeout(() => { try { manager.destroy(); } catch (_) {} }, 0);
+          }
         }
         window.computeExecutor.computeManagers.delete(nodeId);
         window.computeExecutor.computeTextures.delete(nodeId);
