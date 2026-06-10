@@ -21,7 +21,7 @@ export const TransformNodes = {
     label: "Transform 2D",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "translateX", type: "float", default: 0.0, label: "Translate X" },
@@ -38,7 +38,7 @@ export const TransformNodes = {
     label: "Scale 2D",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "scaleX",  type: "float", default: 1.0, label: "Scale X" },
@@ -52,7 +52,7 @@ export const TransformNodes = {
     label: "Rotate 2D",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "rotation", type: "float", default: 0.0, label: "Rotation" },
@@ -65,7 +65,7 @@ export const TransformNodes = {
     label: "Tile and Offset",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "tilingX", type: "float", default: 1.0, label: "Tiling X" },
@@ -79,7 +79,7 @@ export const TransformNodes = {
     label: "Flip 2D",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "flipX", type: "bool", default: false, label: "Flip X" },
@@ -102,7 +102,7 @@ export const TransformNodes = {
     label: "Polar Coordinates",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "centerX",      type: "float", default: 0.5, label: "Center X" },
@@ -117,7 +117,7 @@ export const TransformNodes = {
     label: "Spherize",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "centerX",  type: "float", default: 0.5, label: "Center X" },
@@ -131,7 +131,7 @@ export const TransformNodes = {
     label: "Twirl",
     cat: "Transform",
     inputs: 2,
-    pinsIn: ["UV", "Texture"],
+    pinsIn: ["UV (opt.)", "Texture"],
     pinsOut: [{ label: "out", type: "vec2" }],
     params: [
       { name: "centerX",  type: "float", default: 0.5, label: "Center X" },

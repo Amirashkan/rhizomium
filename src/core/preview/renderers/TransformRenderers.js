@@ -136,6 +136,32 @@ export class TransformRenderers {
     }
   }
 
+  // Like getInputPreview but targets a specific pin index.
+  getInputPreviewForPin(node, pinIndex) {
+    try {
+      const inputNodeId = node.inputs?.[pinIndex];
+      if (!inputNodeId) return null;
+      const graph = this.previewSystem?.editor?.graph;
+      const inputNode = graph?.nodes?.find(n => String(n.id) === String(inputNodeId));
+      if (!inputNode) return null;
+      if (!inputNode.__thumb) {
+        if (this.previewSystem?.generateNodePreview) {
+          this.previewSystem.generateNodePreview(inputNode);
+          setTimeout(() => {
+            if (inputNode.__thumb && this.previewSystem?.generateNodePreview) {
+              this.previewSystem.generateNodePreview(node);
+              this.previewSystem?.editor?.draw?.();
+            }
+          }, 50);
+        }
+        return null;
+      }
+      return inputNode.__thumb;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // Apply transformation to an input image
   applyImageTransform(ctx, inputCanvas, params) {
     try {
@@ -477,8 +503,9 @@ export class TransformRenderers {
       const centerX = this.toSafeNumber(this.getParameterValue(node, "centerX", 0.5), 0.5);
       const centerY = this.toSafeNumber(this.getParameterValue(node, "centerY", 0.5), 0.5);
 
-      // Check if there's an input to transform
-      const inputCanvas = this.getInputPreview(node);
+      // Check if there's an input to transform.
+      // Prefer the Texture pin (index 1) for image preview; fall back to UV pin (index 0).
+      const inputCanvas = this.getInputPreviewForPin(node, 1) || this.getInputPreview(node);
 
     if (inputCanvas) {
 
