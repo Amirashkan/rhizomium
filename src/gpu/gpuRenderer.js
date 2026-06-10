@@ -442,7 +442,9 @@ export class GPURenderer {
     const info = this._lookupTextureBinding(texManager, resource.varName);
 
     if (!info) {
-
+      if (resource.varName?.startsWith('compute_') || resource.varName?.startsWith('sampler_compute_')) {
+        console.warn('[GPU] _lookupTextureBinding returned null for compute resource:', resource.varName);
+      }
       return;
     }
 
@@ -1108,49 +1110,48 @@ export class GPURenderer {
     const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
     if (!computeExecutor || !computeExecutor.initialized) return;
 
-    // PERFORMANCE: Track if any compute textures actually changed to avoid expensive bind group rebuilds
     let hasComputeTextures = false;
     let texturesChanged = false;
 
-    // Initialize texture change tracking if not exists
     if (!this._computeTextureHashes) {
       this._computeTextureHashes = new Map();
     }
 
-    // Update all compute texture resources with fresh texture views from nodeOutputs
     for (const resourceKey in this.resources) {
       const resource = this.resources[resourceKey];
 
-      // Check if this is a compute texture or sampler resource
       if (resource.varName &&
           (resource.varName.startsWith('compute_') ||
            resource.varName.startsWith('sampler_compute_'))) {
 
         hasComputeTextures = true;
-        
-        // Apply external texture resource (updates resource.textureView and resource.texture)
+
+        const previousTexture = this._computeTextureHashes.get(resourceKey);
+
         this._applyExternalTextureResource(resource);
 
-        // Compare underlying GPUTexture objects, not views — createView() returns a new
-        // object each call, so view identity always differs even for the same texture.
         const currentTexture = resource.texture ?? resource.textureView;
-        const previousTexture = this._computeTextureHashes.get(resourceKey);
 
         if (previousTexture !== currentTexture) {
           texturesChanged = true;
+          console.log('[GPU] compute texture changed', resource.varName,
+            'prev:', previousTexture, 'curr:', currentTexture);
         }
 
         this._computeTextureHashes.set(resourceKey, currentTexture);
       }
     }
 
-    // Only rebuild bind groups if we found compute textures AND they actually changed
-    if (!hasComputeTextures || !texturesChanged) {
+    if (!hasComputeTextures) {
       return;
     }
 
-    // PERFORMANCE: Use optimized rebuild method with caching
-    this._rebuildBindGroups(true); // Force rebuild since textures changed
+    if (!texturesChanged) {
+      return;
+    }
+
+    console.log('[GPU] rebuilding bind groups for compute texture change');
+    this._rebuildBindGroups(true);
   }
 
   async render(config) {
