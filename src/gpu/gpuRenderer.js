@@ -449,6 +449,9 @@ export class GPURenderer {
     if (resource.textureView && info.textureView) {
       resource.textureView = info.textureView;
     }
+    if (info.texture) {
+      resource.texture = info.texture;
+    }
     if (resource.sampler && info.sampler) {
       resource.sampler = info.sampler;
     }
@@ -508,7 +511,7 @@ export class GPURenderer {
         if (prefix.startsWith('sampler_')) {
           return { sampler: computeInfo.sampler };
         } else {
-          return { textureView: computeInfo.texture.createView() };
+          return { texture: computeInfo.texture, textureView: computeInfo.texture.createView() };
         }
       } else {
 
@@ -1125,20 +1128,19 @@ export class GPURenderer {
 
         hasComputeTextures = true;
         
-        // Check if texture actually changed by comparing texture view reference
-        const previousTextureView = this._computeTextureHashes.get(resourceKey);
-        
-        // Apply external texture resource (updates resource.textureView)
+        // Apply external texture resource (updates resource.textureView and resource.texture)
         this._applyExternalTextureResource(resource);
-        
-        const currentTextureView = resource.textureView;
-        
-        if (previousTextureView !== currentTextureView) {
+
+        // Compare underlying GPUTexture objects, not views — createView() returns a new
+        // object each call, so view identity always differs even for the same texture.
+        const currentTexture = resource.texture ?? resource.textureView;
+        const previousTexture = this._computeTextureHashes.get(resourceKey);
+
+        if (previousTexture !== currentTexture) {
           texturesChanged = true;
         }
-        
-        // Always update hash map with current texture view for next frame comparison
-        this._computeTextureHashes.set(resourceKey, currentTextureView);
+
+        this._computeTextureHashes.set(resourceKey, currentTexture);
       }
     }
 
@@ -1264,13 +1266,11 @@ export class GPURenderer {
       // This avoids unnecessary bind group rebuilds when compute shaders didn't run
       const computeExecutor = window.computeExecutor;
       const hasDispatchedNodes = computeExecutor && computeExecutor.dispatchedThisFrame && computeExecutor.dispatchedThisFrame.size > 0;
-      
-      if (hasDispatchedNodes) {
-        // CRITICAL FIX: Update bind groups with fresh compute texture views
-        // After compute execution, nodeOutputs has been updated with fresh textures
-        // We need to update bind groups BEFORE the fragment render pass begins
-        // PERFORMANCE: Only update if textures actually changed to avoid expensive bind group recreation
-        // The _updateComputeTextureBindings method now uses optimized caching
+      // Also update bindings when pending destroys exist: the old manager's outputTexture
+      // is about to be freed, so we must point bind groups at the new texture first.
+      const hasPendingDestroys = (window.computeExecutor?._pendingDestroys?.length ?? 0) > 0;
+
+      if (hasDispatchedNodes || hasPendingDestroys) {
         this._updateComputeTextureBindings();
       }
     }
