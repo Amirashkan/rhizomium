@@ -69,9 +69,7 @@ export class ComputeExecutor {
     // This prevents infinite loops when auto-bridging or other side effects trigger renders
     this._isExecuting = false;
 
-    // Callbacks flushed at the START of the next render frame before any encoder is created.
-    // Safer than onSubmittedWorkDone() which resolves after previously-submitted work but
-    // not necessarily after the current in-progress encoder.
+    // Callbacks flushed after GPU finishes the current frame via onSubmittedWorkDone().then().
     this._pendingDestroys = [];
   }
 
@@ -118,15 +116,8 @@ export class ComputeExecutor {
       return;
     }
 
-    this._initializing = true;
-    try {
-
     // Clean up old resources if reinitializing
     if (this.initialized) {
-      // Defer GPU resource destruction until pending GPU work completes.
-      // Destroying textures synchronously while a command buffer is still in flight
-      // (possible because execute() has internal awaits) causes the WebGPU validation
-      // error "Destroyed texture used in a submit".
       const oldManagers = [...this.computeManagers.values()];
       const oldFallback = this.fallbackTexture;
       this._deferDestroy(() => {
@@ -150,13 +141,8 @@ export class ComputeExecutor {
       await this.initializeComputeNode(nodeId, nodeData);
     }
 
-    // Compute execution order after all nodes are initialized
     this.updateExecutionOrder();
-
-      this.initialized = true;
-    } finally {
-      this._initializing = false;
-    }
+    this.initialized = true;
   }
 
   /**
