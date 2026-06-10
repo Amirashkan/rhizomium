@@ -110,14 +110,21 @@ export class ComputeExecutor {
 
     // Clean up old resources if reinitializing
     if (this.initialized) {
-      // Destroy old managers but keep the registry intact
-      for (const manager of this.computeManagers.values()) {
-        manager.destroy();
-      }
-      if (this.fallbackTexture) {
-        this.fallbackTexture.destroy();
-        this.fallbackTexture = null;
-      }
+      // Defer GPU resource destruction until pending GPU work completes.
+      // Destroying textures synchronously while a command buffer is still in flight
+      // (possible because execute() has internal awaits) causes the WebGPU validation
+      // error "Destroyed texture used in a submit".
+      const oldManagers = [...this.computeManagers.values()];
+      const oldFallback = this.fallbackTexture;
+      this.device.queue.onSubmittedWorkDone().then(() => {
+        for (const m of oldManagers) m.destroy();
+        oldFallback?.destroy();
+      }).catch(() => {
+        for (const m of oldManagers) m.destroy();
+        oldFallback?.destroy();
+      });
+
+      this.fallbackTexture = null;
       this.computeManagers.clear();
       this.computeNodes.clear();
       this.computeTextures.clear();
@@ -1005,9 +1012,10 @@ export class ComputeExecutor {
       return;
     }
 
-    // Destroy existing manager
+    // Destroy existing manager (deferred to avoid destroying textures mid-submit)
     if (this.computeManagers.has(nodeId)) {
-      this.computeManagers.get(nodeId).destroy();
+      const oldManager = this.computeManagers.get(nodeId);
+      this.device.queue.onSubmittedWorkDone().then(() => oldManager.destroy()).catch(() => oldManager.destroy());
       this.computeManagers.delete(nodeId);
     }
 
