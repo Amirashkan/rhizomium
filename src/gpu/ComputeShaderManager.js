@@ -958,6 +958,19 @@ export class ComputeShaderManager {
     this.dispatchSize.x = Math.ceil(width / this.workgroupSize.x);
     this.dispatchSize.y = Math.ceil(height / this.workgroupSize.y);
 
+    // Capture old textures before overwriting references, then defer destruction
+    const oldTextures = [
+      this.storageTexture,
+      this.storageTextureA,
+      this.storageTextureB,
+      this.outputTexture,
+    ].filter(Boolean);
+    this.device.queue.onSubmittedWorkDone().then(() => {
+      for (const t of oldTextures) { try { t.destroy(); } catch (_) {} }
+    }).catch(() => {
+      for (const t of oldTextures) { try { t.destroy(); } catch (_) {} }
+    });
+
     // Recreate textures
     this.createStorageTextures(width, height);
 

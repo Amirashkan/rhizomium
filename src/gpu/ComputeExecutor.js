@@ -978,17 +978,9 @@ export class ComputeExecutor {
    * Clear all compute nodes and resources
    */
   clear() {
-    // Destroy all compute managers
-    for (const manager of this.computeManagers.values()) {
-      manager.destroy();
-    }
-
-    // Destroy fallback texture
-    if (this.fallbackTexture) {
-      this.fallbackTexture.destroy();
-      this.fallbackTexture = null;
-    }
-
+    const oldManagers = [...this.computeManagers.values()];
+    const oldFallback = this.fallbackTexture;
+    this.fallbackTexture = null;
     this.computeManagers.clear();
     this.computeNodes.clear();
     this.computeTextures.clear();
@@ -1001,6 +993,15 @@ export class ComputeExecutor {
     if (window.computeNodeRegistry) {
       window.computeNodeRegistry.clear();
     }
+
+    // Defer GPU resource destruction until pending work completes
+    this.device.queue.onSubmittedWorkDone().then(() => {
+      for (const m of oldManagers) m.destroy();
+      oldFallback?.destroy();
+    }).catch(() => {
+      for (const m of oldManagers) m.destroy();
+      oldFallback?.destroy();
+    });
   }
 
   /**
@@ -1106,12 +1107,12 @@ export class ComputeExecutor {
   removeComputeNode(nodeId) {
     const node = this.computeManagers.get(nodeId);
     if (node) {
-      // Destroy resources
-      if (node instanceof ComputeNodeBase) {
-        node.destroy();
-      } else if (typeof node.destroy === 'function') {
-        node.destroy();
-      }
+      // Defer GPU resource destruction until pending work completes
+      this.device.queue.onSubmittedWorkDone().then(() => {
+        if (typeof node.destroy === 'function') node.destroy();
+      }).catch(() => {
+        if (typeof node.destroy === 'function') node.destroy();
+      });
 
       this.computeManagers.delete(nodeId);
       this.computeNodes.delete(nodeId);
