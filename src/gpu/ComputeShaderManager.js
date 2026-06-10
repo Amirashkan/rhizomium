@@ -965,11 +965,14 @@ export class ComputeShaderManager {
       this.storageTextureB,
       this.outputTexture,
     ].filter(Boolean);
-    this.device.queue.onSubmittedWorkDone().then(() => {
-      for (const t of oldTextures) { try { t.destroy(); } catch (_) {} }
-    }).catch(() => {
-      for (const t of oldTextures) { try { t.destroy(); } catch (_) {} }
-    });
+    if (window.computeExecutor) {
+      window.computeExecutor._deferDestroy(() => {
+        for (const t of oldTextures) { try { t.destroy(); } catch (_) {} }
+      });
+    } else {
+      // No executor to defer through — wait one tick then destroy
+      setTimeout(() => { for (const t of oldTextures) { try { t.destroy(); } catch (_) {} } }, 0);
+    }
 
     // Recreate textures
     this.createStorageTextures(width, height);

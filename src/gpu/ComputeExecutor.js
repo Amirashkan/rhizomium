@@ -68,6 +68,16 @@ export class ComputeExecutor {
     // Re-entrancy guard: Prevent execute() from being called while already executing
     // This prevents infinite loops when auto-bridging or other side effects trigger renders
     this._isExecuting = false;
+
+    // Callbacks flushed at the START of the next render frame before any encoder is created.
+    // Safer than onSubmittedWorkDone() which resolves after previously-submitted work but
+    // not necessarily after the current in-progress encoder.
+    this._pendingDestroys = [];
+  }
+
+  _deferDestroy(fn) {
+    this._pendingDestroys = this._pendingDestroys || [];
+    this._pendingDestroys.push(fn);
   }
 
   // PERFORMANCE: Maximum resolution for compute nodes
@@ -116,10 +126,7 @@ export class ComputeExecutor {
       // error "Destroyed texture used in a submit".
       const oldManagers = [...this.computeManagers.values()];
       const oldFallback = this.fallbackTexture;
-      this.device.queue.onSubmittedWorkDone().then(() => {
-        for (const m of oldManagers) m.destroy();
-        oldFallback?.destroy();
-      }).catch(() => {
+      this._deferDestroy(() => {
         for (const m of oldManagers) m.destroy();
         oldFallback?.destroy();
       });
@@ -994,11 +1001,8 @@ export class ComputeExecutor {
       window.computeNodeRegistry.clear();
     }
 
-    // Defer GPU resource destruction until pending work completes
-    this.device.queue.onSubmittedWorkDone().then(() => {
-      for (const m of oldManagers) m.destroy();
-      oldFallback?.destroy();
-    }).catch(() => {
+    // Defer GPU resource destruction to start of next render frame
+    this._deferDestroy(() => {
       for (const m of oldManagers) m.destroy();
       oldFallback?.destroy();
     });
@@ -1016,7 +1020,7 @@ export class ComputeExecutor {
     // Destroy existing manager (deferred to avoid destroying textures mid-submit)
     if (this.computeManagers.has(nodeId)) {
       const oldManager = this.computeManagers.get(nodeId);
-      this.device.queue.onSubmittedWorkDone().then(() => oldManager.destroy()).catch(() => oldManager.destroy());
+      this._deferDestroy(() => oldManager.destroy());
       this.computeManagers.delete(nodeId);
     }
 
@@ -1107,12 +1111,7 @@ export class ComputeExecutor {
   removeComputeNode(nodeId) {
     const node = this.computeManagers.get(nodeId);
     if (node) {
-      // Defer GPU resource destruction until pending work completes
-      this.device.queue.onSubmittedWorkDone().then(() => {
-        if (typeof node.destroy === 'function') node.destroy();
-      }).catch(() => {
-        if (typeof node.destroy === 'function') node.destroy();
-      });
+      this._deferDestroy(() => { if (typeof node.destroy === 'function') node.destroy(); });
 
       this.computeManagers.delete(nodeId);
       this.computeNodes.delete(nodeId);
