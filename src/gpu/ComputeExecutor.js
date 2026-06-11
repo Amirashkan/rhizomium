@@ -147,6 +147,15 @@ export class ComputeExecutor {
       // detected as a change by _updateComputeTextureBindings → bind groups
       // are rebuilt, and the fence safely destroys the old texture afterward.
       this.executionOrder = [];
+
+      // Invalidate fragment renderer caches so all fragment nodes re-render at
+      // the new resolution/state. Without this, stale cached textures (rendered
+      // before the resize) are returned to downstream compute nodes because
+      // _checkFragmentNodeNeedsRender sees an unchanged parameter hash and skips
+      // the render — producing "wrong visual" until a parameter change triggers
+      // a forced re-render. clearFragmentCache() defers old texture destruction
+      // via _deferDestroy, so it is safe to call while _reinitializing = true.
+      this.clearFragmentCache();
     }
 
     // Create fallback texture
