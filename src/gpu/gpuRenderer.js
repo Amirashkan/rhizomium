@@ -442,9 +442,6 @@ export class GPURenderer {
     const info = this._lookupTextureBinding(texManager, resource.varName);
 
     if (!info) {
-      if (resource.varName?.startsWith('compute_') || resource.varName?.startsWith('sampler_compute_')) {
-        console.warn('[GPU] _lookupTextureBinding returned null for compute resource:', resource.varName);
-      }
       return;
     }
 
@@ -1134,23 +1131,16 @@ export class GPURenderer {
 
         if (previousTexture !== currentTexture) {
           texturesChanged = true;
-          console.log('[GPU] compute texture changed', resource.varName,
-            'prev:', previousTexture, 'curr:', currentTexture);
         }
 
         this._computeTextureHashes.set(resourceKey, currentTexture);
       }
     }
 
-    if (!hasComputeTextures) {
+    if (!hasComputeTextures || !texturesChanged) {
       return;
     }
 
-    if (!texturesChanged) {
-      return;
-    }
-
-    console.log('[GPU] rebuilding bind groups for compute texture change');
     this._rebuildBindGroups(true);
   }
 
