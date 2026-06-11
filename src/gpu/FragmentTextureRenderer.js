@@ -110,6 +110,11 @@ export class FragmentTextureRenderer {
         cached.uniformManager = uniformManager;
         this.textureCache.set(cacheKey, cached);
         this.shaderCache.set(nodeId, shaderCode);
+        // New texture is empty — force a render even if params haven't changed.
+        // Without this, a resolution change creates a fresh empty texture but
+        // _checkFragmentNodeNeedsRender returns false (same params as before) and
+        // the empty texture is used as input to downstream compute nodes → black.
+        this.parameterHashes.delete(nodeId);
       }
 
       if (!cached || !cached.pipeline) {
