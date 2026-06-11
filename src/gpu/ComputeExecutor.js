@@ -139,7 +139,13 @@ export class ComputeExecutor {
       this.computeNodes.clear();
       this.computeTextures.clear();
       this.inputHashes.clear();
-      this.nodeOutputs.clear();
+      // nodeOutputs is intentionally NOT cleared here. Old entries keep the
+      // previous output textures alive so _lookupTextureBinding continues
+      // returning the last-dispatched (visually correct) texture while new
+      // managers initialise. As each new manager dispatches for the first
+      // time it calls nodeOutputs.set(nodeId, newTexture), which is then
+      // detected as a change by _updateComputeTextureBindings → bind groups
+      // are rebuilt, and the fence safely destroys the old texture afterward.
       this.executionOrder = [];
     }
 
