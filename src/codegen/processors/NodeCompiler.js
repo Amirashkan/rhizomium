@@ -153,6 +153,9 @@ export class NodeCompiler {
 
   compileNodes(orderedNodes) {
     this.uniformManager.clear();
+    // Clear stale type/expression/pin data so nodes excluded from this pass
+    // cannot be referenced by downstream nodes via the previous run's outputPins.
+    this.typeConverter.clear();
 
     if (this.compilers.utility?.resetHelperTracking) {
       this.compilers.utility.resetHelperTracking();
