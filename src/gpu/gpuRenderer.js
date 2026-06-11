@@ -1339,7 +1339,7 @@ export class GPURenderer {
       const ce = window.computeExecutor;
       // Don't flush while initialize() is rebuilding managers: old textures must
       // stay alive until new bind groups are in place (see _reinitializing flag).
-      if (ce?._pendingDestroys?.length && !ce?._reinitializing) {
+      if (ce?._pendingDestroys?.length && !ce?._reinitializing && !ce._isExecuting) {
         const destroyFns = ce._pendingDestroys.splice(0);
         const fence = this._lastFramePromise || Promise.resolve();
         fence.then(() => {
