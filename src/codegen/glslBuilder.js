@@ -21,6 +21,35 @@ export function buildWGSL(graph, options = {}) {
   }
   const compiler = window.nodeCompiler;
 
+  // For subgraph builds (fragment→compute auto-bridging, live streaming) the
+  // shared uniform manager must not be disturbed: gpuRenderer sizes and writes
+  // its u_params buffer from this manager every frame, so letting a subgraph
+  // compile clear/repopulate it desynchronizes the buffer size from the write
+  // size ("Write range does not fit in ubuf:u_params" + preview flicker).
+  // Save the main graph's uniform state now, restore it after compiling, and
+  // hand the caller a detached snapshot of the subgraph's own uniforms.
+  let savedUniformState = null;
+  if (options.skipCacheClear) {
+    const um = compiler.uniformManager;
+    savedUniformState = {
+      uniformParameters: new Map(um.uniformParameters),
+      uniformValues: new Map(um.uniformValues),
+      dynamicParams: new Set(um.dynamicParams),
+    };
+  }
+
+  const finishUniformState = () => {
+    if (!savedUniformState) {
+      return compiler.uniformManager;
+    }
+    const um = compiler.uniformManager;
+    const subgraphUniforms = { uniformValues: new Map(um.uniformValues) };
+    um.uniformParameters = savedUniformState.uniformParameters;
+    um.uniformValues = savedUniformState.uniformValues;
+    um.dynamicParams = savedUniformState.dynamicParams;
+    return subgraphUniforms;
+  };
+
   // --- Clear all cached state before building (unless this is a subgraph build) ---
   if (!options.skipCacheClear) {
     compiler.uniformManager.clear();
@@ -51,7 +80,7 @@ export function buildWGSL(graph, options = {}) {
   if (!outputNode || orderedNodes.length === 0) {
 
     compiler.isSubgraphCompilation = false;
-    return { wgsl: '', uniformManager: compiler.uniformManager };
+    return { wgsl: '', uniformManager: finishUniformState() };
   }
 
   // --- Compile all nodes into WGSL lines ---
@@ -99,6 +128,6 @@ export function buildWGSL(graph, options = {}) {
 
   return {
     wgsl,
-    uniformManager,
+    uniformManager: finishUniformState(),
   };
 }

@@ -105,9 +105,7 @@ export class FragmentTextureRenderer {
       // If shader changed or no cache, rebuild pipeline
       const shaderChanged = this.shaderCache.get(nodeId) !== shaderCode;
       if (shaderChanged || !cached) {
-        cached = await this._buildPipeline(nodeId, shaderCode, width, height);
-        // Store the uniformManager with the cached pipeline so we can write parameters correctly
-        cached.uniformManager = uniformManager;
+        cached = await this._buildPipeline(nodeId, shaderCode, width, height, uniformManager);
         this.textureCache.set(cacheKey, cached);
         this.shaderCache.set(nodeId, shaderCode);
         // New texture is empty — force a render even if params haven't changed.
@@ -121,6 +119,12 @@ export class FragmentTextureRenderer {
 
         return this._createFallbackTexture(width, height);
       }
+
+      // Refresh the uniform snapshot on every call: _compileNodeToShader rebuilds
+      // it each frame (detached from the shared manager), so this keeps parameter
+      // values current for _updateUniforms while preserving the field order the
+      // cached pipeline's struct was compiled with.
+      cached.uniformManager = uniformManager;
 
       // Store node reference for parameter updates
       cached.node = node;
@@ -237,7 +241,7 @@ export class FragmentTextureRenderer {
    * Build WebGPU pipeline for rendering
    * @private
    */
-  async _buildPipeline(nodeId, shaderCode, width, height) {
+  async _buildPipeline(nodeId, shaderCode, width, height, uniformManager = null) {
     try {
       // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
       // CRITICAL FIX: Cache is now device-specific - pass device to get/set
@@ -265,7 +269,7 @@ export class FragmentTextureRenderer {
       const bindingMap = this._analyzeBindings(shaderCode);
 
       // Create bind group layouts and bind groups
-      const { layouts, bindGroups, uniformBuffers } = this._createBindResources(bindingMap);
+      const { layouts, bindGroups, uniformBuffers } = this._createBindResources(bindingMap, uniformManager);
 
       // Create pipeline layout
       const pipelineLayout = this.device.createPipelineLayout({
@@ -567,7 +571,7 @@ export class FragmentTextureRenderer {
    * Create bind group layouts and bind groups
    * @private
    */
-  _createBindResources(bindingMap) {
+  _createBindResources(bindingMap, uniformManager = null) {
     const groupIndices = Object.keys(bindingMap.groups).map(Number).sort((a, b) => a - b);
 
     const layouts = [];
@@ -588,7 +592,7 @@ export class FragmentTextureRenderer {
         entries.push(layoutEntry);
 
         // Create resource
-        const resource = this._createResource(meta, uniformBuffers);
+        const resource = this._createResource(meta, uniformBuffers, uniformManager);
         resources.push({ binding, resource });
       }
 
@@ -632,7 +636,7 @@ export class FragmentTextureRenderer {
    * Create resource for binding
    * @private
    */
-  _createResource(meta, uniformBuffers) {
+  _createResource(meta, uniformBuffers, uniformManager = null) {
     switch (meta.kind) {
       case 'uniform-buffer': {
         // Reuse existing uniform buffer if available
@@ -650,12 +654,12 @@ export class FragmentTextureRenderer {
           // Globals store resolution.xy, time, and 5 audio envelope values (8 floats total)
           size = 32;
         } else if (meta.varName === 'u_params') {
-          // CRITICAL: Calculate parameter buffer size dynamically from uniformManager
-          // This prevents "buffer too small" errors when fragment graphs have many parameters
-          // Use the global uniformManager (which accumulates parameters from subgraph compilation)
-          const uniformManager = window.nodeCompiler?.uniformManager;
-          if (uniformManager && uniformManager.uniformValues.size > 0) {
-            const numParams = uniformManager.uniformValues.size;
+          // CRITICAL: Size from the subgraph's own uniform snapshot so the buffer
+          // always matches the ParamUniforms struct compiled for THIS pipeline.
+          // The global manager reflects the main graph and can be larger or smaller.
+          const um = uniformManager || window.nodeCompiler?.uniformManager;
+          if (um && um.uniformValues.size > 0) {
+            const numParams = um.uniformValues.size;
             // Each parameter is 4 bytes (f32), round up to 16-byte alignment
             size = Math.max(16, Math.ceil(numParams * 4 / 16) * 16);
 
@@ -854,7 +858,10 @@ export class FragmentTextureRenderer {
       const values = Array.from(cached.uniformManager.uniformValues.values());
       const data = new Float32Array(values);
 
-      this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, data.byteLength);
+      // Never write past the buffer: a transient size mismatch (snapshot updated
+      // before the pipeline rebuilds) would otherwise fail validation every frame.
+      const writeBytes = Math.min(data.byteLength, paramsBuffer.size);
+      this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeBytes);
     }
   }
 
