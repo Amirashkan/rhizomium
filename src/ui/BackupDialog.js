@@ -373,9 +373,12 @@ export class BackupDialog {
     document.addEventListener("keydown", handler);
   }
 
-  refreshBackupList() {
+  async refreshBackupList() {
     const listContainer = this.dialog.querySelector("#backup-list");
-    const backups = this.saveLoadManager.getBackups();
+    const backups = await this.saveLoadManager.getBackups();
+
+    // Dialog may have been closed while backups were loading
+    if (!this.dialog) return;
 
     if (backups.length === 0) {
       listContainer.innerHTML =
@@ -439,10 +442,12 @@ export class BackupDialog {
       });
   }
 
-  createBackup() {
-    this.saveLoadManager.createBackup("manual");
-    this.refreshBackupList();
-    this.saveLoadManager.updateStatus("Backup created");
+  async createBackup() {
+    const created = await this.saveLoadManager.createBackup("manual");
+    await this.refreshBackupList();
+    if (created) {
+      this.saveLoadManager.updateStatus("Backup created");
+    }
   }
 
   async restoreBackup(backupId) {
@@ -476,14 +481,8 @@ export class BackupDialog {
     );
     if (!confirmed) return;
 
-    const backups = this.saveLoadManager.getBackups();
-    const filtered = backups.filter((b) => b.id !== backupId);
-
-    localStorage.setItem(
-      this.saveLoadManager.backupsKey,
-      JSON.stringify(filtered),
-    );
-    this.refreshBackupList();
+    await this.saveLoadManager.deleteBackup(backupId);
+    await this.refreshBackupList();
     this.saveLoadManager.updateStatus("Backup deleted");
     modalManager.toast('Backup deleted', 'info', 'Backup Deleted');
   }
@@ -496,14 +495,14 @@ export class BackupDialog {
     );
     if (!confirmed) return;
 
-    localStorage.removeItem(this.saveLoadManager.backupsKey);
-    this.refreshBackupList();
+    await this.saveLoadManager.clearBackups();
+    await this.refreshBackupList();
     this.saveLoadManager.updateStatus("All backups cleared");
     modalManager.toast('All backups cleared', 'info', 'Backups Cleared');
   }
 
   async exportAllBackups() {
-    const backups = this.saveLoadManager.getBackups();
+    const backups = await this.saveLoadManager.getBackups();
     if (backups.length === 0) {
       await modalManager.alert("No backups to export", 'No Backups');
       return;

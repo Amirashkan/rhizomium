@@ -3748,6 +3748,10 @@ function computePreviewStructureHash(graph) {
 
 async function updateShaderFromGraph() {
   try {
+    // Every graph edit funnels through here - flag it so the 30s
+    // autosave/backup loop has something to pick up (no-op during imports)
+    saveLoadManager?.markUnsaved?.();
+
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();

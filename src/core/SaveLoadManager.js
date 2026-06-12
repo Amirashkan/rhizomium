@@ -1,4 +1,6 @@
 import { MessagePriority } from './AsyncQueueManager.js';
+import { BackupStore } from './BackupStore.js';
+import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
 
 async function reinitializeWebGPUAfterLoad() {
   try {
@@ -52,7 +54,15 @@ export class SaveLoadManager {
     this.autosaveInterval = 30000; // 30 seconds
     this.maxBackups = 10;
     this.hasUnsavedChanges = false;
-    
+    this.isImporting = false;
+    this._lastAutosaveHash = null;
+    this._lastBackupHash = null;
+
+    // Backups live in IndexedDB - full texture dataUrls don't fit in the
+    // ~5MB localStorage quota once a project grows
+    this.backupStore = new BackupStore();
+    this._migrateLegacyBackups();
+
     // Worker support
     this.queueManager = null;
     this.useWorker = false;
@@ -112,6 +122,57 @@ export class SaveLoadManager {
         // Worker returns serialized string directly
         resolve(data.result);
       }
+    }
+  }
+
+  /**
+   * One-time migration of backups from the old localStorage key to IndexedDB.
+   */
+  async _migrateLegacyBackups() {
+    try {
+      const stored = localStorage.getItem(this.backupsKey);
+      if (!stored) return;
+
+      const backups = JSON.parse(stored);
+      if (Array.isArray(backups)) {
+        for (const backup of backups) {
+          if (backup && backup.id) {
+            await this.backupStore.add(backup);
+          }
+        }
+      }
+      localStorage.removeItem(this.backupsKey);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'backup-legacy-migration'
+      });
+    }
+  }
+
+  /**
+   * Mark the project as having unsaved changes. Called from the shader
+   * update path in main.js, which every graph edit flows through.
+   */
+  markUnsaved() {
+    if (this.isImporting) return;
+    this.hasUnsavedChanges = true;
+  }
+
+  /**
+   * Cheap content hash (djb2) of a project export, ignoring volatile fields,
+   * used to skip redundant autosaves/backups.
+   */
+  _computeProjectHash(projectData) {
+    try {
+      const { savedAt, metadata, ...stable } = projectData;
+      const str = JSON.stringify(stable);
+      let hash = 5381;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+      }
+      return `${hash}:${str.length}`;
+    } catch (error) {
+      return null;
     }
   }
 // ADD THESE THREE METHODS to your SaveLoadManager class
@@ -229,7 +290,7 @@ exportProject(options = {}) {
 
     const projectData = {
       app: "Rhizomium-Web",
-      version: 2,
+      version: SAVE_FORMAT_VERSION,
       format: "rhizomium-project",
       savedAt: new Date().toISOString(),
 
@@ -366,12 +427,18 @@ exportMIDIBindings() {
 
 async importProject(projectData, options = {}) {
   try {
+    this.isImporting = true;
+
     const {
       clearExisting = true,
       validateData = true,
       restoreViewport = true,
       restorePreviews = false,
     } = options;
+
+    // Migrate older save formats to the current one (throws a clear error
+    // for files saved by a newer editor version)
+    projectData = migrateProjectData(projectData);
 
     // Validate project data
     if (validateData) {
@@ -700,6 +767,8 @@ async importProject(projectData, options = {}) {
     });
     this.updateStatus(`Import failed: ${error.message}`, "error");
     throw new Error(`Failed to import project: ${error.message}`);
+  } finally {
+    this.isImporting = false;
   }
 }
 
@@ -1263,10 +1332,13 @@ async reinitializeWebGPU() {
         JSON.stringify({
           data: projectData,
           timestamp: Date.now(),
-          version: 2,
+          version: SAVE_FORMAT_VERSION,
         }),
       );
 
+      if (storageKey === this.autosaveKey) {
+        this._lastAutosaveHash = this._computeProjectHash(projectData);
+      }
       this.hasUnsavedChanges = false;
       this.updateStatus("Project saved locally");
     } catch (error) {
@@ -1306,52 +1378,80 @@ async reinitializeWebGPU() {
     }
   }
 
-  createBackup(reason = "manual") {
+  async createBackup(reason = "manual") {
     try {
-      const backups = this.getBackups();
       const projectData = this.exportProject();
+
+      // Skip autosave backups identical to the last one so the list
+      // doesn't fill up with duplicate snapshots
+      const hash = this._computeProjectHash(projectData);
+      if (reason === "autosave" && hash && hash === this._lastBackupHash) {
+        return false;
+      }
 
       const backup = {
         id: this.generateId(),
         data: projectData,
         timestamp: Date.now(),
         reason: reason,
+        version: SAVE_FORMAT_VERSION,
         nodeCount: projectData.nodes.length,
         connectionCount: projectData.connections.length,
       };
 
-      backups.unshift(backup);
-
-      // Keep only recent backups
-      if (backups.length > this.maxBackups) {
-        backups.splice(this.maxBackups);
-      }
-
-      localStorage.setItem(this.backupsKey, JSON.stringify(backups));
+      await this.backupStore.add(backup);
+      await this.backupStore.prune(this.maxBackups);
+      this._lastBackupHash = hash;
+      return true;
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'backup-creation',
         reason
       });
+      this.updateStatus(`Backup failed: ${error.message}`, "error");
+      return false;
     }
   }
 
-  getBackups() {
+  async getBackups() {
     try {
-      const stored = localStorage.getItem(this.backupsKey);
-      return stored ? JSON.parse(stored) : [];
+      return await this.backupStore.getAll();
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'backup-retrieval'
       });
+      this.updateStatus(`Could not read backups: ${error.message}`, "error");
       return [];
+    }
+  }
+
+  async deleteBackup(backupId) {
+    try {
+      await this.backupStore.delete(backupId);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'backup-deletion',
+        backupId
+      });
+      this.updateStatus(`Delete failed: ${error.message}`, "error");
+    }
+  }
+
+  async clearBackups() {
+    try {
+      await this.backupStore.clear();
+      this._lastBackupHash = null;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'backup-clear'
+      });
+      this.updateStatus(`Clear failed: ${error.message}`, "error");
     }
   }
 
   async restoreBackup(backupId) {
     try {
-      const backups = this.getBackups();
-      const backup = backups.find((b) => b.id === backupId);
+      const backup = await this.backupStore.get(backupId);
 
       if (!backup) {
         throw new Error("Backup not found");
@@ -1367,6 +1467,7 @@ async reinitializeWebGPU() {
         backupId
       });
       this.updateStatus(`Restore failed: ${error.message}`, "error");
+      throw error;
     }
   }
 
@@ -1376,22 +1477,16 @@ async reinitializeWebGPU() {
 
   setupAutoSave() {
     try {
-      // Auto-save interval
+      // Auto-save interval. hasUnsavedChanges is set via markUnsaved(),
+      // called from the shader update path that every graph edit goes through.
       setInterval(() => {
-        if (this.hasUnsavedChanges && this.shouldAutoSave()) {
+        if (this.hasUnsavedChanges && !this.isImporting && this.shouldAutoSave()) {
           this.saveToLocal();
           this.createBackup("autosave");
         }
       }, this.autosaveInterval);
-
-      // Mark changes when graph is modified
-      const originalOnChange = this.updateCallback;
-      this.updateCallback = (...args) => {
-        this.hasUnsavedChanges = true;
-        return originalOnChange(...args);
-      };
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'autosave-setup'
       });
     }
@@ -1403,30 +1498,18 @@ async reinitializeWebGPU() {
       if (!this.graph || !this.graph.nodes || this.graph.nodes.length === 0) {
         return false;
       }
-      
-      // Don't autosave if it's the same as what's already saved
-      const currentData = this.exportProject();
-      const stored = localStorage.getItem(this.autosaveKey);
-      
-      if (stored) {
-        try {
-          const { data: storedData } = JSON.parse(stored);
-          // Simple comparison - if node count is the same, probably the same project
-          if (storedData && 
-              storedData.nodes && 
-              storedData.nodes.length === currentData.nodes.length &&
-              storedData.connections &&
-              storedData.connections.length === currentData.connections.length) {
-            return false; // Don't save if it looks like the same content
-          }
-        } catch (e) {
-          // If we can't parse stored data, go ahead and save
-        }
+
+      // Skip if content is identical to the last autosave. The hash covers
+      // the full export, so parameter tweaks count as changes (the old
+      // node/connection-count comparison missed them).
+      const hash = this._computeProjectHash(this.exportProject());
+      if (hash && hash === this._lastAutosaveHash) {
+        return false;
       }
-      
+
       return true;
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'autosave-should-save-check'
       });
       return true; // Default to saving if we can't determine
@@ -1852,9 +1935,12 @@ importConnections(connectionData) {
         throw new Error("Project must contain connections array");
       }
 
-      // Version compatibility check
-      if (data.version && data.version > 2) {
-
+      // Version compatibility check (migrateProjectData normally runs first
+      // and rejects newer formats; this guards direct validate calls)
+      if (typeof data.version === "number" && data.version > SAVE_FORMAT_VERSION) {
+        throw new Error(
+          `Unsupported project format version ${data.version} (supported up to ${SAVE_FORMAT_VERSION})`
+        );
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -1892,7 +1978,7 @@ importConnections(connectionData) {
       // Create a basic project with a text/output node containing the shader
       return {
         app: "Rhizomium-Web",
-        version: 2,
+        version: SAVE_FORMAT_VERSION,
         format: "imported-shader",
         savedAt: new Date().toISOString(),
         nodes: [
