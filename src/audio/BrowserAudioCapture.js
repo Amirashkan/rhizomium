@@ -95,9 +95,12 @@ export class BrowserAudioCapture {
                 this.audioElement.loop = true; // Loop by default
             }
 
-            // Load file
-            const url = URL.createObjectURL(file);
-            this.audioElement.src = url;
+            // Load file (revoke previous object URL to avoid leaking memory)
+            if (this._objectUrl) {
+                URL.revokeObjectURL(this._objectUrl);
+            }
+            this._objectUrl = URL.createObjectURL(file);
+            this.audioElement.src = this._objectUrl;
 
             // Wait for metadata
             await new Promise((resolve, reject) => {
@@ -117,13 +120,15 @@ export class BrowserAudioCapture {
                 this.analyser.smoothingTimeConstant = 0.3;
             }
 
-            // Create source and connect
-            if (this.source) {
-                this.source.disconnect();
+            // Create source and connect.
+            // createMediaElementSource() can only be called once per media element
+            // for its entire lifetime, so reuse the existing source node on
+            // subsequent loads — it keeps following the element's current src.
+            if (!this.source) {
+                this.source = this.audioContext.createMediaElementSource(this.audioElement);
+                this.source.connect(this.analyser);
+                this.analyser.connect(this.audioContext.destination); // So we can hear it
             }
-            this.source = this.audioContext.createMediaElementSource(this.audioElement);
-            this.source.connect(this.analyser);
-            this.analyser.connect(this.audioContext.destination); // So we can hear it
 
             this._emit('loaded', file.name);
 
