@@ -687,7 +687,20 @@ export class GPURenderer {
       }
     }
 
-    this.device.queue.writeBuffer(target.buffer, 0, this._paramUniformBuffer.buffer, 0, this._paramUniformBuffer.byteLength);
+    // If the uniform set grew after this buffer was created (a recompile racing
+    // with subgraph builds), recreate the buffer at the new size and rebind.
+    // Writing past the buffer would fail validation every frame and flicker the preview.
+    const byteLength = this._paramUniformBuffer.byteLength;
+    if (byteLength > target.buffer.size) {
+      target.buffer = this.device.createBuffer({
+        size: Math.max(16, Math.ceil(byteLength / 16) * 16),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: 'ubuf:u_params',
+      });
+      this._rebuildBindGroups(true);
+    }
+
+    this.device.queue.writeBuffer(target.buffer, 0, this._paramUniformBuffer.buffer, 0, byteLength);
   }
 
   _sendLiveParameterUpdate(timeSec) {

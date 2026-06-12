@@ -129,7 +129,27 @@ export class ComputeExecutor {
 
       const oldManagers = [...this.computeManagers.values()];
       const oldFallback = this.fallbackTexture;
+      const oldOutputTextures = new Set(
+        oldManagers
+          .map((m) => (typeof m.getOutputTexture === 'function' ? m.getOutputTexture() : null))
+          .filter(Boolean)
+      );
       this._deferDestroy(() => {
+        // Before destroying the old textures, repoint any nodeOutputs entries
+        // still referencing them at the new managers' outputs. Nodes that never
+        // re-dispatch after reinit (static inputs, dispatch errors) would
+        // otherwise keep feeding destroyed textures into bind groups, failing
+        // every submit ("Destroyed texture used in a submit").
+        for (const [id, tex] of this.nodeOutputs) {
+          if (oldOutputTextures.has(tex)) {
+            const fresh = this.computeTextures.get(id)?.texture;
+            if (fresh) {
+              this.nodeOutputs.set(id, fresh);
+            } else {
+              this.nodeOutputs.delete(id);
+            }
+          }
+        }
         for (const m of oldManagers) m.destroy();
         oldFallback?.destroy();
       });
@@ -757,7 +777,12 @@ export class ComputeExecutor {
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
       } catch (error) {
-        // Silently handle errors
+        // Drop the recorded input hash so this node retries next frame.
+        // checkInputsChanged() records the hash BEFORE dispatch, so a failed
+        // dispatch would otherwise leave the node stuck serving its stale
+        // output texture — which the deferred-destroy flush later destroys,
+        // producing endless "Destroyed texture used in a submit" errors.
+        this.inputHashes.delete(nodeId);
       }
     }
     } finally {
