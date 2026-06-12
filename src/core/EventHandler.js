@@ -109,68 +109,16 @@ export class EventHandler {
     }
   }
 
-  // Continuous background warmup to keep GPU/canvas ready
+  // Continuous background warmup — intentionally a no-op.
+  //
+  // This used to run 3 renderNow() + 3 onDraw() full renders every 300ms
+  // while idle "to keep the GPU pipeline hot". Each render's cost scales
+  // with patch size, so on heavy patches this burned a constant slice of
+  // the main thread for no benefit: the render loop already runs at 60fps,
+  // so nothing ever goes cold. Kept as a method because several call sites
+  // (focus/visibility handlers, interaction-end timer) still invoke it.
   _startContinuousWarmup() {
     this._stopContinuousWarmup(); // Clear any existing timer
-    
-    // Warm up VERY frequently when idle to keep things ready
-    this._warmupTimer = setInterval(() => {
-      // Check interaction state manager - pause warmup during panning
-      if (this.interactionStateManager.shouldThrottleOperation('backgroundWarmup')) {
-        return; // Skip warmup during panning/dragging
-      }
-      
-      const now = Date.now();
-      const timeSinceLastInteraction = now - this._lastInteractionTime;
-      
-      // Only warm up if truly idle (no interaction for 500ms)
-      // More aggressive warmup to prevent lag after short pauses
-      if (timeSinceLastInteraction > 500) {
-        getPerfProbe().count("continuousWarmupTick");
-        // Do a lighter warmup in the background - more aggressive
-        if (this.editor?.renderLoopController) {
-          try {
-            // Do 3 renders to keep GPU pipeline hot
-            this.editor.renderLoopController.renderNow({ advance: false });
-            this.editor.renderLoopController.renderNow({ advance: false });
-            this.editor.renderLoopController.renderNow({ advance: false });
-          } catch (error) {
-            // Silently fail - this is background warmup
-          }
-        }
-        
-        if (this.editor && this.onDraw) {
-          try {
-            if (typeof this.editor.markDirty === 'function') {
-              this.editor.markDirty('background-warmup');
-            }
-            // Do 3 draws to keep canvas context active
-            this.onDraw();
-            this.onDraw();
-            this.onDraw();
-          } catch (error) {
-            // Silently fail - this is background warmup
-          }
-        }
-        
-        // Pre-warm expensive operations like getBoundingClientRect
-        // This prevents lag when these are called during actual interaction
-        if (this.canvas) {
-          try {
-            // Pre-warm getBoundingClientRect - this can be slow on first use
-            this.canvas.getBoundingClientRect();
-            // Pre-warm viewport calculations with multiple calls
-            if (this.viewport) {
-              this.viewport.screenToCanvas(0, 0);
-              this.viewport.screenToCanvas(100, 100);
-              this.viewport.screenToCanvas(500, 500);
-            }
-          } catch (error) {
-            // Silently fail
-          }
-        }
-      }
-    }, 300); // Every 300ms - very frequent to keep things warm and prevent lag
   }
 
   _stopContinuousWarmup() {
@@ -326,100 +274,31 @@ export class EventHandler {
     return this._cachedInteractionState.isCanvasInteracting;
   }
 
-  // Check for inactivity and warm up GPU if needed
-  // Call this at the START of any user interaction to prevent lag
+  // Track interaction timing after a pause.
+  //
+  // This used to fire up to 15 synchronous renderNow() calls plus up to 10
+  // onDraw() calls ("GPU warmup") from mousedown/mousemove/wheel handlers
+  // whenever the user paused for more than 100ms. The cost of each of those
+  // renders scales with patch size, so on heavy patches every pan/zoom
+  // gesture started with a multi-frame main-thread stall. The render loop
+  // already runs continuously at 60fps, so the pipeline is never cold —
+  // only the timestamp bookkeeping is kept.
   _checkAndWarmupAfterInactivity() {
     const now = Date.now();
     const timeSinceLastInteraction = now - this._lastInteractionTime;
 
-    // If inactive for more than threshold, warm up GPU and canvas synchronously
     if (timeSinceLastInteraction > this._inactivityThreshold) {
-      const warmupProbeToken = getPerfProbe().begin("warmupBurst");
-      this._justWarmedUp = true; // Mark that we just warmed up
-      // CRITICAL: Set interaction start time NOW so immediate updates work for first movement
+      getPerfProbe().count("warmupCheck");
+      this._justWarmedUp = true;
+      // Set interaction start time so immediate updates work for first movement
       if (!this._interactionStartTime || timeSinceLastInteraction > 100) {
         this._interactionStartTime = now;
       }
-      
-      // ULTRA-AGGRESSIVE warmup: Many synchronous renders to fully wake up GPU pipeline
-      // The longer the inactivity, the more aggressive the warmup needed
-      // For 2+ seconds, do at least 10 renders to fully wake up the pipeline
-      const warmupIntensity = Math.min(15, Math.floor(timeSinceLastInteraction / 500) + 8);
-      
-      if (this.editor?.renderLoopController) {
-        try {
-          // Many renders to fully warm up GPU pipeline - more if inactive longer
-          // Do them synchronously to ensure they complete before first interaction
-          for (let i = 0; i < warmupIntensity; i++) {
-            this.editor.renderLoopController.renderNow({ advance: false });
-          }
-        } catch (error) {
-          console.warn('[EventHandler] GPU warmup after inactivity failed:', error);
-        }
-      }
-      
-      // AGGRESSIVE canvas warmup: Force multiple draws to wake up 2D context
-      if (this.editor) {
-        try {
-          // Pre-warm expensive DOM operations that might be slow on first use
-          if (this.canvas) {
-            // Pre-warm getBoundingClientRect - this can be slow on first use
-            this.canvas.getBoundingClientRect();
-            // Pre-warm viewport calculations
-            if (this.viewport) {
-              this.viewport.screenToCanvas(0, 0);
-              this.viewport.screenToCanvas(100, 100);
-            }
-          }
-          
-          // Mark canvas as dirty to force draws
-          if (typeof this.editor.markDirty === 'function') {
-            this.editor.markDirty('warmup');
-          }
-          
-          // Force many immediate draws to wake up canvas context
-          // More draws if inactive longer - ULTRA AGGRESSIVE for node dragging
-          const drawWarmupCount = Math.min(10, Math.floor(timeSinceLastInteraction / 500) + 5);
-          if (this.onDraw && typeof this.onDraw === 'function') {
-            // Many draws to ensure context is fully ready
-            // Do them synchronously to ensure they complete before first interaction
-            for (let i = 0; i < drawWarmupCount; i++) {
-              this.onDraw();
-            }
-          }
-          
-          // Also directly touch the canvas context with actual operations
-          if (this.editor.ctx && this.canvas) {
-            const ctx = this.editor.ctx;
-            // Do actual canvas operations to wake up the context
-            ctx.save();
-            // Touch common operations that might be slow on first use
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(1, 1);
-            ctx.stroke();
-            ctx.fillRect(0, 0, 1, 1);
-            ctx.clearRect(0, 0, 1, 1);
-            // Touch transform operations
-            ctx.translate(0, 0);
-            ctx.scale(1, 1);
-            ctx.restore();
-          }
-        } catch (error) {
-          console.warn('[EventHandler] Canvas warmup after inactivity failed:', error);
-        }
-      }
-      
-      // Keep the flag active longer to ensure first few interactions bypass RAF
-      // Longer inactivity = longer immediate update window needed
-      // For 2+ seconds of inactivity, keep immediate updates for at least 3 seconds
-      // This ensures smooth dragging even after longer pauses
+
       const immediateWindow = Math.max(3000, Math.min(4000, timeSinceLastInteraction + 1500));
       setTimeout(() => {
         this._justWarmedUp = false;
       }, immediateWindow);
-
-      getPerfProbe().end(warmupProbeToken);
     }
 
     // Update last interaction time
