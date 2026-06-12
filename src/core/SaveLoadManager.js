@@ -1389,9 +1389,12 @@ async reinitializeWebGPU() {
         return false;
       }
 
+      // JSON round-trip so the stored data is exactly what file save /
+      // localStorage autosave persist; IndexedDB's structured clone throws
+      // on values JSON would silently drop (canvases, functions, ...)
       const backup = {
         id: this.generateId(),
-        data: projectData,
+        data: JSON.parse(JSON.stringify(projectData)),
         timestamp: Date.now(),
         reason: reason,
         version: SAVE_FORMAT_VERSION,
@@ -1612,11 +1615,19 @@ async reinitializeWebGPU() {
           };
         }
       }
-        // Export ALL node properties, not just specific ones
+        // Export ALL node properties, not just specific ones.
+        // Skip runtime-only "__" properties (e.g. __thumb holds an
+        // HTMLCanvasElement, which IndexedDB's structured clone rejects)
+        // and functions - neither belongs in a save file.
         const excludedKeys = ['inputs', 'outputs', 'x', 'y', 'w', 'h', 'id', 'kind', 'type'];
-        
+
         for (const [key, value] of Object.entries(node)) {
-          if (!excludedKeys.includes(key) && value !== undefined) {
+          if (
+            !excludedKeys.includes(key) &&
+            !key.startsWith('__') &&
+            value !== undefined &&
+            typeof value !== 'function'
+          ) {
             exportedNode[key] = value;
           }
         }

@@ -525,6 +525,7 @@ export class FileManager {
   }
 
   async checkAuthAndLoadFiles() {
+    if (!this.dialog) return;
     const userInfoEl = this.dialog.querySelector("#file-manager-user-info");
     const loginBtn = this.dialog.querySelector("#file-manager-login-btn");
     const infoEl = this.dialog.querySelector("#file-manager-info");
@@ -595,6 +596,7 @@ export class FileManager {
 
   async loadFiles() {
     if (this.loading) return;
+    if (!this.dialog) return;
     this.loading = true;
 
     const listContainer = this.dialog.querySelector("#file-manager-list");
@@ -975,7 +977,10 @@ export class FileManager {
   }
 
   showEmptyState(message) {
+    // Dialog may have been closed while an async auth/file request was pending
+    if (!this.dialog) return;
     const listContainer = this.dialog.querySelector("#file-manager-list");
+    if (!listContainer) return;
     listContainer.innerHTML = `<div class="file-manager-empty">${message}</div>`;
   }
 }
