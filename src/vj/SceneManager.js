@@ -87,7 +87,7 @@ export class SceneManager {
    * Load scene from current editor state
    */
   captureCurrentScene(name) {
-    const projectData = this.saveLoadManager.export();
+    const projectData = this.saveLoadManager.exportProject();
     const sceneId = `scene_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const scene = this.addScene(sceneId, projectData, name || 'Captured Scene');
