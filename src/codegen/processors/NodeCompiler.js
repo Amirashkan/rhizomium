@@ -123,32 +123,66 @@ export class NodeCompiler {
 
     // It's an expression - extract the part after =
     const expression = paramValue.trim().slice(1).trim();
+    const fallback = typeof defaultValue === 'number' ? defaultValue.toFixed(6) : defaultValue;
 
     // Check if it's a simple node reference pattern: node_X or node_X_component
-    const nodeRefPattern = /^node_(\w+)(?:_(x|y|z|w))?$/;
-    const match = expression.match(nodeRefPattern);
-
-    if (match) {
-      const nodeId = match[1];
-      const component = match[2];
-
-      if (component) {
-        // Component access: node_1_x → node_1.x
-        return `node_${this.sanitize(nodeId)}.${component}`;
-      } else {
-        // Direct reference: node_1 → node_1
-        return `node_${this.sanitize(nodeId)}`;
-      }
+    if (/^node_\w*$/.test(expression)) {
+      const resolved = this.resolveNodeReference(expression);
+      // Unknown or incomplete reference (e.g. "=node_" while the user is still
+      // typing) - fall back to the default instead of emitting invalid WGSL
+      return resolved !== null ? resolved : fallback;
     }
 
-    // For complex expressions (e.g., sin(time), 2 * PI, etc.), use the expression system
+    // For complex expressions (e.g., sin(time), node_5 * 2, etc.), use the expression system.
+    // Validate every node reference first: an unresolved identifier like "node_"
+    // would otherwise be emitted verbatim and break the whole shader module.
     try {
-      const shaderCode = this.shaderExpressionSystem.generateShader(expression);
+      const variableMapping = {};
+      const refs = expression.match(/\bnode_\w*/g) || [];
+      for (const ref of new Set(refs)) {
+        const resolved = this.resolveNodeReference(ref);
+        if (resolved === null) {
+          return fallback;
+        }
+        variableMapping[ref] = resolved;
+      }
+
+      const shaderCode = this.shaderExpressionSystem.generateShader(expression, variableMapping);
       return shaderCode;
     } catch (error) {
 
-      return defaultValue;
+      return fallback;
     }
+  }
+
+  /**
+   * Resolve a "node_X" / "node_X_x" reference to the WGSL expression of an
+   * already-compiled node, or null if it doesn't name a known node.
+   * @param {string} ref - Full reference text, e.g. "node_5" or "node_5_x"
+   * @returns {string|null}
+   */
+  resolveNodeReference(ref) {
+    const refText = ref.slice('node_'.length);
+    if (!refText) return null;
+
+    // Direct reference: node_5
+    if (this.typeConverter.expressions.has(refText)) {
+      return this.typeConverter.expressions.get(refText);
+    }
+
+    // Component access: node_5_x → node_5.x
+    const compMatch = refText.match(/^(\w+)_(x|y|z|w)$/);
+    if (compMatch) {
+      const [, baseId, component] = compMatch;
+      if (this.typeConverter.expressions.has(baseId)) {
+        const expr = this.typeConverter.expressions.get(baseId);
+        const type = this.typeConverter.types.get(baseId);
+        // Scalars have no components to access
+        return type === 'f32' ? expr : `${expr}.${component}`;
+      }
+    }
+
+    return null;
   }
 
   compileNodes(orderedNodes) {

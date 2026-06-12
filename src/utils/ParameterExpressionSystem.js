@@ -578,6 +578,7 @@ isIncompleteExpression(expression) {
     /vec2\s*\($/, // Incomplete vec2 call
     /vec3\s*\($/, // Incomplete vec3 call
     /[a-zA-Z_][a-zA-Z0-9_]*\s*\($/, // Any incomplete function call
+    /\bnode_$/, // Incomplete node reference (still typing the node id)
   ];
   
   return incompletePatterns.some(pattern => pattern.test(expression.trim()));
@@ -815,9 +816,12 @@ isIncomplete(value) {
   
   // Incomplete operators
   if (/[+\-*/]$/.test(trimmed)) return true;
-  
+
   // Incomplete function calls
   if (/\w+\($/.test(trimmed)) return true;
+
+  // Incomplete node reference (user is still typing the node id, e.g. "=node_")
+  if (/\bnode_$/.test(trimmed)) return true;
   
   // Incomplete parentheses
   const openCount = (trimmed.match(/\(/g) || []).length;
