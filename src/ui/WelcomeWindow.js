@@ -40,9 +40,71 @@ export class WelcomeWindow {
       return false;
     }
 
+    // Render immediately with what we have; backups load async from
+    // IndexedDB and the list is filled in when they arrive
     this.state = this.collectState();
     this.render();
+    this.loadBackups();
     return true;
+  }
+
+  async loadBackups() {
+    if (!this.saveLoadManager?.getBackups) {
+      return;
+    }
+    try {
+      const backups = await this.saveLoadManager.getBackups();
+      if (!this.overlay || backups.length === 0) {
+        return;
+      }
+      this.state.backups = backups.slice(0, 3);
+      this.renderBackupList();
+    } catch (error) {
+
+    }
+  }
+
+  renderBackupList() {
+    const tips = this.overlay?.querySelector(".welcome-tips");
+    if (!tips || this.state.backups.length === 0) {
+      return;
+    }
+
+    this.overlay.querySelector(".welcome-section")?.remove();
+
+    const section = document.createElement("div");
+    section.className = "welcome-section";
+    section.innerHTML = `
+      <div class="section-title">Recent Backups</div>
+      <ul class="welcome-backup-list">
+        ${this.state.backups
+          .map(
+            (backup) => `
+          <li>
+            <span class="backup-title">${backup.reason || "Backup"}</span>
+            <span class="backup-age">${this.relativeBackupTime(
+              backup.timestamp,
+            )}</span>
+            <button class="backup-restore-btn" data-backup="${
+              backup.id
+            }">Restore</button>
+          </li>
+        `,
+          )
+          .join("")}
+      </ul>
+    `;
+    tips.parentNode.insertBefore(section, tips);
+
+    section.querySelectorAll(".backup-restore-btn").forEach((button) =>
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const backupId = event.currentTarget.dataset.backup;
+        if (backupId) {
+          this.restoreBackup(backupId);
+        }
+      }),
+    );
   }
 
   hide(commitPreference = true) {
@@ -91,19 +153,10 @@ export class WelcomeWindow {
       }
     }
 
-    let backups = [];
-    if (this.saveLoadManager?.getBackups) {
-      try {
-        backups = this.saveLoadManager.getBackups().slice(0, 3);
-      } catch (error) {
-
-      }
-    }
-
     return {
       hasAutosave,
       autosaveAgeText,
-      backups,
+      backups: [],
     };
   }
 
