@@ -1,6 +1,7 @@
 // src/core/EventHandler.js - Complete version with undo system integration
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { logRedrawTriggerEvent } from '../utils/RedrawDiagnostics.js';
+import { getPerfProbe } from '../utils/PerfProbe.js';
 
 export class EventHandler {
   constructor(options) {
@@ -125,6 +126,7 @@ export class EventHandler {
       // Only warm up if truly idle (no interaction for 500ms)
       // More aggressive warmup to prevent lag after short pauses
       if (timeSinceLastInteraction > 500) {
+        getPerfProbe().count("continuousWarmupTick");
         // Do a lighter warmup in the background - more aggressive
         if (this.editor?.renderLoopController) {
           try {
@@ -332,6 +334,7 @@ export class EventHandler {
 
     // If inactive for more than threshold, warm up GPU and canvas synchronously
     if (timeSinceLastInteraction > this._inactivityThreshold) {
+      const warmupProbeToken = getPerfProbe().begin("warmupBurst");
       this._justWarmedUp = true; // Mark that we just warmed up
       // CRITICAL: Set interaction start time NOW so immediate updates work for first movement
       if (!this._interactionStartTime || timeSinceLastInteraction > 100) {
@@ -415,6 +418,8 @@ export class EventHandler {
       setTimeout(() => {
         this._justWarmedUp = false;
       }, immediateWindow);
+
+      getPerfProbe().end(warmupProbeToken);
     }
 
     // Update last interaction time

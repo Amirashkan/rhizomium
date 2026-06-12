@@ -1,6 +1,7 @@
 // src/core/Renderer.js
 import { NodeDefs } from "../data/NodeDefs.js";
 import { RedrawScheduler } from "./RedrawScheduler.js";
+import { getPerfProbe } from "../utils/PerfProbe.js";
 
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
@@ -53,6 +54,8 @@ export class Renderer {
 
   render(graph, renderState) {
     const perfToken = window.previewPerfMonitor?.timeSection("canvas");
+    const probe = getPerfProbe();
+    const probeToken = probe.begin("rendererFullPass");
     const ctx = this.ctx;
     if (renderState.editor) {
       window.editor = renderState.editor; // Make editor accessible
@@ -149,6 +152,7 @@ export class Renderer {
       this.viewport.markViewportClean();
     }
     
+    probe.end(probeToken);
     window.previewPerfMonitor?.endSection(perfToken, {
       canvasNodeCount: graph?.nodes?.length || 0,
       canvasConnectionCount: graph?.connections?.length || 0,
@@ -194,7 +198,9 @@ export class Renderer {
                            this._gridCacheKey !== cacheKey;
 
     if (needsRegenerate) {
+      const probeToken = getPerfProbe().begin("gridRegenerate");
       this._regenerateGrid(gridSize, scale, width, height);
+      getPerfProbe().end(probeToken);
       this._gridCacheKey = cacheKey;
     }
 
@@ -503,6 +509,7 @@ export class Renderer {
       this._cachedFonts.lastScale = currentScale;
     }
     
+    let drawnCount = 0;
     for (const node of nodes) {
       // PERFORMANCE: Skip nodes that are completely off-screen
       const nodeRight = (node.x || 0) + (node.w || 120);
@@ -512,6 +519,10 @@ export class Renderer {
         continue; // Node is completely outside viewport
       }
       this._renderNode(node, selection.has(node.id));
+      drawnCount++;
+    }
+    if (drawnCount > 0) {
+      getPerfProbe().count("nodesDrawn", drawnCount);
     }
   }
 
@@ -730,6 +741,7 @@ export class Renderer {
       tempCtx.imageSmoothingEnabled = true;
       tempCtx.imageSmoothingQuality = "high";
       tempCtx.putImageData(node.__thumb, 0, 0);
+      getPerfProbe().count("thumbPutImageData");
       ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
     }
 

@@ -24,6 +24,7 @@
 import { ComputeShaderManager } from './ComputeShaderManager.js';
 import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
+import { getPerfProbe } from '../utils/PerfProbe.js';
 
 export class ComputeExecutor {
   constructor(device) {
@@ -634,6 +635,12 @@ export class ComputeExecutor {
     // Set the executing flag
     this._isExecuting = true;
 
+    // PerfProbe: wall time of the execute pass. This is mostly synchronous
+    // main-thread work (encoding dispatches, hashing params); awaited
+    // sub-steps can add microtask latency, so treat spikes as upper bounds.
+    const probe = getPerfProbe();
+    const probeToken = probe.begin("computeExecWall");
+
     try {
       // Clear the dispatched-this-frame tracking
       this.dispatchedThisFrame.clear();
@@ -788,6 +795,11 @@ export class ComputeExecutor {
     } finally {
       // CRITICAL: Always reset the executing flag, even if there was an error
       this._isExecuting = false;
+
+      probe.end(probeToken);
+      if (this.dispatchedThisFrame.size > 0) {
+        probe.count("computeDispatches", this.dispatchedThisFrame.size);
+      }
 
       // Clear rendered fragment nodes for the next frame
       // This allows time-dependent fragment nodes (like SimplexNoise) to re-render

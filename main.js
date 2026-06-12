@@ -45,6 +45,8 @@ import { Vec3 } from './src/scene/math/Vec3.js';
 import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
 import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
+import { getPerfProbe } from "./src/utils/PerfProbe.js";
+import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -54,6 +56,11 @@ import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 window.makeNode = makeNode;
 window.NodeDefs = NodeDefs;
 window.updateNodeIdCounter = updateNodeIdCounter;
+
+// Always-on frame attribution probe + benchmark patch generator.
+// Console: window.perfReport(), window.perfBench.mixedGraph(300), .blurTower(6)
+const perfProbe = getPerfProbe();
+installPerfBench();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3904,6 +3911,13 @@ function updateStatus(message, type = "info") {
 }
 
 function handleRenderFrame(frameState) {
+  // PerfProbe: track real animation cadence; manual renders (warmup bursts,
+  // renderNow calls) are counted separately so they show up as out-of-band work.
+  if (frameState.manual) {
+    perfProbe.count("manualRender");
+  } else {
+    perfProbe.tick();
+  }
   previewPerfMonitor?.beginFrame(frameState);
   // PERFORMANCE: Skip expensive operations during parameter drag
   // When dragging parameters, we don't need to update anything
@@ -3955,7 +3969,9 @@ function handleRenderFrame(frameState) {
       // This allows GPU work to proceed in parallel with canvas rendering
       // GPU renderer's sync work completes immediately, then async work proceeds
       // Canvas rendering can run without blocking GPU work continuation
+      const gpuProbeToken = perfProbe.begin("gpuDispatchCpu");
       const renderPromise = window.gpuRenderer.render({ timeSec: frameState.simTime });
+      perfProbe.end(gpuProbeToken);
       previewPerfMonitor?.endSection(gpuToken);
       previewPerfMonitor?.attachAsyncMetric("gpuQueueWaitMs", renderPromise);
       
@@ -4099,14 +4115,18 @@ function handleRenderFrame(frameState) {
               };
 
               try {
-                // Use async worker-based preview computation to avoid blocking main thread
+                // NOTE: requestPreviewComputation currently runs synchronously on
+                // the main thread despite its name — the probe section makes that
+                // cost visible in window.perfReport().
                 if (typeof previewComputer.requestPreviewComputation === 'function') {
+                  const previewProbeToken = perfProbe.begin("previewComputeCpu");
                   previewComputer.requestPreviewComputation(
                     graphInstance,
                     { time: animationTime },
                     {},
                     () => finalizePreviewUpdate()
                   );
+                  perfProbe.end(previewProbeToken);
                 } else {
                   // Fallback: defer with requestIdleCallback if worker not available
                   if (typeof requestIdleCallback !== 'undefined') {
@@ -4151,7 +4171,9 @@ function handleRenderFrame(frameState) {
       // Even in empty graphs, panning should be smooth. Throttling causes choppy panning.
       // Canvas rendering is fast enough to handle 60fps, especially with an empty graph.
       const canvasToken = previewPerfMonitor?.timeSection("canvas");
+      const canvasProbeToken = perfProbe.begin("canvasDraw");
       editor.draw();
+      perfProbe.end(canvasProbeToken);
       previewPerfMonitor?.endSection(canvasToken);
     } else if (sceneIsStatic) {
       previewPerfMonitor?.recordValue('canvasStaticSkip', 1);
