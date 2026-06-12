@@ -5,6 +5,17 @@ export class TypeConverter {
     this.expressions = new Map(); // nodeId -> expression string
     this.outputPins = new Map(); // nodeId -> array of {expression, type} for each output pin
   }
+
+  /**
+   * Clear all accumulated state. Must be called at the start of each compilation
+   * so stale outputPins entries from previous runs cannot be referenced by nodes
+   * that were not compiled in the current pass.
+   */
+  clear() {
+    this.types.clear();
+    this.expressions.clear();
+    this.outputPins.clear();
+  }
   
   /**
    * Set the type and expression for a node (legacy single-output)
