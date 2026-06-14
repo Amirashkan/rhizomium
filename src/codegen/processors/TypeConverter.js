@@ -63,9 +63,12 @@ export class TypeConverter {
     const outputPins = this.outputPins.get(actualNodeId);
     let expression, currentType;
     
-    if (outputPins && outputPins[pinIndex]) {
-      expression = outputPins[pinIndex].expression;
-      currentType = outputPins[pinIndex].type;
+    if (outputPins && outputPins.length > 0) {
+      // Clamp to the primary output (pin 0) if a connection still references a
+      // pin index that no longer exists (e.g. the collapsed channel pins).
+      const pin = outputPins[pinIndex] || outputPins[0];
+      expression = pin.expression;
+      currentType = pin.type;
     } else {
       // Fall back to legacy single-output
       expression = this.expressions.get(actualNodeId) || "vec3<f32>(0.0)";

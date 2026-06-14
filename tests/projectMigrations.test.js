@@ -58,6 +58,35 @@ describe('migrateProjectData', () => {
     expect(() => migrateProjectData(project)).toThrow(/newer version/);
   });
 
+  it('remaps connections from collapsed channel pins to the Color pin (v3 -> v4)', () => {
+    const project = {
+      ...baseProject(),
+      version: 3,
+      nodes: [
+        { id: 'tex', kind: 'Texture2D' },
+        { id: 'noise', kind: 'ComputeNoise' },
+        { id: 'split', kind: 'Split4' },
+        { id: 'out', kind: 'OutputFinal' },
+      ],
+      connections: [
+        // Channel pin (pin > 0) on collapsed kinds -> clamped to pin 0.
+        { from: { nodeId: 'tex', pin: 2 }, to: { nodeId: 'out', pin: 0 } },
+        { from: { nodeId: 'noise', pin: 5 }, to: { nodeId: 'split', pin: 0 } },
+        // Already on the Color pin -> untouched.
+        { from: { nodeId: 'tex', pin: 0 }, to: { nodeId: 'split', pin: 0 } },
+        // Non-collapsed kind (Split4 genuinely has multiple outputs) -> untouched.
+        { from: { nodeId: 'split', pin: 3 }, to: { nodeId: 'out', pin: 0 } },
+      ],
+    };
+
+    const result = migrateProjectData(project);
+
+    expect(result.version).toBe(SAVE_FORMAT_VERSION);
+    expect(result.connections.map((c) => c.from.pin)).toEqual([0, 0, 0, 3]);
+    // Targets are preserved.
+    expect(result.connections[3].to).toEqual({ nodeId: 'out', pin: 0 });
+  });
+
   it('rejects non-object data', () => {
     expect(() => migrateProjectData(null)).toThrow(/Invalid project data/);
     expect(() => migrateProjectData('{}')).toThrow(/Invalid project data/);

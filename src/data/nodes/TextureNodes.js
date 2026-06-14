@@ -9,14 +9,8 @@ export const TextureNodes = {
     cat: "Texture",
     inputs: 1,
     pinsIn: ["UV"],
-    pinsOut: [
-      { label: "RGBA", type: "vec4" },
-      { label: "RGB", type: "vec3" },
-      { label: "R", type: "f32" },
-      { label: "G", type: "f32" },
-      { label: "B", type: "f32" },
-      { label: "A", type: "f32" },
-    ],
+    // Single Color output. Use a Split Vec4 node to extract R/G/B/A channels.
+    pinsOut: [{ label: "Color", type: "vec4" }],
     params: [
       { name: "imageFile", type: "file", accept: "image/*", label: "Image" },
       {
@@ -48,11 +42,8 @@ export const TextureNodes = {
     cat: "Texture",
     inputs: 1,
     pinsIn: ["Dir"],
-    pinsOut: [
-      { label: "RGBA", type: "vec4" },
-      { label: "RGB", type: "vec3" },
-      { label: "A", type: "f32" },
-    ],
+    // Single Color output. Use a Split Vec4 node to extract R/G/B/A channels.
+    pinsOut: [{ label: "Color", type: "vec4" }],
     params: [
       { name: "imageFile", type: "file", accept: "image/*", label: "Cubemap" },
       {

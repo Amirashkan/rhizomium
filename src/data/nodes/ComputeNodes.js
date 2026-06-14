@@ -17,7 +17,7 @@ export const ComputeNodes = {
     cat: "Generators",
     inputs: 0,
     pinsIn: [],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'scale', type: 'float', default: 8.0, min: 0.1, max: 50.0 },
       { name: 'octaves', type: 'int', default: 5, min: 1, max: 8 },
@@ -34,7 +34,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'radius', type: 'float', default: 5.0, min: 0.0, max: 20.0 },
       { name: 'quality', type: 'select', options: ['Low', 'Medium', 'High'], default: 'Medium' },
@@ -49,7 +49,7 @@ export const ComputeNodes = {
     cat: "Simulation",
     inputs: 2,
     pinsIn: ["Force Field", "Velocity Field"],
-    pinsOut: ["Texture", "RGB"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'particleCount', type: 'int', default: 10000, min: 1000, max: 100000 },
       { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
@@ -66,7 +66,7 @@ export const ComputeNodes = {
     cat: "Effects",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'decay', type: 'float', default: 0.95, min: 0.0, max: 1.0 },
       { name: 'scale', type: 'float', default: 1.01, min: 0.9, max: 1.1 },
@@ -83,7 +83,7 @@ export const ComputeNodes = {
     cat: "Simulation",
     inputs: 0,
     pinsIn: [],
-    pinsOut: ["Texture", "RGB"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'pattern', type: 'select', options: ['Coral', 'Spots', 'Stripes', 'Waves', 'Mitosis', 'Worms', 'Spirals'], default: 'Coral' },
       { name: 'feedRate', type: 'float', default: 0.0545, min: 0.0, max: 0.1 },
@@ -102,7 +102,7 @@ export const ComputeNodes = {
     cat: "Simulation",
     inputs: 1,
     pinsIn: ["Velocity Input"],
-    pinsOut: ["Texture", "Velocity", "Pressure"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'viscosity', type: 'float', default: 0.0001, min: 0.0, max: 0.01 },
       { name: 'diffusion', type: 'float', default: 0.0, min: 0.0, max: 0.1 },
@@ -119,7 +119,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'kernel', type: 'select', options: ['Sharpen', 'Edge Detect', 'Emboss', 'Custom'], default: 'Sharpen' },
       { name: 'strength', type: 'float', default: 1.0, min: 0.0, max: 2.0 }
@@ -133,7 +133,7 @@ export const ComputeNodes = {
     cat: "Simulation",
     inputs: 0,
     pinsIn: [],
-    pinsOut: ["Texture", "RGB"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'rule', type: 'select', options: ['Conway Life', 'Seeds', 'Brian\'s Brain', 'Day & Night'], default: 'Conway Life' },
       { name: 'speed', type: 'float', default: 10.0, min: 1.0, max: 60.0 },
@@ -149,7 +149,7 @@ export const ComputeNodes = {
     cat: "Simulation",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'mode', type: 'select', options: ['Flow', 'Reaction-Diffusion', 'Accumulate', 'Custom'], default: 'Flow' },
       { name: 'decay', type: 'float', default: 0.98, min: 0.0, max: 1.0 },
@@ -227,7 +227,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'mode', type: 'select', options: ['Binary', 'Range', 'Adaptive'], default: 'Binary' },
       { name: 'threshold', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
@@ -245,7 +245,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'brightness', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
       { name: 'contrast', type: 'float', default: 1.0, min: 0.0, max: 3.0 },
@@ -263,7 +263,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'method', type: 'select', options: ['Sobel', 'Scharr', 'Prewitt', 'Roberts'], default: 'Sobel' },
       { name: 'threshold', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
@@ -279,7 +279,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'operation', type: 'select', options: ['Dilate', 'Erode', 'Open', 'Close'], default: 'Dilate' },
       { name: 'kernelSize', type: 'select', options: ['3x3', '5x5', '7x7'], default: '3x3' },
@@ -297,7 +297,7 @@ export const ComputeNodes = {
     cat: "Generators",
     inputs: 0,
     pinsIn: [],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'mode', type: 'select', options: ['Cells', 'Distance', 'Borders', 'Worley'], default: 'Cells' },
       { name: 'scale', type: 'float', default: 8.0, min: 0.1, max: 50.0 },
@@ -316,7 +316,7 @@ export const ComputeNodes = {
     cat: "Generators",
     inputs: 0,
     pinsIn: [],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'type', type: 'select', options: ['Linear', 'Radial', 'Angular', 'Diamond'], default: 'Linear' },
       { name: 'angle', type: 'float', default: 0.0, min: 0.0, max: 360.0 },
@@ -347,7 +347,7 @@ export const ComputeNodes = {
     cat: "Generators",
     inputs: 0,
     pinsIn: [],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'type', type: 'select', options: ['Checkerboard', 'Stripes', 'Dots', 'Grid', 'Hexagon', 'Brick'], default: 'Checkerboard' },
       { name: 'scaleX', type: 'float', default: 8.0, min: 0.1, max: 100.0 },
@@ -367,7 +367,7 @@ export const ComputeNodes = {
     cat: "Effects",
     inputs: 2,
     pinsIn: ["Input", "Warp Field"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'mode', type: 'select', options: ['Displace', 'Twist', 'Bulge', 'Pinch', 'Wave'], default: 'Displace' },
       { name: 'strength', type: 'float', default: 0.5, min: 0.0, max: 5.0 },
@@ -386,7 +386,7 @@ export const ComputeNodes = {
     cat: "Effects",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'segments', type: 'int', default: 6, min: 2, max: 24 },
       { name: 'rotation', type: 'float', default: 0.0, min: 0.0, max: 360.0 },
@@ -405,7 +405,7 @@ export const ComputeNodes = {
     cat: "Effects",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'type', type: 'select', options: ['RGB Shift', 'Block', 'Scanline', 'Pixelate', 'Corrupt'], default: 'RGB Shift' },
       { name: 'intensity', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
@@ -424,7 +424,7 @@ export const ComputeNodes = {
     cat: "Utility",
     inputs: 2,
     pinsIn: ["Input A", "Input B"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'mode', type: 'select', options: ['Mix', 'Add', 'Multiply', 'Screen', 'Overlay', 'Difference', 'Exclusion', 'Lighten', 'Darken'], default: 'Mix' },
       { name: 'amount', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
@@ -439,7 +439,7 @@ export const ComputeNodes = {
     cat: "Utility",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'translateX', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
       { name: 'translateY', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
@@ -459,7 +459,7 @@ export const ComputeNodes = {
     cat: "Utility",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'operation', type: 'select', options: ['Swap', 'Extract', 'Combine', 'Remap'], default: 'Swap' },
       { name: 'redSource', type: 'select', options: ['R', 'G', 'B', 'A', '0', '1'], default: 'R' },
@@ -476,7 +476,7 @@ export const ComputeNodes = {
     cat: "Utility",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'operation', type: 'select', options: ['RGB to HSV', 'HSV to RGB', 'Adjust HSV'], default: 'Adjust HSV' },
       { name: 'hueShift', type: 'float', default: 0.0, min: -180.0, max: 180.0 },
@@ -494,7 +494,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'operation', type: 'select', options: ['Equalize', 'Normalize', 'Stretch', 'Visualize'], default: 'Equalize' },
       { name: 'channel', type: 'select', options: ['RGB', 'R', 'G', 'B', 'Luminance'], default: 'Luminance' },
@@ -510,7 +510,7 @@ export const ComputeNodes = {
     cat: "Modifiers",
     inputs: 1,
     pinsIn: ["Input"],
-    pinsOut: ["Texture", "RGB", "R", "G", "B", "A"],
+    pinsOut: ["Texture"],
     params: [
       { name: 'method', type: 'select', options: ['Rec709', 'Rec601', 'Average', 'Max', 'Min'], default: 'Rec709' },
       { name: 'outputMode', type: 'select', options: ['Grayscale', 'Preserve Color', 'Isoluminant'], default: 'Grayscale' },
