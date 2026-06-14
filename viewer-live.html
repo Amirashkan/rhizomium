@@ -3662,7 +3662,8 @@
 
         // Check for auto-fullscreen / hide-ui URL parameters
         const urlParams = new URLSearchParams(window.location.search);
-        const autoFullscreen = urlParams.get('fullscreen') === 'true';
+        const autoFullscreen = urlParams.get('fullscreen') === 'true'; // try + one-click prompt fallback
+        const softFullscreen = urlParams.get('softfs') === 'true';     // try once, silently (no prompt/click)
         const autoHideUI = urlParams.get('hideui') === 'true';
 
         if (autoHideUI) {
@@ -3719,6 +3720,14 @@
             // Explicit button is also wired directly for clarity.
             const fsBtn = document.getElementById('btn-enter-fullscreen');
             if (fsBtn) fsBtn.addEventListener('click', onUserGesture);
+        }
+
+        // Soft fullscreen: try true fullscreen once, silently. If the browser
+        // blocks it (no user gesture), we stay as the borderless filling popup —
+        // no prompt is shown and no click is required. Press F any time to go
+        // fullscreen manually.
+        if (softFullscreen) {
+            setTimeout(() => { enterFullscreen().catch(() => {}); }, 300);
         }
     </script>
 </body>

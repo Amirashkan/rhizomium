@@ -326,7 +326,11 @@ async function launchExternalViewer(options = {}) {
   return _launchWindowViewer({ monitor });
 }
 
-/** Fallback launcher: opens the live viewer in a separate window and streams to it. */
+/**
+ * Default launcher: open the live viewer as a borderless popup filling the
+ * chosen display. The editor stays visible in this window; the popup has no
+ * browser toolbars and silently attempts true fullscreen (no click required).
+ */
 async function _launchWindowViewer({ monitor = "auto" } = {}) {
   if (!ExternalViewerManager.isSupported()) {
     alert(
@@ -350,7 +354,7 @@ async function _launchWindowViewer({ monitor = "auto" } = {}) {
   sendCurrentShaderToStream();
 
   try {
-    await manager.openViewer({ monitor, fullscreen: true, hideUI: true });
+    await manager.openViewer({ monitor, hideUI: true, fullscreenMode: "soft" });
   } catch (err) {
     console.error("[main.js] Failed to open external viewer window:", err);
     if (liveShaderStream && liveShaderStream.isStreaming) liveShaderStream.stopStreaming();
@@ -361,7 +365,7 @@ async function _launchWindowViewer({ monitor = "auto" } = {}) {
   }
 
   setExternalViewerButtonState(true);
-  _updateStatusSafe("External viewer streaming live in a separate window (60 FPS)");
+  _updateStatusSafe("External viewer open on the second display (editor stays here)");
   return true;
 }
 

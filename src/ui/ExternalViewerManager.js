@@ -191,16 +191,23 @@ export class ExternalViewerManager {
   }
 
   /**
-   * Open (or focus) the external viewer on the chosen display.
+   * Open (or focus) the external viewer on the chosen display, as a borderless
+   * popup (no browser toolbars) sized to fill that display. The editor stays in
+   * the primary window. By default the viewer also *silently* attempts true
+   * fullscreen (which removes even the OS title bar) but never prompts or
+   * requires a click — if the browser blocks it, the filling popup remains.
    *
    * @param {Object} opts
-   * @param {string} [opts.monitor='auto']   'auto' | 'primary' | screen id | index
-   * @param {boolean} [opts.fullscreen=true] request fullscreen in the viewer
-   * @param {boolean} [opts.hideUI=true]     hide the viewer's chrome for clean output
+   * @param {string} [opts.monitor='auto']            'auto' | 'primary' | screen id | index
+   * @param {boolean} [opts.hideUI=true]              hide the viewer's own chrome for clean output
+   * @param {('soft'|'prompt'|false)} [opts.fullscreenMode='soft']
+   *        'soft'   = try fullscreen once, silently (no overlay, no click);
+   *        'prompt' = try, and if blocked show a one-click overlay;
+   *        false    = don't attempt fullscreen.
    * @returns {Promise<Window>} the viewer window handle
    */
   async openViewer(opts = {}) {
-    const { monitor = 'auto', fullscreen = true, hideUI = true } = opts;
+    const { monitor = 'auto', hideUI = true, fullscreenMode = 'soft' } = opts;
 
     // Avoid spawning duplicates — refocus an already-open viewer instead.
     if (this.isOpen()) {
@@ -218,18 +225,20 @@ export class ExternalViewerManager {
 
     // Behaviour flags for the viewer page.
     const params = new URLSearchParams();
-    if (fullscreen) params.set('fullscreen', 'true');
     if (hideUI) params.set('hideui', 'true');
+    if (fullscreenMode === 'prompt') params.set('fullscreen', 'true');
+    else if (fullscreenMode === 'soft') params.set('softfs', 'true');
     const url = `${window.location.origin}${this.viewerPath}?${params.toString()}`;
 
-    // Size/position the window to fill the chosen display.
+    // Open a borderless popup (no tabs/toolbar/address bar) filling the display.
+    const chrome = 'popup=yes,toolbar=no,location=no,menubar=no,status=no,scrollbars=no';
     let features;
     if (screen && screen.bounds) {
       const { left, top, width, height } = screen.bounds;
-      features = `left=${Math.round(left)},top=${Math.round(top)},` +
+      features = `${chrome},left=${Math.round(left)},top=${Math.round(top)},` +
                  `width=${Math.round(width)},height=${Math.round(height)}`;
     } else {
-      features = 'width=1920,height=1080';
+      features = `${chrome},width=1920,height=1080`;
     }
 
     const win = window.open(url, this.windowName, features);
@@ -239,7 +248,7 @@ export class ExternalViewerManager {
     this.viewerWindow = win;
 
     // Best-effort: some browsers ignore left/top in the features string for
-    // cross-screen placement, so nudge it into position after opening.
+    // cross-screen placement, so nudge it into position + fill the display.
     if (screen && screen.bounds) {
       const { left, top, width, height } = screen.bounds;
       try {
