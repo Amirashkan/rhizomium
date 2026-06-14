@@ -286,31 +286,33 @@ function ensureExternalViewerManager() {
 /**
  * Show the live output on a second display.
  *
- * Preferred path (Chromium): project the live canvas FULLSCREEN onto the chosen
- * display with no browser window — the operator keeps working in the primary
- * window while the monitor shows only the visual. Falls back to a separate
- * viewer window when the Window Management API isn't available, or when the
- * user explicitly asks for a window.
+ * Default: open the viewer in a SEPARATE fullscreen window on the chosen
+ * display. The editor stays fully visible in this (primary) window, and the
+ * second window is chrome-free once it goes fullscreen — so the editor keeps
+ * showing while the external viewer is on.
  *
- * @param {Object} options { monitor, separateWindow }
+ * Opt-in (`projectHidingEditor`): single-window fullscreen projection with no
+ * second window at all. A browser context can only render one view, so this
+ * takes over the primary window and the editor is NOT visible while active.
+ *
+ * @param {Object} options { monitor, projectHidingEditor }
  */
 async function launchExternalViewer(options = {}) {
-  const { monitor = "auto", separateWindow = false } = options;
+  const { monitor = "auto", projectHidingEditor = false } = options;
   const manager = ensureExternalViewerManager();
 
-  if (ExternalViewerManager.supportsWindowManagement() && !separateWindow) {
+  // Opt-in only: take over THIS window to project fullscreen (hides the editor).
+  if (projectHidingEditor && ExternalViewerManager.supportsWindowManagement()) {
     const sourceCanvas = document.getElementById("gpu-canvas");
     try {
       await manager.projectFullscreen({ monitor, sourceCanvas });
       setExternalViewerButtonState(true);
-      _updateStatusSafe("Projecting fullscreen to the external display");
+      _updateStatusSafe("Projecting fullscreen (editor hidden) — press Esc to return");
       return true;
     } catch (err) {
       console.warn("[main.js] Fullscreen projection failed:", err);
       manager.stopProjection();
       setExternalViewerButtonState(false);
-      // Don't silently fall back to a window on a supporting browser — the user
-      // asked NOT to see one. Ask them to grant the permission and retry.
       _updateStatusSafe(
         "Couldn't project to the display — allow the display/window-management permission, then click again.",
         "warning"
@@ -319,8 +321,8 @@ async function launchExternalViewer(options = {}) {
     }
   }
 
-  // Fallback: separate viewer window (BroadcastChannel) for non-Chromium
-  // browsers, or when the user opts into a window.
+  // Default: separate fullscreen window on the chosen display. Keeps the editor
+  // visible here while the second screen shows the chrome-free visual.
   return _launchWindowViewer({ monitor });
 }
 
@@ -1568,7 +1570,7 @@ function setupUIEventHandlers() {
 
       const opts = (window.outputDisplayWindow && typeof window.outputDisplayWindow.getLaunchOptions === "function")
         ? window.outputDisplayWindow.getLaunchOptions()
-        : { monitor: "auto", separateWindow: false };
+        : { monitor: "auto", projectHidingEditor: false };
 
       await launchExternalViewer(opts);
     });
