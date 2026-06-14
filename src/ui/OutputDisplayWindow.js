@@ -173,12 +173,12 @@ export class OutputDisplayWindow {
       await this.onLaunchExternalViewer(this.getLaunchOptions());
     };
 
-    // Settings section with controls + button. Projection is inherently
-    // fullscreen and chrome-free, so the only option is the advanced
-    // "separate window" escape hatch (for non-Chromium browsers / preference).
+    // Settings section with controls + button. By default the viewer opens in a
+    // separate fullscreen window so the editor stays visible here. The advanced
+    // toggle switches to single-window projection, which hides the editor.
     const settingsSection = this._createSection("External Viewer (Second Monitor)", [
       this._createMonitorDropdown("Display", "monitor"),
-      this._createCheckbox("Open in a separate window (advanced)", "separatewindow", false),
+      this._createCheckbox("Project onto this window instead (hides editor)", "projecthideeditor", false),
       launchBtn
     ]);
     content.appendChild(settingsSection);
@@ -202,15 +202,17 @@ export class OutputDisplayWindow {
     `;
     info.innerHTML = `
       <div style="color: #ddd; font-weight: 600; margin-bottom: 8px;">How it works</div>
-      Projects the live output <strong>fullscreen</strong> onto the selected
-      display — no browser window, no toolbars. You keep working here on the
-      primary screen; the second screen shows only the visual.
+      Opens the live output <strong>fullscreen on the selected display</strong>
+      in its own window. The editor stays visible here on the primary screen,
+      and the second screen shows only the visual (no toolbars once fullscreen).
       <div style="margin-top: 10px; color: #888;">
         Press <strong style="color:#bbb;">Esc</strong> or click
         <em>Stop External Viewer</em> to exit. First use may ask permission to
-        manage windows — allow it, then click again.
-        <br>Advanced: tick “separate window” to open the viewer in its own
-        window instead (e.g. on non-Chromium browsers).
+        manage windows — allow it, then click again. If the browser blocks
+        auto-fullscreen, click the second screen once (or press
+        <strong style="color:#bbb;">F</strong>).
+        <br>Advanced: “Project onto this window instead” skips the second window
+        but takes over this one, so the editor is hidden while it’s on.
       </div>
     `;
     content.appendChild(info);
@@ -506,16 +508,17 @@ export class OutputDisplayWindow {
 
   /**
    * Current launch settings from the controls. Safe to call before the window
-   * has been rendered — returns sensible defaults (auto display, projection).
-   * @returns {{ monitor: string, separateWindow: boolean }}
+   * has been rendered — returns sensible defaults (auto display, editor stays
+   * visible via a separate window).
+   * @returns {{ monitor: string, projectHidingEditor: boolean }}
    */
   getLaunchOptions() {
-    const separateWindowCheckbox = this.window?.querySelector('#output-display-separatewindow');
+    const projectCheckbox = this.window?.querySelector('#output-display-projecthideeditor');
     const monitorSelect = this.window?.querySelector('#output-display-monitor');
 
     return {
       monitor: monitorSelect ? monitorSelect.value : 'auto',
-      separateWindow: separateWindowCheckbox ? separateWindowCheckbox.checked : false
+      projectHidingEditor: projectCheckbox ? projectCheckbox.checked : false
     };
   }
 
