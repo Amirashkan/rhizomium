@@ -5,11 +5,18 @@ export class OutputDisplayWindow {
   constructor(options = {}) {
     this.onClose = options.onClose || (() => {});
     this.onLaunchExternalViewer = options.onLaunchExternalViewer || (() => {});
+    this.onStopExternalViewer = options.onStopExternalViewer || (() => {});
+
+    // Shared ExternalViewerManager (screen detection + window placement). When
+    // provided, the monitor dropdown maps 1:1 to the displays the viewer can
+    // open on, so the chosen monitor is honoured reliably.
+    this.manager = options.manager || null;
 
     this.window = null;
     this.keyHandler = null;
     this.cleanupDraggable = null;
     this.detectedMonitors = [];
+    this.viewerActive = false;
   }
 
   show() {
@@ -96,7 +103,7 @@ export class OutputDisplayWindow {
     `;
 
     const title = document.createElement("div");
-    title.textContent = "Output Display";
+    title.textContent = "External Viewer";
     title.style.cssText = "color: #fff; font-size: 14px; font-weight: 600;";
 
     const closeBtn = document.createElement("button");
@@ -129,8 +136,9 @@ export class OutputDisplayWindow {
     `;
     content.className = "custom-scroll";
 
-    // Launch External Viewer button
+    // Launch / Stop External Viewer button (toggles based on viewer state)
     const launchBtn = document.createElement("button");
+    launchBtn.id = "output-display-launch";
     launchBtn.textContent = "Open External Viewer";
     launchBtn.style.cssText = `
       width: 100%;
@@ -146,31 +154,30 @@ export class OutputDisplayWindow {
       margin-top: 8px;
     `;
     launchBtn.onmouseenter = () => {
-      launchBtn.style.background = "rgba(102, 126, 234, 0.3)";
-      launchBtn.style.borderColor = "rgba(102, 126, 234, 0.6)";
-    };
-    launchBtn.onmouseleave = () => {
-      launchBtn.style.background = "rgba(102, 126, 234, 0.2)";
-      launchBtn.style.borderColor = "rgba(102, 126, 234, 0.4)";
-    };
-    launchBtn.onclick = async () => {
-      if (this.onLaunchExternalViewer) {
-        const fullscreenCheckbox = this.window.querySelector('#output-display-fullscreen');
-        const monitorSelect = this.window.querySelector('#output-display-monitor');
-        
-        const options = {
-          fullscreen: fullscreenCheckbox ? fullscreenCheckbox.checked : false,
-          monitor: monitorSelect ? monitorSelect.value : 'primary'
-        };
-        
-        await this.onLaunchExternalViewer(options);
+      if (this.viewerActive) {
+        launchBtn.style.background = "rgba(220, 70, 70, 0.32)";
+        launchBtn.style.borderColor = "rgba(220, 70, 70, 0.7)";
+      } else {
+        launchBtn.style.background = "rgba(102, 126, 234, 0.3)";
+        launchBtn.style.borderColor = "rgba(102, 126, 234, 0.6)";
       }
     };
+    launchBtn.onmouseleave = () => {
+      this._applyLaunchButtonStyle(launchBtn);
+    };
+    launchBtn.onclick = async () => {
+      if (this.viewerActive) {
+        this.onStopExternalViewer();
+        return;
+      }
+      await this.onLaunchExternalViewer(this.getLaunchOptions());
+    };
 
-    // Settings section with button
-    const settingsSection = this._createSection("External Viewer", [
-      this._createCheckbox("Start in Fullscreen", "fullscreen", false),
-      this._createMonitorDropdown("Monitor", "monitor"),
+    // Settings section with controls + button
+    const settingsSection = this._createSection("External Viewer (Second Monitor)", [
+      this._createMonitorDropdown("Display", "monitor"),
+      this._createCheckbox("Start in fullscreen", "fullscreen", true),
+      this._createCheckbox("Hide viewer UI (clean output)", "hideui", true),
       launchBtn
     ]);
     content.appendChild(settingsSection);
@@ -180,27 +187,37 @@ export class OutputDisplayWindow {
       this.updateMonitorDropdown();
     });
 
-    // Placeholder section
-    const placeholder = document.createElement("div");
-    placeholder.style.cssText = `
+    // Help / info section
+    const info = document.createElement("div");
+    info.style.cssText = `
       background: rgba(0, 0, 0, 0.2);
-      border: 1px dashed rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 8px;
-      padding: 40px 24px;
-      margin-bottom: 20px;
-      text-align: center;
-      color: #888;
-      font-size: 14px;
+      padding: 16px 18px;
+      margin-bottom: 12px;
+      color: #aaa;
+      font-size: 12.5px;
+      line-height: 1.6;
     `;
-    placeholder.innerHTML = `
-      <div style="margin-bottom: 8px; font-size: 16px; color: #aaa;">Output Display</div>
-      <div style="font-size: 13px; color: #666;">Placeholder content will be added here</div>
+    info.innerHTML = `
+      <div style="color: #ddd; font-weight: 600; margin-bottom: 8px;">How it works</div>
+      Opens a separate viewer window that renders the live shader at 60&nbsp;FPS
+      on the selected display — ideal for a projector or second monitor.
+      It streams over the same browser (no server needed).
+      <div style="margin-top: 10px; color: #888;">
+        In the viewer: <strong style="color:#bbb;">F</strong> toggles fullscreen,
+        <strong style="color:#bbb;">H</strong> hides the UI.
+        If the browser blocks auto-fullscreen, just click the viewer once.
+      </div>
     `;
-    content.appendChild(placeholder);
+    content.appendChild(info);
 
     this.window.appendChild(header);
     this.window.appendChild(content);
     document.body.appendChild(this.window);
+
+    // Reflect current viewer state on the freshly-created Launch/Stop button.
+    this.setViewerActive(this.viewerActive);
 
     // Make draggable - needs to be done after element is in DOM
     requestAnimationFrame(() => {
@@ -331,6 +348,21 @@ export class OutputDisplayWindow {
   }
 
   async detectMonitors() {
+    // Prefer the shared ExternalViewerManager so the dropdown maps 1:1 to the
+    // displays the viewer window can actually open on.
+    if (this.manager && typeof this.manager.detectScreens === 'function') {
+      try {
+        const screens = await this.manager.detectScreens();
+        this.detectedMonitors = [
+          { value: 'auto', label: 'Auto — second display if available' },
+          ...screens.map(s => ({ value: s.id, label: s.label }))
+        ];
+        return;
+      } catch (e) {
+        console.warn('[OutputDisplayWindow] Screen detection via manager failed:', e);
+      }
+    }
+
     try {
       // Try to use Screen Details API (Chrome/Edge)
       if ('getScreenDetails' in window.screen) {
@@ -449,11 +481,12 @@ export class OutputDisplayWindow {
 
     // Add detected monitors
     if (this.detectedMonitors.length > 0) {
-      this.detectedMonitors.forEach(monitor => {
+      this.detectedMonitors.forEach((monitor, index) => {
         const optionEl = document.createElement("option");
         optionEl.value = monitor.value;
         optionEl.textContent = monitor.label;
-        if (monitor.value === 'primary') {
+        // Default to the first option ('Auto' when present, else the first display).
+        if (index === 0) {
           optionEl.selected = true;
         }
         select.appendChild(optionEl);
@@ -465,6 +498,44 @@ export class OutputDisplayWindow {
       fallback.textContent = "Primary Monitor";
       fallback.selected = true;
       select.appendChild(fallback);
+    }
+  }
+
+  /**
+   * Current launch settings from the controls. Safe to call before the window
+   * has been rendered — returns sensible defaults (auto display, fullscreen).
+   * @returns {{ monitor: string, fullscreen: boolean, hideUI: boolean }}
+   */
+  getLaunchOptions() {
+    const fullscreenCheckbox = this.window?.querySelector('#output-display-fullscreen');
+    const hideUICheckbox = this.window?.querySelector('#output-display-hideui');
+    const monitorSelect = this.window?.querySelector('#output-display-monitor');
+
+    return {
+      monitor: monitorSelect ? monitorSelect.value : 'auto',
+      fullscreen: fullscreenCheckbox ? fullscreenCheckbox.checked : true,
+      hideUI: hideUICheckbox ? hideUICheckbox.checked : true
+    };
+  }
+
+  /** Reflect the viewer's running state on the Launch/Stop button. */
+  setViewerActive(active) {
+    this.viewerActive = !!active;
+    const btn = this.window?.querySelector('#output-display-launch');
+    if (btn) {
+      btn.textContent = this.viewerActive ? "Stop External Viewer" : "Open External Viewer";
+      this._applyLaunchButtonStyle(btn);
+    }
+  }
+
+  /** Apply the resting (non-hover) style for the Launch/Stop button. */
+  _applyLaunchButtonStyle(btn) {
+    if (this.viewerActive) {
+      btn.style.background = "rgba(220, 70, 70, 0.22)";
+      btn.style.borderColor = "rgba(220, 70, 70, 0.5)";
+    } else {
+      btn.style.background = "rgba(102, 126, 234, 0.2)";
+      btn.style.borderColor = "rgba(102, 126, 234, 0.4)";
     }
   }
 }

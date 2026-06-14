@@ -8,6 +8,7 @@ import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
 import { OutputDisplayWindow } from "./src/ui/OutputDisplayWindow.js";
+import { ExternalViewerManager } from "./src/ui/ExternalViewerManager.js";
 import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
@@ -205,6 +206,127 @@ let frameStreamClient = null;
 let broadcastFrameStream = null;
 let liveShaderStream = null;
 let frameStreamingEnabled = false;
+
+// External viewer (second-monitor) window manager — handles screen detection,
+// window placement and fullscreen. Shared by the menu button and the Output
+// Display window so there is a single, reliable launch path.
+let externalViewerManager = null;
+
+// ---------------------------------------------------------------------------
+// Unified external viewer ("second monitor") launch path
+// ---------------------------------------------------------------------------
+// Both the View menu "Open External Viewer" button and the Output Display
+// window route through these helpers. They use the same-origin, no-backend
+// LiveShaderStream (BroadcastChannel) transport, which renders at full 60 FPS
+// in the viewer regardless of where the editor is hosted.
+
+function _updateStatusSafe(message, kind) {
+  if (typeof updateStatus === "function") updateStatus(message, kind);
+}
+
+/** Push the current shader to the live stream (or trigger a rebuild that will). */
+function sendCurrentShaderToStream() {
+  if (!liveShaderStream || !liveShaderStream.isStreaming) return;
+
+  if (window.latestGeneratedWGSL) {
+    const canvas = document.getElementById("gpu-canvas");
+    let uniformValues = [];
+    if (window.nodeCompiler?.uniformManager?.uniformValues) {
+      uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
+    }
+    liveShaderStream.sendShaderUpdate(
+      window.latestGeneratedWGSL,
+      uniformValues,
+      { width: canvas?.width || 1920, height: canvas?.height || 1080 }
+    );
+  } else if (typeof window.rebuild === "function") {
+    // No shader compiled yet — rebuild; updateShaderFromGraph will stream it.
+    setTimeout(() => window.rebuild(), 100);
+  }
+}
+
+/** Reflect the active/inactive state across all external-viewer UI surfaces. */
+function setExternalViewerButtonState(active) {
+  const btn = document.getElementById("btn-open-external-viewer");
+  if (btn) {
+    btn.textContent = active ? "Stop External Viewer" : "Open External Viewer";
+    btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
+    btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
+  }
+  if (window.outputDisplayWindow && typeof window.outputDisplayWindow.setViewerActive === "function") {
+    window.outputDisplayWindow.setViewerActive(active);
+  }
+}
+
+/** True if the external viewer is currently streaming and/or its window is open. */
+function isExternalViewerActive() {
+  const streaming = !!(liveShaderStream && liveShaderStream.isStreaming);
+  const windowOpen = !!(externalViewerManager && externalViewerManager.isOpen());
+  return streaming || windowOpen;
+}
+
+/**
+ * Open the external viewer on the chosen display and start streaming to it.
+ * @param {Object} options { monitor, fullscreen, hideUI }
+ */
+async function launchExternalViewer(options = {}) {
+  const { monitor = "auto", fullscreen = true, hideUI = true } = options;
+
+  if (!ExternalViewerManager.isSupported()) {
+    alert(
+      "❌ Your browser doesn't support the BroadcastChannel API needed for the live viewer.\n\n" +
+      "Please use a recent version of Chrome, Edge, Firefox, or Safari."
+    );
+    return false;
+  }
+
+  // 1. Ensure the shared live-shader stream is running (same-origin, no backend).
+  if (!liveShaderStream) {
+    liveShaderStream = new LiveShaderStream();
+    liveShaderStream.init();
+    window.liveShaderStream = liveShaderStream; // exposed for the GPU renderer
+  }
+  if (!liveShaderStream.isStreaming) {
+    liveShaderStream.startStreaming();
+  }
+
+  // 2. Send the current shader immediately so the viewer isn't blank.
+  sendCurrentShaderToStream();
+
+  // 3. Open (or focus) the viewer window on the requested monitor.
+  if (!externalViewerManager) {
+    externalViewerManager = new ExternalViewerManager();
+    window.externalViewerManager = externalViewerManager;
+  }
+  try {
+    await externalViewerManager.openViewer({ monitor, fullscreen, hideUI });
+  } catch (err) {
+    console.error("[main.js] Failed to open external viewer window:", err);
+    // No window opened (e.g. pop-up blocked) — roll back so the next click is a
+    // clean retry rather than an unexpected "stop".
+    if (liveShaderStream && liveShaderStream.isStreaming) liveShaderStream.stopStreaming();
+    if (externalViewerManager) externalViewerManager.close();
+    setExternalViewerButtonState(false);
+    _updateStatusSafe("External viewer: " + err.message, "error");
+    return false;
+  }
+
+  setExternalViewerButtonState(true);
+  _updateStatusSafe("External viewer streaming live (60 FPS)");
+  return true;
+}
+
+/** Stop streaming and close the external viewer window. */
+function stopExternalViewer() {
+  if (liveShaderStream && liveShaderStream.isStreaming) {
+    liveShaderStream.stopStreaming();
+  }
+  if (externalViewerManager) {
+    externalViewerManager.close();
+  }
+  setExternalViewerButtonState(false);
+  _updateStatusSafe("External viewer stopped");
+}
 
 // Detect deployment environment
 const isVercelOrCloud = window.location.hostname.includes('vercel.app') ||
@@ -502,92 +624,22 @@ async function initialize() {
       storageKey: "rhizomium.welcome.dismissed"
     });
 
-    // Create Output Display Window
+    // Create the shared external viewer manager (screen detection + window
+    // placement + fullscreen). Used by both the menu button and this window.
+    externalViewerManager = new ExternalViewerManager();
+    window.externalViewerManager = externalViewerManager;
+
+    // Create Output Display Window — the single control surface for the
+    // external "second monitor" viewer. Launch/stop route through the unified
+    // launchExternalViewer/stopExternalViewer helpers.
     outputDisplayWindow = new OutputDisplayWindow({
+      manager: externalViewerManager,
       onClose: () => {},
       onLaunchExternalViewer: async (options = {}) => {
-        try {
-          // Use the same logic as the existing viewer launch code
-          // First, initialize frame streaming client if not already done
-          if (!frameStreamClient) {
-            frameStreamClient = new FrameStreamClient('http://localhost:5000');
-          }
-
-          // Start frame streaming
-          try {
-            await frameStreamClient.startStreaming();
-            frameStreamingEnabled = true;
-
-            if (typeof updateStatus === "function") {
-              updateStatus("Frame streaming started");
-            }
-          } catch (streamError) {
-            console.warn('[main.js] Frame streaming not available:', streamError);
-          }
-
-          // Then launch rhizo_viewer via backend API
-          const response = await fetch('/api/launch-viewer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              viewer: 'rhizo_viewer.py',
-              fullscreen: options.fullscreen || false,
-              monitor: options.monitor || 'primary'
-            })
-          });
-
-          if (response.ok) {
-            if (typeof updateStatus === "function") {
-              updateStatus("External viewer opened (WebSocket mode)");
-            }
-          } else {
-            console.error('[main.js] Failed to launch external viewer:', response.status);
-            
-            // Show helpful message for local setup
-            const isLocal = window.location.hostname === 'localhost' ||
-                           window.location.hostname === '127.0.0.1';
-            
-            if (isLocal) {
-              const message =
-                "⚠️ Python backend not running.\n\n" +
-                "To use the external viewer:\n" +
-                "1. Open a terminal in the project directory\n" +
-                "2. Run: python rhizo_server.py\n" +
-                "3. Refresh this page\n" +
-                "4. Click 'Open External Viewer' again\n\n" +
-                "The viewer will connect via WebSocket for remote streaming.";
-              
-              alert(message);
-            }
-            
-            if (typeof updateStatus === "function") {
-              updateStatus("Failed to launch external viewer - backend not running", "error");
-            }
-          }
-        } catch (error) {
-          console.error('[main.js] Error launching external viewer:', error);
-          
-          // Show helpful message for local setup
-          const isLocal = window.location.hostname === 'localhost' ||
-                         window.location.hostname === '127.0.0.1';
-          
-          if (isLocal) {
-            const message =
-              "⚠️ Python backend not running.\n\n" +
-              "To use the external viewer:\n" +
-              "1. Open a terminal in the project directory\n" +
-              "2. Run: python rhizo_server.py\n" +
-              "3. Refresh this page\n" +
-              "4. Click 'Open External Viewer' again\n\n" +
-              "The viewer will connect via WebSocket for remote streaming.";
-            
-            alert(message);
-          }
-          
-          if (typeof updateStatus === "function") {
-            updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
-          }
-        }
+        await launchExternalViewer(options);
+      },
+      onStopExternalViewer: () => {
+        stopExternalViewer();
       }
     });
 
@@ -1455,422 +1507,32 @@ function setupUIEventHandlers() {
   const openExternalViewerBtn = removeExistingHandlers("btn-open-external-viewer");
 
   if (openExternalViewerBtn) {
-    // Check if running on Vercel or other cloud hosting
-    const isCloudHosted = window.location.hostname.includes('vercel.app') ||
-                          window.location.hostname.includes('netlify.app') ||
-                          window.location.hostname.includes('github.io') ||
-                          (!window.location.hostname.includes('localhost') &&
-                           !window.location.hostname.includes('127.0.0.1') &&
-                           !window.location.hostname.match(/^192\.168\./));
-
+    // One-click toggle. Launches the reliable same-origin live viewer using the
+    // Output Display window's current settings (monitor / fullscreen / hide-UI),
+    // falling back to smart defaults (auto-pick a second display, fullscreen).
     openExternalViewerBtn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation(); // Prevent dropdown from closing immediately
 
-      // Check if running on Vercel/cloud
-      if (isCloudHosted) {
-        // If already streaming, stop it
-        if (frameStreamingEnabled && liveShaderStream) {
-          liveShaderStream.stopStreaming();
-          frameStreamingEnabled = false;
-
-          // Reset button appearance
-          openExternalViewerBtn.textContent = "Open External Viewer";
-          openExternalViewerBtn.style.backgroundColor = "";
-          openExternalViewerBtn.style.borderColor = "";
-
-          if (typeof updateStatus === "function") {
-            updateStatus("Streaming stopped");
-          }
-          return;
-        }
-
-        // Use LiveShaderStream for same-origin communication
-        if (!LiveShaderStream.isSupported()) {
-          alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
-          return;
-        }
-
-        try {
-          // Initialize LiveShaderStream
-          if (!liveShaderStream) {
-            liveShaderStream = new LiveShaderStream();
-            liveShaderStream.init();
-            window.liveShaderStream = liveShaderStream; // Expose for GPU renderer
-          }
-
-          // Start streaming
-          liveShaderStream.startStreaming();
-          frameStreamingEnabled = true;
-
-          // Send current shader immediately if available
-          if (window.latestGeneratedWGSL) {
-            const canvas = document.getElementById('gpu-canvas');
-
-            // Extract current parameter values
-            let uniformValues = [];
-            if (window.nodeCompiler?.uniformManager?.uniformValues) {
-              uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
-            }
-
-            liveShaderStream.sendShaderUpdate(
-              window.latestGeneratedWGSL,
-              uniformValues,
-              { width: canvas?.width || 1920, height: canvas?.height || 1080 }
-            );
-          } else {
-            console.warn('[main.js] ⚠️ No shader available yet - triggering rebuild');
-            // Trigger a shader rebuild to generate and send the shader
-            if (window.rebuild && typeof window.rebuild === 'function') {
-              setTimeout(() => {
-                window.rebuild();
-              }, 100);
-            }
-          }
-
-          // Update button
-          openExternalViewerBtn.textContent = "Stop Streaming";
-          openExternalViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
-          openExternalViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
-
-          // Open live viewer in new window
-          const viewerUrl = window.location.origin + '/viewer-live.html?fullscreen=true&hideui=true';
-          window.open(viewerUrl, 'RhizomiumLiveViewer', 'width=1920,height=1080');
-
-          if (typeof updateStatus === "function") {
-            updateStatus("Streaming shaders to live viewer (60 FPS)");
-          }
-        } catch (error) {
-          console.error('[main.js] Error starting LiveShaderStream:', error);
-          alert('❌ Failed to start streaming: ' + error.message);
-        }
-
+      if (isExternalViewerActive()) {
+        stopExternalViewer();
         return;
       }
 
-      // Local development - use HTTP/WebSocket streaming
-      try {
-        // If already streaming, stop it
-        if (frameStreamingEnabled && frameStreamClient) {
-          frameStreamClient.stopStreaming();
-          frameStreamingEnabled = false;
+      const opts = (window.outputDisplayWindow && typeof window.outputDisplayWindow.getLaunchOptions === "function")
+        ? window.outputDisplayWindow.getLaunchOptions()
+        : { monitor: "auto", fullscreen: true, hideUI: true };
 
-          // Reset button appearance
-          openExternalViewerBtn.textContent = "Open External Viewer";
-          openExternalViewerBtn.style.backgroundColor = "";
-          openExternalViewerBtn.style.borderColor = "";
-
-          if (typeof updateStatus === "function") {
-            updateStatus("Streaming stopped");
-          }
-          return;
-        }
-
-        // Use the onLaunchExternalViewer function if available
-        if (outputDisplayWindow && typeof outputDisplayWindow.onLaunchExternalViewer === 'function') {
-          await outputDisplayWindow.onLaunchExternalViewer({});
-        } else {
-          // Fallback: initialize frame streaming client if not already done
-          if (!frameStreamClient) {
-            frameStreamClient = new FrameStreamClient('http://localhost:5000');
-          }
-
-          // Start frame streaming
-          try {
-            await frameStreamClient.startStreaming();
-            frameStreamingEnabled = true;
-
-            if (typeof updateStatus === "function") {
-              updateStatus("Frame streaming started");
-            }
-          } catch (streamError) {
-            console.warn('[main.js] Frame streaming not available:', streamError);
-          }
-
-          // Try to launch rhizo_viewer via backend API
-          const response = await fetch('/api/launch-viewer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              viewer: 'rhizo_viewer.py',
-              fullscreen: false,
-              monitor: 'primary'
-            })
-          });
-
-          if (response.ok) {
-            if (typeof updateStatus === "function") {
-              updateStatus("External viewer opened (WebSocket mode)");
-            }
-
-            // Update button text to show streaming is active
-            openExternalViewerBtn.textContent = "Stop Streaming";
-            openExternalViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
-            openExternalViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
-          } else {
-            console.error('[main.js] Failed to launch external viewer:', response.status);
-            
-            const isLocal = window.location.hostname === 'localhost' ||
-                           window.location.hostname === '127.0.0.1';
-            
-            if (isLocal) {
-              const message =
-                "⚠️ Python backend not running.\n\n" +
-                "To use the external viewer:\n" +
-                "1. Open a terminal in the project directory\n" +
-                "2. Run: python rhizo_server.py\n" +
-                "3. Refresh this page\n" +
-                "4. Click 'Open External Viewer' again\n\n" +
-                "The viewer will connect via WebSocket for remote streaming.";
-              
-              alert(message);
-            }
-            
-            if (typeof updateStatus === "function") {
-              updateStatus("Failed to launch external viewer - backend not running", "error");
-            }
-          }
-        }
-      } catch (error) {
-        console.error('[main.js] Error launching external viewer:', error);
-        
-        const isLocal = window.location.hostname === 'localhost' ||
-                       window.location.hostname === '127.0.0.1';
-        
-        if (isLocal) {
-          const message =
-            "⚠️ Python backend not running.\n\n" +
-            "To use the external viewer:\n" +
-            "1. Open a terminal in the project directory\n" +
-            "2. Run: python rhizo_server.py\n" +
-            "3. Refresh this page\n" +
-            "4. Click 'Open External Viewer' again\n\n" +
-            "The viewer will connect via WebSocket for remote streaming.";
-          
-          alert(message);
-        }
-        
-        if (typeof updateStatus === "function") {
-          updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
-        }
-      }
+      await launchExternalViewer(opts);
     });
   } else {
     console.error('[main.js] Open External Viewer button NOT found in DOM!');
   }
 
-  // TODO: Display selector and External Viewer functionality moved to Window menu
-  // These handlers have been removed as the UI elements no longer exist in the new menu structure
-  // The functionality may be restored in the future under Window > External Viewer or similar
-
-  // Open External Viewer button (removed - no longer in menu)
-  // If you need this functionality, add it back to the Window menu
-  /*
-  const openViewerBtn = removeExistingHandlers("btn-open-viewer");
-
-  if (openViewerBtn) {
-    // Check if running on Vercel or other cloud hosting
-    const isCloudHosted = window.location.hostname.includes('vercel.app') ||
-                          window.location.hostname.includes('netlify.app') ||
-                          window.location.hostname.includes('github.io') ||
-                          (!window.location.hostname.includes('localhost') &&
-                           !window.location.hostname.includes('127.0.0.1') &&
-                           !window.location.hostname.match(/^192\.168\./));
-
-    if (isCloudHosted) {
-      // Update button to show it works on Vercel
-      openViewerBtn.title = "Open viewer in new tab (works on Vercel!)";
-      openViewerBtn.style.opacity = "1.0";
-    } else {
-      openViewerBtn.title = "Launch external viewer (requires Python server)";
-    }
-
-    openViewerBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-
-      // Check if running on Vercel/cloud
-      if (isCloudHosted) {
-        // If already streaming, stop it
-        if (frameStreamingEnabled && liveShaderStream) {
-          liveShaderStream.stopStreaming();
-          frameStreamingEnabled = false;
-
-          // Reset button appearance
-          openViewerBtn.textContent = "Open External Viewer";
-          openViewerBtn.style.backgroundColor = "";
-          openViewerBtn.style.borderColor = "";
-
-          if (typeof updateStatus === "function") {
-            updateStatus("Streaming stopped");
-          }
-          return;
-        }
-
-        // Use LiveShaderStream for same-origin communication
-
-        if (!LiveShaderStream.isSupported()) {
-          alert('❌ Your browser doesn\'t support BroadcastChannel API.\n\nPlease use Chrome, Edge, Firefox, or Safari.');
-          return;
-        }
-
-        try {
-          // Initialize LiveShaderStream
-          if (!liveShaderStream) {
-            liveShaderStream = new LiveShaderStream();
-            liveShaderStream.init();
-            window.liveShaderStream = liveShaderStream; // Expose for GPU renderer
-          }
-
-          // Start streaming
-          liveShaderStream.startStreaming();
-          frameStreamingEnabled = true;
-
-          // Send current shader immediately if available
-          if (window.latestGeneratedWGSL) {
-            const canvas = document.getElementById('gpu-canvas');
-
-            // Extract current parameter values
-            let uniformValues = [];
-            if (window.nodeCompiler?.uniformManager?.uniformValues) {
-              uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
-            }
-
-            liveShaderStream.sendShaderUpdate(
-              window.latestGeneratedWGSL,
-              uniformValues,
-              { width: canvas?.width || 1920, height: canvas?.height || 1080 }
-            );
-          } else {
-            console.warn('[main.js] ⚠️ No shader available yet - triggering rebuild');
-            // Trigger a shader rebuild to generate and send the shader
-            if (window.rebuild && typeof window.rebuild === 'function') {
-              setTimeout(() => {
-                window.rebuild();
-              }, 100);
-            }
-          }
-
-          // Update button
-          openViewerBtn.textContent = "Stop Streaming";
-          openViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
-          openViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
-
-          // Get selected display
-          const selectedDisplayIndex = displaySelect ? displaySelect.value : 'auto';
-          let windowFeatures = 'width=1920,height=1080';
-
-          // Position on selected display if available
-          if (selectedDisplayIndex !== 'auto' && availableScreens.length > 0) {
-            const screen = availableScreens[parseInt(selectedDisplayIndex)];
-            if (screen) {
-              const left = screen.availLeft;
-              const top = screen.availTop;
-              const width = Math.min(1920, screen.availWidth);
-              const height = Math.min(1080, screen.availHeight);
-              windowFeatures = `left=${left},top=${top},width=${width},height=${height}`;
-            }
-          }
-
-          // Open live viewer in new window with auto-fullscreen
-          const viewerUrl = window.location.origin + '/viewer-live.html?fullscreen=true&hideui=true';
-          window.open(viewerUrl, 'RhizomiumLiveViewer', windowFeatures);
-
-          if (typeof updateStatus === "function") {
-            updateStatus("Streaming shaders to live viewer (60 FPS)");
-          }
-        } catch (error) {
-          console.error('[main.js] Error starting LiveShaderStream:', error);
-          alert('❌ Failed to start streaming: ' + error.message);
-        }
-
-        return;
-      }
-
-      // Local development - use HTTP/WebSocket streaming
-      try {
-        // If already streaming, stop it
-        if (frameStreamingEnabled && frameStreamClient) {
-          frameStreamClient.stopStreaming();
-          frameStreamingEnabled = false;
-
-          // Reset button appearance
-          openViewerBtn.textContent = "Open External Viewer";
-          openViewerBtn.style.backgroundColor = "";
-          openViewerBtn.style.borderColor = "";
-
-          if (typeof updateStatus === "function") {
-            updateStatus("Streaming stopped");
-          }
-          return;
-        }
-
-        // Initialize frame streaming client if not already done
-        if (!frameStreamClient) {
-          frameStreamClient = new FrameStreamClient('http://localhost:5000');
-        }
-
-        // Start frame streaming
-        try {
-          await frameStreamClient.startStreaming();
-          frameStreamingEnabled = true;
-
-          if (typeof updateStatus === "function") {
-            updateStatus("Frame streaming started");
-          }
-        } catch (streamError) {
-          console.warn('[main.js] Frame streaming not available:', streamError);
-        }
-
-        // Try to launch rhizo_viewer via backend API
-        const response = await fetch('/api/launch-viewer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ viewer: 'rhizo_viewer.py' })
-        });
-
-        if (response.ok) {
-          if (typeof updateStatus === "function") {
-            updateStatus("External viewer opened (WebSocket mode)");
-          }
-
-          // Update button text to show streaming is active
-          openViewerBtn.textContent = "Stop Streaming";
-          openViewerBtn.style.backgroundColor = "rgba(0, 170, 0, 0.8)";
-          openViewerBtn.style.borderColor = "rgba(0, 255, 0, 0.4)";
-
-        } else {
-          console.error('[main.js] Failed to launch external viewer:', response.status);
-          if (typeof updateStatus === "function") {
-            updateStatus("Failed to launch external viewer", "error");
-          }
-        }
-      } catch (error) {
-        console.error('[main.js] Error launching external viewer:', error);
-
-        // Show helpful message for local setup
-        const isLocal = window.location.hostname === 'localhost' ||
-                       window.location.hostname === '127.0.0.1';
-
-        if (isLocal) {
-          const message =
-            "⚠️ Python backend not running.\n\n" +
-            "To use the external viewer:\n" +
-            "1. Open a terminal in the project directory\n" +
-            "2. Run: python rhizo_server.py\n" +
-            "3. Refresh this page\n" +
-            "4. Click 'Open External Viewer' again\n\n" +
-            "The viewer will connect via WebSocket for remote streaming.";
-
-          alert(message);
-        }
-
-        if (typeof updateStatus === "function") {
-          updateStatus("External viewer requires Python backend (run rhizo_server.py)", "warning");
-        }
-      }
-    });
-  }
-  */
+  // NOTE: The legacy "btn-open-viewer" handler (a second, divergent external
+  // viewer launcher) has been removed. The external viewer is now driven by a
+  // single path — see launchExternalViewer()/stopExternalViewer() above and the
+  // Output Display window (OutputDisplayWindow.js).
 
   // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
   // The resolution selector functionality has been moved to the Preview/Export Settings window
@@ -2680,7 +2342,7 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // Output Display - opens as window
+  // External Viewer Settings - opens the Output Display control window
   const outputDisplayBtn = document.getElementById("btn-output-display");
   if (outputDisplayBtn && window.outputDisplayWindow) {
     outputDisplayBtn.addEventListener("click", (e) => {
@@ -2689,7 +2351,7 @@ function setupRhizomiumMenu() {
       if (window.outputDisplayWindow) {
         window.outputDisplayWindow.show();
         if (typeof updateStatus === "function") {
-          updateStatus("Output Display window opened");
+          updateStatus("External Viewer settings opened");
         }
       }
     });

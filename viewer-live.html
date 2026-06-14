@@ -196,6 +196,50 @@
             pointer-events: none;
             backdrop-filter: blur(10px);
         }
+
+        /* Click-to-fullscreen prompt (shown when auto-fullscreen is blocked by
+           the browser). Stays visible even when the rest of the UI is hidden. */
+        #fs-prompt {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            padding: 24px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.82);
+            backdrop-filter: blur(6px);
+            cursor: pointer;
+        }
+
+        #fs-prompt .fs-icon {
+            font-size: 46px;
+            line-height: 1;
+        }
+
+        #fs-prompt .fs-title {
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        #fs-prompt .fs-sub {
+            font-size: 14px;
+            color: #aaa;
+            max-width: 440px;
+            line-height: 1.5;
+        }
+
+        #fs-prompt .fs-btn {
+            margin-top: 6px;
+            background: #007acc;
+            border-color: #005a9e;
+            padding: 12px 28px;
+            font-size: 15px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -232,6 +276,15 @@
         </div>
 
         <div id="ui-hint">Press H to hide UI • Press F for fullscreen</div>
+
+        <!-- Shown only when the browser blocks auto-fullscreen; one click enters
+             fullscreen on this (already correctly-placed) display. -->
+        <div id="fs-prompt" class="hidden">
+            <div class="fs-icon">⛶</div>
+            <div class="fs-title">Enter Fullscreen</div>
+            <div class="fs-sub">Click anywhere or press <strong>F</strong> to show this output fullscreen on this monitor.</div>
+            <button class="fs-btn" id="btn-enter-fullscreen">Go Fullscreen</button>
+        </div>
     </div>
 
     <script type="module">
@@ -3607,7 +3660,7 @@
         // Initialize viewer
         const viewer = new LiveShaderViewer();
 
-        // Check for auto-fullscreen/hideui URL parameters
+        // Check for auto-fullscreen / hide-ui URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const autoFullscreen = urlParams.get('fullscreen') === 'true';
         const autoHideUI = urlParams.get('hideui') === 'true';
@@ -3618,12 +3671,54 @@
             }, 100);
         }
 
+        // Reliable fullscreen: browsers block requestFullscreen() without a user
+        // gesture, so we (1) try once on load (this succeeds when the opener's
+        // activation carries over), and (2) if blocked, surface a one-click
+        // prompt. The viewer window has already been positioned on the target
+        // monitor by ExternalViewerManager, so plain fullscreen lands there.
+        const fsPrompt = document.getElementById('fs-prompt');
+
+        function enterFullscreen() {
+            if (document.fullscreenElement) return Promise.resolve();
+            const el = document.documentElement;
+            if (!el.requestFullscreen) {
+                return Promise.reject(new Error('Fullscreen API unavailable'));
+            }
+            return Promise.resolve(el.requestFullscreen());
+        }
+
+        function showFsPrompt() { if (fsPrompt) fsPrompt.classList.remove('hidden'); }
+        function hideFsPrompt() { if (fsPrompt) fsPrompt.classList.add('hidden'); }
+
         if (autoFullscreen) {
+            let satisfied = false;
+            const gestureEvents = ['pointerdown', 'click', 'keydown'];
+
+            const finish = () => {
+                satisfied = true;
+                hideFsPrompt();
+                gestureEvents.forEach(evt =>
+                    document.removeEventListener(evt, onUserGesture, true));
+            };
+
+            const onUserGesture = () => {
+                if (satisfied) return;
+                enterFullscreen().then(finish).catch(() => showFsPrompt());
+            };
+
+            // Attempt 1: immediately (works if activation propagated from opener).
             setTimeout(() => {
-                document.documentElement.requestFullscreen().catch(err => {
-                    console.warn(`Auto-fullscreen blocked: ${err.message}`);
+                enterFullscreen().then(finish).catch(() => {
+                    // Blocked — show the prompt and wait for the first interaction.
+                    showFsPrompt();
+                    gestureEvents.forEach(evt =>
+                        document.addEventListener(evt, onUserGesture, { capture: true }));
                 });
-            }, 800);
+            }, 300);
+
+            // Explicit button is also wired directly for clarity.
+            const fsBtn = document.getElementById('btn-enter-fullscreen');
+            if (fsBtn) fsBtn.addEventListener('click', onUserGesture);
         }
     </script>
 </body>
