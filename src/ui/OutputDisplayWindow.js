@@ -202,17 +202,15 @@ export class OutputDisplayWindow {
     `;
     info.innerHTML = `
       <div style="color: #ddd; font-weight: 600; margin-bottom: 8px;">How it works</div>
-      Opens the live output <strong>fullscreen on the selected display</strong>
-      in its own window. The editor stays visible here on the primary screen,
-      and the second screen shows only the visual (no toolbars once fullscreen).
+      Opens the live output in a <strong>borderless window filling the selected
+      display</strong> — no browser toolbars, no clicks needed. The editor stays
+      visible here on the primary screen; the second screen shows only the visual.
       <div style="margin-top: 10px; color: #888;">
-        Press <strong style="color:#bbb;">Esc</strong> or click
-        <em>Stop External Viewer</em> to exit. First use may ask permission to
-        manage windows — allow it, then click again. If the browser blocks
-        auto-fullscreen, click the second screen once (or press
-        <strong style="color:#bbb;">F</strong>).
-        <br>Advanced: “Project onto this window instead” skips the second window
-        but takes over this one, so the editor is hidden while it’s on.
+        It silently tries true fullscreen too (to drop the window's title bar);
+        press <strong style="color:#bbb;">F</strong> on the output to force it,
+        <strong style="color:#bbb;">Esc</strong> or <em>Stop External Viewer</em>
+        to exit. First use may ask permission to manage windows — allow it.
+        <br>Advanced: “Project onto this window instead” hides the editor.
       </div>
     `;
     content.appendChild(info);
