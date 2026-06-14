@@ -55,15 +55,10 @@ export class TextureNodes {
     let node_${nodeId}_rgba = textureSample(texture_${textureId}, sampler_${textureId}, uv_${nodeId});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
-    // Define all output pins with proper channel extraction
-    // Options: Return vec3 colored channels or f32 grayscale
+    // Single Color (RGBA) output. Channels are extracted downstream with a
+    // Split Vec4 node rather than per-channel output pins.
     const outputPins = [
-      { expression: `node_${nodeId}_rgba`, type: "vec4" },     // RGBA
-      { expression: `node_${nodeId}_rgba.xyz`, type: "vec3" }, // RGB
-      { expression: `vec3<f32>(node_${nodeId}_rgba.r, 0.0, 0.0)`, type: "vec3" }, // R colored
-      { expression: `vec3<f32>(0.0, node_${nodeId}_rgba.g, 0.0)`, type: "vec3" }, // G colored
-      { expression: `vec3<f32>(0.0, 0.0, node_${nodeId}_rgba.b)`, type: "vec3" }, // B colored
-      { expression: `vec3<f32>(node_${nodeId}_rgba.a)`, type: "vec3" }, // A (grayscale)
+      { expression: `node_${nodeId}_rgba`, type: "vec4" }, // Color (RGBA)
     ];
 
     return { line, outputType: "vec4", outputPins };
@@ -77,11 +72,9 @@ export class TextureNodes {
     const line = `let node_${nodeId}_rgba = textureSample(textureCube_${textureId}, samplerCube_${textureId}, ${dir});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
-    // Define output pins for cube texture
+    // Single Color (RGBA) output. Use a Split Vec4 node for channels.
     const outputPins = [
-      { expression: `node_${nodeId}_rgba`, type: "vec4" },
-      { expression: `node_${nodeId}_rgba.xyz`, type: "vec3" },
-      { expression: `node_${nodeId}_rgba.a`, type: "f32" },
+      { expression: `node_${nodeId}_rgba`, type: "vec4" }, // Color (RGBA)
     ];
 
     return { line, outputType: "vec4", outputPins };

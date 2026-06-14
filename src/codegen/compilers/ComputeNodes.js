@@ -82,14 +82,10 @@ export class ComputeNodes {
     let node_${nodeId}_rgba = textureSample(${textureId}, sampler_${textureId}, uv_${nodeId});
     let node_${nodeId} = node_${nodeId}_rgba;`;
 
-    // Define output pins for accessing different channels
+    // Single Color (RGBA) output. Channels are extracted downstream with a
+    // Split Vec4 node rather than per-channel output pins.
     const outputPins = [
-      { expression: `node_${nodeId}_rgba`, type: "vec4" },     // RGBA
-      { expression: `node_${nodeId}_rgba.xyz`, type: "vec3" }, // RGB
-      { expression: `vec3<f32>(node_${nodeId}_rgba.r, 0.0, 0.0)`, type: "vec3" }, // R
-      { expression: `vec3<f32>(0.0, node_${nodeId}_rgba.g, 0.0)`, type: "vec3" }, // G
-      { expression: `vec3<f32>(0.0, 0.0, node_${nodeId}_rgba.b)`, type: "vec3" }, // B
-      { expression: `vec3<f32>(node_${nodeId}_rgba.a)`, type: "vec3" }, // A
+      { expression: `node_${nodeId}_rgba`, type: "vec4" }, // Color (RGBA)
     ];
 
     return { line, outputType: "vec4", outputPins, isComputeNode: true };
