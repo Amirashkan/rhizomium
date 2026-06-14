@@ -240,7 +240,44 @@
             font-size: 15px;
             font-weight: 600;
         }
+
+        /* Clean output: show NOTHING but the rendered visual (no banner, no
+           controls, no stats, no status/"Initializing" overlay, no prompt).
+           Applied from the very first paint via the inline <head> script below
+           so there is no flash of text on the second monitor. */
+        html.clean-output .banner,
+        html.clean-output #controls,
+        html.clean-output #stats-overlay,
+        html.clean-output #ui-hint,
+        html.clean-output #overlay,
+        html.clean-output #fs-prompt {
+            display: none !important;
+        }
+        html.clean-output #canvas-container { height: 100vh !important; }
+        html.clean-output, html.clean-output body { background: #000 !important; }
     </style>
+    <script>
+        // Runs before <body> paints. Two jobs for a pristine second-monitor output:
+        //   1) If hideui=true, hide ALL viewer chrome/text immediately (no flash).
+        //   2) If softfs/fullscreen requested, attempt true fullscreen at the
+        //      earliest frame using the opener's transient activation (this is
+        //      what removes the OS window frame / min/close buttons).
+        (function () {
+            try {
+                var params = new URLSearchParams(location.search);
+                if (params.get('hideui') === 'true') {
+                    document.documentElement.classList.add('clean-output');
+                }
+                if (params.get('softfs') === 'true' || params.get('fullscreen') === 'true') {
+                    requestAnimationFrame(function () {
+                        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+                            document.documentElement.requestFullscreen().catch(function () {});
+                        }
+                    });
+                }
+            } catch (e) {}
+        })();
+    </script>
 </head>
 <body>
     <div id="container">
@@ -3642,7 +3679,7 @@
             }
 
             toggleUI() {
-                document.body.classList.toggle('ui-hidden');
+                document.documentElement.classList.toggle('clean-output');
                 setTimeout(() => this.updateCanvasDisplaySize(), 100);
             }
 
@@ -3666,11 +3703,9 @@
         const softFullscreen = urlParams.get('softfs') === 'true';     // try once, silently (no prompt/click)
         const autoHideUI = urlParams.get('hideui') === 'true';
 
-        if (autoHideUI) {
-            setTimeout(() => {
-                document.body.classList.add('ui-hidden');
-            }, 100);
-        }
+        // hideui is applied from the <head> script (class 'clean-output') so it
+        // takes effect before first paint — nothing to do here.
+        void autoHideUI;
 
         // Reliable fullscreen: browsers block requestFullscreen() without a user
         // gesture, so we (1) try once on load (this succeeds when the opener's
@@ -3722,12 +3757,22 @@
             if (fsBtn) fsBtn.addEventListener('click', onUserGesture);
         }
 
-        // Soft fullscreen: try true fullscreen once, silently. If the browser
-        // blocks it (no user gesture), we stay as the borderless filling popup —
-        // no prompt is shown and no click is required. Press F any time to go
-        // fullscreen manually.
+        // Fullscreen is the only way to drop the OS window frame (min/close/title
+        // bar). Browsers require a user gesture, so we: (1) retry the auto-attempt
+        // for a moment using the opener's activation / window-management
+        // permission, and (2) silently enter fullscreen on the FIRST click or
+        // keypress on this window — no prompt, no overlay, no text.
         if (softFullscreen) {
-            setTimeout(() => { enterFullscreen().catch(() => {}); }, 300);
+            const fsActivationEvents = ['pointerdown', 'keydown'];
+            function _stopFsFallback() {
+                fsActivationEvents.forEach(e => window.removeEventListener(e, _tryFsSilently, true));
+            }
+            function _tryFsSilently() {
+                if (document.fullscreenElement) { _stopFsFallback(); return; }
+                enterFullscreen().then(_stopFsFallback).catch(() => {});
+            }
+            [0, 200, 600, 1200].forEach(t => setTimeout(_tryFsSilently, t));
+            fsActivationEvents.forEach(e => window.addEventListener(e, _tryFsSilently, { capture: true }));
         }
     </script>
 </body>
