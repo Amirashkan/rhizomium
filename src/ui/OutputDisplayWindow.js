@@ -173,11 +173,12 @@ export class OutputDisplayWindow {
       await this.onLaunchExternalViewer(this.getLaunchOptions());
     };
 
-    // Settings section with controls + button
+    // Settings section with controls + button. Projection is inherently
+    // fullscreen and chrome-free, so the only option is the advanced
+    // "separate window" escape hatch (for non-Chromium browsers / preference).
     const settingsSection = this._createSection("External Viewer (Second Monitor)", [
       this._createMonitorDropdown("Display", "monitor"),
-      this._createCheckbox("Start in fullscreen", "fullscreen", true),
-      this._createCheckbox("Hide viewer UI (clean output)", "hideui", true),
+      this._createCheckbox("Open in a separate window (advanced)", "separatewindow", false),
       launchBtn
     ]);
     content.appendChild(settingsSection);
@@ -201,13 +202,15 @@ export class OutputDisplayWindow {
     `;
     info.innerHTML = `
       <div style="color: #ddd; font-weight: 600; margin-bottom: 8px;">How it works</div>
-      Opens a separate viewer window that renders the live shader at 60&nbsp;FPS
-      on the selected display — ideal for a projector or second monitor.
-      It streams over the same browser (no server needed).
+      Projects the live output <strong>fullscreen</strong> onto the selected
+      display — no browser window, no toolbars. You keep working here on the
+      primary screen; the second screen shows only the visual.
       <div style="margin-top: 10px; color: #888;">
-        In the viewer: <strong style="color:#bbb;">F</strong> toggles fullscreen,
-        <strong style="color:#bbb;">H</strong> hides the UI.
-        If the browser blocks auto-fullscreen, just click the viewer once.
+        Press <strong style="color:#bbb;">Esc</strong> or click
+        <em>Stop External Viewer</em> to exit. First use may ask permission to
+        manage windows — allow it, then click again.
+        <br>Advanced: tick “separate window” to open the viewer in its own
+        window instead (e.g. on non-Chromium browsers).
       </div>
     `;
     content.appendChild(info);
@@ -503,18 +506,16 @@ export class OutputDisplayWindow {
 
   /**
    * Current launch settings from the controls. Safe to call before the window
-   * has been rendered — returns sensible defaults (auto display, fullscreen).
-   * @returns {{ monitor: string, fullscreen: boolean, hideUI: boolean }}
+   * has been rendered — returns sensible defaults (auto display, projection).
+   * @returns {{ monitor: string, separateWindow: boolean }}
    */
   getLaunchOptions() {
-    const fullscreenCheckbox = this.window?.querySelector('#output-display-fullscreen');
-    const hideUICheckbox = this.window?.querySelector('#output-display-hideui');
+    const separateWindowCheckbox = this.window?.querySelector('#output-display-separatewindow');
     const monitorSelect = this.window?.querySelector('#output-display-monitor');
 
     return {
       monitor: monitorSelect ? monitorSelect.value : 'auto',
-      fullscreen: fullscreenCheckbox ? fullscreenCheckbox.checked : true,
-      hideUI: hideUICheckbox ? hideUICheckbox.checked : true
+      separateWindow: separateWindowCheckbox ? separateWindowCheckbox.checked : false
     };
   }
 

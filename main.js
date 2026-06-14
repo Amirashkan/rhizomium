@@ -21,8 +21,12 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
-import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
-import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
+// LEGACY (disabled): frame-by-frame streaming to a Python/WebSocket or Vercel
+// remote viewer. Cross-machine sharing is now the gallery "Share" button, and
+// the local second-monitor output is handled by ExternalViewerManager. Kept
+// commented for reference rather than deleted.
+// import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
+// import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
 import { LiveShaderStream } from './src/framestream/LiveShaderStream.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
@@ -201,11 +205,13 @@ let fieldMapperIntegration = null;
 const previewPerfMonitor = new PreviewPerfMonitor();
 window.previewPerfMonitor = previewPerfMonitor;
 
-// Frame streaming client for dual-screen support
-let frameStreamClient = null;
-let broadcastFrameStream = null;
+// LEGACY (disabled): frame-streaming state for the old Python/Vercel remote
+// viewer. See the commented import block above — cross-machine sharing is the
+// gallery "Share" button now.
+// let frameStreamClient = null;
+// let broadcastFrameStream = null;
+// let frameStreamingEnabled = false;
 let liveShaderStream = null;
-let frameStreamingEnabled = false;
 
 // External viewer (second-monitor) window manager — handles screen detection,
 // window placement and fullscreen. Shared by the menu button and the Output
@@ -258,29 +264,79 @@ function setExternalViewerButtonState(active) {
   }
 }
 
-/** True if the external viewer is currently streaming and/or its window is open. */
+/** True if the external viewer is projecting, has a window open, or is streaming. */
 function isExternalViewerActive() {
-  const streaming = !!(liveShaderStream && liveShaderStream.isStreaming);
+  const projecting = !!(externalViewerManager && externalViewerManager.isProjecting());
   const windowOpen = !!(externalViewerManager && externalViewerManager.isOpen());
-  return streaming || windowOpen;
+  const streaming = !!(liveShaderStream && liveShaderStream.isStreaming);
+  return projecting || windowOpen || streaming;
+}
+
+/** Lazily create the shared manager and wire its "projection ended" callback. */
+function ensureExternalViewerManager() {
+  if (!externalViewerManager) {
+    externalViewerManager = new ExternalViewerManager();
+    // If the user leaves fullscreen (Esc / OS), reflect that in the UI.
+    externalViewerManager.onProjectionEnd = () => setExternalViewerButtonState(false);
+    window.externalViewerManager = externalViewerManager;
+  }
+  return externalViewerManager;
 }
 
 /**
- * Open the external viewer on the chosen display and start streaming to it.
- * @param {Object} options { monitor, fullscreen, hideUI }
+ * Show the live output on a second display.
+ *
+ * Preferred path (Chromium): project the live canvas FULLSCREEN onto the chosen
+ * display with no browser window — the operator keeps working in the primary
+ * window while the monitor shows only the visual. Falls back to a separate
+ * viewer window when the Window Management API isn't available, or when the
+ * user explicitly asks for a window.
+ *
+ * @param {Object} options { monitor, separateWindow }
  */
 async function launchExternalViewer(options = {}) {
-  const { monitor = "auto", fullscreen = true, hideUI = true } = options;
+  const { monitor = "auto", separateWindow = false } = options;
+  const manager = ensureExternalViewerManager();
 
+  if (ExternalViewerManager.supportsWindowManagement() && !separateWindow) {
+    const sourceCanvas = document.getElementById("gpu-canvas");
+    try {
+      await manager.projectFullscreen({ monitor, sourceCanvas });
+      setExternalViewerButtonState(true);
+      _updateStatusSafe("Projecting fullscreen to the external display");
+      return true;
+    } catch (err) {
+      console.warn("[main.js] Fullscreen projection failed:", err);
+      manager.stopProjection();
+      setExternalViewerButtonState(false);
+      // Don't silently fall back to a window on a supporting browser — the user
+      // asked NOT to see one. Ask them to grant the permission and retry.
+      _updateStatusSafe(
+        "Couldn't project to the display — allow the display/window-management permission, then click again.",
+        "warning"
+      );
+      return false;
+    }
+  }
+
+  // Fallback: separate viewer window (BroadcastChannel) for non-Chromium
+  // browsers, or when the user opts into a window.
+  return _launchWindowViewer({ monitor });
+}
+
+/** Fallback launcher: opens the live viewer in a separate window and streams to it. */
+async function _launchWindowViewer({ monitor = "auto" } = {}) {
   if (!ExternalViewerManager.isSupported()) {
     alert(
-      "❌ Your browser doesn't support the BroadcastChannel API needed for the live viewer.\n\n" +
-      "Please use a recent version of Chrome, Edge, Firefox, or Safari."
+      "❌ Your browser doesn't support the APIs needed for the external viewer.\n\n" +
+      "Please use a recent version of Chrome or Edge."
     );
     return false;
   }
 
-  // 1. Ensure the shared live-shader stream is running (same-origin, no backend).
+  const manager = ensureExternalViewerManager();
+
+  // Ensure the shared live-shader stream is running (same-origin, no backend).
   if (!liveShaderStream) {
     liveShaderStream = new LiveShaderStream();
     liveShaderStream.init();
@@ -289,40 +345,32 @@ async function launchExternalViewer(options = {}) {
   if (!liveShaderStream.isStreaming) {
     liveShaderStream.startStreaming();
   }
-
-  // 2. Send the current shader immediately so the viewer isn't blank.
   sendCurrentShaderToStream();
 
-  // 3. Open (or focus) the viewer window on the requested monitor.
-  if (!externalViewerManager) {
-    externalViewerManager = new ExternalViewerManager();
-    window.externalViewerManager = externalViewerManager;
-  }
   try {
-    await externalViewerManager.openViewer({ monitor, fullscreen, hideUI });
+    await manager.openViewer({ monitor, fullscreen: true, hideUI: true });
   } catch (err) {
     console.error("[main.js] Failed to open external viewer window:", err);
-    // No window opened (e.g. pop-up blocked) — roll back so the next click is a
-    // clean retry rather than an unexpected "stop".
     if (liveShaderStream && liveShaderStream.isStreaming) liveShaderStream.stopStreaming();
-    if (externalViewerManager) externalViewerManager.close();
+    manager.close();
     setExternalViewerButtonState(false);
     _updateStatusSafe("External viewer: " + err.message, "error");
     return false;
   }
 
   setExternalViewerButtonState(true);
-  _updateStatusSafe("External viewer streaming live (60 FPS)");
+  _updateStatusSafe("External viewer streaming live in a separate window (60 FPS)");
   return true;
 }
 
-/** Stop streaming and close the external viewer window. */
+/** Stop projecting / streaming and close any external viewer window. */
 function stopExternalViewer() {
+  if (externalViewerManager) {
+    externalViewerManager.stopProjection();
+    externalViewerManager.close();
+  }
   if (liveShaderStream && liveShaderStream.isStreaming) {
     liveShaderStream.stopStreaming();
-  }
-  if (externalViewerManager) {
-    externalViewerManager.close();
   }
   setExternalViewerButtonState(false);
   _updateStatusSafe("External viewer stopped");
@@ -624,10 +672,9 @@ async function initialize() {
       storageKey: "rhizomium.welcome.dismissed"
     });
 
-    // Create the shared external viewer manager (screen detection + window
-    // placement + fullscreen). Used by both the menu button and this window.
-    externalViewerManager = new ExternalViewerManager();
-    window.externalViewerManager = externalViewerManager;
+    // Create the shared external viewer manager (screen detection + fullscreen
+    // projection + window fallback). Used by both the menu button and this window.
+    ensureExternalViewerManager();
 
     // Create Output Display Window — the single control surface for the
     // external "second monitor" viewer. Launch/stop route through the unified
@@ -1521,7 +1568,7 @@ function setupUIEventHandlers() {
 
       const opts = (window.outputDisplayWindow && typeof window.outputDisplayWindow.getLaunchOptions === "function")
         ? window.outputDisplayWindow.getLaunchOptions()
-        : { monitor: "auto", fullscreen: true, hideUI: true };
+        : { monitor: "auto", separateWindow: false };
 
       await launchExternalViewer(opts);
     });
@@ -3651,48 +3698,26 @@ function handleRenderFrame(frameState) {
         // Errors are already logged in gpuRenderer.render()
       });
 
-      // Stream frames to external viewers if enabled
-      // NOTE: Now streams during parameter drag for real-time external view updates
-      // CRITICAL: Frame capture happens asynchronously after render completes
-      // This ensures compute shaders have finished and the frame is ready
-      // PERFORMANCE: Use requestIdleCallback to avoid blocking render loop
-      if (frameStreamingEnabled) {
-        const canvas = document.getElementById('gpu-canvas');
-        if (canvas) {
-          // Use requestIdleCallback to defer frame capture to idle time
-          // This prevents frame streaming from affecting render performance
-          if (window.requestIdleCallback) {
-            window.requestIdleCallback(() => {
-              // Get the render promise from gpuRenderer if available
-              const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
-              framePromise.then(() => {
-                // Use BroadcastChannel for Vercel/cloud deployments
-                if (broadcastFrameStream) {
-                  broadcastFrameStream.sendFrameFromCanvas(canvas);
-                }
-                // Use HTTP streaming for local development
-                else if (frameStreamClient) {
-                  frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-                }
-              }).catch(err => {
-                // Silently handle errors to avoid breaking render loop
-              });
-            }, { timeout: 100 });
-          } else {
-            // Fallback for browsers without requestIdleCallback
-            const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
-            framePromise.then(() => {
-              if (broadcastFrameStream) {
-                broadcastFrameStream.sendFrameFromCanvas(canvas);
-              } else if (frameStreamClient) {
-                frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-              }
-            }).catch(err => {
-              // Silently handle errors
-            });
-          }
-        }
-      }
+      // LEGACY (disabled): per-frame capture + push to the old Python/Vercel
+      // remote viewer. The external second-monitor output no longer streams
+      // frames — it mirrors the live canvas directly (ExternalViewerManager),
+      // and cross-machine sharing is the gallery "Share" button. Left commented
+      // for reference rather than deleted.
+      //
+      // if (frameStreamingEnabled) {
+      //   const canvas = document.getElementById('gpu-canvas');
+      //   if (canvas) {
+      //     const push = () => {
+      //       const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
+      //       framePromise.then(() => {
+      //         if (broadcastFrameStream) broadcastFrameStream.sendFrameFromCanvas(canvas);
+      //         else if (frameStreamClient) frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
+      //       }).catch(() => {});
+      //     };
+      //     if (window.requestIdleCallback) window.requestIdleCallback(push, { timeout: 100 });
+      //     else push();
+      //   }
+      // }
     }
   }
 
