@@ -2,14 +2,10 @@
 //
 // Single source of truth for packing a compute node's uniform buffer.
 //
-// Both the editor's live renderer (src/gpu/ComputeShaderManager.js) and the
-// external live viewer (viewer-live.html) call this. Previously each side
-// hand-maintained its own per-node packing switch; they drifted, and the
-// viewer additionally fell back to a generic "copy params in object order"
-// path that does NOT match the WGSL struct order. The result was that some
-// compute node types rendered correctly in the external viewer and others
-// did not. Sharing one packer makes the viewer reproduce the editor's compute
-// output byte-for-byte for every node type.
+// The editor's live renderer (src/gpu/ComputeShaderManager.js) calls this so
+// every compute node type packs its uniforms in the exact WGSL struct order.
+// Keeping the packing in one place stops the per-node packing switches from
+// drifting out of sync with the generated WGSL.
 //
 // The float layout of each node mirrors the `struct Uniforms { ... }` that
 // src/codegen/compilers/ComputeNodes.js generates for that node:
