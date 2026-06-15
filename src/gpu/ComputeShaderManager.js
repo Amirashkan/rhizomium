@@ -2,6 +2,7 @@ import { globalResourceRegistry } from './ResourceTracker.js';
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
+import { packComputeUniforms } from './computeUniformLayout.js';
 
 /**
  * ComputeShaderManager
@@ -472,249 +473,32 @@ export class ComputeShaderManager {
    * @param {Object} audioContext - Audio envelope values for expression evaluation
    */
   updateUniforms(time, audioContext = {}) {
-    // Always set resolution and time first
-    this.uniformData[0] = this.textureWidth;
-    this.uniformData[1] = this.textureHeight;
-    this.uniformData[2] = time;
+    // Pack node-specific uniforms via the shared single-source-of-truth layout
+    // (computeUniformLayout.js) so the editor and the external live viewer pack
+    // identical buffers for every compute node type.
+    const packed = packComputeUniforms(this.node?.kind, this.node?.params, {
+      width: this.textureWidth,
+      height: this.textureHeight,
+      time,
+      evaluate: (value, defaultValue) => this.evaluateParam(value, defaultValue, time, audioContext)
+    });
+    this.uniformData.set(packed);
 
-    // Initialize all parameter slots to 0 (will be overwritten by specific node types)
-    for (let i = 3; i < 16; i++) {
-      this.uniformData[i] = 0.0;
-    }
-
-    // Set node-specific parameters based on node kind
+    // No-node fallback preserved from the previous implementation.
     if (!this.node) {
-      // No node - use defaults
       this.uniformData[3] = 8.0;
       this.uniformData[4] = 5.0;
       this.uniformData[5] = 0.1;
-    } else {
-      switch (this.node.kind) {
-        case 'ComputeNoise':
-          this.uniformData[3] = this.evaluateParam(this.node.params?.scale, 8.0, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.octaves, 5, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.speed, 0.1, time, audioContext);
-          this.uniformData[6] = this.node.params?.colorize ? 1.0 : 0.0;
-          break;
+    }
 
-        case 'ComputeReactionDiffusion':
-          this.uniformData[3] = this.evaluateParam(this.node.params?.feedRate, 0.055, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.killRate, 0.062, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.diffusionA, 1.0, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.diffusionB, 0.5, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.timestep, 1.0, time, audioContext);
-          break;
-
-        case 'ComputeFeedback':
-          this.uniformData[3] = this.evaluateParam(this.node.params?.decay, 0.95, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.scale, 1.01, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.rotation, 0.0, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.offsetX, 0.0, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.offsetY, 0.0, time, audioContext);
-          break;
-
-        case 'ComputeBlur':
-          // Map quality string to numeric value (0=Low, 1=Medium, 2=High)
-          let qualityValue = 1.0; // Default to Medium
-          if (this.node.params?.quality === 'Low') qualityValue = 0.0;
-          else if (this.node.params?.quality === 'High') qualityValue = 2.0;
-
-          // Map direction string to numeric value (0=Both, 1=Horizontal, 2=Vertical)
-          let directionValue = 0.0; // Default to Both
-          if (this.node.params?.direction === 'Horizontal') directionValue = 1.0;
-          else if (this.node.params?.direction === 'Vertical') directionValue = 2.0;
-
-          this.uniformData[3] = this.evaluateParam(this.node.params?.radius, 5.0, time, audioContext);
-          this.uniformData[4] = qualityValue;
-          this.uniformData[5] = directionValue;
-          break;
-
-        case 'ComputeThreshold':
-          // Uniforms: threshold, thresholdMin, thresholdMax, outputLow, outputHigh
-          this.uniformData[3] = this.evaluateParam(this.node.params?.threshold, 0.5, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.thresholdMin, 0.3, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.thresholdMax, 0.7, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.outputLow, 0.0, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.outputHigh, 1.0, time, audioContext);
-          break;
-
-        case 'ComputeColorAdjust':
-          // Uniforms: brightness, contrast, saturation, hue, gamma, exposure
-          this.uniformData[3] = this.evaluateParam(this.node.params?.brightness, 0.0, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.contrast, 1.0, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.saturation, 1.0, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.hue, 0.0, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.gamma, 1.0, time, audioContext);
-          this.uniformData[8] = this.evaluateParam(this.node.params?.exposure, 0.0, time, audioContext);
-          break;
-
-        case 'ComputeConvolution':
-          // Uniforms: strength
-          this.uniformData[3] = this.evaluateParam(this.node.params?.strength, 1.0, time, audioContext);
-          break;
-
-        case 'ComputeEdgeDetect':
-          // Uniforms: threshold, strength, invertEdges
-          this.uniformData[3] = this.evaluateParam(this.node.params?.threshold, 0.1, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.strength, 1.0, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.invertEdges, 0.0, time, audioContext);
-          break;
-
-        case 'ComputeMorphology':
-          // Uniforms: strength
-          this.uniformData[3] = this.evaluateParam(this.node.params?.strength, 1.0, time, audioContext);
-          break;
-
-        case 'ComputeVoronoi':
-          // Uniforms: scale, seed, speed
-          this.uniformData[3] = this.evaluateParam(this.node.params?.scale, 8.0, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.seed, 0.0, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.speed, 0.1, time, audioContext);
-          break;
-
-        case 'ComputeGradient':
-          // Uniforms: angle, center.x, center.y, radius, repeat, saturation, brightness, numStops, _padding
-          this.uniformData[3] = this.evaluateParam(this.node.params?.angle, 0.0, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.centerX, 0.5, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.centerY, 0.5, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.radius, 0.5, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.repeat, 1.0, time, audioContext);
-          this.uniformData[8] = this.evaluateParam(this.node.params?.saturation, 0.8, time, audioContext);
-          this.uniformData[9] = this.evaluateParam(this.node.params?.brightness, 1.0, time, audioContext);
-
-          // Get color stops and set numStops
-          const colorStops = this.node.params?.colorStops || [
-            { position: 0.0, color: [0, 0, 0, 1] },
-            { position: 1.0, color: [1, 1, 1, 1] }
-          ];
-          this.uniformData[10] = Math.min(colorStops.length, 8); // numStops
-          this.uniformData[11] = 0.0; // padding
-
-          // Debug logging
-          console.log('[ComputeGradient Uniforms]', {
-            colorMode: this.node.params?.colorMode,
-            type: this.node.params?.type,
-            numStops: this.uniformData[10],
-            colorStops: colorStops.slice(0, 2)
-          });
-
-          // Update color stops storage buffer
-          this.updateColorStopsBuffer(colorStops);
-          break;
-
-        case 'ComputePattern':
-          // Uniforms: _padding1, scale.x, scale.y, rotation, thickness, smoothness
-          this.uniformData[3] = 0.0; // _padding1
-          this.uniformData[4] = this.evaluateParam(this.node.params?.scaleX, 8.0, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.scaleY, 8.0, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.rotation, 0.0, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.thickness, 0.5, time, audioContext);
-          this.uniformData[8] = this.evaluateParam(this.node.params?.smoothness, 0.01, time, audioContext);
-          break;
-
-        case 'ComputeFeedbackField':
-          // Uniforms: decay, diffusion, feedback, speed, mode
-          this.uniformData[3] = this.evaluateParam(this.node.params?.decay, 0.98, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.diffusion, 0.1, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.feedback, 0.5, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.speed, 1.0, time, audioContext);
-          // Map mode string to numeric value (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom)
-          let modeValue = 0.0;
-          if (this.node.params?.mode === 'Reaction-Diffusion') modeValue = 1.0;
-          else if (this.node.params?.mode === 'Accumulate') modeValue = 2.0;
-          else if (this.node.params?.mode === 'Custom') modeValue = 3.0;
-          this.uniformData[7] = modeValue;
-          break;
-
-        case 'ComputeCellular':
-          // Uniforms: speed
-          this.uniformData[3] = this.evaluateParam(this.node.params?.speed, 1.0, time, audioContext);
-          break;
-
-        case 'ComputeWarp':
-          // Uniforms: strength, center.x, center.y, radius, frequency, phase
-          this.uniformData[3] = this.evaluateParam(this.node.params?.strength, 0.5, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.centerX, 0.5, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.centerY, 0.5, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.radius, 0.5, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.frequency, 4.0, time, audioContext);
-          this.uniformData[8] = this.evaluateParam(this.node.params?.phase, 0.0, time, audioContext);
-          break;
-
-        case 'ComputeGlitch':
-          // Uniforms: intensity, frequency, _padding1, blockSize, seed
-          this.uniformData[3] = this.evaluateParam(this.node.params?.intensity, 0.5, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.frequency, 0.5, time, audioContext);
-          this.uniformData[5] = 0.0; // _padding1
-          this.uniformData[6] = this.evaluateParam(this.node.params?.blockSize, 0.05, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.seed, 0.0, time, audioContext);
-          break;
-
-        case 'ComputeMix':
-          // Uniforms: amount, opacity
-          this.uniformData[3] = this.evaluateParam(this.node.params?.amount, 0.5, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.opacity, 1.0, time, audioContext);
-          break;
-
-        case 'ComputeKaleidoscope':
-          // Uniforms: segments, rotation, centerX, centerY, scale, animate, speed
-          this.uniformData[3] = this.evaluateParam(this.node.params?.segments, 6.0, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.rotation, 0.0, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.centerX, 0.5, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.centerY, 0.5, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.scale, 1.0, time, audioContext);
-          this.uniformData[8] = this.evaluateParam(this.node.params?.animate, 0.0, time, audioContext);
-          this.uniformData[9] = this.evaluateParam(this.node.params?.speed, 0.5, time, audioContext);
-          break;
-
-        case 'ComputeTransform':
-          // Uniforms: translateX, translateY, rotation, scaleX, scaleY, pivotX, pivotY
-          this.uniformData[3] = this.evaluateParam(this.node.params?.translateX, 0.0, time, audioContext);
-          this.uniformData[4] = this.evaluateParam(this.node.params?.translateY, 0.0, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.rotation, 0.0, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.scaleX, 1.0, time, audioContext);
-          this.uniformData[7] = this.evaluateParam(this.node.params?.scaleY, 1.0, time, audioContext);
-          this.uniformData[8] = this.evaluateParam(this.node.params?.pivotX, 0.5, time, audioContext);
-          this.uniformData[9] = this.evaluateParam(this.node.params?.pivotY, 0.5, time, audioContext);
-          break;
-
-        case 'ComputeChannels':
-          // Uniforms: redSource, greenSource, blueSource, alphaSource
-          // Convert channel source strings to indices: R=0, G=1, B=2, A=3, 0=4, 1=5
-          this.uniformData[3] = this.getChannelSourceIndex(this.node.params?.redSource ?? 'R');
-          this.uniformData[4] = this.getChannelSourceIndex(this.node.params?.greenSource ?? 'G');
-          this.uniformData[5] = this.getChannelSourceIndex(this.node.params?.blueSource ?? 'B');
-          this.uniformData[6] = this.getChannelSourceIndex(this.node.params?.alphaSource ?? 'A');
-          break;
-
-        case 'ComputeHSV':
-          // Uniforms: operation, hueShift, saturationMult, valueMult
-          // Convert operation string to index: 0=RGB to HSV, 1=HSV to RGB, 2=Adjust HSV
-          let hsvOperation = this.node.params?.operation ?? 'Adjust HSV';
-          let hsvOpIndex = hsvOperation === 'RGB to HSV' ? 0.0 : hsvOperation === 'HSV to RGB' ? 1.0 : 2.0;
-          this.uniformData[3] = hsvOpIndex;
-          this.uniformData[4] = this.evaluateParam(this.node.params?.hueShift, 0.0, time, audioContext);
-          this.uniformData[5] = this.evaluateParam(this.node.params?.saturationMult, 1.0, time, audioContext);
-          this.uniformData[6] = this.evaluateParam(this.node.params?.valueMult, 1.0, time, audioContext);
-          break;
-
-        case 'ComputeLuminance':
-          // Uniforms: method, outputMode, threshold
-          // Convert method string to index: 0=Rec709, 1=Rec601, 2=Average, 3=Max, 4=Min
-          let lumMethod = this.node.params?.method ?? 'Rec709';
-          let lumMethodIndex = lumMethod === 'Rec709' ? 0.0 : lumMethod === 'Rec601' ? 1.0 : lumMethod === 'Average' ? 2.0 : lumMethod === 'Max' ? 3.0 : 4.0;
-          // Convert outputMode string to index: 0=Grayscale, 1=Preserve Color, 2=Isoluminant
-          let lumOutputMode = this.node.params?.outputMode ?? 'Grayscale';
-          let lumOutputModeIndex = lumOutputMode === 'Grayscale' ? 0.0 : lumOutputMode === 'Preserve Color' ? 1.0 : 2.0;
-          this.uniformData[3] = lumMethodIndex;
-          this.uniformData[4] = lumOutputModeIndex;
-          this.uniformData[5] = this.evaluateParam(this.node.params?.threshold, 0.5, time, audioContext);
-          break;
-
-        default:
-          // Unknown node type - all params already initialized to 0.0
-          break;
-      }
+    // ComputeGradient additionally drives a color-stops storage buffer. The
+    // uniform's numStops/padding are packed above; refresh the stop colors here.
+    if (this.node?.kind === 'ComputeGradient') {
+      const colorStops = this.node.params?.colorStops || [
+        { position: 0.0, color: [0, 0, 0, 1] },
+        { position: 1.0, color: [1, 1, 1, 1] }
+      ];
+      this.updateColorStopsBuffer(colorStops);
     }
 
     this.device.queue.writeBuffer(
