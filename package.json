@@ -7,7 +7,9 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "test:performance": "node run-performance-tests.js"
+    "test:performance": "node run-performance-tests.js",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
