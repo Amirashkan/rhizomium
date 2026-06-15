@@ -7,8 +7,6 @@ import { SaveLoadManager } from "./src/core/SaveLoadManager.js";
 import { BackupDialog } from "./src/ui/BackupDialog.js";
 import { FileManager } from "./src/ui/FileManager.js";
 import { WelcomeWindow } from "./src/ui/WelcomeWindow.js";
-import { OutputDisplayWindow } from "./src/ui/OutputDisplayWindow.js";
-import { ExternalViewerManager } from "./src/ui/ExternalViewerManager.js";
 import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
@@ -21,13 +19,6 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
-// LEGACY (disabled): frame-by-frame streaming to a Python/WebSocket or Vercel
-// remote viewer. Cross-machine sharing is now the gallery "Share" button, and
-// the local second-monitor output is handled by ExternalViewerManager. Kept
-// commented for reference rather than deleted.
-// import { FrameStreamClient } from './src/framestream/FrameStreamClient.js';
-// import { BroadcastFrameStream } from './src/framestream/BroadcastFrameStream.js';
-import { LiveShaderStream } from './src/framestream/LiveShaderStream.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
@@ -180,7 +171,6 @@ let saveLoadManager = null;
 let backupDialog = null;
 let fileManager = null;
 let welcomeWindow = null;
-let outputDisplayWindow = null;
 let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
@@ -204,183 +194,6 @@ let fieldVisualizerManager = null;
 let fieldMapperIntegration = null;
 const previewPerfMonitor = new PreviewPerfMonitor();
 window.previewPerfMonitor = previewPerfMonitor;
-
-// LEGACY (disabled): frame-streaming state for the old Python/Vercel remote
-// viewer. See the commented import block above — cross-machine sharing is the
-// gallery "Share" button now.
-// let frameStreamClient = null;
-// let broadcastFrameStream = null;
-// let frameStreamingEnabled = false;
-let liveShaderStream = null;
-
-// External viewer (second-monitor) window manager — handles screen detection,
-// window placement and fullscreen. Shared by the menu button and the Output
-// Display window so there is a single, reliable launch path.
-let externalViewerManager = null;
-
-// ---------------------------------------------------------------------------
-// Unified external viewer ("second monitor") launch path
-// ---------------------------------------------------------------------------
-// Both the View menu "Open External Viewer" button and the Output Display
-// window route through these helpers. They use the same-origin, no-backend
-// LiveShaderStream (BroadcastChannel) transport, which renders at full 60 FPS
-// in the viewer regardless of where the editor is hosted.
-
-function _updateStatusSafe(message, kind) {
-  if (typeof updateStatus === "function") updateStatus(message, kind);
-}
-
-/** Push the current shader to the live stream (or trigger a rebuild that will). */
-function sendCurrentShaderToStream() {
-  if (!liveShaderStream || !liveShaderStream.isStreaming) return;
-
-  if (window.latestGeneratedWGSL) {
-    const canvas = document.getElementById("gpu-canvas");
-    let uniformValues = [];
-    if (window.nodeCompiler?.uniformManager?.uniformValues) {
-      uniformValues = Array.from(window.nodeCompiler.uniformManager.uniformValues.values());
-    }
-    liveShaderStream.sendShaderUpdate(
-      window.latestGeneratedWGSL,
-      uniformValues,
-      { width: canvas?.width || 1920, height: canvas?.height || 1080 }
-    );
-  } else if (typeof window.rebuild === "function") {
-    // No shader compiled yet — rebuild; updateShaderFromGraph will stream it.
-    setTimeout(() => window.rebuild(), 100);
-  }
-}
-
-/** Reflect the active/inactive state across all external-viewer UI surfaces. */
-function setExternalViewerButtonState(active) {
-  const btn = document.getElementById("btn-open-external-viewer");
-  if (btn) {
-    btn.textContent = active ? "Stop External Viewer" : "Open External Viewer";
-    btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
-    btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
-  }
-  if (window.outputDisplayWindow && typeof window.outputDisplayWindow.setViewerActive === "function") {
-    window.outputDisplayWindow.setViewerActive(active);
-  }
-}
-
-/** True if the external viewer is projecting, has a window open, or is streaming. */
-function isExternalViewerActive() {
-  const projecting = !!(externalViewerManager && externalViewerManager.isProjecting());
-  const windowOpen = !!(externalViewerManager && externalViewerManager.isOpen());
-  const streaming = !!(liveShaderStream && liveShaderStream.isStreaming);
-  return projecting || windowOpen || streaming;
-}
-
-/** Lazily create the shared manager and wire its "projection ended" callback. */
-function ensureExternalViewerManager() {
-  if (!externalViewerManager) {
-    externalViewerManager = new ExternalViewerManager();
-    // If the user leaves fullscreen (Esc / OS), reflect that in the UI.
-    externalViewerManager.onProjectionEnd = () => setExternalViewerButtonState(false);
-    window.externalViewerManager = externalViewerManager;
-  }
-  return externalViewerManager;
-}
-
-/**
- * Show the live output on a second display.
- *
- * Default: open the viewer in a SEPARATE fullscreen window on the chosen
- * display. The editor stays fully visible in this (primary) window, and the
- * second window is chrome-free once it goes fullscreen — so the editor keeps
- * showing while the external viewer is on.
- *
- * Opt-in (`projectHidingEditor`): single-window fullscreen projection with no
- * second window at all. A browser context can only render one view, so this
- * takes over the primary window and the editor is NOT visible while active.
- *
- * @param {Object} options { monitor, projectHidingEditor }
- */
-async function launchExternalViewer(options = {}) {
-  const { monitor = "auto", projectHidingEditor = false } = options;
-  const manager = ensureExternalViewerManager();
-
-  // Opt-in only: take over THIS window to project fullscreen (hides the editor).
-  if (projectHidingEditor && ExternalViewerManager.supportsWindowManagement()) {
-    const sourceCanvas = document.getElementById("gpu-canvas");
-    try {
-      await manager.projectFullscreen({ monitor, sourceCanvas });
-      setExternalViewerButtonState(true);
-      _updateStatusSafe("Projecting fullscreen (editor hidden) — press Esc to return");
-      return true;
-    } catch (err) {
-      console.warn("[main.js] Fullscreen projection failed:", err);
-      manager.stopProjection();
-      setExternalViewerButtonState(false);
-      _updateStatusSafe(
-        "Couldn't project to the display — allow the display/window-management permission, then click again.",
-        "warning"
-      );
-      return false;
-    }
-  }
-
-  // Default: separate fullscreen window on the chosen display. Keeps the editor
-  // visible here while the second screen shows the chrome-free visual.
-  return _launchWindowViewer({ monitor });
-}
-
-/**
- * Default launcher: open the live viewer as a borderless popup filling the
- * chosen display. The editor stays visible in this window; the popup has no
- * browser toolbars and silently attempts true fullscreen (no click required).
- */
-async function _launchWindowViewer({ monitor = "auto" } = {}) {
-  if (!ExternalViewerManager.isSupported()) {
-    alert(
-      "❌ Your browser doesn't support the APIs needed for the external viewer.\n\n" +
-      "Please use a recent version of Chrome or Edge."
-    );
-    return false;
-  }
-
-  const manager = ensureExternalViewerManager();
-
-  // Ensure the shared live-shader stream is running (same-origin, no backend).
-  if (!liveShaderStream) {
-    liveShaderStream = new LiveShaderStream();
-    liveShaderStream.init();
-    window.liveShaderStream = liveShaderStream; // exposed for the GPU renderer
-  }
-  if (!liveShaderStream.isStreaming) {
-    liveShaderStream.startStreaming();
-  }
-  sendCurrentShaderToStream();
-
-  try {
-    await manager.openViewer({ monitor, hideUI: true, fullscreenMode: "soft" });
-  } catch (err) {
-    console.error("[main.js] Failed to open external viewer window:", err);
-    if (liveShaderStream && liveShaderStream.isStreaming) liveShaderStream.stopStreaming();
-    manager.close();
-    setExternalViewerButtonState(false);
-    _updateStatusSafe("External viewer: " + err.message, "error");
-    return false;
-  }
-
-  setExternalViewerButtonState(true);
-  _updateStatusSafe("External viewer open on the second display (editor stays here)");
-  return true;
-}
-
-/** Stop projecting / streaming and close any external viewer window. */
-function stopExternalViewer() {
-  if (externalViewerManager) {
-    externalViewerManager.stopProjection();
-    externalViewerManager.close();
-  }
-  if (liveShaderStream && liveShaderStream.isStreaming) {
-    liveShaderStream.stopStreaming();
-  }
-  setExternalViewerButtonState(false);
-  _updateStatusSafe("External viewer stopped");
-}
 
 // Detect deployment environment
 const isVercelOrCloud = window.location.hostname.includes('vercel.app') ||
@@ -678,23 +491,6 @@ async function initialize() {
       storageKey: "rhizomium.welcome.dismissed"
     });
 
-    // Create the shared external viewer manager (screen detection + fullscreen
-    // projection + window fallback). Used by both the menu button and this window.
-    ensureExternalViewerManager();
-
-    // Create Output Display Window — the single control surface for the
-    // external "second monitor" viewer. Launch/stop route through the unified
-    // launchExternalViewer/stopExternalViewer helpers.
-    outputDisplayWindow = new OutputDisplayWindow({
-      manager: externalViewerManager,
-      onClose: () => {},
-      onLaunchExternalViewer: async (options = {}) => {
-        await launchExternalViewer(options);
-      },
-      onStopExternalViewer: () => {
-        stopExternalViewer();
-      }
-    });
 
     // Create VJ Control Panel (after SaveLoadManager is ready)
     try {
@@ -736,7 +532,6 @@ async function initialize() {
     window.backupDialog = backupDialog;
     window.fileManager = fileManager;
     window.welcomeWindow = welcomeWindow;
-    window.outputDisplayWindow = outputDisplayWindow;
     window.rebuild = updateShaderFromGraph;
     window.buildWGSL = buildWGSL;
     window.floatingPreview = floatingPreview;
@@ -792,74 +587,6 @@ async function initialize() {
           }
         } else {
           window._dragParamUpdateCount = 0;
-        }
-
-        // CRITICAL: Send parameter update to external viewer immediately during drag
-        // Throttle to ~60fps to avoid overwhelming the channel
-        if (window.editor?._parameterDragging && window.liveShaderStream?.isStreaming) {
-          const now = performance.now();
-          const lastUpdateTime = window._lastParameterUpdateTime || 0;
-          const UPDATE_THROTTLE_MS = 16; // ~60fps max update rate
-          
-          if (now - lastUpdateTime >= UPDATE_THROTTLE_MS) {
-            window._lastParameterUpdateTime = now;
-            const uniformManager = window.nodeCompiler.uniformManager;
-            if (uniformManager && uniformManager.uniformValues.size > 0) {
-              const values = Array.from(uniformManager.uniformValues.values());
-              const timeSec = window.renderLoop?._simTime ?? performance.now() * 0.001;
-              
-              // CRITICAL: For compute nodes, also include the node's current params
-              // since compute node parameters may not be in uniformKeys
-              const graph = window.editor?.graph;
-              let computeNodeParams = null;
-              if (graph) {
-                // Graph class uses getNode(id), not getNodeById(id)
-                let node = null;
-                if (typeof graph.getNode === 'function') {
-                  node = graph.getNode(nodeId) || graph.getNode(String(nodeId));
-                } else if (graph.nodes) {
-                  // Fallback: search in graph.nodes array
-                  node = graph.nodes.find(n => String(n.id) === String(nodeId));
-                }
-                
-                if (node && node.kind && node.kind.startsWith('Compute')) {
-                  // Include all params for this compute node
-                  computeNodeParams = {
-                    nodeId: String(nodeId),
-                    params: { ...node.params }
-                  };
-                  
-                  // DEBUG: Log compute node params being sent
-                  if (window._dragParamUpdateCount <= 3) {
-                    console.log('[updateUniformsOnly] Sending computeNodeParams for', nodeId, ':', computeNodeParams);
-                  }
-                } else if (window._dragParamUpdateCount <= 3) {
-                  // DEBUG: Log if node not found or not a compute node
-                  console.log('[updateUniformsOnly] Node lookup:', {
-                    nodeId,
-                    found: !!node,
-                    kind: node?.kind,
-                    isCompute: node?.kind?.startsWith('Compute'),
-                    graphHasGetNode: typeof graph.getNode === 'function',
-                    graphNodesLength: graph.nodes?.length
-                  });
-                }
-              }
-              
-              // Get audio envelope values for transmission to viewer
-              const audioEnvelope = {
-                audioEnvelope: window._audioEnvelopeValue || 0.0,
-                audioEnvelopeBass: window._audioEnvelopeBass || 0.0,
-                audioEnvelopeMids: window._audioEnvelopeMids || 0.0,
-                audioEnvelopeHighs: window._audioEnvelopeHighs || 0.0,
-                audioEnvelopeFull: window._audioEnvelopeFull || 0.0
-              };
-              
-              window.liveShaderStream.sendParameterUpdate(values, timeSec, computeNodeParams, audioEnvelope);
-            }
-          }
-        } else {
-          window._lastParameterUpdateTime = 0;
         }
       }
     };
@@ -1555,37 +1282,6 @@ function setupUIEventHandlers() {
   } else {
     console.error('[main.js] VJ Control button NOT found in DOM!');
   }
-
-  // Open External Viewer button
-  const openExternalViewerBtn = removeExistingHandlers("btn-open-external-viewer");
-
-  if (openExternalViewerBtn) {
-    // One-click toggle. Launches the reliable same-origin live viewer using the
-    // Output Display window's current settings (monitor / fullscreen / hide-UI),
-    // falling back to smart defaults (auto-pick a second display, fullscreen).
-    openExternalViewerBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation(); // Prevent dropdown from closing immediately
-
-      if (isExternalViewerActive()) {
-        stopExternalViewer();
-        return;
-      }
-
-      const opts = (window.outputDisplayWindow && typeof window.outputDisplayWindow.getLaunchOptions === "function")
-        ? window.outputDisplayWindow.getLaunchOptions()
-        : { monitor: "auto", projectHidingEditor: false };
-
-      await launchExternalViewer(opts);
-    });
-  } else {
-    console.error('[main.js] Open External Viewer button NOT found in DOM!');
-  }
-
-  // NOTE: The legacy "btn-open-viewer" handler (a second, divergent external
-  // viewer launcher) has been removed. The external viewer is now driven by a
-  // single path — see launchExternalViewer()/stopExternalViewer() above and the
-  // Output Display window (OutputDisplayWindow.js).
 
   // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
   // The resolution selector functionality has been moved to the Preview/Export Settings window
@@ -2390,21 +2086,6 @@ function setupRhizomiumMenu() {
         window.floatingPreview.toggle();
         if (typeof updateStatus === "function") {
           updateStatus(window.floatingPreview.isVisible ? "Preview Panel shown" : "Preview Panel hidden");
-        }
-      }
-    });
-  }
-
-  // External Viewer Settings - opens the Output Display control window
-  const outputDisplayBtn = document.getElementById("btn-output-display");
-  if (outputDisplayBtn && window.outputDisplayWindow) {
-    outputDisplayBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (window.outputDisplayWindow) {
-        window.outputDisplayWindow.show();
-        if (typeof updateStatus === "function") {
-          updateStatus("External Viewer settings opened");
         }
       }
     });
@@ -3558,24 +3239,6 @@ async function updateShaderFromGraph() {
         updateStatus("Shader compiled");
       }
 
-      // Send shader update to LiveShaderStream if active
-      if (liveShaderStream && liveShaderStream.isStreaming) {
-        const canvas = document.getElementById('gpu-canvas');
-
-        // Extract parameter values from uniformManager as ordered array
-        let uniformValues = [];
-        if (result.uniformManager && result.uniformManager.uniformValues) {
-          uniformValues = Array.from(result.uniformManager.uniformValues.values());
-        } else {
-          console.warn('[main.js] No uniformManager or uniformValues found in result');
-        }
-
-        liveShaderStream.sendShaderUpdate(
-          rawWGSL,
-          uniformValues,
-          { width: canvas?.width || 1920, height: canvas?.height || 1080 }
-        );
-      }
     } else {
       console.warn("GPU renderer not initialized");
     }
@@ -3704,26 +3367,6 @@ function handleRenderFrame(frameState) {
         // Errors are already logged in gpuRenderer.render()
       });
 
-      // LEGACY (disabled): per-frame capture + push to the old Python/Vercel
-      // remote viewer. The external second-monitor output no longer streams
-      // frames — it mirrors the live canvas directly (ExternalViewerManager),
-      // and cross-machine sharing is the gallery "Share" button. Left commented
-      // for reference rather than deleted.
-      //
-      // if (frameStreamingEnabled) {
-      //   const canvas = document.getElementById('gpu-canvas');
-      //   if (canvas) {
-      //     const push = () => {
-      //       const framePromise = window.gpuRenderer?._lastFramePromise || Promise.resolve();
-      //       framePromise.then(() => {
-      //         if (broadcastFrameStream) broadcastFrameStream.sendFrameFromCanvas(canvas);
-      //         else if (frameStreamClient) frameStreamClient.sendFrameFromCanvas(canvas, 'rgb', 0.85);
-      //       }).catch(() => {});
-      //     };
-      //     if (window.requestIdleCallback) window.requestIdleCallback(push, { timeout: 100 });
-      //     else push();
-      //   }
-      // }
     }
   }
 

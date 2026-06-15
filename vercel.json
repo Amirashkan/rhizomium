@@ -4,10 +4,6 @@
     {
       "source": "/studio",
       "destination": "/editor"
-    },
-    {
-      "source": "/api/ws",
-      "destination": "/api/websocket"
     }
   ],
   "redirects": [

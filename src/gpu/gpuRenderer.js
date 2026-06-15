@@ -703,48 +703,6 @@ export class GPURenderer {
     this.device.queue.writeBuffer(target.buffer, 0, this._paramUniformBuffer.buffer, 0, byteLength);
   }
 
-  _sendLiveParameterUpdate(timeSec) {
-    // Send parameter + time updates to external viewer if streaming
-    if (!window.liveShaderStream || !window.liveShaderStream.isStreaming) {
-      return;
-    }
-
-    const uniformManager = window.nodeCompiler?.uniformManager;
-
-    // Get values in order (same as _updateParameterUniforms)
-    // Use empty array when no uniform parameters exist (e.g. compute-only graphs)
-    // so that the time sync message is still sent every frame.
-    const values = uniformManager?.uniformValues?.size > 0
-      ? Array.from(uniformManager.uniformValues.values())
-      : [];
-
-    // DEBUG: Log every 60 frames (once per second at 60fps) during drag
-    if (window.editor?._parameterDragging && this._dragUpdateCount % 60 === 0) {
-      console.log('[gpuRenderer] Sending parameter update during drag');
-      console.log('[gpuRenderer] uniformManager.uniformValues.size:', uniformManager.uniformValues.size);
-      console.log('[gpuRenderer] uniformValues keys:', Array.from(uniformManager.uniformValues.keys()));
-      console.log('[gpuRenderer] values array length:', values.length);
-      console.log('[gpuRenderer] first 5 values:', values.slice(0, 5));
-    }
-    if (window.editor?._parameterDragging) {
-      this._dragUpdateCount = (this._dragUpdateCount || 0) + 1;
-    } else {
-      this._dragUpdateCount = 0;
-    }
-
-    // Get audio envelope values for transmission to viewer
-    const audioEnvelope = {
-      audioEnvelope: window._audioEnvelopeValue || 0.0,
-      audioEnvelopeBass: window._audioEnvelopeBass || 0.0,
-      audioEnvelopeMids: window._audioEnvelopeMids || 0.0,
-      audioEnvelopeHighs: window._audioEnvelopeHighs || 0.0,
-      audioEnvelopeFull: window._audioEnvelopeFull || 0.0
-    };
-
-    // Send to viewer with current time for sync
-    window.liveShaderStream.sendParameterUpdate(values, timeSec, null, audioEnvelope);
-  }
-
   _updateGlobalsUniform(timeSec) {
     const target = this._getUniformByVarName("g");
     if (!target?.buffer) return;
@@ -1215,9 +1173,6 @@ export class GPURenderer {
 
     // CRITICAL: Update parameter uniforms every frame so changes are reflected
     this._updateParameterUniforms();
-
-    // Send parameter + time updates to external viewer for real-time sync
-    this._sendLiveParameterUpdate(timeValue);
 
     // CRITICAL: Update texture bindings when new files are loaded
     this._updateTextureBindings();
