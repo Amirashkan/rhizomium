@@ -1298,6 +1298,19 @@ export class GPURenderer {
       // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
 
+      // Honest-FPS hook: fire when the GPU actually FINISHES this frame, not when
+      // we dispatch it. The render loop dispatches at its target cadence
+      // regardless of GPU load, so a dispatch-time FPS counter pins to ~60 even
+      // when heavy graphs render far slower. Consumers (the preview FPS overlay)
+      // count these completions to report real throughput. Reuses the promise
+      // already created above, so it adds no extra GPU sync.
+      if (this._lastFramePromise && typeof this.onFramePresented === "function") {
+        this._lastFramePromise.then(
+          () => { try { this.onFramePresented(); } catch (_) { /* ignore */ } },
+          () => { /* device lost / frame dropped — ignore */ },
+        );
+      }
+
       // Flush deferred GPU resource destructions AFTER the GPU finishes processing the
       // submitted commands. We capture and clear the pending list now (so new entries
       // added by initialize() during the async window don't get destroyed too early),
