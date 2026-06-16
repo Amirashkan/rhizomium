@@ -1,0 +1,179 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { SecondMonitorViewer } from '../src/ui/SecondMonitorViewer.js';
+import { isViteBuild } from '../src/utils/isViteBuild.js';
+
+function makeFakeWindow() {
+  const ctx = { fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn() };
+  const canvas = { width: 0, height: 0, style: {}, getContext: vi.fn(() => ctx) };
+  const listeners = {};
+  const doc = {
+    open: vi.fn(),
+    write: vi.fn(),
+    close: vi.fn(),
+    getElementById: vi.fn((id) => (id === 'second-monitor-output' ? canvas : null)),
+    documentElement: { requestFullscreen: vi.fn(() => Promise.resolve()) },
+  };
+  const win = {
+    closed: false,
+    document: doc,
+    innerWidth: 1920,
+    innerHeight: 1080,
+    devicePixelRatio: 1,
+    addEventListener: vi.fn((type, cb) => {
+      (listeners[type] = listeners[type] || []).push(cb);
+    }),
+    removeEventListener: vi.fn(),
+    focus: vi.fn(),
+    close: vi.fn(function close() { this.closed = true; }),
+    requestFullscreen: vi.fn(() => Promise.resolve()),
+    __ctx: ctx,
+    __canvas: canvas,
+    __listeners: listeners,
+  };
+  return win;
+}
+
+describe('SecondMonitorViewer', () => {
+  let source;
+  let fakeWin;
+  let rafCallbacks;
+
+  beforeEach(() => {
+    source = { width: 1920, height: 1080 };
+    fakeWin = makeFakeWindow();
+    rafCallbacks = [];
+
+    // Controllable rAF so the mirror loop can be stepped deterministically.
+    vi.stubGlobal('requestAnimationFrame', vi.fn((cb) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    }));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    vi.spyOn(window, 'open').mockReturnValue(fakeWin);
+    // Default: no Window Management API (forces the fallback popup path).
+    delete window.getScreenDetails;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('starts inactive', () => {
+    const viewer = new SecondMonitorViewer(source);
+    expect(viewer.isActive).toBe(false);
+  });
+
+  it('opens a popup, writes the viewer document, and reports active', async () => {
+    const onActiveChange = vi.fn();
+    const viewer = new SecondMonitorViewer(source, { onActiveChange });
+
+    await viewer.open();
+
+    expect(window.open).toHaveBeenCalledTimes(1);
+    const [, name, features] = window.open.mock.calls[0];
+    expect(name).toBe('RhizomiumSecondMonitor');
+    expect(features).toContain('popup=yes');
+    // Fallback path (no Window Management API) uses a default size, not screen coords.
+    expect(features).toContain('width=1280');
+    expect(fakeWin.document.write).toHaveBeenCalledTimes(1);
+    expect(viewer.isActive).toBe(true);
+    expect(onActiveChange).toHaveBeenCalledWith(true);
+
+    viewer.close();
+  });
+
+  it('mirrors the source canvas into the popup each frame', async () => {
+    const viewer = new SecondMonitorViewer(source);
+    await viewer.open();
+
+    expect(rafCallbacks.length).toBe(1);
+    // Step one mirror frame.
+    rafCallbacks[rafCallbacks.length - 1]();
+
+    expect(fakeWin.__ctx.fillRect).toHaveBeenCalled();
+    expect(fakeWin.__ctx.drawImage).toHaveBeenCalledWith(
+      source,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+
+    viewer.close();
+  });
+
+  it('reports an error and stays inactive when the popup is blocked', async () => {
+    window.open.mockReturnValue(null);
+    const onStatus = vi.fn();
+    const onActiveChange = vi.fn();
+    const viewer = new SecondMonitorViewer(source, { onStatus, onActiveChange });
+
+    await viewer.open();
+
+    expect(viewer.isActive).toBe(false);
+    expect(onActiveChange).not.toHaveBeenCalledWith(true);
+    expect(onStatus).toHaveBeenCalledWith(expect.stringContaining('Popup blocked'), 'error');
+  });
+
+  it('toggle opens then closes', async () => {
+    const onActiveChange = vi.fn();
+    const viewer = new SecondMonitorViewer(source, { onActiveChange });
+
+    const first = await viewer.toggle();
+    expect(first).toBe(true);
+    expect(viewer.isActive).toBe(true);
+
+    const second = await viewer.toggle();
+    expect(second).toBe(false);
+    expect(fakeWin.close).toHaveBeenCalled();
+    expect(viewer.isActive).toBe(false);
+    expect(onActiveChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('closes when Escape is pressed in the popup', async () => {
+    const viewer = new SecondMonitorViewer(source);
+    await viewer.open();
+
+    const keyHandlers = fakeWin.__listeners.keydown || [];
+    expect(keyHandlers.length).toBe(1);
+    keyHandlers[0]({ key: 'Escape' });
+
+    expect(fakeWin.close).toHaveBeenCalled();
+    expect(viewer.isActive).toBe(false);
+  });
+
+  it('places the popup on an external display via the Window Management API', async () => {
+    const external = {
+      isInternal: false,
+      availLeft: 2560, availTop: 0, availWidth: 1920, availHeight: 1080,
+    };
+    const current = { isInternal: true, availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
+    window.getScreenDetails = vi.fn().mockResolvedValue({
+      screens: [current, external],
+      currentScreen: current,
+    });
+
+    const onStatus = vi.fn();
+    const viewer = new SecondMonitorViewer(source, { onStatus });
+    await viewer.open();
+
+    const features = window.open.mock.calls[0][2];
+    expect(features).toContain('left=2560');
+    expect(features).toContain('width=1920');
+    expect(features).toContain('height=1080');
+    expect(onStatus).toHaveBeenCalledWith(expect.stringContaining('external display'));
+
+    viewer.close();
+  });
+});
+
+describe('isViteBuild', () => {
+  it('is true under the Vite-powered test runner', () => {
+    // Vitest runs through Vite, so import.meta.env is defined here. The raw
+    // Python-server / Vercel deployments serve untransformed source where it is
+    // undefined and this returns false.
+    expect(isViteBuild()).toBe(true);
+  });
+});

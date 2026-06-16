@@ -72,6 +72,21 @@ Installers/binaries are written to `src-tauri/target/release/bundle/`.
 > WKWebView on macOS). WebGPU — which this app requires — is best supported by
 > WebView2, so Windows is the most reliable target today.
 
+### Second-Monitor Viewer (Vite/desktop build only)
+
+The Vite build (`npm run dev` and the Tauri desktop app) adds a **View → Second
+Monitor Viewer** entry. It opens a chrome-free black window on a second display
+and mirrors the live output there, letterboxed and centred — a pristine
+performance surface with no editor UI. When the browser grants the Window
+Management permission the window is placed on and sized to a detected external
+display; otherwise a popup opens that you can drag across. Press **Esc** or
+close the window to stop.
+
+This entry is intentionally hidden in the raw web deployments (the Python server
+and the static Vercel host), where the in-editor floating preview is the only
+output surface. The build is detected at runtime via `import.meta.env`, which
+Vite injects but the raw deployments do not (see `src/utils/isViteBuild.js`).
+
 ## 📖 Documentation
 
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps
