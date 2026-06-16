@@ -11,6 +11,8 @@ import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
+import { SecondMonitorViewer } from "./src/ui/SecondMonitorViewer.js";
+import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { TextureManager } from "./src/core/TextureManager.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
@@ -175,6 +177,7 @@ let undoManager = null;
 let parameterEventSystem = null;
 let __deviceReady = false;
 let floatingPreview = null;
+let secondMonitorViewer = null;
 let previewExportSettingsWindow = null;
 let preferencesWindow = null;
 let renderLoopController = null;
@@ -524,6 +527,17 @@ async function initialize() {
       floatingPreview = new FloatingGPUPreview(gpuCanvas);
       setupPreviewButtons();
       floatingPreview.show();
+
+      // Second-monitor full-screen viewer — only in the Vite/desktop build.
+      // The raw web deployments (Python server, Vercel) never instantiate it,
+      // so the menu entry stays hidden there.
+      if (isViteBuild()) {
+        secondMonitorViewer = new SecondMonitorViewer(gpuCanvas, {
+          onStatus: (message, kind) => updateStatus(message, kind),
+          onActiveChange: (active) => setSecondMonitorButtonState(active),
+        });
+        window.secondMonitorViewer = secondMonitorViewer;
+      }
     }
 
     window.graph = graph;
@@ -1281,6 +1295,28 @@ function setupUIEventHandlers() {
     });
   } else {
     console.error('[main.js] VJ Control button NOT found in DOM!');
+  }
+
+  // Second-monitor full-screen viewer (Vite/desktop build only).
+  // The button and its separator ship hidden in editor/index.html and are only
+  // revealed here when running the Vite build with the viewer instantiated.
+  const secondMonitorBtn = removeExistingHandlers("btn-second-monitor");
+  if (secondMonitorBtn && isViteBuild() && secondMonitorViewer) {
+    document.getElementById("sep-second-monitor")?.style.removeProperty("display");
+    secondMonitorBtn.style.removeProperty("display");
+    setSecondMonitorButtonState(secondMonitorViewer.isActive);
+
+    secondMonitorBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try {
+        await secondMonitorViewer.toggle();
+      } catch (error) {
+        console.error('[main.js] Error toggling second-monitor viewer:', error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Second-monitor viewer error: " + error.message, "error");
+        }
+      }
+    });
   }
 
   // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
@@ -3290,6 +3326,18 @@ function updateStatus(message, type = "info") {
       }, 3000);
     }
   }
+}
+
+/**
+ * Reflect the second-monitor viewer's active/inactive state on its menu button.
+ * Safe to call when the button is absent (non-Vite builds) — it no-ops.
+ */
+function setSecondMonitorButtonState(active) {
+  const btn = document.getElementById("btn-second-monitor");
+  if (!btn) return;
+  btn.textContent = active ? "Close Second Monitor" : "Second Monitor Viewer";
+  btn.style.backgroundColor = active ? "rgba(0, 170, 0, 0.8)" : "";
+  btn.style.borderColor = active ? "rgba(0, 255, 0, 0.4)" : "";
 }
 
 function handleRenderFrame(frameState) {
