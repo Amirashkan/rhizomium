@@ -68,30 +68,27 @@ export class SecondMonitorViewer {
    * Open the viewer on a second display (or a fallback popup) and start mirroring.
    * Must be called from a user gesture so the popup is not blocked.
    */
-  async open() {
+  open() {
     if (this.isActive) {
       try { this.viewerWindow.focus(); } catch (_) { /* ignore */ }
-      return;
+      return Promise.resolve();
     }
     if (!this.sourceCanvas) {
       this.onStatus('No render canvas available to mirror', 'error');
-      return;
+      return Promise.resolve();
     }
 
-    const bounds = await this._resolveSecondScreenBounds();
-
-    let features =
-      'popup=yes,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes';
-    if (bounds) {
-      features += `,left=${bounds.left},top=${bounds.top},width=${bounds.width},height=${bounds.height}`;
-    } else {
-      features += ',width=1280,height=720';
-    }
-
+    // Open the popup synchronously so it stays tied to the click's user
+    // activation. Any `await` before window.open() — e.g. the Window Management
+    // permission prompt in getScreenDetails() — spends the gesture, and the
+    // browser then blocks the popup. Placement onto a second display is async,
+    // so it happens *after* the window exists (see _placeOnSecondScreen).
+    const features =
+      'popup=yes,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes,width=1280,height=720';
     const win = window.open('about:blank', this.windowName, features);
     if (!win) {
       this.onStatus('Popup blocked — allow popups to use the second-monitor viewer', 'error');
-      return;
+      return Promise.resolve();
     }
     this.viewerWindow = win;
     this._writeViewerDocument(win);
@@ -101,7 +98,7 @@ export class SecondMonitorViewer {
     if (!this.outCtx) {
       this.onStatus('Failed to create second-monitor output surface', 'error');
       this.close();
-      return;
+      return Promise.resolve();
     }
 
     this._resizeOutput();
@@ -116,15 +113,38 @@ export class SecondMonitorViewer {
     this._startMirror();
     this._watchForClose();
     this.onActiveChange(true);
-    this.onStatus(
-      bounds ? 'Second-monitor viewer opened on external display' : 'Second-monitor viewer opened',
-    );
+    this.onStatus('Second-monitor viewer opened');
+
+    // Move/resize onto a real second display when the browser allows it.
+    return this._placeOnSecondScreen();
+  }
+
+  /**
+   * Move/resize the open popup onto a detected external display via the Window
+   * Management API, then attempt true fullscreen. Best-effort: if no second
+   * display is found (or permission is denied) the popup stays where the browser
+   * put it and the user can drag it across.
+   */
+  async _placeOnSecondScreen() {
+    const bounds = await this._resolveSecondScreenBounds();
+    if (!bounds || !this.isActive) return;
+
+    const win = this.viewerWindow;
+    try {
+      if (typeof win.moveTo === 'function') win.moveTo(bounds.left, bounds.top);
+      if (typeof win.resizeTo === 'function') win.resizeTo(bounds.width, bounds.height);
+    } catch (_) {
+      /* placement is best-effort */
+    }
+    this._resizeOutput();
+    this.onStatus('Second-monitor viewer moved to external display');
 
     // Best-effort true fullscreen (removes the OS title bar). The filling popup
     // already covers the display if the browser blocks programmatic fullscreen,
     // so failures are silent.
     this._tryFullscreen();
   }
+
 
   /** Close the viewer and stop mirroring. */
   close() {
