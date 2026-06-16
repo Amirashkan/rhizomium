@@ -24,6 +24,8 @@ function makeFakeWindow() {
     }),
     removeEventListener: vi.fn(),
     focus: vi.fn(),
+    moveTo: vi.fn(),
+    resizeTo: vi.fn(),
     close: vi.fn(function close() { this.closed = true; }),
     requestFullscreen: vi.fn(() => Promise.resolve()),
     __ctx: ctx,
@@ -144,7 +146,27 @@ describe('SecondMonitorViewer', () => {
     expect(viewer.isActive).toBe(false);
   });
 
-  it('places the popup on an external display via the Window Management API', async () => {
+  it('opens synchronously (within the user gesture), before screen detection', async () => {
+    // Regression: awaiting getScreenDetails() before window.open() spends the
+    // click's user activation and the browser blocks the popup. window.open must
+    // be called before any await resolves.
+    let resolveDetails;
+    window.getScreenDetails = vi.fn(() => new Promise((r) => { resolveDetails = r; }));
+
+    const viewer = new SecondMonitorViewer(source);
+    const opening = viewer.open();
+
+    // Popup is already open even though screen detection hasn't resolved yet.
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(viewer.isActive).toBe(true);
+
+    resolveDetails({ screens: [], currentScreen: null });
+    await opening;
+
+    viewer.close();
+  });
+
+  it('moves the popup onto an external display via the Window Management API', async () => {
     const external = {
       isInternal: false,
       availLeft: 2560, availTop: 0, availWidth: 1920, availHeight: 1080,
@@ -159,10 +181,8 @@ describe('SecondMonitorViewer', () => {
     const viewer = new SecondMonitorViewer(source, { onStatus });
     await viewer.open();
 
-    const features = window.open.mock.calls[0][2];
-    expect(features).toContain('left=2560');
-    expect(features).toContain('width=1920');
-    expect(features).toContain('height=1080');
+    expect(fakeWin.moveTo).toHaveBeenCalledWith(2560, 0);
+    expect(fakeWin.resizeTo).toHaveBeenCalledWith(1920, 1080);
     expect(onStatus).toHaveBeenCalledWith(expect.stringContaining('external display'));
 
     viewer.close();
