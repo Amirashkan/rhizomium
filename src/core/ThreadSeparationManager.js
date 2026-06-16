@@ -3,6 +3,7 @@
 
 import { AsyncQueueManager, MessagePriority } from './AsyncQueueManager.js';
 import { ThreadMonitor } from './ThreadMonitor.js';
+import { createWorker } from './workerFactories.js';
 
 export class ThreadSeparationManager {
   constructor(options = {}) {
@@ -93,16 +94,16 @@ export class ThreadSeparationManager {
   async _initializeWorkers() {
     try {
       // PreviewComputer Worker
-      await this._initWorker('previewComputer', '/workers/preview-computer-worker.js');
+      await this._initWorker('previewComputer');
 
       // ParameterExpressionSystem Worker
-      await this._initWorker('parameterExpression', '/workers/parameter-expression-worker.js');
+      await this._initWorker('parameterExpression');
 
       // SaveLoadManager Worker
-      await this._initWorker('saveLoad', '/workers/save-load-worker.js', { type: 'classic' });
+      await this._initWorker('saveLoad');
 
       // UndoManager Worker
-      await this._initWorker('undoManager', '/workers/undo-manager-worker.js', { type: 'classic' });
+      await this._initWorker('undoManager');
       
       console.log('All workers initialized successfully');
     } catch (error) {
@@ -115,13 +116,13 @@ export class ThreadSeparationManager {
   /**
    * Initialize a single worker
    */
-  async _initWorker(name, scriptPath, workerOptions = { type: 'module' }) {
+  async _initWorker(name) {
     return new Promise((resolve, reject) => {
       let timeoutId = null;
       let resolved = false;
 
       try {
-        const worker = new Worker(scriptPath, workerOptions);
+        const worker = createWorker(name);
         
         // Set up message handler
         worker.onmessage = (e) => {

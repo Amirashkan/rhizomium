@@ -1,6 +1,8 @@
 // src/core/RecoveryManager.js
 // Handles automatic recovery from thread failures
 
+import { createWorker } from './workerFactories.js';
+
 export class RecoveryManager {
   constructor(monitor) {
     this.monitor = monitor;
@@ -71,9 +73,9 @@ export class RecoveryManager {
       // Terminate old worker
       thread.thread.terminate();
       
-      // Create new worker
-      const workerScript = this._getWorkerScript(name);
-      const newWorker = new Worker(workerScript, { type: 'module' });
+      // Create new worker (same factory used during initial startup, so the
+      // correct worker type and bundler-friendly URL are reused).
+      const newWorker = createWorker(name);
       
       // Re-register with monitor
       this.monitor.registerThread({
@@ -161,24 +163,7 @@ export class RecoveryManager {
       success
     });
   }
-  
-  /**
-   * Get worker script path
-   */
-  _getWorkerScript(name) {
-    // Map thread names to worker scripts. Root-absolute so they resolve the
-    // same whether the editor page is served at /studio (web) or /editor/
-    // (Tauri / static file host).
-    const workerScripts = {
-      'previewComputer': '/workers/preview-computer-worker.js',
-      'parameterExpression': '/workers/parameter-expression-worker.js',
-      'saveLoad': '/workers/save-load-worker.js',
-      'undoManager': '/workers/undo-manager-worker.js'
-    };
 
-    return workerScripts[name] || `/workers/${name}-worker.js`;
-  }
-  
   /**
    * Reconnect to Python thread
    */
