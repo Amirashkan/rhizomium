@@ -166,15 +166,17 @@ export class RecoveryManager {
    * Get worker script path
    */
   _getWorkerScript(name) {
-    // Map thread names to worker scripts
+    // Map thread names to worker scripts. Root-absolute so they resolve the
+    // same whether the editor page is served at /studio (web) or /editor/
+    // (Tauri / static file host).
     const workerScripts = {
-      'previewComputer': 'workers/preview-computer-worker.js',
-      'parameterExpression': 'workers/parameter-expression-worker.js',
-      'saveLoad': 'workers/save-load-worker.js',
-      'undoManager': 'workers/undo-manager-worker.js'
+      'previewComputer': '/workers/preview-computer-worker.js',
+      'parameterExpression': '/workers/parameter-expression-worker.js',
+      'saveLoad': '/workers/save-load-worker.js',
+      'undoManager': '/workers/undo-manager-worker.js'
     };
-    
-    return workerScripts[name] || `workers/${name}-worker.js`;
+
+    return workerScripts[name] || `/workers/${name}-worker.js`;
   }
   
   /**

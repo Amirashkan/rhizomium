@@ -31,6 +31,47 @@ python rhizo_server.py
 
 Navigate to: **http://127.0.0.1:5000/studio**
 
+## 🖥️ Desktop App (Tauri)
+
+The editor can run as a native desktop app via [Tauri](https://tauri.app). Unlike
+the web build there is no server doing URL rewrites, so the app is wired to load
+the editor's real entry (`editor/index.html`) directly.
+
+### Prerequisites (one time)
+
+- [Node.js](https://nodejs.org) 18+
+- The [Tauri system prerequisites](https://tauri.app/start/prerequisites/) for
+  your OS (Rust toolchain + WebView dependencies).
+
+```bash
+# install JS deps (Vite, Tauri CLI, etc.)
+npm install
+
+# generate the app icon set from the logo (writes src-tauri/icons/)
+npm run tauri icon assets/logo.png
+```
+
+### Run in development
+
+```bash
+npm run tauri:dev
+```
+
+This starts the Vite dev server on `http://localhost:5173` and opens the Tauri
+window pointing at it. Click **Launch Studio** to open the editor.
+
+### Build a distributable
+
+```bash
+npm run tauri:build
+```
+
+Installers/binaries are written to `src-tauri/target/release/bundle/`.
+
+> **Note:** Tauri uses the OS WebView (WebView2 on Windows, WebKitGTK on Linux,
+> WKWebView on macOS). WebGPU — which this app requires — is best supported by
+> WebView2, so Windows is the most reliable target today.
+
 ## 📖 Documentation
 
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps
