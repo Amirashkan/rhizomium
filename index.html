@@ -171,9 +171,18 @@
       </p>
     </section>
     <!-- === Rhizomium Docsify Loader === -->
+<!-- Docsify is fetched from a CDN only when the docs are actually viewed
+     (#/docs). On a normal startup nothing third-party is requested, which
+     avoids the WebView2/Edge "Tracking Prevention blocked access to storage"
+     warnings (and an unnecessary network round-trip). The scripts are injected
+     as real <script> elements so they execute. -->
 <div id="rhizomium-docs" style="display:none;">
   <div id="app">Loading Rhizomium Documentation...</div>
-  <script>
+</div>
+
+<script>
+  // Open docs when the hash starts with #/docs.
+  if (location.hash.startsWith('#/docs')) {
     window.$docsify = {
       name: 'Rhizomium',
       loadSidebar: true,
@@ -182,16 +191,15 @@
       homepage: 'docs/index.md',
       search: 'auto'
     };
-  </script>
-  <script src="//cdn.jsdelivr.net/npm/docsify/lib/docsify.min.js"></script>
-  <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
-</div>
-
-<script>
-  // Example trigger: open docs when hash starts with #/docs
-  if (location.hash.startsWith('#/docs')) {
     document.body.innerHTML = document.getElementById('rhizomium-docs').innerHTML;
     document.getElementById('rhizomium-docs').style.display = 'block';
+    ['https://cdn.jsdelivr.net/npm/docsify/lib/docsify.min.js',
+     'https://cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js'
+    ].forEach(function (src) {
+      var s = document.createElement('script');
+      s.src = src;
+      document.body.appendChild(s);
+    });
   }
 </script>
 <!-- === END Docsify Loader === -->
