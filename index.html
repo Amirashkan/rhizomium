@@ -208,6 +208,21 @@
   document.querySelectorAll("section").forEach(s => observer.observe(s));
 </script>
 
+  <!-- Resolve the Launch Studio target for the current environment.
+       On the web, "/studio" is a Vercel rewrite to /editor. Tauri (and any
+       plain static host) has no such rewrite, so it must point at the real
+       editor file or it falls back to reloading this index page. -->
+  <script>
+    (function resolveStudioLink() {
+      var isTauri = '__TAURI_INTERNALS__' in window || '__TAURI__' in window ||
+        location.protocol === 'tauri:' || location.hostname === 'tauri.localhost';
+      if (isTauri) {
+        var btn = document.getElementById('launch-studio-btn');
+        if (btn) btn.setAttribute('href', 'editor/index.html');
+      }
+    })();
+  </script>
+
   <!-- Device Compatibility Check -->
   <script type="module">
     import { DeviceDetector } from './src/utils/DeviceDetector.js';

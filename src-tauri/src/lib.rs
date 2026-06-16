@@ -4,6 +4,7 @@ pub fn run() {
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
+                use tauri::Manager;
                 let window = app.get_webview_window("main").unwrap();
                 window.open_devtools();
             }
