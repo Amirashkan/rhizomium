@@ -2,3 +2,10 @@ node_modules/
 /docs/profiling/
 coverage/
 test-results/
+
+# Vite build output
+dist/
+
+# Tauri / Rust build artifacts
+src-tauri/target/
+src-tauri/gen/
