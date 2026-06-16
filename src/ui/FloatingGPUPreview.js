@@ -1300,6 +1300,11 @@ class FPSCounter {
     this.updateInterval = null;
     // Cache FPS overlay element to avoid DOM queries
     this.fpsOverlayElement = null;
+    // Real GPU frame time: EMA of the interval between presented frames. Using
+    // the completion interval (not submit→done) keeps it stable and equal to the
+    // true frame time even if the loop over-dispatches under load.
+    this._lastFrameTime = 0;
+    this._frameMsEma = 0;
   }
 
   start() {
@@ -1308,6 +1313,8 @@ class FPSCounter {
     this.isRunning = true;
     this.frameCount = 0;
     this.lastTime = performance.now();
+    this._lastFrameTime = 0;
+    this._frameMsEma = 0;
 
     // Cache FPS overlay element once
     if (!this.fpsOverlayElement) {
@@ -1332,10 +1339,20 @@ class FPSCounter {
     this.fpsOverlayElement = null;
   }
 
+  // Called once per GPU-presented frame (from gpuRenderer.onFramePresented), so
+  // both the count and the inter-frame interval reflect real GPU throughput.
   frame() {
-    if (this.isRunning) {
-      this.frameCount++;
+    if (!this.isRunning) return;
+    this.frameCount++;
+    const now = performance.now();
+    if (this._lastFrameTime) {
+      const interval = now - this._lastFrameTime;
+      // EMA so the displayed frame time is steady rather than jittery.
+      this._frameMsEma = this._frameMsEma
+        ? this._frameMsEma * 0.9 + interval * 0.1
+        : interval;
     }
+    this._lastFrameTime = now;
   }
 
   _updateFPS() {
@@ -1355,7 +1372,8 @@ class FPSCounter {
       }
       
       if (this.fpsOverlayElement) {
-        this.fpsOverlayElement.textContent = `FPS: ${this.fps}`;
+        const ms = this._frameMsEma > 0 ? `${this._frameMsEma.toFixed(1)} ms` : "-- ms";
+        this.fpsOverlayElement.textContent = `FPS: ${this.fps} · ${ms}`;
       }
     }
   }

@@ -530,6 +530,15 @@ async function initialize() {
       setupPreviewButtons();
       floatingPreview.show();
 
+      // Drive the preview FPS counter from real GPU-frame completions so the
+      // overlay reports true throughput (and frame time), not dispatch rate.
+      if (window.gpuRenderer) {
+        window.gpuRenderer.onFramePresented = () => {
+          const fc = floatingPreview?.fpsCounter;
+          if (fc && floatingPreview.isVisible) fc.frame();
+        };
+      }
+
       // Second-monitor full-screen viewer — only in the Vite/desktop build.
       // The raw web deployments (Python server, Vercel) never instantiate it,
       // so the menu entry stays hidden there. Under Tauri the OS WebView blocks
@@ -3410,12 +3419,13 @@ function handleRenderFrame(frameState) {
       perfProbe.end(gpuProbeToken);
       previewPerfMonitor?.endSection(gpuToken);
       previewPerfMonitor?.attachAsyncMetric("gpuQueueWaitMs", renderPromise);
-      
-      // Update preview FPS counter when GPU actually renders
-      if (floatingPreview?.fpsCounter && floatingPreview.isVisible) {
-        floatingPreview.fpsCounter.frame();
-      }
-      
+
+      // NOTE: the preview FPS counter is NOT ticked here. Dispatching render()
+      // happens at the loop's target cadence regardless of GPU load, so counting
+      // dispatches pinned the label to ~60 even when heavy graphs ran far slower.
+      // It is now ticked on actual GPU-frame completion via
+      // gpuRenderer.onFramePresented (wired where floatingPreview is created).
+
       renderPromise.catch(err => {
         // Silently handle render errors to avoid breaking render loop
         // Errors are already logged in gpuRenderer.render()
