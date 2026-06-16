@@ -19,6 +19,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         editor: resolve(__dirname, 'editor/index.html'),
+        'second-monitor': resolve(__dirname, 'editor/second-monitor.html'),
       },
     },
   },

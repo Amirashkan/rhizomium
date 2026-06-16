@@ -77,15 +77,29 @@ Installers/binaries are written to `src-tauri/target/release/bundle/`.
 The Vite build (`npm run dev` and the Tauri desktop app) adds a **View → Second
 Monitor Viewer** entry. It opens a chrome-free black window on a second display
 and mirrors the live output there, letterboxed and centred — a pristine
-performance surface with no editor UI. When the browser grants the Window
-Management permission the window is placed on and sized to a detected external
-display; otherwise a popup opens that you can drag across. Press **Esc** or
-close the window to stop.
+performance surface with no editor UI. The output paints on its own animation
+frame, so it keeps running at the second display's refresh rate even when the
+editor window is occluded or minimised. Press **Esc** to close it, or **F** /
+double-click to toggle fullscreen.
+
+There are two backends, chosen automatically at runtime:
+
+- **Desktop app (Tauri):** the OS WebView blocks `window.open()`, so a real,
+  borderless native window is created on the detected second display via the
+  Tauri window API and driven to true OS fullscreen. The editor mirrors
+  `#gpu-canvas` by broadcasting frames over a same-origin `BroadcastChannel`;
+  the receiver page (`editor/second-monitor.html`) paints them. This requires
+  the window/webview permissions in `src-tauri/capabilities/default.json`.
+- **Browser (`npm run dev`):** a borderless popup is opened synchronously inside
+  the click (so it is not blocked) and placed on a detected external display via
+  the Window Management API (`getScreenDetails`), falling back to a draggable
+  popup. The popup mirrors the canvas directly.
 
 This entry is intentionally hidden in the raw web deployments (the Python server
 and the static Vercel host), where the in-editor floating preview is the only
 output surface. The build is detected at runtime via `import.meta.env`, which
-Vite injects but the raw deployments do not (see `src/utils/isViteBuild.js`).
+Vite injects but the raw deployments do not (see `src/utils/isViteBuild.js`);
+the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.js`).
 
 ## 📖 Documentation
 

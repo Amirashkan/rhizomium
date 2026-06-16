@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rhizomium — Output</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    body { cursor: none; }
+    #second-monitor-output { display: block; width: 100vw; height: 100vh; background: #000; }
+    #second-monitor-hint {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      font: 13px system-ui, -apple-system, sans-serif; color: rgba(255, 255, 255, 0.55);
+      background: rgba(0, 0, 0, 0.45); padding: 6px 12px; border-radius: 6px;
+      pointer-events: none; transition: opacity 0.5s ease; z-index: 2;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="second-monitor-output"></canvas>
+  <div id="second-monitor-hint">Second-monitor output · Esc to close · F toggles fullscreen</div>
+  <script type="module" src="../src/ui/secondMonitorReceiver.js"></script>
+</body>
+</html>

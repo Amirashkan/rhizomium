@@ -13,7 +13,11 @@
 // to a centred popup the user can drag onto their second monitor.
 //
 // This feature is wired up only in the Vite/desktop build (see isViteBuild.js);
-// the raw web deployments do not expose it.
+// the raw web deployments do not expose it. The Tauri desktop app uses a
+// separate native-window backend (see TauriSecondMonitorViewer.js), because its
+// WebView blocks window.open(); this popup backend serves the browser dev build.
+
+import { letterboxRect } from './letterbox.js';
 
 export class SecondMonitorViewer {
   /**
@@ -242,12 +246,29 @@ export class SecondMonitorViewer {
 </head>
 <body>
   <canvas id="second-monitor-output"></canvas>
-  <div id="second-monitor-hint">Second-monitor output · press Esc or close this window to stop</div>
+  <div id="second-monitor-hint">Second-monitor output · Esc to close · F or double-click for fullscreen</div>
   <script>
-    setTimeout(function () {
+    (function () {
       var h = document.getElementById('second-monitor-hint');
-      if (h) h.style.opacity = '0';
-    }, 4000);
+      setTimeout(function () { if (h) h.style.opacity = '0'; }, 4000);
+      // Toggle fullscreen from inside the popup so the request carries this
+      // window's own user activation — the reliable path. (The opener's
+      // best-effort attempt can lose activation across the screen-detection
+      // await, so the OS title bar may otherwise remain.)
+      function toggleFullscreen() {
+        try {
+          if (document.fullscreenElement) {
+            if (document.exitFullscreen) document.exitFullscreen();
+          } else if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen();
+          }
+        } catch (e) { /* ignore */ }
+      }
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
+      });
+      window.addEventListener('dblclick', toggleFullscreen);
+    })();
   </script>
 </body>
 </html>`;
@@ -273,8 +294,9 @@ export class SecondMonitorViewer {
 
   /**
    * Mirror the source canvas into the popup every animation frame. Driven by the
-   * editor window's rAF: the editor stays visible on the primary display, so its
-   * rAF runs at full rate even when the popup has focus — keeping output smooth.
+   * popup's own rAF (see _raf): the popup lives on the second display, so its rAF
+   * runs at that display's refresh rate and keeps firing even when the editor
+   * window is occluded or minimised — so the performance output never freezes.
    */
   _startMirror() {
     if (this.rafId != null) return;
@@ -286,19 +308,13 @@ export class SecondMonitorViewer {
       const src = this.sourceCanvas;
       const cw = this.outCanvas.width;
       const ch = this.outCanvas.height;
-      const sw = src.width;
-      const sh = src.height;
 
       this.outCtx.fillStyle = '#000';
       this.outCtx.fillRect(0, 0, cw, ch);
 
-      if (sw > 0 && sh > 0 && cw > 0 && ch > 0) {
-        // Letterbox: preserve the source aspect ratio, centred on black.
-        const scale = Math.min(cw / sw, ch / sh);
-        const dw = sw * scale;
-        const dh = sh * scale;
-        const dx = (cw - dw) / 2;
-        const dy = (ch - dh) / 2;
+      // Letterbox: preserve the source aspect ratio, centred on black.
+      const { dx, dy, dw, dh } = letterboxRect(src.width, src.height, cw, ch);
+      if (dw > 0 && dh > 0) {
         try {
           this.outCtx.drawImage(src, dx, dy, dw, dh);
         } catch (_) {
@@ -306,16 +322,38 @@ export class SecondMonitorViewer {
         }
       }
 
-      this.rafId = requestAnimationFrame(draw);
+      this.rafId = this._raf(draw);
     };
-    this.rafId = requestAnimationFrame(draw);
+    this.rafId = this._raf(draw);
   }
 
   _stopMirror() {
     if (this.rafId != null) {
-      cancelAnimationFrame(this.rafId);
+      this._cancelRaf(this.rafId);
       this.rafId = null;
     }
+  }
+
+  /**
+   * Schedule a frame on the popup when it exposes rAF (the common case in real
+   * browsers), so mirroring is paced by the second display and survives the
+   * editor window being hidden; fall back to the editor window's rAF otherwise
+   * (e.g. in tests, or before the popup is fully wired).
+   */
+  _raf(cb) {
+    const w = this.viewerWindow;
+    try {
+      if (w && typeof w.requestAnimationFrame === 'function') return w.requestAnimationFrame(cb);
+    } catch (_) { /* window gone — fall back */ }
+    return requestAnimationFrame(cb);
+  }
+
+  _cancelRaf(id) {
+    const w = this.viewerWindow;
+    try {
+      if (w && typeof w.cancelAnimationFrame === 'function') { w.cancelAnimationFrame(id); return; }
+    } catch (_) { /* window gone — fall back */ }
+    try { cancelAnimationFrame(id); } catch (_) { /* ignore */ }
   }
 
   /** Detect the popup being closed by the user (no event fires reliably). */

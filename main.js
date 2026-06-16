@@ -12,7 +12,9 @@ import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js"
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
 import { SecondMonitorViewer } from "./src/ui/SecondMonitorViewer.js";
+import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
+import { isTauri } from "./src/utils/isTauri.js";
 import { TextureManager } from "./src/core/TextureManager.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
@@ -530,9 +532,13 @@ async function initialize() {
 
       // Second-monitor full-screen viewer — only in the Vite/desktop build.
       // The raw web deployments (Python server, Vercel) never instantiate it,
-      // so the menu entry stays hidden there.
+      // so the menu entry stays hidden there. Under Tauri the OS WebView blocks
+      // window.open(), so a native-window backend is used instead of the popup.
       if (isViteBuild()) {
-        secondMonitorViewer = new SecondMonitorViewer(gpuCanvas, {
+        const SecondMonitorBackend = isTauri()
+          ? TauriSecondMonitorViewer
+          : SecondMonitorViewer;
+        secondMonitorViewer = new SecondMonitorBackend(gpuCanvas, {
           onStatus: (message, kind) => updateStatus(message, kind),
           onActiveChange: (active) => setSecondMonitorButtonState(active),
         });
