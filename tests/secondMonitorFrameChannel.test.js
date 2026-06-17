@@ -16,6 +16,10 @@ describe('secondMonitorFrameChannel', () => {
       SHADER: 'shader',
       UNIFORMS: 'uniforms',
       CAPS: 'caps',
+      // native compute / textures (Tier 2)
+      COMPUTE_GRAPH: 'compute-graph',
+      COMPUTE_UNIFORMS: 'compute-uniforms',
+      TEXTURE: 'texture',
       // pixel fallback path
       FRAME: 'frame',
       // receiver → editor
@@ -27,8 +31,12 @@ describe('secondMonitorFrameChannel', () => {
     });
   });
 
-  it('exposes the native/fallback tier names', () => {
-    expect(SecondMonitorTier).toMatchObject({ NATIVE: 'native', FALLBACK: 'fallback' });
+  it('exposes the native / native-compute / fallback tier names', () => {
+    expect(SecondMonitorTier).toMatchObject({
+      NATIVE: 'native',
+      NATIVE_COMPUTE: 'native-compute',
+      FALLBACK: 'fallback',
+    });
     expect(Object.isFrozen(SecondMonitorTier)).toBe(true);
   });
 

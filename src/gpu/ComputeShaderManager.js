@@ -49,6 +49,13 @@ export class ComputeShaderManager {
     // 8 stops * 5 floats = 160 bytes, so we need to pad to 256 bytes = 64 floats
     this.colorStopsData = new Float32Array(64); // Padded to 256 bytes minimum
 
+    // External-uniform mode: a second-monitor mirror window injects the editor's
+    // already-packed uniform/color-stop bytes so this manager renders identical
+    // output without re-evaluating expressions/audio (which differ per window).
+    this.externalUniformMode = false;
+    this._externalPacked = null;      // Float32Array(16) injected each frame
+    this._externalColorStops = null;  // Float32Array(64) for ComputeGradient
+
     // Workgroup configuration
     this.workgroupSize = { x: 8, y: 8, z: 1 };
     this.dispatchSize = { x: 0, y: 0, z: 1 };
@@ -473,6 +480,32 @@ export class ComputeShaderManager {
    * @param {Object} audioContext - Audio envelope values for expression evaluation
    */
   updateUniforms(time, audioContext = {}) {
+    // External mode (second-monitor mirror): write the editor's already-packed
+    // bytes verbatim instead of re-evaluating params here. Expressions/audio were
+    // applied editor-side, so this renders identical output.
+    if (this.externalUniformMode) {
+      if (this._externalPacked && this.uniformBuffer) {
+        this.uniformData.set(this._externalPacked);
+        this.device.queue.writeBuffer(
+          this.uniformBuffer, 0, this.uniformData.buffer, 0, this.uniformData.byteLength,
+        );
+      }
+      if (this._externalColorStops) {
+        if (!this.colorStopsBuffer) {
+          this.colorStopsBuffer = this.device.createBuffer({
+            label: 'Color Stops Storage Buffer',
+            size: this.colorStopsData.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+        }
+        this.colorStopsData.set(this._externalColorStops);
+        this.device.queue.writeBuffer(
+          this.colorStopsBuffer, 0, this.colorStopsData.buffer, 0, this.colorStopsData.byteLength,
+        );
+      }
+      return;
+    }
+
     // Pack node-specific uniforms via the shared single-source-of-truth layout
     // (computeUniformLayout.js) so the editor and the external live viewer pack
     // identical buffers for every compute node type.
@@ -508,6 +541,17 @@ export class ComputeShaderManager {
       0,
       this.uniformData.byteLength
     );
+  }
+
+  /**
+   * Inject externally-packed uniform bytes (from the editor) for the mirror
+   * window, then upload them. `packed` is a Float32Array(16); `colorStops` is an
+   * optional Float32Array(64) for ComputeGradient. Requires externalUniformMode.
+   */
+  writeRawComputeUniforms(packed, colorStops) {
+    if (packed) this._externalPacked = packed;
+    if (colorStops) this._externalColorStops = colorStops;
+    if (this.externalUniformMode && this.uniformBuffer) this.updateUniforms(0);
   }
 
   /**

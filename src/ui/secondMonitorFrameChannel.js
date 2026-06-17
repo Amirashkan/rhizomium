@@ -26,8 +26,9 @@ export const SECOND_MONITOR_CHANNEL = 'rhizomium:second-monitor';
 
 /** Native-render tier the editor advertises to the receiver via {@link SecondMonitorMessage.CAPS}. */
 export const SecondMonitorTier = Object.freeze({
-  NATIVE: 'native',     // receiver re-renders from WGSL + uniform snapshots
-  FALLBACK: 'fallback', // receiver paints mirrored FRAME bitmaps (pixel path)
+  NATIVE: 'native',                 // fragment + uniforms only
+  NATIVE_COMPUTE: 'native-compute', // also stateless compute and/or broadcast image textures
+  FALLBACK: 'fallback',             // receiver paints mirrored FRAME bitmaps (pixel path)
 });
 
 /** Message `type` values exchanged over {@link SECOND_MONITOR_CHANNEL}. */
@@ -36,7 +37,9 @@ export const SecondMonitorMessage = Object.freeze({
   SHADER: 'shader',     // { wgsl }            — current compiled shader (sent on change / on READY)
   UNIFORMS: 'uniforms', // { aspect, globals, params } — per-frame uniform byte snapshot (Float32Arrays)
   CAPS: 'caps',         // { tier }            — which path to use (see SecondMonitorTier)
-  TEXTURE: 'texture',   // { varName, bitmap, width, height } — Tier 2 texture upload (on change)
+  COMPUTE_GRAPH: 'compute-graph',       // { nodes:[{id,kind,wgsl,width,height,supportsFeedback,inputs}], executionOrder } — on change
+  COMPUTE_UNIFORMS: 'compute-uniforms', // { nodes:[{id,packed,colorStops}] } — per-frame packed compute uniform bytes
+  TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
   CLOSE: 'close',       // shut the window down
   // receiver → editor

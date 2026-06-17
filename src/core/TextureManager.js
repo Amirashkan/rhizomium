@@ -112,7 +112,34 @@ async uploadToGPU(nodeId, bitmap) {
 
   // Store GPU resources
   this.gpuTextures.set(nodeId, { texture, textureView, sampler });
-  
+
+}
+
+/**
+ * Inject a texture broadcast from the editor (second-monitor mirror window).
+ * Uploads the bitmap and registers it under nodeId in BOTH maps so the renderer's
+ * _lookupTextureBinding resolves `texture_<id>` / `sampler_<id>` to it. Nulls the
+ * bind group so the next frame rebinds.
+ */
+async injectExternalTexture(nodeId, bitmap) {
+  if (!this.device || !bitmap) return;
+  const texture = this.device.createTexture({
+    size: { width: bitmap.width, height: bitmap.height },
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  this.device.queue.copyExternalImageToTexture(
+    { source: bitmap },
+    { texture },
+    { width: bitmap.width, height: bitmap.height },
+  );
+  const sampler = this.device.createSampler({
+    magFilter: 'linear', minFilter: 'linear', addressModeU: 'repeat', addressModeV: 'repeat',
+  });
+  const textureView = texture.createView();
+  this.gpuTextures.set(nodeId, { texture, textureView, sampler });
+  this.textures.set(nodeId, { texture, textureView, sampler, width: bitmap.width, height: bitmap.height, bitmap });
+  this.bindGroup = null; // force the renderer to rebind on the next frame
 }
 
 /**

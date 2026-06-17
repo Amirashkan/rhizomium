@@ -74,6 +74,7 @@ export class GPURenderer {
     // re-render the shader natively instead of receiving copied pixels. Null
     // unless a native second-monitor mirror is open; zero cost otherwise.
     this._stateTap = null;        // (snapshot) => void
+    this._emitComputeState = false; // also snapshot per-node compute uniform bytes (Tier 2)
 
     // When true, the per-frame _update*Uniform helpers below are skipped so that
     // uniform bytes injected from outside (via writeRawUniforms) survive a
@@ -1423,6 +1424,7 @@ export class GPURenderer {
       globals: this._globalsUniformBuffer ? this._globalsUniformBuffer.slice() : null,
       params: this._paramUniformBuffer ? this._paramUniformBuffer.slice() : null,
     };
+    if (this._emitComputeState) snap.compute = this._collectComputeUniformSnapshot();
     try { tap(snap); } catch (_) { /* consumer error — never break the render loop */ }
   }
 
@@ -1437,6 +1439,111 @@ export class GPURenderer {
     const res = Object.values(this.resources || {});
     if (res.length === 0) return false; // no shader compiled yet
     return res.every((r) => r && r.kind === "uniform-buffer");
+  }
+
+  /**
+   * Classify how the current shader can be mirrored to a second window. Returns a
+   * string matching SecondMonitorTier:
+   *   "native"          fragment + uniform buffers only.
+   *   "native-compute"  also stateless, self-contained compute and/or image
+   *                     textures (both reproducible from broadcast state).
+   *   "fallback"        storage buffers, stateful/feedback compute, or compute
+   *                     fed by a fragment node — not reproducible; mirror pixels.
+   * Returns string literals (not the enum) to avoid coupling gpu→ui.
+   */
+  classifyMirrorTier() {
+    const res = Object.values(this.resources || {});
+    if (res.length === 0) return "fallback"; // nothing compiled yet
+    let hasTexture = false;
+    for (const r of res) {
+      if (!r) continue;
+      if (r.kind === "uniform-buffer") continue;
+      if (r.kind === "texture-2d" || r.kind === "texture-cube" || r.kind === "sampler") {
+        hasTexture = true;
+        continue;
+      }
+      return "fallback"; // storage-buffer or anything else is not replicable
+    }
+    if (!hasTexture) return "native"; // fragment + uniforms only
+
+    // Textured graph: replicable only when every in-use compute node is stateless
+    // and self-contained. Feedback compute (Tier 3) and fragment-fed compute fall
+    // back. Image textures are shipped separately (TEXTURE message).
+    const exec = (typeof window !== "undefined") ? window.computeExecutor : null;
+    const managers = exec && exec.computeManagers;
+    if (managers && managers.size > 0) {
+      for (const m of managers.values()) {
+        if (m && m.supportsFeedback) return "fallback"; // stateful sim → Tier 3
+      }
+      if (!this._computeSubgraphSelfContained()) return "fallback";
+    }
+    return "native-compute";
+  }
+
+  /**
+   * True when every compute node's inputs are reproducible in the mirror window:
+   * other compute nodes (replicated) or image/value inputs (broadcast/baked). A
+   * compute node fed by a fragment-shader node is NOT reproducible from compute
+   * state alone, so such graphs must mirror pixels.
+   */
+  _computeSubgraphSelfContained() {
+    const registry = (typeof window !== "undefined") ? window.computeNodeRegistry : null;
+    if (!registry || typeof registry.forEach !== "function") return true;
+    const graph = (typeof window !== "undefined") ? window.graph : null;
+    const isCompute = (id) => registry.has(id) || registry.has(String(id));
+    const kindOf = (id) => {
+      try {
+        if (graph?.getNode) return graph.getNode(id)?.kind || null;
+        if (Array.isArray(graph?.nodes)) {
+          const n = graph.nodes.find((x) => String(x.id) === String(id));
+          return n ? n.kind : null;
+        }
+      } catch (_) { /* ignore */ }
+      return null;
+    };
+    let ok = true;
+    registry.forEach((data) => {
+      if (!ok) return;
+      const inputs = (data && data.node && data.node.inputs) || [];
+      for (const inId of inputs) {
+        if (inId == null) continue;
+        if (isCompute(inId)) continue;                       // compute → replicated
+        const kind = kindOf(inId);
+        if (kind == null) continue;                          // value/param → baked into uniforms
+        if (/compute/i.test(kind)) continue;                 // compute (defensive)
+        if (/texture|image|video|webcam/i.test(kind)) continue; // image → TEXTURE broadcast
+        ok = false; return;                                   // e.g. a fragment node feeding compute
+      }
+    });
+    return ok;
+  }
+
+  /** Toggle inclusion of per-node compute uniform bytes in the state snapshot. */
+  setStateTapComputeMode(on) {
+    this._emitComputeState = !!on;
+  }
+
+  /**
+   * Snapshot each in-use compute node's already-packed uniform bytes (and color
+   * stops for ComputeGradient) so a mirror window can inject them and dispatch
+   * identical compute. Tiny payload; copies are sliced (reused arrays mutate).
+   */
+  _collectComputeUniformSnapshot() {
+    const exec = (typeof window !== "undefined") ? window.computeExecutor : null;
+    const managers = exec && exec.computeManagers;
+    if (!managers || typeof managers.forEach !== "function" || managers.size === 0) return null;
+    const nodes = [];
+    managers.forEach((m, id) => {
+      if (!m || !m.uniformData) return;
+      nodes.push({
+        id,
+        packed: m.uniformData.slice(),
+        colorStops: (m.node && m.node.kind === "ComputeGradient" && m.colorStopsData)
+          ? m.colorStopsData.slice()
+          : null,
+      });
+    });
+    return nodes.length ? nodes : null;
   }
 
   /**

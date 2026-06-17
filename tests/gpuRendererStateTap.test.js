@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GPURenderer } from '../src/gpu/gpuRenderer.js';
 
 // These exercise the second-monitor "state tap" surface in isolation, on a bare
@@ -101,6 +101,119 @@ describe('GPURenderer state tap', () => {
     const grown = self.resources.p.buffer;
     expect(grown).toBe(created[0]);
     expect(writes.find((w) => w.b === grown)?.len).toBe(32);
+  });
+
+  describe('classifyMirrorTier (Tier 2)', () => {
+    afterEach(() => {
+      delete global.window.computeExecutor;
+      delete global.window.computeNodeRegistry;
+      delete global.window.graph;
+    });
+
+    const tier = (resources) =>
+      GPURenderer.prototype.classifyMirrorTier.call(bare({ resources }));
+
+    it('is "native" for a uniforms-only graph and "fallback" before any shader', () => {
+      expect(tier({})).toBe('fallback');
+      expect(tier({ u: { kind: 'uniform-buffer' }, g: { kind: 'uniform-buffer' } })).toBe('native');
+    });
+
+    it('is "fallback" for storage buffers', () => {
+      expect(tier({ u: { kind: 'uniform-buffer' }, s: { kind: 'storage-buffer' } })).toBe('fallback');
+    });
+
+    it('is "native-compute" for image textures with no compute', () => {
+      // No compute managers — a plain fragment shader sampling a loaded image.
+      expect(tier({
+        u: { kind: 'uniform-buffer' },
+        tex: { kind: 'texture-2d', varName: 'texture_node_3' },
+        smp: { kind: 'sampler', varName: 'sampler_node_3' },
+      })).toBe('native-compute');
+    });
+
+    it('is "native-compute" for a self-contained stateless compute chain', () => {
+      global.window.computeExecutor = {
+        computeManagers: new Map([
+          ['1', { supportsFeedback: false }],
+          ['2', { supportsFeedback: false }],
+        ]),
+      };
+      global.window.computeNodeRegistry = new Map([
+        ['1', { node: { id: '1', kind: 'ComputeNoise', inputs: [] } }],
+        ['2', { node: { id: '2', kind: 'ComputeBlur', inputs: ['1'] } }], // fed by compute node 1
+      ]);
+      expect(tier({
+        u: { kind: 'uniform-buffer' },
+        c: { kind: 'texture-2d', varName: 'compute_node_2' },
+        s: { kind: 'sampler', varName: 'sampler_compute_node_2' },
+      })).toBe('native-compute');
+    });
+
+    it('is "fallback" when any compute node supports feedback (stateful sim)', () => {
+      global.window.computeExecutor = {
+        computeManagers: new Map([['1', { supportsFeedback: true }]]),
+      };
+      expect(tier({
+        u: { kind: 'uniform-buffer' },
+        c: { kind: 'texture-2d', varName: 'compute_node_1' },
+      })).toBe('fallback');
+    });
+
+    it('is "fallback" when a compute node is fed by a fragment node', () => {
+      global.window.computeExecutor = {
+        computeManagers: new Map([['2', { supportsFeedback: false }]]),
+      };
+      global.window.computeNodeRegistry = new Map([
+        ['2', { node: { id: '2', kind: 'ComputeBlur', inputs: ['9'] } }],
+      ]);
+      global.window.graph = { getNode: (id) => (String(id) === '9' ? { id: '9', kind: 'FragmentShader' } : null) };
+      expect(tier({
+        u: { kind: 'uniform-buffer' },
+        c: { kind: 'texture-2d', varName: 'compute_node_2' },
+      })).toBe('fallback');
+    });
+  });
+
+  describe('compute uniform snapshot (Tier 2)', () => {
+    afterEach(() => { delete global.window.computeExecutor; });
+
+    it('setStateTapComputeMode toggles compute inclusion in _emitStateSnapshot', () => {
+      global.window.computeExecutor = {
+        computeManagers: new Map([
+          ['1', { uniformData: new Float32Array([1, 2, 3]), node: { kind: 'ComputeNoise' } }],
+        ]),
+      };
+      const got = [];
+      const self = bare({ _stateTap: (s) => got.push(s) });
+
+      self._emitStateSnapshot();
+      expect(got[0].compute).toBeUndefined(); // off by default
+
+      self.setStateTapComputeMode(true);
+      self._emitStateSnapshot();
+      expect(got[1].compute).toHaveLength(1);
+      expect(got[1].compute[0].id).toBe('1');
+      expect(Array.from(got[1].compute[0].packed)).toEqual([1, 2, 3]);
+    });
+
+    it('_collectComputeUniformSnapshot slices copies and includes gradient color stops', () => {
+      const mgr = {
+        uniformData: new Float32Array([5, 6]),
+        colorStopsData: new Float32Array([9, 8, 7]),
+        node: { kind: 'ComputeGradient' },
+      };
+      global.window.computeExecutor = { computeManagers: new Map([['g', mgr]]) };
+      const snap = GPURenderer.prototype._collectComputeUniformSnapshot.call({});
+      expect(snap).toHaveLength(1);
+      expect(Array.from(snap[0].colorStops)).toEqual([9, 8, 7]);
+      // sliced copy: mutating the manager's buffer must not change the snapshot
+      mgr.uniformData[0] = 99;
+      expect(snap[0].packed[0]).toBe(5);
+    });
+
+    it('_collectComputeUniformSnapshot returns null with no compute', () => {
+      expect(GPURenderer.prototype._collectComputeUniformSnapshot.call({})).toBeNull();
+    });
   });
 
   it('writeRawUniforms never overflows a fixed-size buffer', () => {
