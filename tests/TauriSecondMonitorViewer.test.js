@@ -42,7 +42,10 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 
 import { TauriSecondMonitorViewer } from '../src/ui/TauriSecondMonitorViewer.js';
-import { SecondMonitorMessage as MSG } from '../src/ui/secondMonitorFrameChannel.js';
+import {
+  SecondMonitorMessage as MSG,
+  SecondMonitorTier as TIER,
+} from '../src/ui/secondMonitorFrameChannel.js';
 
 const monitorInternal = { name: 'Internal', position: { x: 0, y: 0 }, size: { width: 2560, height: 1440 }, scaleFactor: 1 };
 const monitorExternal = { name: 'External', position: { x: 2560, y: 0 }, size: { width: 1920, height: 1080 }, scaleFactor: 1 };
@@ -63,15 +66,30 @@ class FakeBroadcastChannel {
 }
 FakeBroadcastChannel.instances = [];
 
-// Minimal renderer stand-in exposing the frame tap the viewer registers on.
-function makeFakeRenderer() {
-  let tap = null;
+// Minimal renderer stand-in exposing the state + frame taps the viewer uses.
+// `eligible` controls whether the current shader is reported as native-mirror
+// eligible (uniforms-only) or not (textures/compute → pixel fallback).
+function makeFakeRenderer({ eligible = true } = {}) {
+  let frameTap = null;
+  let stateTap = null;
   return {
-    setFrameTap: vi.fn((cb) => { tap = cb || null; }),
-    emitFrame: (bitmap) => { if (tap) tap(bitmap); },
-    get tap() { return tap; },
+    setFrameTap: vi.fn((cb) => { frameTap = cb || null; }),
+    setStateTap: vi.fn((cb) => { stateTap = cb || null; }),
+    isNativeMirrorEligible: vi.fn(() => eligible),
+    emitFrame: (bitmap) => { if (frameTap) frameTap(bitmap); },
+    emitState: (snapshot) => { if (stateTap) stateTap(snapshot); },
+    get frameTap() { return frameTap; },
+    get stateTap() { return stateTap; },
   };
 }
+
+// A uniform-snapshot for the given WGSL, like GPURenderer._emitStateSnapshot emits.
+const snap = (wgsl) => ({
+  wgsl,
+  aspect: new Float32Array([1, 0, 0, 0]),
+  globals: new Float32Array([1920, 1080, 0, 0, 0, 0, 0, 0]),
+  params: new Float32Array([0.5]),
+});
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -131,41 +149,116 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
-  it('registers a renderer frame tap and broadcasts each tapped frame', async () => {
-    const renderer = makeFakeRenderer();
+  it('registers a state tap and broadcasts WGSL + uniforms for a native graph', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
     await viewer.open();
 
-    expect(renderer.setFrameTap).toHaveBeenCalledWith(expect.any(Function));
+    // Native path taps state, NOT pixels.
+    expect(renderer.setStateTap).toHaveBeenCalledWith(expect.any(Function));
 
     const channel = FakeBroadcastChannel.instances[0];
+    renderer.emitState(snap('WGSL_A'));
+
+    expect(channel.posted.find((m) => m.type === MSG.SHADER)?.wgsl).toBe('WGSL_A');
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE);
+    const uniforms = channel.posted.find((m) => m.type === MSG.UNIFORMS);
+    expect(uniforms).toBeTruthy();
+    expect(uniforms.globals).toBeInstanceOf(Float32Array);
+    // No pixel frame tap is registered in native mode (the editor pays nothing).
+    expect(renderer.setFrameTap).not.toHaveBeenCalledWith(expect.any(Function));
+
+    await viewer.close();
+    expect(renderer.setStateTap).toHaveBeenLastCalledWith(null);
+  });
+
+  it('broadcasts SHADER only when the WGSL changes, uniforms every frame', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(snap('A'));
+    renderer.emitState(snap('A'));
+    renderer.emitState(snap('B'));
+
+    expect(channel.posted.filter((m) => m.type === MSG.SHADER).map((m) => m.wgsl)).toEqual(['A', 'B']);
+    expect(channel.posted.filter((m) => m.type === MSG.UNIFORMS)).toHaveLength(3);
+
+    await viewer.close();
+  });
+
+  it('falls back to the pixel frame tap for a non-native graph', async () => {
+    const renderer = makeFakeRenderer({ eligible: false });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(snap('WGSL_WITH_TEXTURE'));
+
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.FALLBACK);
+    expect(renderer.setFrameTap).toHaveBeenCalledWith(expect.any(Function));
+    // No native state is broadcast in fallback mode.
+    expect(channel.posted.some((m) => m.type === MSG.SHADER)).toBe(false);
+    expect(channel.posted.some((m) => m.type === MSG.UNIFORMS)).toBe(false);
+
+    // Pixels flow over the frame tap, and the viewer owns/frees each bitmap.
     const bitmap = { width: 1920, height: 1080, close: vi.fn() };
     renderer.emitFrame(bitmap);
-
     const frame = channel.posted.find((m) => m.type === MSG.FRAME);
-    expect(frame).toBeTruthy();
+    expect(frame?.bitmap).toBe(bitmap);
     expect(frame.sw).toBe(1920);
-    expect(frame.sh).toBe(1080);
-    expect(frame.bitmap).toBe(bitmap);
-    // The viewer owns the tapped bitmap and frees it after the synchronous clone.
     expect(bitmap.close).toHaveBeenCalled();
 
     await viewer.close();
-    // Tap is removed on close so the renderer stops capturing for us.
-    expect(renderer.setFrameTap).toHaveBeenLastCalledWith(null);
   });
 
-  it('drops tapped frames once closed instead of posting them', async () => {
-    const renderer = makeFakeRenderer();
+  it('re-sends the current SHADER + CAPS when the receiver reports READY', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
     await viewer.open();
     const channel = FakeBroadcastChannel.instances[0];
-    const tap = renderer.tap;
+    renderer.emitState(snap('WGSL_R'));
+    channel.posted.length = 0; // a late-joining receiver missed the first broadcast
+
+    channel.emit({ type: MSG.READY, webgpu: true });
+    await flush();
+
+    expect(channel.posted.find((m) => m.type === MSG.SHADER)?.wgsl).toBe('WGSL_R');
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE);
+
+    await viewer.close();
+  });
+
+  it('pins the pixel path when the receiver requests NEED_FALLBACK', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    channel.emit({ type: MSG.NEED_FALLBACK });
+    await flush();
+    renderer.emitState(snap('WGSL_X')); // even an eligible graph must stay on pixels
+
+    expect(renderer.setFrameTap).toHaveBeenCalledWith(expect.any(Function));
+    expect(channel.posted.some((m) => m.type === MSG.SHADER)).toBe(false);
+    expect(channel.posted.some((m) => m.type === MSG.UNIFORMS)).toBe(false);
+
+    await viewer.close();
+  });
+
+  it('drops tapped frames once closed instead of posting them', async () => {
+    const renderer = makeFakeRenderer({ eligible: false });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+    renderer.emitState(snap('TEX')); // enter fallback so the frame tap is registered
+    const frameTap = renderer.frameTap;
     await viewer.close();
 
     // A frame captured in-flight after close must be freed, not broadcast.
     const bitmap = { width: 1920, height: 1080, close: vi.fn() };
-    tap(bitmap);
+    frameTap(bitmap);
     expect(channel.posted.some((m) => m.type === MSG.FRAME)).toBe(false);
     expect(bitmap.close).toHaveBeenCalled();
   });

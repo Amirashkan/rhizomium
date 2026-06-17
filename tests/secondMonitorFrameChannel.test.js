@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   SECOND_MONITOR_CHANNEL,
   SecondMonitorMessage,
+  SecondMonitorTier,
   openSecondMonitorChannel,
 } from '../src/ui/secondMonitorFrameChannel.js';
 
@@ -11,11 +12,24 @@ describe('secondMonitorFrameChannel', () => {
   it('exposes a stable channel name and message types', () => {
     expect(SECOND_MONITOR_CHANNEL).toBe('rhizomium:second-monitor');
     expect(SecondMonitorMessage).toMatchObject({
+      // native state path
+      SHADER: 'shader',
+      UNIFORMS: 'uniforms',
+      CAPS: 'caps',
+      // pixel fallback path
       FRAME: 'frame',
+      // receiver → editor
+      READY: 'ready',
+      RESIZE: 'resize',
+      NEED_FALLBACK: 'need-fallback',
       CLOSE: 'close',
       CLOSED: 'closed',
-      READY: 'ready',
     });
+  });
+
+  it('exposes the native/fallback tier names', () => {
+    expect(SecondMonitorTier).toMatchObject({ NATIVE: 'native', FALLBACK: 'fallback' });
+    expect(Object.isFrozen(SecondMonitorTier)).toBe(true);
   });
 
   it('freezes the message-type map', () => {

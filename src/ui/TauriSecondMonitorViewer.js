@@ -9,18 +9,19 @@
 // true OS fullscreen — which, unlike the browser's gesture-gated
 // requestFullscreen(), is reliable.
 //
-// A second WebviewWindow is a separate JS context, so the editor cannot draw
-// into it directly. Instead the editor mirrors `#gpu-canvas` by broadcasting
-// frames (ImageBitmap) over a same-origin BroadcastChannel; the receiver page
-// (editor/second-monitor.html) paints them, letterboxed, from its own rAF — so
-// the output keeps running at the second display's refresh rate even when the
-// editor window is occluded or minimised.
+// A second WebviewWindow is a separate JS context with its OWN WebGPU device,
+// so rather than copy pixels into it we let it re-render the shader itself. Over
+// a same-origin BroadcastChannel this backend registers on the renderer's STATE
+// tap (GPURenderer.setStateTap) and broadcasts only the compiled WGSL (on
+// change) plus a per-frame snapshot of the uniform bytes — well under 1 KB. The
+// receiver page (editor/second-monitor.html) re-renders from its own rAF at the
+// second display's native refresh rate. The editor pays essentially nothing per
+// frame, where the old approach (capturing #gpu-canvas with createImageBitmap
+// and structured-cloning a multi-MB frame every present) dropped it to ~30fps.
 //
-// Frames are pulled from the renderer's frame tap (GPURenderer.setFrameTap),
-// which captures each frame in lock-step with the GPU present. Capturing from
-// our own animation frame instead raced the browser's compositor — it recycles
-// the WebGPU swapchain buffer once a frame is presented — so those reads came
-// back blank and the mirror flickered to black.
+// Graphs that bind textures or storage/compute buffers cannot be reproduced from
+// a uniform snapshot alone; for those this backend reverts to the pixel FRAME
+// tap (GPURenderer.setFrameTap) so the second monitor never shows broken output.
 //
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
@@ -30,6 +31,7 @@
 import { isTauri } from '../utils/isTauri.js';
 import {
   SecondMonitorMessage as MSG,
+  SecondMonitorTier as TIER,
   openSecondMonitorChannel,
 } from './secondMonitorFrameChannel.js';
 
@@ -57,7 +59,11 @@ export class TauriSecondMonitorViewer {
     this._win = null;            // the native WebviewWindow (frame target)
     this._channel = null;        // BroadcastChannel to the receiver page
     this._onChannelMessage = null;
-    this._frameTap = null;       // handler registered on the renderer's frame tap
+    this._stateTap = null;       // handler registered on the renderer's state tap
+    this._frameTap = null;       // handler registered on the renderer's frame tap (fallback)
+    this._mode = null;           // 'native' | 'fallback', decided per shader
+    this._lastWgsl = undefined;  // last WGSL broadcast (undefined = none yet)
+    this._forceFallback = false; // receiver can't render natively → pixels only
     this._active = false;
   }
 
@@ -160,7 +166,23 @@ export class TauriSecondMonitorViewer {
     const data = e?.data;
     if (!data) return;
     // The receiver closed itself (Esc or native close) — sync our state.
-    if (data.type === MSG.CLOSED) this.close();
+    if (data.type === MSG.CLOSED) { this.close(); return; }
+    // The receiver cannot render natively (no WebGPU / device lost). Pin the
+    // pixel path so it always has something to show.
+    if (data.type === MSG.NEED_FALLBACK) {
+      this._forceFallback = true;
+      this._enterFallback();
+      return;
+    }
+    // A (re)connecting receiver needs the current shader + tier to bootstrap.
+    if (data.type === MSG.READY) {
+      if (this._mode === 'native' && this._lastWgsl) {
+        try { this._channel?.postMessage({ type: MSG.SHADER, wgsl: this._lastWgsl }); } catch (_) { /* ignore */ }
+      }
+      if (this._mode) {
+        try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
+      }
+    }
   }
 
   /**
@@ -258,24 +280,106 @@ export class TauriSecondMonitorViewer {
   }
 
   /**
-   * Start mirroring by registering on the renderer's frame tap. The renderer
-   * captures each frame in sync with the GPU present and hands us the bitmap; we
-   * forward it over the channel. The receiver paints from its own rAF, so output
-   * smoothness is decoupled from the editor's render cadence.
+   * Start mirroring. Prefer the native STATE tap: broadcast tiny uniform bytes
+   * and let the receiver re-render. The first snapshot picks native vs the pixel
+   * fallback from the shader's bindings. Old renderers without a state tap use
+   * the pixel frame tap directly.
    */
   _startTap() {
     const renderer = this._resolveRenderer();
-    if (!renderer || typeof renderer.setFrameTap !== 'function') return;
-    this._frameTap = (bitmap) => this._onTappedFrame(bitmap);
-    renderer.setFrameTap(this._frameTap);
+    if (!renderer) return;
+    this._lastWgsl = undefined;
+    this._mode = null;
+    if (typeof renderer.setStateTap === 'function') {
+      this._stateTap = (snap) => this._onState(snap);
+      renderer.setStateTap(this._stateTap);
+    } else if (typeof renderer.setFrameTap === 'function') {
+      this._enterFallback();
+    }
   }
 
   _stopTap() {
+    const renderer = this._resolveRenderer();
+    if (renderer) {
+      if (this._stateTap && typeof renderer.setStateTap === 'function') {
+        try { renderer.setStateTap(null); } catch (_) { /* ignore */ }
+      }
+      if (this._frameTap && typeof renderer.setFrameTap === 'function') {
+        try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
+      }
+    }
+    this._stateTap = null;
+    this._frameTap = null;
+    this._mode = null;
+    this._lastWgsl = undefined;
+  }
+
+  /**
+   * One per-frame state snapshot from the renderer. On a shader change it (re)picks
+   * native vs the pixel fallback and broadcasts the WGSL; in native mode it then
+   * broadcasts the uniform bytes. The payload is well under 1 KB, so the
+   * structured clone BroadcastChannel performs is negligible — unlike the multi-MB
+   * frame copy the old pixel path did every frame.
+   */
+  _onState(snap) {
+    if (!this._active || !this._channel || !snap) return;
+    const wgsl = snap.wgsl || null;
+    if (wgsl !== this._lastWgsl) {
+      this._lastWgsl = wgsl;
+      const renderer = this._resolveRenderer();
+      const eligible = !this._forceFallback
+        && !!renderer && typeof renderer.isNativeMirrorEligible === 'function'
+        && renderer.isNativeMirrorEligible();
+      if (eligible) this._enterNative(); else this._enterFallback();
+      if (this._mode === 'native') {
+        try { this._channel.postMessage({ type: MSG.SHADER, wgsl }); } catch (_) { /* ignore */ }
+      }
+    }
+    if (this._mode === 'native') {
+      try {
+        this._channel.postMessage({
+          type: MSG.UNIFORMS,
+          aspect: snap.aspect || null,
+          globals: snap.globals || null,
+          params: snap.params || null,
+        });
+      } catch (_) { /* channel closed mid-flight */ }
+    }
+  }
+
+  /** Switch to the native path: stop the pixel frame tap, advertise the tier. */
+  _enterNative() {
+    if (this._mode === 'native') return;
+    this._mode = 'native';
     const renderer = this._resolveRenderer();
     if (this._frameTap && renderer && typeof renderer.setFrameTap === 'function') {
       try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
     }
     this._frameTap = null;
+    try { this._channel?.postMessage({ type: MSG.CAPS, tier: TIER.NATIVE }); } catch (_) { /* ignore */ }
+  }
+
+  /** Switch to the pixel fallback: register the frame tap, advertise the tier. */
+  _enterFallback() {
+    if (this._mode === 'fallback') return;
+    this._mode = 'fallback';
+    const renderer = this._resolveRenderer();
+    if (renderer && typeof renderer.setFrameTap === 'function') {
+      this._frameTap = (bitmap) => this._onTappedFrame(bitmap);
+      try { renderer.setFrameTap(this._frameTap); } catch (_) { /* ignore */ }
+    }
+    try { this._channel?.postMessage({ type: MSG.CAPS, tier: TIER.FALLBACK }); } catch (_) { /* ignore */ }
+  }
+
+  /**
+   * Re-point the taps at a freshly created renderer (e.g. after a GPU device loss
+   * recreated window.gpuRenderer). Called from main.js after device reinit.
+   */
+  reattach() {
+    if (!this._active) return;
+    this._stopTap();
+    this.renderer = null; // force _resolveRenderer to pick up the new global
+    this._startTap();
   }
 
   /** The GPURenderer to mirror — explicit option first, else the global one. */

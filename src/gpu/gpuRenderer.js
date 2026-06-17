@@ -68,6 +68,19 @@ export class GPURenderer {
     this._frameTap = null;        // (bitmap: ImageBitmap) => void  — owns + closes
     this._frameTapInFlight = false; // coalesce: at most one createImageBitmap pending
 
+    // State tap: the cheap alternative to the pixel frame tap. A consumer (the
+    // second-monitor viewer) gets a per-frame snapshot of the CPU-side uniform
+    // bytes this frame wrote — well under 1 KB — so the second window can
+    // re-render the shader natively instead of receiving copied pixels. Null
+    // unless a native second-monitor mirror is open; zero cost otherwise.
+    this._stateTap = null;        // (snapshot) => void
+
+    // When true, the per-frame _update*Uniform helpers below are skipped so that
+    // uniform bytes injected from outside (via writeRawUniforms) survive a
+    // render(). Set on the second-monitor window's own renderer, which has none
+    // of the editor's window.* globals to derive uniforms from.
+    this.externalUniformMode = false;
+
     // PERFORMANCE: Shader module cache to avoid recompiling identical WGSL code
     this.shaderCache = shaderModuleCache;
     
@@ -630,6 +643,7 @@ export class GPURenderer {
   }
 
   _updateAspectUniform() {
+    if (this.externalUniformMode) return; // uniforms come from writeRawUniforms
     const target = this._getUniformByVarName("u");
     if (!target?.buffer) return;
 
@@ -664,6 +678,7 @@ export class GPURenderer {
   }
 
   _updateParameterUniforms() {
+    if (this.externalUniformMode) return; // uniforms come from writeRawUniforms
     const uniformManager = window.nodeCompiler?.uniformManager;
     if (!uniformManager || uniformManager.uniformValues.size === 0) {
       return; // Silent when no uniforms - this is normal
@@ -714,6 +729,7 @@ export class GPURenderer {
   }
 
   _updateGlobalsUniform(timeSec) {
+    if (this.externalUniformMode) return; // uniforms come from writeRawUniforms
     const target = this._getUniformByVarName("g");
     if (!target?.buffer) return;
 
@@ -1310,6 +1326,12 @@ export class GPURenderer {
       // return) when no second monitor is open, so the normal path pays nothing.
       this._captureTappedFrame();
 
+      // State tap for the NATIVE second-monitor path: hand a consumer this
+      // frame's uniform bytes (just written by the _update*Uniform calls above)
+      // so it can re-render the shader itself, no pixel copy. No-op when no
+      // native mirror is open, so the normal path pays nothing.
+      this._emitStateSnapshot();
+
       // Store promise for frame presentation - allows frame capture to wait for GPU work
       // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
@@ -1374,6 +1396,89 @@ export class GPURenderer {
    */
   setFrameTap(callback) {
     this._frameTap = typeof callback === "function" ? callback : null;
+  }
+
+  /**
+   * Register a per-frame STATE consumer for the native second-monitor path. The
+   * callback receives, synchronously right after submit, a snapshot of the
+   * uniform bytes this frame wrote plus the current WGSL, so another window can
+   * re-render the shader itself rather than receive copied pixels. Pass null to
+   * stop. @param {((snap: object) => void)|null} callback
+   */
+  setStateTap(callback) {
+    this._stateTap = typeof callback === "function" ? callback : null;
+  }
+
+  /**
+   * Emit one state snapshot to the state tap. The reused uniform arrays are
+   * sliced (copied) because they are overwritten next frame; the payload is tiny
+   * (a few hundred bytes). No-op when no tap is registered.
+   */
+  _emitStateSnapshot() {
+    const tap = this._stateTap;
+    if (!tap) return;
+    const snap = {
+      wgsl: this._currentWgslCode || null,
+      aspect: this._aspectUniformBuffer ? this._aspectUniformBuffer.slice() : null,
+      globals: this._globalsUniformBuffer ? this._globalsUniformBuffer.slice() : null,
+      params: this._paramUniformBuffer ? this._paramUniformBuffer.slice() : null,
+    };
+    try { tap(snap); } catch (_) { /* consumer error — never break the render loop */ }
+  }
+
+  /**
+   * Whether the current shader can be mirrored by re-rendering natively in
+   * another window: true only when every binding is a uniform buffer (a fragment
+   * shader driven by time/params/audio). Graphs that bind textures or
+   * storage/compute buffers cannot be reproduced from a uniform snapshot alone,
+   * so the mirror falls back to copying pixels. @returns {boolean}
+   */
+  isNativeMirrorEligible() {
+    const res = Object.values(this.resources || {});
+    if (res.length === 0) return false; // no shader compiled yet
+    return res.every((r) => r && r.kind === "uniform-buffer");
+  }
+
+  /**
+   * Write externally-supplied uniform bytes straight into the binding 0/1/2
+   * buffers (u / g / u_params). Used by the second-monitor window's own renderer,
+   * which has externalUniformMode set so render() will not overwrite these.
+   * @param {{aspect?: BufferSource, globals?: BufferSource, params?: BufferSource}} snap
+   */
+  writeRawUniforms(snap) {
+    if (!snap || !this.device) return;
+    this._writeUniformBytes("u", snap.aspect, false);
+    this._writeUniformBytes("g", snap.globals, false);
+    this._writeUniformBytes("u_params", snap.params, true);
+  }
+
+  /**
+   * Write a byte source (ArrayBuffer or typed array) into a named uniform buffer.
+   * When grow is true, enlarge the buffer to fit first (u_params, whose size
+   * varies with the parameter count) — reusing the grow-and-rebind path that
+   * _updateParameterUniforms uses. When grow is false, never write past the
+   * buffer's capacity.
+   */
+  _writeUniformBytes(varName, data, grow) {
+    const target = this._getUniformByVarName(varName);
+    if (!target?.buffer || data == null) return;
+    let ab, off, len;
+    if (data instanceof ArrayBuffer) { ab = data; off = 0; len = data.byteLength; }
+    else if (ArrayBuffer.isView(data)) { ab = data.buffer; off = data.byteOffset; len = data.byteLength; }
+    else return;
+    if (len === 0) return;
+    const cap = target.buffer.size || 0;
+    if (grow && cap && len > cap) {
+      target.buffer = this.device.createBuffer({
+        size: Math.max(16, Math.ceil(len / 16) * 16),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        label: `ubuf:${varName}`,
+      });
+      this._rebuildBindGroups(true);
+    } else if (!grow && cap && len > cap) {
+      len = cap; // never overflow a fixed-size buffer (u / g)
+    }
+    this.device.queue.writeBuffer(target.buffer, 0, ab, off, len);
   }
 
   /**

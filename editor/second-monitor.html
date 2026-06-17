@@ -7,7 +7,14 @@
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
     body { cursor: none; }
-    #second-monitor-output { display: block; width: 100vw; height: 100vh; background: #000; }
+    /* Two stacked outputs: the native WebGPU canvas (primary) and the 2D
+       fallback that paints mirrored pixels. The receiver toggles which is shown. */
+    #second-monitor-gpu,
+    #second-monitor-output {
+      position: fixed; inset: 0; display: block;
+      width: 100vw; height: 100vh; background: #000;
+    }
+    #second-monitor-gpu { display: none; }
     #second-monitor-hint {
       position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
       font: 13px system-ui, -apple-system, sans-serif; color: rgba(255, 255, 255, 0.55);
@@ -17,6 +24,7 @@
   </style>
 </head>
 <body>
+  <canvas id="second-monitor-gpu"></canvas>
   <canvas id="second-monitor-output"></canvas>
   <div id="second-monitor-hint">Second-monitor output · Esc to close · F toggles fullscreen</div>
   <script type="module" src="../src/ui/secondMonitorReceiver.js"></script>
