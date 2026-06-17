@@ -220,6 +220,29 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.inputHashes.has('1')).toBe(false); // changed → re-dispatch forced
     });
 
+    it('does not re-dispatch a static node when only time (index 2) changes', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: '1', kind: 'ComputeBlur', wgsl: 'W', width: 8, height: 8, inputs: [] }], executionOrder: ['1'] });
+      await settle();
+
+      // First uniforms establish a baseline (always invalidates once).
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.1, 5]) }] });
+      await settle();
+      rt.computeExecutor.inputHashes.set('1', 'cached');
+
+      // Only time (index 2) ticked → must NOT invalidate (no redundant re-dispatch).
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.2, 5]) }] });
+      await settle();
+      expect(rt.computeExecutor.inputHashes.get('1')).toBe('cached');
+
+      // A real param change (index 3, e.g. blur radius) → must invalidate.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.3, 9]) }] });
+      await settle();
+      expect(rt.computeExecutor.inputHashes.has('1')).toBe(false);
+    });
+
     it('injects a broadcast texture into the texture manager', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));

@@ -235,7 +235,15 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     let changed = true;
     if (prev && packed && prev.length === packed.length) {
       changed = false;
-      for (let i = 0; i < packed.length; i++) { if (prev[i] !== packed[i]) { changed = true; break; } }
+      for (let i = 0; i < packed.length; i++) {
+        // Index 2 is `time`, which ticks every frame (see computeUniformLayout.js).
+        // Skipping it stops static nodes (e.g. a large-radius Blur) from being
+        // re-dispatched 60x/s on this GPU when nothing actually changed. Genuinely
+        // time-dependent kinds (Noise, feedback) still re-dispatch via the
+        // executor's own TIME_DEPENDENT_NODES path, independent of this check.
+        if (i === 2) continue;
+        if (prev[i] !== packed[i]) { changed = true; break; }
+      }
     }
     if (packed) prevPacked.set(id, packed.slice ? packed.slice() : packed);
     return changed;
