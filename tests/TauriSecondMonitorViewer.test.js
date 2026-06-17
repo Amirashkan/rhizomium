@@ -69,13 +69,16 @@ FakeBroadcastChannel.instances = [];
 // Minimal renderer stand-in exposing the state + frame taps the viewer uses.
 // `eligible` controls whether the current shader is reported as native-mirror
 // eligible (uniforms-only) or not (textures/compute → pixel fallback).
-function makeFakeRenderer({ eligible = true } = {}) {
+function makeFakeRenderer({ eligible = true, tier = null } = {}) {
   let frameTap = null;
   let stateTap = null;
+  const resolvedTier = tier || (eligible ? 'native' : 'fallback');
   return {
     setFrameTap: vi.fn((cb) => { frameTap = cb || null; }),
     setStateTap: vi.fn((cb) => { stateTap = cb || null; }),
     isNativeMirrorEligible: vi.fn(() => eligible),
+    classifyMirrorTier: vi.fn(() => resolvedTier),
+    setStateTapComputeMode: vi.fn(),
     emitFrame: (bitmap) => { if (frameTap) frameTap(bitmap); },
     emitState: (snapshot) => { if (stateTap) stateTap(snapshot); },
     get frameTap() { return frameTap; },
@@ -90,6 +93,27 @@ const snap = (wgsl) => ({
   globals: new Float32Array([1920, 1080, 0, 0, 0, 0, 0, 0]),
   params: new Float32Array([0.5]),
 });
+
+// Snapshot for a native-compute graph: also carries per-node compute uniform bytes.
+const computeSnap = (wgsl) => ({
+  ...snap(wgsl),
+  compute: [{ id: '1', packed: new Float32Array([1, 2, 3]), colorStops: null }],
+});
+
+// Editor-side globals the viewer reads to build COMPUTE_GRAPH / TEXTURE broadcasts.
+function stubComputeGlobals({ nodes = [], textures = [] } = {}) {
+  global.window.computeExecutor = { executionOrder: nodes.map((n) => n.id) };
+  global.window.computeNodeRegistry = new Map(
+    nodes.map((n) => [n.id, {
+      node: { id: n.id, kind: n.kind, inputs: n.inputs || [], computeResolution: [n.width, n.height] },
+      wgslCode: n.wgsl,
+      supportsFeedback: !!n.supportsFeedback,
+      resolution: [n.width, n.height],
+    }]),
+  );
+  const map = new Map(textures.map((t) => [t.nodeId, { bitmap: { width: t.w, height: t.h } }]));
+  global.window.textureManager = { textures: map, getTexture(id) { return map.get(id); } };
+}
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -121,6 +145,9 @@ describe('TauriSecondMonitorViewer', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete window.__TAURI_INTERNALS__;
+    delete global.window.computeExecutor;
+    delete global.window.computeNodeRegistry;
+    delete global.window.textureManager;
   });
 
   it('starts inactive', () => {
@@ -185,6 +212,74 @@ describe('TauriSecondMonitorViewer', () => {
     expect(channel.posted.filter((m) => m.type === MSG.SHADER).map((m) => m.wgsl)).toEqual(['A', 'B']);
     expect(channel.posted.filter((m) => m.type === MSG.UNIFORMS)).toHaveLength(3);
 
+    await viewer.close();
+  });
+
+  it('broadcasts compute graph, textures, and per-frame compute uniforms for a native-compute graph', async () => {
+    stubComputeGlobals({
+      nodes: [{ id: '1', kind: 'ComputeNoise', wgsl: 'CWGSL', width: 320, height: 240, supportsFeedback: false }],
+      textures: [{ nodeId: '7', w: 4, h: 4 }],
+    });
+    vi.stubGlobal('createImageBitmap', vi.fn(async (src) => ({ width: src.width, height: src.height, close: vi.fn() })));
+
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_C'));
+    await flush();
+
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+    expect(channel.posted.find((m) => m.type === MSG.SHADER)?.wgsl).toBe('WGSL_C');
+    const cg = channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH);
+    expect(cg?.nodes).toHaveLength(1);
+    expect(cg.nodes[0]).toMatchObject({ id: '1', kind: 'ComputeNoise', wgsl: 'CWGSL', width: 320, height: 240 });
+    expect(channel.posted.some((m) => m.type === MSG.TEXTURE && m.nodeId === '7')).toBe(true);
+    expect(renderer.setStateTapComputeMode).toHaveBeenCalledWith(true);
+    const cu = channel.posted.find((m) => m.type === MSG.COMPUTE_UNIFORMS);
+    expect(cu?.nodes).toHaveLength(1);
+    expect(Array.from(cu.nodes[0].packed)).toEqual([1, 2, 3]);
+
+    await viewer.close();
+  });
+
+  it('re-sends compute graph + textures + shader on READY in native-compute', async () => {
+    stubComputeGlobals({
+      nodes: [{ id: '1', kind: 'ComputeNoise', wgsl: 'C', width: 8, height: 8, supportsFeedback: false }],
+    });
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+    renderer.emitState(computeSnap('WGSL_R'));
+    channel.posted.length = 0; // a late receiver missed the first broadcast
+
+    channel.emit({ type: MSG.READY, webgpu: true });
+    await flush();
+
+    expect(channel.posted.find((m) => m.type === MSG.SHADER)?.wgsl).toBe('WGSL_R');
+    expect(channel.posted.some((m) => m.type === MSG.COMPUTE_GRAPH)).toBe(true);
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+
+    await viewer.close();
+  });
+
+  it('onTextureChanged broadcasts the texture when active and in native-compute', async () => {
+    stubComputeGlobals({ textures: [{ nodeId: '3', w: 2, h: 2 }] });
+    vi.stubGlobal('createImageBitmap', vi.fn(async (src) => ({ width: src.width, height: src.height, close: vi.fn() })));
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+    renderer.emitState(computeSnap('W')); // enter native-compute
+    await flush();
+    channel.posted.length = 0;
+
+    viewer.onTextureChanged('3');
+    await flush();
+
+    expect(channel.posted.some((m) => m.type === MSG.TEXTURE && m.nodeId === '3')).toBe(true);
     await viewer.close();
   });
 

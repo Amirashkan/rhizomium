@@ -176,8 +176,13 @@ export class TauriSecondMonitorViewer {
     }
     // A (re)connecting receiver needs the current shader + tier to bootstrap.
     if (data.type === MSG.READY) {
-      if (this._mode === 'native' && this._lastWgsl) {
+      const native = this._mode === 'native' || this._mode === 'native-compute';
+      if (native && this._lastWgsl) {
         try { this._channel?.postMessage({ type: MSG.SHADER, wgsl: this._lastWgsl }); } catch (_) { /* ignore */ }
+      }
+      if (this._mode === 'native-compute') {
+        this._broadcastComputeGraph();
+        this._broadcastAllTextures();
       }
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
@@ -324,18 +329,19 @@ export class TauriSecondMonitorViewer {
   _onState(snap) {
     if (!this._active || !this._channel || !snap) return;
     const wgsl = snap.wgsl || null;
+    const native = this._mode === 'native' || this._mode === 'native-compute';
     if (wgsl !== this._lastWgsl) {
       this._lastWgsl = wgsl;
-      const renderer = this._resolveRenderer();
-      const eligible = !this._forceFallback
-        && !!renderer && typeof renderer.isNativeMirrorEligible === 'function'
-        && renderer.isNativeMirrorEligible();
-      if (eligible) this._enterNative(); else this._enterFallback();
-      if (this._mode === 'native') {
+      this._applyTier(this._decideTier());
+      if (this._mode === 'native' || this._mode === 'native-compute') {
         try { this._channel.postMessage({ type: MSG.SHADER, wgsl }); } catch (_) { /* ignore */ }
+        if (this._mode === 'native-compute') {
+          this._broadcastComputeGraph();
+          this._broadcastAllTextures();
+        }
       }
     }
-    if (this._mode === 'native') {
+    if (this._mode === 'native' || this._mode === 'native-compute') {
       try {
         this._channel.postMessage({
           type: MSG.UNIFORMS,
@@ -344,31 +350,125 @@ export class TauriSecondMonitorViewer {
           params: snap.params || null,
         });
       } catch (_) { /* channel closed mid-flight */ }
+      if (this._mode === 'native-compute' && snap.compute) {
+        try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute }); } catch (_) { /* ignore */ }
+      }
     }
   }
 
-  /** Switch to the native path: stop the pixel frame tap, advertise the tier. */
-  _enterNative() {
-    if (this._mode === 'native') return;
-    this._mode = 'native';
+  /** Decide the mirror tier for the current shader (native / native-compute / fallback). */
+  _decideTier() {
+    if (this._forceFallback) return TIER.FALLBACK;
     const renderer = this._resolveRenderer();
-    if (this._frameTap && renderer && typeof renderer.setFrameTap === 'function') {
-      try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
+    if (renderer && typeof renderer.classifyMirrorTier === 'function') {
+      return renderer.classifyMirrorTier();
     }
-    this._frameTap = null;
-    try { this._channel?.postMessage({ type: MSG.CAPS, tier: TIER.NATIVE }); } catch (_) { /* ignore */ }
+    // Back-compat with renderers lacking the classifier.
+    if (renderer && typeof renderer.isNativeMirrorEligible === 'function' && renderer.isNativeMirrorEligible()) {
+      return TIER.NATIVE;
+    }
+    return TIER.FALLBACK;
   }
 
-  /** Switch to the pixel fallback: register the frame tap, advertise the tier. */
-  _enterFallback() {
-    if (this._mode === 'fallback') return;
-    this._mode = 'fallback';
+  _applyTier(tier) {
+    if (tier === TIER.NATIVE_COMPUTE) this._enterNativeCompute();
+    else if (tier === TIER.NATIVE) this._enterNative();
+    else this._enterFallback();
+  }
+
+  _enterNative() { this._setMirrorMode('native', TIER.NATIVE); }
+  _enterNativeCompute() { this._setMirrorMode('native-compute', TIER.NATIVE_COMPUTE); }
+  _enterFallback() { this._setMirrorMode('fallback', TIER.FALLBACK); }
+
+  /**
+   * Switch mirror mode: the pixel frame tap runs only in fallback; per-node
+   * compute uniform collection runs only in native-compute; advertise the tier.
+   */
+  _setMirrorMode(mode, tier) {
+    if (this._mode === mode) return;
+    this._mode = mode;
     const renderer = this._resolveRenderer();
-    if (renderer && typeof renderer.setFrameTap === 'function') {
-      this._frameTap = (bitmap) => this._onTappedFrame(bitmap);
-      try { renderer.setFrameTap(this._frameTap); } catch (_) { /* ignore */ }
+    if (mode === 'fallback') {
+      if (renderer && typeof renderer.setFrameTap === 'function') {
+        this._frameTap = (bitmap) => this._onTappedFrame(bitmap);
+        try { renderer.setFrameTap(this._frameTap); } catch (_) { /* ignore */ }
+      }
+    } else {
+      if (this._frameTap && renderer && typeof renderer.setFrameTap === 'function') {
+        try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
+      }
+      this._frameTap = null;
     }
-    try { this._channel?.postMessage({ type: MSG.CAPS, tier: TIER.FALLBACK }); } catch (_) { /* ignore */ }
+    if (renderer && typeof renderer.setStateTapComputeMode === 'function') {
+      try { renderer.setStateTapComputeMode(mode === 'native-compute'); } catch (_) { /* ignore */ }
+    }
+    try { this._channel?.postMessage({ type: MSG.CAPS, tier }); } catch (_) { /* ignore */ }
+  }
+
+  /** Broadcast the compute subgraph (per-node WGSL + metadata) for the receiver to rebuild. */
+  _broadcastComputeGraph() {
+    const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
+    const registry = (typeof window !== 'undefined') ? window.computeNodeRegistry : null;
+    if (!exec || !registry || typeof registry.forEach !== 'function') return;
+    const nodes = [];
+    registry.forEach((data, id) => {
+      const node = data && data.node;
+      if (!node) return;
+      const res = data.resolution || node.computeResolution || [];
+      nodes.push({
+        id,
+        kind: node.kind,
+        wgsl: data.wgslCode,
+        width: res[0] || 0,
+        height: res[1] || 0,
+        supportsFeedback: !!data.supportsFeedback,
+        inputs: Array.isArray(node.inputs) ? node.inputs.slice() : [],
+      });
+    });
+    const executionOrder = Array.isArray(exec.executionOrder) ? exec.executionOrder.slice() : [];
+    try { this._channel.postMessage({ type: MSG.COMPUTE_GRAPH, nodes, executionOrder }); } catch (_) { /* ignore */ }
+  }
+
+  /** Broadcast every currently-loaded image/video texture to the receiver. */
+  _broadcastAllTextures() {
+    const tm = (typeof window !== 'undefined') ? window.textureManager : null;
+    if (!tm || !tm.textures || typeof tm.textures.forEach !== 'function') return;
+    tm.textures.forEach((info, nodeId) => { this._broadcastTexture(nodeId, info); });
+  }
+
+  /**
+   * Called by the editor when a texture is (re)loaded. Re-broadcasts it if a
+   * native-compute mirror is open. No-op otherwise.
+   */
+  onTextureChanged(nodeId) {
+    if (!this._active || this._mode !== 'native-compute') return;
+    const tm = (typeof window !== 'undefined') ? window.textureManager : null;
+    const info = (tm && (tm.getTexture?.(nodeId) || tm.textures?.get?.(nodeId))) || null;
+    if (info) this._broadcastTexture(nodeId, info);
+  }
+
+  async _broadcastTexture(nodeId, info) {
+    if (!this._channel || !info) return;
+    const src = info.bitmap || info.image || info.source || info.video;
+    if (!src || typeof createImageBitmap !== 'function') return;
+    let bitmap;
+    try { bitmap = await createImageBitmap(src); } catch (_) { return; }
+    if (!this._active || !this._channel) { try { bitmap.close?.(); } catch (_) { /* ignore */ } return; }
+    try {
+      this._channel.postMessage({
+        type: MSG.TEXTURE,
+        nodeId,
+        varKind: info.isCube ? 'cube' : '2d',
+        bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+      });
+    } catch (_) {
+      /* channel closed mid-flight */
+    } finally {
+      // The receiver gets a structured-clone copy; free ours.
+      try { bitmap.close?.(); } catch (_) { /* ignore */ }
+    }
   }
 
   /**

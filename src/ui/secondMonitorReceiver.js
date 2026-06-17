@@ -50,6 +50,37 @@ async function defaultCreateRenderer(canvas) {
   }
 }
 
+/**
+ * Default compute-runtime factory: stand up the receiver's OWN ComputeExecutor +
+ * TextureManager + synthetic graph globals on `win`, sharing the renderer's GPU
+ * device. With these present, GPURenderer.render() drives compute and binds
+ * compute/image textures with no change. Loaded lazily (dynamic import) so the
+ * fragment-only path never pulls the compute system in.
+ */
+async function defaultCreateComputeRuntime(device, win) {
+  const [{ ComputeExecutor }, { TextureManager }] = await Promise.all([
+    import('../gpu/ComputeExecutor.js'),
+    import('../core/TextureManager.js'),
+  ]);
+  win.computeNodeRegistry = win.computeNodeRegistry || new Map();
+  if (!win.graph) {
+    win.graph = {
+      nodes: [],
+      getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; },
+    };
+  }
+  // Audio envelopes differ per window; injected compute uniforms already bake in
+  // the editor's values, so these stay 0 and unused — but defined to avoid undefined.
+  win._audioEnvelopeValue = win._audioEnvelopeBass = win._audioEnvelopeMids = 0;
+  win._audioEnvelopeHighs = win._audioEnvelopeFull = 0;
+  const textureManager = new TextureManager();
+  await textureManager.initialize(device);
+  const computeExecutor = new ComputeExecutor(device);
+  win.textureManager = textureManager;
+  win.computeExecutor = computeExecutor;
+  return { computeExecutor, textureManager };
+}
+
 export function initSecondMonitorReceiver(doc = document, win = window, opts = {}) {
   const fbCanvas = doc.getElementById('second-monitor-output'); // 2D fallback
   const gpuCanvas = doc.getElementById('second-monitor-gpu');   // WebGPU native
@@ -58,6 +89,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     ? fbCanvas.getContext('2d') : null;
   const createRenderer = typeof opts.createRenderer === 'function'
     ? opts.createRenderer : defaultCreateRenderer;
+  const createComputeRuntime = typeof opts.createComputeRuntime === 'function'
+    ? opts.createComputeRuntime : defaultCreateComputeRuntime;
 
   let tier = TIER.FALLBACK;     // start safe: show pixels until told to go native
   let renderer = null;          // window-local GPURenderer (native path)
@@ -70,6 +103,15 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let rafId = null;
   let closing = false;
   let cachedWindow = null;
+
+  // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
+  let computeRuntime = null;        // { computeExecutor, textureManager }
+  let computeRuntimePromise = null;
+  let pendingComputeGraph = null;   // COMPUTE_GRAPH seen before the runtime existed
+  let pendingTextures = [];         // TEXTURE messages seen before the runtime existed
+  let latestComputeUniforms = null; // re-applied once the executor finishes init
+  let appliedComputeKey = null;     // dedupe costly graph rebuilds
+  const prevPacked = new Map();     // node id -> last packed bytes (re-dispatch detection)
 
   const channel = openSecondMonitorChannel();
 
@@ -108,13 +150,130 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     try { renderer.setShaderSource(wgsl); appliedWgsl = wgsl; } catch (_) { /* ignore */ }
   }
 
+  // --- native compute runtime (Tier 2) ------------------------------------
+  function ensureComputeRuntime() {
+    if (computeRuntime) return Promise.resolve(computeRuntime);
+    if (computeRuntimePromise) return computeRuntimePromise;
+    computeRuntimePromise = ensureRenderer().then((r) => {
+      const device = r && r.device;
+      if (!device) return null;
+      return Promise.resolve(createComputeRuntime(device, win)).then((rt) => {
+        computeRuntime = rt || null;
+        if (computeRuntime) {
+          if (pendingComputeGraph) { const m = pendingComputeGraph; pendingComputeGraph = null; applyComputeGraph(m); }
+          if (pendingTextures.length) { const t = pendingTextures; pendingTextures = []; t.forEach(applyTexture); }
+        }
+        return computeRuntime;
+      });
+    }).catch(() => null);
+    return computeRuntimePromise;
+  }
+
+  /** Rebuild the receiver's compute registry + synthetic graph and (re)initialize the executor. */
+  function applyComputeGraph(msg) {
+    if (!computeRuntime) { pendingComputeGraph = msg; ensureComputeRuntime(); return; }
+    const exec = computeRuntime.computeExecutor;
+    if (!exec) return;
+    const nodes = msg.nodes || [];
+    const key = JSON.stringify(nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height]));
+    if (key === appliedComputeKey) return; // unchanged graph — skip the costly re-init
+    if (!win.computeNodeRegistry) win.computeNodeRegistry = new Map();
+    if (!win.graph) {
+      win.graph = { nodes: [], getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; } };
+    }
+    const registry = win.computeNodeRegistry;
+    registry.clear();
+    win.graph.nodes = [];
+    for (const n of nodes) {
+      const node = {
+        id: n.id,
+        kind: n.kind,
+        inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
+        params: {},
+        computeResolution: [n.width || 0, n.height || 0],
+      };
+      win.graph.nodes.push(node);
+      registry.set(n.id, {
+        node,
+        getInput: () => null,
+        resolution: [n.width || 0, n.height || 0],
+        wgslCode: n.wgsl,
+        supportsFeedback: !!n.supportsFeedback,
+        lastInputHash: null,
+      });
+    }
+    appliedComputeKey = key;
+    Promise.resolve(exec.initialize ? exec.initialize() : null).then(() => {
+      // Every manager consumes our injected per-node bytes rather than re-packing.
+      exec.computeManagers?.forEach?.((m) => { if (m) m.externalUniformMode = true; });
+      if (Array.isArray(msg.executionOrder) && msg.executionOrder.length) {
+        exec.executionOrder = msg.executionOrder.slice();
+      }
+      if (latestComputeUniforms) applyComputeUniforms(latestComputeUniforms);
+    }).catch(() => { appliedComputeKey = null; });
+  }
+
+  function applyComputeUniforms(msg) {
+    latestComputeUniforms = msg;
+    const exec = computeRuntime && computeRuntime.computeExecutor;
+    const managers = exec && exec.computeManagers;
+    if (!managers || typeof managers.get !== 'function') return;
+    for (const n of (msg.nodes || [])) {
+      const mgr = managers.get(n.id);
+      if (!mgr || typeof mgr.writeRawComputeUniforms !== 'function') continue;
+      try { mgr.writeRawComputeUniforms(n.packed, n.colorStops || null); } catch (_) { /* ignore */ }
+      // Static-input stateless nodes are skipped by the executor's change detection;
+      // when the injected bytes change, invalidate the hash so it re-dispatches.
+      if (_packedChanged(n.id, n.packed)) {
+        try { exec.inputHashes?.delete?.(n.id); } catch (_) { /* ignore */ }
+      }
+    }
+  }
+
+  function _packedChanged(id, packed) {
+    const prev = prevPacked.get(id);
+    let changed = true;
+    if (prev && packed && prev.length === packed.length) {
+      changed = false;
+      for (let i = 0; i < packed.length; i++) { if (prev[i] !== packed[i]) { changed = true; break; } }
+    }
+    if (packed) prevPacked.set(id, packed.slice ? packed.slice() : packed);
+    return changed;
+  }
+
+  function applyTexture(msg) {
+    if (!msg || !msg.bitmap) return;
+    if (!computeRuntime) { pendingTextures.push(msg); ensureComputeRuntime(); return; }
+    const tm = computeRuntime.textureManager;
+    if (tm && typeof tm.injectExternalTexture === 'function') {
+      try { tm.injectExternalTexture(msg.nodeId, msg.bitmap); } catch (_) { /* ignore */ }
+    }
+  }
+
+  function clearComputeRuntime() {
+    try { win.computeExecutor?.clear?.(); } catch (_) { /* ignore */ }
+    appliedComputeKey = null;
+    latestComputeUniforms = null;
+    prevPacked.clear();
+  }
+
+  /** Apply a tier change from the editor: ensure runtimes and tear down compute when leaving. */
+  function setTier(next) {
+    if (!next || next === tier) return;
+    const leavingCompute = (tier === TIER.NATIVE_COMPUTE) && (next !== TIER.NATIVE_COMPUTE);
+    tier = next;
+    if (next === TIER.NATIVE || next === TIER.NATIVE_COMPUTE) ensureRenderer();
+    if (next === TIER.NATIVE_COMPUTE) ensureComputeRuntime();
+    if (leavingCompute) clearComputeRuntime();
+  }
+
   // --- channel handling ----------------------------------------------------
   function onMessage(e) {
     const d = e?.data;
     if (!d) return;
     switch (d.type) {
       case MSG.SHADER:
-        tier = TIER.NATIVE;
+        if (tier === TIER.FALLBACK) tier = TIER.NATIVE; // promote; CAPS refines the tier
         if (renderer) applyShader(d.wgsl);
         else { pendingWgsl = d.wgsl; ensureRenderer(); }
         break;
@@ -122,8 +281,17 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         snapshot = { aspect: d.aspect || null, globals: d.globals || null, params: d.params || null };
         break;
       case MSG.CAPS:
-        if (d.tier === TIER.NATIVE) { tier = TIER.NATIVE; ensureRenderer(); }
-        else if (d.tier === TIER.FALLBACK) { tier = TIER.FALLBACK; }
+        setTier(d.tier);
+        break;
+      case MSG.COMPUTE_GRAPH:
+        setTier(TIER.NATIVE_COMPUTE);
+        applyComputeGraph(d);
+        break;
+      case MSG.COMPUTE_UNIFORMS:
+        applyComputeUniforms(d);
+        break;
+      case MSG.TEXTURE:
+        applyTexture(d);
         break;
       case MSG.FRAME:
         if (d.bitmap) setLatest(d.bitmap, d.sw, d.sh);
@@ -246,7 +414,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
 
   function frame() {
     rafId = win.requestAnimationFrame(frame);
-    if (tier === TIER.NATIVE && renderNative()) {
+    if ((tier === TIER.NATIVE || tier === TIER.NATIVE_COMPUTE) && renderNative()) {
       showCanvas('gpu');
       return;
     }
@@ -294,6 +462,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   async function closeSelf() {
     if (closing) return;
     closing = true;
+    clearComputeRuntime();
+    try { win.textureManager?.destroy?.(); } catch (_) { /* ignore */ }
     try { channel?.postMessage({ type: MSG.CLOSED }); } catch (_) { /* ignore */ }
     if (rafId != null) { try { win.cancelAnimationFrame(rafId); } catch (_) { /* ignore */ } }
     const w = await tauriWindow();
@@ -313,6 +483,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   return {
     get tier() { return tier; },
     get renderer() { return renderer; },
+    get computeRuntime() { return computeRuntime; },
     get latestSize() { return { width: latestW, height: latestH }; },
     onMessage,
     closeSelf,
