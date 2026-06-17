@@ -16,6 +16,12 @@
 // the output keeps running at the second display's refresh rate even when the
 // editor window is occluded or minimised.
 //
+// Frames are pulled from the renderer's frame tap (GPURenderer.setFrameTap),
+// which captures each frame in lock-step with the GPU present. Capturing from
+// our own animation frame instead raced the browser's compositor — it recycles
+// the WebGPU swapchain buffer once a frame is presented — so those reads came
+// back blank and the mirror flickered to black.
+//
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
 // source un-bundled and cannot resolve bare specifiers. This class is only ever
@@ -34,12 +40,15 @@ export class TauriSecondMonitorViewer {
    * @param {HTMLCanvasElement} sourceCanvas  the live GPU canvas to mirror
    * @param {Object} [options]
    * @param {string} [options.windowLabel]     Tauri window label (must be unique)
+   * @param {Object} [options.renderer]        GPURenderer to tap for frames
+   *                                           (falls back to window.gpuRenderer)
    * @param {(message: string, kind?: string) => void} [options.onStatus]
    * @param {(active: boolean) => void} [options.onActiveChange]
    */
   constructor(sourceCanvas, options = {}) {
     this.sourceCanvas = sourceCanvas;
     this.windowLabel = options.windowLabel || WINDOW_LABEL;
+    this.renderer = options.renderer || null;
     this.onStatus = typeof options.onStatus === 'function' ? options.onStatus : () => {};
     this.onActiveChange = typeof options.onActiveChange === 'function'
       ? options.onActiveChange
@@ -48,8 +57,7 @@ export class TauriSecondMonitorViewer {
     this._win = null;            // the native WebviewWindow (frame target)
     this._channel = null;        // BroadcastChannel to the receiver page
     this._onChannelMessage = null;
-    this._rafId = null;          // capture loop (editor window's rAF)
-    this._encoding = false;      // a createImageBitmap() is in flight
+    this._frameTap = null;       // handler registered on the renderer's frame tap
     this._active = false;
   }
 
@@ -104,7 +112,7 @@ export class TauriSecondMonitorViewer {
     }
 
     this._active = true;
-    this._startCapture();
+    this._startTap();
     this.onActiveChange(true);
     this.onStatus('Second-monitor viewer opened');
   }
@@ -112,7 +120,7 @@ export class TauriSecondMonitorViewer {
   /** Close the window and stop mirroring. */
   async close() {
     const wasActive = this._active;
-    this._stopCapture();
+    this._stopTap();
 
     try { this._channel?.postMessage({ type: MSG.CLOSE }); } catch (_) { /* ignore */ }
 
@@ -137,7 +145,7 @@ export class TauriSecondMonitorViewer {
 
   /** Release channel/loop state without firing user callbacks. */
   _teardown() {
-    this._stopCapture();
+    this._stopTap();
     if (this._channel && this._onChannelMessage) {
       try { this._channel.removeEventListener('message', this._onChannelMessage); } catch (_) { /* ignore */ }
     }
@@ -250,49 +258,50 @@ export class TauriSecondMonitorViewer {
   }
 
   /**
-   * Capture and broadcast a frame each editor animation frame. The editor stays
-   * visible on the primary display, so its rAF runs at full rate; the receiver
-   * paints from its own rAF, decoupling output smoothness from this cadence.
+   * Start mirroring by registering on the renderer's frame tap. The renderer
+   * captures each frame in sync with the GPU present and hands us the bitmap; we
+   * forward it over the channel. The receiver paints from its own rAF, so output
+   * smoothness is decoupled from the editor's render cadence.
    */
-  _startCapture() {
-    if (this._rafId != null) return;
-    const tick = () => {
-      if (!this._active) { this._rafId = null; return; }
-      this._rafId = requestAnimationFrame(tick);
-      this._captureFrame();
-    };
-    this._rafId = requestAnimationFrame(tick);
+  _startTap() {
+    const renderer = this._resolveRenderer();
+    if (!renderer || typeof renderer.setFrameTap !== 'function') return;
+    this._frameTap = (bitmap) => this._onTappedFrame(bitmap);
+    renderer.setFrameTap(this._frameTap);
   }
 
-  _stopCapture() {
-    if (this._rafId != null) {
-      cancelAnimationFrame(this._rafId);
-      this._rafId = null;
+  _stopTap() {
+    const renderer = this._resolveRenderer();
+    if (this._frameTap && renderer && typeof renderer.setFrameTap === 'function') {
+      try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
     }
-    this._encoding = false;
+    this._frameTap = null;
   }
 
-  async _captureFrame() {
-    if (this._encoding || !this._active || !this._channel) return;
-    const src = this.sourceCanvas;
-    if (!src || !src.width || !src.height) return;
-    if (typeof createImageBitmap !== 'function') return;
+  /** The GPURenderer to mirror — explicit option first, else the global one. */
+  _resolveRenderer() {
+    if (this.renderer) return this.renderer;
+    this.renderer = (typeof window !== 'undefined' && window.gpuRenderer) || null;
+    return this.renderer;
+  }
 
-    this._encoding = true;
+  /**
+   * Forward one captured frame to the receiver. We own the bitmap and must free
+   * it. BroadcastChannel structured-clones it synchronously inside postMessage,
+   * so the receiver gets an independent copy and we can close ours immediately.
+   */
+  _onTappedFrame(bitmap) {
+    if (!bitmap) return;
+    if (!this._active || !this._channel) { try { bitmap.close(); } catch (_) { /* ignore */ } return; }
+    const src = this.sourceCanvas;
+    const sw = (src && src.width) || bitmap.width;
+    const sh = (src && src.height) || bitmap.height;
     try {
-      const bitmap = await createImageBitmap(src);
-      if (!this._active || !this._channel) { bitmap.close(); return; }
-      try {
-        // BroadcastChannel structured-clones the bitmap synchronously here, so
-        // the receiver gets an independent copy and we can free ours at once.
-        this._channel.postMessage({ type: MSG.FRAME, bitmap, sw: src.width, sh: src.height });
-      } finally {
-        bitmap.close();
-      }
+      this._channel.postMessage({ type: MSG.FRAME, bitmap, sw, sh });
     } catch (_) {
-      // Transient failure (canvas mid-resize, context lost) — skip this frame.
+      // Channel closed mid-flight — nothing to deliver.
     } finally {
-      this._encoding = false;
+      try { bitmap.close(); } catch (_) { /* ignore */ }
     }
   }
 }

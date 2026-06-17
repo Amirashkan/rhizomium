@@ -35,6 +35,16 @@ function makeFakeWindow() {
   return win;
 }
 
+// Minimal renderer stand-in exposing the frame tap the viewer registers on.
+function makeFakeRenderer() {
+  let tap = null;
+  return {
+    setFrameTap: vi.fn((cb) => { tap = cb || null; }),
+    emitFrame: (bitmap) => { if (tap) tap(bitmap); },
+    get tap() { return tap; },
+  };
+}
+
 describe('SecondMonitorViewer', () => {
   let source;
   let fakeWin;
@@ -86,21 +96,58 @@ describe('SecondMonitorViewer', () => {
     viewer.close();
   });
 
-  it('mirrors the source canvas into the popup each frame', async () => {
-    const viewer = new SecondMonitorViewer(source);
+  it('paints the latest tapped frame into the popup each frame', async () => {
+    const renderer = makeFakeRenderer();
+    const viewer = new SecondMonitorViewer(source, { renderer });
     await viewer.open();
 
+    // The viewer registers on the renderer's frame tap (not its own canvas read).
+    expect(renderer.setFrameTap).toHaveBeenCalledWith(expect.any(Function));
+
+    // Deliver a captured frame, then step one mirror frame.
+    const bitmap = { width: 1920, height: 1080, close: vi.fn() };
+    renderer.emitFrame(bitmap);
+
     expect(rafCallbacks.length).toBe(1);
-    // Step one mirror frame.
     rafCallbacks[rafCallbacks.length - 1]();
 
     expect(fakeWin.__ctx.fillRect).toHaveBeenCalled();
+    // It draws the tapped bitmap, never the live source canvas.
     expect(fakeWin.__ctx.drawImage).toHaveBeenCalledWith(
-      source,
+      bitmap,
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),
       expect.any(Number),
+    );
+
+    viewer.close();
+    // Closing removes the tap and frees the held frame.
+    expect(renderer.setFrameTap).toHaveBeenLastCalledWith(null);
+    expect(bitmap.close).toHaveBeenCalled();
+  });
+
+  it('keeps showing the last good frame and never draws the live canvas', async () => {
+    const renderer = makeFakeRenderer();
+    const viewer = new SecondMonitorViewer(source, { renderer });
+    await viewer.open();
+
+    // No frame delivered yet: a mirror tick paints black only, no drawImage.
+    rafCallbacks[rafCallbacks.length - 1]();
+    expect(fakeWin.__ctx.fillRect).toHaveBeenCalled();
+    expect(fakeWin.__ctx.drawImage).not.toHaveBeenCalled();
+
+    // A newer frame replaces and frees the previous one.
+    const first = { width: 1920, height: 1080, close: vi.fn() };
+    const second = { width: 1920, height: 1080, close: vi.fn() };
+    renderer.emitFrame(first);
+    renderer.emitFrame(second);
+    expect(first.close).toHaveBeenCalled();
+
+    rafCallbacks[rafCallbacks.length - 1]();
+    expect(fakeWin.__ctx.drawImage).toHaveBeenLastCalledWith(
+      second,
+      expect.any(Number), expect.any(Number), expect.any(Number), expect.any(Number),
     );
 
     viewer.close();

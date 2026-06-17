@@ -63,6 +63,16 @@ class FakeBroadcastChannel {
 }
 FakeBroadcastChannel.instances = [];
 
+// Minimal renderer stand-in exposing the frame tap the viewer registers on.
+function makeFakeRenderer() {
+  let tap = null;
+  return {
+    setFrameTap: vi.fn((cb) => { tap = cb || null; }),
+    emitFrame: (bitmap) => { if (tap) tap(bitmap); },
+    get tap() { return tap; },
+  };
+}
+
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('TauriSecondMonitorViewer', () => {
@@ -121,24 +131,43 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
-  it('mirrors frames over the broadcast channel each capture tick', async () => {
-    const viewer = new TauriSecondMonitorViewer(source);
+  it('registers a renderer frame tap and broadcasts each tapped frame', async () => {
+    const renderer = makeFakeRenderer();
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
     await viewer.open();
 
-    const channel = FakeBroadcastChannel.instances[0];
-    expect(rafCallbacks.length).toBeGreaterThanOrEqual(1);
+    expect(renderer.setFrameTap).toHaveBeenCalledWith(expect.any(Function));
 
-    // Step one capture tick, then let createImageBitmap + postMessage settle.
-    rafCallbacks[rafCallbacks.length - 1]();
-    await flush();
+    const channel = FakeBroadcastChannel.instances[0];
+    const bitmap = { width: 1920, height: 1080, close: vi.fn() };
+    renderer.emitFrame(bitmap);
 
     const frame = channel.posted.find((m) => m.type === MSG.FRAME);
     expect(frame).toBeTruthy();
     expect(frame.sw).toBe(1920);
     expect(frame.sh).toBe(1080);
-    expect(frame.bitmap).toBeTruthy();
+    expect(frame.bitmap).toBe(bitmap);
+    // The viewer owns the tapped bitmap and frees it after the synchronous clone.
+    expect(bitmap.close).toHaveBeenCalled();
 
     await viewer.close();
+    // Tap is removed on close so the renderer stops capturing for us.
+    expect(renderer.setFrameTap).toHaveBeenLastCalledWith(null);
+  });
+
+  it('drops tapped frames once closed instead of posting them', async () => {
+    const renderer = makeFakeRenderer();
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+    const tap = renderer.tap;
+    await viewer.close();
+
+    // A frame captured in-flight after close must be freed, not broadcast.
+    const bitmap = { width: 1920, height: 1080, close: vi.fn() };
+    tap(bitmap);
+    expect(channel.posted.some((m) => m.type === MSG.FRAME)).toBe(false);
+    expect(bitmap.close).toHaveBeenCalled();
   });
 
   it('close() tells the receiver, closes the window and channel, and reports inactive', async () => {

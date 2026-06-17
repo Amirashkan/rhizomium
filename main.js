@@ -548,6 +548,7 @@ async function initialize() {
           ? TauriSecondMonitorViewer
           : SecondMonitorViewer;
         secondMonitorViewer = new SecondMonitorBackend(gpuCanvas, {
+          renderer: window.gpuRenderer,
           onStatus: (message, kind) => updateStatus(message, kind),
           onActiveChange: (active) => setSecondMonitorButtonState(active),
         });

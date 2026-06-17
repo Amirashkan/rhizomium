@@ -57,7 +57,17 @@ export class GPURenderer {
     this.msaaTextureSize = { width: 0, height: 0 }; // Track MSAA texture size for validation
     this.profiler = null; // ComputeProfiler instance
     this._currentWgslCode = null; // Store current WGSL code for pipeline recreation
-    
+
+    // Frame tap: a consumer (the second-monitor viewer) that wants a copy of
+    // every presented frame. The capture MUST happen synchronously right after
+    // queue.submit() — that is the only moment the WebGPU swapchain still holds
+    // the just-rendered image. Reading the canvas later (e.g. from an external
+    // rAF) races the browser's compositor, which recycles the buffer once it has
+    // presented the frame, so those reads intermittently come back blank — the
+    // "black frame" flicker the mirror used to show. Null unless a viewer is open.
+    this._frameTap = null;        // (bitmap: ImageBitmap) => void  — owns + closes
+    this._frameTapInFlight = false; // coalesce: at most one createImageBitmap pending
+
     // PERFORMANCE: Shader module cache to avoid recompiling identical WGSL code
     this.shaderCache = shaderModuleCache;
     
@@ -1294,6 +1304,12 @@ export class GPURenderer {
       // This allows the render loop to continue while GPU processes the frame
       this.device.queue.submit([encoder.finish()]);
 
+      // Frame tap for external mirrors (the second-monitor viewer). Capture here,
+      // immediately after submit and before the next getCurrentTexture(), while the
+      // canvas still holds this frame — see _captureTappedFrame. No-op (early
+      // return) when no second monitor is open, so the normal path pays nothing.
+      this._captureTappedFrame();
+
       // Store promise for frame presentation - allows frame capture to wait for GPU work
       // But don't await it here - let it resolve asynchronously
       this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.();
@@ -1346,6 +1362,50 @@ export class GPURenderer {
         // Ignore errors - frame might already be presented
       }
     }
+  }
+
+  /**
+   * Register a consumer for every presented frame, or pass null to stop.
+   * The callback receives a freshly captured ImageBitmap of the canvas and TAKES
+   * OWNERSHIP of it — it must call bitmap.close() when done. Used by the
+   * second-monitor viewer to mirror the output without reading the live canvas
+   * from its own (compositor-racing) animation frame.
+   * @param {((bitmap: ImageBitmap) => void)|null} callback
+   */
+  setFrameTap(callback) {
+    this._frameTap = typeof callback === "function" ? callback : null;
+  }
+
+  /**
+   * Snapshot the canvas for the registered frame tap, if any. Called synchronously
+   * right after queue.submit() so the capture sees this frame's pixels rather than
+   * a recycled (blank) swapchain buffer. createImageBitmap snapshots the canvas at
+   * call time, so the later promise resolution is just decode latency — the image
+   * is already this frame. Coalesces: skips while a previous capture is in flight
+   * so a slow decode cannot pile up and stall the render loop.
+   */
+  _captureTappedFrame() {
+    const tap = this._frameTap;
+    if (!tap || typeof createImageBitmap !== "function") return;
+    if (this._frameTapInFlight) return;
+    if (!this.canvas || !this.canvas.width || !this.canvas.height) return;
+
+    let pending;
+    try {
+      pending = createImageBitmap(this.canvas);
+    } catch (_) {
+      return; // canvas mid-resize / context lost — skip this frame
+    }
+    this._frameTapInFlight = true;
+    pending.then(
+      (bitmap) => {
+        this._frameTapInFlight = false;
+        const cb = this._frameTap;
+        if (!cb) { try { bitmap.close(); } catch (_) { /* ignore */ } return; }
+        try { cb(bitmap); } catch (_) { try { bitmap.close(); } catch (_) { /* ignore */ } }
+      },
+      () => { this._frameTapInFlight = false; },
+    );
   }
 
   async captureFrame(options = {}) {
