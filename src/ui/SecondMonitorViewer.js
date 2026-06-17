@@ -7,6 +7,12 @@
 // refresh rate. This is the pristine "performance output" surface: just the
 // visual, no editor chrome.
 //
+// Frames come from the renderer's frame tap (GPURenderer.setFrameTap), captured
+// in sync with the GPU present, and the popup paints the latest captured frame.
+// Drawing the live canvas straight from the popup's own rAF instead raced the
+// browser's compositor (which recycles the WebGPU swapchain buffer once a frame
+// is presented), so those reads came back blank — the black-frame flicker.
+//
 // Display targeting uses the Window Management API (`getScreenDetails()`) when
 // the browser grants it, so the popup is placed on and sized to a real second
 // display. When that API is unavailable (or permission is denied) it falls back
@@ -24,12 +30,15 @@ export class SecondMonitorViewer {
    * @param {HTMLCanvasElement} sourceCanvas  the live GPU canvas to mirror
    * @param {Object} [options]
    * @param {string} [options.windowName]      window.open name (one viewer at a time)
+   * @param {Object} [options.renderer]        GPURenderer to tap for frames
+   *                                           (falls back to window.gpuRenderer)
    * @param {(message: string, kind?: string) => void} [options.onStatus]
    * @param {(active: boolean) => void} [options.onActiveChange]
    */
   constructor(sourceCanvas, options = {}) {
     this.sourceCanvas = sourceCanvas;
     this.windowName = options.windowName || 'RhizomiumSecondMonitor';
+    this.renderer = options.renderer || null;
     this.onStatus = typeof options.onStatus === 'function' ? options.onStatus : () => {};
     this.onActiveChange = typeof options.onActiveChange === 'function'
       ? options.onActiveChange
@@ -38,11 +47,15 @@ export class SecondMonitorViewer {
     this.viewerWindow = null;   // the opened popup
     this.outCanvas = null;      // the 2D mirror canvas inside the popup
     this.outCtx = null;
-    this.rafId = null;          // mirror loop (driven by the editor window)
+    this.rafId = null;          // mirror loop (driven by the popup window)
     this._pollId = null;        // detects the popup being closed by the user
     this._targetScreen = null;  // ScreenDetailed object, for fullscreen targeting
     this._onPopupResize = null;
     this._onPopupKeyDown = null;
+    this._frameTap = null;      // handler registered on the renderer's frame tap
+    this._latestBitmap = null;  // most recent captured frame (we own + close it)
+    this._latestW = 0;
+    this._latestH = 0;
   }
 
   /** True while the viewer popup is open. */
@@ -114,6 +127,7 @@ export class SecondMonitorViewer {
     };
     win.addEventListener('keydown', this._onPopupKeyDown);
 
+    this._startTap();
     this._startMirror();
     this._watchForClose();
     this.onActiveChange(true);
@@ -152,6 +166,7 @@ export class SecondMonitorViewer {
 
   /** Close the viewer and stop mirroring. */
   close() {
+    this._stopTap();
     this._stopMirror();
     this._stopWatch();
 
@@ -305,20 +320,24 @@ export class SecondMonitorViewer {
         this.rafId = null;
         return;
       }
-      const src = this.sourceCanvas;
       const cw = this.outCanvas.width;
       const ch = this.outCanvas.height;
 
       this.outCtx.fillStyle = '#000';
       this.outCtx.fillRect(0, 0, cw, ch);
 
-      // Letterbox: preserve the source aspect ratio, centred on black.
-      const { dx, dy, dw, dh } = letterboxRect(src.width, src.height, cw, ch);
-      if (dw > 0 && dh > 0) {
-        try {
-          this.outCtx.drawImage(src, dx, dy, dw, dh);
-        } catch (_) {
-          // A transient draw failure (e.g. canvas mid-resize) — skip this frame.
+      // Paint the latest tapped frame, letterboxed and centred on black. We draw
+      // the captured bitmap rather than the live canvas: reading the WebGPU canvas
+      // from this popup's own rAF raced the compositor and flickered to black.
+      const frame = this._latestBitmap;
+      if (frame) {
+        const { dx, dy, dw, dh } = letterboxRect(this._latestW, this._latestH, cw, ch);
+        if (dw > 0 && dh > 0) {
+          try {
+            this.outCtx.drawImage(frame, dx, dy, dw, dh);
+          } catch (_) {
+            // A transient draw failure — skip this frame, keep the last good one.
+          }
         }
       }
 
@@ -332,6 +351,52 @@ export class SecondMonitorViewer {
       this._cancelRaf(this.rafId);
       this.rafId = null;
     }
+  }
+
+  /**
+   * Register on the renderer's frame tap so we receive each frame captured in
+   * sync with the GPU present (see GPURenderer.setFrameTap). Best-effort: if no
+   * renderer is available the popup simply shows black until one appears.
+   */
+  _startTap() {
+    const renderer = this._resolveRenderer();
+    if (!renderer || typeof renderer.setFrameTap !== 'function') return;
+    this._frameTap = (bitmap) => this._onTappedFrame(bitmap);
+    renderer.setFrameTap(this._frameTap);
+  }
+
+  _stopTap() {
+    const renderer = this._resolveRenderer();
+    if (this._frameTap && renderer && typeof renderer.setFrameTap === 'function') {
+      try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
+    }
+    this._frameTap = null;
+    if (this._latestBitmap) { try { this._latestBitmap.close(); } catch (_) { /* ignore */ } }
+    this._latestBitmap = null;
+    this._latestW = 0;
+    this._latestH = 0;
+  }
+
+  /** The GPURenderer to mirror — explicit option first, else the global one. */
+  _resolveRenderer() {
+    if (this.renderer) return this.renderer;
+    this.renderer = (typeof window !== 'undefined' && window.gpuRenderer) || null;
+    return this.renderer;
+  }
+
+  /**
+   * Store one captured frame as the latest, freeing the previously held one. We
+   * own the bitmap (the tap hands off ownership) and close it on replace/teardown.
+   */
+  _onTappedFrame(bitmap) {
+    if (!bitmap) return;
+    if (!this.isActive) { try { bitmap.close(); } catch (_) { /* ignore */ } return; }
+    if (this._latestBitmap && this._latestBitmap !== bitmap) {
+      try { this._latestBitmap.close(); } catch (_) { /* ignore */ }
+    }
+    this._latestBitmap = bitmap;
+    this._latestW = (this.sourceCanvas && this.sourceCanvas.width) || bitmap.width || 0;
+    this._latestH = (this.sourceCanvas && this.sourceCanvas.height) || bitmap.height || 0;
   }
 
   /**
