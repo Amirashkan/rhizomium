@@ -259,6 +259,44 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.inputHashes.has('1')).toBe(false);
     });
 
+    it('cascades re-dispatch to downstream nodes when an upstream node changes', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [
+          { id: '1', kind: 'ComputeNoise', wgsl: 'W', width: 8, height: 8, inputs: [] },
+          { id: '2', kind: 'ComputeBlur', wgsl: 'W', width: 8, height: 8, inputs: ['1'] },
+          { id: '3', kind: 'ComputeThreshold', wgsl: 'W', width: 8, height: 8, inputs: ['2'] },
+        ],
+        executionOrder: ['1', '2', '3'],
+      });
+      await settle();
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [
+        { id: '1', packed: new Float32Array([8, 8, 0.1, 5]) },
+        { id: '2', packed: new Float32Array([8, 8, 0.1, 3]) },
+        { id: '3', packed: new Float32Array([8, 8, 0.1, 1]) },
+      ] });
+      await settle();
+      rt.computeExecutor.inputHashes.set('1', 'a');
+      rt.computeExecutor.inputHashes.set('2', 'b');
+      rt.computeExecutor.inputHashes.set('3', 'c');
+
+      // Only node 1's param (index 3) changes; 2 and 3 differ only by time.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [
+        { id: '1', packed: new Float32Array([8, 8, 0.2, 9]) },
+        { id: '2', packed: new Float32Array([8, 8, 0.2, 3]) },
+        { id: '3', packed: new Float32Array([8, 8, 0.2, 1]) },
+      ] });
+      await settle();
+
+      // The change at node 1 cascades through the whole chain.
+      expect(rt.computeExecutor.inputHashes.has('1')).toBe(false);
+      expect(rt.computeExecutor.inputHashes.has('2')).toBe(false);
+      expect(rt.computeExecutor.inputHashes.has('3')).toBe(false);
+    });
+
     it('injects a broadcast texture into the texture manager', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));

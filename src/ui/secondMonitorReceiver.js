@@ -228,6 +228,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       // re-dispatches. (Color stops live in a separate buffer, not in `packed`.)
       if (_computeChanged(n.id, n.packed, n.colorStops)) {
         try { exec.inputHashes?.delete?.(n.id); } catch (_) { /* ignore */ }
+        // Cascade: nodes downstream of this one must also re-dispatch so an
+        // upstream parameter change propagates through the chain in real time
+        // (without it, only the changed node re-runs and consumers show stale input).
+        _invalidateDownstream(exec, n.id);
       }
     }
   }
@@ -268,6 +272,25 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     const p = _packedChanged(id, packed);
     const c = _colorStopsChanged(id, colorStops);
     return p || c;
+  }
+
+  // Invalidate the dispatch cache of every node transitively downstream of
+  // `changedId`, so an upstream change re-runs the whole dependent chain.
+  function _invalidateDownstream(exec, changedId) {
+    const nodes = win.graph && win.graph.nodes;
+    if (!exec || !exec.inputHashes || !Array.isArray(nodes)) return;
+    const queue = [changedId];
+    const seen = new Set([changedId]);
+    while (queue.length) {
+      const id = queue.shift();
+      for (const node of nodes) {
+        if (node && Array.isArray(node.inputs) && node.inputs.includes(id) && !seen.has(node.id)) {
+          seen.add(node.id);
+          try { exec.inputHashes.delete(node.id); } catch (_) { /* ignore */ }
+          queue.push(node.id);
+        }
+      }
+    }
   }
 
   function applyTexture(msg) {
