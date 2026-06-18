@@ -572,16 +572,21 @@ export class ComputeShaderManager {
       }
     }
 
-    // Fill color stops data: each stop is 5 floats (position + vec4 color)
+    // Fill color stops data to match the WGSL layout
+    //   struct ColorStop { position: f32, color: vec4<f32> }
+    // vec4<f32> is 16-byte aligned, so each ColorStop is 32 bytes = 8 floats:
+    //   [position, pad, pad, pad, r, g, b, a]. Packing 5 floats/stop (the old
+    // code) misaligned every color, so gradients ignored their stops entirely.
     const numStops = Math.min(colorStops.length, 8);
+    this.colorStopsData.fill(0); // clear stale stops/padding when count shrinks
     for (let i = 0; i < numStops; i++) {
       const stop = colorStops[i];
-      const offset = i * 5;
+      const offset = i * 8;
       this.colorStopsData[offset] = stop.position || 0.0;
-      this.colorStopsData[offset + 1] = stop.color?.[0] || 0.0; // R
-      this.colorStopsData[offset + 2] = stop.color?.[1] || 0.0; // G
-      this.colorStopsData[offset + 3] = stop.color?.[2] || 0.0; // B
-      this.colorStopsData[offset + 4] = stop.color?.[3] || 1.0; // A
+      this.colorStopsData[offset + 4] = stop.color?.[0] || 0.0; // R
+      this.colorStopsData[offset + 5] = stop.color?.[1] || 0.0; // G
+      this.colorStopsData[offset + 6] = stop.color?.[2] || 0.0; // B
+      this.colorStopsData[offset + 7] = stop.color?.[3] || 1.0; // A
     }
 
     // Write to GPU buffer

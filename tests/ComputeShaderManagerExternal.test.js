@@ -63,4 +63,26 @@ describe('ComputeShaderManager external uniforms', () => {
     expect(device.writes.find((w) => w.buffer === uniformBuffer)).toBeTruthy();
     expect(device.writes.find((w) => w.buffer === mgr.colorStopsBuffer)).toBeTruthy();
   });
+
+  it('packs color stops at the WGSL std430 stride (8 floats/stop, color at +4)', () => {
+    // WGSL: struct ColorStop { position: f32, color: vec4<f32> } => 32 bytes / stop.
+    const mgr = bare({
+      device: fakeDevice(),
+      colorStopsBuffer: { size: 256 },
+      colorStopsData: new Float32Array(64),
+      node: { kind: 'ComputeGradient' },
+    });
+
+    mgr.updateColorStopsBuffer([
+      { position: 0.0, color: [1, 0, 0, 1] },
+      { position: 1.0, color: [0, 0, 1, 1] },
+    ]);
+
+    // stop 0 at floats [0..7]: position at 0, color (vec4, 16-byte aligned) at +4.
+    expect(mgr.colorStopsData[0]).toBe(0.0);
+    expect(Array.from(mgr.colorStopsData.slice(4, 8))).toEqual([1, 0, 0, 1]);
+    // stop 1 at floats [8..15]: position at 8, color at +12.
+    expect(mgr.colorStopsData[8]).toBe(1.0);
+    expect(Array.from(mgr.colorStopsData.slice(12, 16))).toEqual([0, 0, 1, 1]);
+  });
 });

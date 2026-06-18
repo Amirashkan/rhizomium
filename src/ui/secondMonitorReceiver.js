@@ -112,6 +112,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let latestComputeUniforms = null; // re-applied once the executor finishes init
   let appliedComputeKey = null;     // dedupe costly graph rebuilds
   const prevPacked = new Map();     // node id -> last packed bytes (re-dispatch detection)
+  const prevColorStops = new Map(); // node id -> last color-stop bytes (gradient re-dispatch)
 
   const channel = openSecondMonitorChannel();
 
@@ -223,8 +224,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       if (!mgr || typeof mgr.writeRawComputeUniforms !== 'function') continue;
       try { mgr.writeRawComputeUniforms(n.packed, n.colorStops || null); } catch (_) { /* ignore */ }
       // Static-input stateless nodes are skipped by the executor's change detection;
-      // when the injected bytes change, invalidate the hash so it re-dispatches.
-      if (_packedChanged(n.id, n.packed)) {
+      // when the injected uniforms OR color stops change, invalidate the hash so it
+      // re-dispatches. (Color stops live in a separate buffer, not in `packed`.)
+      if (_computeChanged(n.id, n.packed, n.colorStops)) {
         try { exec.inputHashes?.delete?.(n.id); } catch (_) { /* ignore */ }
       }
     }
@@ -249,6 +251,25 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     return changed;
   }
 
+  function _colorStopsChanged(id, cs) {
+    const prev = prevColorStops.get(id);
+    let changed = true;
+    if (!cs && !prev) changed = false;
+    else if (cs && prev && cs.length === prev.length) {
+      changed = false;
+      for (let i = 0; i < cs.length; i++) { if (cs[i] !== prev[i]) { changed = true; break; } }
+    }
+    if (cs) prevColorStops.set(id, cs.slice ? cs.slice() : cs);
+    return changed;
+  }
+
+  // True when a node's injected uniforms (ignoring time) or its color stops changed.
+  function _computeChanged(id, packed, colorStops) {
+    const p = _packedChanged(id, packed);
+    const c = _colorStopsChanged(id, colorStops);
+    return p || c;
+  }
+
   function applyTexture(msg) {
     if (!msg || !msg.bitmap) return;
     if (!computeRuntime) { pendingTextures.push(msg); ensureComputeRuntime(); return; }
@@ -263,6 +284,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     appliedComputeKey = null;
     latestComputeUniforms = null;
     prevPacked.clear();
+    prevColorStops.clear();
   }
 
   /** Apply a tier change from the editor: ensure runtimes and tear down compute when leaving. */

@@ -243,6 +243,22 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.inputHashes.has('1')).toBe(false);
     });
 
+    it('re-dispatches a gradient when only its color stops change', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: '1', kind: 'ComputeGradient', wgsl: 'W', width: 8, height: 8, inputs: [] }], executionOrder: ['1'] });
+      await settle();
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.1, 2]), colorStops: new Float32Array([0, 0, 0, 0, 1, 0, 0, 0]) }] });
+      await settle();
+      rt.computeExecutor.inputHashes.set('1', 'cached');
+
+      // packed differs only by time (index 2), but the color stops changed → invalidate.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.2, 2]), colorStops: new Float32Array([0, 0, 0, 0, 1, 1, 1, 1]) }] });
+      await settle();
+      expect(rt.computeExecutor.inputHashes.has('1')).toBe(false);
+    });
+
     it('injects a broadcast texture into the texture manager', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
