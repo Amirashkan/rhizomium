@@ -151,6 +151,7 @@ describe('TauriSecondMonitorViewer', () => {
     delete global.window.computeExecutor;
     delete global.window.computeNodeRegistry;
     delete global.window.textureManager;
+    delete global.window.renderLoop;
   });
 
   it('starts inactive', () => {
@@ -442,5 +443,23 @@ describe('TauriSecondMonitorViewer', () => {
 
     expect(await viewer.toggle()).toBe(false);
     expect(viewer.isActive).toBe(false);
+  });
+
+  it('caps the editor render loop to fixed 60fps while open and restores on close', async () => {
+    global.window.renderLoop = {
+      getState: () => ({ mode: 'vsync', fixedFps: 120 }),
+      setMode: vi.fn(),
+      setFixedFps: vi.fn(),
+    };
+    const viewer = new TauriSecondMonitorViewer(source);
+
+    await viewer.open();
+    expect(global.window.renderLoop.setFixedFps).toHaveBeenCalledWith(60);
+    expect(global.window.renderLoop.setMode).toHaveBeenCalledWith('fixed');
+
+    await viewer.close();
+    // Restored to the captured vsync / 120 fps.
+    expect(global.window.renderLoop.setMode).toHaveBeenLastCalledWith('vsync');
+    expect(global.window.renderLoop.setFixedFps).toHaveBeenLastCalledWith(120);
   });
 });

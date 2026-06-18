@@ -119,6 +119,7 @@ export class TauriSecondMonitorViewer {
 
     this._active = true;
     this._startTap();
+    this._applyRenderCap();
     this.onActiveChange(true);
     this.onStatus('Second-monitor viewer opened');
   }
@@ -132,12 +133,43 @@ export class TauriSecondMonitorViewer {
 
     const win = this._win;
     this._teardown();
+    this._restoreRenderCap();
     if (win) { try { await win.close(); } catch (_) { /* already gone */ } }
 
     if (wasActive) {
       this.onActiveChange(false);
       this.onStatus('Second-monitor viewer closed');
     }
+  }
+
+  /**
+   * Cap the editor's render loop to a fixed 60fps while the output window is open.
+   * In vsync mode the editor renders once per rAF — i.e. at the editor monitor's
+   * refresh rate (e.g. 75Hz) — so on a high-refresh display it over-drives the
+   * (now full-resolution) compute work and the framerate suffers, more so when
+   * the output is on a slower display. A fixed-60 cap evens that out.
+   */
+  _applyRenderCap() {
+    const loop = (typeof window !== 'undefined') ? window.renderLoop : null;
+    if (!loop || typeof loop.setMode !== 'function') return;
+    try {
+      const st = typeof loop.getState === 'function' ? loop.getState() : null;
+      this._savedLoopMode = st ? st.mode : (loop.mode || null);
+      this._savedLoopFps = st ? st.fixedFps : (loop.fixedFps || null);
+    } catch (_) { this._savedLoopMode = null; this._savedLoopFps = null; }
+    try { loop.setFixedFps(60); loop.setMode('fixed'); } catch (_) { /* ignore */ }
+  }
+
+  /** Restore the editor's render-loop mode/fps captured in _applyRenderCap. */
+  _restoreRenderCap() {
+    const loop = (typeof window !== 'undefined') ? window.renderLoop : null;
+    if (!loop || typeof loop.setMode !== 'function') return;
+    try {
+      if (this._savedLoopMode) loop.setMode(this._savedLoopMode);
+      if (this._savedLoopFps != null && typeof loop.setFixedFps === 'function') loop.setFixedFps(this._savedLoopFps);
+    } catch (_) { /* ignore */ }
+    this._savedLoopMode = null;
+    this._savedLoopFps = null;
   }
 
   /** Tear down completely (alias of close for symmetry with other managers). */
