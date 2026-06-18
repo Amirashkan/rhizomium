@@ -102,7 +102,10 @@ const computeSnap = (wgsl) => ({
 
 // Editor-side globals the viewer reads to build COMPUTE_GRAPH / TEXTURE broadcasts.
 function stubComputeGlobals({ nodes = [], textures = [] } = {}) {
-  global.window.computeExecutor = { executionOrder: nodes.map((n) => n.id) };
+  const managers = new Map(
+    nodes.map((n) => [n.id, { textureWidth: n.actualW || n.width, textureHeight: n.actualH || n.height }]),
+  );
+  global.window.computeExecutor = { executionOrder: nodes.map((n) => n.id), computeManagers: managers };
   global.window.computeNodeRegistry = new Map(
     nodes.map((n) => [n.id, {
       node: { id: n.id, kind: n.kind, inputs: n.inputs || [], computeResolution: [n.width, n.height] },
@@ -217,7 +220,9 @@ describe('TauriSecondMonitorViewer', () => {
 
   it('broadcasts compute graph, textures, and per-frame compute uniforms for a native-compute graph', async () => {
     stubComputeGlobals({
-      nodes: [{ id: '1', kind: 'ComputeNoise', wgsl: 'CWGSL', width: 320, height: 240, supportsFeedback: false }],
+      // registry resolution is small/stale (320x240) but the manager actually
+      // renders at FHD — the broadcast must carry the manager's real size.
+      nodes: [{ id: '1', kind: 'ComputeNoise', wgsl: 'CWGSL', width: 320, height: 240, actualW: 1920, actualH: 1080 }],
       textures: [{ nodeId: '7', w: 4, h: 4 }],
     });
     vi.stubGlobal('createImageBitmap', vi.fn(async (src) => ({ width: src.width, height: src.height, close: vi.fn() })));
@@ -234,7 +239,8 @@ describe('TauriSecondMonitorViewer', () => {
     expect(channel.posted.find((m) => m.type === MSG.SHADER)?.wgsl).toBe('WGSL_C');
     const cg = channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH);
     expect(cg?.nodes).toHaveLength(1);
-    expect(cg.nodes[0]).toMatchObject({ id: '1', kind: 'ComputeNoise', wgsl: 'CWGSL', width: 320, height: 240 });
+    // Broadcast carries the manager's ACTUAL (FHD) resolution, not the stale registry size.
+    expect(cg.nodes[0]).toMatchObject({ id: '1', kind: 'ComputeNoise', wgsl: 'CWGSL', width: 1920, height: 1080 });
     expect(channel.posted.some((m) => m.type === MSG.TEXTURE && m.nodeId === '7')).toBe(true);
     expect(renderer.setStateTapComputeMode).toHaveBeenCalledWith(true);
     const cu = channel.posted.find((m) => m.type === MSG.COMPUTE_UNIFORMS);

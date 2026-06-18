@@ -414,13 +414,20 @@ export class TauriSecondMonitorViewer {
     registry.forEach((data, id) => {
       const node = data && data.node;
       if (!node) return;
+      // Broadcast the manager's ACTUAL texture size (the editor renders compute at
+      // the preview resolution, e.g. FHD). The registry `resolution` field is often
+      // empty, which left the receiver on its low 1024² default → blurry output.
+      const mgr = (exec.computeManagers && typeof exec.computeManagers.get === 'function')
+        ? exec.computeManagers.get(id) : null;
       const res = data.resolution || node.computeResolution || [];
+      const width = (mgr && mgr.textureWidth) || res[0] || 0;
+      const height = (mgr && mgr.textureHeight) || res[1] || 0;
       nodes.push({
         id,
         kind: node.kind,
         wgsl: data.wgslCode,
-        width: res[0] || 0,
-        height: res[1] || 0,
+        width,
+        height,
         supportsFeedback: !!data.supportsFeedback,
         inputs: Array.isArray(node.inputs) ? node.inputs.slice() : [],
       });
