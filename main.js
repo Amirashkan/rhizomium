@@ -137,6 +137,10 @@ window.gpuRenderer = new GPURenderer(device, canvas);
         window.gpuRenderer.profiler = computeProfiler;
       }
 
+      // The second-monitor mirror taps window.gpuRenderer; re-point it at the
+      // freshly created renderer so the output survives a device reinit.
+      window.secondMonitorViewer?.reattach?.();
+
       // Enable profiler
       computeProfiler.setEnabled(true);
 

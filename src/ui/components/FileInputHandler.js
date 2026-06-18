@@ -165,6 +165,10 @@ export class FileInputHandler {
       // Load the texture
 await window.textureManager.uploadTexture(node.id, file);
 
+      // Mirror the new texture to the second-monitor window if a native-compute
+      // mirror is open (no-op otherwise).
+      window.secondMonitorViewer?.onTextureChanged?.(node.id);
+
       // Update parameter value through the value manager
       if (valueManager && valueManager.setValue) {
         // Record for undo

@@ -8,8 +8,17 @@ export class ColorStopInputHandler {
 
   create(param, node, container, label, valueManager, onUpdate) {
     container.innerHTML = '';
-    
-    const stops = node.params?.[param.name] || param.default;
+
+    // Materialise the param on the node up front. The edit handlers below read
+    // node.params[param.name] DIRECTLY (no fallback); on an uninitialised value
+    // (e.g. a gradient loaded from an older project) they threw, and the panel
+    // silently fell back to a plain text input — so the stops were never stored
+    // and the gradient only ever showed its default colours.
+    if (!node.params) node.params = {};
+    if (node.params[param.name] === undefined && param.default !== undefined) {
+      node.params[param.name] = JSON.parse(JSON.stringify(param.default));
+    }
+    const stops = node.params[param.name] || param.default;
     
     const widget = document.createElement('div');
     widget.className = 'color-stops-widget';
