@@ -16,9 +16,16 @@
 //    letterboxed on black, onto the 2D #second-monitor-output canvas — the
 //    original behaviour, kept so nothing ever regresses.
 //
-// Driving the paint from this window's own rAF (not the editor's) means the
-// output runs at the second display's refresh rate and never freezes if the
-// editor window is occluded or minimised.
+// The paint is driven by this window's own rAF (not the editor's), but rendered
+// ON DEMAND: a frame is only (re)drawn when new editor state has arrived since
+// the last paint. The editor broadcasts that state at its capped frame rate
+// (<=60/s), so re-rendering on every refresh of a high-refresh second display
+// would just recompute identical frames — wasting the GPU on duplicate
+// full-resolution compute + fragment passes and dragging both windows below
+// framerate (worst for fragment+compute graphs, where the per-frame compute work
+// is heaviest). Rendering on demand caps our work to the editor's cadence while
+// still surviving the editor window being occluded or minimised (no new state
+// simply means there is nothing new to draw).
 //
 // Keyboard: Esc closes the window; F (or double-click) toggles native
 // fullscreen. Tauri APIs are loaded via guarded dynamic import so this module
@@ -102,6 +109,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let latestW = 0, latestH = 0;
   let rafId = null;
   let closing = false;
+  // Render-on-demand flag: set whenever new editor state (or a resize) arrives,
+  // cleared after a paint. The frame loop skips rAFs where it is false so we never
+  // recompute an identical frame faster than the editor produces new state.
+  let needsRender = true;
   let cachedWindow = null;
 
   // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
@@ -355,6 +366,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       default:
         break;
     }
+    // Any inbound editor message can change what we'd draw (new shader, uniforms,
+    // compute state, texture or mirrored pixels), so request exactly one paint.
+    // The frame loop coalesces bursts — e.g. UNIFORMS + COMPUTE_UNIFORMS sent in
+    // the same editor frame — into a single render.
+    needsRender = true;
   }
   if (channel) channel.addEventListener('message', onMessage);
 
@@ -417,6 +433,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     sizeFallbackCanvas();
     sizeGpuCanvas();
     reportSize();
+    needsRender = true; // re-letterbox / re-render at the new backing size
   }
   sizeFallbackCanvas();
   sizeGpuCanvas();
@@ -467,12 +484,19 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
 
   function frame() {
     rafId = win.requestAnimationFrame(frame);
+    // Render on demand: skip rAFs with no new editor state (see file header).
+    // This caps our compute + fragment work to the editor's cadence (<=60/s)
+    // instead of the second display's refresh rate, which is what dragged
+    // fragment+compute graphs slow on high-refresh outputs.
+    if (!needsRender) return;
     if ((tier === TIER.NATIVE || tier === TIER.NATIVE_COMPUTE) && renderNative()) {
+      needsRender = false;
       showCanvas('gpu');
       return;
     }
     showCanvas('2d');
     paintFallback();
+    needsRender = false;
   }
   showCanvas('2d');
   rafId = win.requestAnimationFrame(frame);

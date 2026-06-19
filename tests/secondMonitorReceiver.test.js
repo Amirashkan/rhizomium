@@ -155,6 +155,40 @@ describe('secondMonitorReceiver', () => {
     expect(aspect[0]).toBeCloseTo(1280 / 720, 5);
   });
 
+  it('renders on demand: an idle frame with no new state does not re-render', async () => {
+    const renderer = makeFakeRenderer();
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+    const ch = FakeBroadcastChannel.instances[0];
+
+    ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+    await flush();
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([0, 0, 1, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+
+    step(); // new state → one render
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // No new editor state since the last paint: the next animation frame must NOT
+    // re-render — otherwise a high-refresh display recomputes identical frames and
+    // wastes the GPU (the cause of the fragment+compute slowdown).
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // Fresh state arrives → renders again.
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([0, 0, 2, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+  });
+
   it('paints mirrored pixels in fallback mode and does not render natively', async () => {
     const renderer = makeFakeRenderer();
     initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
