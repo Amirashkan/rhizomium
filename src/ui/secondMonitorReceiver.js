@@ -153,6 +153,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       // Injected uniforms must survive render(); never let it re-derive them
       // from window.* globals this window doesn't have.
       renderer.externalUniformMode = true;
+      // Count GPU-completed frames so the profiler can show real throughput
+      // (onFramePresented fires on onSubmittedWorkDone, not at dispatch time).
+      try { renderer.onFramePresented = () => profiler.presented(); } catch (_) { /* ignore */ }
       if (pendingWgsl) { applyShader(pendingWgsl); pendingWgsl = null; }
       return renderer;
     }).catch(() => {
@@ -384,6 +387,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     // broadcast, and the two near-60Hz clocks beat in/out of phase — a periodic
     // skipped/doubled frame seen as a hitch on the fullscreen output.
     lastMessageTs = nowMs();
+    profiler.message();
   }
   if (channel) channel.addEventListener('message', onMessage);
 
@@ -500,14 +504,108 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       ? win.performance.now() : Date.now();
   }
 
+  /**
+   * Lightweight self-profiler for this output window (toggle with P). It measures
+   * exactly the signals that distinguish the possible causes of a visible hitch:
+   *   • rAF gap max + stall count  → a present/GC stall (the frame never reached the
+   *                                  display on time — invisible to the editor's
+   *                                  compute profiler, which only times compute).
+   *   • render (sync dispatch) ms  → CPU-side render/compute-encode cost.
+   *   • GPU-presented fps          → real throughput (onFramePresented), vs rendered.
+   *   • throttle / idle skips      → our own fps cap or idle-hold kicking in.
+   *   • editor message gap         → the editor starving us of state.
+   * Off by default; accumulates only while on, so it can't perturb the normal path.
+   */
+  function makeReceiverProfiler() {
+    const el = doc.getElementById('second-monitor-profiler');
+    const WIN_MS = 500;
+    const STALL_MS = RENDER_STEP_MS * 1.5; // an rAF gap this long = a dropped frame
+    let on = false;
+    let winStart = 0, lastRaf = 0, lastMsg = 0, renderT0 = 0;
+    let rafCount = 0, rendered = 0, presented = 0, throttle = 0, idle = 0, stalls = 0, msgs = 0;
+    let gapMax = 0, drawSum = 0, drawMax = 0, msgGapMax = 0;
+    let lastStats = null;
+
+    function resetWindow(t) {
+      winStart = t; rafCount = 0; rendered = 0; presented = 0; throttle = 0; idle = 0;
+      stalls = 0; msgs = 0; gapMax = 0; drawSum = 0; drawMax = 0; msgGapMax = 0;
+    }
+
+    function flush(t) {
+      const sec = Math.max(1e-3, (t - winStart) / 1000);
+      lastStats = {
+        tier,
+        renderFps: Math.round(rendered / sec),
+        rafFps: Math.round(rafCount / sec),
+        gpuFps: Math.round(presented / sec),
+        gapMaxMs: +gapMax.toFixed(1),
+        stalls,
+        drawAvgMs: +(rendered ? drawSum / rendered : 0).toFixed(2),
+        drawMaxMs: +drawMax.toFixed(2),
+        throttle, idle,
+        msgsPerSec: Math.round(msgs / sec),
+        msgGapMaxMs: +msgGapMax.toFixed(1),
+      };
+      if (el) {
+        const s = lastStats;
+        el.textContent =
+          `2nd-monitor · ${s.tier}\n` +
+          `render ${s.renderFps} fps  (rAF ${s.rafFps} · gpu ${s.gpuFps})\n` +
+          `frame  gap max ${s.gapMaxMs}ms · stalls ${s.stalls}\n` +
+          `draw   ${s.drawAvgMs}ms avg · ${s.drawMaxMs}ms max\n` +
+          `skip   throttle ${s.throttle} · idle ${s.idle}\n` +
+          `editor ${s.msgsPerSec} msg/s · gap max ${s.msgGapMaxMs}ms`;
+      }
+      resetWindow(t);
+    }
+
+    return {
+      get on() { return on; },
+      snapshot() { return lastStats; },
+      toggle() {
+        on = !on;
+        if (el) el.style.display = on ? 'block' : 'none';
+        if (on) { resetWindow(nowMs()); lastRaf = 0; lastMsg = 0; }
+      },
+      raf(now) {
+        if (!on) return;
+        if (lastRaf) {
+          const gap = now - lastRaf;
+          if (gap > gapMax) gapMax = gap;
+          if (gap > STALL_MS) stalls++;
+        }
+        lastRaf = now;
+        rafCount++;
+        if (now - winStart >= WIN_MS) flush(now);
+      },
+      skip(kind) { if (on) { if (kind === 'throttle') throttle++; else idle++; } },
+      renderStart() { if (on) renderT0 = nowMs(); },
+      renderEnd() {
+        if (!on) return;
+        const ms = nowMs() - renderT0;
+        drawSum += ms; if (ms > drawMax) drawMax = ms; rendered++;
+      },
+      presented() { if (on) presented++; },
+      message() {
+        if (!on) return;
+        const t = nowMs();
+        if (lastMsg) { const g = t - lastMsg; if (g > msgGapMax) msgGapMax = g; }
+        lastMsg = t; msgs++;
+      },
+    };
+  }
+
+  const profiler = makeReceiverProfiler();
+
   function frame(ts) {
     rafId = win.requestAnimationFrame(frame);
     const now = (typeof ts === 'number') ? ts : nowMs();
+    profiler.raf(now);
 
     // Idle hold: when the editor stops broadcasting (its window minimised/occluded
     // so its rAF is throttled, or it's closing), hold the last frame rather than
     // re-rendering it — and re-stepping feedback sims — on our own clock.
-    if (now - lastMessageTs > IDLE_HOLD_MS) return;
+    if (now - lastMessageTs > IDLE_HOLD_MS) { profiler.skip('idle'); return; }
 
     // Cap to ~RENDER_FPS on OUR OWN clock, rendering whatever state is latest (we do
     // NOT render once-per-message: that made our vsync sample the editor's ~60/s
@@ -516,15 +614,21 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     // EVERY frame instead of dropping one every few seconds (the drift a carry
     // accumulator caused). Only genuinely high-refresh displays get throttled, which
     // is what keeps compute from over-driving.
-    if (lastRenderTs != null && now - lastRenderTs < RENDER_STEP_MS - RENDER_STEP_TOL) return;
+    if (lastRenderTs != null && now - lastRenderTs < RENDER_STEP_MS - RENDER_STEP_TOL) {
+      profiler.skip('throttle');
+      return;
+    }
     lastRenderTs = now;
 
+    profiler.renderStart();
     if ((tier === TIER.NATIVE || tier === TIER.NATIVE_COMPUTE) && renderNative()) {
       showCanvas('gpu');
+      profiler.renderEnd();
       return;
     }
     showCanvas('2d');
     paintFallback();
+    profiler.renderEnd();
   }
   showCanvas('2d');
   rafId = win.requestAnimationFrame(frame);
@@ -533,6 +637,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   win.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeSelf();
     else if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+    else if (e.key === 'p' || e.key === 'P') profiler.toggle();
   });
   win.addEventListener('dblclick', () => toggleFullscreen());
   win.addEventListener('beforeunload', () => {
@@ -585,11 +690,16 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   }
   reportSize();
 
+  // Expose the profiler on the window so it can be read from devtools
+  // (e.g. `__secondMonitorProfiler.snapshot()`) without the overlay.
+  try { win.__secondMonitorProfiler = profiler; } catch (_) { /* ignore */ }
+
   return {
     get tier() { return tier; },
     get renderer() { return renderer; },
     get computeRuntime() { return computeRuntime; },
     get latestSize() { return { width: latestW, height: latestH }; },
+    profiler,
     onMessage,
     closeSelf,
     toggleFullscreen,

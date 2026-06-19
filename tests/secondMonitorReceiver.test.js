@@ -214,6 +214,35 @@ describe('secondMonitorReceiver', () => {
     expect(renderer.render).toHaveBeenCalledTimes(40);
   });
 
+  it('profiler accumulates frame/render/message stats when toggled on', async () => {
+    const renderer = makeFakeRenderer();
+    const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+    const ch = FakeBroadcastChannel.instances[0];
+    ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+    await flush();
+
+    expect(r.profiler.snapshot()).toBeNull(); // nothing until enabled
+    r.profiler.toggle();
+    expect(r.profiler.on).toBe(true);
+
+    // ~40 frames at 60fps with the editor broadcasting each frame → past one window.
+    for (let i = 0; i < 40; i++) {
+      ch.emit({
+        type: MSG.UNIFORMS,
+        aspect: new Float32Array([1, 0, 0, 0]),
+        globals: new Float32Array([0, 0, i, 0, 0, 0, 0, 0]),
+        params: new Float32Array([0]),
+      });
+      step(16.6);
+    }
+
+    const s = r.profiler.snapshot();
+    expect(s).toBeTruthy();
+    expect(s.renderFps).toBeGreaterThan(0);
+    expect(s.msgsPerSec).toBeGreaterThan(0);
+    expect(s.tier).toBe(TIER.NATIVE);
+  });
+
   it('holds the last frame after sustained silence, then resumes on new state', async () => {
     const renderer = makeFakeRenderer();
     const ch = await primeNative(renderer);

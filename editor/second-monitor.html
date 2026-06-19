@@ -21,12 +21,21 @@
       background: rgba(0, 0, 0, 0.45); padding: 6px 12px; border-radius: 6px;
       pointer-events: none; transition: opacity 0.5s ease; z-index: 2;
     }
+    /* Performance profiler overlay (toggle with P). Hidden by default. */
+    #second-monitor-profiler {
+      position: fixed; top: 12px; left: 12px; margin: 0; display: none;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: rgba(120, 255, 170, 0.92); background: rgba(0, 0, 0, 0.55);
+      padding: 8px 10px; border-radius: 6px; white-space: pre;
+      pointer-events: none; z-index: 3;
+    }
   </style>
 </head>
 <body>
   <canvas id="second-monitor-gpu"></canvas>
   <canvas id="second-monitor-output"></canvas>
-  <div id="second-monitor-hint">Second-monitor output · Esc to close · F toggles fullscreen</div>
+  <div id="second-monitor-hint">Second-monitor output · Esc to close · F fullscreen · P profiler</div>
+  <pre id="second-monitor-profiler"></pre>
   <script type="module" src="../src/ui/secondMonitorReceiver.js"></script>
 </body>
 </html>
