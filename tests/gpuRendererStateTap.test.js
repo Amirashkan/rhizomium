@@ -181,6 +181,23 @@ describe('GPURenderer state tap', () => {
       })).toBe('native-compute');
     });
 
+    it('is "native-compute" for a multi-sim graph (several feedback nodes)', () => {
+      global.window.computeExecutor = {
+        computeManagers: new Map([
+          ['1', { supportsFeedback: true }],
+          ['2', { supportsFeedback: true }],
+        ]),
+      };
+      global.window.computeNodeRegistry = new Map([
+        ['1', { node: { id: '1', kind: 'ComputeReactionDiffusion', inputs: [] } }],
+        ['2', { node: { id: '2', kind: 'ComputeFeedback', inputs: ['1'] } }],
+      ]);
+      expect(tier({
+        u: { kind: 'uniform-buffer' },
+        c: { kind: 'texture-2d', varName: 'compute_node_2' },
+      })).toBe('native-compute');
+    });
+
     it('is "fallback" when a compute node is fed by a fragment node', () => {
       global.window.computeExecutor = {
         computeManagers: new Map([['2', { supportsFeedback: false }]]),

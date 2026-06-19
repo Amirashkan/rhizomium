@@ -270,6 +270,37 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.executionOrder).toEqual(['1']);
     });
 
+    it('builds multiple feedback sims and applies uniforms to each (multi-sim graph)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [
+          { id: '1', kind: 'ComputeReactionDiffusion', wgsl: 'A', width: 64, height: 64, supportsFeedback: true, inputs: [] },
+          { id: '2', kind: 'ComputeFeedback', wgsl: 'B', width: 64, height: 64, supportsFeedback: true, inputs: ['1'] },
+        ],
+        executionOrder: ['1', '2'],
+      });
+      await settle();
+
+      // Both stateful sims are reconstructed with their feedback flag and run order.
+      expect(win.computeNodeRegistry.get('1')).toMatchObject({ supportsFeedback: true });
+      expect(win.computeNodeRegistry.get('2')).toMatchObject({ supportsFeedback: true });
+      expect(rt.computeExecutor.computeManagers.size).toBe(2);
+      expect(rt.computeExecutor.executionOrder).toEqual(['1', '2']);
+
+      // Per-frame uniforms reach every sim.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [
+        { id: '1', packed: new Float32Array([64, 64, 0, 1]) },
+        { id: '2', packed: new Float32Array([64, 64, 0, 2]) },
+      ] });
+      await settle();
+      expect(rt.computeExecutor.computeManagers.get('1').writeRawComputeUniforms).toHaveBeenCalled();
+      expect(rt.computeExecutor.computeManagers.get('2').writeRawComputeUniforms).toHaveBeenCalled();
+    });
+
     it('injects compute uniforms and invalidates input hashes when bytes change', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
