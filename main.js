@@ -11,7 +11,6 @@ import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
-import { SecondMonitorViewer } from "./src/ui/SecondMonitorViewer.js";
 import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { isTauri } from "./src/utils/isTauri.js";
@@ -543,15 +542,14 @@ async function initialize() {
         };
       }
 
-      // Second-monitor full-screen viewer — only in the Vite/desktop build.
-      // The raw web deployments (Python server, Vercel) never instantiate it,
-      // so the menu entry stays hidden there. Under Tauri the OS WebView blocks
-      // window.open(), so a native-window backend is used instead of the popup.
-      if (isViteBuild()) {
-        const SecondMonitorBackend = isTauri()
-          ? TauriSecondMonitorViewer
-          : SecondMonitorViewer;
-        secondMonitorViewer = new SecondMonitorBackend(gpuCanvas, {
+      // Second-monitor full-screen viewer — desktop (Tauri) only. It opens a real
+      // borderless OS window on the second display and re-renders the shader there
+      // natively (see TauriSecondMonitorViewer). The raw web deployments and the
+      // plain browser dev build get no second viewer: the only thing a browser
+      // popup could do is mirror copied pixels, which we no longer ship — so the
+      // menu entry stays hidden outside the desktop app.
+      if (isViteBuild() && isTauri()) {
+        secondMonitorViewer = new TauriSecondMonitorViewer(gpuCanvas, {
           renderer: window.gpuRenderer,
           onStatus: (message, kind) => updateStatus(message, kind),
           onActiveChange: (active) => setSecondMonitorButtonState(active),
