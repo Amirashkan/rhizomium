@@ -11,10 +11,14 @@
 //    from our own rAF, at this display's native resolution and refresh rate. No
 //    pixels cross the process boundary, so the editor keeps full framerate.
 //
-//  • FALLBACK (pixels): for graphs the snapshot can't reproduce (textures,
-//    compute/feedback), the editor broadcasts FRAME bitmaps and we paint them,
-//    letterboxed on black, onto the 2D #second-monitor-output canvas — the
-//    original behaviour, kept so nothing ever regresses.
+//    Compute graphs — including stateful/feedback sims — are reproduced here too:
+//    this window runs its OWN ComputeExecutor and evolves an independent copy of
+//    the simulation from the broadcast graph + per-frame uniform bytes.
+//
+//  • FALLBACK (pixels): for the few graphs the receiver can't reproduce from state
+//    alone (a compute node fed by a fragment node, or fragment storage buffers),
+//    the editor broadcasts FRAME bitmaps and we paint them, letterboxed on black,
+//    onto the 2D #second-monitor-output canvas — kept so nothing ever regresses.
 //
 // The paint is driven by this window's own rAF (not the editor's), but rendered
 // ON DEMAND: a frame is only (re)drawn when new editor state has arrived since

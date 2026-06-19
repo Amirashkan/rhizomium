@@ -27,7 +27,7 @@ export const SECOND_MONITOR_CHANNEL = 'rhizomium:second-monitor';
 /** Native-render tier the editor advertises to the receiver via {@link SecondMonitorMessage.CAPS}. */
 export const SecondMonitorTier = Object.freeze({
   NATIVE: 'native',                 // fragment + uniforms only
-  NATIVE_COMPUTE: 'native-compute', // also stateless compute and/or broadcast image textures
+  NATIVE_COMPUTE: 'native-compute', // also compute (stateless or stateful/feedback, replicated) and/or image textures
   FALLBACK: 'fallback',             // receiver paints mirrored FRAME bitmaps (pixel path)
 });
 

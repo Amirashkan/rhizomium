@@ -19,9 +19,12 @@
 // frame, where the old approach (capturing #gpu-canvas with createImageBitmap
 // and structured-cloning a multi-MB frame every present) dropped it to ~30fps.
 //
-// Graphs that bind textures or storage/compute buffers cannot be reproduced from
-// a uniform snapshot alone; for those this backend reverts to the pixel FRAME
-// tap (GPURenderer.setFrameTap) so the second monitor never shows broken output.
+// Textured and compute graphs (including stateful/feedback sims) are reproduced
+// natively too: the WGSL, the compute subgraph and the per-frame uniform bytes are
+// broadcast and the receiver re-renders from them. Only graphs the receiver can't
+// reproduce from state alone — a compute node fed by a fragment node, or a fragment
+// storage buffer — revert to the pixel FRAME tap (GPURenderer.setFrameTap) so the
+// second monitor never shows broken output.
 //
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
