@@ -20,16 +20,17 @@
 //    the editor broadcasts FRAME bitmaps and we paint them, letterboxed on black,
 //    onto the 2D #second-monitor-output canvas — kept so nothing ever regresses.
 //
-// The paint is driven by this window's own rAF (not the editor's), but rendered
-// ON DEMAND: a frame is only (re)drawn when new editor state has arrived since
-// the last paint. The editor broadcasts that state at its capped frame rate
-// (<=60/s), so re-rendering on every refresh of a high-refresh second display
-// would just recompute identical frames — wasting the GPU on duplicate
-// full-resolution compute + fragment passes and dragging both windows below
-// framerate (worst for fragment+compute graphs, where the per-frame compute work
-// is heaviest). Rendering on demand caps our work to the editor's cadence while
-// still surviving the editor window being occluded or minimised (no new state
-// simply means there is nothing new to draw).
+// The paint is driven by this window's own rAF, paced at a fixed ~60fps on OUR
+// OWN clock and rendering whatever editor state is latest. We pace on our clock
+// rather than rendering once per inbound message: message-arrival gating made our
+// vsync sample the editor's ~60/s broadcast, and two near-60Hz clocks drifting in
+// and out of phase skipped/doubled a frame on a regular multi-second cycle — a
+// periodic hitch on the fullscreen output. The fixed cap also keeps compute from
+// over-driving on a high-refresh second display (re-running the full-resolution
+// pipeline every refresh wasted the GPU and dragged both windows below framerate,
+// worst for fragment+compute graphs). After a short silence (the editor window
+// minimised/occluded so its rAF is throttled) we hold the last frame rather than
+// spin re-rendering and re-stepping feedback sims.
 //
 // Keyboard: Esc closes the window; F (or double-click) toggles native
 // fullscreen. Tauri APIs are loaded via guarded dynamic import so this module
@@ -113,10 +114,13 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let latestW = 0, latestH = 0;
   let rafId = null;
   let closing = false;
-  // Render-on-demand flag: set whenever new editor state (or a resize) arrives,
-  // cleared after a paint. The frame loop skips rAFs where it is false so we never
-  // recompute an identical frame faster than the editor produces new state.
-  let needsRender = true;
+  // Steady-cadence render pacing. We render the latest received state on our OWN
+  // clock (a fixed ~60fps cap), NOT once per inbound message — see the frame loop.
+  const RENDER_STEP_MS = 1000 / 60;   // cap to the editor's own 60fps render cap
+  const IDLE_HOLD_MS = 200;           // hold the last frame after this much silence
+  let lastFrameTs = null;             // rAF timestamp of the previous frame
+  let renderAccumMs = 0;              // elapsed-time accumulator for the fps cap
+  let lastMessageTs = nowMs();        // wall clock of the last inbound editor message
   let cachedWindow = null;
 
   // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
@@ -370,11 +374,13 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       default:
         break;
     }
-    // Any inbound editor message can change what we'd draw (new shader, uniforms,
-    // compute state, texture or mirrored pixels), so request exactly one paint.
-    // The frame loop coalesces bursts — e.g. UNIFORMS + COMPUTE_UNIFORMS sent in
-    // the same editor frame — into a single render.
-    needsRender = true;
+    // Track liveness only: while editor state keeps arriving we render at a steady
+    // cap (below); after IDLE_HOLD_MS of silence (editor minimised/occluded so its
+    // rAF is throttled) we hold the last frame instead of spinning. We deliberately
+    // do NOT render once-per-message: that made our vsync sample the editor's ~60/s
+    // broadcast, and the two near-60Hz clocks beat in/out of phase — a periodic
+    // skipped/doubled frame seen as a hitch on the fullscreen output.
+    lastMessageTs = nowMs();
   }
   if (channel) channel.addEventListener('message', onMessage);
 
@@ -437,7 +443,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     sizeFallbackCanvas();
     sizeGpuCanvas();
     reportSize();
-    needsRender = true; // re-letterbox / re-render at the new backing size
+    lastMessageTs = nowMs(); // count a resize as activity so we repaint at the new size
   }
   sizeFallbackCanvas();
   sizeGpuCanvas();
@@ -486,21 +492,41 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     }
   }
 
-  function frame() {
+  function nowMs() {
+    return (win.performance && typeof win.performance.now === 'function')
+      ? win.performance.now() : Date.now();
+  }
+
+  function frame(ts) {
     rafId = win.requestAnimationFrame(frame);
-    // Render on demand: skip rAFs with no new editor state (see file header).
-    // This caps our compute + fragment work to the editor's cadence (<=60/s)
-    // instead of the second display's refresh rate, which is what dragged
-    // fragment+compute graphs slow on high-refresh outputs.
-    if (!needsRender) return;
+    const now = (typeof ts === 'number') ? ts : nowMs();
+    // First frame has no previous timestamp — treat it as one step due so we paint
+    // immediately rather than waiting a frame.
+    const dt = (lastFrameTs == null) ? RENDER_STEP_MS : (now - lastFrameTs);
+    lastFrameTs = now;
+
+    // Idle hold: when the editor stops broadcasting (its window minimised/occluded
+    // so its rAF is throttled, or it's closing), hold the last frame rather than
+    // re-rendering it — and re-stepping feedback sims — on our own clock.
+    if (now - lastMessageTs > IDLE_HOLD_MS) { renderAccumMs = 0; return; }
+
+    // Steady ~60fps cap on OUR OWN clock, rendering whatever state is latest. We do
+    // NOT render once-per-message: gating on message arrival made our vsync sample
+    // the editor's ~60/s broadcast, and two near-60Hz clocks drifting in and out of
+    // phase skipped/doubled a frame on a regular multi-second cycle — the periodic
+    // hitch on the fullscreen output. Pacing on our own clock removes that beat and
+    // still caps compute so it can't over-drive a high-refresh display.
+    renderAccumMs += dt;
+    if (renderAccumMs < RENDER_STEP_MS) return;
+    // Consume one step; clamp the carry so a long stall can't burst-render later.
+    renderAccumMs = Math.min(renderAccumMs - RENDER_STEP_MS, RENDER_STEP_MS);
+
     if ((tier === TIER.NATIVE || tier === TIER.NATIVE_COMPUTE) && renderNative()) {
-      needsRender = false;
       showCanvas('gpu');
       return;
     }
     showCanvas('2d');
     paintFallback();
-    needsRender = false;
   }
   showCanvas('2d');
   rafId = win.requestAnimationFrame(frame);

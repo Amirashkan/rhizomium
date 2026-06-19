@@ -74,10 +74,11 @@ async function settle(n = 4) { for (let i = 0; i < n; i++) await flush(); }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('secondMonitorReceiver', () => {
-  let doc, win, rafCbs, gpuCanvas, fbCanvas, fbCtx;
+  let doc, win, rafCbs, gpuCanvas, fbCanvas, fbCtx, clock;
 
   beforeEach(() => {
     FakeBroadcastChannel.instances = [];
+    clock = 1000; // mutable wall clock shared by performance.now() and rAF timestamps
     rafCbs = [];
     gpuCanvas = makeFakeCanvas();
     fbCanvas = makeFakeCanvas();
@@ -92,7 +93,7 @@ describe('secondMonitorReceiver', () => {
     };
     win = {
       innerWidth: 1280, innerHeight: 720, devicePixelRatio: 1,
-      performance: { now: () => 1000 },
+      performance: { now: () => clock },
       requestAnimationFrame: vi.fn((cb) => { rafCbs.push(cb); return rafCbs.length; }),
       cancelAnimationFrame: vi.fn(),
       addEventListener: vi.fn(),
@@ -109,8 +110,15 @@ describe('secondMonitorReceiver', () => {
     vi.unstubAllGlobals();
   });
 
-  // Run the most recently scheduled rAF callback.
-  const step = () => { const cb = rafCbs.pop(); rafCbs.length = 0; if (cb) cb(); };
+  // Advance the clock by dtMs (default one 60fps frame) and run the most recently
+  // scheduled rAF callback with the new timestamp. The receiver paces rendering on
+  // this clock, so tests must advance it to drive frames.
+  const step = (dtMs = 1000 / 60) => {
+    clock += dtMs;
+    const cb = rafCbs.pop();
+    rafCbs.length = 0;
+    if (cb) cb(clock);
+  };
 
   it('announces READY (webgpu) and reports its backing size, starting on the safe pixel tier', () => {
     const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
@@ -155,11 +163,12 @@ describe('secondMonitorReceiver', () => {
     expect(aspect[0]).toBeCloseTo(1280 / 720, 5);
   });
 
-  it('renders on demand: an idle frame with no new state does not re-render', async () => {
-    const renderer = makeFakeRenderer();
+  // Render pacing: the receiver renders the latest state on its OWN steady ~60fps
+  // clock — NOT once per inbound message (which beat against vsync) — but throttled
+  // so a high-refresh display can't over-drive compute, and held when idle.
+  const primeNative = async (renderer) => {
     initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
     const ch = FakeBroadcastChannel.instances[0];
-
     ch.emit({ type: MSG.SHADER, wgsl: 'W' });
     await flush();
     ch.emit({
@@ -168,17 +177,39 @@ describe('secondMonitorReceiver', () => {
       globals: new Float32Array([0, 0, 1, 0, 0, 0, 0, 0]),
       params: new Float32Array([0]),
     });
+    return ch;
+  };
 
-    step(); // new state → one render
+  it('renders at a steady cap on its own clock, not once per message', async () => {
+    const renderer = makeFakeRenderer();
+    await primeNative(renderer);
+
+    step(); // one 60fps step → renders
     expect(renderer.render).toHaveBeenCalledTimes(1);
 
-    // No new editor state since the last paint: the next animation frame must NOT
-    // re-render — otherwise a high-refresh display recomputes identical frames and
-    // wastes the GPU (the cause of the fragment+compute slowdown).
+    // A sub-frame rAF (too soon) is throttled — caps compute on a high-refresh display.
+    step(4);
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // The next full step renders again WITHOUT any new message: we pace on our own
+    // clock, so there is no message-arrival/vsync beat.
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds the last frame after sustained silence, then resumes on new state', async () => {
+    const renderer = makeFakeRenderer();
+    const ch = await primeNative(renderer);
+
     step();
     expect(renderer.render).toHaveBeenCalledTimes(1);
 
-    // Fresh state arrives → renders again.
+    // No messages for longer than the idle window → hold (editor minimised/closed).
+    step(500);
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // Fresh state resumes the steady cadence.
     ch.emit({
       type: MSG.UNIFORMS,
       aspect: new Float32Array([1, 0, 0, 0]),
