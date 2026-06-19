@@ -20,13 +20,14 @@
 //    the editor broadcasts FRAME bitmaps and we paint them, letterboxed on black,
 //    onto the 2D #second-monitor-output canvas — kept so nothing ever regresses.
 //
-// The paint is driven by this window's own rAF, paced at a fixed ~60fps on OUR
-// OWN clock and rendering whatever editor state is latest. We pace on our clock
-// rather than rendering once per inbound message: message-arrival gating made our
-// vsync sample the editor's ~60/s broadcast, and two near-60Hz clocks drifting in
-// and out of phase skipped/doubled a frame on a regular multi-second cycle — a
-// periodic hitch on the fullscreen output. The fixed cap also keeps compute from
-// over-driving on a high-refresh second display (re-running the full-resolution
+// The paint is driven by this window's own rAF, capped to ~60fps on OUR OWN clock
+// and rendering whatever editor state is latest — NOT once per inbound message
+// (message-arrival gating made our vsync sample the editor's ~60/s broadcast and
+// beat against it). Pacing is by elapsed-since-last-render with a jitter tolerance,
+// not a carry accumulator: an accumulator targeting exactly the display rate slowly
+// drifts and drops one frame every few seconds. With the tolerance, a panel at (or
+// just above) the cap renders every frame; only genuinely high-refresh displays get
+// throttled, which is what keeps compute from over-driving (re-running the full-res
 // pipeline every refresh wasted the GPU and dragged both windows below framerate,
 // worst for fragment+compute graphs). After a short silence (the editor window
 // minimised/occluded so its rAF is throttled) we hold the last frame rather than
@@ -114,13 +115,15 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let latestW = 0, latestH = 0;
   let rafId = null;
   let closing = false;
-  // Steady-cadence render pacing. We render the latest received state on our OWN
-  // clock (a fixed ~60fps cap), NOT once per inbound message — see the frame loop.
-  const RENDER_STEP_MS = 1000 / 60;   // cap to the editor's own 60fps render cap
-  const IDLE_HOLD_MS = 200;           // hold the last frame after this much silence
-  let lastFrameTs = null;             // rAF timestamp of the previous frame
-  let renderAccumMs = 0;              // elapsed-time accumulator for the fps cap
-  let lastMessageTs = nowMs();        // wall clock of the last inbound editor message
+  // Render pacing. We render the latest received state on our OWN clock, capped to
+  // ~RENDER_FPS, NOT once per inbound message — see the frame loop. We pace on
+  // elapsed-since-last-render (not a carry accumulator): an accumulator targeting
+  // exactly the display rate slowly drifts and drops one frame every few seconds.
+  const RENDER_STEP_MS = 1000 / 60;        // cap target (matches the editor's 60fps cap)
+  const RENDER_STEP_TOL = RENDER_STEP_MS * 0.25; // jitter slack so a ~60Hz panel never skips
+  const IDLE_HOLD_MS = 200;                // hold the last frame after this much silence
+  let lastRenderTs = null;                 // rAF timestamp of the previous actual render
+  let lastMessageTs = nowMs();             // wall clock of the last inbound editor message
   let cachedWindow = null;
 
   // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
@@ -500,26 +503,21 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   function frame(ts) {
     rafId = win.requestAnimationFrame(frame);
     const now = (typeof ts === 'number') ? ts : nowMs();
-    // First frame has no previous timestamp — treat it as one step due so we paint
-    // immediately rather than waiting a frame.
-    const dt = (lastFrameTs == null) ? RENDER_STEP_MS : (now - lastFrameTs);
-    lastFrameTs = now;
 
     // Idle hold: when the editor stops broadcasting (its window minimised/occluded
     // so its rAF is throttled, or it's closing), hold the last frame rather than
     // re-rendering it — and re-stepping feedback sims — on our own clock.
-    if (now - lastMessageTs > IDLE_HOLD_MS) { renderAccumMs = 0; return; }
+    if (now - lastMessageTs > IDLE_HOLD_MS) return;
 
-    // Steady ~60fps cap on OUR OWN clock, rendering whatever state is latest. We do
-    // NOT render once-per-message: gating on message arrival made our vsync sample
-    // the editor's ~60/s broadcast, and two near-60Hz clocks drifting in and out of
-    // phase skipped/doubled a frame on a regular multi-second cycle — the periodic
-    // hitch on the fullscreen output. Pacing on our own clock removes that beat and
-    // still caps compute so it can't over-drive a high-refresh display.
-    renderAccumMs += dt;
-    if (renderAccumMs < RENDER_STEP_MS) return;
-    // Consume one step; clamp the carry so a long stall can't burst-render later.
-    renderAccumMs = Math.min(renderAccumMs - RENDER_STEP_MS, RENDER_STEP_MS);
+    // Cap to ~RENDER_FPS on OUR OWN clock, rendering whatever state is latest (we do
+    // NOT render once-per-message: that made our vsync sample the editor's ~60/s
+    // broadcast and beat against it). Pace on elapsed-since-last-render, with a
+    // tolerance: a panel running at — or a hair above — the cap rate then renders
+    // EVERY frame instead of dropping one every few seconds (the drift a carry
+    // accumulator caused). Only genuinely high-refresh displays get throttled, which
+    // is what keeps compute from over-driving.
+    if (lastRenderTs != null && now - lastRenderTs < RENDER_STEP_MS - RENDER_STEP_TOL) return;
+    lastRenderTs = now;
 
     if ((tier === TIER.NATIVE || tier === TIER.NATIVE_COMPUTE) && renderNative()) {
       showCanvas('gpu');

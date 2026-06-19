@@ -197,6 +197,23 @@ describe('secondMonitorReceiver', () => {
     expect(renderer.render).toHaveBeenCalledTimes(2);
   });
 
+  it('renders every frame on a panel just above 60Hz (no accumulator drift skip)', async () => {
+    const renderer = makeFakeRenderer();
+    const ch = await primeNative(renderer);
+    const emitFrame = (t) => ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([0, 0, t, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+
+    // dt just under a 60fps step (panel a hair above 60Hz, editor broadcasting each
+    // frame): a carry accumulator would drift and drop a frame every few seconds —
+    // the irregular hitch. Elapsed-since-last-render + tolerance renders every frame.
+    for (let i = 0; i < 40; i++) { emitFrame(i + 2); step(16.5); }
+    expect(renderer.render).toHaveBeenCalledTimes(40);
+  });
+
   it('holds the last frame after sustained silence, then resumes on new state', async () => {
     const renderer = makeFakeRenderer();
     const ch = await primeNative(renderer);
