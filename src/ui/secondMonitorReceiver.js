@@ -153,6 +153,14 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       // Injected uniforms must survive render(); never let it re-derive them
       // from window.* globals this window doesn't have.
       renderer.externalUniformMode = true;
+      // No MSAA on the output window. We only draw a fullscreen triangle that samples
+      // the (already-rendered) shader/compute result — there are no geometry edges to
+      // antialias, so MSAA is pure cost: a 4x multisample target at the display's
+      // native resolution is tens-to-hundreds of MB of GPU memory + bandwidth every
+      // frame, which starved the shared GPU (the editor's framerate) and added memory
+      // pressure. Must be set before the first shader builds the pipeline. (The editor
+      // keeps its own MSAA; this only affects this mirror window's blit.)
+      try { renderer.sampleCount = 1; } catch (_) { /* ignore */ }
       // Count GPU-completed frames so the profiler can show real throughput
       // (onFramePresented fires on onSubmittedWorkDone, not at dispatch time).
       try { renderer.onFramePresented = () => profiler.presented(); } catch (_) { /* ignore */ }

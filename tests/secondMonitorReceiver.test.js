@@ -138,6 +138,7 @@ describe('secondMonitorReceiver', () => {
 
     expect(renderer.setShaderSource).toHaveBeenCalledWith('WGSL_MAIN');
     expect(renderer.externalUniformMode).toBe(true);
+    expect(renderer.sampleCount).toBe(1); // no MSAA on the output blit (saves GPU)
   });
 
   it('re-renders natively, overriding resolution to its own canvas and using the editor clock', async () => {
