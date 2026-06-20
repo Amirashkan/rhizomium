@@ -41,6 +41,7 @@ export const SecondMonitorMessage = Object.freeze({
   COMPUTE_UNIFORMS: 'compute-uniforms', // { nodes:[{id,packed,colorStops}] } — per-frame packed compute uniform bytes
   TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
+  RENDER_SCALE: 'render-scale', // { scale } — output render-scale (0..1) for the viewer's fragment/canvas
   CLOSE: 'close',       // shut the window down
   // receiver → editor
   READY: 'ready',       // { webgpu } page loaded and now listening

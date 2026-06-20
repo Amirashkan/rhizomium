@@ -312,6 +312,17 @@
                only in the Vite/desktop build (see main.js / isViteBuild.js). -->
           <div class="menu-separator" id="sep-second-monitor" style="display:none"></div>
           <button id="btn-second-monitor" style="display:none">Second Monitor Viewer</button>
+          <!-- Output render scale for the second viewer (perf/quality; compute and
+               feedback stay matched to the editor). Revealed with the button. -->
+          <label class="snap-size" id="row-second-monitor-res" style="display:none">
+            <span>Output Res:</span>
+            <select id="second-monitor-res">
+              <option value="1">100%</option>
+              <option value="0.75">75%</option>
+              <option value="0.5">50%</option>
+              <option value="0.35">35%</option>
+            </select>
+          </label>
         </div>
       </div>
 

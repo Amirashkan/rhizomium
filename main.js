@@ -1339,6 +1339,23 @@ function setupUIEventHandlers() {
         }
       }
     });
+
+    // Output render-scale control for the second viewer. Renders the viewer's
+    // fragment at a fraction of the display resolution (compositor upscales it) —
+    // a perf/quality lever that leaves compute + feedback matched to the editor.
+    const secondMonitorResRow = document.getElementById("row-second-monitor-res");
+    const secondMonitorResSel = removeExistingHandlers("second-monitor-res");
+    if (secondMonitorResRow && secondMonitorResSel
+        && typeof secondMonitorViewer.setRenderScale === "function") {
+      secondMonitorResRow.style.removeProperty("display");
+      if (Number.isFinite(secondMonitorViewer.renderScale)) {
+        secondMonitorResSel.value = String(secondMonitorViewer.renderScale);
+      }
+      secondMonitorResSel.addEventListener("change", (e) => {
+        const scale = parseFloat(e.target.value);
+        if (Number.isFinite(scale)) secondMonitorViewer.setRenderScale(scale);
+      });
+    }
   }
 
   // Resolution selector (removed - resolution settings now in Preview/Export Settings window)

@@ -244,6 +244,22 @@ describe('secondMonitorReceiver', () => {
     expect(s.tier).toBe(TIER.NATIVE);
   });
 
+  it('applies an output render scale to the gpu canvas backing (RENDER_SCALE)', async () => {
+    const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    const ch = FakeBroadcastChannel.instances[0];
+
+    // Initial backing = innerWidth*dpr (1280x720), CSS fills the window.
+    expect(gpuCanvas.width).toBe(1280);
+    expect(gpuCanvas.height).toBe(720);
+
+    ch.emit({ type: MSG.RENDER_SCALE, scale: 0.5 });
+
+    expect(r.renderScale).toBe(0.5);
+    expect(gpuCanvas.width).toBe(640);   // backing halved → fewer pixels rendered
+    expect(gpuCanvas.height).toBe(360);
+    expect(gpuCanvas.style.width).toBe('1280px'); // element still fills the screen
+  });
+
   it('holds the last frame after sustained silence, then resumes on new state', async () => {
     const renderer = makeFakeRenderer();
     const ch = await primeNative(renderer);

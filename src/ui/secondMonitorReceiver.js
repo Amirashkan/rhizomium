@@ -124,6 +124,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   const IDLE_HOLD_MS = 200;                // hold the last frame after this much silence
   let lastRenderTs = null;                 // rAF timestamp of the previous actual render
   let lastMessageTs = nowMs();             // wall clock of the last inbound editor message
+  let renderScale = 1;                     // output render scale (0..1); 1 = native (see sizeGpuCanvas)
   let cachedWindow = null;
 
   // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
@@ -382,6 +383,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       case MSG.FRAME:
         if (d.bitmap) setLatest(d.bitmap, d.sw, d.sh);
         break;
+      case MSG.RENDER_SCALE:
+        setRenderScale(d.scale);
+        break;
       case MSG.CLOSE:
         closeSelf();
         break;
@@ -421,16 +425,23 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   function sizeGpuCanvas() {
     if (!gpuCanvas) return;
     const { cssW, cssH, bw, bh } = backingSize();
-    if (gpuCanvas.width !== bw) gpuCanvas.width = bw;
-    if (gpuCanvas.height !== bh) gpuCanvas.height = bh;
+    // Output render scale: render the fragment to a SMALLER backing buffer while the
+    // canvas element still fills the screen (CSS below), so the compositor upscales
+    // the result for free. This is an output-only quality/perf lever — the compute
+    // textures are unchanged (still the editor's resolution), so feedback/compute
+    // stay matched to the editor.
+    const sw = Math.max(1, Math.round(bw * renderScale));
+    const sh = Math.max(1, Math.round(bh * renderScale));
+    if (gpuCanvas.width !== sw) gpuCanvas.width = sw;
+    if (gpuCanvas.height !== sh) gpuCanvas.height = sh;
     gpuCanvas.style.width = cssW + 'px';
     gpuCanvas.style.height = cssH + 'px';
     // Keep the renderer's cached size in step so it rebuilds MSAA on next render.
     if (renderer && renderer._cachedCanvasSize) {
-      renderer._cachedCanvasSize.width = bw;
-      renderer._cachedCanvasSize.height = bh;
-      renderer._cachedCanvasSize.clientWidth = bw;
-      renderer._cachedCanvasSize.clientHeight = bh;
+      renderer._cachedCanvasSize.width = sw;
+      renderer._cachedCanvasSize.height = sh;
+      renderer._cachedCanvasSize.clientWidth = sw;
+      renderer._cachedCanvasSize.clientHeight = sh;
     }
   }
 
@@ -452,6 +463,39 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         dpr: win.devicePixelRatio || 1,
       });
     } catch (_) { /* ignore */ }
+  }
+
+  // --- output render scale --------------------------------------------------
+  const RENDER_SCALE_PRESETS = [0.35, 0.5, 0.75, 1];
+
+  function flashHint(text) {
+    const el = doc.getElementById('second-monitor-hint');
+    if (!el) return;
+    el.textContent = text;
+    el.style.opacity = '1';
+    try { win.setTimeout(() => { el.style.opacity = '0'; }, 1500); } catch (_) { /* ignore */ }
+  }
+
+  /** Set the output render scale (0.1..1), resize the backing buffer, and report. */
+  function setRenderScale(next, { flash = true } = {}) {
+    const s = Math.max(0.1, Math.min(1, Number(next) || 1));
+    if (s === renderScale) return;
+    renderScale = s;
+    sizeGpuCanvas();
+    reportSize();
+    if (flash) flashHint(`Output ${Math.round(renderScale * 100)}%`);
+  }
+
+  /** Step to the adjacent preset (dir +1 = sharper/higher, -1 = lower). */
+  function stepRenderScale(dir) {
+    const p = RENDER_SCALE_PRESETS;
+    let i = 0, best = Infinity;
+    for (let k = 0; k < p.length; k++) {
+      const d = Math.abs(p[k] - renderScale);
+      if (d < best) { best = d; i = k; }
+    }
+    i = Math.max(0, Math.min(p.length - 1, i + dir));
+    setRenderScale(p[i]);
   }
 
   function onResize() {
@@ -646,6 +690,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (e.key === 'Escape') closeSelf();
     else if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     else if (e.key === 'p' || e.key === 'P') profiler.toggle();
+    else if (e.key === ']') stepRenderScale(1);   // sharper / higher output res
+    else if (e.key === '[') stepRenderScale(-1);  // softer / lower output res (faster)
   });
   win.addEventListener('dblclick', () => toggleFullscreen());
   win.addEventListener('beforeunload', () => {
@@ -707,6 +753,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     get renderer() { return renderer; },
     get computeRuntime() { return computeRuntime; },
     get latestSize() { return { width: latestW, height: latestH }; },
+    get renderScale() { return renderScale; },
+    setRenderScale,
     profiler,
     onMessage,
     closeSelf,

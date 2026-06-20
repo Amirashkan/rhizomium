@@ -203,6 +203,24 @@ describe('TauriSecondMonitorViewer', () => {
     expect(renderer.setStateTap).toHaveBeenLastCalledWith(null);
   });
 
+  it('broadcasts RENDER_SCALE on setRenderScale and re-sends it to a late receiver (READY)', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    viewer.setRenderScale(0.5);
+    expect(viewer.renderScale).toBe(0.5);
+    expect(channel.posted.find((m) => m.type === MSG.RENDER_SCALE)?.scale).toBe(0.5);
+
+    // A receiver that connects late announces READY and must get the current scale.
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    expect(channel.posted.find((m) => m.type === MSG.RENDER_SCALE)?.scale).toBe(0.5);
+
+    await viewer.close();
+  });
+
   it('broadcasts SHADER only when the WGSL changes, uniforms every frame', async () => {
     const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });

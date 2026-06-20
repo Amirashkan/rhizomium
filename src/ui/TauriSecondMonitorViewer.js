@@ -67,6 +67,7 @@ export class TauriSecondMonitorViewer {
     this._mode = null;           // 'native' | 'fallback', decided per shader
     this._lastWgsl = undefined;  // last WGSL broadcast (undefined = none yet)
     this._forceFallback = false; // receiver can't render natively → pixels only
+    this._renderScale = 1;       // output render scale (0..1) broadcast to the viewer
     this._active = false;
   }
 
@@ -222,8 +223,29 @@ export class TauriSecondMonitorViewer {
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
       }
+      // A (re)connecting receiver also needs the current output render scale.
+      if (this._renderScale !== 1) {
+        try { this._channel?.postMessage({ type: MSG.RENDER_SCALE, scale: this._renderScale }); } catch (_) { /* ignore */ }
+      }
     }
   }
+
+  /**
+   * Set the second viewer's OUTPUT render scale (0.1..1): the viewer renders its
+   * fragment/canvas at this fraction of the display resolution and the compositor
+   * upscales it. Compute textures are unaffected, so feedback/compute stay matched
+   * to the editor. Persists across reconnects (re-sent on READY). No-op visually
+   * until a viewer is open.
+   * @param {number} scale
+   */
+  setRenderScale(scale) {
+    const s = Math.max(0.1, Math.min(1, Number(scale) || 1));
+    this._renderScale = s;
+    try { this._channel?.postMessage({ type: MSG.RENDER_SCALE, scale: s }); } catch (_) { /* ignore */ }
+  }
+
+  /** Current output render scale (0.1..1). */
+  get renderScale() { return this._renderScale; }
 
   /**
    * Create the native WebviewWindow on a detected second display (borderless,
