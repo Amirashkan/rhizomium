@@ -744,6 +744,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     profiler.renderEnd();
   }
   showCanvas('2d');
+  paintFallback();   // fill black immediately, before first rAF frame
   rafId = win.requestAnimationFrame(frame);
 
   // --- input / lifecycle ---------------------------------------------------

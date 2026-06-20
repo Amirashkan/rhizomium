@@ -268,6 +268,7 @@ export class TauriSecondMonitorViewer {
       skipTaskbar: !!target,
       focus: true,
       visible: true,
+      backgroundColor: [0, 0, 0, 255], // black RGBA; kills pre-paint white flash
     };
     if (target) {
       // Monitor bounds are physical pixels; window options are logical pixels.
