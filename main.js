@@ -1340,20 +1340,20 @@ function setupUIEventHandlers() {
       }
     });
 
-    // Output render-scale control for the second viewer. Renders the viewer's
-    // fragment at a fraction of the display resolution (compositor upscales it) —
-    // a perf/quality lever that leaves compute + feedback matched to the editor.
+    // Compute-resolution control for the second viewer. "Match editor" (0) follows
+    // the floating-preview size; a fixed long-edge decouples the viewer and renders
+    // compute at that detail (up to 2048), so it can reach Full HD independently.
     const secondMonitorResRow = document.getElementById("row-second-monitor-res");
     const secondMonitorResSel = removeExistingHandlers("second-monitor-res");
     if (secondMonitorResRow && secondMonitorResSel
-        && typeof secondMonitorViewer.setRenderScale === "function") {
+        && typeof secondMonitorViewer.setComputeResolution === "function") {
       secondMonitorResRow.style.removeProperty("display");
-      if (Number.isFinite(secondMonitorViewer.renderScale)) {
-        secondMonitorResSel.value = String(secondMonitorViewer.renderScale);
+      if (Number.isFinite(secondMonitorViewer.computeMaxDim)) {
+        secondMonitorResSel.value = String(secondMonitorViewer.computeMaxDim);
       }
       secondMonitorResSel.addEventListener("change", (e) => {
-        const scale = parseFloat(e.target.value);
-        if (Number.isFinite(scale)) secondMonitorViewer.setRenderScale(scale);
+        const maxDim = parseInt(e.target.value, 10);
+        if (Number.isFinite(maxDim)) secondMonitorViewer.setComputeResolution(maxDim);
       });
     }
   }

@@ -244,20 +244,12 @@ describe('secondMonitorReceiver', () => {
     expect(s.tier).toBe(TIER.NATIVE);
   });
 
-  it('applies an output render scale to the gpu canvas backing (RENDER_SCALE)', async () => {
-    const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
-    const ch = FakeBroadcastChannel.instances[0];
-
-    // Initial backing = innerWidth*dpr (1280x720), CSS fills the window.
+  it('keeps the gpu canvas at the full display backing (output is not downscaled)', async () => {
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    // Backing = innerWidth*dpr (1280x720); detail is governed by compute res, not this.
     expect(gpuCanvas.width).toBe(1280);
     expect(gpuCanvas.height).toBe(720);
-
-    ch.emit({ type: MSG.RENDER_SCALE, scale: 0.5 });
-
-    expect(r.renderScale).toBe(0.5);
-    expect(gpuCanvas.width).toBe(640);   // backing halved → fewer pixels rendered
-    expect(gpuCanvas.height).toBe(360);
-    expect(gpuCanvas.style.width).toBe('1280px'); // element still fills the screen
+    expect(gpuCanvas.style.width).toBe('1280px');
   });
 
   it('holds the last frame after sustained silence, then resumes on new state', async () => {
@@ -385,6 +377,32 @@ describe('secondMonitorReceiver', () => {
       ch.emit(graph('3'));
       await settle();
       expect(win.graph.nodes.find((n) => n.id === '2').inputs).toEqual(['3']);
+    });
+
+    it('overrides compute resolution (RENDER_RES), decoupled from the editor preview', async () => {
+      const rt = installFakeRuntime();
+      const r = initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [
+        { id: '1', kind: 'ComputeNoise', wgsl: 'A', width: 512, height: 512, inputs: [] },
+      ], executionOrder: ['1'] });
+      await settle();
+      expect(win.graph.nodes[0].computeResolution).toEqual([512, 512]); // match editor
+
+      ch.emit({ type: MSG.RENDER_RES, maxDim: 1024 });
+      await settle();
+      expect(r.computeMaxDim).toBe(1024);
+      // Long edge scaled to 1024 (preserving aspect), independent of the broadcast size.
+      expect(win.graph.nodes[0].computeResolution).toEqual([1024, 1024]);
+
+      // The per-frame packed resolution (floats 0,1) is overridden to the new size,
+      // so the shader's UV/texel math matches the larger texture.
+      const packed = new Float32Array([512, 512, 0, 1]);
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed }] });
+      await settle();
+      expect(packed[0]).toBe(1024);
+      expect(packed[1]).toBe(1024);
     });
 
     it('injects compute uniforms and invalidates input hashes when bytes change', async () => {

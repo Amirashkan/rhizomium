@@ -68,7 +68,7 @@ export class TauriSecondMonitorViewer {
     this._lastWgsl = undefined;  // last WGSL broadcast (undefined = none yet)
     this._lastComputeSig = null; // last compute-graph structure signature broadcast
     this._forceFallback = false; // receiver can't render natively → pixels only
-    this._renderScale = 1;       // output render scale (0..1) broadcast to the viewer
+    this._computeMaxDim = 0;     // viewer compute long-edge override (0 = match editor)
     this._active = false;
   }
 
@@ -224,29 +224,29 @@ export class TauriSecondMonitorViewer {
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
       }
-      // A (re)connecting receiver also needs the current output render scale.
-      if (this._renderScale !== 1) {
-        try { this._channel?.postMessage({ type: MSG.RENDER_SCALE, scale: this._renderScale }); } catch (_) { /* ignore */ }
+      // A (re)connecting receiver also needs the current compute-resolution override.
+      if (this._computeMaxDim > 0) {
+        try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: this._computeMaxDim }); } catch (_) { /* ignore */ }
       }
     }
   }
 
   /**
-   * Set the second viewer's OUTPUT render scale (0.1..1): the viewer renders its
-   * fragment/canvas at this fraction of the display resolution and the compositor
-   * upscales it. Compute textures are unaffected, so feedback/compute stay matched
-   * to the editor. Persists across reconnects (re-sent on READY). No-op visually
-   * until a viewer is open.
-   * @param {number} scale
+   * Set the second viewer's compute resolution (long edge in px; 0 = match the
+   * editor's preview resolution). A fixed value DECOUPLES the viewer from the
+   * editor's floating-preview size and renders compute at the chosen detail (up to
+   * 2048), so the viewer can be Full HD regardless of the editor's preview. Persists
+   * across reconnects (re-sent on READY). No-op until a viewer is open.
+   * @param {number} maxDim
    */
-  setRenderScale(scale) {
-    const s = Math.max(0.1, Math.min(1, Number(scale) || 1));
-    this._renderScale = s;
-    try { this._channel?.postMessage({ type: MSG.RENDER_SCALE, scale: s }); } catch (_) { /* ignore */ }
+  setComputeResolution(maxDim) {
+    const v = Math.max(0, Math.min(2048, Math.round(Number(maxDim) || 0)));
+    this._computeMaxDim = v;
+    try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: v }); } catch (_) { /* ignore */ }
   }
 
-  /** Current output render scale (0.1..1). */
-  get renderScale() { return this._renderScale; }
+  /** Current compute-resolution override (long edge px; 0 = match editor). */
+  get computeMaxDim() { return this._computeMaxDim; }
 
   /**
    * Create the native WebviewWindow on a detected second display (borderless,

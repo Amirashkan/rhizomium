@@ -124,7 +124,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   const IDLE_HOLD_MS = 200;                // hold the last frame after this much silence
   let lastRenderTs = null;                 // rAF timestamp of the previous actual render
   let lastMessageTs = nowMs();             // wall clock of the last inbound editor message
-  let renderScale = 1;                     // output render scale (0..1); 1 = native (see sizeGpuCanvas)
+  // Viewer compute-resolution override (long edge in px; 0 = match the editor's
+  // broadcast/preview size). A fixed value decouples the viewer from the editor's
+  // floating-preview resolution and renders compute at the chosen detail.
+  let computeMaxDim = 0;
+  let lastComputeGraphMsg = null;          // last COMPUTE_GRAPH (re-applied when the override changes)
+  const computeDimsOverride = new Map();   // node id -> [w,h] actually used (for the packed-resolution override)
   let cachedWindow = null;
 
   // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
@@ -209,33 +214,53 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (!computeRuntime) { pendingComputeGraph = msg; ensureComputeRuntime(); return; }
     const exec = computeRuntime.computeExecutor;
     if (!exec) return;
+    lastComputeGraphMsg = msg; // remember so a compute-res change can re-apply it
     const nodes = msg.nodes || [];
-    // Include `inputs` in the dedup key: rewiring a compute node's input (e.g. a new
-    // node connected into ComputeEdgeDetect) changes the graph even when every node's
-    // id/kind/wgsl/size is unchanged. Without it the receiver kept the old wiring
-    // until the viewer was re-opened.
-    const key = JSON.stringify(nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height, n.inputs || []]));
+    // Dedup key includes `inputs` (rewiring, e.g. a node connected into
+    // ComputeEdgeDetect, changes the graph even when ids/kinds/sizes don't) and the
+    // compute-res override (changing the viewer resolution forces a rebuild at the
+    // new size). Without these the receiver kept stale state until re-opened.
+    const key = JSON.stringify([computeMaxDim, nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height, n.inputs || []])]);
     if (key === appliedComputeKey) return; // unchanged graph — skip the costly re-init
     if (!win.computeNodeRegistry) win.computeNodeRegistry = new Map();
     if (!win.graph) {
       win.graph = { nodes: [], getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; } };
     }
+    // Compute-resolution override: scale every node so the largest long-edge becomes
+    // computeMaxDim (preserving aspect), capped at the executor's MAX_COMPUTE_RES.
+    // 0 → no override (use the editor's broadcast/preview size).
+    const MAX_COMPUTE_RES = 2048;
+    let scale = 1;
+    if (computeMaxDim > 0) {
+      let maxEdge = 0;
+      for (const n of nodes) maxEdge = Math.max(maxEdge, n.width || 0, n.height || 0);
+      if (maxEdge > 0) scale = computeMaxDim / maxEdge;
+    }
+    const dimsFor = (n) => {
+      if (computeMaxDim <= 0 || !n.width || !n.height) return [n.width || 0, n.height || 0];
+      const w = Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(n.width * scale)));
+      const h = Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(n.height * scale)));
+      return [w, h];
+    };
     const registry = win.computeNodeRegistry;
     registry.clear();
     win.graph.nodes = [];
+    computeDimsOverride.clear();
     for (const n of nodes) {
+      const [w, h] = dimsFor(n);
+      if (computeMaxDim > 0 && n.width && n.height) computeDimsOverride.set(n.id, [w, h]);
       const node = {
         id: n.id,
         kind: n.kind,
         inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
         params: {},
-        computeResolution: [n.width || 0, n.height || 0],
+        computeResolution: [w, h],
       };
       win.graph.nodes.push(node);
       registry.set(n.id, {
         node,
         getInput: () => null,
-        resolution: [n.width || 0, n.height || 0],
+        resolution: [w, h],
         wgslCode: n.wgsl,
         supportsFeedback: !!n.supportsFeedback,
         lastInputHash: null,
@@ -260,6 +285,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     for (const n of (msg.nodes || [])) {
       const mgr = managers.get(n.id);
       if (!mgr || typeof mgr.writeRawComputeUniforms !== 'function') continue;
+      // When the compute resolution is overridden, the texture is a different size
+      // than the editor's, so the resolution baked into the packed uniform (floats
+      // 0,1) must be replaced with ours — otherwise the shader's UV/texel math is
+      // wrong (stretched output, mis-scaled kernels).
+      const ov = computeDimsOverride.get(n.id);
+      if (ov && n.packed && n.packed.length >= 2) { n.packed[0] = ov[0]; n.packed[1] = ov[1]; }
       try { mgr.writeRawComputeUniforms(n.packed, n.colorStops || null); } catch (_) { /* ignore */ }
       // Static-input stateless nodes are skipped by the executor's change detection;
       // when the injected uniforms OR color stops change, invalidate the hash so it
@@ -387,8 +418,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       case MSG.FRAME:
         if (d.bitmap) setLatest(d.bitmap, d.sw, d.sh);
         break;
-      case MSG.RENDER_SCALE:
-        setRenderScale(d.scale);
+      case MSG.RENDER_RES:
+        setComputeMaxDim(d.maxDim);
         break;
       case MSG.CLOSE:
         closeSelf();
@@ -429,23 +460,19 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   function sizeGpuCanvas() {
     if (!gpuCanvas) return;
     const { cssW, cssH, bw, bh } = backingSize();
-    // Output render scale: render the fragment to a SMALLER backing buffer while the
-    // canvas element still fills the screen (CSS below), so the compositor upscales
-    // the result for free. This is an output-only quality/perf lever — the compute
-    // textures are unchanged (still the editor's resolution), so feedback/compute
-    // stay matched to the editor.
-    const sw = Math.max(1, Math.round(bw * renderScale));
-    const sh = Math.max(1, Math.round(bh * renderScale));
-    if (gpuCanvas.width !== sw) gpuCanvas.width = sw;
-    if (gpuCanvas.height !== sh) gpuCanvas.height = sh;
+    // The fragment output always renders at the display's native backing resolution
+    // (it's a cheap fullscreen blit). Detail is governed by the COMPUTE resolution
+    // (see the compute-resolution override), not by scaling this buffer.
+    if (gpuCanvas.width !== bw) gpuCanvas.width = bw;
+    if (gpuCanvas.height !== bh) gpuCanvas.height = bh;
     gpuCanvas.style.width = cssW + 'px';
     gpuCanvas.style.height = cssH + 'px';
     // Keep the renderer's cached size in step so it rebuilds MSAA on next render.
     if (renderer && renderer._cachedCanvasSize) {
-      renderer._cachedCanvasSize.width = sw;
-      renderer._cachedCanvasSize.height = sh;
-      renderer._cachedCanvasSize.clientWidth = sw;
-      renderer._cachedCanvasSize.clientHeight = sh;
+      renderer._cachedCanvasSize.width = bw;
+      renderer._cachedCanvasSize.height = bh;
+      renderer._cachedCanvasSize.clientWidth = bw;
+      renderer._cachedCanvasSize.clientHeight = bh;
     }
   }
 
@@ -469,8 +496,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     } catch (_) { /* ignore */ }
   }
 
-  // --- output render scale --------------------------------------------------
-  const RENDER_SCALE_PRESETS = [0.35, 0.5, 0.75, 1];
+  // --- viewer compute resolution -------------------------------------------
+  // Long-edge presets (px). 0 = match the editor's preview/broadcast size.
+  const COMPUTE_RES_PRESETS = [0, 720, 1080, 1440, 2048];
 
   function flashHint(text) {
     const el = doc.getElementById('second-monitor-hint');
@@ -480,26 +508,32 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     try { win.setTimeout(() => { el.style.opacity = '0'; }, 1500); } catch (_) { /* ignore */ }
   }
 
-  /** Set the output render scale (0.1..1), resize the backing buffer, and report. */
-  function setRenderScale(next, { flash = true } = {}) {
-    const s = Math.max(0.1, Math.min(1, Number(next) || 1));
-    if (s === renderScale) return;
-    renderScale = s;
-    sizeGpuCanvas();
-    reportSize();
-    if (flash) flashHint(`Output ${Math.round(renderScale * 100)}%`);
+  /**
+   * Set the viewer's compute-resolution override (long edge in px; 0 = match the
+   * editor). Rebuilds the compute graph at the new size, decoupled from the editor's
+   * preview resolution.
+   */
+  function setComputeMaxDim(next, { flash = true } = {}) {
+    const v = Math.max(0, Math.min(2048, Math.round(Number(next) || 0)));
+    if (v === computeMaxDim) return;
+    computeMaxDim = v;
+    if (lastComputeGraphMsg) {
+      appliedComputeKey = null;          // force a rebuild at the new resolution
+      applyComputeGraph(lastComputeGraphMsg);
+    }
+    if (flash) flashHint(v > 0 ? `Compute ${v}p` : 'Compute: match editor');
   }
 
-  /** Step to the adjacent preset (dir +1 = sharper/higher, -1 = lower). */
-  function stepRenderScale(dir) {
-    const p = RENDER_SCALE_PRESETS;
+  /** Step to the adjacent preset (dir +1 = higher res, -1 = lower). */
+  function stepComputeRes(dir) {
+    const p = COMPUTE_RES_PRESETS;
     let i = 0, best = Infinity;
     for (let k = 0; k < p.length; k++) {
-      const d = Math.abs(p[k] - renderScale);
+      const d = Math.abs(p[k] - computeMaxDim);
       if (d < best) { best = d; i = k; }
     }
     i = Math.max(0, Math.min(p.length - 1, i + dir));
-    setRenderScale(p[i]);
+    setComputeMaxDim(p[i]);
   }
 
   function onResize() {
@@ -694,8 +728,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (e.key === 'Escape') closeSelf();
     else if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     else if (e.key === 'p' || e.key === 'P') profiler.toggle();
-    else if (e.key === ']') stepRenderScale(1);   // sharper / higher output res
-    else if (e.key === '[') stepRenderScale(-1);  // softer / lower output res (faster)
+    else if (e.key === ']') stepComputeRes(1);    // higher compute resolution (sharper)
+    else if (e.key === '[') stepComputeRes(-1);   // lower compute resolution (faster)
   });
   win.addEventListener('dblclick', () => toggleFullscreen());
   win.addEventListener('beforeunload', () => {
@@ -757,8 +791,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     get renderer() { return renderer; },
     get computeRuntime() { return computeRuntime; },
     get latestSize() { return { width: latestW, height: latestH }; },
-    get renderScale() { return renderScale; },
-    setRenderScale,
+    get computeMaxDim() { return computeMaxDim; },
+    setComputeMaxDim,
     profiler,
     onMessage,
     closeSelf,
