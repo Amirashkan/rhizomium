@@ -140,8 +140,10 @@ window.gpuRenderer = new GPURenderer(device, canvas);
       // freshly created renderer so the output survives a device reinit.
       window.secondMonitorViewer?.reattach?.();
 
-      // Enable profiler
-      computeProfiler.setEnabled(true);
+      // Profiling runs only while the overlay is shown (synced in the render loop).
+      // Its per-frame GPU timestamp readback (mapAsync) is a CPU<->GPU sync that
+      // stalls the shared GPU, so it must not run when nothing is displayed.
+      computeProfiler.setEnabled(false);
 
       // Reinitialize GPU Performance Monitor
       gpuPerformanceMonitor = new GPUPerformanceMonitor({
@@ -290,8 +292,10 @@ async function initialize() {
         profilerOverlay = new ComputeProfilerOverlay();
         window.profilerOverlay = profilerOverlay;
 
-        // Enable profiler by default
-        computeProfiler.setEnabled(true);
+        // Profiling runs only while the overlay is shown (synced in the render loop).
+        // Its per-frame GPU timestamp readback (mapAsync) is a CPU<->GPU sync that
+        // stalls the shared GPU, so it must not run when nothing is displayed.
+        computeProfiler.setEnabled(false);
 
         // Initialize GPU Performance Monitor
         gpuPerformanceMonitor = new GPUPerformanceMonitor({
@@ -3453,12 +3457,21 @@ function handleRenderFrame(frameState) {
   // Update compute profiler overlay - Continue updating during interactions
   // FIX: Allow profiler to continue updating during panning to prevent freezing
   if (profilerOverlay && computeProfiler) {
-    const now = performance.now();
-    const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
-    if (shouldUpdateProfiler) {
-      const metrics = computeProfiler.getMetrics();
-      profilerOverlay.update(metrics);
-      lastProfilerUpdate = now;
+    // Run the profiler only while its overlay is visible. Its per-frame GPU
+    // timestamp readback (mapAsync) is a CPU<->GPU sync that periodically stalls the
+    // shared GPU — which showed up as a hitch on the second-monitor output (both
+    // windows freezing in lockstep). No display ⇒ no readback.
+    if (computeProfiler.enabled !== profilerOverlay.visible) {
+      computeProfiler.setEnabled(profilerOverlay.visible);
+    }
+    if (profilerOverlay.visible) {
+      const now = performance.now();
+      const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
+      if (shouldUpdateProfiler) {
+        const metrics = computeProfiler.getMetrics();
+        profilerOverlay.update(metrics);
+        lastProfilerUpdate = now;
+      }
     }
   }
 
