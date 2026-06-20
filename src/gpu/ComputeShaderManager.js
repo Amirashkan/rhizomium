@@ -285,8 +285,14 @@ export class ComputeShaderManager {
         pixelData[idx + 0] = 255;
 
         // B channel (chemical B) - start VERY low, slightly higher in seed regions
-        // Background has tiny noise to help pattern formation
-        let bValue = Math.random() * 2; // Background noise: 0-2 (0-1% of max)
+        // Background noise helps pattern formation. Use a DETERMINISTIC per-pixel
+        // hash (not Math.random): the second-monitor viewer re-runs this exact
+        // seeding in its own renderer, so a fixed seed keeps both windows'
+        // reaction-diffusion identical at t=0 — otherwise each starts from a
+        // different random field and the chaotic sim diverges completely.
+        let hsh = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        hsh = (hsh ^ (hsh >>> 13)) >>> 0;
+        let bValue = (hsh % 256) / 256 * 2; // 0-2, identical on every window
 
         for (const seed of seeds) {
           const dx = uvX - seed.x;

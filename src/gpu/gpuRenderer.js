@@ -1445,10 +1445,12 @@ export class GPURenderer {
    * Classify how the current shader can be mirrored to a second window. Returns a
    * string matching SecondMonitorTier:
    *   "native"          fragment + uniform buffers only.
-   *   "native-compute"  also stateless, self-contained compute and/or image
-   *                     textures (both reproducible from broadcast state).
-   *   "fallback"        storage buffers, stateful/feedback compute, or compute
-   *                     fed by a fragment node — not reproducible; mirror pixels.
+   *   "native-compute"  also compute — stateless OR stateful/feedback — and/or
+   *                     image textures, all reproducible from broadcast state. The
+   *                     mirror runs its own ComputeExecutor; feedback sims are
+   *                     replicated as an independent simulation (not a pixel copy).
+   *   "fallback"        storage buffers, or compute fed by a fragment node — not
+   *                     reproducible from compute state alone; mirror pixels.
    * Returns string literals (not the enum) to avoid coupling gpu→ui.
    */
   classifyMirrorTier() {
@@ -1466,15 +1468,18 @@ export class GPURenderer {
     }
     if (!hasTexture) return "native"; // fragment + uniforms only
 
-    // Textured graph: replicable only when every in-use compute node is stateless
-    // and self-contained. Feedback compute (Tier 3) and fragment-fed compute fall
-    // back. Image textures are shipped separately (TEXTURE message).
+    // Textured graph: replicable when the compute subgraph is self-contained —
+    // every compute node's inputs are other compute nodes, images, or baked values.
+    // Stateful/feedback compute (reaction-diffusion, feedback trails, fluid) and
+    // multi-input nodes (Warp/Mix) ARE reproducible: the receiver runs its own
+    // ComputeExecutor, which rebuilds the same ping-pong managers from the broadcast
+    // kind/wgsl/supportsFeedback and evolves its own (independent) simulation state,
+    // with no per-frame pixel copy. Only a compute node fed by a fragment-shader
+    // node can't be reproduced from compute state alone. Image textures are shipped
+    // separately (TEXTURE message).
     const exec = (typeof window !== "undefined") ? window.computeExecutor : null;
     const managers = exec && exec.computeManagers;
     if (managers && managers.size > 0) {
-      for (const m of managers.values()) {
-        if (m && m.supportsFeedback) return "fallback"; // stateful sim → Tier 3
-      }
       if (!this._computeSubgraphSelfContained()) return "fallback";
     }
     return "native-compute";

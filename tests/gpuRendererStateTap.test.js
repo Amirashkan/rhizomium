@@ -149,14 +149,53 @@ describe('GPURenderer state tap', () => {
       })).toBe('native-compute');
     });
 
-    it('is "fallback" when any compute node supports feedback (stateful sim)', () => {
+    it('is "native-compute" for stateful/feedback compute (replicated as an independent sim)', () => {
       global.window.computeExecutor = {
         computeManagers: new Map([['1', { supportsFeedback: true }]]),
       };
+      global.window.computeNodeRegistry = new Map([
+        ['1', { node: { id: '1', kind: 'ComputeReactionDiffusion', inputs: [] } }],
+      ]);
       expect(tier({
         u: { kind: 'uniform-buffer' },
         c: { kind: 'texture-2d', varName: 'compute_node_1' },
-      })).toBe('fallback');
+      })).toBe('native-compute');
+    });
+
+    it('is "native-compute" for a multi-input node (Warp/Mix) fed by compute', () => {
+      // ComputeWarp/ComputeMix flag supportsFeedback only to bind a 2nd input;
+      // they are stateless and the receiver wires both inputs, so they replicate.
+      global.window.computeExecutor = {
+        computeManagers: new Map([
+          ['1', { supportsFeedback: false }],
+          ['2', { supportsFeedback: true }],
+        ]),
+      };
+      global.window.computeNodeRegistry = new Map([
+        ['1', { node: { id: '1', kind: 'ComputeNoise', inputs: [] } }],
+        ['2', { node: { id: '2', kind: 'ComputeWarp', inputs: ['1', '1'] } }],
+      ]);
+      expect(tier({
+        u: { kind: 'uniform-buffer' },
+        c: { kind: 'texture-2d', varName: 'compute_node_2' },
+      })).toBe('native-compute');
+    });
+
+    it('is "native-compute" for a multi-sim graph (several feedback nodes)', () => {
+      global.window.computeExecutor = {
+        computeManagers: new Map([
+          ['1', { supportsFeedback: true }],
+          ['2', { supportsFeedback: true }],
+        ]),
+      };
+      global.window.computeNodeRegistry = new Map([
+        ['1', { node: { id: '1', kind: 'ComputeReactionDiffusion', inputs: [] } }],
+        ['2', { node: { id: '2', kind: 'ComputeFeedback', inputs: ['1'] } }],
+      ]);
+      expect(tier({
+        u: { kind: 'uniform-buffer' },
+        c: { kind: 'texture-2d', varName: 'compute_node_2' },
+      })).toBe('native-compute');
     });
 
     it('is "fallback" when a compute node is fed by a fragment node', () => {

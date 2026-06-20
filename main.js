@@ -11,7 +11,6 @@ import { Graph } from "./src/data/Graph.js";
 import { makeNode, NodeDefs, updateNodeIdCounter } from "./src/data/NodeDefs.js";
 import { SeedGraphBuilder } from "./src/utils/SeedGraphBuilder.js";
 import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
-import { SecondMonitorViewer } from "./src/ui/SecondMonitorViewer.js";
 import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { isTauri } from "./src/utils/isTauri.js";
@@ -141,8 +140,10 @@ window.gpuRenderer = new GPURenderer(device, canvas);
       // freshly created renderer so the output survives a device reinit.
       window.secondMonitorViewer?.reattach?.();
 
-      // Enable profiler
-      computeProfiler.setEnabled(true);
+      // Profiling runs only while the overlay is shown (synced in the render loop).
+      // Its per-frame GPU timestamp readback (mapAsync) is a CPU<->GPU sync that
+      // stalls the shared GPU, so it must not run when nothing is displayed.
+      computeProfiler.setEnabled(false);
 
       // Reinitialize GPU Performance Monitor
       gpuPerformanceMonitor = new GPUPerformanceMonitor({
@@ -291,8 +292,10 @@ async function initialize() {
         profilerOverlay = new ComputeProfilerOverlay();
         window.profilerOverlay = profilerOverlay;
 
-        // Enable profiler by default
-        computeProfiler.setEnabled(true);
+        // Profiling runs only while the overlay is shown (synced in the render loop).
+        // Its per-frame GPU timestamp readback (mapAsync) is a CPU<->GPU sync that
+        // stalls the shared GPU, so it must not run when nothing is displayed.
+        computeProfiler.setEnabled(false);
 
         // Initialize GPU Performance Monitor
         gpuPerformanceMonitor = new GPUPerformanceMonitor({
@@ -543,15 +546,14 @@ async function initialize() {
         };
       }
 
-      // Second-monitor full-screen viewer — only in the Vite/desktop build.
-      // The raw web deployments (Python server, Vercel) never instantiate it,
-      // so the menu entry stays hidden there. Under Tauri the OS WebView blocks
-      // window.open(), so a native-window backend is used instead of the popup.
-      if (isViteBuild()) {
-        const SecondMonitorBackend = isTauri()
-          ? TauriSecondMonitorViewer
-          : SecondMonitorViewer;
-        secondMonitorViewer = new SecondMonitorBackend(gpuCanvas, {
+      // Second-monitor full-screen viewer — desktop (Tauri) only. It opens a real
+      // borderless OS window on the second display and re-renders the shader there
+      // natively (see TauriSecondMonitorViewer). The raw web deployments and the
+      // plain browser dev build get no second viewer: the only thing a browser
+      // popup could do is mirror copied pixels, which we no longer ship — so the
+      // menu entry stays hidden outside the desktop app.
+      if (isViteBuild() && isTauri()) {
+        secondMonitorViewer = new TauriSecondMonitorViewer(gpuCanvas, {
           renderer: window.gpuRenderer,
           onStatus: (message, kind) => updateStatus(message, kind),
           onActiveChange: (active) => setSecondMonitorButtonState(active),
@@ -1337,6 +1339,23 @@ function setupUIEventHandlers() {
         }
       }
     });
+
+    // Compute-resolution control for the second viewer. "Match editor" (0) follows
+    // the floating-preview size; a fixed long-edge decouples the viewer and renders
+    // compute at that detail (up to 2048), so it can reach Full HD independently.
+    const secondMonitorResRow = document.getElementById("row-second-monitor-res");
+    const secondMonitorResSel = removeExistingHandlers("second-monitor-res");
+    if (secondMonitorResRow && secondMonitorResSel
+        && typeof secondMonitorViewer.setComputeResolution === "function") {
+      secondMonitorResRow.style.removeProperty("display");
+      if (Number.isFinite(secondMonitorViewer.computeMaxDim)) {
+        secondMonitorResSel.value = String(secondMonitorViewer.computeMaxDim);
+      }
+      secondMonitorResSel.addEventListener("change", (e) => {
+        const maxDim = parseInt(e.target.value, 10);
+        if (Number.isFinite(maxDim)) secondMonitorViewer.setComputeResolution(maxDim);
+      });
+    }
   }
 
   // Resolution selector (removed - resolution settings now in Preview/Export Settings window)
@@ -3455,12 +3474,21 @@ function handleRenderFrame(frameState) {
   // Update compute profiler overlay - Continue updating during interactions
   // FIX: Allow profiler to continue updating during panning to prevent freezing
   if (profilerOverlay && computeProfiler) {
-    const now = performance.now();
-    const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
-    if (shouldUpdateProfiler) {
-      const metrics = computeProfiler.getMetrics();
-      profilerOverlay.update(metrics);
-      lastProfilerUpdate = now;
+    // Run the profiler only while its overlay is visible. Its per-frame GPU
+    // timestamp readback (mapAsync) is a CPU<->GPU sync that periodically stalls the
+    // shared GPU — which showed up as a hitch on the second-monitor output (both
+    // windows freezing in lockstep). No display ⇒ no readback.
+    if (computeProfiler.enabled !== profilerOverlay.visible) {
+      computeProfiler.setEnabled(profilerOverlay.visible);
+    }
+    if (profilerOverlay.visible) {
+      const now = performance.now();
+      const shouldUpdateProfiler = (now - lastProfilerUpdate) >= PROFILER_UPDATE_INTERVAL;
+      if (shouldUpdateProfiler) {
+        const metrics = computeProfiler.getMetrics();
+        profilerOverlay.update(metrics);
+        lastProfilerUpdate = now;
+      }
     }
   }
 

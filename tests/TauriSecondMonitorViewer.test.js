@@ -203,6 +203,24 @@ describe('TauriSecondMonitorViewer', () => {
     expect(renderer.setStateTap).toHaveBeenLastCalledWith(null);
   });
 
+  it('broadcasts RENDER_RES on setComputeResolution and re-sends it to a late receiver (READY)', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    viewer.setComputeResolution(1080);
+    expect(viewer.computeMaxDim).toBe(1080);
+    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(1080);
+
+    // A receiver that connects late announces READY and must get the current res.
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(1080);
+
+    await viewer.close();
+  });
+
   it('broadcasts SHADER only when the WGSL changes, uniforms every frame', async () => {
     const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
@@ -215,6 +233,34 @@ describe('TauriSecondMonitorViewer', () => {
 
     expect(channel.posted.filter((m) => m.type === MSG.SHADER).map((m) => m.wgsl)).toEqual(['A', 'B']);
     expect(channel.posted.filter((m) => m.type === MSG.UNIFORMS)).toHaveLength(3);
+
+    await viewer.close();
+  });
+
+  it('re-broadcasts COMPUTE_GRAPH when a compute input is rewired (no WGSL change)', async () => {
+    stubComputeGlobals({ nodes: [
+      { id: '1', kind: 'ComputeNoise', wgsl: 'A', width: 8, height: 8 },
+      { id: '2', kind: 'ComputeEdgeDetect', wgsl: 'B', width: 8, height: 8, inputs: ['1'] },
+    ] });
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_X')); // establish native-compute + first graph
+    await flush();
+    channel.posted.length = 0;
+
+    // Same WGSL, same structure → no redundant re-broadcast.
+    renderer.emitState(computeSnap('WGSL_X'));
+    expect(channel.posted.some((m) => m.type === MSG.COMPUTE_GRAPH)).toBe(false);
+
+    // A new node connected into ComputeEdgeDetect's input — still no WGSL change.
+    window.computeNodeRegistry.get('2').node.inputs = ['3'];
+    renderer.emitState(computeSnap('WGSL_X'));
+    const cg = channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH);
+    expect(cg).toBeTruthy();
+    expect(cg.nodes.find((n) => n.id === '2').inputs).toEqual(['3']);
 
     await viewer.close();
   });

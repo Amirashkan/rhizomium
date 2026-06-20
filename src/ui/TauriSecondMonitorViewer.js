@@ -19,9 +19,12 @@
 // frame, where the old approach (capturing #gpu-canvas with createImageBitmap
 // and structured-cloning a multi-MB frame every present) dropped it to ~30fps.
 //
-// Graphs that bind textures or storage/compute buffers cannot be reproduced from
-// a uniform snapshot alone; for those this backend reverts to the pixel FRAME
-// tap (GPURenderer.setFrameTap) so the second monitor never shows broken output.
+// Textured and compute graphs (including stateful/feedback sims) are reproduced
+// natively too: the WGSL, the compute subgraph and the per-frame uniform bytes are
+// broadcast and the receiver re-renders from them. Only graphs the receiver can't
+// reproduce from state alone — a compute node fed by a fragment node, or a fragment
+// storage buffer — revert to the pixel FRAME tap (GPURenderer.setFrameTap) so the
+// second monitor never shows broken output.
 //
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
@@ -63,7 +66,9 @@ export class TauriSecondMonitorViewer {
     this._frameTap = null;       // handler registered on the renderer's frame tap (fallback)
     this._mode = null;           // 'native' | 'fallback', decided per shader
     this._lastWgsl = undefined;  // last WGSL broadcast (undefined = none yet)
+    this._lastComputeSig = null; // last compute-graph structure signature broadcast
     this._forceFallback = false; // receiver can't render natively → pixels only
+    this._computeMaxDim = 0;     // viewer compute long-edge override (0 = match editor)
     this._active = false;
   }
 
@@ -219,8 +224,29 @@ export class TauriSecondMonitorViewer {
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
       }
+      // A (re)connecting receiver also needs the current compute-resolution override.
+      if (this._computeMaxDim > 0) {
+        try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: this._computeMaxDim }); } catch (_) { /* ignore */ }
+      }
     }
   }
+
+  /**
+   * Set the second viewer's compute resolution (long edge in px; 0 = match the
+   * editor's preview resolution). A fixed value DECOUPLES the viewer from the
+   * editor's floating-preview size and renders compute at the chosen detail (up to
+   * 2048), so the viewer can be Full HD regardless of the editor's preview. Persists
+   * across reconnects (re-sent on READY). No-op until a viewer is open.
+   * @param {number} maxDim
+   */
+  setComputeResolution(maxDim) {
+    const v = Math.max(0, Math.min(2048, Math.round(Number(maxDim) || 0)));
+    this._computeMaxDim = v;
+    try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: v }); } catch (_) { /* ignore */ }
+  }
+
+  /** Current compute-resolution override (long edge px; 0 = match editor). */
+  get computeMaxDim() { return this._computeMaxDim; }
 
   /**
    * Create the native WebviewWindow on a detected second display (borderless,
@@ -326,6 +352,7 @@ export class TauriSecondMonitorViewer {
     const renderer = this._resolveRenderer();
     if (!renderer) return;
     this._lastWgsl = undefined;
+    this._lastComputeSig = null;
     this._mode = null;
     if (typeof renderer.setStateTap === 'function') {
       this._stateTap = (snap) => this._onState(snap);
@@ -370,7 +397,20 @@ export class TauriSecondMonitorViewer {
         if (this._mode === 'native-compute') {
           this._broadcastComputeGraph();
           this._broadcastAllTextures();
+          this._lastComputeSig = this._computeGraphSignature();
         }
+      }
+    }
+    // Re-broadcast the compute graph when its STRUCTURE changes without a WGSL change
+    // — e.g. a new node connected into a compute node's input (ComputeEdgeDetect),
+    // or a compute resolution change. Otherwise the receiver kept the old wiring
+    // until the viewer was re-opened.
+    if (this._mode === 'native-compute') {
+      const sig = this._computeGraphSignature();
+      if (sig !== this._lastComputeSig) {
+        this._lastComputeSig = sig;
+        this._broadcastComputeGraph();
+        this._broadcastAllTextures();
       }
     }
     if (this._mode === 'native' || this._mode === 'native-compute') {
@@ -386,6 +426,31 @@ export class TauriSecondMonitorViewer {
         try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute }); } catch (_) { /* ignore */ }
       }
     }
+  }
+
+  /**
+   * Cheap signature of the compute subgraph's STRUCTURE (node ids, kinds, input
+   * wiring and texture sizes). Changes when a node is added/removed, rewired, or
+   * resized — used to re-broadcast COMPUTE_GRAPH so the receiver rebuilds. Does NOT
+   * include per-frame uniforms (those stream separately).
+   */
+  _computeGraphSignature() {
+    const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
+    const registry = (typeof window !== 'undefined') ? window.computeNodeRegistry : null;
+    if (!registry || typeof registry.forEach !== 'function') return '';
+    const parts = [];
+    registry.forEach((data, id) => {
+      const node = data && data.node;
+      if (!node) return;
+      const mgr = (exec && exec.computeManagers && typeof exec.computeManagers.get === 'function')
+        ? exec.computeManagers.get(id) : null;
+      const res = data.resolution || node.computeResolution || [];
+      const w = (mgr && mgr.textureWidth) || res[0] || 0;
+      const h = (mgr && mgr.textureHeight) || res[1] || 0;
+      const inputs = Array.isArray(node.inputs) ? node.inputs.join(',') : '';
+      parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}`);
+    });
+    return parts.join('|');
   }
 
   /** Decide the mirror tier for the current shader (native / native-compute / fallback). */

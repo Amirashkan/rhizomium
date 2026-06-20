@@ -27,7 +27,7 @@ export const SECOND_MONITOR_CHANNEL = 'rhizomium:second-monitor';
 /** Native-render tier the editor advertises to the receiver via {@link SecondMonitorMessage.CAPS}. */
 export const SecondMonitorTier = Object.freeze({
   NATIVE: 'native',                 // fragment + uniforms only
-  NATIVE_COMPUTE: 'native-compute', // also stateless compute and/or broadcast image textures
+  NATIVE_COMPUTE: 'native-compute', // also compute (stateless or stateful/feedback, replicated) and/or image textures
   FALLBACK: 'fallback',             // receiver paints mirrored FRAME bitmaps (pixel path)
 });
 
@@ -41,6 +41,7 @@ export const SecondMonitorMessage = Object.freeze({
   COMPUTE_UNIFORMS: 'compute-uniforms', // { nodes:[{id,packed,colorStops}] } — per-frame packed compute uniform bytes
   TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
+  RENDER_RES: 'render-res', // { maxDim } — viewer compute long-edge override (0 = match editor); decouples the viewer from the editor's preview resolution
   CLOSE: 'close',       // shut the window down
   // receiver → editor
   READY: 'ready',       // { webgpu } page loaded and now listening

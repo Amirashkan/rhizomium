@@ -1,9 +1,9 @@
 // src/ui/letterbox.js
 //
-// Aspect-preserving "letterbox" placement shared by both second-monitor
-// backends (the browser popup mirror and the Tauri receiver window). Given a
-// source size and a destination size, returns the centred destination rect that
-// preserves the source aspect ratio on a black field.
+// Aspect-preserving "letterbox" placement for the Tauri second-monitor receiver
+// window's pixel-fallback path. Given a source size and a destination size,
+// returns the centred destination rect that preserves the source aspect ratio on
+// a black field.
 
 /**
  * @param {number} srcW source width in pixels

@@ -85,4 +85,56 @@ describe('ComputeShaderManager external uniforms', () => {
     expect(mgr.colorStopsData[8]).toBe(1.0);
     expect(Array.from(mgr.colorStopsData.slice(12, 16))).toEqual([0, 0, 1, 1]);
   });
+
+  // Feedback ping-pong state machine — the stateful path the second-monitor
+  // receiver now drives natively (it runs its own copy of the simulation).
+  it('swapBuffers toggles the ping-pong write target each frame', () => {
+    const a = { id: 'A' };
+    const b = { id: 'B' };
+    const mgr = bare({
+      supportsFeedback: true,
+      currentWriteTexture: 'A',
+      storageTextureA: a,
+      storageTextureB: b,
+      storageTexture: a,
+    });
+
+    mgr.swapBuffers();
+    expect(mgr.currentWriteTexture).toBe('B');
+    expect(mgr.storageTexture).toBe(b); // write target follows the toggle
+
+    mgr.swapBuffers();
+    expect(mgr.currentWriteTexture).toBe('A');
+    expect(mgr.storageTexture).toBe(a);
+  });
+
+  it('swapBuffers is a no-op for stateless nodes (no feedback)', () => {
+    const mgr = bare({
+      supportsFeedback: false,
+      currentWriteTexture: 'A',
+      storageTextureA: { id: 'A' },
+      storageTextureB: { id: 'B' },
+      storageTexture: { id: 'A' },
+    });
+    mgr.swapBuffers();
+    expect(mgr.currentWriteTexture).toBe('A'); // unchanged
+  });
+
+  it('destroy() releases both ping-pong textures (no feedback leak on rebuild)', () => {
+    const destroyed = [];
+    const tex = (id) => ({ id, destroy: () => destroyed.push(id) });
+    const mgr = bare({
+      storageTexture: tex('S'),
+      storageTextureA: tex('A'),
+      storageTextureB: tex('B'),
+      outputTexture: tex('OUT'),
+      uniformBuffer: { destroy: () => destroyed.push('U') },
+      colorStopsBuffer: null,
+      fallbackInputTexture: null,
+    });
+    mgr.destroy();
+    expect(destroyed).toEqual(expect.arrayContaining(['A', 'B', 'OUT', 'S']));
+    expect(mgr.storageTextureA).toBeNull();
+    expect(mgr.storageTextureB).toBeNull();
+  });
 });

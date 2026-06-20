@@ -74,10 +74,11 @@ async function settle(n = 4) { for (let i = 0; i < n; i++) await flush(); }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('secondMonitorReceiver', () => {
-  let doc, win, rafCbs, gpuCanvas, fbCanvas, fbCtx;
+  let doc, win, rafCbs, gpuCanvas, fbCanvas, fbCtx, clock;
 
   beforeEach(() => {
     FakeBroadcastChannel.instances = [];
+    clock = 1000; // mutable wall clock shared by performance.now() and rAF timestamps
     rafCbs = [];
     gpuCanvas = makeFakeCanvas();
     fbCanvas = makeFakeCanvas();
@@ -92,7 +93,7 @@ describe('secondMonitorReceiver', () => {
     };
     win = {
       innerWidth: 1280, innerHeight: 720, devicePixelRatio: 1,
-      performance: { now: () => 1000 },
+      performance: { now: () => clock },
       requestAnimationFrame: vi.fn((cb) => { rafCbs.push(cb); return rafCbs.length; }),
       cancelAnimationFrame: vi.fn(),
       addEventListener: vi.fn(),
@@ -109,8 +110,15 @@ describe('secondMonitorReceiver', () => {
     vi.unstubAllGlobals();
   });
 
-  // Run the most recently scheduled rAF callback.
-  const step = () => { const cb = rafCbs.pop(); rafCbs.length = 0; if (cb) cb(); };
+  // Advance the clock by dtMs (default one 60fps frame) and run the most recently
+  // scheduled rAF callback with the new timestamp. The receiver paces rendering on
+  // this clock, so tests must advance it to drive frames.
+  const step = (dtMs = 1000 / 60) => {
+    clock += dtMs;
+    const cb = rafCbs.pop();
+    rafCbs.length = 0;
+    if (cb) cb(clock);
+  };
 
   it('announces READY (webgpu) and reports its backing size, starting on the safe pixel tier', () => {
     const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
@@ -130,6 +138,7 @@ describe('secondMonitorReceiver', () => {
 
     expect(renderer.setShaderSource).toHaveBeenCalledWith('WGSL_MAIN');
     expect(renderer.externalUniformMode).toBe(true);
+    expect(renderer.sampleCount).toBe(1); // no MSAA on the output blit (saves GPU)
   });
 
   it('re-renders natively, overriding resolution to its own canvas and using the editor clock', async () => {
@@ -153,6 +162,133 @@ describe('secondMonitorReceiver', () => {
     expect(globals[0]).toBe(1280);
     expect(globals[1]).toBe(720);
     expect(aspect[0]).toBeCloseTo(1280 / 720, 5);
+  });
+
+  // Render pacing: the receiver renders the latest state on its OWN steady ~60fps
+  // clock — NOT once per inbound message (which beat against vsync) — but throttled
+  // so a high-refresh display can't over-drive compute, and held when idle.
+  const primeNative = async (renderer) => {
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+    const ch = FakeBroadcastChannel.instances[0];
+    ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+    await flush();
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([0, 0, 1, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+    return ch;
+  };
+
+  it('renders at a steady cap on its own clock, not once per message', async () => {
+    const renderer = makeFakeRenderer();
+    await primeNative(renderer);
+
+    step(); // one 60fps step → renders
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // A sub-frame rAF (too soon) is throttled — caps compute on a high-refresh display.
+    step(4);
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // The next full step renders again WITHOUT any new message: we pace on our own
+    // clock, so there is no message-arrival/vsync beat.
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders every frame on a panel just above 60Hz (no accumulator drift skip)', async () => {
+    const renderer = makeFakeRenderer();
+    const ch = await primeNative(renderer);
+    const emitFrame = (t) => ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([0, 0, t, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+
+    // dt just under a 60fps step (panel a hair above 60Hz, editor broadcasting each
+    // frame): a carry accumulator would drift and drop a frame every few seconds —
+    // the irregular hitch. Elapsed-since-last-render + tolerance renders every frame.
+    for (let i = 0; i < 40; i++) { emitFrame(i + 2); step(16.5); }
+    expect(renderer.render).toHaveBeenCalledTimes(40);
+  });
+
+  it('profiler accumulates frame/render/message stats when toggled on', async () => {
+    const renderer = makeFakeRenderer();
+    const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+    const ch = FakeBroadcastChannel.instances[0];
+    ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+    await flush();
+
+    expect(r.profiler.snapshot()).toBeNull(); // nothing until enabled
+    r.profiler.toggle();
+    expect(r.profiler.on).toBe(true);
+
+    // ~40 frames at 60fps with the editor broadcasting each frame → past one window.
+    for (let i = 0; i < 40; i++) {
+      ch.emit({
+        type: MSG.UNIFORMS,
+        aspect: new Float32Array([1, 0, 0, 0]),
+        globals: new Float32Array([0, 0, i, 0, 0, 0, 0, 0]),
+        params: new Float32Array([0]),
+      });
+      step(16.6);
+    }
+
+    const s = r.profiler.snapshot();
+    expect(s).toBeTruthy();
+    expect(s.renderFps).toBeGreaterThan(0);
+    expect(s.msgsPerSec).toBeGreaterThan(0);
+    expect(s.tier).toBe(TIER.NATIVE);
+  });
+
+  it('fills the display backing until the editor aspect is known', async () => {
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    // Backing = innerWidth*dpr (1280x720); detail is governed by compute res, not this.
+    expect(gpuCanvas.width).toBe(1280);
+    expect(gpuCanvas.height).toBe(720);
+    expect(gpuCanvas.style.width).toBe('1280px');
+  });
+
+  it('letterboxes the gpu canvas to the editor aspect ratio (matches editor framing)', () => {
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    const ch = FakeBroadcastChannel.instances[0];
+    // Editor is 2:1 (1000x500); display is 1280x720 → letterbox to 1280x640, centred.
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([2, 0, 0, 0]),
+      globals: new Float32Array([1000, 500, 0, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+    expect(gpuCanvas.width).toBe(1280);
+    expect(gpuCanvas.height).toBe(640);
+    expect(gpuCanvas.style.height).toBe('640px');
+    expect(gpuCanvas.style.top).toBe('40px');   // (720-640)/2, black bars top & bottom
+  });
+
+  it('holds the last frame after sustained silence, then resumes on new state', async () => {
+    const renderer = makeFakeRenderer();
+    const ch = await primeNative(renderer);
+
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // No messages for longer than the idle window → hold (editor minimised/closed).
+    step(500);
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // Fresh state resumes the steady cadence.
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([0, 0, 2, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+    step();
+    expect(renderer.render).toHaveBeenCalledTimes(2);
   });
 
   it('paints mirrored pixels in fallback mode and does not render natively', async () => {
@@ -203,6 +339,86 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.initialize).toHaveBeenCalled();
       expect(rt.computeExecutor.computeManagers.get('1').externalUniformMode).toBe(true);
       expect(rt.computeExecutor.executionOrder).toEqual(['1']);
+    });
+
+    it('builds multiple feedback sims and applies uniforms to each (multi-sim graph)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [
+          { id: '1', kind: 'ComputeReactionDiffusion', wgsl: 'A', width: 64, height: 64, supportsFeedback: true, inputs: [] },
+          { id: '2', kind: 'ComputeFeedback', wgsl: 'B', width: 64, height: 64, supportsFeedback: true, inputs: ['1'] },
+        ],
+        executionOrder: ['1', '2'],
+      });
+      await settle();
+
+      // Both stateful sims are reconstructed with their feedback flag and run order.
+      expect(win.computeNodeRegistry.get('1')).toMatchObject({ supportsFeedback: true });
+      expect(win.computeNodeRegistry.get('2')).toMatchObject({ supportsFeedback: true });
+      expect(rt.computeExecutor.computeManagers.size).toBe(2);
+      expect(rt.computeExecutor.executionOrder).toEqual(['1', '2']);
+
+      // Per-frame uniforms reach every sim.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [
+        { id: '1', packed: new Float32Array([64, 64, 0, 1]) },
+        { id: '2', packed: new Float32Array([64, 64, 0, 2]) },
+      ] });
+      await settle();
+      expect(rt.computeExecutor.computeManagers.get('1').writeRawComputeUniforms).toHaveBeenCalled();
+      expect(rt.computeExecutor.computeManagers.get('2').writeRawComputeUniforms).toHaveBeenCalled();
+    });
+
+    it('rebuilds when a compute input is rewired (dedup key includes inputs)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      const graph = (input) => ({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [
+          { id: '1', kind: 'ComputeNoise', wgsl: 'A', width: 8, height: 8, inputs: [] },
+          { id: '2', kind: 'ComputeEdgeDetect', wgsl: 'B', width: 8, height: 8, inputs: [input] },
+        ],
+        executionOrder: ['1', '2'],
+      });
+
+      ch.emit(graph('1'));
+      await settle();
+      expect(win.graph.nodes.find((n) => n.id === '2').inputs).toEqual(['1']);
+
+      // Same ids/kinds/wgsl/size, only the input rewired → must rebuild, not dedup away.
+      ch.emit(graph('3'));
+      await settle();
+      expect(win.graph.nodes.find((n) => n.id === '2').inputs).toEqual(['3']);
+    });
+
+    it('overrides compute resolution (RENDER_RES), decoupled from the editor preview', async () => {
+      const rt = installFakeRuntime();
+      const r = initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [
+        { id: '1', kind: 'ComputeNoise', wgsl: 'A', width: 512, height: 512, inputs: [] },
+      ], executionOrder: ['1'] });
+      await settle();
+      expect(win.graph.nodes[0].computeResolution).toEqual([512, 512]); // match editor
+
+      ch.emit({ type: MSG.RENDER_RES, maxDim: 1024 });
+      await settle();
+      expect(r.computeMaxDim).toBe(1024);
+      // Long edge scaled to 1024 (preserving aspect), independent of the broadcast size.
+      expect(win.graph.nodes[0].computeResolution).toEqual([1024, 1024]);
+
+      // The per-frame packed resolution (floats 0,1) is overridden to the new size,
+      // so the shader's UV/texel math matches the larger texture.
+      const packed = new Float32Array([512, 512, 0, 1]);
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed }] });
+      await settle();
+      expect(packed[0]).toBe(1024);
+      expect(packed[1]).toBe(1024);
     });
 
     it('injects compute uniforms and invalidates input hashes when bytes change', async () => {

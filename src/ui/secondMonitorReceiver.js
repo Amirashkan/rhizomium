@@ -11,14 +11,27 @@
 //    from our own rAF, at this display's native resolution and refresh rate. No
 //    pixels cross the process boundary, so the editor keeps full framerate.
 //
-//  • FALLBACK (pixels): for graphs the snapshot can't reproduce (textures,
-//    compute/feedback), the editor broadcasts FRAME bitmaps and we paint them,
-//    letterboxed on black, onto the 2D #second-monitor-output canvas — the
-//    original behaviour, kept so nothing ever regresses.
+//    Compute graphs — including stateful/feedback sims — are reproduced here too:
+//    this window runs its OWN ComputeExecutor and evolves an independent copy of
+//    the simulation from the broadcast graph + per-frame uniform bytes.
 //
-// Driving the paint from this window's own rAF (not the editor's) means the
-// output runs at the second display's refresh rate and never freezes if the
-// editor window is occluded or minimised.
+//  • FALLBACK (pixels): for the few graphs the receiver can't reproduce from state
+//    alone (a compute node fed by a fragment node, or fragment storage buffers),
+//    the editor broadcasts FRAME bitmaps and we paint them, letterboxed on black,
+//    onto the 2D #second-monitor-output canvas — kept so nothing ever regresses.
+//
+// The paint is driven by this window's own rAF, capped to ~60fps on OUR OWN clock
+// and rendering whatever editor state is latest — NOT once per inbound message
+// (message-arrival gating made our vsync sample the editor's ~60/s broadcast and
+// beat against it). Pacing is by elapsed-since-last-render with a jitter tolerance,
+// not a carry accumulator: an accumulator targeting exactly the display rate slowly
+// drifts and drops one frame every few seconds. With the tolerance, a panel at (or
+// just above) the cap renders every frame; only genuinely high-refresh displays get
+// throttled, which is what keeps compute from over-driving (re-running the full-res
+// pipeline every refresh wasted the GPU and dragged both windows below framerate,
+// worst for fragment+compute graphs). After a short silence (the editor window
+// minimised/occluded so its rAF is throttled) we hold the last frame rather than
+// spin re-rendering and re-stepping feedback sims.
 //
 // Keyboard: Esc closes the window; F (or double-click) toggles native
 // fullscreen. Tauri APIs are loaded via guarded dynamic import so this module
@@ -102,6 +115,22 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let latestW = 0, latestH = 0;
   let rafId = null;
   let closing = false;
+  // Render pacing. We render the latest received state on our OWN clock, capped to
+  // ~RENDER_FPS, NOT once per inbound message — see the frame loop. We pace on
+  // elapsed-since-last-render (not a carry accumulator): an accumulator targeting
+  // exactly the display rate slowly drifts and drops one frame every few seconds.
+  const RENDER_STEP_MS = 1000 / 60;        // cap target (matches the editor's 60fps cap)
+  const RENDER_STEP_TOL = RENDER_STEP_MS * 0.25; // jitter slack so a ~60Hz panel never skips
+  const IDLE_HOLD_MS = 200;                // hold the last frame after this much silence
+  let lastRenderTs = null;                 // rAF timestamp of the previous actual render
+  let lastMessageTs = nowMs();             // wall clock of the last inbound editor message
+  // Viewer compute-resolution override (long edge in px; 0 = match the editor's
+  // broadcast/preview size). A fixed value decouples the viewer from the editor's
+  // floating-preview resolution and renders compute at the chosen detail.
+  let computeMaxDim = 0;
+  let editorAspect = 0;                     // editor's aspect ratio (w/h); 0 = unknown → fill
+  let lastComputeGraphMsg = null;          // last COMPUTE_GRAPH (re-applied when the override changes)
+  const computeDimsOverride = new Map();   // node id -> [w,h] actually used (for the packed-resolution override)
   let cachedWindow = null;
 
   // Native-compute runtime (Tier 2): the receiver's own ComputeExecutor + TextureManager.
@@ -131,6 +160,17 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       // Injected uniforms must survive render(); never let it re-derive them
       // from window.* globals this window doesn't have.
       renderer.externalUniformMode = true;
+      // No MSAA on the output window. We only draw a fullscreen triangle that samples
+      // the (already-rendered) shader/compute result — there are no geometry edges to
+      // antialias, so MSAA is pure cost: a 4x multisample target at the display's
+      // native resolution is tens-to-hundreds of MB of GPU memory + bandwidth every
+      // frame, which starved the shared GPU (the editor's framerate) and added memory
+      // pressure. Must be set before the first shader builds the pipeline. (The editor
+      // keeps its own MSAA; this only affects this mirror window's blit.)
+      try { renderer.sampleCount = 1; } catch (_) { /* ignore */ }
+      // Count GPU-completed frames so the profiler can show real throughput
+      // (onFramePresented fires on onSubmittedWorkDone, not at dispatch time).
+      try { renderer.onFramePresented = () => profiler.presented(); } catch (_) { /* ignore */ }
       if (pendingWgsl) { applyShader(pendingWgsl); pendingWgsl = null; }
       return renderer;
     }).catch(() => {
@@ -175,29 +215,53 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (!computeRuntime) { pendingComputeGraph = msg; ensureComputeRuntime(); return; }
     const exec = computeRuntime.computeExecutor;
     if (!exec) return;
+    lastComputeGraphMsg = msg; // remember so a compute-res change can re-apply it
     const nodes = msg.nodes || [];
-    const key = JSON.stringify(nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height]));
+    // Dedup key includes `inputs` (rewiring, e.g. a node connected into
+    // ComputeEdgeDetect, changes the graph even when ids/kinds/sizes don't) and the
+    // compute-res override (changing the viewer resolution forces a rebuild at the
+    // new size). Without these the receiver kept stale state until re-opened.
+    const key = JSON.stringify([computeMaxDim, nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height, n.inputs || []])]);
     if (key === appliedComputeKey) return; // unchanged graph — skip the costly re-init
     if (!win.computeNodeRegistry) win.computeNodeRegistry = new Map();
     if (!win.graph) {
       win.graph = { nodes: [], getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; } };
     }
+    // Compute-resolution override: scale every node so the largest long-edge becomes
+    // computeMaxDim (preserving aspect), capped at the executor's MAX_COMPUTE_RES.
+    // 0 → no override (use the editor's broadcast/preview size).
+    const MAX_COMPUTE_RES = 2048;
+    let scale = 1;
+    if (computeMaxDim > 0) {
+      let maxEdge = 0;
+      for (const n of nodes) maxEdge = Math.max(maxEdge, n.width || 0, n.height || 0);
+      if (maxEdge > 0) scale = computeMaxDim / maxEdge;
+    }
+    const dimsFor = (n) => {
+      if (computeMaxDim <= 0 || !n.width || !n.height) return [n.width || 0, n.height || 0];
+      const w = Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(n.width * scale)));
+      const h = Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(n.height * scale)));
+      return [w, h];
+    };
     const registry = win.computeNodeRegistry;
     registry.clear();
     win.graph.nodes = [];
+    computeDimsOverride.clear();
     for (const n of nodes) {
+      const [w, h] = dimsFor(n);
+      if (computeMaxDim > 0 && n.width && n.height) computeDimsOverride.set(n.id, [w, h]);
       const node = {
         id: n.id,
         kind: n.kind,
         inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
         params: {},
-        computeResolution: [n.width || 0, n.height || 0],
+        computeResolution: [w, h],
       };
       win.graph.nodes.push(node);
       registry.set(n.id, {
         node,
         getInput: () => null,
-        resolution: [n.width || 0, n.height || 0],
+        resolution: [w, h],
         wgslCode: n.wgsl,
         supportsFeedback: !!n.supportsFeedback,
         lastInputHash: null,
@@ -222,6 +286,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     for (const n of (msg.nodes || [])) {
       const mgr = managers.get(n.id);
       if (!mgr || typeof mgr.writeRawComputeUniforms !== 'function') continue;
+      // When the compute resolution is overridden, the texture is a different size
+      // than the editor's, so the resolution baked into the packed uniform (floats
+      // 0,1) must be replaced with ours — otherwise the shader's UV/texel math is
+      // wrong (stretched output, mis-scaled kernels).
+      const ov = computeDimsOverride.get(n.id);
+      if (ov && n.packed && n.packed.length >= 2) { n.packed[0] = ov[0]; n.packed[1] = ov[1]; }
       try { mgr.writeRawComputeUniforms(n.packed, n.colorStops || null); } catch (_) { /* ignore */ }
       // Static-input stateless nodes are skipped by the executor's change detection;
       // when the injected uniforms OR color stops change, invalidate the hash so it
@@ -330,9 +400,18 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         if (renderer) applyShader(d.wgsl);
         else { pendingWgsl = d.wgsl; ensureRenderer(); }
         break;
-      case MSG.UNIFORMS:
+      case MSG.UNIFORMS: {
         snapshot = { aspect: d.aspect || null, globals: d.globals || null, params: d.params || null };
+        // Track the EDITOR's aspect ratio (resolution x/y) so we can letterbox the
+        // output to match the editor's framing instead of stretching to the display.
+        const eg = d.globals;
+        const asp = (eg && eg.length >= 2 && eg[0] > 0 && eg[1] > 0) ? eg[0] / eg[1] : 0;
+        if (asp > 0 && Math.abs(asp - editorAspect) > 0.001) {
+          editorAspect = asp;
+          sizeGpuCanvas();
+        }
         break;
+      }
       case MSG.CAPS:
         setTier(d.tier);
         break;
@@ -349,12 +428,23 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       case MSG.FRAME:
         if (d.bitmap) setLatest(d.bitmap, d.sw, d.sh);
         break;
+      case MSG.RENDER_RES:
+        setComputeMaxDim(d.maxDim);
+        break;
       case MSG.CLOSE:
         closeSelf();
         break;
       default:
         break;
     }
+    // Track liveness only: while editor state keeps arriving we render at a steady
+    // cap (below); after IDLE_HOLD_MS of silence (editor minimised/occluded so its
+    // rAF is throttled) we hold the last frame instead of spinning. We deliberately
+    // do NOT render once-per-message: that made our vsync sample the editor's ~60/s
+    // broadcast, and the two near-60Hz clocks beat in/out of phase — a periodic
+    // skipped/doubled frame seen as a hitch on the fullscreen output.
+    lastMessageTs = nowMs();
+    profiler.message();
   }
   if (channel) channel.addEventListener('message', onMessage);
 
@@ -379,11 +469,27 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
 
   function sizeGpuCanvas() {
     if (!gpuCanvas) return;
-    const { cssW, cssH, bw, bh } = backingSize();
+    const { dpr, cssW, cssH } = backingSize();
+    // Letterbox the output to the EDITOR's aspect ratio so the viewer matches the
+    // editor's framing (black bars from the body background) rather than stretching
+    // to the display. renderNative derives the shader resolution/aspect from this
+    // canvas, so sizing it to the editor aspect makes the composition match. When the
+    // editor aspect is unknown, fill the display.
+    let elW = cssW, elH = cssH, left = 0, top = 0;
+    if (editorAspect > 0) {
+      const rect = letterboxRect(editorAspect, 1, cssW, cssH);
+      if (rect.dw > 0 && rect.dh > 0) { elW = rect.dw; elH = rect.dh; left = rect.dx; top = rect.dy; }
+    }
+    const bw = Math.max(1, Math.round(elW * dpr));
+    const bh = Math.max(1, Math.round(elH * dpr));
     if (gpuCanvas.width !== bw) gpuCanvas.width = bw;
     if (gpuCanvas.height !== bh) gpuCanvas.height = bh;
-    gpuCanvas.style.width = cssW + 'px';
-    gpuCanvas.style.height = cssH + 'px';
+    gpuCanvas.style.width = elW + 'px';
+    gpuCanvas.style.height = elH + 'px';
+    gpuCanvas.style.left = left + 'px';
+    gpuCanvas.style.top = top + 'px';
+    gpuCanvas.style.right = 'auto';
+    gpuCanvas.style.bottom = 'auto';
     // Keep the renderer's cached size in step so it rebuilds MSAA on next render.
     if (renderer && renderer._cachedCanvasSize) {
       renderer._cachedCanvasSize.width = bw;
@@ -413,10 +519,51 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     } catch (_) { /* ignore */ }
   }
 
+  // --- viewer compute resolution -------------------------------------------
+  // Long-edge presets (px). 0 = match the editor's preview/broadcast size.
+  const COMPUTE_RES_PRESETS = [0, 720, 1080, 1440, 2048];
+
+  function flashHint(text) {
+    const el = doc.getElementById('second-monitor-hint');
+    if (!el) return;
+    el.textContent = text;
+    el.style.opacity = '1';
+    try { win.setTimeout(() => { el.style.opacity = '0'; }, 1500); } catch (_) { /* ignore */ }
+  }
+
+  /**
+   * Set the viewer's compute-resolution override (long edge in px; 0 = match the
+   * editor). Rebuilds the compute graph at the new size, decoupled from the editor's
+   * preview resolution.
+   */
+  function setComputeMaxDim(next, { flash = true } = {}) {
+    const v = Math.max(0, Math.min(2048, Math.round(Number(next) || 0)));
+    if (v === computeMaxDim) return;
+    computeMaxDim = v;
+    if (lastComputeGraphMsg) {
+      appliedComputeKey = null;          // force a rebuild at the new resolution
+      applyComputeGraph(lastComputeGraphMsg);
+    }
+    if (flash) flashHint(v > 0 ? `Compute ${v}p` : 'Compute: match editor');
+  }
+
+  /** Step to the adjacent preset (dir +1 = higher res, -1 = lower). */
+  function stepComputeRes(dir) {
+    const p = COMPUTE_RES_PRESETS;
+    let i = 0, best = Infinity;
+    for (let k = 0; k < p.length; k++) {
+      const d = Math.abs(p[k] - computeMaxDim);
+      if (d < best) { best = d; i = k; }
+    }
+    i = Math.max(0, Math.min(p.length - 1, i + dir));
+    setComputeMaxDim(p[i]);
+  }
+
   function onResize() {
     sizeFallbackCanvas();
     sizeGpuCanvas();
     reportSize();
+    lastMessageTs = nowMs(); // count a resize as activity so we repaint at the new size
   }
   sizeFallbackCanvas();
   sizeGpuCanvas();
@@ -465,14 +612,136 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     }
   }
 
-  function frame() {
+  function nowMs() {
+    return (win.performance && typeof win.performance.now === 'function')
+      ? win.performance.now() : Date.now();
+  }
+
+  /**
+   * Lightweight self-profiler for this output window (toggle with P). It measures
+   * exactly the signals that distinguish the possible causes of a visible hitch:
+   *   • rAF gap max + stall count  → a present/GC stall (the frame never reached the
+   *                                  display on time — invisible to the editor's
+   *                                  compute profiler, which only times compute).
+   *   • render (sync dispatch) ms  → CPU-side render/compute-encode cost.
+   *   • GPU-presented fps          → real throughput (onFramePresented), vs rendered.
+   *   • throttle / idle skips      → our own fps cap or idle-hold kicking in.
+   *   • editor message gap         → the editor starving us of state.
+   * Off by default; accumulates only while on, so it can't perturb the normal path.
+   */
+  function makeReceiverProfiler() {
+    const el = doc.getElementById('second-monitor-profiler');
+    const WIN_MS = 500;
+    const STALL_MS = RENDER_STEP_MS * 1.5; // an rAF gap this long = a dropped frame
+    let on = false;
+    let winStart = 0, lastRaf = 0, lastMsg = 0, renderT0 = 0;
+    let rafCount = 0, rendered = 0, presented = 0, throttle = 0, idle = 0, stalls = 0, msgs = 0;
+    let gapMax = 0, drawSum = 0, drawMax = 0, msgGapMax = 0;
+    let lastStats = null;
+
+    function resetWindow(t) {
+      winStart = t; rafCount = 0; rendered = 0; presented = 0; throttle = 0; idle = 0;
+      stalls = 0; msgs = 0; gapMax = 0; drawSum = 0; drawMax = 0; msgGapMax = 0;
+    }
+
+    function flush(t) {
+      const sec = Math.max(1e-3, (t - winStart) / 1000);
+      lastStats = {
+        tier,
+        renderFps: Math.round(rendered / sec),
+        rafFps: Math.round(rafCount / sec),
+        gpuFps: Math.round(presented / sec),
+        gapMaxMs: +gapMax.toFixed(1),
+        stalls,
+        drawAvgMs: +(rendered ? drawSum / rendered : 0).toFixed(2),
+        drawMaxMs: +drawMax.toFixed(2),
+        throttle, idle,
+        msgsPerSec: Math.round(msgs / sec),
+        msgGapMaxMs: +msgGapMax.toFixed(1),
+      };
+      if (el) {
+        const s = lastStats;
+        el.textContent =
+          `2nd-monitor · ${s.tier}\n` +
+          `render ${s.renderFps} fps  (rAF ${s.rafFps} · gpu ${s.gpuFps})\n` +
+          `frame  gap max ${s.gapMaxMs}ms · stalls ${s.stalls}\n` +
+          `draw   ${s.drawAvgMs}ms avg · ${s.drawMaxMs}ms max\n` +
+          `skip   throttle ${s.throttle} · idle ${s.idle}\n` +
+          `editor ${s.msgsPerSec} msg/s · gap max ${s.msgGapMaxMs}ms`;
+      }
+      resetWindow(t);
+    }
+
+    return {
+      get on() { return on; },
+      snapshot() { return lastStats; },
+      toggle() {
+        on = !on;
+        if (el) el.style.display = on ? 'block' : 'none';
+        if (on) { resetWindow(nowMs()); lastRaf = 0; lastMsg = 0; }
+      },
+      raf(now) {
+        if (!on) return;
+        if (lastRaf) {
+          const gap = now - lastRaf;
+          if (gap > gapMax) gapMax = gap;
+          if (gap > STALL_MS) stalls++;
+        }
+        lastRaf = now;
+        rafCount++;
+        if (now - winStart >= WIN_MS) flush(now);
+      },
+      skip(kind) { if (on) { if (kind === 'throttle') throttle++; else idle++; } },
+      renderStart() { if (on) renderT0 = nowMs(); },
+      renderEnd() {
+        if (!on) return;
+        const ms = nowMs() - renderT0;
+        drawSum += ms; if (ms > drawMax) drawMax = ms; rendered++;
+      },
+      presented() { if (on) presented++; },
+      message() {
+        if (!on) return;
+        const t = nowMs();
+        if (lastMsg) { const g = t - lastMsg; if (g > msgGapMax) msgGapMax = g; }
+        lastMsg = t; msgs++;
+      },
+    };
+  }
+
+  const profiler = makeReceiverProfiler();
+
+  function frame(ts) {
     rafId = win.requestAnimationFrame(frame);
+    const now = (typeof ts === 'number') ? ts : nowMs();
+    profiler.raf(now);
+
+    // Idle hold: when the editor stops broadcasting (its window minimised/occluded
+    // so its rAF is throttled, or it's closing), hold the last frame rather than
+    // re-rendering it — and re-stepping feedback sims — on our own clock.
+    if (now - lastMessageTs > IDLE_HOLD_MS) { profiler.skip('idle'); return; }
+
+    // Cap to ~RENDER_FPS on OUR OWN clock, rendering whatever state is latest (we do
+    // NOT render once-per-message: that made our vsync sample the editor's ~60/s
+    // broadcast and beat against it). Pace on elapsed-since-last-render, with a
+    // tolerance: a panel running at — or a hair above — the cap rate then renders
+    // EVERY frame instead of dropping one every few seconds (the drift a carry
+    // accumulator caused). Only genuinely high-refresh displays get throttled, which
+    // is what keeps compute from over-driving.
+    if (lastRenderTs != null && now - lastRenderTs < RENDER_STEP_MS - RENDER_STEP_TOL) {
+      profiler.skip('throttle');
+      return;
+    }
+    lastRenderTs = now;
+
+    profiler.renderStart();
     if ((tier === TIER.NATIVE || tier === TIER.NATIVE_COMPUTE) && renderNative()) {
       showCanvas('gpu');
+      profiler.renderEnd();
       return;
     }
     showCanvas('2d');
     paintFallback();
+    profiler.renderEnd();
   }
   showCanvas('2d');
   rafId = win.requestAnimationFrame(frame);
@@ -481,6 +750,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   win.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeSelf();
     else if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+    else if (e.key === 'p' || e.key === 'P') profiler.toggle();
+    else if (e.key === ']') stepComputeRes(1);    // higher compute resolution (sharper)
+    else if (e.key === '[') stepComputeRes(-1);   // lower compute resolution (faster)
   });
   win.addEventListener('dblclick', () => toggleFullscreen());
   win.addEventListener('beforeunload', () => {
@@ -533,11 +805,18 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   }
   reportSize();
 
+  // Expose the profiler on the window so it can be read from devtools
+  // (e.g. `__secondMonitorProfiler.snapshot()`) without the overlay.
+  try { win.__secondMonitorProfiler = profiler; } catch (_) { /* ignore */ }
+
   return {
     get tier() { return tier; },
     get renderer() { return renderer; },
     get computeRuntime() { return computeRuntime; },
     get latestSize() { return { width: latestW, height: latestH }; },
+    get computeMaxDim() { return computeMaxDim; },
+    setComputeMaxDim,
+    profiler,
     onMessage,
     closeSelf,
     toggleFullscreen,
