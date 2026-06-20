@@ -66,6 +66,7 @@ export class TauriSecondMonitorViewer {
     this._frameTap = null;       // handler registered on the renderer's frame tap (fallback)
     this._mode = null;           // 'native' | 'fallback', decided per shader
     this._lastWgsl = undefined;  // last WGSL broadcast (undefined = none yet)
+    this._lastComputeSig = null; // last compute-graph structure signature broadcast
     this._forceFallback = false; // receiver can't render natively → pixels only
     this._renderScale = 1;       // output render scale (0..1) broadcast to the viewer
     this._active = false;
@@ -351,6 +352,7 @@ export class TauriSecondMonitorViewer {
     const renderer = this._resolveRenderer();
     if (!renderer) return;
     this._lastWgsl = undefined;
+    this._lastComputeSig = null;
     this._mode = null;
     if (typeof renderer.setStateTap === 'function') {
       this._stateTap = (snap) => this._onState(snap);
@@ -395,7 +397,20 @@ export class TauriSecondMonitorViewer {
         if (this._mode === 'native-compute') {
           this._broadcastComputeGraph();
           this._broadcastAllTextures();
+          this._lastComputeSig = this._computeGraphSignature();
         }
+      }
+    }
+    // Re-broadcast the compute graph when its STRUCTURE changes without a WGSL change
+    // — e.g. a new node connected into a compute node's input (ComputeEdgeDetect),
+    // or a compute resolution change. Otherwise the receiver kept the old wiring
+    // until the viewer was re-opened.
+    if (this._mode === 'native-compute') {
+      const sig = this._computeGraphSignature();
+      if (sig !== this._lastComputeSig) {
+        this._lastComputeSig = sig;
+        this._broadcastComputeGraph();
+        this._broadcastAllTextures();
       }
     }
     if (this._mode === 'native' || this._mode === 'native-compute') {
@@ -411,6 +426,31 @@ export class TauriSecondMonitorViewer {
         try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute }); } catch (_) { /* ignore */ }
       }
     }
+  }
+
+  /**
+   * Cheap signature of the compute subgraph's STRUCTURE (node ids, kinds, input
+   * wiring and texture sizes). Changes when a node is added/removed, rewired, or
+   * resized — used to re-broadcast COMPUTE_GRAPH so the receiver rebuilds. Does NOT
+   * include per-frame uniforms (those stream separately).
+   */
+  _computeGraphSignature() {
+    const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
+    const registry = (typeof window !== 'undefined') ? window.computeNodeRegistry : null;
+    if (!registry || typeof registry.forEach !== 'function') return '';
+    const parts = [];
+    registry.forEach((data, id) => {
+      const node = data && data.node;
+      if (!node) return;
+      const mgr = (exec && exec.computeManagers && typeof exec.computeManagers.get === 'function')
+        ? exec.computeManagers.get(id) : null;
+      const res = data.resolution || node.computeResolution || [];
+      const w = (mgr && mgr.textureWidth) || res[0] || 0;
+      const h = (mgr && mgr.textureHeight) || res[1] || 0;
+      const inputs = Array.isArray(node.inputs) ? node.inputs.join(',') : '';
+      parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}`);
+    });
+    return parts.join('|');
   }
 
   /** Decide the mirror tier for the current shader (native / native-compute / fallback). */

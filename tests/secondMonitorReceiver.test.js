@@ -364,6 +364,29 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.computeManagers.get('2').writeRawComputeUniforms).toHaveBeenCalled();
     });
 
+    it('rebuilds when a compute input is rewired (dedup key includes inputs)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      const graph = (input) => ({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [
+          { id: '1', kind: 'ComputeNoise', wgsl: 'A', width: 8, height: 8, inputs: [] },
+          { id: '2', kind: 'ComputeEdgeDetect', wgsl: 'B', width: 8, height: 8, inputs: [input] },
+        ],
+        executionOrder: ['1', '2'],
+      });
+
+      ch.emit(graph('1'));
+      await settle();
+      expect(win.graph.nodes.find((n) => n.id === '2').inputs).toEqual(['1']);
+
+      // Same ids/kinds/wgsl/size, only the input rewired → must rebuild, not dedup away.
+      ch.emit(graph('3'));
+      await settle();
+      expect(win.graph.nodes.find((n) => n.id === '2').inputs).toEqual(['3']);
+    });
+
     it('injects compute uniforms and invalidates input hashes when bytes change', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));

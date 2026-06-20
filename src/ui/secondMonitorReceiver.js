@@ -210,7 +210,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     const exec = computeRuntime.computeExecutor;
     if (!exec) return;
     const nodes = msg.nodes || [];
-    const key = JSON.stringify(nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height]));
+    // Include `inputs` in the dedup key: rewiring a compute node's input (e.g. a new
+    // node connected into ComputeEdgeDetect) changes the graph even when every node's
+    // id/kind/wgsl/size is unchanged. Without it the receiver kept the old wiring
+    // until the viewer was re-opened.
+    const key = JSON.stringify(nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height, n.inputs || []]));
     if (key === appliedComputeKey) return; // unchanged graph — skip the costly re-init
     if (!win.computeNodeRegistry) win.computeNodeRegistry = new Map();
     if (!win.graph) {
