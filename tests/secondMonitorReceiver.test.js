@@ -244,12 +244,28 @@ describe('secondMonitorReceiver', () => {
     expect(s.tier).toBe(TIER.NATIVE);
   });
 
-  it('keeps the gpu canvas at the full display backing (output is not downscaled)', async () => {
+  it('fills the display backing until the editor aspect is known', async () => {
     initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
     // Backing = innerWidth*dpr (1280x720); detail is governed by compute res, not this.
     expect(gpuCanvas.width).toBe(1280);
     expect(gpuCanvas.height).toBe(720);
     expect(gpuCanvas.style.width).toBe('1280px');
+  });
+
+  it('letterboxes the gpu canvas to the editor aspect ratio (matches editor framing)', () => {
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    const ch = FakeBroadcastChannel.instances[0];
+    // Editor is 2:1 (1000x500); display is 1280x720 → letterbox to 1280x640, centred.
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([2, 0, 0, 0]),
+      globals: new Float32Array([1000, 500, 0, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+    expect(gpuCanvas.width).toBe(1280);
+    expect(gpuCanvas.height).toBe(640);
+    expect(gpuCanvas.style.height).toBe('640px');
+    expect(gpuCanvas.style.top).toBe('40px');   // (720-640)/2, black bars top & bottom
   });
 
   it('holds the last frame after sustained silence, then resumes on new state', async () => {

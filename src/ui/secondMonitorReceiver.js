@@ -128,6 +128,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // broadcast/preview size). A fixed value decouples the viewer from the editor's
   // floating-preview resolution and renders compute at the chosen detail.
   let computeMaxDim = 0;
+  let editorAspect = 0;                     // editor's aspect ratio (w/h); 0 = unknown → fill
   let lastComputeGraphMsg = null;          // last COMPUTE_GRAPH (re-applied when the override changes)
   const computeDimsOverride = new Map();   // node id -> [w,h] actually used (for the packed-resolution override)
   let cachedWindow = null;
@@ -399,9 +400,18 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         if (renderer) applyShader(d.wgsl);
         else { pendingWgsl = d.wgsl; ensureRenderer(); }
         break;
-      case MSG.UNIFORMS:
+      case MSG.UNIFORMS: {
         snapshot = { aspect: d.aspect || null, globals: d.globals || null, params: d.params || null };
+        // Track the EDITOR's aspect ratio (resolution x/y) so we can letterbox the
+        // output to match the editor's framing instead of stretching to the display.
+        const eg = d.globals;
+        const asp = (eg && eg.length >= 2 && eg[0] > 0 && eg[1] > 0) ? eg[0] / eg[1] : 0;
+        if (asp > 0 && Math.abs(asp - editorAspect) > 0.001) {
+          editorAspect = asp;
+          sizeGpuCanvas();
+        }
         break;
+      }
       case MSG.CAPS:
         setTier(d.tier);
         break;
@@ -459,14 +469,27 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
 
   function sizeGpuCanvas() {
     if (!gpuCanvas) return;
-    const { cssW, cssH, bw, bh } = backingSize();
-    // The fragment output always renders at the display's native backing resolution
-    // (it's a cheap fullscreen blit). Detail is governed by the COMPUTE resolution
-    // (see the compute-resolution override), not by scaling this buffer.
+    const { dpr, cssW, cssH } = backingSize();
+    // Letterbox the output to the EDITOR's aspect ratio so the viewer matches the
+    // editor's framing (black bars from the body background) rather than stretching
+    // to the display. renderNative derives the shader resolution/aspect from this
+    // canvas, so sizing it to the editor aspect makes the composition match. When the
+    // editor aspect is unknown, fill the display.
+    let elW = cssW, elH = cssH, left = 0, top = 0;
+    if (editorAspect > 0) {
+      const rect = letterboxRect(editorAspect, 1, cssW, cssH);
+      if (rect.dw > 0 && rect.dh > 0) { elW = rect.dw; elH = rect.dh; left = rect.dx; top = rect.dy; }
+    }
+    const bw = Math.max(1, Math.round(elW * dpr));
+    const bh = Math.max(1, Math.round(elH * dpr));
     if (gpuCanvas.width !== bw) gpuCanvas.width = bw;
     if (gpuCanvas.height !== bh) gpuCanvas.height = bh;
-    gpuCanvas.style.width = cssW + 'px';
-    gpuCanvas.style.height = cssH + 'px';
+    gpuCanvas.style.width = elW + 'px';
+    gpuCanvas.style.height = elH + 'px';
+    gpuCanvas.style.left = left + 'px';
+    gpuCanvas.style.top = top + 'px';
+    gpuCanvas.style.right = 'auto';
+    gpuCanvas.style.bottom = 'auto';
     // Keep the renderer's cached size in step so it rebuilds MSAA on next render.
     if (renderer && renderer._cachedCanvasSize) {
       renderer._cachedCanvasSize.width = bw;
