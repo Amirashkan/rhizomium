@@ -352,6 +352,35 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.executionOrder).toEqual(['1']);
     });
 
+    it('letterboxes to the compute texture aspect, not the editor display box (square edge-detect output)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      // The editor's on-screen preview box is 16:9, but the compute output texture
+      // is square (sized from the render-resolution setting). The viewer must frame
+      // to the SQUARE texture — otherwise the sampled output is stretched to the
+      // display aspect, which is the edge-detect "stretched rectangle" bug.
+      ch.emit({
+        type: MSG.UNIFORMS,
+        aspect: new Float32Array([1280 / 720, 0, 0, 0]),
+        globals: new Float32Array([1280, 720, 0, 0, 0, 0, 0, 0]),
+        params: new Float32Array([0]),
+      });
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [{ id: '1', kind: 'ComputeEdgeDetect', wgsl: 'W', width: 1000, height: 1000, inputs: [] }],
+        executionOrder: ['1'],
+      });
+      await settle();
+
+      // Square (1:1) letterboxed into the 1280x720 display → 720x720, pillarboxed.
+      // (Without the fix it would fill 1280x720 at the editor's 16:9 and stretch.)
+      expect(gpuCanvas.width).toBe(720);
+      expect(gpuCanvas.height).toBe(720);
+      expect(gpuCanvas.style.left).toBe('280px'); // (1280-720)/2 — black bars left & right
+    });
+
     it('builds multiple feedback sims and applies uniforms to each (multi-sim graph)', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
