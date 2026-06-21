@@ -3,8 +3,8 @@
 
 import { PreviewThrottler } from './PreviewThrottler.js';
 import { GPUPreviewRenderer } from './GPUPreviewRenderer.js';
-import { buildWGSL } from '../codegen/glslBuilder.js';
-import { shaderModuleCache, hashWGSL } from '../gpu/ShaderModuleCache.js';
+import { FragmentTextureRenderer } from '../gpu/FragmentTextureRenderer.js';
+import { NodeDefs } from '../data/NodeDefs.js';
 
 export class ShaderPreviewManager {
   constructor(editor, device, format) {
@@ -16,19 +16,24 @@ export class ShaderPreviewManager {
     this.throttler = new PreviewThrottler();
     this.gpuRenderer = new GPUPreviewRenderer(device, format);
 
+    // Renders the real shader output of any non-compute node's subgraph to a texture.
+    // Dedicated instance (NOT shared with ComputeExecutor) so preview render bookkeeping
+    // — textureCache / shaderCache / parameterHashes — can't interfere with the compute
+    // auto-bridge path. WGSL module compilation is still de-duped via the global
+    // device-keyed shaderModuleCache that FragmentTextureRenderer uses internally.
+    this.fragmentRenderer = new FragmentTextureRenderer(device);
+
     // Preview mode settings
     this.enableGPUPreview = true;  // Use GPU for previews
     this.enableCPUReadback = true; // Readback to CPU for thumbnails
     this.previewSize = 128;        // Default preview size
+    this.previewThumbSize = 64;    // Square size we render+read back per node thumbnail
 
     // Track nodes pending preview update
     this.pendingNodes = new Set();
 
     // Cache for compiled preview shaders (nodeId -> shader code for change detection)
     this.shaderCache = new Map();
-    
-    // PERFORMANCE: Use centralized shader module cache to avoid recompiling identical WGSL
-    this.shaderModuleCache = shaderModuleCache;
   }
 
   /**
@@ -127,75 +132,128 @@ export class ShaderPreviewManager {
   }
 
   /**
-   * Check if a node is a compute node
-   * @param {object} node - The node to check
+   * Check if a node is a compute node.
+   * Compute nodes are identified by their kind prefix ("ComputeNoise", "ComputeBlur", ...),
+   * matching the convention used in ParameterUniformManager / ParameterExpressionSystem.
+   * Accepts either a node object or a kind string.
+   * @param {object|string} nodeOrKind
    * @returns {boolean}
    */
-  isComputeNode(node) {
-    const computeNodeTypes = [
-      'noise', 'blur', 'particles', 'feedback',
-      'reactiondiffusion', 'fluidsim', 'cellular'
-    ];
-
-    return computeNodeTypes.includes(node.kind?.toLowerCase());
+  isComputeNode(nodeOrKind) {
+    const kind = typeof nodeOrKind === 'string' ? nodeOrKind : nodeOrKind?.kind;
+    return !!kind && kind.toLowerCase().startsWith('compute');
   }
 
   /**
-   * Update preview for a compute node
+   * Decide whether a node should get a real GPU-rendered thumbnail (vector output) vs.
+   * the CPU numeric/approximation path (scalar output). Compute nodes are handled separately.
+   * Vector outputs (vec2/3/4 — UV, colors, noise fields, patterns, transforms, gradients)
+   * render to a meaningful image; scalar f32 nodes (Math results, Time, ConstFloat) are better
+   * served by the existing numeric overlay than a flat gray swatch.
+   * @param {object|string} nodeOrKind
+   * @returns {boolean}
+   */
+  isVisualNode(nodeOrKind) {
+    const kind = typeof nodeOrKind === 'string' ? nodeOrKind : nodeOrKind?.kind;
+    if (!kind || this.isComputeNode(kind)) return false;
+
+    const out = NodeDefs[kind]?.pinsOut?.[0];
+    if (!out) return false; // nothing to render (e.g. terminal Output nodes)
+
+    // Typed pin: render vector outputs (colors / UV / fields). Scalars (f32/i32) and the
+    // ambiguous 'dynamic' type (Math, which is often scalar) stay on the CPU numeric path —
+    // a single number reads better there than a flat gray swatch.
+    if (typeof out === 'object') {
+      return out.type === 'vec2' || out.type === 'vec3' || out.type === 'vec4';
+    }
+
+    // Bare string pin (e.g. "Color", "Value", "Texture", "UV"): these are fragment nodes
+    // that produce a per-pixel field or color, so a real render is the right preview.
+    // (Note: node categories here are function-based — "Generators"/"Modifiers"/... — so the
+    // pin shape, not `cat`, is the reliable signal.)
+    return true;
+  }
+
+  /**
+   * Current animation time in seconds. Prefer the render loop's sim clock so previews animate
+   * on the same timeline (and pause/scrub) as the main canvas; fall back to wall-clock.
+   * @private
+   */
+  _currentTime() {
+    const sim = window.renderLoop?._simTime;
+    return typeof sim === 'number' ? sim : (performance.now() / 1000);
+  }
+
+  /**
+   * Build the audio-envelope context the fragment renderer expects, from the same globals
+   * the main GPURenderer reads when writing its `g` uniform.
+   * @private
+   */
+  _currentAudioContext() {
+    return {
+      audioEnvelope: window._audioEnvelopeValue || 0,
+      audioEnvelopeBass: window._audioEnvelopeBass || 0,
+      audioEnvelopeMids: window._audioEnvelopeMids || 0,
+      audioEnvelopeHighs: window._audioEnvelopeHighs || 0,
+      audioEnvelopeFull: window._audioEnvelopeFull || 0,
+    };
+  }
+
+  /**
+   * Update preview for a compute node by reading back its already-rendered output texture.
    * @param {object} node - The compute node
    */
   async updateComputeNodePreview(node) {
     const computeExecutor = window.computeExecutor;
-
     if (!computeExecutor || !computeExecutor.computeTextures) {
       return;
     }
 
     const computeInfo = computeExecutor.computeTextures.get(node.id);
-
     if (!computeInfo || !computeInfo.texture) {
       return;
     }
 
-    // ENHANCEMENT: Always enable CPU readback for thumbnails to show real-time data
-    // This ensures thumbnails always display the actual GPU output
     try {
-      // Readback compute texture to CPU for thumbnail
-      const pixels = await this.readbackComputeTexture(computeInfo.texture);
-      const imageData = this.gpuRenderer.pixelsToImageData(pixels, computeInfo.texture.width);
-
-      // Create canvas from ImageData with high-quality rendering
-      const canvas = document.createElement('canvas');
-      // Use larger size for better visibility (match preview system size)
-      const thumbSize = 64; // Match PreviewSystem size
-      canvas.width = thumbSize;
-      canvas.height = thumbSize;
-      const ctx = canvas.getContext('2d');
-      
-      // Enable high-quality image smoothing
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      
-      // Create temporary canvas for source image
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = imageData.width;
-      tempCanvas.height = imageData.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.putImageData(imageData, 0, 0);
-      
-      // Scale to thumbnail size with high quality
-      ctx.drawImage(tempCanvas, 0, 0, thumbSize, thumbSize);
-
-      // Store thumbnail on node for rendering
-      node.__thumb = canvas;
-      
-      // Mark node as dirty to trigger redraw
-      if (window.editor?.markDirty) {
-        window.editor.markDirty('compute-thumbnail-update');
-      }
+      await this._textureToThumbnail(computeInfo.texture, node);
     } catch (error) {
       // Fallback: mark GPU preview available even if readback fails
       node.__gpuPreview = computeInfo;
+    }
+  }
+
+  /**
+   * Read back a (square) GPU texture and store it as a 64x64 thumbnail canvas on the node,
+   * then request a redraw. Shared by the compute and fragment preview paths.
+   * @param {GPUTexture} texture - Square source texture (must allow COPY_SRC)
+   * @param {object} node - Node to attach the thumbnail to (sets node.__thumb)
+   * @private
+   */
+  async _textureToThumbnail(texture, node) {
+    if (!texture || !node) return;
+
+    const pixels = await this.readbackComputeTexture(texture);
+    const imageData = this.gpuRenderer.pixelsToImageData(pixels, texture.width);
+
+    const thumbSize = this.previewThumbSize || 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = thumbSize;
+    canvas.height = thumbSize;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Stage the raw pixels, then scale into the thumbnail with high-quality filtering.
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imageData.width;
+    tempCanvas.height = imageData.height;
+    tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+    ctx.drawImage(tempCanvas, 0, 0, thumbSize, thumbSize);
+
+    node.__thumb = canvas;
+
+    if (window.editor?.markDirty) {
+      window.editor.markDirty('node-thumbnail-update');
     }
   }
 
@@ -248,265 +306,38 @@ export class ShaderPreviewManager {
   }
 
   /**
-   * Update preview for a fragment shader node
-   * @param {object} node - The fragment node
+   * Update preview for a non-compute node by rendering the real output of its subgraph
+   * (this node + all upstream dependencies) to a small texture and reading it back.
+   *
+   * Delegates the heavy lifting to FragmentTextureRenderer, which already extracts the
+   * subgraph, appends a fake OutputFinal, compiles it via buildWGSL({ skipCacheClear: true }),
+   * builds the correct bind groups (u / g / u_params / textures / compute / samplers) and
+   * caches per node. We force a re-render: preview updates are event-driven, and the
+   * renderer's own change-detection only hashes the node's OWN params (so it would skip a
+   * node whose upstream input changed). On any failure we fall back to the CPU approximation.
+   * @param {object} node - The node to preview
    */
   async updateFragmentNodePreview(node) {
-    try {
-      // Create a temporary graph with just this node for preview
-      const previewGraph = this.createPreviewGraph(node);
-
-      // Get cache key
-      const cacheKey = this.getNodeCacheKey(node);
-
-      // Check if shader is cached and still valid
-      const cached = this.shaderCache.get(cacheKey);
-      if (cached && cached.pipeline) {
-        // Render using cached pipeline
-        await this.renderFragmentPreview(node, cached.pipeline, cached.bindGroups);
-        return;
-      }
-
-      // Compile shader for this node
-      const shaderResult = buildWGSL(previewGraph);
-
-      if (!shaderResult || !shaderResult.wgsl) {
-        this.fallbackToLegacyPreview(node);
-        return;
-      }
-
-      // Create render pipeline
-      const pipeline = await this.createPreviewPipeline(shaderResult.wgsl, node.id);
-
-      if (!pipeline) {
-        this.fallbackToLegacyPreview(node);
-        return;
-      }
-
-      // Create bind groups for uniforms and textures
-      const bindGroups = this.createPreviewBindGroups(node, shaderResult.uniformManager);
-
-      // Cache the compiled shader
-      this.shaderCache.set(cacheKey, {
-        pipeline,
-        bindGroups,
-        uniformManager: shaderResult.uniformManager,
-        timestamp: Date.now()
-      });
-
-      // Render the preview
-      await this.renderFragmentPreview(node, pipeline, bindGroups);
-
-    } catch (error) {
-
-      this.fallbackToLegacyPreview(node);
-    }
-  }
-
-  /**
-   * Create a minimal graph containing just this node for preview
-   * @param {object} node - The node to preview
-   * @returns {object} Preview graph
-   */
-  createPreviewGraph(node) {
-    // Create a minimal graph with UV input and this node
-    return {
-      nodes: [
-        {
-          id: 'preview_uv',
-          kind: 'UV',
-          label: 'UV',
-          x: 0,
-          y: 0
-        },
-        {
-          ...node,
-          x: 100,
-          y: 0
-        },
-        {
-          id: 'preview_output',
-          kind: 'Output',
-          label: 'Output',
-          x: 200,
-          y: 0
-        }
-      ],
-      connections: [
-        // Connect UV to node's first input (if it has inputs)
-        ...(node.inputs > 0 ? [{
-          fromNode: 'preview_uv',
-          fromPin: 'UV',
-          toNode: node.id,
-          toPin: node.pinsIn?.[0] || 'UV'
-        }] : []),
-        // Connect node to output
-        {
-          fromNode: node.id,
-          fromPin: node.pinsOut?.[0] || 'Color',
-          toNode: 'preview_output',
-          toPin: 'Color'
-        }
-      ]
-    };
-  }
-
-  /**
-   * Create render pipeline for preview
-   * @param {string} wgsl - WGSL shader source
-   * @param {string} nodeId - Node ID for labeling
-   * @returns {Promise<GPURenderPipeline>}
-   */
-  async createPreviewPipeline(wgsl, nodeId) {
-    try {
-      // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
-      // CRITICAL FIX: Cache is now device-specific - pass device to get/set
-      const wgslHash = hashWGSL(wgsl, false);
-      let shaderModule = this.shaderModuleCache.get(this.device, wgslHash);
-      
-      if (!shaderModule) {
-        // Create shader module if not cached
-        shaderModule = this.device.createShaderModule({
-          label: `preview-shader-${nodeId}`,
-          code: wgsl
-        });
-        this.shaderModuleCache.set(this.device, wgslHash, shaderModule);
-      }
-
-      // Check for compilation errors
-      const compilationInfo = await shaderModule.getCompilationInfo();
-      const errors = compilationInfo.messages.filter(m => m.type === 'error');
-
-      if (errors.length > 0) {
-
-        return null;
-      }
-
-      const pipeline = this.device.createRenderPipeline({
-        label: `preview-pipeline-${nodeId}`,
-        layout: 'auto',
-        vertex: {
-          module: shaderModule,
-          entryPoint: 'vertex_main',
-          buffers: []
-        },
-        fragment: {
-          module: shaderModule,
-          entryPoint: 'fragment_main',
-          targets: [{
-            format: this.format
-          }]
-        },
-        primitive: {
-          topology: 'triangle-list'
-        }
-      });
-
-      return pipeline;
-    } catch (error) {
-
-      return null;
-    }
-  }
-
-  /**
-   * Create bind groups for preview rendering
-   * @param {object} node - The node being previewed
-   * @param {object} uniformManager - Uniform manager from shader compilation
-   * @returns {Array<GPUBindGroup>}
-   */
-  createPreviewBindGroups(node, uniformManager) {
-    const bindGroups = [];
+    if (!node?.id) return;
 
     try {
-      // Create uniform buffer if needed
-      if (uniformManager && uniformManager.getSize() > 0) {
-        const uniformBuffer = this.device.createBuffer({
-          size: Math.max(uniformManager.getSize(), 16), // Minimum 16 bytes
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-          label: `preview-uniforms-${node.id}`
-        });
+      const size = this.previewThumbSize || 64;
+      const time = this._currentTime();
+      const audioContext = this._currentAudioContext();
 
-        // Write uniform data
-        const uniformData = uniformManager.getArrayBuffer();
-        if (uniformData && uniformData.byteLength > 0) {
-          this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
-        }
-
-        // Create bind group with uniforms
-        // Note: This is a simplified version - may need adjustment based on actual shader layout
-        const bindGroup = this.device.createBindGroup({
-          label: `preview-bindgroup-${node.id}`,
-          layout: this.device.createBindGroupLayout({
-            entries: [{
-              binding: 0,
-              visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX,
-              buffer: { type: 'uniform' }
-            }]
-          }),
-          entries: [{
-            binding: 0,
-            resource: { buffer: uniformBuffer }
-          }]
-        });
-
-        bindGroups.push(bindGroup);
-      }
-    } catch (error) {
-
-    }
-
-    return bindGroups;
-  }
-
-  /**
-   * Render fragment preview to texture and optionally readback
-   * @param {object} node - The node being previewed
-   * @param {GPURenderPipeline} pipeline - Render pipeline
-   * @param {Array<GPUBindGroup>} bindGroups - Bind groups
-   */
-  async renderFragmentPreview(node, pipeline, bindGroups) {
-    try {
-      // Render to preview texture
-      const previewInfo = this.gpuRenderer.renderToPreviewTexture(
-        pipeline,
-        bindGroups || [],
-        node.id,
-        { size: this.previewSize }
+      const texture = await this.fragmentRenderer.renderNodeToTexture(
+        node.id, size, size, time, audioContext, null, /* force */ true
       );
 
-      // Readback to CPU for thumbnail if enabled
-      if (this.enableCPUReadback) {
-        const pixels = await this.gpuRenderer.readbackPreviewTexture(node.id);
-        const imageData = this.gpuRenderer.pixelsToImageData(pixels, this.previewSize);
-
-        // Create canvas from ImageData
-        const canvas = document.createElement('canvas');
-        canvas.width = imageData.width;
-        canvas.height = imageData.height;
-        const ctx = canvas.getContext('2d');
-        ctx.putImageData(imageData, 0, 0);
-
-        node.__thumb = canvas;
-      } else {
-        // Just mark that we have a GPU texture (no CPU readback)
-        node.__gpuPreview = previewInfo;
+      if (!texture) {
+        this.fallbackToLegacyPreview(node);
+        return;
       }
-    } catch (error) {
 
+      await this._textureToThumbnail(texture, node);
+    } catch (error) {
       this.fallbackToLegacyPreview(node);
     }
-  }
-
-  /**
-   * Get cache key for node (includes parameters for invalidation)
-   * @param {object} node - The node
-   * @returns {string} Cache key
-   */
-  getNodeCacheKey(node) {
-    // Include node kind and parameter values in cache key
-    const params = JSON.stringify(node.props || {});
-    return `${node.id}_${node.kind}_${params}`;
   }
 
   /**
@@ -589,15 +420,19 @@ export class ShaderPreviewManager {
     if (this.gpuRenderer && typeof this.gpuRenderer.destroyPreviewTexture === 'function') {
       this.gpuRenderer.destroyPreviewTexture(nodeId);
     }
+    // Free the per-node GPU preview texture so it is rebuilt at the right size next time.
+    this.fragmentRenderer?.invalidateNode(nodeId);
     this.shaderCache.delete(nodeId);
     this.pendingNodes.delete(nodeId);
   }
 
   /**
-   * Clear all preview caches
+   * Clear all preview caches. Call when the graph structure changes (nodes/connections),
+   * so stale per-node preview textures don't linger.
    */
   clearCache() {
     this.gpuRenderer.clearCache();
+    this.fragmentRenderer?.clearCache();
     this.shaderCache.clear();
   }
 
@@ -607,6 +442,7 @@ export class ShaderPreviewManager {
   dispose() {
     this.throttler.dispose();
     this.gpuRenderer.dispose();
+    this.fragmentRenderer?.clearCache();
     this.shaderCache.clear();
     this.pendingNodes.clear();
   }

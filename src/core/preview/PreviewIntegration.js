@@ -38,6 +38,8 @@ export class PreviewIntegration {
           // Limit to 60 FPS max for time updates (16.67ms between updates)
           if (timestamp - this.lastTimeUpdate >= 16.67) {
             this.updateTimeNodes();
+            // Re-render real GPU thumbnails for time-animated visual nodes (self-throttled).
+            this.updateAnimatedFragmentPreviews();
             this.lastTimeUpdate = timestamp;
           }
         },
@@ -75,18 +77,32 @@ export class PreviewIntegration {
 
       return;
     }
-    
-    // ENHANCEMENT: Check if this is a compute node and update GPU texture thumbnail
-    if (window.shaderPreviewManager && node?.kind) {
-      const nodeKind = node.kind.toLowerCase();
-      if (window.shaderPreviewManager.isComputeNode(nodeKind)) {
-        // Update GPU texture thumbnail for compute nodes
-        window.shaderPreviewManager.updateComputeNodePreview(node).catch(err => {
-          // Silently fail if GPU readback fails, fallback to regular preview
+
+    // REAL GPU PREVIEWS: render the node's actual output instead of a CPU approximation.
+    //  - compute nodes      -> read back their output texture
+    //  - vector-output nodes -> render the subgraph ending at the node (UV, colors, noise,
+    //                           patterns, transforms, gradients, ...)
+    // Both set node.__thumb asynchronously and request a redraw, so we return early to keep
+    // the CPU approximation from overwriting the real thumbnail. Scalar/numeric nodes (and any
+    // case where GPU previews are disabled or fail) fall through to the CPU path below.
+    const spm = window.shaderPreviewManager;
+    if (spm && spm.enableGPUPreview && node?.kind) {
+      if (spm.isComputeNode(node)) {
+        spm.updateComputeNodePreview(node).catch(() => {
+          this.previewSystem.generateNodePreview(node);
+          this.editor.markDirty?.('preview-update');
         });
+        return;
+      }
+      if (spm.isVisualNode(node)) {
+        spm.updateFragmentNodePreview(node).catch(() => {
+          this.previewSystem.generateNodePreview(node);
+          this.editor.markDirty?.('preview-update');
+        });
+        return;
       }
     }
-    
+
     // OPTIMIZATION: Allow caller to skip compute if they already computed all values
     // Use async worker-based computation to avoid blocking canvas interactions
     if (!skipCompute && this.editor?.previewComputer && this.editor?.graph) {
@@ -214,6 +230,46 @@ updateTimeNodes() {
     this.editor.draw();
   }
 }
+  // Re-render real GPU thumbnails for time-animated visual nodes and everything downstream of
+  // them (a downstream node's output also changes when an upstream animated value changes).
+  // Self-throttled to keep per-frame GPU readback cheap. Scalar/animated numeric nodes are
+  // handled by updateTimeNodes() on the CPU path.
+  updateAnimatedFragmentPreviews() {
+    const spm = window.shaderPreviewManager;
+    if (!spm || !spm.enableGPUPreview || !this.editor.graph?.nodes) return;
+
+    const now = performance.now();
+    if (!this._lastAnimPreview) this._lastAnimPreview = 0;
+    if (now - this._lastAnimPreview < 80) return; // ~12.5 fps cap for animated thumbnails
+    this._lastAnimPreview = now;
+
+    const expressionSystem = window.editor?.paramPanel?.expressionSystem;
+    const animated = expressionSystem?.timeAnimatedNodes;
+    if (!animated || animated.size === 0) return;
+
+    // Animated nodes + all transitive dependents.
+    const toUpdate = new Set();
+    const connections = this.editor.graph.connections || [];
+    const addDownstream = (nodeId, visited) => {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+      toUpdate.add(nodeId);
+      for (const c of connections) {
+        if (c.from?.nodeId === nodeId) addDownstream(c.to.nodeId, visited);
+      }
+    };
+    const visited = new Set();
+    animated.forEach(id => addDownstream(id, visited));
+
+    for (const nodeId of toUpdate) {
+      const node = this.editor.graph.nodes.find(n => n.id === nodeId);
+      if (!node || !spm.isVisualNode(node)) continue; // scalars stay on the CPU path
+      const pv = this.editor.nodePreviews?.get(nodeId);
+      if (pv && pv.enabled === false) continue; // respect explicit per-node disable
+      spm.updateFragmentNodePreview(node).catch(() => {});
+    }
+  }
+
   onParameterChange(node, immediate = false) {
     // PERFORMANCE FIX: Skip ALL preview updates during parameter drag
     // Preview updates are expensive and cause frame drops. Only update uniforms during drag.
@@ -395,6 +451,8 @@ updateTimeNodes() {
 
   onNodeRemoved(nodeId) {
     this.previewSystem.canvasManager.removeCanvas(nodeId);
+    // Free the node's GPU preview texture so it doesn't linger after deletion.
+    window.shaderPreviewManager?.destroyPreviewTexture(nodeId);
     // Invalidate topological sort cache since graph structure changed
     if (this.previewSystem.invalidateSortCache) {
       this.previewSystem.invalidateSortCache();
@@ -420,6 +478,8 @@ updateTimeNodes() {
       return;
     }
     this.previewSystem.clearCache();
+    // Free all GPU preview textures so cleared nodes don't leak GPU memory.
+    window.shaderPreviewManager?.clearCache();
     // Invalidate topological sort cache since graph was cleared
     if (this.previewSystem.invalidateSortCache) {
       this.previewSystem.invalidateSortCache();
