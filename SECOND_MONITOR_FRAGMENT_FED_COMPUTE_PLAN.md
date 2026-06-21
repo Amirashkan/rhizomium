@@ -1,9 +1,45 @@
-# Second Monitor — Fragment-Fed Compute (deferred plan)
+# Second Monitor — Fragment-Fed Compute (IMPLEMENTED)
 
-Status: **deferred to a future session.** Everything else for native second-monitor
-output is done (native fragment, native stateless compute, native stateful/feedback
-compute, steady-clock pacing, self-profiler). This is the **last remaining pixel
-fallback**.
+Status: **done.** Fragment-fed compute (a compute node whose input is a GLSL/fragment
+node) now renders natively on the second monitor — the last pixel fallback is gone for
+the 2D node graph. See the user-facing summary in `SECOND_MONITOR.md` ("Fragment-fed
+compute"). This file is kept as the design record.
+
+## What shipped (and how it differs from the original plan below)
+
+The plan's "broadcast the subgraph + reconstruct it + inject evaluated uniforms"
+approach was followed, with one simplification found during implementation:
+
+- **Time/audio are NOT baked.** `FragmentTextureRenderer` compiles expression params
+  (`=time`, `=audioEnvelope`) to **runtime reads of the globals (`g`) buffer**, not to
+  constants. So matching the editor needs only: (a) the editor's `time` (already in the
+  per-frame `UNIFORMS` snapshot, passed as `timeSec`), and (b) the editor's **audio
+  envelopes**, which the receiver now mirrors onto its window globals in `renderNative`
+  before driving compute. No expression re-evaluation receiver-side.
+- **Injection is for static params only.** `externalUniformMode` +
+  `externalUniforms` on `FragmentTextureRenderer` injects the editor's evaluated
+  `u_params` bytes so a static param drag streams via `FRAGMENT_UNIFORMS` **without a
+  pipeline rebuild**. The bytes line up because both sides run the same `buildWGSL` over
+  the same reconstructed subgraph (identical struct field order).
+- **`FRAGMENT_GRAPH` re-broadcasts only on structure / expression-param change** (the
+  signature excludes static numeric values — those stream as uniforms). Pure compute
+  graphs never carry the message.
+
+Files changed: `secondMonitorFrameChannel.js` (`FRAGMENT_GRAPH` / `FRAGMENT_UNIFORMS`),
+`TauriSecondMonitorViewer.js` (collect + broadcast subgraph & per-frame uniforms),
+`secondMonitorReceiver.js` (reconstruct subgraph, inject uniforms, mirror audio,
+bootstrap the expression system), `FragmentTextureRenderer.js` (external-uniform
+injection), `gpuRenderer.js` (classifier → `native-compute`; fragment uniform
+snapshot). Tests in `gpuRendererStateTap`, `secondMonitorReceiver`,
+`TauriSecondMonitorViewer`.
+
+---
+
+## Original plan (for reference)
+
+Everything else for native second-monitor output was already done (native fragment,
+native stateless compute, native stateful/feedback compute, steady-clock pacing,
+self-profiler). This was the **last remaining pixel fallback**.
 
 ## Context — what's left and why
 

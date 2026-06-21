@@ -19,12 +19,13 @@
 // frame, where the old approach (capturing #gpu-canvas with createImageBitmap
 // and structured-cloning a multi-MB frame every present) dropped it to ~30fps.
 //
-// Textured and compute graphs (including stateful/feedback sims) are reproduced
-// natively too: the WGSL, the compute subgraph and the per-frame uniform bytes are
-// broadcast and the receiver re-renders from them. Only graphs the receiver can't
-// reproduce from state alone — a compute node fed by a fragment node, or a fragment
-// storage buffer — revert to the pixel FRAME tap (GPURenderer.setFrameTap) so the
-// second monitor never shows broken output.
+// Textured and compute graphs (including stateful/feedback sims and fragment-fed
+// compute — a compute node whose input is a fragment node) are reproduced natively
+// too: the WGSL, the compute subgraph, the fragment subgraph and the per-frame
+// uniform bytes are broadcast and the receiver re-renders from them. Only graphs the
+// receiver can't reproduce from state alone — a fragment storage buffer (3D path) —
+// revert to the pixel FRAME tap (GPURenderer.setFrameTap) so the second monitor
+// never shows broken output.
 //
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
@@ -68,6 +69,8 @@ export class TauriSecondMonitorViewer {
     this._mode = null;           // 'native' | 'fallback', decided per shader
     this._lastWgsl = undefined;  // last WGSL broadcast (undefined = none yet)
     this._lastComputeSig = null; // last compute-graph structure signature broadcast
+    this._lastFragmentSig = null; // last fragment-subgraph structure signature broadcast
+    this._sentFragmentNodes = false; // whether a non-empty FRAGMENT_GRAPH has been sent
     this._forceFallback = false; // receiver can't render natively → pixels only
     this._computeMaxDim = 0;     // viewer compute long-edge override (0 = match editor)
     this._active = false;
@@ -224,6 +227,7 @@ export class TauriSecondMonitorViewer {
       }
       if (this._mode === 'native-compute') {
         this._broadcastComputeGraph();
+        this._broadcastFragmentGraph();
         this._broadcastAllTextures();
       }
       if (this._mode) {
@@ -374,6 +378,8 @@ export class TauriSecondMonitorViewer {
     if (!renderer) return;
     this._lastWgsl = undefined;
     this._lastComputeSig = null;
+    this._lastFragmentSig = null;
+    this._sentFragmentNodes = false;
     this._mode = null;
     if (typeof renderer.setStateTap === 'function') {
       this._stateTap = (snap) => this._onState(snap);
@@ -417,8 +423,10 @@ export class TauriSecondMonitorViewer {
         try { this._channel.postMessage({ type: MSG.SHADER, wgsl }); } catch (_) { /* ignore */ }
         if (this._mode === 'native-compute') {
           this._broadcastComputeGraph();
+          this._broadcastFragmentGraph();
           this._broadcastAllTextures();
           this._lastComputeSig = this._computeGraphSignature();
+          this._lastFragmentSig = this._fragmentGraphSignature();
         }
       }
     }
@@ -433,6 +441,15 @@ export class TauriSecondMonitorViewer {
         this._broadcastComputeGraph();
         this._broadcastAllTextures();
       }
+      // Re-broadcast the fragment subgraph when ITS structure changes (a fragment
+      // node rewired into compute, or an expression param edited — both change the
+      // compiled WGSL). Static param VALUES are NOT in the signature: they stream via
+      // FRAGMENT_UNIFORMS below, so dragging a param doesn't trigger a pipeline rebuild.
+      const fsig = this._fragmentGraphSignature();
+      if (fsig !== this._lastFragmentSig) {
+        this._lastFragmentSig = fsig;
+        this._broadcastFragmentGraph();
+      }
     }
     if (this._mode === 'native' || this._mode === 'native-compute') {
       try {
@@ -445,6 +462,9 @@ export class TauriSecondMonitorViewer {
       } catch (_) { /* channel closed mid-flight */ }
       if (this._mode === 'native-compute' && snap.compute) {
         try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute }); } catch (_) { /* ignore */ }
+      }
+      if (this._mode === 'native-compute' && snap.fragment) {
+        try { this._channel.postMessage({ type: MSG.FRAGMENT_UNIFORMS, nodes: snap.fragment }); } catch (_) { /* ignore */ }
       }
     }
   }
@@ -552,6 +572,88 @@ export class TauriSecondMonitorViewer {
     });
     const executionOrder = Array.isArray(exec.executionOrder) ? exec.executionOrder.slice() : [];
     try { this._channel.postMessage({ type: MSG.COMPUTE_GRAPH, nodes, executionOrder }); } catch (_) { /* ignore */ }
+  }
+
+  /**
+   * Collect the fragment-input subgraph: every fragment node that feeds a compute
+   * node, plus its transitive non-compute dependencies (other fragment/value/image
+   * nodes the codegen needs). Compute nodes are excluded — they ride COMPUTE_GRAPH,
+   * and the receiver already has them in its synthetic graph. Each node is serialized
+   * as {id, kind, params, inputs} from window.graph so the receiver can rebuild it and
+   * its own FragmentTextureRenderer can compile identical WGSL.
+   * @returns {Array<{id, kind, params, inputs}>}
+   */
+  _collectFragmentSubgraph() {
+    const registry = (typeof window !== 'undefined') ? window.computeNodeRegistry : null;
+    const graph = (typeof window !== 'undefined') ? window.graph : null;
+    if (!registry || typeof registry.forEach !== 'function' || !graph) return [];
+    const isCompute = (id) => registry.has(id) || registry.has(String(id));
+    const getNode = (id) => {
+      try {
+        if (graph.getNode) return graph.getNode(id);
+        if (Array.isArray(graph.nodes)) return graph.nodes.find((n) => String(n.id) === String(id)) || null;
+      } catch (_) { /* ignore */ }
+      return null;
+    };
+    const collected = new Map(); // id -> serialized node
+    const visit = (id) => {
+      if (id == null || isCompute(id) || collected.has(id)) return;
+      const node = getNode(id);
+      if (!node) return;
+      collected.set(node.id, {
+        id: node.id,
+        kind: node.kind,
+        params: node.params ? { ...node.params } : {},
+        inputs: Array.isArray(node.inputs) ? node.inputs.slice() : [],
+      });
+      if (Array.isArray(node.inputs)) for (const inId of node.inputs) visit(inId);
+    };
+    // Seed from every compute node's non-compute (fragment) inputs.
+    registry.forEach((data) => {
+      const inputs = (data && data.node && data.node.inputs) || [];
+      for (const inId of inputs) {
+        if (inId != null && !isCompute(inId)) visit(inId);
+      }
+    });
+    return [...collected.values()];
+  }
+
+  /**
+   * Broadcast the fragment-input subgraph for the receiver to reconstruct. Skipped
+   * entirely for graphs with no fragment-fed compute (the common case) so pure compute
+   * graphs never carry the message; sent once with an empty list to clear the receiver
+   * after the last fragment feeder is disconnected.
+   */
+  _broadcastFragmentGraph() {
+    if (!this._channel) return;
+    const nodes = this._collectFragmentSubgraph();
+    if (nodes.length === 0 && !this._sentFragmentNodes) return; // nothing to send or clear
+    this._sentFragmentNodes = nodes.length > 0;
+    try { this._channel.postMessage({ type: MSG.FRAGMENT_GRAPH, nodes }); } catch (_) { /* ignore */ }
+  }
+
+  /**
+   * Cheap signature of the fragment subgraph's STRUCTURE — node ids, kinds, wiring,
+   * and only EXPRESSION-valued params (those compile into the WGSL, so they need a
+   * receiver-side rebuild). Static numeric param values are deliberately excluded:
+   * they stream every frame via FRAGMENT_UNIFORMS, so changing one must NOT force a
+   * pipeline rebuild on the receiver.
+   */
+  _fragmentGraphSignature() {
+    const nodes = this._collectFragmentSubgraph();
+    if (!nodes.length) return '';
+    const parts = nodes.map((n) => {
+      const exprs = [];
+      for (const k in n.params) {
+        const v = n.params[k];
+        if (typeof v === 'string' && (v.trim().startsWith('=') || /time|audioEnvelope/i.test(v))) {
+          exprs.push(`${k}=${v}`);
+        }
+      }
+      const inputs = Array.isArray(n.inputs) ? n.inputs.join(',') : '';
+      return `${n.id}:${n.kind}:${inputs}:${exprs.join('&')}`;
+    });
+    return parts.join('|');
   }
 
   /** Broadcast every currently-loaded image/video texture to the receiver. */

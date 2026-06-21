@@ -37,6 +37,14 @@ export class FragmentTextureRenderer {
     // PERFORMANCE: Track parameter hashes to avoid unnecessary renders
     // Only re-render fragment nodes when inputs/parameters actually change
     this.parameterHashes = new Map(); // nodeId -> hash string
+
+    // SECOND MONITOR: when the second-monitor receiver re-renders a fragment node
+    // that feeds compute, it injects the editor's already-evaluated u_params bytes
+    // instead of letting _updateUniforms re-derive them from this window's state
+    // (which differs — independent clock, no audio). Consistent with the compute
+    // path's externalUniformMode / writeRawComputeUniforms. Off in the editor.
+    this.externalUniformMode = false;
+    this.externalUniforms = new Map(); // nodeId -> Float32Array (evaluated u_params)
   }
 
   /**
@@ -852,16 +860,28 @@ export class FragmentTextureRenderer {
     // Use the uniformManager that was stored when compiling this fragment shader
     // to ensure parameters are written in the same order the shader expects
     const paramsBuffer = uniformBuffers.get('u_params');
-    if (paramsBuffer && cached.uniformManager && cached.uniformManager.uniformValues.size > 0) {
-      // Get parameter values in the order uniformManager assigned them (matching the shader)
-      // This is critical - using Object.entries(node.params) would give wrong order!
-      const values = Array.from(cached.uniformManager.uniformValues.values());
-      const data = new Float32Array(values);
-
-      // Never write past the buffer: a transient size mismatch (snapshot updated
-      // before the pipeline rebuilds) would otherwise fail validation every frame.
-      const writeBytes = Math.min(data.byteLength, paramsBuffer.size);
-      this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, 0, writeBytes);
+    if (paramsBuffer) {
+      // SECOND MONITOR: prefer the editor's injected, already-evaluated bytes. They
+      // are packed in the SAME field order this window's buildWGSL produced (both run
+      // the same codegen over the same reconstructed subgraph), so a raw copy lines
+      // up with the compiled ParamUniforms struct.
+      const injected = this.externalUniformMode && cached.node
+        ? this.externalUniforms.get(cached.node.id)
+        : null;
+      let data = null;
+      if (injected && injected.length > 0) {
+        data = injected;
+      } else if (cached.uniformManager && cached.uniformManager.uniformValues.size > 0) {
+        // Get parameter values in the order uniformManager assigned them (matching the shader)
+        // This is critical - using Object.entries(node.params) would give wrong order!
+        data = new Float32Array(Array.from(cached.uniformManager.uniformValues.values()));
+      }
+      if (data) {
+        // Never write past the buffer: a transient size mismatch (snapshot updated
+        // before the pipeline rebuilds) would otherwise fail validation every frame.
+        const writeBytes = Math.min(data.byteLength, paramsBuffer.size);
+        this.device.queue.writeBuffer(paramsBuffer, 0, data.buffer, data.byteOffset || 0, writeBytes);
+      }
     }
   }
 

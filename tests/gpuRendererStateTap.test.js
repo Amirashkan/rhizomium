@@ -198,7 +198,9 @@ describe('GPURenderer state tap', () => {
       })).toBe('native-compute');
     });
 
-    it('is "fallback" when a compute node is fed by a fragment node', () => {
+    it('is "native-compute" when a compute node is fed by a fragment node (subgraph is broadcast)', () => {
+      // Fragment-fed compute is now reproduced natively: the fragment subgraph rides
+      // FRAGMENT_GRAPH and the receiver re-renders it with its own FragmentTextureRenderer.
       global.window.computeExecutor = {
         computeManagers: new Map([['2', { supportsFeedback: false }]]),
       };
@@ -209,7 +211,7 @@ describe('GPURenderer state tap', () => {
       expect(tier({
         u: { kind: 'uniform-buffer' },
         c: { kind: 'texture-2d', varName: 'compute_node_2' },
-      })).toBe('fallback');
+      })).toBe('native-compute');
     });
   });
 
@@ -252,6 +254,68 @@ describe('GPURenderer state tap', () => {
 
     it('_collectComputeUniformSnapshot returns null with no compute', () => {
       expect(GPURenderer.prototype._collectComputeUniformSnapshot.call({})).toBeNull();
+    });
+  });
+
+  describe('fragment-fed compute uniform snapshot (Tier 2)', () => {
+    afterEach(() => { delete global.window.computeExecutor; });
+
+    const fragRenderer = (cache) => ({ computeExecutor: { fragmentRenderer: { textureCache: cache } } });
+
+    it('_collectFragmentUniformSnapshot copies each fragment node\'s evaluated u_params in struct order', () => {
+      // Two cache entries for the SAME node (different resolutions) collapse to one —
+      // u_params are resolution-independent.
+      const um = { uniformValues: new Map([['9.scale', 5], ['9.warp', 0.25]]) };
+      const cache = new Map([
+        ['9_512x512', { uniformManager: um, node: { id: '9' } }],
+        ['9_1024x1024', { uniformManager: um, node: { id: '9' } }],
+      ]);
+      global.window.computeExecutor = fragRenderer(cache).computeExecutor;
+
+      const snap = GPURenderer.prototype._collectFragmentUniformSnapshot.call({});
+      expect(snap).toHaveLength(1);
+      expect(snap[0].id).toBe('9');
+      expect(Array.from(snap[0].params)).toEqual([5, 0.25]);
+
+      // Sliced copy: mutating the manager afterwards must not change the snapshot.
+      um.uniformValues.set('9.scale', 99);
+      expect(snap[0].params[0]).toBe(5);
+    });
+
+    it('_collectFragmentUniformSnapshot derives the id from the cache key when node is unset', () => {
+      const cache = new Map([
+        ['42_256x256', { uniformManager: { uniformValues: new Map([['42.k', 1]]) } }],
+      ]);
+      global.window.computeExecutor = fragRenderer(cache).computeExecutor;
+      const snap = GPURenderer.prototype._collectFragmentUniformSnapshot.call({});
+      expect(snap[0].id).toBe('42');
+    });
+
+    it('_collectFragmentUniformSnapshot skips expression-only nodes (no static u_params) and returns null when empty', () => {
+      const cache = new Map([
+        ['7_64x64', { uniformManager: { uniformValues: new Map() }, node: { id: '7' } }],
+      ]);
+      global.window.computeExecutor = fragRenderer(cache).computeExecutor;
+      expect(GPURenderer.prototype._collectFragmentUniformSnapshot.call({})).toBeNull();
+      // No fragment renderer at all → null.
+      global.window.computeExecutor = {};
+      expect(GPURenderer.prototype._collectFragmentUniformSnapshot.call({})).toBeNull();
+    });
+
+    it('_emitStateSnapshot includes fragment uniforms only in compute mode', () => {
+      const cache = new Map([['9_8x8', { uniformManager: { uniformValues: new Map([['9.s', 2]]) }, node: { id: '9' } }]]);
+      global.window.computeExecutor = fragRenderer(cache).computeExecutor;
+      const got = [];
+      const self = bare({ _stateTap: (s) => got.push(s) });
+
+      self._emitStateSnapshot();
+      expect(got[0].fragment).toBeUndefined(); // off by default
+
+      self.setStateTapComputeMode(true);
+      self._emitStateSnapshot();
+      expect(got[1].fragment).toHaveLength(1);
+      expect(got[1].fragment[0].id).toBe('9');
+      expect(Array.from(got[1].fragment[0].params)).toEqual([2]);
     });
   });
 
