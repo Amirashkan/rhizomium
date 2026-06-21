@@ -421,6 +421,35 @@ describe('secondMonitorReceiver', () => {
       expect(packed[1]).toBe(1024);
     });
 
+    it('stops following the editor preview aspect once a fixed Viewer res is set', async () => {
+      const renderer = makeFakeRenderer();
+      initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+      const ch = FakeBroadcastChannel.instances[0];
+
+      ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+      await flush();
+
+      // "Match editor": a square editor aspect letterboxes the 1280x720 display to
+      // 720x720, so the viewer reshapes with the preview.
+      const globals = new Float32Array([600, 600, 0, 0, 0, 0, 0, 0]);
+      ch.emit({ type: MSG.UNIFORMS, aspect: new Float32Array([1, 0, 0, 0]), globals, params: null });
+      expect(gpuCanvas.width).toBe(720);
+      expect(gpuCanvas.height).toBe(720);
+
+      // A fixed Viewer res decouples: the canvas fills the display and no longer
+      // tracks the editor's preview aspect.
+      ch.emit({ type: MSG.RENDER_RES, maxDim: 1080 });
+      await settle();
+      expect(gpuCanvas.width).toBe(1280);
+      expect(gpuCanvas.height).toBe(720);
+
+      // Back to "match editor" → it letterboxes to the preview aspect again.
+      ch.emit({ type: MSG.RENDER_RES, maxDim: 0 });
+      await settle();
+      expect(gpuCanvas.width).toBe(720);
+      expect(gpuCanvas.height).toBe(720);
+    });
+
     it('injects compute uniforms and invalidates input hashes when bytes change', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));

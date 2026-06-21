@@ -476,7 +476,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     // canvas, so sizing it to the editor aspect makes the composition match. When the
     // editor aspect is unknown, fill the display.
     let elW = cssW, elH = cssH, left = 0, top = 0;
-    if (editorAspect > 0) {
+    // "Match editor" (computeMaxDim 0) letterboxes to the editor's preview aspect so
+    // the viewer mirrors the editor's framing — which means it reshapes when the
+    // floating preview is resized. A fixed "Viewer res" decouples the viewer: it
+    // fills the display at a stable aspect and no longer follows the preview.
+    if (editorAspect > 0 && computeMaxDim <= 0) {
       const rect = letterboxRect(editorAspect, 1, cssW, cssH);
       if (rect.dw > 0 && rect.dh > 0) { elW = rect.dw; elH = rect.dh; left = rect.dx; top = rect.dy; }
     }
@@ -544,6 +548,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       appliedComputeKey = null;          // force a rebuild at the new resolution
       applyComputeGraph(lastComputeGraphMsg);
     }
+    // Switching between "match editor" (letterboxed to the preview aspect) and a
+    // fixed res (fill the display) changes the canvas shape — re-size now so the
+    // viewer stops/starts following the preview immediately, not on the next resize.
+    sizeGpuCanvas();
+    reportSize();
     if (flash) flashHint(v > 0 ? `Compute ${v}p` : 'Compute: match editor');
   }
 
@@ -745,11 +754,11 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   }
   showCanvas('2d');
   paintFallback();   // fill black immediately, before first rAF frame
-  rafId = win.requestAnimationFrame(frame);
 
   // Reveal the (hidden) native window only once a black frame is committed to the
   // surface, so the second display never shows a white pre-paint frame. Double rAF
   // ensures the browser has actually painted before the OS reveals the window.
+  // Scheduled before the frame loop so the loop remains the last-pending rAF.
   win.requestAnimationFrame(() => win.requestAnimationFrame(async () => {
     const w = await tauriWindow();
     if (w) {
@@ -757,6 +766,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       try { await w.setFocus(); } catch (_) { /* ignore */ }
     }
   }));
+
+  rafId = win.requestAnimationFrame(frame);
 
   // --- input / lifecycle ---------------------------------------------------
   win.addEventListener('keydown', (e) => {
