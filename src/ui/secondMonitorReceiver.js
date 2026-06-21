@@ -747,6 +747,17 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   paintFallback();   // fill black immediately, before first rAF frame
   rafId = win.requestAnimationFrame(frame);
 
+  // Reveal the (hidden) native window only once a black frame is committed to the
+  // surface, so the second display never shows a white pre-paint frame. Double rAF
+  // ensures the browser has actually painted before the OS reveals the window.
+  win.requestAnimationFrame(() => win.requestAnimationFrame(async () => {
+    const w = await tauriWindow();
+    if (w) {
+      try { await w.show(); } catch (_) { /* ignore */ }
+      try { await w.setFocus(); } catch (_) { /* ignore */ }
+    }
+  }));
+
   // --- input / lifecycle ---------------------------------------------------
   win.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeSelf();

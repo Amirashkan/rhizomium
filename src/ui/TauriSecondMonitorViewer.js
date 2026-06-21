@@ -267,8 +267,8 @@ export class TauriSecondMonitorViewer {
       alwaysOnTop: !!target,
       skipTaskbar: !!target,
       focus: true,
-      visible: true,
-      backgroundColor: [0, 0, 0, 255], // black RGBA; kills pre-paint white flash
+      visible: false,                  // reveal only after the receiver's first paint
+      backgroundColor: [0, 0, 0, 255], // black RGBA; secondary defense against white flash
     };
     if (target) {
       // Monitor bounds are physical pixels; window options are logical pixels.
@@ -304,6 +304,10 @@ export class TauriSecondMonitorViewer {
     if (target) {
       try { await win.setFullscreen(true); } catch (_) { /* borderless fill remains */ }
     }
+    // Safety net: ensure the window is eventually shown even if the receiver's
+    // first-paint reveal never fires (receiver error, or loaded outside Tauri).
+    // show() is idempotent, so racing the receiver's own show() is harmless.
+    setTimeout(() => { win.show().catch(() => {}); }, 1500);
     return win;
   }
 
