@@ -15,12 +15,6 @@
       width: 100vw; height: 100vh; background: #000;
     }
     #second-monitor-gpu { display: none; }
-    #second-monitor-hint {
-      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
-      font: 13px system-ui, -apple-system, sans-serif; color: rgba(255, 255, 255, 0.55);
-      background: rgba(0, 0, 0, 0.45); padding: 6px 12px; border-radius: 6px;
-      pointer-events: none; transition: opacity 0.5s ease; z-index: 2;
-    }
     /* Performance profiler overlay (toggle with P). Hidden by default. */
     #second-monitor-profiler {
       position: fixed; top: 12px; left: 12px; margin: 0; display: none;
@@ -34,7 +28,6 @@
 <body>
   <canvas id="second-monitor-gpu"></canvas>
   <canvas id="second-monitor-output"></canvas>
-  <div id="second-monitor-hint">Second-monitor output · Esc close · F fullscreen · P profiler · [ ] resolution</div>
   <pre id="second-monitor-profiler"></pre>
   <script type="module" src="../src/ui/secondMonitorReceiver.js"></script>
 </body>

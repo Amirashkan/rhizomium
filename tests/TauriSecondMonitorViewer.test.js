@@ -180,6 +180,26 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
+  it('closes the output window when the editor window is closed', async () => {
+    let onClose = null;
+    const unlisten = vi.fn();
+    h.getCurrentWindow.mockReturnValue({
+      onCloseRequested: vi.fn((cb) => { onClose = cb; return Promise.resolve(unlisten); }),
+    });
+
+    const viewer = new TauriSecondMonitorViewer(source);
+    await viewer.open();
+    const win = h.instances[0];
+
+    expect(typeof onClose).toBe('function'); // editor close hook registered
+    onClose();                               // simulate the editor window closing
+    expect(win.close).toHaveBeenCalled();
+
+    await viewer.close();
+    expect(unlisten).toHaveBeenCalled();     // hook removed on teardown
+    h.getCurrentWindow.mockReset();
+  });
+
   it('registers a state tap and broadcasts WGSL + uniforms for a native graph', async () => {
     const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });

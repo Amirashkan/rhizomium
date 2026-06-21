@@ -527,20 +527,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // Long-edge presets (px). 0 = match the editor's preview/broadcast size.
   const COMPUTE_RES_PRESETS = [0, 720, 1080, 1440, 2048];
 
-  function flashHint(text) {
-    const el = doc.getElementById('second-monitor-hint');
-    if (!el) return;
-    el.textContent = text;
-    el.style.opacity = '1';
-    try { win.setTimeout(() => { el.style.opacity = '0'; }, 1500); } catch (_) { /* ignore */ }
-  }
-
   /**
    * Set the viewer's compute-resolution override (long edge in px; 0 = match the
    * editor). Rebuilds the compute graph at the new size, decoupled from the editor's
    * preview resolution.
    */
-  function setComputeMaxDim(next, { flash = true } = {}) {
+  function setComputeMaxDim(next) {
     const v = Math.max(0, Math.min(2048, Math.round(Number(next) || 0)));
     if (v === computeMaxDim) return;
     computeMaxDim = v;
@@ -553,7 +545,6 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     // viewer stops/starts following the preview immediately, not on the next resize.
     sizeGpuCanvas();
     reportSize();
-    if (flash) flashHint(v > 0 ? `Compute ${v}p` : 'Compute: match editor');
   }
 
   /** Step to the adjacent preset (dir +1 = higher res, -1 = lower). */
@@ -781,9 +772,6 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   win.addEventListener('beforeunload', () => {
     try { channel?.postMessage({ type: MSG.CLOSED }); } catch (_) { /* ignore */ }
   });
-
-  const hint = doc.getElementById('second-monitor-hint');
-  if (hint) win.setTimeout(() => { hint.style.opacity = '0'; }, 4000);
 
   async function tauriWindow() {
     if (!isTauri()) return null;

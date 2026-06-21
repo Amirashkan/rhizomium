@@ -60,6 +60,7 @@ export class TauriSecondMonitorViewer {
       : () => {};
 
     this._win = null;            // the native WebviewWindow (frame target)
+    this._unlistenMainClose = null; // editor close-requested unlisten (close child with editor)
     this._channel = null;        // BroadcastChannel to the receiver page
     this._onChannelMessage = null;
     this._stateTap = null;       // handler registered on the renderer's state tap
@@ -193,6 +194,10 @@ export class TauriSecondMonitorViewer {
       try { this._channel.removeEventListener('message', this._onChannelMessage); } catch (_) { /* ignore */ }
     }
     try { this._channel?.close(); } catch (_) { /* ignore */ }
+    if (typeof this._unlistenMainClose === 'function') {
+      try { this._unlistenMainClose(); } catch (_) { /* ignore */ }
+    }
+    this._unlistenMainClose = null;
     this._channel = null;
     this._onChannelMessage = null;
     this._win = null;
@@ -298,6 +303,17 @@ export class TauriSecondMonitorViewer {
       setTimeout(() => done(reject, new Error('window creation timed out')), 5000);
     });
     this._win = win;
+
+    // The output window is a separate top-level window, so closing the editor
+    // leaves it orphaned (and keeps the app alive). Close it with the editor.
+    try {
+      const mainWin = windowApi.getCurrentWindow?.();
+      if (mainWin && typeof mainWin.onCloseRequested === 'function') {
+        this._unlistenMainClose = await mainWin.onCloseRequested(() => {
+          try { this._win?.close(); } catch (_) { /* already gone */ }
+        });
+      }
+    } catch (_) { /* close-with-editor is best-effort */ }
 
     // True OS fullscreen on the target display. The borderless window already
     // fills the monitor, so a failure here is non-fatal.
