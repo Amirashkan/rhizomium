@@ -381,6 +381,37 @@ describe('secondMonitorReceiver', () => {
       expect(gpuCanvas.style.left).toBe('280px'); // (1280-720)/2 — black bars left & right
     });
 
+    it('re-frames the mirror when a resolution preset changes the compute texture aspect', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      // Preset switch re-broadcasts COMPUTE_GRAPH with the new texture size (the
+      // editor's signature includes WxH). Start on a non-square preset (FHD): the
+      // 16:9 texture fills the 1280x720 display.
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [{ id: '1', kind: 'ComputeEdgeDetect', wgsl: 'W', width: 1920, height: 1080, inputs: [] }],
+        executionOrder: ['1'],
+      });
+      await settle();
+      expect(gpuCanvas.width).toBe(1280);   // 16:9 into 16:9 display → fills
+      expect(gpuCanvas.height).toBe(720);
+      expect(gpuCanvas.style.left).toBe('0px');
+
+      // Switch to a square preset (1K²): the mirror must reshape to a pillarboxed
+      // square, not keep the old 16:9 framing.
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [{ id: '1', kind: 'ComputeEdgeDetect', wgsl: 'W', width: 1024, height: 1024, inputs: [] }],
+        executionOrder: ['1'],
+      });
+      await settle();
+      expect(gpuCanvas.width).toBe(720);
+      expect(gpuCanvas.height).toBe(720);
+      expect(gpuCanvas.style.left).toBe('280px');
+    });
+
     it('builds multiple feedback sims and applies uniforms to each (multi-sim graph)', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
