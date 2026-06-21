@@ -1424,7 +1424,13 @@ export class GPURenderer {
       globals: this._globalsUniformBuffer ? this._globalsUniformBuffer.slice() : null,
       params: this._paramUniformBuffer ? this._paramUniformBuffer.slice() : null,
     };
-    if (this._emitComputeState) snap.compute = this._collectComputeUniformSnapshot();
+    if (this._emitComputeState) {
+      snap.compute = this._collectComputeUniformSnapshot();
+      // Fragment-fed compute: the editor's per-node evaluated u_params bytes, so the
+      // mirror's FragmentTextureRenderer can inject them and skip re-evaluating
+      // expressions/params. Null unless a fragment node feeds a compute node.
+      snap.fragment = this._collectFragmentUniformSnapshot();
+    }
     try { tap(snap); } catch (_) { /* consumer error — never break the render loop */ }
   }
 
@@ -1449,8 +1455,13 @@ export class GPURenderer {
    *                     image textures, all reproducible from broadcast state. The
    *                     mirror runs its own ComputeExecutor; feedback sims are
    *                     replicated as an independent simulation (not a pixel copy).
-   *   "fallback"        storage buffers, or compute fed by a fragment node — not
-   *                     reproducible from compute state alone; mirror pixels.
+   *                     Includes fragment-fed compute (a compute node whose input is
+   *                     a GLSL/fragment node): the fragment subgraph is broadcast
+   *                     (FRAGMENT_GRAPH) and re-rendered by the mirror's own
+   *                     FragmentTextureRenderer.
+   *   "fallback"        fragment storage buffers — not reproducible from broadcast
+   *                     state; mirror pixels. (Only the 3D path uses these; the 2D
+   *                     node graph doesn't, so this is effectively unreachable.)
    * Returns string literals (not the enum) to avoid coupling gpu→ui.
    */
   classifyMirrorTier() {
@@ -1468,59 +1479,20 @@ export class GPURenderer {
     }
     if (!hasTexture) return "native"; // fragment + uniforms only
 
-    // Textured graph: replicable when the compute subgraph is self-contained —
-    // every compute node's inputs are other compute nodes, images, or baked values.
-    // Stateful/feedback compute (reaction-diffusion, feedback trails, fluid) and
-    // multi-input nodes (Warp/Mix) ARE reproducible: the receiver runs its own
-    // ComputeExecutor, which rebuilds the same ping-pong managers from the broadcast
-    // kind/wgsl/supportsFeedback and evolves its own (independent) simulation state,
-    // with no per-frame pixel copy. Only a compute node fed by a fragment-shader
-    // node can't be reproduced from compute state alone. Image textures are shipped
-    // separately (TEXTURE message).
-    const exec = (typeof window !== "undefined") ? window.computeExecutor : null;
-    const managers = exec && exec.computeManagers;
-    if (managers && managers.size > 0) {
-      if (!this._computeSubgraphSelfContained()) return "fallback";
-    }
+    // Textured/compute graph — all reproducible from broadcast state:
+    //   • Stateless and stateful/feedback compute (reaction-diffusion, feedback
+    //     trails, fluid) and multi-input nodes (Warp/Mix): the receiver runs its
+    //     own ComputeExecutor, rebuilds the same ping-pong managers from the
+    //     broadcast kind/wgsl/supportsFeedback, and evolves its own simulation.
+    //   • Fragment-fed compute (a compute node whose input is a GLSL/fragment node):
+    //     the fragment subgraph is broadcast (FRAGMENT_GRAPH) and re-rendered by the
+    //     receiver's own FragmentTextureRenderer; evaluated u_params stream per frame
+    //     (FRAGMENT_UNIFORMS) and time/audio ride the existing globals broadcast.
+    //   • Image textures: shipped separately (TEXTURE message).
+    // Nothing in the 2D node graph remains unreproducible, so a compute subgraph
+    // never forces the pixel fallback; only a fragment storage buffer does (handled
+    // above), which only the un-mirrored 3D path uses.
     return "native-compute";
-  }
-
-  /**
-   * True when every compute node's inputs are reproducible in the mirror window:
-   * other compute nodes (replicated) or image/value inputs (broadcast/baked). A
-   * compute node fed by a fragment-shader node is NOT reproducible from compute
-   * state alone, so such graphs must mirror pixels.
-   */
-  _computeSubgraphSelfContained() {
-    const registry = (typeof window !== "undefined") ? window.computeNodeRegistry : null;
-    if (!registry || typeof registry.forEach !== "function") return true;
-    const graph = (typeof window !== "undefined") ? window.graph : null;
-    const isCompute = (id) => registry.has(id) || registry.has(String(id));
-    const kindOf = (id) => {
-      try {
-        if (graph?.getNode) return graph.getNode(id)?.kind || null;
-        if (Array.isArray(graph?.nodes)) {
-          const n = graph.nodes.find((x) => String(x.id) === String(id));
-          return n ? n.kind : null;
-        }
-      } catch (_) { /* ignore */ }
-      return null;
-    };
-    let ok = true;
-    registry.forEach((data) => {
-      if (!ok) return;
-      const inputs = (data && data.node && data.node.inputs) || [];
-      for (const inId of inputs) {
-        if (inId == null) continue;
-        if (isCompute(inId)) continue;                       // compute → replicated
-        const kind = kindOf(inId);
-        if (kind == null) continue;                          // value/param → baked into uniforms
-        if (/compute/i.test(kind)) continue;                 // compute (defensive)
-        if (/texture|image|video|webcam/i.test(kind)) continue; // image → TEXTURE broadcast
-        ok = false; return;                                   // e.g. a fragment node feeding compute
-      }
-    });
-    return ok;
   }
 
   /** Toggle inclusion of per-node compute uniform bytes in the state snapshot. */
@@ -1547,6 +1519,37 @@ export class GPURenderer {
           ? m.colorStopsData.slice()
           : null,
       });
+    });
+    return nodes.length ? nodes : null;
+  }
+
+  /**
+   * Snapshot the evaluated u_params bytes of each fragment node that feeds a compute
+   * node, so a mirror window's FragmentTextureRenderer can inject them (in the same
+   * field order its own buildWGSL produces) instead of re-evaluating editor-side
+   * state. Only static params live here; expression/time/audio params compile to
+   * runtime reads of the globals buffer, which is already broadcast. Tiny payload;
+   * copies are sliced (the manager's value map is rebuilt each frame). Null when no
+   * fragment node feeds compute.
+   */
+  _collectFragmentUniformSnapshot() {
+    const exec = (typeof window !== "undefined") ? window.computeExecutor : null;
+    const fr = exec && exec.fragmentRenderer;
+    const cache = fr && fr.textureCache;
+    if (!cache || typeof cache.forEach !== "function" || cache.size === 0) return null;
+    const seen = new Set();
+    const nodes = [];
+    cache.forEach((cached, key) => {
+      if (!cached || !cached.uniformManager) return;
+      // Cache key is `${nodeId}_${w}x${h}`; prefer the resolved node ref when present.
+      const nodeId = (cached.node && cached.node.id != null)
+        ? cached.node.id
+        : String(key).replace(/_\d+x\d+$/, "");
+      if (seen.has(nodeId)) return; // values are resolution-independent — one per node
+      seen.add(nodeId);
+      const vals = cached.uniformManager.uniformValues;
+      if (!vals || vals.size === 0) return; // no static params (expression-only) → nothing to inject
+      nodes.push({ id: nodeId, params: Float32Array.from(vals.values()) });
     });
     return nodes.length ? nodes : null;
   }

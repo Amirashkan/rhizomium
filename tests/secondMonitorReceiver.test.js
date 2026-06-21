@@ -42,8 +42,16 @@ function makeFakeRenderer() {
 // `win` like the real one, and initialize() builds a manager per registry entry.
 function installFakeRuntime() {
   const managers = new Map();
+  // Stand-in for the executor's FragmentTextureRenderer (fragment-fed compute).
+  const fragmentRenderer = {
+    externalUniformMode: false,
+    externalUniforms: new Map(),
+    parameterHashes: new Map(),
+    clearCache: vi.fn(),
+  };
   const computeExecutor = {
     computeManagers: managers,
+    fragmentRenderer,
     inputHashes: new Map(),
     executionOrder: [],
     _registry: null,
@@ -61,10 +69,13 @@ function installFakeRuntime() {
     w.computeExecutor = computeExecutor;
     w.textureManager = textureManager;
     if (!w.computeNodeRegistry) w.computeNodeRegistry = new Map();
+    if (!w.graph) {
+      w.graph = { nodes: [], getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; } };
+    }
     computeExecutor._registry = w.computeNodeRegistry;
     return { computeExecutor, textureManager };
   });
-  return { computeExecutor, textureManager, factory };
+  return { computeExecutor, textureManager, fragmentRenderer, factory };
 }
 
 // Run pending micro/macrotasks a few times so chained async (renderer → runtime →
@@ -592,5 +603,134 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.clear).toHaveBeenCalled();
       expect(rt.textureManager.destroy).toHaveBeenCalled();
     });
+
+    describe('fragment-fed compute', () => {
+      const blurFedByFragment = {
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [{ id: '2', kind: 'ComputeBlur', wgsl: 'W', width: 8, height: 8, inputs: ['9'] }],
+        executionOrder: ['2'],
+      };
+      const fragGraph = (params = { scale: 5 }) => ({
+        type: MSG.FRAGMENT_GRAPH,
+        nodes: [{ id: '9', kind: 'SimplexNoise', params, inputs: [] }],
+      });
+
+      it('reconstructs the fragment subgraph into the synthetic graph with its params', async () => {
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, opts(rt));
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit(blurFedByFragment);
+        ch.emit(fragGraph());
+        await settle();
+
+        // Fragment node lives in the graph WITH params (so buildWGSL matches the editor);
+        // the compute node it feeds is still present.
+        expect(win.graph.nodes.find((n) => n.id === '9')).toMatchObject({
+          id: '9', kind: 'SimplexNoise', params: { scale: 5 }, inputs: [],
+        });
+        expect(win.graph.nodes.find((n) => n.id === '2')).toBeTruthy();
+        // The fragment renderer cache was cleared so it recompiles the new subgraph.
+        expect(rt.fragmentRenderer.clearCache).toHaveBeenCalled();
+      });
+
+      it('keeps the fragment subgraph when the compute graph rebuilds (rewire/resize)', async () => {
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, opts(rt));
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit(fragGraph());
+        ch.emit(blurFedByFragment);
+        await settle();
+        expect(win.graph.nodes.find((n) => n.id === '9')).toBeTruthy();
+
+        // A compute rebuild clears win.graph.nodes then must re-append the fragment node.
+        ch.emit({
+          type: MSG.COMPUTE_GRAPH,
+          nodes: [{ id: '2', kind: 'ComputeBlur', wgsl: 'W2', width: 16, height: 16, inputs: ['9'] }],
+          executionOrder: ['2'],
+        });
+        await settle();
+        expect(win.graph.nodes.find((n) => n.id === '9')).toMatchObject({ params: { scale: 5 } });
+        expect(win.graph.nodes.find((n) => n.id === '2').computeResolution).toEqual([16, 16]);
+      });
+
+      it('does not let a fragment node shadow a compute node of the same id', async () => {
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, opts(rt));
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit(blurFedByFragment);
+        // A stray fragment node reusing the compute id '2' must be ignored.
+        ch.emit({ type: MSG.FRAGMENT_GRAPH, nodes: [{ id: '2', kind: 'SimplexNoise', params: {}, inputs: [] }] });
+        await settle();
+        const twos = win.graph.nodes.filter((n) => n.id === '2');
+        expect(twos).toHaveLength(1);
+        expect(twos[0].kind).toBe('ComputeBlur');
+      });
+
+      it('injects evaluated fragment u_params and re-renders only when the bytes change', async () => {
+        const rt = installFakeRuntime();
+        initSecondMonitorReceiver(doc, win, opts(rt));
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit(blurFedByFragment);
+        ch.emit(fragGraph());
+        await settle();
+        const fr = rt.fragmentRenderer;
+
+        ch.emit({ type: MSG.FRAGMENT_UNIFORMS, nodes: [{ id: '9', params: new Float32Array([5]) }] });
+        await settle();
+        expect(fr.externalUniformMode).toBe(true);
+        expect(Array.from(fr.externalUniforms.get('9'))).toEqual([5]);
+
+        // Unchanged bytes → the static fragment node keeps its cached render.
+        fr.parameterHashes.set('9', 'cached');
+        ch.emit({ type: MSG.FRAGMENT_UNIFORMS, nodes: [{ id: '9', params: new Float32Array([5]) }] });
+        await settle();
+        expect(fr.parameterHashes.get('9')).toBe('cached');
+
+        // A real value change → drop the hash so it re-renders with the new param.
+        ch.emit({ type: MSG.FRAGMENT_UNIFORMS, nodes: [{ id: '9', params: new Float32Array([7]) }] });
+        await settle();
+        expect(fr.parameterHashes.has('9')).toBe(false);
+      });
+
+      it('resets fragment state when leaving the compute tier', async () => {
+        const rt = installFakeRuntime();
+        const r = initSecondMonitorReceiver(doc, win, opts(rt));
+        const ch = FakeBroadcastChannel.instances[0];
+        ch.emit(blurFedByFragment);
+        ch.emit(fragGraph());
+        await settle();
+        expect(win.graph.nodes.find((n) => n.id === '9')).toBeTruthy();
+
+        // Switching to the plain fragment tier tears down compute + fragment state.
+        ch.emit({ type: MSG.CAPS, tier: TIER.NATIVE });
+        await settle();
+        expect(rt.computeExecutor.clear).toHaveBeenCalled();
+      });
+    });
+  });
+
+  it('feeds the editor broadcast audio envelopes to the window (for fragment expression params)', async () => {
+    const renderer = makeFakeRenderer();
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
+    const ch = FakeBroadcastChannel.instances[0];
+    ch.emit({ type: MSG.SHADER, wgsl: 'W' });
+    await flush();
+
+    // globals = [resX, resY, time, audioEnvelope, bass, mids, highs, full].
+    ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([100, 50, 3, 0.1, 0.2, 0.3, 0.4, 0.5]),
+      params: null,
+    });
+    step();
+
+    // The fragment renderer builds its globals from these window values, so mirroring
+    // the editor's audio keeps =audioEnvelope expressions matching across windows.
+    expect(win._audioEnvelopeValue).toBeCloseTo(0.1, 5);
+    expect(win._audioEnvelopeBass).toBeCloseTo(0.2, 5);
+    expect(win._audioEnvelopeMids).toBeCloseTo(0.3, 5);
+    expect(win._audioEnvelopeHighs).toBeCloseTo(0.4, 5);
+    expect(win._audioEnvelopeFull).toBeCloseTo(0.5, 5);
   });
 });

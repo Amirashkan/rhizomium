@@ -11,12 +11,13 @@
 //    from our own rAF, at this display's native resolution and refresh rate. No
 //    pixels cross the process boundary, so the editor keeps full framerate.
 //
-//    Compute graphs — including stateful/feedback sims — are reproduced here too:
-//    this window runs its OWN ComputeExecutor and evolves an independent copy of
-//    the simulation from the broadcast graph + per-frame uniform bytes.
+//    Compute graphs — including stateful/feedback sims and fragment-fed compute (a
+//    compute node whose input is a GLSL/fragment node) — are reproduced here too:
+//    this window runs its OWN ComputeExecutor (and FragmentTextureRenderer) and
+//    evolves an independent copy from the broadcast graph + per-frame uniform bytes.
 //
 //  • FALLBACK (pixels): for the few graphs the receiver can't reproduce from state
-//    alone (a compute node fed by a fragment node, or fragment storage buffers),
+//    alone (a fragment storage buffer — only the un-mirrored 3D path uses these),
 //    the editor broadcasts FRAME bitmaps and we paint them, letterboxed on black,
 //    onto the 2D #second-monitor-output canvas — kept so nothing ever regresses.
 //
@@ -71,9 +72,10 @@ async function defaultCreateRenderer(canvas) {
  * fragment-only path never pulls the compute system in.
  */
 async function defaultCreateComputeRuntime(device, win) {
-  const [{ ComputeExecutor }, { TextureManager }] = await Promise.all([
+  const [{ ComputeExecutor }, { TextureManager }, exprMod] = await Promise.all([
     import('../gpu/ComputeExecutor.js'),
     import('../core/TextureManager.js'),
+    import('../utils/UnifiedExpressionSystem.js'),
   ]);
   win.computeNodeRegistry = win.computeNodeRegistry || new Map();
   if (!win.graph) {
@@ -81,6 +83,13 @@ async function defaultCreateComputeRuntime(device, win) {
       nodes: [],
       getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; },
     };
+  }
+  // Fragment-fed compute: the receiver rebuilds fragment subgraphs with its own
+  // FragmentTextureRenderer (via ComputeExecutor), which runs the same buildWGSL the
+  // editor does. Some codegen paths (gradient/expression params) read the singleton
+  // off window — expose it so expression-valued fragment params compile here too.
+  if (!win.unifiedExpressionSystem && exprMod && exprMod.unifiedExpressionSystem) {
+    win.unifiedExpressionSystem = exprMod.unifiedExpressionSystem;
   }
   // Audio envelopes differ per window; injected compute uniforms already bake in
   // the editor's values, so these stay 0 and unused — but defined to avoid undefined.
@@ -143,6 +152,14 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   const prevPacked = new Map();     // node id -> last packed bytes (re-dispatch detection)
   const prevColorStops = new Map(); // node id -> last color-stop bytes (gradient re-dispatch)
 
+  // Fragment-fed compute (Tier 2): the fragment subgraph feeding compute nodes, plus
+  // the editor's per-frame evaluated u_params bytes. Reconstructed into the synthetic
+  // graph so the executor's FragmentTextureRenderer can re-render it natively.
+  let lastFragmentGraphMsg = null;  // last FRAGMENT_GRAPH (re-merged when the compute graph rebuilds)
+  let pendingFragmentGraph = null;  // FRAGMENT_GRAPH seen before the runtime existed
+  let fragmentNodeIds = new Set();  // ids currently merged into win.graph (for clean replacement)
+  const prevFragmentParams = new Map(); // node id -> last injected u_params (re-render detection)
+
   const channel = openSecondMonitorChannel();
 
   // --- native renderer lifecycle ------------------------------------------
@@ -202,6 +219,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         computeRuntime = rt || null;
         if (computeRuntime) {
           if (pendingComputeGraph) { const m = pendingComputeGraph; pendingComputeGraph = null; applyComputeGraph(m); }
+          if (pendingFragmentGraph) { const m = pendingFragmentGraph; pendingFragmentGraph = null; applyFragmentGraph(m); }
           if (pendingTextures.length) { const t = pendingTextures; pendingTextures = []; t.forEach(applyTexture); }
         }
         return computeRuntime;
@@ -267,6 +285,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         lastInputHash: null,
       });
     }
+    // Re-append the fragment subgraph: rebuilding win.graph.nodes above dropped it,
+    // but the executor's auto-bridge needs the fragment feeders present to render them.
+    mergeFragmentNodesIntoGraph();
     appliedComputeKey = key;
     Promise.resolve(exec.initialize ? exec.initialize() : null).then(() => {
       // Every manager consumes our injected per-node bytes rather than re-packing.
@@ -363,6 +384,86 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     }
   }
 
+  // --- fragment-fed compute (Tier 2) --------------------------------------
+  /**
+   * Merge the broadcast fragment subgraph into the synthetic win.graph alongside the
+   * compute nodes, replacing any previously-merged fragment nodes. These carry full
+   * `params` (unlike compute nodes, whose params are empty) so the executor's
+   * FragmentTextureRenderer compiles the same WGSL the editor did. Compute ids are
+   * never shadowed — the compute graph owns those.
+   */
+  function mergeFragmentNodesIntoGraph() {
+    if (!win.graph) {
+      win.graph = { nodes: [], getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; } };
+    }
+    if (fragmentNodeIds.size) {
+      win.graph.nodes = win.graph.nodes.filter((n) => !fragmentNodeIds.has(n.id));
+    }
+    fragmentNodeIds = new Set();
+    const msg = lastFragmentGraphMsg;
+    if (!msg || !Array.isArray(msg.nodes)) return;
+    const registry = win.computeNodeRegistry;
+    for (const n of msg.nodes) {
+      if (registry && (registry.has(n.id) || registry.has(String(n.id)))) continue; // compute owns this id
+      win.graph.nodes.push({
+        id: n.id,
+        kind: n.kind,
+        params: n.params || {},
+        inputs: Array.isArray(n.inputs) ? n.inputs.slice() : [],
+      });
+      fragmentNodeIds.add(n.id);
+    }
+  }
+
+  /**
+   * Rebuild the fragment subgraph in the synthetic graph. The compute runtime owns the
+   * FragmentTextureRenderer (created by ComputeExecutor); clear its cache so it
+   * recompiles against the new structure/expression params.
+   */
+  function applyFragmentGraph(msg) {
+    lastFragmentGraphMsg = msg;
+    if (!computeRuntime) { pendingFragmentGraph = msg; ensureComputeRuntime(); return; }
+    mergeFragmentNodesIntoGraph();
+    const fr = computeRuntime.computeExecutor && computeRuntime.computeExecutor.fragmentRenderer;
+    try { fr?.clearCache?.(); } catch (_) { /* ignore */ }
+    prevFragmentParams.clear(); // force a re-render with the next injected uniforms
+  }
+
+  /**
+   * Inject the editor's per-frame evaluated fragment u_params bytes so the receiver's
+   * FragmentTextureRenderer writes them verbatim (same field order as its own
+   * buildWGSL) instead of re-deriving from this window's clock/audio. When a node's
+   * bytes change, drop its parameter hash so the renderer re-renders it (a static
+   * fragment node would otherwise be skipped by its own change detection). Downstream
+   * compute re-dispatch is already handled by the executor's auto-bridge.
+   */
+  function applyFragmentUniforms(msg) {
+    const exec = computeRuntime && computeRuntime.computeExecutor;
+    const fr = exec && exec.fragmentRenderer;
+    if (!fr) return;
+    fr.externalUniformMode = true;
+    if (!fr.externalUniforms) fr.externalUniforms = new Map();
+    for (const n of (msg.nodes || [])) {
+      fr.externalUniforms.set(n.id, n.params);
+      if (_fragmentParamsChanged(n.id, n.params)) {
+        try { fr.parameterHashes?.delete?.(n.id); } catch (_) { /* ignore */ }
+      }
+    }
+  }
+
+  // True when a fragment node's injected u_params changed since last frame. Unlike the
+  // compute packed bytes there is no time slot to ignore — these are static params only.
+  function _fragmentParamsChanged(id, params) {
+    const prev = prevFragmentParams.get(id);
+    let changed = true;
+    if (prev && params && prev.length === params.length) {
+      changed = false;
+      for (let i = 0; i < params.length; i++) { if (prev[i] !== params[i]) { changed = true; break; } }
+    }
+    if (params) prevFragmentParams.set(id, params.slice ? params.slice() : params);
+    return changed;
+  }
+
   function applyTexture(msg) {
     if (!msg || !msg.bitmap) return;
     if (!computeRuntime) { pendingTextures.push(msg); ensureComputeRuntime(); return; }
@@ -378,6 +479,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     latestComputeUniforms = null;
     prevPacked.clear();
     prevColorStops.clear();
+    lastFragmentGraphMsg = null;
+    pendingFragmentGraph = null;
+    fragmentNodeIds = new Set();
+    prevFragmentParams.clear();
   }
 
   /** Apply a tier change from the editor: ensure runtimes and tear down compute when leaving. */
@@ -421,6 +526,13 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         break;
       case MSG.COMPUTE_UNIFORMS:
         applyComputeUniforms(d);
+        break;
+      case MSG.FRAGMENT_GRAPH:
+        setTier(TIER.NATIVE_COMPUTE);
+        applyFragmentGraph(d);
+        break;
+      case MSG.FRAGMENT_UNIFORMS:
+        applyFragmentUniforms(d);
         break;
       case MSG.TEXTURE:
         applyTexture(d);
@@ -589,6 +701,17 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     const timeSec = (g && g.length >= 3)
       ? g[2]
       : (win.performance ? win.performance.now() * 0.001 : 0);
+    // Fragment-fed compute: the executor's FragmentTextureRenderer re-evaluates
+    // expression params (=audioEnvelope, =time) at runtime against the globals it
+    // builds from these window values. Mirror the editor's broadcast audio (globals
+    // floats 3..7) so those expressions match; time already rides timeSec above.
+    if (g && g.length >= 8) {
+      win._audioEnvelopeValue = g[3];
+      win._audioEnvelopeBass = g[4];
+      win._audioEnvelopeMids = g[5];
+      win._audioEnvelopeHighs = g[6];
+      win._audioEnvelopeFull = g[7];
+    }
     try {
       r.writeRawUniforms(snapshot);
       r.render({ timeSec });

@@ -25,24 +25,25 @@ The editor picks a tier per shader and advertises it via the `CAPS` message:
 - **`native`** — fragment + uniform buffers only. Broadcast: WGSL (on change) +
   per-frame uniform bytes. The viewer re-renders the fragment.
 - **`native-compute`** — also compute (stateless **and** stateful/feedback) and/or
-  image textures. The viewer runs its own `ComputeExecutor`, rebuilt from the
-  broadcast `COMPUTE_GRAPH`, fed per-frame `COMPUTE_UNIFORMS`.
+  image textures, **including fragment-fed compute** (a compute node whose input is a
+  GLSL/fragment node). The viewer runs its own `ComputeExecutor`, rebuilt from the
+  broadcast `COMPUTE_GRAPH`, fed per-frame `COMPUTE_UNIFORMS`. For fragment-fed
+  compute it also rebuilds the fragment subgraph from `FRAGMENT_GRAPH` and re-renders
+  it with its own `FragmentTextureRenderer`, fed per-frame `FRAGMENT_UNIFORMS`.
 - **`fallback`** — pixel mirror (the editor's `FRAME` bitmaps, letterboxed). Used
-  only for graphs the viewer can't reproduce from state:
-  - a fragment **storage buffer** (only the 3D `SceneRenderer3D` path uses these; the
-    2D node graph doesn't, so this is effectively unreachable), or
-  - **fragment-fed compute** — a compute node whose input is a GLSL/fragment node
-    (deferred; see `SECOND_MONITOR_FRAGMENT_FED_COMPUTE_PLAN.md`).
+  only for a fragment **storage buffer** (only the 3D `SceneRenderer3D` path uses
+  these; the 2D node graph doesn't, so this is effectively unreachable).
 
 ## Protocol (`SecondMonitorMessage`)
 
 Editor → viewer: `SHADER`, `UNIFORMS` (per-frame), `CAPS`, `COMPUTE_GRAPH` (on
-structure change), `COMPUTE_UNIFORMS` (per-frame), `TEXTURE`, `FRAME` (fallback only),
-`RENDER_RES`, `CLOSE`.
+structure change), `COMPUTE_UNIFORMS` (per-frame), `FRAGMENT_GRAPH` (fragment-fed
+compute; on structure/expression change), `FRAGMENT_UNIFORMS` (per-frame), `TEXTURE`,
+`FRAME` (fallback only), `RENDER_RES`, `CLOSE`.
 Viewer → editor: `READY`, `RESIZE`, `NEED_FALLBACK`, `CLOSED`.
 
-On `READY` the editor re-sends shader/compute-graph/textures/caps/render-res so a
-late or reconnecting viewer bootstraps correctly.
+On `READY` the editor re-sends shader/compute-graph/fragment-graph/textures/caps/
+render-res so a late or reconnecting viewer bootstraps correctly.
 
 ## Pacing (why it's smooth)
 
@@ -115,10 +116,28 @@ stall in another window. Metrics: rendered / rAF / GPU-presented fps; frame-gap 
 stall count; sync render-dispatch ms; throttle vs idle skips; editor message rate +
 max gap.
 
+## Fragment-fed compute
+
+A compute node whose input is a GLSL/fragment node (e.g. a fragment pattern →
+`ComputeBlur`) renders **natively** on the viewer — it was the last pixel fallback.
+
+- The editor broadcasts the fragment-input subgraph (`FRAGMENT_GRAPH`: each feeding
+  fragment node + its transitive non-compute deps, as `{id, kind, params, inputs}`) on
+  structure or **expression-param** change, and streams the editor's already-evaluated
+  per-node `u_params` bytes every frame (`FRAGMENT_UNIFORMS`).
+- The viewer reconstructs those nodes into its synthetic `window.graph` (alongside the
+  compute nodes) so the `ComputeExecutor`'s own `FragmentTextureRenderer` compiles the
+  **same WGSL** (same `buildWGSL`, same subgraph) and re-renders the fragment input,
+  which the compute node then consumes — exactly as the editor auto-bridges it.
+- **Why values match:** static params re-derive identically from the broadcast params
+  and are also injected verbatim (`FragmentTextureRenderer.externalUniformMode`), so a
+  param drag streams without a pipeline rebuild. Expression params compile to runtime
+  reads of the globals buffer — `time` rides the per-frame snapshot and the editor's
+  **audio envelopes** are mirrored onto the viewer window so `=audioEnvelope`
+  expressions evaluate the same.
+
 ## Deferred / future work
 
-- **Fragment-fed compute** → native (last pixel fallback). See
-  `SECOND_MONITOR_FRAGMENT_FED_COMPUTE_PLAN.md`.
 - **Exact feedback matching.** Native feedback (reaction-diffusion, feedback trails,
   fluid) runs as an **independent** simulation on the viewer. Two reasons it can look
   different from the editor:

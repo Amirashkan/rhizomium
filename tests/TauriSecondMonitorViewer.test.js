@@ -151,6 +151,7 @@ describe('TauriSecondMonitorViewer', () => {
     delete global.window.computeExecutor;
     delete global.window.computeNodeRegistry;
     delete global.window.textureManager;
+    delete global.window.graph;
     delete global.window.renderLoop;
   });
 
@@ -336,6 +337,98 @@ describe('TauriSecondMonitorViewer', () => {
     expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
 
     await viewer.close();
+  });
+
+  describe('fragment-fed compute', () => {
+    // A blur compute node whose only input is fragment node '9' (a SimplexNoise).
+    const stubFragmentFed = (params = { scale: 5 }) => {
+      stubComputeGlobals({ nodes: [{ id: '2', kind: 'ComputeBlur', wgsl: 'CB', width: 8, height: 8, inputs: ['9'] }] });
+      global.window.graph = {
+        getNode: (id) => (String(id) === '9'
+          ? { id: '9', kind: 'SimplexNoise', params, inputs: [] }
+          : null),
+      };
+    };
+    // Like computeSnap, but also carrying the editor's evaluated fragment u_params.
+    const fragSnap = (wgsl) => ({ ...computeSnap(wgsl), fragment: [{ id: '9', params: new Float32Array([5]) }] });
+
+    it('broadcasts the fragment subgraph (with params) and per-frame fragment uniforms', async () => {
+      stubFragmentFed();
+      const renderer = makeFakeRenderer({ tier: 'native-compute' });
+      const viewer = new TauriSecondMonitorViewer(source, { renderer });
+      await viewer.open();
+      const channel = FakeBroadcastChannel.instances[0];
+
+      renderer.emitState(fragSnap('WGSL_F'));
+      await flush();
+
+      const fg = channel.posted.find((m) => m.type === MSG.FRAGMENT_GRAPH);
+      expect(fg?.nodes).toEqual([{ id: '9', kind: 'SimplexNoise', params: { scale: 5 }, inputs: [] }]);
+      const fu = channel.posted.find((m) => m.type === MSG.FRAGMENT_UNIFORMS);
+      expect(fu?.nodes).toHaveLength(1);
+      expect(fu.nodes[0].id).toBe('9');
+      expect(Array.from(fu.nodes[0].params)).toEqual([5]);
+
+      await viewer.close();
+    });
+
+    it('re-broadcasts the fragment subgraph when an expression param changes (WGSL-affecting), not on a static value', async () => {
+      stubFragmentFed({ scale: 5 });
+      const renderer = makeFakeRenderer({ tier: 'native-compute' });
+      const viewer = new TauriSecondMonitorViewer(source, { renderer });
+      await viewer.open();
+      const channel = FakeBroadcastChannel.instances[0];
+
+      renderer.emitState(fragSnap('WGSL_F'));
+      await flush();
+      channel.posted.length = 0;
+
+      // A static value change does NOT change the WGSL → no rebuild (it streams via uniforms).
+      global.window.graph.getNode = (id) => (String(id) === '9' ? { id: '9', kind: 'SimplexNoise', params: { scale: 9 }, inputs: [] } : null);
+      renderer.emitState(fragSnap('WGSL_F'));
+      expect(channel.posted.some((m) => m.type === MSG.FRAGMENT_GRAPH)).toBe(false);
+
+      // An expression param compiles into the WGSL → must re-broadcast the subgraph.
+      global.window.graph.getNode = (id) => (String(id) === '9' ? { id: '9', kind: 'SimplexNoise', params: { scale: '=time*2' }, inputs: [] } : null);
+      renderer.emitState(fragSnap('WGSL_F'));
+      const fg = channel.posted.find((m) => m.type === MSG.FRAGMENT_GRAPH);
+      expect(fg?.nodes[0].params).toEqual({ scale: '=time*2' });
+
+      await viewer.close();
+    });
+
+    it('does not broadcast a fragment graph for a pure compute graph', async () => {
+      stubComputeGlobals({ nodes: [{ id: '1', kind: 'ComputeNoise', wgsl: 'A', width: 8, height: 8 }] });
+      const renderer = makeFakeRenderer({ tier: 'native-compute' });
+      const viewer = new TauriSecondMonitorViewer(source, { renderer });
+      await viewer.open();
+      const channel = FakeBroadcastChannel.instances[0];
+
+      renderer.emitState(computeSnap('WGSL_P'));
+      await flush();
+
+      expect(channel.posted.some((m) => m.type === MSG.FRAGMENT_GRAPH)).toBe(false);
+      expect(channel.posted.some((m) => m.type === MSG.FRAGMENT_UNIFORMS)).toBe(false);
+
+      await viewer.close();
+    });
+
+    it('re-sends the fragment subgraph on READY (late receiver)', async () => {
+      stubFragmentFed();
+      const renderer = makeFakeRenderer({ tier: 'native-compute' });
+      const viewer = new TauriSecondMonitorViewer(source, { renderer });
+      await viewer.open();
+      const channel = FakeBroadcastChannel.instances[0];
+      renderer.emitState(fragSnap('WGSL_F'));
+      channel.posted.length = 0; // a late receiver missed the first broadcast
+
+      channel.emit({ type: MSG.READY, webgpu: true });
+      await flush();
+
+      expect(channel.posted.some((m) => m.type === MSG.FRAGMENT_GRAPH)).toBe(true);
+
+      await viewer.close();
+    });
   });
 
   it('onTextureChanged broadcasts the texture when active and in native-compute', async () => {

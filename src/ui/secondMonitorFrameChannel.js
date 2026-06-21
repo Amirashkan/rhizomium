@@ -39,6 +39,8 @@ export const SecondMonitorMessage = Object.freeze({
   CAPS: 'caps',         // { tier }            — which path to use (see SecondMonitorTier)
   COMPUTE_GRAPH: 'compute-graph',       // { nodes:[{id,kind,wgsl,width,height,supportsFeedback,inputs}], executionOrder } — on change
   COMPUTE_UNIFORMS: 'compute-uniforms', // { nodes:[{id,packed,colorStops}] } — per-frame packed compute uniform bytes
+  FRAGMENT_GRAPH: 'fragment-graph',     // { nodes:[{id,kind,params,inputs}] } — fragment subgraph feeding compute (on structure/expression change)
+  FRAGMENT_UNIFORMS: 'fragment-uniforms', // { nodes:[{id,params}] } — per-frame evaluated fragment u_params bytes (static params; streams without a rebuild)
   TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
   RENDER_RES: 'render-res', // { maxDim } — viewer compute long-edge override (0 = match editor); decouples the viewer from the editor's preview resolution
