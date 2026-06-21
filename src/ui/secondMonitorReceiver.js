@@ -138,6 +138,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // floating-preview resolution and renders compute at the chosen detail.
   let computeMaxDim = 0;
   let editorAspect = 0;                     // editor's aspect ratio (w/h); 0 = unknown → fill
+  let computeAspect = 0;                    // compute output texture aspect (w/h); preferred in the
+                                            // native-compute tier so the viewer letterboxes to the
+                                            // compute texture's shape, not the editor's display box.
   let lastComputeGraphMsg = null;          // last COMPUTE_GRAPH (re-applied when the override changes)
   const computeDimsOverride = new Map();   // node id -> [w,h] actually used (for the packed-resolution override)
   let cachedWindow = null;
@@ -284,6 +287,21 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         supportsFeedback: !!n.supportsFeedback,
         lastInputHash: null,
       });
+    }
+    // Letterbox to the COMPUTE output texture's aspect, not the editor's display
+    // box. Compute textures are sized from the render-resolution setting, which is
+    // often a different aspect than the on-screen preview, and the output samples
+    // that fixed-aspect texture — so framing the viewer to the editor's canvas
+    // aspect stretched it. Use the largest-area node's dims (all compute nodes
+    // share the render resolution by default).
+    let bestArea = 0, nextAspect = 0;
+    for (const n of nodes) {
+      const [w, h] = dimsFor(n);
+      if (w > 0 && h > 0 && w * h > bestArea) { bestArea = w * h; nextAspect = w / h; }
+    }
+    if (nextAspect > 0 && Math.abs(nextAspect - computeAspect) > 0.001) {
+      computeAspect = nextAspect;
+      sizeGpuCanvas();
     }
     // Re-append the fragment subgraph: rebuilding win.graph.nodes above dropped it,
     // but the executor's auto-bridge needs the fragment feeders present to render them.
@@ -483,6 +501,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     pendingFragmentGraph = null;
     fragmentNodeIds = new Set();
     prevFragmentParams.clear();
+    // Drop the compute aspect so the plain native tier reframes to the editor's
+    // display aspect; reflow now since no further COMPUTE_GRAPH will arrive.
+    computeAspect = 0;
+    sizeGpuCanvas();
   }
 
   /** Apply a tier change from the editor: ensure runtimes and tear down compute when leaving. */
@@ -579,6 +601,14 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     };
   }
 
+  // Prefer the compute output texture's aspect in the native-compute tier; the
+  // editor's broadcast aspect (its on-screen display box) can differ from the
+  // compute texture's shape and would stretch the sampled output.
+  function effectiveAspect() {
+    if (tier === TIER.NATIVE_COMPUTE && computeAspect > 0) return computeAspect;
+    return editorAspect;
+  }
+
   function sizeGpuCanvas() {
     if (!gpuCanvas) return;
     const { dpr, cssW, cssH } = backingSize();
@@ -592,8 +622,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     // the viewer mirrors the editor's framing — which means it reshapes when the
     // floating preview is resized. A fixed "Viewer res" decouples the viewer: it
     // fills the display at a stable aspect and no longer follows the preview.
-    if (editorAspect > 0 && computeMaxDim <= 0) {
-      const rect = letterboxRect(editorAspect, 1, cssW, cssH);
+    const a = effectiveAspect();
+    if (a > 0 && computeMaxDim <= 0) {
+      const rect = letterboxRect(a, 1, cssW, cssH);
       if (rect.dw > 0 && rect.dh > 0) { elW = rect.dw; elH = rect.dh; left = rect.dx; top = rect.dy; }
     }
     const bw = Math.max(1, Math.round(elW * dpr));
