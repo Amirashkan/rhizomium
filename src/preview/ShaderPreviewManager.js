@@ -172,15 +172,14 @@ export class ShaderPreviewManager {
       const t = out.type;
       if (t === 'vec2' || t === 'vec3' || t === 'vec4' || t === 'dynamic') return true;
 
-      // Scalar output: still worth rendering when it's a per-pixel FIELD rather than a uniform
-      // value — e.g. VoronoiNoise's F1 distance (typed f32 but varies across UV). Treat a scalar
-      // node as visual when it consumes a UV input or exposes multiple outputs (generator-like);
-      // plain scalars (ConstFloat / Time / math results) stay on the CPU numeric path.
-      const pinsIn = def?.pinsIn;
-      const takesUV = Array.isArray(pinsIn) &&
-        pinsIn.some(p => /uv/i.test(typeof p === 'string' ? p : (p?.label || '')));
+      // Scalar output: still a renderable per-pixel FIELD (not a uniform value) when it derives
+      // from an input — e.g. Remap / Posterize of a noise field, or VoronoiNoise's F1 (which
+      // takes UV) — or when it exposes multiple outputs (generator-like). Only plain source
+      // scalars with no inputs (ConstFloat / Time) are uniform; those stay on the CPU path.
+      const hasInputs = (def?.inputs > 0) ||
+        (Array.isArray(def?.pinsIn) && def.pinsIn.length > 0);
       const multiOutput = Array.isArray(def?.pinsOut) && def.pinsOut.length > 1;
-      return takesUV || multiOutput;
+      return hasInputs || multiOutput;
     }
 
     // Bare string pin (e.g. "Color", "Value", "Texture", "UV"): fragment nodes that produce a
@@ -255,40 +254,29 @@ export class ShaderPreviewManager {
   }
 
   /**
-   * Read back a (square) GPU texture and store it as a 64x64 thumbnail canvas on the node,
-   * then request a redraw. Shared by the compute and fragment preview paths.
-   * @param {GPUTexture} texture - Square source texture (must allow COPY_SRC)
+   * Downscale a GPU texture to a thumbnail-sized canvas on the node and request a redraw.
+   * Shared by the compute and fragment preview paths.
+   * @param {GPUTexture} texture - Sampleable source texture (any size)
    * @param {object} node - Node to attach the thumbnail to (sets node.__thumb)
    * @private
    */
   async _textureToThumbnail(texture, node) {
     if (!texture || !node) return;
 
-    // Guard: copyTextureToBuffer requires COPY_SRC. Some textures (e.g. older compute outputs)
-    // may not have it; throw so the caller falls back to the CPU preview instead of emitting a
-    // GPU validation error on every frame.
-    const COPY_SRC = (typeof GPUTextureUsage !== 'undefined' && GPUTextureUsage.COPY_SRC) || 0x10;
-    if (typeof texture.usage === 'number' && !(texture.usage & COPY_SRC)) {
-      throw new Error('preview texture is not readable (missing COPY_SRC)');
+    // The source must be sampleable — we downscale it on the GPU rather than copying it out.
+    const TEXTURE_BINDING = (typeof GPUTextureUsage !== 'undefined' && GPUTextureUsage.TEXTURE_BINDING) || 0x04;
+    if (typeof texture.usage === 'number' && !(texture.usage & TEXTURE_BINDING)) {
+      throw new Error('preview source texture is not sampleable');
     }
 
-    const pixels = await this.readbackComputeTexture(texture);
-    const imageData = this.gpuRenderer.pixelsToImageData(pixels, texture.width);
-
     const thumbSize = this.previewThumbSize || 128;
+    const pixels = await this._renderThumbnailReadback(texture, thumbSize);
+    const imageData = this.gpuRenderer.pixelsToImageData(pixels, thumbSize);
+
     const canvas = document.createElement('canvas');
     canvas.width = thumbSize;
     canvas.height = thumbSize;
-    const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    // Stage the raw pixels, then scale into the thumbnail with high-quality filtering.
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = imageData.width;
-    tempCanvas.height = imageData.height;
-    tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
-    ctx.drawImage(tempCanvas, 0, 0, thumbSize, thumbSize);
+    canvas.getContext('2d').putImageData(imageData, 0, 0);
 
     node.__thumb = canvas;
 
@@ -298,49 +286,110 @@ export class ShaderPreviewManager {
   }
 
   /**
-   * Readback a compute texture to CPU
-   * @param {GPUTexture} texture - The texture to readback
-   * @returns {Promise<Uint8Array>} Pixel data
+   * Lazily build the downscale blit pipeline (a fullscreen-triangle pass that box-filters a
+   * source texture). Rebuilt if the GPU device changes (reinit).
+   * @private
    */
-  async readbackComputeTexture(texture) {
-    const size = texture.width;
+  _ensureDownsampler() {
+    if (this._downsamplePipeline && this._downsampleDevice === this.device) return;
+    const device = this.device;
+    const module = device.createShaderModule({
+      label: 'preview-downsample',
+      code: `
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var tex: texture_2d<f32>;
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
+@vertex fn vs(@builtin(vertex_index) vid: u32) -> VsOut {
+  var p = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+  var o: VsOut;
+  let xy = p[vid];
+  o.pos = vec4<f32>(xy, 0.0, 1.0);
+  o.uv = vec2<f32>((xy.x + 1.0) * 0.5, (1.0 - xy.y) * 0.5);
+  return o;
+}
+@fragment fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+  // 4-tap box around the destination texel; with a linear sampler each tap averages a 2x2
+  // source cluster, approximating a box downscale (antialiasing for large source -> thumb ratios).
+  let t = 0.5 / vec2<f32>(textureDimensions(tex, 0));
+  var c = textureSampleLevel(tex, samp, uv + vec2<f32>(-t.x, -t.y), 0.0);
+  c += textureSampleLevel(tex, samp, uv + vec2<f32>( t.x, -t.y), 0.0);
+  c += textureSampleLevel(tex, samp, uv + vec2<f32>(-t.x,  t.y), 0.0);
+  c += textureSampleLevel(tex, samp, uv + vec2<f32>( t.x,  t.y), 0.0);
+  return c * 0.25;
+}`,
+    });
+    this._downsamplePipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module, entryPoint: 'vs' },
+      // rgba8unorm so the readback bytes are RGBA (matching ImageData) regardless of canvas format.
+      fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
+      primitive: { topology: 'triangle-list' },
+    });
+    this._downsampleSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    this._downsampleDevice = device;
+  }
+
+  /**
+   * GPU-downscale a source texture into a size x size RGBA texture and read THAT back. Sampling
+   * antialiases, and reading back only size² keeps the GPU->CPU transfer tiny — the dominant
+   * per-preview cost — independent of the (often much larger) source resolution.
+   * @private
+   */
+  async _renderThumbnailReadback(srcTexture, size) {
+    const device = this.device;
+    this._ensureDownsampler();
+
+    const dst = device.createTexture({
+      size: [size, size, 1],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      label: 'preview-thumb',
+    });
+    const bindGroup = device.createBindGroup({
+      layout: this._downsamplePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: this._downsampleSampler },
+        { binding: 1, resource: srcTexture.createView() },
+      ],
+    });
+
     const bytesPerRow = Math.ceil((size * 4) / 256) * 256;
-    const bufferSize = bytesPerRow * size;
-
-    const buffer = this.device.createBuffer({
-      size: bufferSize,
+    const buffer = device.createBuffer({
+      size: bytesPerRow * size,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      label: 'compute-texture-readback'
+      label: 'preview-thumb-readback',
     });
 
-    const encoder = this.device.createCommandEncoder({
-      label: 'compute-texture-readback-encoder'
+    const encoder = device.createCommandEncoder({ label: 'preview-thumb' });
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: dst.createView(),
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: 'clear',
+        storeOp: 'store',
+      }],
     });
-
+    pass.setPipeline(this._downsamplePipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(3);
+    pass.end();
     encoder.copyTextureToBuffer(
-      { texture },
+      { texture: dst },
       { buffer, bytesPerRow },
       { width: size, height: size, depthOrArrayLayers: 1 }
     );
+    device.queue.submit([encoder.finish()]);
 
-    this.device.queue.submit([encoder.finish()]);
-    await this.device.queue.onSubmittedWorkDone?.();
-
+    // mapAsync already waits for the submitted copy, so no separate onSubmittedWorkDone sync.
     await buffer.mapAsync(GPUMapMode.READ);
-    const mappedRange = buffer.getMappedRange();
-
-    // Copy data with row padding handled
+    const mapped = buffer.getMappedRange();
     const pixels = new Uint8Array(size * size * 4);
-
     for (let y = 0; y < size; y++) {
-      const srcOffset = y * bytesPerRow;
-      const dstOffset = y * size * 4;
-      const rowData = new Uint8Array(mappedRange, srcOffset, size * 4);
-      pixels.set(rowData, dstOffset);
+      pixels.set(new Uint8Array(mapped, y * bytesPerRow, size * 4), y * size * 4);
     }
-
     buffer.unmap();
     buffer.destroy();
+    dst.destroy();
 
     return pixels;
   }

@@ -40,10 +40,11 @@ describe('ShaderPreviewManager node classification', () => {
       expect(spm.isVisualNode('ConicGradient')).toBe(true); // pinsOut: ["Value"]
     });
 
-    it('treats scalar field generators (UV input / multi-output) as visual', () => {
-      // VoronoiNoise's first output is f32 (F1 distance) but it is a per-pixel field, so it
-      // should still be GPU-rendered (as grayscale) rather than shown as a numeric placeholder.
+    it('treats scalar field nodes (with inputs or multiple outputs) as visual', () => {
+      // VoronoiNoise's first output is f32 (F1 distance) but it is a per-pixel field.
       expect(spm.isVisualNode('VoronoiNoise')).toBe(true);
+      // Remap is f32 but derives from its input, so when fed a field it is a field too.
+      expect(spm.isVisualNode('Remap')).toBe(true);
     });
 
     it('keeps plain scalar outputs on the CPU numeric path', () => {
