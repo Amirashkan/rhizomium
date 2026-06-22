@@ -171,7 +171,11 @@ export class ShaderPreviewManager {
 
     const def = NodeDefs[kind];
     const out = def?.pinsOut?.[0];
-    if (!out) return false; // nothing to render (e.g. terminal Output nodes)
+    if (!out) {
+      // A sink node with no output of its own (e.g. OutputFinal) is previewed via the node that
+      // feeds it — the final image — so treat it as visual when it has an input.
+      return (def?.inputs > 0) || (Array.isArray(def?.pinsIn) && def.pinsIn.length > 0);
+    }
 
     // Typed pin: render vector outputs (colors / UV / fields) and 'dynamic' (Math whose type
     // follows its inputs — commonly a vector in the color pipeline, e.g. Multiply / Mix).
@@ -458,12 +462,31 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     if (!node?.id) return;
     this._syncDevice();
 
+    // A sink node (OutputFinal: no output pin) has no value of its own — preview the node feeding
+    // it, which is the final image. Otherwise render the node's own subgraph.
+    let renderId = node.id;
+    const def = NodeDefs[node.kind];
+    if (!def?.pinsOut || def.pinsOut.length === 0) {
+      renderId = Array.isArray(node.inputs) ? node.inputs.find(i => i != null) : null;
+      if (!renderId) { this.fallbackToLegacyPreview(node); return; }
+      // The feeding node may itself be a compute node — read back its output texture directly,
+      // since FragmentTextureRenderer doesn't render compute nodes.
+      const src = window.graph?.getNode?.(renderId)
+        || this.editor.graph?.nodes?.find(n => n.id === renderId);
+      if (src && this.isComputeNode(src)) {
+        const computeInfo = window.computeExecutor?.computeTextures?.get(renderId);
+        if (computeInfo?.texture) { await this._textureToThumbnail(computeInfo.texture, node); return; }
+        this.fallbackToLegacyPreview(node);
+        return;
+      }
+    }
+
     const size = this.previewRenderSize || 256;
     const time = this._currentTime();
     const audioContext = this._currentAudioContext();
 
     const texture = await this.fragmentRenderer.renderNodeToTexture(
-      node.id, size, size, time, audioContext, null, /* force */ true
+      renderId, size, size, time, audioContext, null, /* force */ true
     );
     if (!texture) {
       this.fallbackToLegacyPreview(node);

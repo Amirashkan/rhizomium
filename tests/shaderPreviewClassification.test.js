@@ -47,6 +47,10 @@ describe('ShaderPreviewManager node classification', () => {
       expect(spm.isVisualNode('Remap')).toBe(true);
     });
 
+    it('treats the Output sink node as visual (previewed via its input)', () => {
+      expect(spm.isVisualNode('OutputFinal')).toBe(true); // no output pin, but has an input
+    });
+
     it('keeps plain scalar outputs on the CPU numeric path', () => {
       expect(spm.isVisualNode('ConstFloat')).toBe(false); // f32, no UV input, single output
       expect(spm.isVisualNode('Time')).toBe(false);       // f32, no input
