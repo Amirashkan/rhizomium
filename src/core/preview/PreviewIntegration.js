@@ -269,11 +269,34 @@ updateTimeNodes() {
     if (!spm || !node?.id) return;
     const pv = this.editor.nodePreviews?.get(node.id);
     if (pv && pv.enabled === false) return; // hidden via the per-node toggle
+    // Skip nodes scrolled off-screen: their thumbnail isn't visible, so the per-frame GPU
+    // render/readback would be wasted. They refresh on the next tick once panned back into view.
+    if (!this._isNodeVisible(node)) return;
     if (spm.isComputeNode(node)) {
       spm.updateComputeNodePreview(node).catch(() => {});
     } else if (spm.isVisualNode(node)) {
       spm.updateFragmentNodePreview(node).catch(() => {});
     }
+  }
+
+  // Whether a node's box intersects the visible editor viewport (world-space bounds derived from
+  // the pan offset, zoom scale and canvas size — same math as Renderer's culling). Conservative:
+  // if the viewport/canvas can't be read, treat the node as visible so we never wrongly skip it.
+  _isNodeVisible(node) {
+    const vp = this.editor?.viewport;
+    const canvas = this.editor?.canvas;
+    if (!vp || !canvas || !node) return true;
+    const scale = vp.scale || 1;
+    const pad = 64; // keep nodes just outside the edge warm to avoid pop-in while panning
+    const minX = -(vp.offsetX || 0) / scale - pad;
+    const minY = -(vp.offsetY || 0) / scale - pad;
+    const maxX = (canvas.width - (vp.offsetX || 0)) / scale + pad;
+    const maxY = (canvas.height - (vp.offsetY || 0)) / scale + pad;
+    const nx = node.x || 0;
+    const ny = node.y || 0;
+    const nw = node.w || 0;
+    const nh = node.h || 0;
+    return nx + nw >= minX && nx <= maxX && ny + nh >= minY && ny <= maxY;
   }
 
   // Collect a node id and all its transitive downstream node ids into `into`.
