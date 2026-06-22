@@ -319,6 +319,21 @@ export class NodeCompiler {
       return uniformRef || this.resolveParameterValue(paramValue, defaultValue);
     };
 
+    // BYPASS: a bypassed node passes its first input straight through, skipping its own
+    // processing. OutputFinal is a sink and is never bypassed here. Compute nodes are bypassed at
+    // the texture level in ComputeExecutor (their output texture is aliased to the input), so they
+    // keep their normal texture-sampling codegen. A node with no connected input passes the
+    // default (vec3(0)) — effectively muting it.
+    if (node.bypassed && kind !== 'OutputFinal' && !this.compilers.compute.handles(kind)) {
+      const passthrough = getInput(0, null, 'vec3<f32>(0.0)');
+      const code = (passthrough && typeof passthrough === 'object') ? passthrough.code : passthrough;
+      const type = (passthrough && typeof passthrough === 'object') ? passthrough.type : 'vec3';
+      return {
+        line: `let node_${nodeId} = ${code};`,
+        outputType: type || 'vec3',
+      };
+    }
+
     // Delegate to appropriate compiler
     let result = null;
 

@@ -1794,11 +1794,11 @@ connectGPURenderer(renderFunction) {
         }, 1000);
       }
 
-      // Generate preview for the newly created node
-      // This ensures the node has a preview before any connections are made
+      // Generate the new node's preview and refresh the rest of the graph (a structural change
+      // can leave other thumbnails stale). onNodeAdded debounces a full preview regeneration.
       if (this.previewIntegration && this.isPreviewEnabled) {
         try {
-          this.previewIntegration.generateNodePreview(newNode);
+          this.previewIntegration.onNodeAdded(newNode);
         } catch (previewError) {
           window.errorHandler?.handleError(previewError, {
             component: 'node-creation-preview',
@@ -2101,6 +2101,38 @@ connectGPURenderer(renderFunction) {
       
     } catch (error) {
       window.errorHandler?.handleError(error, 'Toggle Visual Info', 'warning');
+    }
+  }
+
+  // Toggle a node's bypass: a bypassed node passes its first input straight through (its
+  // processing is skipped). Triggers a shader rebuild and preview refresh.
+  toggleNodeBypass(nodeId) {
+    try {
+      const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+      if (!node) return;
+      // OutputFinal is the graph sink; bypassing it would drop the final image.
+      if (node.kind === 'OutputFinal') return;
+
+      node.bypassed = !node.bypassed;
+
+      // Compute nodes run through a separate executor pipeline that caches input hashes
+      // and bridged fragment textures. Clear those so the bypass takes effect immediately
+      // (otherwise an unchanged-input check would keep dispatching the bypassed node).
+      try {
+        window.computeExecutor?.inputHashes?.clear?.();
+        window.computeExecutor?.fragmentRenderer?.clearCache?.();
+        window.shaderPreviewManager?.fragmentRenderer?.clearCache?.();
+      } catch (_) { /* cache objects are best-effort */ }
+
+      // Bypass changes the generated shader, so recompile and refresh the previews + canvas.
+      this.onChange(`Toggle Bypass: ${nodeId}`);
+      this.triggerShaderRebuild('Toggle Bypass');
+      if (this.previewIntegration?.updateAllPreviews) {
+        this.previewIntegration.updateAllPreviews();
+      }
+      this.safeDraw();
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Toggle Node Bypass', 'warning');
     }
   }
 

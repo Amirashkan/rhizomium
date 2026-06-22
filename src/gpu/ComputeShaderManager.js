@@ -249,11 +249,12 @@ export class ComputeShaderManager {
 
     }
 
-    // Output texture (for rendering to fragment shader)
+    // Output texture (for rendering to fragment shader).
+    // COPY_SRC lets the per-node preview system read it back for a thumbnail.
     this.outputTexture = this.device.createTexture({
       size: [width, height, 1],
       format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
       label: 'Output Texture'
     });
     this.resourceTracker?.trackTexture(this.outputTexture, { width, height, format: 'rgba8unorm', type: 'output' });

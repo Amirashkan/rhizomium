@@ -38,6 +38,8 @@ export class PreviewIntegration {
           // Limit to 60 FPS max for time updates (16.67ms between updates)
           if (timestamp - this.lastTimeUpdate >= 16.67) {
             this.updateTimeNodes();
+            // Re-render real GPU thumbnails for time-animated visual nodes (self-throttled).
+            this.updateAnimatedFragmentPreviews();
             this.lastTimeUpdate = timestamp;
           }
         },
@@ -75,18 +77,11 @@ export class PreviewIntegration {
 
       return;
     }
-    
-    // ENHANCEMENT: Check if this is a compute node and update GPU texture thumbnail
-    if (window.shaderPreviewManager && node?.kind) {
-      const nodeKind = node.kind.toLowerCase();
-      if (window.shaderPreviewManager.isComputeNode(nodeKind)) {
-        // Update GPU texture thumbnail for compute nodes
-        window.shaderPreviewManager.updateComputeNodePreview(node).catch(err => {
-          // Silently fail if GPU readback fails, fallback to regular preview
-        });
-      }
-    }
-    
+
+    // GPU-vs-CPU routing now lives in PreviewSystem.generateNodePreview (the single funnel that
+    // every path reaches, including bulk updateAllPreviews on load). Here we only make sure the
+    // numeric preview values are computed first, then delegate to that funnel.
+
     // OPTIMIZATION: Allow caller to skip compute if they already computed all values
     // Use async worker-based computation to avoid blocking canvas interactions
     if (!skipCompute && this.editor?.previewComputer && this.editor?.graph) {
@@ -214,17 +209,120 @@ updateTimeNodes() {
     this.editor.draw();
   }
 }
+  // Live-refresh GPU thumbnails each frame (throttled) for nodes whose output evolves on its
+  // own: every compute node (feedback, reaction-diffusion, particles, fluid, animated noise),
+  // plus fragment nodes that reference time/audio in their params and everything downstream of
+  // them. Scalar/animated numeric nodes are handled by updateTimeNodes() on the CPU path.
+  updateAnimatedFragmentPreviews() {
+    const spm = window.shaderPreviewManager;
+    if (!spm || !spm.enableGPUPreview || !this.editor.graph?.nodes) return;
+
+    const now = performance.now();
+    if (!this._lastAnimPreview) this._lastAnimPreview = 0;
+    if (now - this._lastAnimPreview < 33) return; // ~30 fps cap (queue self-limits if the GPU can't keep up)
+    this._lastAnimPreview = now;
+
+    // Compute nodes write a fresh output texture every frame, so re-read their thumbnails.
+    for (const node of this.editor.graph.nodes) {
+      if (spm.isComputeNode(node)) this._refreshNodePreview(node);
+    }
+
+    // Fragment nodes that reference time/audio in their params, plus all transitive dependents.
+    const animated = window.editor?.paramPanel?.expressionSystem?.timeAnimatedNodes;
+    if (!animated || animated.size === 0) return;
+
+    const toUpdate = new Set();
+    const visited = new Set();
+    animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited));
+
+    for (const nodeId of toUpdate) {
+      const node = this.editor.graph.nodes.find(n => n.id === nodeId);
+      if (node && spm.isVisualNode(node)) this._refreshNodePreview(node);
+    }
+  }
+
+  // Live-refresh the dragged node + its dependents (throttled). The full onParameterChange path
+  // is skipped during a drag for perf, so without this previews only update once the value is
+  // committed ("entered"). node.params is already live during the drag (the main canvas tracks
+  // it), so the preview render/readback picks up the current value.
+  _liveDragPreviewUpdate(node) {
+    const spm = window.shaderPreviewManager;
+    if (!spm || !spm.enableGPUPreview || !node?.id || !this.editor.graph?.nodes) return;
+
+    const now = performance.now();
+    if (!this._lastDragPreview) this._lastDragPreview = 0;
+    if (now - this._lastDragPreview < 33) return; // ~30 fps cap (queue self-limits under load)
+    this._lastDragPreview = now;
+
+    const toUpdate = new Set();
+    this._collectWithDownstream(node.id, toUpdate, new Set());
+    for (const nodeId of toUpdate) {
+      const n = this.editor.graph.nodes.find(x => x.id === nodeId);
+      if (n) this._refreshNodePreview(n);
+    }
+  }
+
+  // Refresh one node's real GPU thumbnail, honoring its per-node preview toggle.
+  // Compute nodes read back their output texture; vector-output fragment nodes re-render.
+  _refreshNodePreview(node) {
+    const spm = window.shaderPreviewManager;
+    if (!spm || !node?.id) return;
+    const pv = this.editor.nodePreviews?.get(node.id);
+    if (pv && pv.enabled === false) return; // hidden via the per-node toggle
+    // Skip nodes scrolled off-screen: their thumbnail isn't visible, so the per-frame GPU
+    // render/readback would be wasted. They refresh on the next tick once panned back into view.
+    if (!this._isNodeVisible(node)) return;
+    if (spm.isComputeNode(node)) {
+      spm.updateComputeNodePreview(node).catch(() => {});
+    } else if (spm.isVisualNode(node)) {
+      spm.updateFragmentNodePreview(node).catch(() => {});
+    }
+  }
+
+  // Whether a node's box intersects the visible editor viewport (world-space bounds derived from
+  // the pan offset, zoom scale and canvas size — same math as Renderer's culling). Conservative:
+  // if the viewport/canvas can't be read, treat the node as visible so we never wrongly skip it.
+  _isNodeVisible(node) {
+    const vp = this.editor?.viewport;
+    const canvas = this.editor?.canvas;
+    if (!vp || !canvas || !node) return true;
+    const scale = vp.scale || 1;
+    const pad = 64; // keep nodes just outside the edge warm to avoid pop-in while panning
+    const minX = -(vp.offsetX || 0) / scale - pad;
+    const minY = -(vp.offsetY || 0) / scale - pad;
+    const maxX = (canvas.width - (vp.offsetX || 0)) / scale + pad;
+    const maxY = (canvas.height - (vp.offsetY || 0)) / scale + pad;
+    const nx = node.x || 0;
+    const ny = node.y || 0;
+    const nw = node.w || 0;
+    const nh = node.h || 0;
+    return nx + nw >= minX && nx <= maxX && ny + nh >= minY && ny <= maxY;
+  }
+
+  // Collect a node id and all its transitive downstream node ids into `into`.
+  _collectWithDownstream(nodeId, into, visited) {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    into.add(nodeId);
+    const connections = this.editor.graph?.connections || [];
+    for (const c of connections) {
+      if (c.from?.nodeId === nodeId) this._collectWithDownstream(c.to.nodeId, into, visited);
+    }
+  }
+
   onParameterChange(node, immediate = false) {
     // PERFORMANCE FIX: Skip ALL preview updates during parameter drag
     // Preview updates are expensive and cause frame drops. Only update uniforms during drag.
     // Preview updates will happen on mouseup via the normal parameter change flow.
     if (this.editor._parameterDragging) {
-      // During drag, only mark node as dirty for later processing
-      // Don't trigger expensive preview computations
+      // During a drag we skip the heavy CPU preview-computation worker path, but still push a
+      // throttled GPU thumbnail refresh so previews track the slider/knob in real time instead
+      // of only updating once the value is committed.
       if (node?.id && this.editor?.previewComputer?.markNodeDirty) {
         this.editor.previewComputer.markNodeDirty(node.id, 'parameter-change');
       }
-      return; // Skip all preview updates during drag
+      this._liveDragPreviewUpdate(node);
+      return; // The committed value still runs the full path on release
     }
 
     if (node?.id && this.editor?.previewComputer?.markNodeDirty) {
@@ -383,18 +481,34 @@ updateTimeNodes() {
   }
 
   onNodeAdded(node) {
-    this.generateNodePreview(node);
     // Invalidate topological sort cache since graph structure changed
-    if (this.previewSystem.invalidateSortCache) {
+    if (this.previewSystem?.invalidateSortCache) {
       this.previewSystem.invalidateSortCache();
     }
+    // Node creation does not otherwise trigger preview generation, and a structural change can
+    // leave existing nodes' thumbnails stale. Regenerate the whole graph's previews (debounced,
+    // to coalesce rapid adds and let the shader settle) so the new node gets a thumbnail and
+    // nothing is left as a placeholder. updateAllPreviews routes through the GPU funnel.
+    this._scheduleAllPreviewRefresh();
     if (this.editor.markDirty) {
       this.editor.markDirty('node-added');
     }
   }
 
+  // Debounced "regenerate every node's preview". Used after structural changes (node add /
+  // connection change) that aren't otherwise reflected in the per-node preview paths.
+  _scheduleAllPreviewRefresh() {
+    if (this._allPreviewRefreshTimer) clearTimeout(this._allPreviewRefreshTimer);
+    this._allPreviewRefreshTimer = setTimeout(() => {
+      this._allPreviewRefreshTimer = null;
+      this.updateAllPreviews();
+    }, 60);
+  }
+
   onNodeRemoved(nodeId) {
     this.previewSystem.canvasManager.removeCanvas(nodeId);
+    // Free the node's GPU preview texture so it doesn't linger after deletion.
+    window.shaderPreviewManager?.destroyPreviewTexture(nodeId);
     // Invalidate topological sort cache since graph structure changed
     if (this.previewSystem.invalidateSortCache) {
       this.previewSystem.invalidateSortCache();
@@ -420,6 +534,8 @@ updateTimeNodes() {
       return;
     }
     this.previewSystem.clearCache();
+    // Free all GPU preview textures so cleared nodes don't leak GPU memory.
+    window.shaderPreviewManager?.clearCache();
     // Invalidate topological sort cache since graph was cleared
     if (this.previewSystem.invalidateSortCache) {
       this.previewSystem.invalidateSortCache();
@@ -444,6 +560,11 @@ updateTimeNodes() {
     if (this.parameterChangeTimeout) {
       clearTimeout(this.parameterChangeTimeout);
       this.parameterChangeTimeout = null;
+    }
+
+    if (this._allPreviewRefreshTimer) {
+      clearTimeout(this._allPreviewRefreshTimer);
+      this._allPreviewRefreshTimer = null;
     }
 
     this.pendingParameterChanges.clear();

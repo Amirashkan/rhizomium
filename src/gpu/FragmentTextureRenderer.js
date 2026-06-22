@@ -74,9 +74,13 @@ export class FragmentTextureRenderer {
    * @param {number} time - Current time in seconds
    * @param {Object} audioContext - Audio envelope values
    * @param {GPUCommandEncoder} externalEncoder - Optional external command encoder (for synchronization)
+   * @param {boolean} force - Skip the change-detection heuristic and always re-render. Used by
+   *        the per-node preview path: preview updates are event-driven (a param/connection/time
+   *        change already happened), and _checkFragmentNodeNeedsRender only hashes the node's OWN
+   *        params, so it would wrongly skip re-rendering a node whose UPSTREAM input changed.
    * @returns {GPUTexture} The rendered texture
    */
-  async renderNodeToTexture(nodeId, width, height, time = 0, audioContext = {}, externalEncoder = null) {
+  async renderNodeToTexture(nodeId, width, height, time = 0, audioContext = {}, externalEncoder = null, force = false) {
     try {
       // Get the node from the graph
       const node = window.graph?.getNode(nodeId);
@@ -139,7 +143,8 @@ export class FragmentTextureRenderer {
 
       // PERFORMANCE: Check if fragment node actually needs re-rendering
       // Only render if parameters/inputs changed or if node is time-dependent
-      const needsRender = this._checkFragmentNodeNeedsRender(nodeId, node, time, audioContext);
+      // (force=true bypasses this for the preview path — see param docs above)
+      const needsRender = force || this._checkFragmentNodeNeedsRender(nodeId, node, time, audioContext);
       
       if (needsRender) {
         // Render to the texture (using external encoder if provided)
@@ -380,6 +385,10 @@ export class FragmentTextureRenderer {
     // PERFORMANCE: Use simple string concatenation instead of JSON.stringify
     // JSON.stringify is expensive and can cause frame time spikes
     let hash = '';
+
+    // Bypass state changes the compiled subgraph (a bypassed node passes its input
+    // straight through), so it must invalidate the per-node render cache.
+    if (node.bypassed) hash += 'bypass;';
 
     // Hash parameters (fast string concatenation instead of JSON.stringify)
     if (node.params) {

@@ -607,6 +607,18 @@ async function initialize() {
 
     // PERFORMANCE: Lightweight uniform update without shader rebuild
     window.updateUniformsOnly = function(nodeId, paramName, value) {
+      // Live-refresh node-preview thumbnails during a parameter drag so they track the value in
+      // real time like the main canvas. The drag handlers update node.params + the GPU uniform
+      // here every mouse-move but only call onParameterChange on mouseup, so the preview path is
+      // otherwise never invoked mid-drag. _liveDragPreviewUpdate is throttled internally, and
+      // node.params is already set by the drag handler, so the render picks up the current value.
+      const previewIntegration = window.editor?.previewIntegration;
+      if (previewIntegration?._liveDragPreviewUpdate) {
+        const node = window.graph?.getNode?.(nodeId)
+          || window.editor?.graph?.nodes?.find((n) => n.id === nodeId);
+        if (node) previewIntegration._liveDragPreviewUpdate(node);
+      }
+
       if (!window.nodeCompiler?.uniformManager) return;
       const paramKey = `${nodeId}.${paramName}`;
       const numValue = parseFloat(value);
@@ -3028,6 +3040,17 @@ function createNewProject() {
   SeedGraphBuilder.createSeedGraph(graph);
 
   updateShaderFromGraph();
+
+  // Regenerate node thumbnails for the freshly created graph. createSeedGraph() makes brand-new
+  // node objects with no __thumb, and nothing else here triggers preview generation, so without
+  // this the nodes render as empty placeholders. updateAllPreviews() routes through the GPU
+  // funnel in PreviewSystem.generateNodePreview.
+  if (editor?.previewIntegration?.updateAllPreviews) {
+    editor.previewIntegration.updateAllPreviews();
+  } else if (editor?.previewSystem?.updateAllPreviews) {
+    editor.previewSystem.updateAllPreviews(graph.nodes);
+  }
+
   if (editor && editor.draw) {
     if (editor.markDirty) editor.markDirty('new-project');
     editor.draw();

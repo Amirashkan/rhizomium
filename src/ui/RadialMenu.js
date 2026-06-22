@@ -1044,6 +1044,10 @@ _createNode(kind) {
   //    That's why we need the explicit editor.draw() call above
   setTimeout(() => {
     if (this.onChange) this.onChange();
+    // This path bypasses Editor.createNode, so trigger preview generation explicitly — without
+    // this the new node (and any others left stale by the structural change) stay placeholders
+    // until a parameter change.
+    window.editor?.previewIntegration?.onNodeAdded?.(node);
   }, 50);
 }
 }

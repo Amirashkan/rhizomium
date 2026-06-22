@@ -538,8 +538,9 @@ export class Renderer {
     // PERFORMANCE: Use solid color instead of gradient for better performance
     // Gradients are expensive to create and render. Solid color looks almost identical.
     ctx.fillStyle = "#252525"; // Use middle gradient color
-    ctx.strokeStyle = isSelected ? "#66aaff" : "#404040";
-    ctx.lineWidth = isSelected ? 2 : 1;
+    // Bypassed nodes get an amber outline so it's clear their processing is skipped.
+    ctx.strokeStyle = isSelected ? "#66aaff" : (node.bypassed ? "#ffaa00" : "#404040");
+    ctx.lineWidth = (isSelected || node.bypassed) ? 2 : 1;
 
     // Draw the main node rectangle
     ctx.beginPath();
@@ -625,18 +626,18 @@ export class Renderer {
     // PERFORMANCE: Use cached font string
     ctx.font = this._cachedFonts.pinLabel;
 
-    // Button 1: Hide visual info - "X"
+    // Button 1: Bypass node - "X" (amber when the node is bypassed)
     const hideX = node.x + node.w - 65;
-    const showVisualInfo = editor.isVisualInfoEnabled(node.id);
+    const bypassed = !!node.bypassed;
 
-    ctx.fillStyle = showVisualInfo
-      ? "rgba(68, 68, 68, 0.3)"
-      : "rgba(255, 68, 68, 0.2)";
+    ctx.fillStyle = bypassed
+      ? "rgba(255, 170, 0, 0.35)"
+      : "rgba(68, 68, 68, 0.3)";
     ctx.beginPath();
     ctx.roundRect(hideX - 1, controlY - 8, buttonWidth, buttonHeight, 2);
     ctx.fill();
 
-    ctx.fillStyle = showVisualInfo ? "#666" : "#ff4444";
+    ctx.fillStyle = bypassed ? "#ffaa00" : "#888";
     ctx.fillText("X", hideX + 3, controlY - 1);
 
     // Button 2: Preview toggle - "•" when on, "○" when off
