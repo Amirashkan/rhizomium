@@ -130,6 +130,16 @@ export class PreviewSystem {
       return;
     }
 
+    // Respect the per-node preview toggle (the green dot button). When a node's preview is
+    // switched off we skip ALL preview work for it here — not just in the live RAF refresh — so
+    // parameter edits, dependent updates and bulk reloads don't waste a render on a hidden node
+    // (or make its thumbnail flicker back). Frees the preview cost, not the node's computation.
+    const nodePreview = this.editor.nodePreviews?.get(node.id);
+    if (nodePreview && nodePreview.enabled === false) {
+      node.__thumb = null;
+      return;
+    }
+
     // REAL GPU PREVIEWS: this is the single funnel every path reaches (bulk updateAllPreviews,
     // per-node parameter/connection updates, save/load), so the GPU-vs-CPU decision lives here.
     // Compute nodes read back their output texture; vector-output nodes render the real output
