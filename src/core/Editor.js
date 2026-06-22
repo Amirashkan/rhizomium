@@ -1794,11 +1794,11 @@ connectGPURenderer(renderFunction) {
         }, 1000);
       }
 
-      // Generate preview for the newly created node
-      // This ensures the node has a preview before any connections are made
+      // Generate the new node's preview and refresh the rest of the graph (a structural change
+      // can leave other thumbnails stale). onNodeAdded debounces a full preview regeneration.
       if (this.previewIntegration && this.isPreviewEnabled) {
         try {
-          this.previewIntegration.generateNodePreview(newNode);
+          this.previewIntegration.onNodeAdded(newNode);
         } catch (previewError) {
           window.errorHandler?.handleError(previewError, {
             component: 'node-creation-preview',

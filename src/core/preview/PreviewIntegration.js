@@ -458,14 +458,28 @@ updateTimeNodes() {
   }
 
   onNodeAdded(node) {
-    this.generateNodePreview(node);
     // Invalidate topological sort cache since graph structure changed
-    if (this.previewSystem.invalidateSortCache) {
+    if (this.previewSystem?.invalidateSortCache) {
       this.previewSystem.invalidateSortCache();
     }
+    // Node creation does not otherwise trigger preview generation, and a structural change can
+    // leave existing nodes' thumbnails stale. Regenerate the whole graph's previews (debounced,
+    // to coalesce rapid adds and let the shader settle) so the new node gets a thumbnail and
+    // nothing is left as a placeholder. updateAllPreviews routes through the GPU funnel.
+    this._scheduleAllPreviewRefresh();
     if (this.editor.markDirty) {
       this.editor.markDirty('node-added');
     }
+  }
+
+  // Debounced "regenerate every node's preview". Used after structural changes (node add /
+  // connection change) that aren't otherwise reflected in the per-node preview paths.
+  _scheduleAllPreviewRefresh() {
+    if (this._allPreviewRefreshTimer) clearTimeout(this._allPreviewRefreshTimer);
+    this._allPreviewRefreshTimer = setTimeout(() => {
+      this._allPreviewRefreshTimer = null;
+      this.updateAllPreviews();
+    }, 60);
   }
 
   onNodeRemoved(nodeId) {
@@ -523,6 +537,11 @@ updateTimeNodes() {
     if (this.parameterChangeTimeout) {
       clearTimeout(this.parameterChangeTimeout);
       this.parameterChangeTimeout = null;
+    }
+
+    if (this._allPreviewRefreshTimer) {
+      clearTimeout(this._allPreviewRefreshTimer);
+      this._allPreviewRefreshTimer = null;
     }
 
     this.pendingParameterChanges.clear();
