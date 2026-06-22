@@ -105,8 +105,8 @@ export class ParameterValueManager {
   // Helper to get raw parameter value without any processing
   _getRawParameterValue(node, paramName, defaultValue) {
     if (paramName === "value" && typeof node.value !== "undefined") return node.value;
-    if (paramName === "x" && typeof node.x !== "undefined") return node.x;
-    if (paramName === "y" && typeof node.y !== "undefined") return node.y;
+    // NOTE: 'x'/'y' params (e.g. ConstVec2/3/4 components) are read from node.params below,
+    // NOT from node.x/node.y — those are the node's canvas position, not parameter values.
     if (paramName === "expr" && typeof node.expr !== "undefined") return node.expr;
     if (node.params && typeof node.params[paramName] !== "undefined") return node.params[paramName];
     if (node.props && typeof node.props[paramName] !== "undefined") return node.props[paramName];
@@ -201,17 +201,16 @@ export class ParameterValueManager {
 
     if (paramName === "value") {
       node.value = processedValue;
-    } else if (paramName === "x") {
-      node.x = processedValue;
-    } else if (paramName === "y") {
-      node.y = processedValue;
     } else if (paramName === "expr") {
       node.expr = processedValue;
     } else {
-      // Store in params first (new preferred location), fall back to props for compatibility
+      // Store in params first (new preferred location), fall back to props for compatibility.
+      // NOTE: 'x'/'y' params (e.g. ConstVec2/3/4 components) are stored here like any other
+      // param — they must NOT be written to node.x/node.y, which are the node's canvas position.
+      // Writing them there would teleport the node whenever its X/Y value changed.
       if (!node.params) node.params = {};
       node.params[paramName] = processedValue;
-      
+
       // Also update props for backward compatibility
       if (!node.props) node.props = {};
       node.props[paramName] = processedValue;
@@ -248,9 +247,10 @@ export class ParameterValueManager {
 
     checkParams(node.params);
     checkParams(node.props);
-    
-    // Check direct properties
-    ['value', 'x', 'y', 'expr'].forEach(prop => {
+
+    // Check direct properties. NOTE: 'x'/'y' are intentionally excluded — those are the node's
+    // canvas position. Vec component params named 'x'/'y' live in node.params (scanned above).
+    ['value', 'expr'].forEach(prop => {
       if (node[prop] !== undefined && this.expressionSystem.isExpression(node[prop])) {
         expressions[prop] = node[prop];
       }

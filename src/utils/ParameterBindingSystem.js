@@ -430,13 +430,15 @@ export class ParameterBindingSystem {
 
   setParameterValueDirect(node, paramName, value) {
     // Direct assignment without triggering events
-    // IMPORTANT: Set BOTH node.params[paramName] AND node[paramName] for compatibility
     if (!node.params) node.params = {};
     node.params[paramName] = value;
 
-    // Also set top-level property for ConstFloat/ConstVec nodes
-    if (paramName === 'value' || paramName === 'x' || paramName === 'y' || paramName === 'z') {
-      node[paramName] = value;
+    // Mirror to the legacy top-level property for ConstFloat (node.value).
+    // NOTE: 'x'/'y'/'z' are deliberately NOT mirrored — node.x/node.y are the node's canvas
+    // position; ConstVec component values live in node.params only. Writing them onto the
+    // node would move it whenever a bound/automated component value changed.
+    if (paramName === 'value') {
+      node.value = value;
     }
   }
 
