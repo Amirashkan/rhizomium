@@ -125,12 +125,40 @@ export class PreviewSystem {
       return;
     }
 
+    if (!this.editor.isPreviewEnabled) {
+      node.__thumb = null;
+      return;
+    }
+
+    // REAL GPU PREVIEWS: this is the single funnel every path reaches (bulk updateAllPreviews,
+    // per-node parameter/connection updates, save/load), so the GPU-vs-CPU decision lives here.
+    // Compute nodes read back their output texture; vector-output nodes render the real output
+    // of their subgraph. This runs BEFORE the INPUT_ONLY skip so UV / ConstVec* (vector inputs)
+    // get a real render. Scalars and any GPU failure fall through to the CPU approximation.
+    // NOTE: _generateCPUPreview is the fallback target, so it must NOT re-enter this router.
+    const spm = window.shaderPreviewManager;
+    if (spm && spm.enableGPUPreview) {
+      if (spm.isComputeNode(node)) {
+        spm.updateComputeNodePreview(node).catch(() => this._generateCPUPreview(node));
+        return;
+      }
+      if (spm.isVisualNode(node)) {
+        spm.updateFragmentNodePreview(node).catch(() => this._generateCPUPreview(node));
+        return;
+      }
+    }
+
     if (INPUT_ONLY_NODES.includes(node.kind.toLowerCase()) || node.kind.toLowerCase() === 'time') {
       return;
     }
 
-    if (!this.editor.isPreviewEnabled) {
-      node.__thumb = null;
+    this._generateCPUPreview(node);
+  }
+
+  // CPU approximation renderer (the legacy path). Kept as a standalone method so the GPU path
+  // can fall back here without re-entering the router in generateNodePreview().
+  _generateCPUPreview(node) {
+    if (!node || !node.id || !node.kind) {
       return;
     }
 

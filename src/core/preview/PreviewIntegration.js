@@ -78,30 +78,9 @@ export class PreviewIntegration {
       return;
     }
 
-    // REAL GPU PREVIEWS: render the node's actual output instead of a CPU approximation.
-    //  - compute nodes      -> read back their output texture
-    //  - vector-output nodes -> render the subgraph ending at the node (UV, colors, noise,
-    //                           patterns, transforms, gradients, ...)
-    // Both set node.__thumb asynchronously and request a redraw, so we return early to keep
-    // the CPU approximation from overwriting the real thumbnail. Scalar/numeric nodes (and any
-    // case where GPU previews are disabled or fail) fall through to the CPU path below.
-    const spm = window.shaderPreviewManager;
-    if (spm && spm.enableGPUPreview && node?.kind) {
-      if (spm.isComputeNode(node)) {
-        spm.updateComputeNodePreview(node).catch(() => {
-          this.previewSystem.generateNodePreview(node);
-          this.editor.markDirty?.('preview-update');
-        });
-        return;
-      }
-      if (spm.isVisualNode(node)) {
-        spm.updateFragmentNodePreview(node).catch(() => {
-          this.previewSystem.generateNodePreview(node);
-          this.editor.markDirty?.('preview-update');
-        });
-        return;
-      }
-    }
+    // GPU-vs-CPU routing now lives in PreviewSystem.generateNodePreview (the single funnel that
+    // every path reaches, including bulk updateAllPreviews on load). Here we only make sure the
+    // numeric preview values are computed first, then delegate to that funnel.
 
     // OPTIMIZATION: Allow caller to skip compute if they already computed all values
     // Use async worker-based computation to avoid blocking canvas interactions

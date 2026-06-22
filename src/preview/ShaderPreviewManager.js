@@ -160,11 +160,14 @@ export class ShaderPreviewManager {
     const out = NodeDefs[kind]?.pinsOut?.[0];
     if (!out) return false; // nothing to render (e.g. terminal Output nodes)
 
-    // Typed pin: render vector outputs (colors / UV / fields). Scalars (f32/i32) and the
-    // ambiguous 'dynamic' type (Math, which is often scalar) stay on the CPU numeric path —
-    // a single number reads better there than a flat gray swatch.
+    // Typed pin: render vector outputs (colors / UV / fields) and 'dynamic' (Math whose type
+    // follows its inputs — commonly a vector in the color pipeline, e.g. Multiply / Mix). True
+    // scalars (f32/i32/...) stay on the CPU numeric path, where a number reads better than a
+    // flat gray swatch. A 'dynamic' node that resolves to a scalar renders as grayscale, or
+    // fails to compile and falls back to CPU — both acceptable.
     if (typeof out === 'object') {
-      return out.type === 'vec2' || out.type === 'vec3' || out.type === 'vec4';
+      const t = out.type;
+      return t === 'vec2' || t === 'vec3' || t === 'vec4' || t === 'dynamic';
     }
 
     // Bare string pin (e.g. "Color", "Value", "Texture", "UV"): these are fragment nodes
@@ -205,12 +208,11 @@ export class ShaderPreviewManager {
    */
   async updateComputeNodePreview(node) {
     const computeExecutor = window.computeExecutor;
-    if (!computeExecutor || !computeExecutor.computeTextures) {
-      return;
-    }
-
-    const computeInfo = computeExecutor.computeTextures.get(node.id);
+    const computeInfo = computeExecutor?.computeTextures?.get(node.id);
     if (!computeInfo || !computeInfo.texture) {
+      // Output texture not ready yet (e.g. compute hasn't dispatched on first load) —
+      // show the CPU approximation so the node isn't blank; it upgrades on the next update.
+      this.fallbackToLegacyPreview(node);
       return;
     }
 
@@ -219,6 +221,7 @@ export class ShaderPreviewManager {
     } catch (error) {
       // Fallback: mark GPU preview available even if readback fails
       node.__gpuPreview = computeInfo;
+      this.fallbackToLegacyPreview(node);
     }
   }
 
@@ -345,8 +348,14 @@ export class ShaderPreviewManager {
    * @param {object} node - The node
    */
   fallbackToLegacyPreview(node) {
-    if (this.editor.previewSystem) {
-      this.editor.previewSystem.generateNodePreview(node);
+    const ps = this.editor.previewSystem;
+    if (!ps) return;
+    // Use the CPU-only path directly so we don't re-enter the GPU router in
+    // generateNodePreview() (which would loop back here on failure).
+    if (typeof ps._generateCPUPreview === 'function') {
+      ps._generateCPUPreview(node);
+    } else {
+      ps.generateNodePreview(node);
     }
   }
 

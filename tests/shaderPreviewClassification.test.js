@@ -26,10 +26,12 @@ describe('ShaderPreviewManager node classification', () => {
   });
 
   describe('isVisualNode', () => {
-    it('routes vector-typed outputs to the GPU preview path', () => {
+    it('routes vector-typed and dynamic outputs to the GPU preview path', () => {
       expect(spm.isVisualNode('UV')).toBe(true);           // vec2
       expect(spm.isVisualNode('ConstVec3')).toBe(true);    // vec3
       expect(spm.isVisualNode('SimplexNoise')).toBe(true); // vec3
+      expect(spm.isVisualNode('Add')).toBe(true);          // dynamic (follows inputs)
+      expect(spm.isVisualNode('Multiply')).toBe(true);     // dynamic
     });
 
     it('routes string (per-pixel field/color) pins to the GPU preview path', () => {
@@ -38,10 +40,9 @@ describe('ShaderPreviewManager node classification', () => {
       expect(spm.isVisualNode('ConicGradient')).toBe(true); // pinsOut: ["Value"]
     });
 
-    it('keeps scalar / dynamic outputs on the CPU numeric path', () => {
+    it('keeps true scalar outputs on the CPU numeric path', () => {
       expect(spm.isVisualNode('ConstFloat')).toBe(false); // f32
       expect(spm.isVisualNode('Time')).toBe(false);       // f32
-      expect(spm.isVisualNode('Add')).toBe(false);        // dynamic
     });
 
     it('never treats compute nodes as visual fragment previews', () => {
