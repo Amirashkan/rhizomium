@@ -386,6 +386,10 @@ export class FragmentTextureRenderer {
     // JSON.stringify is expensive and can cause frame time spikes
     let hash = '';
 
+    // Bypass state changes the compiled subgraph (a bypassed node passes its input
+    // straight through), so it must invalidate the per-node render cache.
+    if (node.bypassed) hash += 'bypass;';
+
     // Hash parameters (fast string concatenation instead of JSON.stringify)
     if (node.params) {
       // Build hash from parameter values directly without JSON.stringify

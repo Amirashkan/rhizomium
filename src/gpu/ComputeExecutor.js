@@ -669,6 +669,23 @@ export class ComputeExecutor {
         const nodeData = window.computeNodeRegistry?.get(nodeId);
         const node = nodeData?.node;
 
+        // BYPASS: a bypassed compute node passes its first input straight through. Alias its
+        // output texture to the input's texture and skip the dispatch (saving the GPU work).
+        // Mark it dispatched so downstream nodes pick up the aliased input. (A generator with no
+        // input has nothing to pass through, so it falls through and runs normally.)
+        if (node?.bypassed) {
+          const inputId = Array.isArray(node.inputs) ? node.inputs.find((i) => i != null) : null;
+          const inputTexture = inputId != null ? this.nodeOutputs.get(inputId) : null;
+          if (inputTexture) {
+            this.nodeOutputs.set(nodeId, inputTexture);
+            const info = this.computeTextures.get(nodeId);
+            if (info) info.texture = inputTexture;
+            else this.computeTextures.set(nodeId, { texture: inputTexture });
+            this.dispatchedThisFrame.add(nodeId);
+            continue;
+          }
+        }
+
         // Check if inputs have changed (for optimization)
         // PERFORMANCE: Only mark fragment inputs as needing update if fragment node actually changed
         // Fragment nodes are cached, so we only need to update when their inputs/params change

@@ -2115,6 +2115,15 @@ connectGPURenderer(renderFunction) {
 
       node.bypassed = !node.bypassed;
 
+      // Compute nodes run through a separate executor pipeline that caches input hashes
+      // and bridged fragment textures. Clear those so the bypass takes effect immediately
+      // (otherwise an unchanged-input check would keep dispatching the bypassed node).
+      try {
+        window.computeExecutor?.inputHashes?.clear?.();
+        window.computeExecutor?.fragmentRenderer?.clearCache?.();
+        window.shaderPreviewManager?.fragmentRenderer?.clearCache?.();
+      } catch (_) { /* cache objects are best-effort */ }
+
       // Bypass changes the generated shader, so recompile and refresh the previews + canvas.
       this.onChange(`Toggle Bypass: ${nodeId}`);
       this.triggerShaderRebuild('Toggle Bypass');
