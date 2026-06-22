@@ -923,9 +923,10 @@ export class Renderer {
         }
       }
     } else if (node.kind === "ConstVec2") {
-      // Read vector components directly for real-time display
-      let x = node.params?.x ?? node.x;
-      let y = node.params?.y ?? node.y;
+      // Read vector components directly for real-time display.
+      // Use param values only — node.x/node.y are the canvas position, not the vector value.
+      let x = node.params?.x ?? 0;
+      let y = node.params?.y ?? 0;
       // Parse if strings
       if (typeof x === 'string') x = parseFloat(x);
       if (typeof y === 'string') y = parseFloat(y);
@@ -933,10 +934,11 @@ export class Renderer {
         previewValue = [x, y];
       }
     } else if (node.kind === "ConstVec3") {
-      // Read vector components directly for real-time display
-      let x = node.params?.x ?? node.x;
-      let y = node.params?.y ?? node.y;
-      let z = node.params?.z ?? node.z;
+      // Read vector components directly for real-time display.
+      // Use param values only — node.x/node.y are the canvas position, not the vector value.
+      let x = node.params?.x ?? 0;
+      let y = node.params?.y ?? 0;
+      let z = node.params?.z ?? 0;
       // Parse if strings
       if (typeof x === 'string') x = parseFloat(x);
       if (typeof y === 'string') y = parseFloat(y);
@@ -990,13 +992,15 @@ export class Renderer {
           labelText = `${value.toFixed(2)}`;
         }
       } else if (node.kind === "ConstVec2") {
-        const x = node.params?.x ?? node.x ?? 0;
-        const y = node.params?.y ?? node.y ?? 0;
+        // Param values only — node.x/node.y are the canvas position, not the vector value.
+        const x = node.params?.x ?? 0;
+        const y = node.params?.y ?? 0;
         labelText = `(${x.toFixed(1)}, ${y.toFixed(1)})`;
       } else if (node.kind === "ConstVec3") {
-        const x = node.params?.x ?? node.x ?? 0;
-        const y = node.params?.y ?? node.y ?? 0;
-        const z = node.params?.z ?? node.z ?? 0;
+        // Param values only — node.x/node.y are the canvas position, not the vector value.
+        const x = node.params?.x ?? 0;
+        const y = node.params?.y ?? 0;
+        const z = node.params?.z ?? 0;
         labelText = `(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`;
       } else if (node.kind === "Expr" && node.expr) {
         labelText =

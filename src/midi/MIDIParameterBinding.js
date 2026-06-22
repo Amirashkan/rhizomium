@@ -395,24 +395,14 @@ export class MIDIParameterBinding {
    * Set parameter value directly without undo tracking (for real-time MIDI)
    */
   setParameterValueDirect(node, paramName, value) {
-    // Directly set the value on the node in all possible locations
-    // IMPORTANT: Set BOTH node.params[paramName] AND node[paramName] for compatibility
+    // Directly set the value on the node. node.params is the source of truth read by codegen.
+    // NOTE: ConstVec component params named 'x'/'y'/'z' must NOT be written to node.x/node.y/node.z —
+    // node.x/node.y are the node's canvas position, so writing them would move the node when a
+    // MIDI-controlled component value changed. Only 'value' has a legacy top-level field (node.value).
     if (paramName === 'value') {
       node.value = value;
       if (!node.params) node.params = {};
       node.params.value = value;
-    } else if (paramName === 'x') {
-      node.x = value;
-      if (!node.params) node.params = {};
-      node.params.x = value;
-    } else if (paramName === 'y') {
-      node.y = value;
-      if (!node.params) node.params = {};
-      node.params.y = value;
-    } else if (paramName === 'z') {
-      node.z = value;
-      if (!node.params) node.params = {};
-      node.params.z = value;
     } else {
       // Store in both params and props for compatibility
       if (!node.params) node.params = {};

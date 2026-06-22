@@ -165,15 +165,13 @@ function initializeNodeParameters(node, def) {
 
   for (const param of def.params) {
     switch (param.name) {
-      
+      // NOTE: params named 'x' and 'y' (e.g. ConstVec2/3/4 components) are intentionally
+      // NOT mapped to node.x / node.y here — those fields are the node's canvas position.
+      // The component values live in node.params (set above) / node.props, which is what
+      // the codegen and preview computer read. Writing them onto node.x/node.y would force
+      // every Vec node to spawn at the param defaults (0,0) instead of the cursor.
       case 'value':
         node.value = param.default;
-        break;
-      case 'x':
-        node.x = param.default;
-        break;
-      case 'y':
-        node.y = param.default;
         break;
       case 'expr':
         node.expr = param.default;
