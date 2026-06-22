@@ -222,17 +222,9 @@ updateTimeNodes() {
     if (now - this._lastAnimPreview < 100) return; // ~10 fps cap for live thumbnails
     this._lastAnimPreview = now;
 
-    const nodePreviews = this.editor.nodePreviews;
-    const isEnabled = (id) => {
-      const pv = nodePreviews?.get(id);
-      return !pv || pv.enabled !== false; // respect explicit per-node disable
-    };
-
     // Compute nodes write a fresh output texture every frame, so re-read their thumbnails.
     for (const node of this.editor.graph.nodes) {
-      if (spm.isComputeNode(node) && isEnabled(node.id)) {
-        spm.updateComputeNodePreview(node).catch(() => {});
-      }
+      if (spm.isComputeNode(node)) this._refreshNodePreview(node);
     }
 
     // Fragment nodes that reference time/audio in their params, plus all transitive dependents.
@@ -240,22 +232,58 @@ updateTimeNodes() {
     if (!animated || animated.size === 0) return;
 
     const toUpdate = new Set();
-    const connections = this.editor.graph.connections || [];
-    const addDownstream = (nodeId, visited) => {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
-      toUpdate.add(nodeId);
-      for (const c of connections) {
-        if (c.from?.nodeId === nodeId) addDownstream(c.to.nodeId, visited);
-      }
-    };
     const visited = new Set();
-    animated.forEach(id => addDownstream(id, visited));
+    animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited));
 
     for (const nodeId of toUpdate) {
       const node = this.editor.graph.nodes.find(n => n.id === nodeId);
-      if (!node || !spm.isVisualNode(node) || !isEnabled(nodeId)) continue;
+      if (node && spm.isVisualNode(node)) this._refreshNodePreview(node);
+    }
+  }
+
+  // Live-refresh the dragged node + its dependents (throttled). The full onParameterChange path
+  // is skipped during a drag for perf, so without this previews only update once the value is
+  // committed ("entered"). node.params is already live during the drag (the main canvas tracks
+  // it), so the preview render/readback picks up the current value.
+  _liveDragPreviewUpdate(node) {
+    const spm = window.shaderPreviewManager;
+    if (!spm || !spm.enableGPUPreview || !node?.id || !this.editor.graph?.nodes) return;
+
+    const now = performance.now();
+    if (!this._lastDragPreview) this._lastDragPreview = 0;
+    if (now - this._lastDragPreview < 80) return; // ~12 fps cap while dragging
+    this._lastDragPreview = now;
+
+    const toUpdate = new Set();
+    this._collectWithDownstream(node.id, toUpdate, new Set());
+    for (const nodeId of toUpdate) {
+      const n = this.editor.graph.nodes.find(x => x.id === nodeId);
+      if (n) this._refreshNodePreview(n);
+    }
+  }
+
+  // Refresh one node's real GPU thumbnail, honoring its per-node preview toggle.
+  // Compute nodes read back their output texture; vector-output fragment nodes re-render.
+  _refreshNodePreview(node) {
+    const spm = window.shaderPreviewManager;
+    if (!spm || !node?.id) return;
+    const pv = this.editor.nodePreviews?.get(node.id);
+    if (pv && pv.enabled === false) return; // hidden via the per-node toggle
+    if (spm.isComputeNode(node)) {
+      spm.updateComputeNodePreview(node).catch(() => {});
+    } else if (spm.isVisualNode(node)) {
       spm.updateFragmentNodePreview(node).catch(() => {});
+    }
+  }
+
+  // Collect a node id and all its transitive downstream node ids into `into`.
+  _collectWithDownstream(nodeId, into, visited) {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    into.add(nodeId);
+    const connections = this.editor.graph?.connections || [];
+    for (const c of connections) {
+      if (c.from?.nodeId === nodeId) this._collectWithDownstream(c.to.nodeId, into, visited);
     }
   }
 
@@ -264,12 +292,14 @@ updateTimeNodes() {
     // Preview updates are expensive and cause frame drops. Only update uniforms during drag.
     // Preview updates will happen on mouseup via the normal parameter change flow.
     if (this.editor._parameterDragging) {
-      // During drag, only mark node as dirty for later processing
-      // Don't trigger expensive preview computations
+      // During a drag we skip the heavy CPU preview-computation worker path, but still push a
+      // throttled GPU thumbnail refresh so previews track the slider/knob in real time instead
+      // of only updating once the value is committed.
       if (node?.id && this.editor?.previewComputer?.markNodeDirty) {
         this.editor.previewComputer.markNodeDirty(node.id, 'parameter-change');
       }
-      return; // Skip all preview updates during drag
+      this._liveDragPreviewUpdate(node);
+      return; // The committed value still runs the full path on release
     }
 
     if (node?.id && this.editor?.previewComputer?.markNodeDirty) {
