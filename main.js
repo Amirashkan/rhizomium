@@ -3028,6 +3028,17 @@ function createNewProject() {
   SeedGraphBuilder.createSeedGraph(graph);
 
   updateShaderFromGraph();
+
+  // Regenerate node thumbnails for the freshly created graph. createSeedGraph() makes brand-new
+  // node objects with no __thumb, and nothing else here triggers preview generation, so without
+  // this the nodes render as empty placeholders. updateAllPreviews() routes through the GPU
+  // funnel in PreviewSystem.generateNodePreview.
+  if (editor?.previewIntegration?.updateAllPreviews) {
+    editor.previewIntegration.updateAllPreviews();
+  } else if (editor?.previewSystem?.updateAllPreviews) {
+    editor.previewSystem.updateAllPreviews(graph.nodes);
+  }
+
   if (editor && editor.draw) {
     if (editor.markDirty) editor.markDirty('new-project');
     editor.draw();

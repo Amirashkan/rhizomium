@@ -203,10 +203,27 @@ export class ShaderPreviewManager {
   }
 
   /**
+   * Keep our renderer bound to the live GPU device. A project load / device reinit creates a
+   * brand-new device and window.gpuRenderer, orphaning the device this manager captured at
+   * construction — every render/readback on the stale device would then fail and fall back to
+   * the CPU placeholder. Rebuild the fragment renderer on the current device when it changes.
+   * @private
+   */
+  _syncDevice() {
+    const live = window.gpuRenderer?.device;
+    if (live && live !== this.device) {
+      this.device = live;
+      this.format = window.gpuRenderer?.format || this.format;
+      this.fragmentRenderer = new FragmentTextureRenderer(live);
+    }
+  }
+
+  /**
    * Update preview for a compute node by reading back its already-rendered output texture.
    * @param {object} node - The compute node
    */
   async updateComputeNodePreview(node) {
+    this._syncDevice();
     const computeExecutor = window.computeExecutor;
     const computeInfo = computeExecutor?.computeTextures?.get(node.id);
     if (!computeInfo || !computeInfo.texture) {
@@ -322,6 +339,7 @@ export class ShaderPreviewManager {
    */
   async updateFragmentNodePreview(node) {
     if (!node?.id) return;
+    this._syncDevice();
 
     try {
       const size = this.previewThumbSize || 64;
