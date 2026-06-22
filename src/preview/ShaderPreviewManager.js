@@ -157,23 +157,30 @@ export class ShaderPreviewManager {
     const kind = typeof nodeOrKind === 'string' ? nodeOrKind : nodeOrKind?.kind;
     if (!kind || this.isComputeNode(kind)) return false;
 
-    const out = NodeDefs[kind]?.pinsOut?.[0];
+    const def = NodeDefs[kind];
+    const out = def?.pinsOut?.[0];
     if (!out) return false; // nothing to render (e.g. terminal Output nodes)
 
     // Typed pin: render vector outputs (colors / UV / fields) and 'dynamic' (Math whose type
-    // follows its inputs — commonly a vector in the color pipeline, e.g. Multiply / Mix). True
-    // scalars (f32/i32/...) stay on the CPU numeric path, where a number reads better than a
-    // flat gray swatch. A 'dynamic' node that resolves to a scalar renders as grayscale, or
-    // fails to compile and falls back to CPU — both acceptable.
+    // follows its inputs — commonly a vector in the color pipeline, e.g. Multiply / Mix).
     if (typeof out === 'object') {
       const t = out.type;
-      return t === 'vec2' || t === 'vec3' || t === 'vec4' || t === 'dynamic';
+      if (t === 'vec2' || t === 'vec3' || t === 'vec4' || t === 'dynamic') return true;
+
+      // Scalar output: still worth rendering when it's a per-pixel FIELD rather than a uniform
+      // value — e.g. VoronoiNoise's F1 distance (typed f32 but varies across UV). Treat a scalar
+      // node as visual when it consumes a UV input or exposes multiple outputs (generator-like);
+      // plain scalars (ConstFloat / Time / math results) stay on the CPU numeric path.
+      const pinsIn = def?.pinsIn;
+      const takesUV = Array.isArray(pinsIn) &&
+        pinsIn.some(p => /uv/i.test(typeof p === 'string' ? p : (p?.label || '')));
+      const multiOutput = Array.isArray(def?.pinsOut) && def.pinsOut.length > 1;
+      return takesUV || multiOutput;
     }
 
-    // Bare string pin (e.g. "Color", "Value", "Texture", "UV"): these are fragment nodes
-    // that produce a per-pixel field or color, so a real render is the right preview.
-    // (Note: node categories here are function-based — "Generators"/"Modifiers"/... — so the
-    // pin shape, not `cat`, is the reliable signal.)
+    // Bare string pin (e.g. "Color", "Value", "Texture", "UV"): fragment nodes that produce a
+    // per-pixel field or color, so a real render is the right preview. (Categories here are
+    // function-based — "Generators"/"Modifiers"/... — so pin shape, not `cat`, is the signal.)
     return true;
   }
 

@@ -1115,6 +1115,15 @@ _generateEnhancedThumbnails(nodes, values) {
     
     // Process nodes in dependency order
     for (const node of ordered) {
+      // Don't clobber GPU-rendered thumbnails. The GPU preview system (ShaderPreviewManager via
+      // PreviewSystem.generateNodePreview) owns thumbnails for compute and vector-output nodes;
+      // overwriting them here with a CPU thumbnail on every preview computation (e.g. on each
+      // parameter change) is what made GPU previews "disappear". Only (re)generate CPU thumbnails
+      // for the scalar/numeric nodes the GPU path intentionally leaves to the CPU.
+      const spm = window.shaderPreviewManager;
+      if (spm?.enableGPUPreview && (spm.isComputeNode(node) || spm.isVisualNode(node))) {
+        continue;
+      }
       node.__thumb = this._createNodeThumbnail(node, values);
     }
   } catch (error) {
