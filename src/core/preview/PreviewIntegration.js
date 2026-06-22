@@ -209,24 +209,36 @@ updateTimeNodes() {
     this.editor.draw();
   }
 }
-  // Re-render real GPU thumbnails for time-animated visual nodes and everything downstream of
-  // them (a downstream node's output also changes when an upstream animated value changes).
-  // Self-throttled to keep per-frame GPU readback cheap. Scalar/animated numeric nodes are
-  // handled by updateTimeNodes() on the CPU path.
+  // Live-refresh GPU thumbnails each frame (throttled) for nodes whose output evolves on its
+  // own: every compute node (feedback, reaction-diffusion, particles, fluid, animated noise),
+  // plus fragment nodes that reference time/audio in their params and everything downstream of
+  // them. Scalar/animated numeric nodes are handled by updateTimeNodes() on the CPU path.
   updateAnimatedFragmentPreviews() {
     const spm = window.shaderPreviewManager;
     if (!spm || !spm.enableGPUPreview || !this.editor.graph?.nodes) return;
 
     const now = performance.now();
     if (!this._lastAnimPreview) this._lastAnimPreview = 0;
-    if (now - this._lastAnimPreview < 80) return; // ~12.5 fps cap for animated thumbnails
+    if (now - this._lastAnimPreview < 100) return; // ~10 fps cap for live thumbnails
     this._lastAnimPreview = now;
 
-    const expressionSystem = window.editor?.paramPanel?.expressionSystem;
-    const animated = expressionSystem?.timeAnimatedNodes;
+    const nodePreviews = this.editor.nodePreviews;
+    const isEnabled = (id) => {
+      const pv = nodePreviews?.get(id);
+      return !pv || pv.enabled !== false; // respect explicit per-node disable
+    };
+
+    // Compute nodes write a fresh output texture every frame, so re-read their thumbnails.
+    for (const node of this.editor.graph.nodes) {
+      if (spm.isComputeNode(node) && isEnabled(node.id)) {
+        spm.updateComputeNodePreview(node).catch(() => {});
+      }
+    }
+
+    // Fragment nodes that reference time/audio in their params, plus all transitive dependents.
+    const animated = window.editor?.paramPanel?.expressionSystem?.timeAnimatedNodes;
     if (!animated || animated.size === 0) return;
 
-    // Animated nodes + all transitive dependents.
     const toUpdate = new Set();
     const connections = this.editor.graph.connections || [];
     const addDownstream = (nodeId, visited) => {
@@ -242,9 +254,7 @@ updateTimeNodes() {
 
     for (const nodeId of toUpdate) {
       const node = this.editor.graph.nodes.find(n => n.id === nodeId);
-      if (!node || !spm.isVisualNode(node)) continue; // scalars stay on the CPU path
-      const pv = this.editor.nodePreviews?.get(nodeId);
-      if (pv && pv.enabled === false) continue; // respect explicit per-node disable
+      if (!node || !spm.isVisualNode(node) || !isEnabled(nodeId)) continue;
       spm.updateFragmentNodePreview(node).catch(() => {});
     }
   }

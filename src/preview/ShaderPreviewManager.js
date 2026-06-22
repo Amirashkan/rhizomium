@@ -252,6 +252,14 @@ export class ShaderPreviewManager {
   async _textureToThumbnail(texture, node) {
     if (!texture || !node) return;
 
+    // Guard: copyTextureToBuffer requires COPY_SRC. Some textures (e.g. older compute outputs)
+    // may not have it; throw so the caller falls back to the CPU preview instead of emitting a
+    // GPU validation error on every frame.
+    const COPY_SRC = (typeof GPUTextureUsage !== 'undefined' && GPUTextureUsage.COPY_SRC) || 0x10;
+    if (typeof texture.usage === 'number' && !(texture.usage & COPY_SRC)) {
+      throw new Error('preview texture is not readable (missing COPY_SRC)');
+    }
+
     const pixels = await this.readbackComputeTexture(texture);
     const imageData = this.gpuRenderer.pixelsToImageData(pixels, texture.width);
 
