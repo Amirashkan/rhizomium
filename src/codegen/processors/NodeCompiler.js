@@ -319,6 +319,19 @@ export class NodeCompiler {
       return uniformRef || this.resolveParameterValue(paramValue, defaultValue);
     };
 
+    // BYPASS: a bypassed node passes its first input straight through, skipping its own
+    // processing. OutputFinal is a sink and is never bypassed here. A node with no connected
+    // input passes the default (vec3(0)) — effectively muting it.
+    if (node.bypassed && kind !== 'OutputFinal') {
+      const passthrough = getInput(0, null, 'vec3<f32>(0.0)');
+      const code = (passthrough && typeof passthrough === 'object') ? passthrough.code : passthrough;
+      const type = (passthrough && typeof passthrough === 'object') ? passthrough.type : 'vec3';
+      return {
+        line: `let node_${nodeId} = ${code};`,
+        outputType: type || 'vec3',
+      };
+    }
+
     // Delegate to appropriate compiler
     let result = null;
 

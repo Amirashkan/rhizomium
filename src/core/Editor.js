@@ -2104,6 +2104,29 @@ connectGPURenderer(renderFunction) {
     }
   }
 
+  // Toggle a node's bypass: a bypassed node passes its first input straight through (its
+  // processing is skipped). Triggers a shader rebuild and preview refresh.
+  toggleNodeBypass(nodeId) {
+    try {
+      const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+      if (!node) return;
+      // OutputFinal is the graph sink; bypassing it would drop the final image.
+      if (node.kind === 'OutputFinal') return;
+
+      node.bypassed = !node.bypassed;
+
+      // Bypass changes the generated shader, so recompile and refresh the previews + canvas.
+      this.onChange(`Toggle Bypass: ${nodeId}`);
+      this.triggerShaderRebuild('Toggle Bypass');
+      if (this.previewIntegration?.updateAllPreviews) {
+        this.previewIntegration.updateAllPreviews();
+      }
+      this.safeDraw();
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Toggle Node Bypass', 'warning');
+    }
+  }
+
   // ---- PREVIEW HELPER METHODS ----
   
   shouldShowPreview(node) {

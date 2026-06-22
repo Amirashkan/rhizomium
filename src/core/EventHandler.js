@@ -933,7 +933,7 @@ export class EventHandler {
       const buttonHeight = 10;
       const buttonWidth = 12;
 
-      // Button 1: Hide visual info (X)
+      // Button 1: Bypass node (X) — pass the node's input straight through
       const hideX = node.x + node.w - 65;
       if (
         pos.x >= hideX - 1 &&
@@ -941,8 +941,8 @@ export class EventHandler {
         pos.y >= controlY - 8 &&
         pos.y <= controlY - 8 + buttonHeight
       ) {
-        this.editor.toggleNodeVisualInfo(node.id);
-        this._requestDraw('toggle-visual-info');
+        this.editor.toggleNodeBypass(node.id);
+        this._requestDraw('toggle-bypass');
         return true;
       }
 
