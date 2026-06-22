@@ -219,7 +219,7 @@ updateTimeNodes() {
 
     const now = performance.now();
     if (!this._lastAnimPreview) this._lastAnimPreview = 0;
-    if (now - this._lastAnimPreview < 100) return; // ~10 fps cap for live thumbnails
+    if (now - this._lastAnimPreview < 33) return; // ~30 fps cap (queue self-limits if the GPU can't keep up)
     this._lastAnimPreview = now;
 
     // Compute nodes write a fresh output texture every frame, so re-read their thumbnails.
@@ -251,7 +251,7 @@ updateTimeNodes() {
 
     const now = performance.now();
     if (!this._lastDragPreview) this._lastDragPreview = 0;
-    if (now - this._lastDragPreview < 80) return; // ~12 fps cap while dragging
+    if (now - this._lastDragPreview < 33) return; // ~30 fps cap (queue self-limits under load)
     this._lastDragPreview = now;
 
     const toUpdate = new Set();

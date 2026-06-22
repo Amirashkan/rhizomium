@@ -34,6 +34,13 @@ export class ShaderPreviewManager {
     // antialiases the result (compute previews are already larger than the thumbnail).
     this.previewRenderSize = 256;
 
+    // Per-node thumbnail work is serialized through this queue so we never flood the GPU with
+    // many concurrent subgraph renders + readbacks in a single frame (which starves the main
+    // render and tanks the frame rate). The Map dedupes by node id, keeping the latest request,
+    // and the readback resources (below) are pooled because only one runs at a time.
+    this._thumbQueue = new Map(); // nodeId -> { node, type: 'compute' | 'fragment' }
+    this._thumbDraining = false;
+
     // Track nodes pending preview update
     this.pendingNodes = new Set();
 
@@ -229,11 +236,47 @@ export class ShaderPreviewManager {
     }
   }
 
+  // Public entry points: enqueue thumbnail work (deduped, serialized) instead of running it
+  // immediately, so a burst of preview requests in one frame can't flood the GPU.
+  async updateComputeNodePreview(node) { this._enqueuePreview(node, 'compute'); }
+  async updateFragmentNodePreview(node) { this._enqueuePreview(node, 'fragment'); }
+
+  _enqueuePreview(node, type) {
+    if (!node?.id) return;
+    this._thumbQueue.set(node.id, { node, type }); // latest wins, keeps FIFO position
+    this._processThumbQueue();
+  }
+
   /**
-   * Update preview for a compute node by reading back its already-rendered output texture.
-   * @param {object} node - The compute node
+   * Drain the thumbnail queue one node at a time. Each step awaits a render + readback, which
+   * yields to the event loop (so the main render loop keeps running) and keeps only a single
+   * preview's GPU work in flight at once.
+   * @private
    */
-  async updateComputeNodePreview(node) {
+  async _processThumbQueue() {
+    if (this._thumbDraining) return;
+    this._thumbDraining = true;
+    try {
+      while (this._thumbQueue.size > 0) {
+        const [id, item] = this._thumbQueue.entries().next().value;
+        this._thumbQueue.delete(id);
+        try {
+          if (item.type === 'compute') await this._doComputePreview(item.node);
+          else await this._doFragmentPreview(item.node);
+        } catch (_) {
+          this.fallbackToLegacyPreview(item.node);
+        }
+      }
+    } finally {
+      this._thumbDraining = false;
+    }
+  }
+
+  /**
+   * Read back a compute node's already-rendered output texture into its thumbnail.
+   * @private
+   */
+  async _doComputePreview(node) {
     this._syncDevice();
     const computeExecutor = window.computeExecutor;
     const computeInfo = computeExecutor?.computeTextures?.get(node.id);
@@ -339,25 +382,36 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     const device = this.device;
     this._ensureDownsampler();
 
-    const dst = device.createTexture({
-      size: [size, size, 1],
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-      label: 'preview-thumb',
-    });
+    // Pool the destination texture + readback buffer. Thumbnail readbacks are serialized, so one
+    // pair can be reused across calls instead of allocating/destroying GPU resources every frame.
+    if (!this._poolDst || this._poolDstSize !== size || this._poolDevice !== device) {
+      try { this._poolDst?.destroy?.(); } catch (_) {}
+      try { this._poolBuffer?.destroy?.(); } catch (_) {}
+      this._poolBytesPerRow = Math.ceil((size * 4) / 256) * 256;
+      this._poolDst = device.createTexture({
+        size: [size, size, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        label: 'preview-thumb',
+      });
+      this._poolBuffer = device.createBuffer({
+        size: this._poolBytesPerRow * size,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        label: 'preview-thumb-readback',
+      });
+      this._poolDstSize = size;
+      this._poolDevice = device;
+    }
+    const dst = this._poolDst;
+    const buffer = this._poolBuffer;
+    const bytesPerRow = this._poolBytesPerRow;
+
     const bindGroup = device.createBindGroup({
       layout: this._downsamplePipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: this._downsampleSampler },
         { binding: 1, resource: srcTexture.createView() },
       ],
-    });
-
-    const bytesPerRow = Math.ceil((size * 4) / 256) * 256;
-    const buffer = device.createBuffer({
-      size: bytesPerRow * size,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      label: 'preview-thumb-readback',
     });
 
     const encoder = device.createCommandEncoder({ label: 'preview-thumb' });
@@ -388,46 +442,34 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
       pixels.set(new Uint8Array(mapped, y * bytesPerRow, size * 4), y * size * 4);
     }
     buffer.unmap();
-    buffer.destroy();
-    dst.destroy();
-
     return pixels;
   }
 
   /**
-   * Update preview for a non-compute node by rendering the real output of its subgraph
-   * (this node + all upstream dependencies) to a small texture and reading it back.
-   *
-   * Delegates the heavy lifting to FragmentTextureRenderer, which already extracts the
-   * subgraph, appends a fake OutputFinal, compiles it via buildWGSL({ skipCacheClear: true }),
-   * builds the correct bind groups (u / g / u_params / textures / compute / samplers) and
-   * caches per node. We force a re-render: preview updates are event-driven, and the
-   * renderer's own change-detection only hashes the node's OWN params (so it would skip a
-   * node whose upstream input changed). On any failure we fall back to the CPU approximation.
-   * @param {object} node - The node to preview
+   * Render a non-compute node's subgraph (the node + all upstream dependencies) to a texture and
+   * read it back into its thumbnail. FragmentTextureRenderer extracts the subgraph, appends a
+   * fake OutputFinal, compiles via buildWGSL({ skipCacheClear: true }) and caches per node. We
+   * force a re-render because preview updates are event-driven and the renderer's change-detection
+   * only hashes the node's OWN params (it would skip a node whose upstream input changed). Errors
+   * propagate to the queue, which falls back to the CPU approximation.
+   * @private
    */
-  async updateFragmentNodePreview(node) {
+  async _doFragmentPreview(node) {
     if (!node?.id) return;
     this._syncDevice();
 
-    try {
-      const size = this.previewRenderSize || 256;
-      const time = this._currentTime();
-      const audioContext = this._currentAudioContext();
+    const size = this.previewRenderSize || 256;
+    const time = this._currentTime();
+    const audioContext = this._currentAudioContext();
 
-      const texture = await this.fragmentRenderer.renderNodeToTexture(
-        node.id, size, size, time, audioContext, null, /* force */ true
-      );
-
-      if (!texture) {
-        this.fallbackToLegacyPreview(node);
-        return;
-      }
-
-      await this._textureToThumbnail(texture, node);
-    } catch (error) {
+    const texture = await this.fragmentRenderer.renderNodeToTexture(
+      node.id, size, size, time, audioContext, null, /* force */ true
+    );
+    if (!texture) {
       this.fallbackToLegacyPreview(node);
+      return;
     }
+    await this._textureToThumbnail(texture, node);
   }
 
   /**
@@ -541,5 +583,10 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     this.fragmentRenderer?.clearCache();
     this.shaderCache.clear();
     this.pendingNodes.clear();
+    this._thumbQueue.clear();
+    try { this._poolDst?.destroy?.(); } catch (_) {}
+    try { this._poolBuffer?.destroy?.(); } catch (_) {}
+    this._poolDst = null;
+    this._poolBuffer = null;
   }
 }
