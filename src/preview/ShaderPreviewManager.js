@@ -27,7 +27,12 @@ export class ShaderPreviewManager {
     this.enableGPUPreview = true;  // Use GPU for previews
     this.enableCPUReadback = true; // Readback to CPU for thumbnails
     this.previewSize = 128;        // Default preview size
-    this.previewThumbSize = 64;    // Square size we render+read back per node thumbnail
+    // Thumbnail canvas resolution. Kept >= the largest on-node preview size (128) so the
+    // displayed thumbnail downscales (smooth) instead of upscaling a 64px image (blurry).
+    this.previewThumbSize = 128;
+    // Fragment previews render supersampled, then downscale into the thumbnail canvas, which
+    // antialiases the result (compute previews are already larger than the thumbnail).
+    this.previewRenderSize = 256;
 
     // Track nodes pending preview update
     this.pendingNodes = new Set();
@@ -270,7 +275,7 @@ export class ShaderPreviewManager {
     const pixels = await this.readbackComputeTexture(texture);
     const imageData = this.gpuRenderer.pixelsToImageData(pixels, texture.width);
 
-    const thumbSize = this.previewThumbSize || 64;
+    const thumbSize = this.previewThumbSize || 128;
     const canvas = document.createElement('canvas');
     canvas.width = thumbSize;
     canvas.height = thumbSize;
@@ -357,7 +362,7 @@ export class ShaderPreviewManager {
     this._syncDevice();
 
     try {
-      const size = this.previewThumbSize || 64;
+      const size = this.previewRenderSize || 256;
       const time = this._currentTime();
       const audioContext = this._currentAudioContext();
 
