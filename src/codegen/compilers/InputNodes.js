@@ -108,7 +108,7 @@ export class InputNodes {
       }
 
       case 'Trigger': {
-        const input = getInput(0, 'f32');
+        const input = getInput(0, 'f32', '0.0');
         const threshold = resolveParam('threshold', '0.5');
         return {
           line: `let node_${nodeId} = select(0.0, 1.0, ${input} >= ${threshold});`,
@@ -117,8 +117,8 @@ export class InputNodes {
       }
 
       case 'Hold': {
-        const value = getInput(0, 'f32');
-        const pulse = getInput(1, 'f32');
+        const value = getInput(0, 'f32', '0.0');
+        const pulse = getInput(1, 'f32', '0.0');
         const threshold = resolveParam('threshold', '0.5');
         return {
           line: `let node_${nodeId} = select(0.0, ${value}, ${pulse} >= ${threshold});`,
