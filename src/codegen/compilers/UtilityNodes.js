@@ -181,8 +181,19 @@ export class UtilityNodes {
     expr = expr.replace(/\bpi\b/g, "3.14159265359");
     expr = expr.replace(/\bPI\b/g, "3.14159265359");
 
+    let line = `let node_${nodeId} = ${expr};`;
+
+    // GUARD: like CustomGLSL, the Expression node recompiles while the user is
+    // still typing, so a half-finished expression ("a +" -> `(0.0) +;`, "sin(a"
+    // -> `sin((0.0);`) would emit invalid WGSL and spam the console with
+    // shader-compile errors on every keystroke. Fall back to a harmless default
+    // until the expression parses again. See isIncompleteWGSLExpression.
+    if (this.isIncompleteWGSLExpression(line)) {
+      line = `let node_${nodeId} = 0.0;`;
+    }
+
     return {
-      line: `let node_${nodeId} = ${expr};`,
+      line,
       outputType: "f32"
     };
   }
@@ -679,6 +690,17 @@ export class UtilityNodes {
         if (char === ')') lineParenDepth--;
         if (char === '{') lineBraceDepth++;
         if (char === '}') lineBraceDepth--;
+        // KNOWN LIMITATION: '<' and '>' are counted as generic-type delimiters
+        // (vec2<f32>) so that a type spanning lines isn't split mid-expression.
+        // But the same characters are also comparison/shift operators in WGSL,
+        // and this counter cannot tell them apart. A multi-line CustomGLSL
+        // expression that uses '<' or '>' for comparison (e.g. a final line like
+        // "a > b" following an earlier line) leaves bracketDepth != 0, so the
+        // reconstruction never marks the expression "complete" and wrongly merges
+        // it with adjacent lines. Single-line expressions are unaffected (they
+        // fall through to the trailing flush below). Fixing this properly needs a
+        // real tokenizer that distinguishes generic brackets from operators;
+        // left as-is for now since multi-line comparisons in CustomGLSL are rare.
         if (char === '<') lineBracketDepth++;
         if (char === '>') lineBracketDepth--;
       }
@@ -991,15 +1013,28 @@ export class UtilityNodes {
     
     // Ensure we always return a valid result
     if (!compiledCode || !compiledCode.trim()) {
-      compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
+      compiledCode = `let node_${sanitizedNodeId} = ${getDefaultForType(validOutputType)};`;
     }
-    
+
     // Double-check that the line contains the variable declaration
     if (!compiledCode.includes(`node_${sanitizedNodeId}`)) {
       console.warn(`[CustomGLSL] Node ${sanitizedNodeId} did not generate proper variable declaration. Generated code:`, compiledCode);
-      compiledCode = `let node_${sanitizedNodeId} = 0.0;`;
+      compiledCode = `let node_${sanitizedNodeId} = ${getDefaultForType(validOutputType)};`;
     }
-    
+
+    // GUARD: the editor recompiles on every keystroke (debounced), so it constantly
+    // sees half-finished expressions while the user types — a trailing operator
+    // ("input0 +" -> `(0.0) +;`), an unclosed call ("sin(input0" -> `sin((0.0);`),
+    // a dangling member access ("input0." -> `(0.0).;`). Emitting these produces
+    // invalid WGSL that WebGPU rejects, spamming the console with shader-compile
+    // errors ("unable to parse right side of + expression") on each keystroke.
+    // Substitute a harmless default of the declared output type until the
+    // expression is syntactically complete again — same spirit as the "=node_"
+    // partial-reference fallback in NodeCompiler.resolveParameterValue.
+    if (this.isIncompleteWGSLExpression(compiledCode)) {
+      compiledCode = `let node_${sanitizedNodeId} = ${getDefaultForType(validOutputType)};`;
+    }
+
     // Debug logging
     if (window.DEBUG_CUSTOM_GLSL) {
       console.log(`[CustomGLSL] Node ${sanitizedNodeId} compiled:`, {
@@ -1012,5 +1047,55 @@ export class UtilityNodes {
       line: compiledCode,
       outputType: validOutputType
     };
+  }
+
+  /**
+   * Heuristic check for an obviously-incomplete WGSL expression, of the kind the
+   * live recompile produces while the user is still typing in the CustomGLSL
+   * editor. Deliberately conservative — it only flags clear-cut "unfinished"
+   * shapes so that valid code is never rejected:
+   *   - unbalanced (), [] or {}            e.g. "sin(input0"  -> `sin((0.0)`
+   *   - a binary operator before ';'       e.g. "input0 +"    -> `(0.0) +;`
+   *   - an empty right-hand side           e.g. "="           -> `= ;`
+   *   - an unfinished member/swizzle access e.g. "input0."    -> `(0.0).;`
+   *
+   * Angle brackets are intentionally NOT balance-checked: '<' and '>' double as
+   * comparison operators and generic delimiters (vec3<f32>), so counting them
+   * yields false positives on valid code.
+   *
+   * @param {string} code - The generated WGSL line(s) for this node
+   * @returns {boolean} true if the code looks unfinished
+   */
+  isIncompleteWGSLExpression(code) {
+    if (!code || !code.trim()) return true;
+
+    // Unbalanced brackets — an open call/subscript/block that hasn't been closed.
+    let paren = 0, square = 0, brace = 0;
+    for (let i = 0; i < code.length; i++) {
+      const ch = code[i];
+      if (ch === '(') paren++;
+      else if (ch === ')') paren--;
+      else if (ch === '[') square++;
+      else if (ch === ']') square--;
+      else if (ch === '{') brace++;
+      else if (ch === '}') brace--;
+      if (paren < 0 || square < 0 || brace < 0) return true; // closed before opened
+    }
+    if (paren !== 0 || square !== 0 || brace !== 0) return true;
+
+    // A binary operator immediately before a statement terminator means its
+    // right-hand operand is missing. The generated code always terminates
+    // statements with ';', so checking there covers every code path.
+    if (/[+\-*/%&|^=]\s*;/.test(code)) return true;
+
+    // An empty right-hand side: "= ;".
+    if (/=\s*;/.test(code)) return true;
+
+    // An unfinished member/swizzle access: a dot right before ';' preceded by an
+    // identifier, ')' or ']'. A digit before the dot is excluded so the float
+    // literal "2." is not mistaken for incomplete access.
+    if (/[)\]a-zA-Z_]\.\s*;/.test(code)) return true;
+
+    return false;
   }
 }
