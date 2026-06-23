@@ -690,6 +690,17 @@ export class UtilityNodes {
         if (char === ')') lineParenDepth--;
         if (char === '{') lineBraceDepth++;
         if (char === '}') lineBraceDepth--;
+        // KNOWN LIMITATION: '<' and '>' are counted as generic-type delimiters
+        // (vec2<f32>) so that a type spanning lines isn't split mid-expression.
+        // But the same characters are also comparison/shift operators in WGSL,
+        // and this counter cannot tell them apart. A multi-line CustomGLSL
+        // expression that uses '<' or '>' for comparison (e.g. a final line like
+        // "a > b" following an earlier line) leaves bracketDepth != 0, so the
+        // reconstruction never marks the expression "complete" and wrongly merges
+        // it with adjacent lines. Single-line expressions are unaffected (they
+        // fall through to the trailing flush below). Fixing this properly needs a
+        // real tokenizer that distinguishes generic brackets from operators;
+        // left as-is for now since multi-line comparisons in CustomGLSL are rare.
         if (char === '<') lineBracketDepth++;
         if (char === '>') lineBracketDepth--;
       }
