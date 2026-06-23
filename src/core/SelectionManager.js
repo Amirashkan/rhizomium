@@ -913,6 +913,14 @@ deleteSelected() {
       }
 
       if (this.onChange) this.onChange();
+
+      // Trigger preview generation for the clones. Like the menu creation paths, duplication
+      // otherwise does no per-node preview work, so the new nodes render as placeholders until a
+      // later event recomputes them. onNodeAdded debounces a single full-graph preview refresh,
+      // which covers every clone at once — even while they are still disconnected from the output.
+      if (clones.length) {
+        window.editor?.previewIntegration?.onNodeAdded?.(clones[0]);
+      }
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'node-duplication',
@@ -1033,6 +1041,13 @@ deleteSelected() {
       }
 
       if (this.onChange) this.onChange();
+
+      // Same as duplicateSelected: pasted nodes need their previews generated, otherwise they
+      // render as placeholders until recomputed by a later event. onNodeAdded debounces a single
+      // full-graph preview refresh covering every pasted node.
+      if (clones.length) {
+        window.editor?.previewIntegration?.onNodeAdded?.(clones[0]);
+      }
       return true;
     } catch (error) {
       window.errorHandler?.handleError(error, {
