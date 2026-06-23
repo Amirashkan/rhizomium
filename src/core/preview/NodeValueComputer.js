@@ -15,6 +15,18 @@ export class NodeValueComputer {
     this._lastParamHashes = new Map();
   }
 
+  // Kinds whose value is derived from the wall clock (Date.now()) rather than from inputs or
+  // parameters. Their output changes every frame on its own, so they must never be cached.
+  _isTimeDependentKind(node) {
+    const kind = node?.kind?.toLowerCase();
+    return kind === 'time' ||
+           kind === 'randomtime' ||
+           kind === 'stripe' ||
+           kind === 'stripefield' ||
+           kind === 'checker' ||
+           kind === 'checkerfield';
+  }
+
   computeNodeValue(node, visited = new Set()) {
     try {
       if (!node || !node.id) {
@@ -33,18 +45,26 @@ export class NodeValueComputer {
         throw new Error('Maximum recursion depth exceeded');
       }
 
-      // Check cache before computing
-      const cachedValue = this._getCachedValue(node);
-      if (cachedValue !== null) {
-        return cachedValue;
-      }
+      // Clock-driven nodes (Time, RandomTime, animated fields) derive their value from Date.now(),
+      // not from their inputs/params. Since the cache is keyed on input/param hashes — which never
+      // change for these nodes — a cache hit would freeze them at their first computed value. Skip
+      // the cache entirely so they recompute with the current time on every call.
+      const timeDependent = this._isTimeDependentKind(node);
 
-      // Check PreviewComputer cache if available
-      const previewCacheValue = this._getPreviewComputerCacheValue(node);
-      if (previewCacheValue !== null) {
-        // Store in local cache for future use
-        this._setCachedValue(node, previewCacheValue);
-        return previewCacheValue;
+      // Check cache before computing
+      if (!timeDependent) {
+        const cachedValue = this._getCachedValue(node);
+        if (cachedValue !== null) {
+          return cachedValue;
+        }
+
+        // Check PreviewComputer cache if available
+        const previewCacheValue = this._getPreviewComputerCacheValue(node);
+        if (previewCacheValue !== null) {
+          // Store in local cache for future use
+          this._setCachedValue(node, previewCacheValue);
+          return previewCacheValue;
+        }
       }
 
       visited.add(node.id);
@@ -213,11 +233,14 @@ case "rectanglefield": {
           result = 0;
       }
 
-      // Store computed value in cache
-      this._setCachedValue(node, result);
-      
-      // Also update PreviewComputer cache if available
-      this._updatePreviewComputerCache(node, result);
+      // Store computed value in cache (but never for clock-driven nodes — caching them would
+      // serve a stale value next frame since their input/param hashes don't change over time).
+      if (!timeDependent) {
+        this._setCachedValue(node, result);
+
+        // Also update PreviewComputer cache if available
+        this._updatePreviewComputerCache(node, result);
+      }
 
       visited.delete(node.id);
       return result;
