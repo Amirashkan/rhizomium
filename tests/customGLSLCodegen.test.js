@@ -76,3 +76,37 @@ describe('CustomGLSL codegen', () => {
     expect(line).not.toMatch(/[+\-*/%&|^=]\s*;/);
   });
 });
+
+// The Expression (Expr) node does the same a/b string substitution and so shares
+// the exact same half-typed-expression hazard ("a +" -> `let node_12 = (0.0)+;`).
+function lineForExpr(expr) {
+  const graph = {
+    nodes: [
+      { id: '12', kind: 'Expr', expr, params: {}, inputs: [] },
+      { id: '99', kind: 'OutputFinal', params: {}, inputs: ['12'] },
+    ],
+    connections: [],
+  };
+  const result = buildWGSL(graph);
+  const wgsl = typeof result === 'string' ? result : (result.wgsl || result.code || '');
+  return wgsl.split('\n').filter((l) => l.includes('node_12')).join('\n');
+}
+
+describe('Expr codegen', () => {
+  it('compiles a complete expression normally', () => {
+    const line = lineForExpr('a + b');
+    expect(line).toContain('node_12');
+    expect(isStructurallyComplete(line)).toBe(true);
+  });
+
+  it('does not emit a dangling operator for a half-typed expression (a +)', () => {
+    const line = lineForExpr('a +');
+    expect(line).not.toMatch(/[+\-*/%&|^=]\s*;/);
+    expect(isStructurallyComplete(line)).toBe(true);
+  });
+
+  it('does not emit unbalanced parentheses for an unclosed call (sin(a)', () => {
+    const line = lineForExpr('sin(a');
+    expect(isStructurallyComplete(line)).toBe(true);
+  });
+});

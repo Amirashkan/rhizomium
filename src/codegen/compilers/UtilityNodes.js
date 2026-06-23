@@ -181,8 +181,19 @@ export class UtilityNodes {
     expr = expr.replace(/\bpi\b/g, "3.14159265359");
     expr = expr.replace(/\bPI\b/g, "3.14159265359");
 
+    let line = `let node_${nodeId} = ${expr};`;
+
+    // GUARD: like CustomGLSL, the Expression node recompiles while the user is
+    // still typing, so a half-finished expression ("a +" -> `(0.0) +;`, "sin(a"
+    // -> `sin((0.0);`) would emit invalid WGSL and spam the console with
+    // shader-compile errors on every keystroke. Fall back to a harmless default
+    // until the expression parses again. See isIncompleteWGSLExpression.
+    if (this.isIncompleteWGSLExpression(line)) {
+      line = `let node_${nodeId} = 0.0;`;
+    }
+
     return {
-      line: `let node_${nodeId} = ${expr};`,
+      line,
       outputType: "f32"
     };
   }
