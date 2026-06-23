@@ -363,6 +363,14 @@ export class MenuManager {
     this.graph.selection = new Set([node.id]);
 
     if (this.onChange) this.onChange();
+
+    // Trigger the new node's preview. Unlike RadialMenu._createNode and Editor.createNode, this
+    // "quick add" search menu otherwise does no per-node preview work, so the freshly added node
+    // renders as a placeholder until some unrelated event (a parameter edit, or wiring it into the
+    // chain that reaches the output) happens to recompute it. onNodeAdded debounces a full preview
+    // refresh through the GPU funnel, so the node shows its own output right away — even while it is
+    // still disconnected from the output.
+    window.editor?.previewIntegration?.onNodeAdded?.(node);
   }
 
   _duplicateSelected() {
@@ -450,6 +458,13 @@ export class MenuManager {
       }
 
       if (this.onChange) this.onChange();
+
+      // Same reason as _createNode: duplication adds nodes without otherwise triggering preview
+      // generation, so the clones would render as placeholders until later recomputed. onNodeAdded
+      // debounces a single full-graph preview refresh, which covers every clone at once.
+      if (clones.length) {
+        window.editor?.previewIntegration?.onNodeAdded?.(clones[0]);
+      }
     } catch (error) {
       window.errorHandler?.handleError(error, {
         component: 'menu-node-duplication',
