@@ -1180,6 +1180,17 @@ export class ComputeExecutor {
    * @param {string} nodeId - Node ID to remove
    */
   removeComputeNode(nodeId) {
+    // Also drop the registry entry, otherwise the next initialize() recreates a manager for a node
+    // that no longer exists. This matters more now that disconnected compute nodes are registered
+    // for per-node previews (registerDisconnectedComputeNodes): without this, adding and deleting
+    // such nodes would leak a manager each time. Compute nodes register under a sanitized id, so
+    // remove both the raw and sanitized keys.
+    if (window.computeNodeRegistry) {
+      window.computeNodeRegistry.delete(nodeId);
+      const sanitized = String(nodeId).replace(/[^a-zA-Z0-9_]/g, "_");
+      if (sanitized !== nodeId) window.computeNodeRegistry.delete(sanitized);
+    }
+
     const node = this.computeManagers.get(nodeId);
     if (node) {
       this._deferDestroy(() => { if (typeof node.destroy === 'function') node.destroy(); });
