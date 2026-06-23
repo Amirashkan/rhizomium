@@ -829,17 +829,76 @@ export class UnifiedExpressionSystem {
 
   /**
    * Generate WGSL shader code from expression
+   *
+   * @param {string} expressionString  The expression (with or without leading '=').
+   * @param {object} variableMapping   Extra identifier -> WGSL mappings (highest precedence).
+   * @param {object} [graph]           Node graph used to resolve `node_<id>` references to
+   *                                   clock-driven generators. Defaults to window.editor.graph.
    */
-  generateShader(expressionString, variableMapping = {}) {
+  generateShader(expressionString, variableMapping = {}, graph) {
     try {
       const ast = this.parse(expressionString);
-      const generator = new ShaderGenerator(variableMapping);
+      const resolvedGraph = graph ?? (typeof window !== 'undefined' ? window.editor?.graph : null);
+      const nodeRefMapping = this._buildTimeNodeReferenceMapping(expressionString, resolvedGraph);
+      const generator = new ShaderGenerator({ ...nodeRefMapping, ...variableMapping });
       return generator.generate(ast);
     } catch (error) {
 
 
       return '0.0'; // Fallback to 0.0 on error
     }
+  }
+
+  /**
+   * Map references to clock-driven generator nodes (Time / RandomTime) to their GPU expression so
+   * a parameter that *references* such a node animates from the GPU clock — exactly like the
+   * built-in `time` keyword does. A referenced node is not necessarily wired into the shader, so
+   * its `node_<id>` variable may never be declared; emitting an undefined identifier would break
+   * shader compilation (the value then appears frozen / snaps back). Formulas mirror
+   * src/codegen/compilers/InputNodes.js (the wired-node code path).
+   */
+  _buildTimeNodeReferenceMapping(expressionString, graph) {
+    const mapping = {};
+    if (!graph?.nodes?.length) {
+      return mapping;
+    }
+
+    let identifiers;
+    try {
+      identifiers = this.extractIdentifiers(expressionString);
+    } catch {
+      return mapping;
+    }
+    if (!identifiers.length) {
+      return mapping;
+    }
+
+    for (const node of graph.nodes) {
+      const kind = node?.kind?.toLowerCase();
+      if (kind !== 'time' && kind !== 'randomtime') {
+        continue;
+      }
+
+      const base = `node_${node.id}`;
+      for (const name of identifiers) {
+        // A reference is the base name, optionally with a component suffix (e.g. node_5_x).
+        if (name !== base && !name.startsWith(`${base}_`)) {
+          continue;
+        }
+        if (kind === 'time') {
+          mapping[name] = 'g.time';
+        } else {
+          const speed = Number(node.params?.speed);
+          const speedLiteral = Number.isFinite(speed) ? this._toFloatLiteral(speed) : '1.0';
+          mapping[name] = `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
+        }
+      }
+    }
+    return mapping;
+  }
+
+  _toFloatLiteral(n) {
+    return Number.isInteger(n) ? `${n}.0` : `${n}`;
   }
 
   /**
