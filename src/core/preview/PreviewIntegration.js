@@ -210,9 +210,10 @@ updateTimeNodes() {
   }
 }
   // Live-refresh GPU thumbnails each frame (throttled) for nodes whose output evolves on its
-  // own: every compute node (feedback, reaction-diffusion, particles, fluid, animated noise),
-  // plus fragment nodes that reference time/audio in their params and everything downstream of
-  // them. Scalar/animated numeric nodes are handled by updateTimeNodes() on the CPU path.
+  // own: every compute node (feedback, reaction-diffusion, particles, fluid, animated noise) AND
+  // everything downstream of them, plus fragment nodes that reference time/audio in their params
+  // and everything downstream of those. Scalar/animated numeric nodes are handled by
+  // updateTimeNodes() on the CPU path.
   updateAnimatedFragmentPreviews() {
     const spm = window.shaderPreviewManager;
     if (!spm || !spm.enableGPUPreview || !this.editor.graph?.nodes) return;
@@ -222,22 +223,34 @@ updateTimeNodes() {
     if (now - this._lastAnimPreview < 33) return; // ~30 fps cap (queue self-limits if the GPU can't keep up)
     this._lastAnimPreview = now;
 
-    // Compute nodes write a fresh output texture every frame, so re-read their thumbnails.
+    // Collect every node whose thumbnail must be re-read this frame because its output is live.
+    const toUpdate = new Set();
+    const visited = new Set();
+
+    // Compute nodes write a fresh output texture every frame. Re-read each one's own thumbnail
+    // (via its dedicated texture-readback path) AND mark everything downstream of it for refresh —
+    // the OutputFinal node, or a fragment node like ColorRamp sitting between the compute node and
+    // the output. Without this, the compute node's thumbnail animates but its consumers (most
+    // visibly the OutputFinal preview) freeze on the last frame they were edited, so the OutputFinal
+    // thumbnail visibly diverges from the floating preview (which is the live main render).
     for (const node of this.editor.graph.nodes) {
-      if (spm.isComputeNode(node)) this._refreshNodePreview(node);
+      if (spm.isComputeNode(node)) {
+        this._refreshNodePreview(node);
+        this._collectWithDownstream(node.id, toUpdate, visited);
+      }
     }
 
     // Fragment nodes that reference time/audio in their params, plus all transitive dependents.
     const animated = window.editor?.paramPanel?.expressionSystem?.timeAnimatedNodes;
-    if (!animated || animated.size === 0) return;
+    if (animated) {
+      animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited));
+    }
 
-    const toUpdate = new Set();
-    const visited = new Set();
-    animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited));
-
+    // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
+    // their texture-readback path (and isVisualNode is false for them anyway), so skip them here.
     for (const nodeId of toUpdate) {
       const node = this.editor.graph.nodes.find(n => n.id === nodeId);
-      if (node && spm.isVisualNode(node)) this._refreshNodePreview(node);
+      if (node && !spm.isComputeNode(node) && spm.isVisualNode(node)) this._refreshNodePreview(node);
     }
   }
 
