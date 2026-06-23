@@ -145,6 +145,51 @@ export class ComputeNodes {
   }
 
   /**
+   * Register compute nodes that the normal compile pass skipped because they are NOT upstream of
+   * the active OutputFinal. buildWGSL only compiles output-reachable nodes, so a compute node that
+   * isn't wired into the output never lands in window.computeNodeRegistry — ComputeExecutor then
+   * never dispatches it, it has no output texture, and its per-node preview falls back to a
+   * placeholder until it's connected into the output chain.
+   *
+   * Registering them here lets the existing ComputeExecutor pipeline dispatch them, so the per-node
+   * preview shows the node's real output even while it is still disconnected. This reuses the same
+   * machinery as connected compute nodes: input texture binding (including the no-input case) and
+   * fragment-input rendering are handled at dispatch time. These nodes are deliberately NOT added
+   * to the fragment shader's texture bindings — TextureBindings only binds output-reachable nodes —
+   * so the compiled main shader is unaffected.
+   *
+   * Honors the per-node preview toggle: a node whose preview is switched off is left unregistered so
+   * we don't spend a GPU dispatch every frame on a node the user isn't previewing.
+   *
+   * @param {Object} graph - The full node graph
+   */
+  registerDisconnectedComputeNodes(graph) {
+    if (!graph || !Array.isArray(graph.nodes)) return;
+    if (!window.computeNodeRegistry) {
+      window.computeNodeRegistry = new Map();
+    }
+
+    const nodePreviews = window.editor?.nodePreviews;
+
+    for (const node of graph.nodes) {
+      if (!node || !this.handles(node.kind)) continue;
+
+      const registryKey = String(node.id).replace(/[^a-zA-Z0-9_]/g, "_");
+      // Already compiled (output-reachable) or registered on a previous build — leave it alone.
+      if (window.computeNodeRegistry.has(registryKey)) continue;
+
+      // Respect the per-node preview toggle (green-dot button): no point dispatching a node whose
+      // preview is hidden. Absent entry / undefined means the preview is on (the default).
+      const pv = nodePreviews?.get?.(node.id);
+      if (pv && pv.enabled === false) continue;
+
+      // getInput is unused by compute WGSL generation (input textures are bound at dispatch time),
+      // so a no-op is safe; getResolution reads node params / global preview settings only.
+      this.registerComputeNode(node, () => null, this.getResolution(node));
+    }
+  }
+
+  /**
    * Generate WGSL compute shader code for a node
    */
   generateComputeWGSL(node, getInput) {

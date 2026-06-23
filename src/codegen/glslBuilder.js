@@ -90,6 +90,15 @@ export function buildWGSL(graph, options = {}) {
   compiler.isSubgraphCompilation = false;
   const { lines, uniformStruct, uniformManager, usesNoise } = compiledData;
 
+  // Per-node previews: register compute nodes that aren't upstream of the output so the compute
+  // pipeline still dispatches them and their thumbnail shows real output (otherwise they sit as
+  // placeholders until wired into the output). They are NOT bound into the fragment shader above —
+  // TextureBindings only binds output-reachable nodes — so this doesn't affect the main shader.
+  // Skipped for subgraph builds, which compile a single node's chain for fragment preview rendering.
+  if (!options.skipCacheClear) {
+    compiler.compilers.compute?.registerDisconnectedComputeNodes?.(graph);
+  }
+
   // --- Collect all function definitions and helpers ---
   const shapeFunctions = compiler.compilers.field?.getAllFunctionDefinitions
     ? compiler.compilers.field.getAllFunctionDefinitions()
