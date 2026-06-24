@@ -709,13 +709,26 @@ class ShaderGenerator {
   generateIdentifier(ast) {
     const name = ast.name;
 
-    // Check if this identifier has a mapping
+    // Check if this identifier has a mapping (time, audioEnvelope*, PI, node_<id>
+    // references the caller resolved, etc.)
     if (name in this.variableMapping) {
       return this.variableMapping[name];
     }
 
-    // Otherwise, use as-is (e.g., for parameter names)
-    return name;
+    // A `node_<id>` reference is emitted verbatim to reference a shader variable
+    // that another node already declared. Callers that don't pre-resolve node
+    // references (Noise/Field/Compute params) rely on this passthrough.
+    if (/^node_\d/.test(name)) {
+      return name;
+    }
+
+    // Unknown identifier - almost always a typo (e.g. `tim` for `time`) or an
+    // unsupported keyword. Emitting it verbatim would produce invalid WGSL like
+    // `sin(tim)`, which fails the ENTIRE shader module and floods the console with
+    // WebGPU validation errors. Fail here instead: generateShader() catches this and
+    // falls back to a safe `0.0`, so one bad expression only zeroes its own
+    // parameter rather than blanking the whole render.
+    throw new Error(`Unknown identifier in expression: '${name}'`);
   }
 
   generateBinaryOp(ast) {
