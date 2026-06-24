@@ -68,6 +68,7 @@ describe('updateTimeNodes refreshes intrinsic Time / RandomTime nodes', () => {
       },
       previewSystem: {},
       lastSignificantUpdate: -1e6, // bypass the 100ms throttle
+      _nodesReferencingClockNodes: PreviewIntegration.prototype._nodesReferencingClockNodes,
     };
     // The expression-animated set is read off window.editor, the graph off this.editor.
     window.editor = {
@@ -131,6 +132,38 @@ describe('updateTimeNodes refreshes intrinsic Time / RandomTime nodes', () => {
       connections: [],
     };
 
+    expect(makeHarness(graph)).toEqual([]);
+  });
+
+  // The reported bug: a Transform with translateX = "=node_<timeId>" animates at 60fps on the GPU
+  // but its thumbnail crawled, because a node-reference (vs a literal "=time" expression) was never
+  // treated as time-animated. updateTimeNodes must now refresh it and its downstream.
+  it('marks a node that references a Time node via a parameter, plus its downstream', () => {
+    const graph = {
+      nodes: [
+        { id: 't', kind: 'Time', inputs: [] },
+        { id: 'x', kind: 'transform', params: { translateX: '=node_t', translateY: 0 }, inputs: [] },
+        { id: 'o', kind: 'OutputFinal', inputs: ['x'] },
+      ],
+      connections: [{ from: { nodeId: 'x' }, to: { nodeId: 'o' } }],
+    };
+
+    const marked = makeHarness(graph);
+
+    expect(marked).toContain('x'); // references the Time node through translateX
+    expect(marked).toContain('o'); // downstream of the referencing node
+  });
+
+  it('does not treat a reference to a non-clock node as time-animated', () => {
+    const graph = {
+      nodes: [
+        { id: 'c', kind: 'ConstFloat', params: { value: 1 }, inputs: [] },
+        { id: 'x', kind: 'transform', params: { translateX: '=node_c' }, inputs: [] },
+      ],
+      connections: [],
+    };
+
+    // No Time/RandomTime node anywhere, so nothing should be flagged as animated.
     expect(makeHarness(graph)).toEqual([]);
   });
 });

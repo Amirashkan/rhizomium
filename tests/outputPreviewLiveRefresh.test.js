@@ -28,6 +28,7 @@ function makeHarness(graph) {
     _lastAnimPreview: -100000, // ensure the 30fps throttle never short-circuits the test
     _refreshNodePreview: (node) => refreshed.push(node.id),
     _collectWithDownstream: PreviewIntegration.prototype._collectWithDownstream,
+    _nodesReferencingClockNodes: PreviewIntegration.prototype._nodesReferencingClockNodes,
   };
   PreviewIntegration.prototype.updateAnimatedFragmentPreviews.call(self);
   return refreshed;
