@@ -117,7 +117,7 @@ export class UtilityNodes {
       case 'Compare':
         return this.compileCompare(node, getInput, nodeId);
       case 'Switch':
-        return this.compileSwitch(node, getInput, nodeId);
+        return this.compileSwitch(node, getInput, nodeId, getParam);
       case 'CustomGLSL':
         try {
           return this.compileCustomGLSL(node, getInput, nodeId);
@@ -421,12 +421,7 @@ export class UtilityNodes {
     };
   }
 
-  compileSwitch(node, getInput, nodeId) {
-    const selectParam = Math.max(0, Math.min(3, Math.floor(node.params?.select || 0)));
-    
-    // OPTIMIZED: Only evaluate the selected input to avoid compiling unused node graphs
-    // This significantly improves performance when switching between complex inputs
-    
+  compileSwitch(node, getInput, nodeId, getParam = null) {
     // Helper to get output type from node definition
     const getNodeOutputType = (inputId) => {
       if (!inputId || !window.editor?.graph?.nodes) return null;
@@ -436,7 +431,25 @@ export class UtilityNodes {
       if (!nodeDef || !nodeDef.pinsOut || nodeDef.pinsOut.length === 0) return null;
       return nodeDef.pinsOut[0].type || null;
     };
-    
+
+    // DYNAMIC SELECT: when `select` is an expression/node-reference (e.g. "=node_5"
+    // or "=sin(time)"), the chosen branch is only known at runtime. The compile-time
+    // single-branch optimization below can't represent that, so a referenced select
+    // used to floor to NaN and emit a black vec3(0.0). Detect that case and compile a
+    // runtime selection across all four inputs instead.
+    const rawSelect = node.params?.select;
+    const isDynamicSelect =
+      typeof rawSelect === 'string' && rawSelect.trim().startsWith('=') && typeof getParam === 'function';
+
+    if (isDynamicSelect) {
+      return this.compileSwitchDynamic(node, getInput, nodeId, getParam, getNodeOutputType);
+    }
+
+    // Static select (constant): only evaluate the selected input to avoid compiling
+    // unused node graphs. This significantly improves performance when switching
+    // between complex inputs.
+    const selectParam = Math.max(0, Math.min(3, Math.floor(Number(rawSelect) || 0)));
+
     // Only get the selected input - unselected inputs won't be evaluated
     const selectedIndex = selectParam;
     const selectedInput = getInput(selectedIndex, null, "vec3<f32>(0.0)");
@@ -482,6 +495,65 @@ export class UtilityNodes {
     return {
       line: `let node_${nodeId} = ${code};`,
       outputType: outputType || "vec3"
+    };
+  }
+
+  // Runtime selection for a dynamic `select` (driven by a node reference or expression).
+  // All four inputs are compiled and the active branch is chosen each frame, so a
+  // referenced Float (fixed or animated, e.g. sin(time)) actually drives the switch
+  // instead of compiling to a black vec3(0.0).
+  compileSwitchDynamic(node, getInput, nodeId, getParam, getNodeOutputType) {
+    const typeRank = { f32: 0, vec2: 1, vec3: 2, vec4: 3 };
+    const rankType = ['f32', 'vec2', 'vec3', 'vec4'];
+    const defaultForType = {
+      f32: '0.0',
+      vec2: 'vec2<f32>(0.0)',
+      vec3: 'vec3<f32>(0.0)',
+      vec4: 'vec4<f32>(0.0)',
+    };
+
+    // First pass: discover the type of each connected input (type-aware mode).
+    const inputTypeOf = (index) => {
+      const probe = getInput(index, null, defaultForType.vec3);
+      let type = (probe && typeof probe === 'object' && probe.type) ? probe.type : null;
+      // f32 from a connected node can be a stale default - prefer the node definition.
+      if ((!type || type === 'f32') && node.inputs?.[index]) {
+        const actual = getNodeOutputType(node.inputs[index]);
+        if (actual) type = actual;
+      }
+      // Only count connected inputs toward the common type.
+      return node.inputs?.[index] ? (type || 'vec3') : null;
+    };
+
+    let commonRank = -1;
+    for (let i = 0; i < 4; i++) {
+      const t = inputTypeOf(i);
+      if (t && typeRank[t] !== undefined) {
+        commonRank = Math.max(commonRank, typeRank[t]);
+      }
+    }
+    const commonType = commonRank >= 0 ? rankType[commonRank] : 'vec3';
+
+    // Second pass: fetch each input converted to the common type (string mode).
+    const branch = (i) => getInput(i, commonType, defaultForType[commonType]);
+    const in0 = branch(0);
+    const in1 = branch(1);
+    const in2 = branch(2);
+    const in3 = branch(3);
+
+    // Resolve the select expression to a runtime scalar and clamp it to a valid index.
+    const selectExpr = getParam('select', '0');
+    const sel = `sel_${nodeId}`;
+
+    // Nested select() picks in0 for index 0 (or out of range), in1/in2/in3 otherwise.
+    const chooser =
+      `select(select(select(${in0}, ${in1}, ${sel} == 1), ${in2}, ${sel} == 2), ${in3}, ${sel} == 3)`;
+
+    return {
+      line:
+        `let ${sel} = i32(round(f32(${selectExpr})));\n` +
+        `  let node_${nodeId} = ${chooser};`,
+      outputType: commonType,
     };
   }
 
