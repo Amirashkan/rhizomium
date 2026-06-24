@@ -1085,13 +1085,33 @@ connectGPURenderer(renderFunction) {
   }
 
   hasActiveAnimations() {
-    if (this.expressionSystem?.timeAnimatedNodes && typeof this.expressionSystem.timeAnimatedNodes.size === 'number') {
-      return this.expressionSystem.timeAnimatedNodes.size > 0;
+    if (this.expressionSystem?.timeAnimatedNodes?.size > 0) {
+      return true;
+    }
+    // Time / RandomTime generator nodes are driven by the clock alone — they have no
+    // time-referencing parameter expression, so the expression system never registers them in
+    // timeAnimatedNodes. Without counting them here the scene is treated as static, the render
+    // loop stops redrawing, and their previews freeze at a fixed value.
+    if (this._hasIntrinsicTimeNodes()) {
+      return true;
     }
     if (typeof this.hasTimeBasedExpressions === 'function') {
       return this.hasTimeBasedExpressions();
     }
     return false;
+  }
+
+  // True when the graph contains a node whose output advances every frame from the clock alone
+  // (Time / RandomTime), independent of any parameter expression.
+  _hasIntrinsicTimeNodes() {
+    const nodes = this.graph?.nodes;
+    if (!Array.isArray(nodes)) {
+      return false;
+    }
+    return nodes.some(node => {
+      const kind = node?.kind?.toLowerCase();
+      return kind === 'time' || kind === 'randomtime';
+    });
   }
 
   isSceneStatic(thresholdMs = this._staticSceneThresholdMs) {

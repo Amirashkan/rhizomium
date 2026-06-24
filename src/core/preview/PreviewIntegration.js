@@ -121,16 +121,33 @@ updateTimeNodes() {
   }
   this.lastSignificantUpdate = now;
 
-  // Update nodes that have time-based expressions
+  // Nodes that advance with the clock come from two sources:
+  //  1. Parameter expressions referencing time/frame/audioEnvelope, tracked by the expression
+  //     system in timeAnimatedNodes.
+  //  2. Intrinsic Time / RandomTime generator nodes, which have no such expression and are
+  //     therefore never registered above. Including them here is what keeps their previews
+  //     (and everything downstream of them) refreshing instead of freezing at a fixed value.
   const expressionSystem = window.editor?.paramPanel?.expressionSystem;
-  if (!expressionSystem?.timeAnimatedNodes || expressionSystem.timeAnimatedNodes.size === 0) {
+  const expressionTimeNodeIds = expressionSystem?.timeAnimatedNodes
+    ? Array.from(expressionSystem.timeAnimatedNodes)
+    : [];
+  const intrinsicTimeNodeIds = this.editor.graph.nodes
+    .filter(node => {
+      const kind = node?.kind?.toLowerCase();
+      return kind === 'time' || kind === 'randomtime';
+    })
+    .map(node => node.id);
+
+  const timeAnimatedNodeIds = Array.from(
+    new Set([...expressionTimeNodeIds, ...intrinsicTimeNodeIds])
+  );
+  if (timeAnimatedNodeIds.length === 0) {
     return;
   }
 
   // Collect all nodes that need updates: time-animated nodes + their dependents
   const nodesToUpdate = new Set();
-  const timeAnimatedNodeIds = Array.from(expressionSystem.timeAnimatedNodes);
-  
+
   // Add time-animated nodes themselves
   timeAnimatedNodeIds.forEach(nodeId => {
     nodesToUpdate.add(nodeId);
