@@ -67,10 +67,17 @@ Time node into a parameter animates choppily."* Captured here so the next person
 - **`a98a1e6` — `=node_<id>` references to a Time/RandomTime node compile to the
   GPU clock.** `UnifiedExpressionSystem.generateShader` now resolves such a
   reference to `g.time` (and the RandomTime `fract(sin(...))` formula, mirroring
-  `InputNodes.js`). This makes the **main GPU output animate at a true 60fps** for
-  a referenced parameter — confirmed live: `translateX: "=node_28"` compiles to
-  `g.time`, and `window.perfReport()` showed a genuine ~60fps
-  (`gpuDispatchCpu` 57.6/s, avg 57.6 fps). Tests:
+  `InputNodes.js`), so a referenced parameter is driven by the GPU clock instead
+  of a CPU value. Verified in the live compiled shader: `translateX: "=node_28"`
+  compiles to `g.time`.
+
+  ⚠️ Caveat on "60fps": `window.perfReport()` showed the *render-loop /
+  GPU-dispatch* rate at ~57.6/s (`gpuDispatchCpu`, avg-fps row) — the main loop
+  ticked ~60x/sec and dispatched a render each tick. It did **not** measure the
+  floating preview's actual *presented*-frame rate (that's the FloatingGPUPreview
+  FPS overlay `FPS: N · Mms`, via `onFramePresented`, which we never captured).
+  So this confirms the param is on the GPU clock — **not** that the preview was
+  visually a smooth 60fps on this (heavy) graph. Tests:
   `tests/timeNodeReferenceShader.test.js`.
 
 ## What was reverted (and why)
@@ -82,20 +89,31 @@ Time node into a parameter animates choppily."* Captured here so the next person
 
   It was reverted because it re-renders more node thumbnails via GPU readback
   every frame, which competes with the (shared) floating preview / main render.
-  After it shipped, the reported symptom was that **the floating preview also went
-  laggy** — i.e. it traded a confirmed-fast 60fps output for fresher thumbnails,
-  which is the wrong trade. The conservative, confirmed-good state keeps the GPU
-  output fast.
+  This graph is heavy (compute + fbm/voronoi field nodes) and lag was reported,
+  so adding per-frame GPU work is the wrong direction. Reverting is the "do no
+  harm" default — less GPU load, and no change to the actual output.
+
+  ⚠️ Honesty note: I first justified this revert with "the floating preview was a
+  confirmed 60fps before af086ba." That over-read the perfReport (see the caveat
+  above — it measured the loop/dispatch rate, not the preview's presented
+  frames), and the report's accuracy was later doubted. So treat the revert as
+  *"don't pile GPU work onto an already-heavy graph,"* **not** *"af086ba broke a
+  known-good 60fps preview."* If you check the FloatingGPUPreview FPS overlay and
+  find headroom, re-applying it (`git show af086ba`) is reasonable.
 
 ## Known remaining limitation
 
 With a Time node referenced into a parameter:
 
-- ✅ The **main GPU output / floating preview** animates at a true 60fps
-  (`a98a1e6` — the param compiles to `g.time`).
+- ✅ The referenced parameter is driven by the **GPU clock** (`a98a1e6` — it
+  compiles to `g.time`), on the same timeline as the render loop. Whether that's
+  a visually smooth 60fps depends on whether the GPU keeps up with the graph —
+  read the FloatingGPUPreview FPS overlay (`FPS: N · Mms`) for the real presented
+  rate. (Not yet verified; the perfReport we took measured loop/dispatch, not the
+  presented frames.)
 - ⚠️ The **node-editor thumbnails** of the referencing node (and its downstream)
   refresh at the generic preview cadence (~10fps), so they look choppy relative
-  to the live output. This is cosmetic (thumbnails only).
+  to the live output. Cosmetic (thumbnails only).
 
 ### If you want to revisit the thumbnail cadence later
 
