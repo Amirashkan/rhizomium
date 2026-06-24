@@ -139,7 +139,7 @@ updateTimeNodes() {
     .map(node => node.id);
 
   const timeAnimatedNodeIds = Array.from(
-    new Set([...expressionTimeNodeIds, ...intrinsicTimeNodeIds, ...this._nodesReferencingClockNodes()])
+    new Set([...expressionTimeNodeIds, ...intrinsicTimeNodeIds])
   );
   if (timeAnimatedNodeIds.length === 0) {
     return;
@@ -226,40 +226,6 @@ updateTimeNodes() {
     this.editor.draw();
   }
 }
-
-  // Node ids whose parameters reference a Time / RandomTime generator node (e.g. a Transform with
-  // translateX = "=node_28"). These animate from the clock exactly like a literal `=time`
-  // expression, but the expression system only registers the literal-"time" form in
-  // timeAnimatedNodes — so without this their thumbnails refresh only at the slow generic preview
-  // cadence and look choppy even though the GPU output runs at 60fps. Detecting the node-reference
-  // form here lets the preview-refresh paths treat them (and their downstream) as time-animated.
-  _nodesReferencingClockNodes() {
-    const nodes = this.editor.graph?.nodes;
-    if (!Array.isArray(nodes)) return [];
-
-    const clockIds = new Set();
-    for (const n of nodes) {
-      const kind = n?.kind?.toLowerCase();
-      if (kind === 'time' || kind === 'randomtime') clockIds.add(`${n.id}`);
-    }
-    if (clockIds.size === 0) return [];
-
-    const result = [];
-    for (const node of nodes) {
-      const params = node?.params;
-      if (!params) continue;
-      for (const value of Object.values(params)) {
-        if (typeof value !== 'string' || !value.includes('node_')) continue;
-        const refs = value.match(/node_(\w+)/g) || [];
-        if (refs.some(ref => clockIds.has(ref.slice('node_'.length)))) {
-          result.push(node.id);
-          break;
-        }
-      }
-    }
-    return result;
-  }
-
   // Live-refresh GPU thumbnails each frame (throttled) for nodes whose output evolves on its
   // own: every compute node (feedback, reaction-diffusion, particles, fluid, animated noise) AND
   // everything downstream of them, plus fragment nodes that reference time/audio in their params
@@ -295,13 +261,6 @@ updateTimeNodes() {
     const animated = window.editor?.paramPanel?.expressionSystem?.timeAnimatedNodes;
     if (animated) {
       animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited));
-    }
-
-    // Nodes that drive a parameter from a Time / RandomTime node via a "=node_<id>" reference
-    // (e.g. a Transform's translateX). The expression system never registers these, so without
-    // this their thumbnail (and everything downstream) would crawl at the generic preview cadence.
-    for (const id of this._nodesReferencingClockNodes()) {
-      this._collectWithDownstream(id, toUpdate, visited);
     }
 
     // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
