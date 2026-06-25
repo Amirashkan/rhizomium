@@ -759,6 +759,30 @@ case "ConicGradient": {
               break;
             }
 
+            case "Compare": {
+              // Mirror compileCompare(): output is select(0.0, 1.0, comparison),
+              // i.e. 1.0 when the comparison holds, 0.0 otherwise. Without this case
+              // Compare fell through to the default (result = 0), so the numeric pin
+              // preview always showed 0.00 even though the thumbnail rendered correctly.
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+              const operator = node.params?.operator || "greater";
+              const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.001));
+
+              let comparison;
+              switch (operator) {
+                case "equal":        comparison = Math.abs(a - b) < epsilon; break;
+                case "notEqual":     comparison = Math.abs(a - b) >= epsilon; break;
+                case "greater":      comparison = a > b; break;
+                case "greaterEqual": comparison = a >= b; break;
+                case "less":         comparison = a < b; break;
+                case "lessEqual":    comparison = a <= b; break;
+                default:             comparison = a > b;
+              }
+              result = comparison ? 1 : 0;
+              break;
+            }
+
             case "Mix":
             case "Lerp": {
               const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
