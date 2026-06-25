@@ -68,6 +68,10 @@ describe('updateTimeNodes refreshes intrinsic Time / RandomTime nodes', () => {
       },
       previewSystem: {},
       lastSignificantUpdate: -1e6, // bypass the 100ms throttle
+      // Helpers updateTimeNodes calls on `this`; bind them off the prototype since we don't
+      // construct PreviewIntegration here.
+      _buildExpressionDependentsMap: PreviewIntegration.prototype._buildExpressionDependentsMap,
+      _extractNodeReferences: PreviewIntegration.prototype._extractNodeReferences,
     };
     // The expression-animated set is read off window.editor, the graph off this.editor.
     window.editor = {
@@ -132,5 +136,41 @@ describe('updateTimeNodes refreshes intrinsic Time / RandomTime nodes', () => {
     };
 
     expect(makeHarness(graph)).toEqual([]);
+  });
+
+  // Regression: a node that consumes an animated node through a *parameter expression* (e.g. a
+  // ternary `=node_1 > 0.5 ? 1 : 0`) rather than a wire must also be refreshed each frame. Before
+  // the fix only wired dependents were followed, so the value shown beside the float's output pin
+  // froze while the parameter panel readout (re-evaluated on every refresh) stayed correct.
+  it('marks an expression-only dependent (e.g. =node_1 > 0.5 ? 1 : 0) dirty when its referenced node animates', () => {
+    const graph = {
+      nodes: [
+        { id: '1', kind: 'Time', inputs: [] },
+        { id: '2', kind: 'ConstFloat', inputs: [], params: { value: '=node_1 > 0.5 ? 1 : 0' } },
+      ],
+      connections: [], // no wire — the dependency exists only through the expression
+    };
+
+    const marked = makeHarness(graph);
+
+    expect(marked).toContain('1'); // the Time node itself
+    expect(marked).toContain('2'); // the float whose expression references it
+  });
+
+  it('follows expression references transitively through a chain', () => {
+    const graph = {
+      nodes: [
+        { id: '1', kind: 'Time', inputs: [] },
+        { id: '2', kind: 'ConstFloat', inputs: [], params: { value: '=node_1 * 2' } },
+        { id: '3', kind: 'ConstFloat', inputs: [], params: { value: '=node_2 + 1' } },
+      ],
+      connections: [],
+    };
+
+    const marked = makeHarness(graph);
+
+    expect(marked).toContain('1');
+    expect(marked).toContain('2');
+    expect(marked).toContain('3');
   });
 });
