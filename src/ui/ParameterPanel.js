@@ -901,12 +901,13 @@ case 'flip2d':
             definitions.push({
               name: param.name,
               type: param.type === 'bool' ? 'boolean' : param.type,
-              displayName: param.label || param.name.charAt(0).toUpperCase() + param.name.slice(1),
+              displayName: param.displayName || param.label || param.name.charAt(0).toUpperCase() + param.name.slice(1),
               default: param.default,
               min: param.min,
               max: param.max,
               options: param.options, // Preserve options array for select parameters
               accept: param.accept, // Preserve accept for file inputs
+              action: param.action, // Preserve action for button parameters
               description: param.label || param.description || `${param.name} parameter`
             });
           });
