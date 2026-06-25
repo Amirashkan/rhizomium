@@ -153,24 +153,41 @@ updateTimeNodes() {
     nodesToUpdate.add(nodeId);
   });
 
-  // Find all downstream nodes that depend on time-animated nodes
-  if (this.editor.graph.connections) {
-    const findDependents = (nodeId, visited = new Set()) => {
-      if (visited.has(nodeId)) return;
-      visited.add(nodeId);
+  // A node can consume an animated node in two ways: through a wire, or through a parameter
+  // expression that references it as `node_<id>` (e.g. a Float whose value is
+  // `=node_5 > 0.5 ? 1 : 0`). Only the wired form is tracked by graph.connections, so an
+  // expression-only dependent was never marked dirty here and its PreviewComputer value froze —
+  // which is exactly what is shown beside the output pin. (The parameter panel re-evaluates
+  // expressions on every refresh, which is why its green readout stayed correct.) Build a reverse
+  // map of expression references so these dependents refresh alongside the wired ones.
+  const expressionDependents = this._buildExpressionDependentsMap();
 
-      this.editor.graph.connections
-        .filter(conn => conn.from.nodeId === nodeId)
-        .forEach(conn => {
-          nodesToUpdate.add(conn.to.nodeId);
-          findDependents(conn.to.nodeId, visited);
-        });
-    };
+  // Find all downstream nodes that depend on time-animated nodes, following both wired
+  // connections and `node_<id>` expression references.
+  const connections = this.editor.graph.connections || [];
+  const findDependents = (nodeId, visited = new Set()) => {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
 
-    timeAnimatedNodeIds.forEach(nodeId => {
-      findDependents(nodeId);
-    });
-  }
+    connections
+      .filter(conn => conn.from?.nodeId === nodeId)
+      .forEach(conn => {
+        nodesToUpdate.add(conn.to.nodeId);
+        findDependents(conn.to.nodeId, visited);
+      });
+
+    const exprDeps = expressionDependents.get(String(nodeId));
+    if (exprDeps) {
+      exprDeps.forEach(depId => {
+        nodesToUpdate.add(depId);
+        findDependents(depId, visited);
+      });
+    }
+  };
+
+  timeAnimatedNodeIds.forEach(nodeId => {
+    findDependents(nodeId);
+  });
 
   if (nodesToUpdate.size === 0) {
     return;
@@ -226,6 +243,49 @@ updateTimeNodes() {
     this.editor.draw();
   }
 }
+
+  /**
+   * Build a reverse dependency map from node id -> set of node ids whose parameter expressions
+   * reference it via `node_<id>`. Lets nodes that consume an animated node through an expression
+   * (rather than a wire) refresh each frame alongside their wired counterparts.
+   */
+  _buildExpressionDependentsMap() {
+    const map = new Map();
+    const nodes = this.editor?.graph?.nodes;
+    if (!Array.isArray(nodes)) return map;
+
+    for (const node of nodes) {
+      if (!node?.params || typeof node.params !== 'object') continue;
+      const referencedIds = new Set();
+      for (const value of Object.values(node.params)) {
+        for (const refId of this._extractNodeReferences(value)) {
+          referencedIds.add(refId);
+        }
+      }
+      referencedIds.forEach(refId => {
+        if (!map.has(refId)) map.set(refId, new Set());
+        map.get(refId).add(node.id);
+      });
+    }
+    return map;
+  }
+
+  /**
+   * Extract referenced node ids (as strings) from a parameter expression.
+   * Mirrors PreviewComputer._extractNodeReferences: "=node_5 > 0.5 ? 1 : 0" -> ["5"].
+   */
+  _extractNodeReferences(paramValue) {
+    if (!paramValue || typeof paramValue !== 'string') return [];
+    const trimmed = paramValue.trim();
+    if (!trimmed.startsWith('=') && !trimmed.includes('node_')) return [];
+
+    const nodeRefPattern = /node_(\d+)(?:_\w+)?/g;
+    const ids = [];
+    for (const match of trimmed.matchAll(nodeRefPattern)) {
+      ids.push(match[1]);
+    }
+    return ids;
+  }
   // Live-refresh GPU thumbnails each frame (throttled) for nodes whose output evolves on its
   // own: every compute node (feedback, reaction-diffusion, particles, fluid, animated noise) AND
   // everything downstream of them, plus fragment nodes that reference time/audio in their params
