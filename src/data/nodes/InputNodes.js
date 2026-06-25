@@ -79,10 +79,10 @@ export const InputNodes = {
     cat: "Input",
     inputs: 0,
     pinsIn: [],
+    // Single output: .xy = normalized cursor position (0..1), .z = click state
+    // (1.0 while a mouse button is held over the preview, 0.0 otherwise).
     pinsOut: [
-      { label: "pos", type: "vec2" },
-      { label: "x", type: "f32" },
-      { label: "y", type: "f32" },
+      { label: "mouse", type: "vec3" },
     ],
     params: [],
   },

@@ -533,10 +533,11 @@ case "ConicGradient": {
             }
 
             case "Mouse": {
-              // Live cursor position (normalized 0..1) tracked by the GPU
-              // renderer; falls back to screen center before any movement.
+              // Live cursor state tracked by the GPU renderer: xy = position
+              // (normalized 0..1), z = click state. Falls back to screen center,
+              // not pressed, before any input.
               const m = (typeof window !== "undefined" && window._mousePosition) || null;
-              result = m ? [m[0], m[1]] : [0.5, 0.5];
+              result = m ? [m[0], m[1], m[2] || 0] : [0.5, 0.5, 0];
               break;
             }
 

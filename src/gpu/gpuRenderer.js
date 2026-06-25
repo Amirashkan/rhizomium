@@ -33,9 +33,10 @@ function analyzeBindings(wgsl) {
 }
 
 export class GPURenderer {
-  // Fallback mouse position (screen center) used before any pointer movement is
-  // recorded, or in headless/offscreen contexts with no window global.
-  static _defaultMouse = new Float32Array([0.5, 0.5]);
+  // Fallback mouse state (screen center, not pressed) used before any pointer
+  // input is recorded, or in headless/offscreen contexts with no window global.
+  // Layout: [x, y, pressed].
+  static _defaultMouse = new Float32Array([0.5, 0.5, 0.0]);
 
   constructor(device, canvas) {
     this.device = device;
@@ -755,12 +756,14 @@ export class GPURenderer {
     const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
     const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-    // Mouse position, normalized 0..1 with Y matching the UV convention.
+    // Mouse: xy = position (normalized 0..1, Y matching the UV convention),
+    // z = click state (1.0 while a button is held). g.mouse is a vec3 at offset
+    // 32; float 11 is struct padding.
     const mouse = window._mousePosition || GPURenderer._defaultMouse;
 
     // PERFORMANCE: Reuse Float32Array to avoid allocation every frame
     if (!this._globalsUniformBuffer) {
-      this._globalsUniformBuffer = new Float32Array(10);
+      this._globalsUniformBuffer = new Float32Array(12);
     }
     this._globalsUniformBuffer[0] = width;
     this._globalsUniformBuffer[1] = height;
@@ -772,6 +775,7 @@ export class GPURenderer {
     this._globalsUniformBuffer[7] = audioEnvelopeFull;
     this._globalsUniformBuffer[8] = mouse[0];
     this._globalsUniformBuffer[9] = mouse[1];
+    this._globalsUniformBuffer[10] = mouse[2] || 0.0;
 
     this.device.queue.writeBuffer(target.buffer, 0, this._globalsUniformBuffer);
   }
@@ -792,19 +796,20 @@ export class GPURenderer {
     const data = new Float32Array([
       width, height, timeSec, audioEnvelope,
       audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull,
-      mouse[0], mouse[1]
+      mouse[0], mouse[1], mouse[2] || 0.0, 0.0
     ]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 
-  // Attach a pointer listener that records the normalized cursor position over
-  // this canvas into the shared window._mousePosition global consumed by the
-  // Globals uniform (and thus the "Mouse" input node).
+  // Attach pointer listeners that record the cursor state over this canvas into
+  // the shared window._mousePosition global consumed by the Globals uniform (and
+  // thus the "Mouse" input node). Layout: [x, y, pressed].
   _setupMouseTracking() {
     if (!this.canvas || typeof this.canvas.addEventListener !== "function") return;
 
-    if (!window._mousePosition) {
-      window._mousePosition = new Float32Array([0.5, 0.5]);
+    // Keep a length-3 buffer even if a previous (length-2) one exists.
+    if (!window._mousePosition || window._mousePosition.length < 3) {
+      window._mousePosition = new Float32Array([0.5, 0.5, 0.0]);
     }
 
     this._onPointerMove = (e) => {
@@ -816,7 +821,17 @@ export class GPURenderer {
       window._mousePosition[0] = Math.min(1, Math.max(0, x));
       window._mousePosition[1] = Math.min(1, Math.max(0, y));
     };
+    // Press state: 1.0 while a button is held over the canvas, 0.0 once released
+    // or the pointer leaves. pointerup is bound on window so a release outside
+    // the canvas still clears the state.
+    this._onPointerDown = () => { window._mousePosition[2] = 1.0; };
+    this._onPointerUp = () => { window._mousePosition[2] = 0.0; };
+    this._onPointerLeave = () => { window._mousePosition[2] = 0.0; };
+
     this.canvas.addEventListener("pointermove", this._onPointerMove, { passive: true });
+    this.canvas.addEventListener("pointerdown", this._onPointerDown, { passive: true });
+    this.canvas.addEventListener("pointerleave", this._onPointerLeave, { passive: true });
+    window.addEventListener("pointerup", this._onPointerUp, { passive: true });
   }
 
   presentFallbackColor(color = { r: 0.5, g: 0.5, b: 0.5, a: 1.0 }) {

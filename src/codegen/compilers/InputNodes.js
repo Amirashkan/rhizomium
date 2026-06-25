@@ -84,7 +84,7 @@ export class InputNodes {
       case 'Mouse':
         return {
           line: `let node_${nodeId} = g.mouse;`,
-          outputType: "vec2"
+          outputType: "vec3"
         };
         
       case 'Resolution':
