@@ -706,8 +706,9 @@ export class FragmentTextureRenderer {
           // Aspect is a single float; allocate one vec4 (16 bytes) for alignment
           size = 16;
         } else if (meta.varName === 'g') {
-          // Globals store resolution.xy, time, and 5 audio envelope values (8 floats total)
-          size = 32;
+          // Globals store resolution.xy, time, 5 audio envelope values, and mouse.xy
+          // (10 floats = 40 bytes; rounded up to 48 for 16-byte alignment)
+          size = 48;
         } else if (meta.varName === 'u_params') {
           // CRITICAL: Size from the subgraph's own uniform snapshot so the buffer
           // always matches the ParamUniforms struct compiled for THIS pipeline.
@@ -890,6 +891,7 @@ export class FragmentTextureRenderer {
     // Update globals uniform (g)
     const globalsBuffer = uniformBuffers.get('g');
     if (globalsBuffer) {
+      const mouse = (typeof window !== "undefined" && window._mousePosition) || [0.5, 0.5];
       const globalsData = new Float32Array([
         width,
         height,
@@ -898,7 +900,9 @@ export class FragmentTextureRenderer {
         audioContext.audioEnvelopeBass || 0,
         audioContext.audioEnvelopeMids || 0,
         audioContext.audioEnvelopeHighs || 0,
-        audioContext.audioEnvelopeFull || 0
+        audioContext.audioEnvelopeFull || 0,
+        mouse[0],
+        mouse[1]
       ]);
       this.device.queue.writeBuffer(globalsBuffer, 0, globalsData);
     }
