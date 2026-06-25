@@ -33,6 +33,10 @@ function analyzeBindings(wgsl) {
 }
 
 export class GPURenderer {
+  // Fallback mouse position (screen center) used before any pointer movement is
+  // recorded, or in headless/offscreen contexts with no window global.
+  static _defaultMouse = new Float32Array([0.5, 0.5]);
+
   constructor(device, canvas) {
     this.device = device;
     this.canvas = canvas;
@@ -46,6 +50,12 @@ export class GPURenderer {
       alphaMode: "premultiplied",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
+
+    // Track the cursor over this canvas so the "Mouse" input node has a live
+    // value. Position is normalized to 0..1 with Y flipped to match the shader's
+    // UV convention (uv.y = 0 at the bottom). Stored on a shared window global so
+    // every renderer (main editor + floating preview) feeds the same value.
+    this._setupMouseTracking();
 
     this.pipeline = null;
     this.bindGroups = []; // Sparse array indexed by group index (not layout index)
@@ -392,8 +402,9 @@ export class GPURenderer {
           // Aspect is a single float; allocate one vec4 (16 bytes) for alignment.
           size = 16;
         } else if (varName === "g") {
-          // Globals store resolution.xy, time, and 5 audio envelope values (8 floats total)
-          size = 32;
+          // Globals store resolution.xy, time, 5 audio envelope values, and mouse.xy
+          // (10 floats = 40 bytes; rounded up to 48 for 16-byte alignment)
+          size = 48;
         } else if (varName === "u_params") {
           // Parameter uniforms - calculate size from uniformManager
           const uniformManager = window.nodeCompiler?.uniformManager;
@@ -744,9 +755,12 @@ export class GPURenderer {
     const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
     const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
+    // Mouse position, normalized 0..1 with Y matching the UV convention.
+    const mouse = window._mousePosition || GPURenderer._defaultMouse;
+
     // PERFORMANCE: Reuse Float32Array to avoid allocation every frame
     if (!this._globalsUniformBuffer) {
-      this._globalsUniformBuffer = new Float32Array(8);
+      this._globalsUniformBuffer = new Float32Array(10);
     }
     this._globalsUniformBuffer[0] = width;
     this._globalsUniformBuffer[1] = height;
@@ -756,6 +770,8 @@ export class GPURenderer {
     this._globalsUniformBuffer[5] = audioEnvelopeMids;
     this._globalsUniformBuffer[6] = audioEnvelopeHighs;
     this._globalsUniformBuffer[7] = audioEnvelopeFull;
+    this._globalsUniformBuffer[8] = mouse[0];
+    this._globalsUniformBuffer[9] = mouse[1];
 
     this.device.queue.writeBuffer(target.buffer, 0, this._globalsUniformBuffer);
   }
@@ -771,11 +787,36 @@ export class GPURenderer {
     const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
     const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
+    const mouse = window._mousePosition || GPURenderer._defaultMouse;
+
     const data = new Float32Array([
       width, height, timeSec, audioEnvelope,
-      audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull
+      audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull,
+      mouse[0], mouse[1]
     ]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
+  }
+
+  // Attach a pointer listener that records the normalized cursor position over
+  // this canvas into the shared window._mousePosition global consumed by the
+  // Globals uniform (and thus the "Mouse" input node).
+  _setupMouseTracking() {
+    if (!this.canvas || typeof this.canvas.addEventListener !== "function") return;
+
+    if (!window._mousePosition) {
+      window._mousePosition = new Float32Array([0.5, 0.5]);
+    }
+
+    this._onPointerMove = (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const x = (e.clientX - rect.left) / rect.width;
+      // Flip Y so 0 is the bottom, matching the shader UV convention.
+      const y = 1.0 - (e.clientY - rect.top) / rect.height;
+      window._mousePosition[0] = Math.min(1, Math.max(0, x));
+      window._mousePosition[1] = Math.min(1, Math.max(0, y));
+    };
+    this.canvas.addEventListener("pointermove", this._onPointerMove, { passive: true });
   }
 
   presentFallbackColor(color = { r: 0.5, g: 0.5, b: 0.5, a: 1.0 }) {
