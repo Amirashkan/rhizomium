@@ -405,13 +405,35 @@ updateTimeNodes() {
   // committed ("entered"). node.params is already live during the drag (the main canvas tracks
   // it), so the preview render/readback picks up the current value.
   _liveDragPreviewUpdate(node) {
-    const spm = window.shaderPreviewManager;
-    if (!spm || !spm.enableGPUPreview || !node?.id || !this.editor.graph?.nodes) return;
+    if (!node?.id || !this.editor.graph?.nodes) return;
 
     const now = performance.now();
     if (!this._lastDragPreview) this._lastDragPreview = 0;
     if (now - this._lastDragPreview < 33) return; // ~30 fps cap (queue self-limits under load)
     this._lastDragPreview = now;
+
+    // Refresh the CPU-computed node values that back the numeric pin-value labels. Those labels
+    // read from previewComputer.lastComputedValues, which the main render loop only recomputes
+    // when NOT dragging — so without this a computed downstream label (e.g. a Compare node's
+    // output) stays frozen at its pre-drag value until mouseup, even though the GPU thumbnail
+    // tracks the drag live. node.params is already updated by the drag handler, and
+    // computePreviews only re-evaluates dirty nodes + their dependents (detected via the param
+    // hash), so this stays cheap. markDirty so the canvas repaints the refreshed labels even
+    // when GPU preview — which would otherwise flag the canvas via its thumbnail readback — is
+    // disabled.
+    const previewComputer = this.editor.previewComputer;
+    if (previewComputer?.computePreviews) {
+      try {
+        previewComputer.computePreviews(this.editor.graph);
+        this.editor.markDirty?.('drag-value-preview');
+      } catch (e) {
+        // Non-fatal: numeric labels just stay stale for this frame.
+      }
+    }
+
+    // GPU thumbnail refresh — only when GPU preview is enabled.
+    const spm = window.shaderPreviewManager;
+    if (!spm || !spm.enableGPUPreview) return;
 
     const toUpdate = new Set();
     this._collectWithDownstream(node.id, toUpdate, new Set(), this._buildExpressionDependentsMap());
