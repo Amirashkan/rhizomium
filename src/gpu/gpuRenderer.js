@@ -35,8 +35,8 @@ function analyzeBindings(wgsl) {
 export class GPURenderer {
   // Fallback mouse state (screen center, not pressed) used before any pointer
   // input is recorded, or in headless/offscreen contexts with no window global.
-  // Layout: [x, y, pressed].
-  static _defaultMouse = new Float32Array([0.5, 0.5, 0.0]);
+  // Layout follows iMouse: [x, y, held, click].
+  static _defaultMouse = new Float32Array([0.5, 0.5, 0.0, 0.0]);
 
   constructor(device, canvas) {
     this.device = device;
@@ -756,9 +756,9 @@ export class GPURenderer {
     const audioEnvelopeHighs = window._audioEnvelopeHighs || 0.0;
     const audioEnvelopeFull = window._audioEnvelopeFull || 0.0;
 
-    // Mouse: xy = position (normalized 0..1, Y matching the UV convention),
-    // z = click state (1.0 while a button is held). g.mouse is a vec3 at offset
-    // 32; float 11 is struct padding.
+    // Mouse (iMouse-style vec4 at offset 32): xy = position (normalized 0..1, Y
+    // matching the UV convention), z = held (1.0 while a button is down), w =
+    // click (1.0 on the press frame).
     const mouse = window._mousePosition || GPURenderer._defaultMouse;
 
     // PERFORMANCE: Reuse Float32Array to avoid allocation every frame
@@ -776,6 +776,7 @@ export class GPURenderer {
     this._globalsUniformBuffer[8] = mouse[0];
     this._globalsUniformBuffer[9] = mouse[1];
     this._globalsUniformBuffer[10] = mouse[2] || 0.0;
+    this._globalsUniformBuffer[11] = mouse[3] || 0.0;
 
     this.device.queue.writeBuffer(target.buffer, 0, this._globalsUniformBuffer);
   }
@@ -796,20 +797,20 @@ export class GPURenderer {
     const data = new Float32Array([
       width, height, timeSec, audioEnvelope,
       audioEnvelopeBass, audioEnvelopeMids, audioEnvelopeHighs, audioEnvelopeFull,
-      mouse[0], mouse[1], mouse[2] || 0.0, 0.0
+      mouse[0], mouse[1], mouse[2] || 0.0, mouse[3] || 0.0
     ]);
     this.device.queue.writeBuffer(target.buffer, 0, data);
   }
 
   // Attach pointer listeners that record the cursor state over this canvas into
   // the shared window._mousePosition global consumed by the Globals uniform (and
-  // thus the "Mouse" input node). Layout: [x, y, pressed].
+  // thus the "Mouse" input node). Layout follows iMouse: [x, y, held, click].
   _setupMouseTracking() {
     if (!this.canvas || typeof this.canvas.addEventListener !== "function") return;
 
-    // Keep a length-3 buffer even if a previous (length-2) one exists.
-    if (!window._mousePosition || window._mousePosition.length < 3) {
-      window._mousePosition = new Float32Array([0.5, 0.5, 0.0]);
+    // Keep a length-4 buffer even if a previous (shorter) one exists.
+    if (!window._mousePosition || window._mousePosition.length < 4) {
+      window._mousePosition = new Float32Array([0.5, 0.5, 0.0, 0.0]);
     }
 
     this._onPointerMove = (e) => {
@@ -821,10 +822,23 @@ export class GPURenderer {
       window._mousePosition[0] = Math.min(1, Math.max(0, x));
       window._mousePosition[1] = Math.min(1, Math.max(0, y));
     };
-    // Press state: 1.0 while a button is held over the canvas, 0.0 once released
-    // or the pointer leaves. pointerup is bound on window so a release outside
-    // the canvas still clears the state.
-    this._onPointerDown = () => { window._mousePosition[2] = 1.0; };
+    // .z is the held state (1.0 while a button is down). pointerup is bound on
+    // window so a release outside the canvas still clears it. .w is a one-frame
+    // click pulse, set on press and cleared after the next rendered frame (a
+    // double rAF guarantees at least one frame — and one preview recompute —
+    // observes it before it resets).
+    this._onPointerDown = () => {
+      const m = window._mousePosition;
+      m[2] = 1.0;
+      m[3] = 1.0;
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (window._mousePosition) window._mousePosition[3] = 0.0;
+        }));
+      } else {
+        m[3] = 0.0;
+      }
+    };
     this._onPointerUp = () => { window._mousePosition[2] = 0.0; };
     this._onPointerLeave = () => { window._mousePosition[2] = 0.0; };
 

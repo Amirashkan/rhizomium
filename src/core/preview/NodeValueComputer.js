@@ -122,10 +122,10 @@ case "checkerfield": {
           break;
 
         case "mouse": {
-          // Live cursor state tracked by the GPU renderer: xy = position
-          // (normalized 0..1), z = click state.
+          // Live cursor state tracked by the GPU renderer (iMouse layout):
+          // xy = position (normalized 0..1), z = held, w = click.
           const m = (typeof window !== "undefined" && window._mousePosition) || null;
-          result = m ? [m[0], m[1], m[2] || 0] : [0.5, 0.5, 0];
+          result = m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];
           break;
         }
 

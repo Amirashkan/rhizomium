@@ -891,7 +891,7 @@ export class FragmentTextureRenderer {
     // Update globals uniform (g)
     const globalsBuffer = uniformBuffers.get('g');
     if (globalsBuffer) {
-      const mouse = (typeof window !== "undefined" && window._mousePosition) || [0.5, 0.5, 0];
+      const mouse = (typeof window !== "undefined" && window._mousePosition) || [0.5, 0.5, 0, 0];
       const globalsData = new Float32Array([
         width,
         height,
@@ -904,7 +904,7 @@ export class FragmentTextureRenderer {
         mouse[0],
         mouse[1],
         mouse[2] || 0,
-        0
+        mouse[3] || 0
       ]);
       this.device.queue.writeBuffer(globalsBuffer, 0, globalsData);
     }
