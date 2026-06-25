@@ -1110,9 +1110,12 @@ connectGPURenderer(renderFunction) {
     }
     return nodes.some(node => {
       const kind = node?.kind?.toLowerCase();
-      // Mouse pulls its value from window._mousePosition each frame, so the render
-      // loop must stay alive while one exists (same reasoning as Time/RandomTime).
-      return kind === 'time' || kind === 'randomtime' || kind === 'mouse';
+      // Mouse is intentionally NOT treated as an intrinsic animation: it changes
+      // only on pointer input, not the clock. Its preview value is refreshed
+      // event-driven via PreviewIntegration.notifyMouseInput(), so it must not
+      // force a permanent animation loop / continuous recompute (which would
+      // compete with the final preview).
+      return kind === 'time' || kind === 'randomtime';
     });
   }
 

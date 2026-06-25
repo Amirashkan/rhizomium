@@ -813,6 +813,13 @@ export class GPURenderer {
       window._mousePosition = new Float32Array([0.5, 0.5, 0.0, 0.0]);
     }
 
+    // Refresh CPU-side Mouse previews (pin readouts/thumbnails) only on actual
+    // pointer input, on PreviewIntegration's own throttle — keeps this work off
+    // the render loop so it never throttles the final preview.
+    const notifyMouseInput = () => {
+      try { window.editor?.previewIntegration?.notifyMouseInput?.(); } catch (_) {}
+    };
+
     this._onPointerMove = (e) => {
       const rect = this.canvas.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
@@ -821,6 +828,7 @@ export class GPURenderer {
       const y = 1.0 - (e.clientY - rect.top) / rect.height;
       window._mousePosition[0] = Math.min(1, Math.max(0, x));
       window._mousePosition[1] = Math.min(1, Math.max(0, y));
+      notifyMouseInput();
     };
     // .z is the held state (1.0 while a button is down). pointerup is bound on
     // window so a release outside the canvas still clears it. .w is a one-frame
@@ -831,6 +839,7 @@ export class GPURenderer {
       const m = window._mousePosition;
       m[2] = 1.0;
       m[3] = 1.0;
+      notifyMouseInput();
       if (typeof requestAnimationFrame === "function") {
         requestAnimationFrame(() => requestAnimationFrame(() => {
           if (window._mousePosition) window._mousePosition[3] = 0.0;
@@ -839,8 +848,8 @@ export class GPURenderer {
         m[3] = 0.0;
       }
     };
-    this._onPointerUp = () => { window._mousePosition[2] = 0.0; };
-    this._onPointerLeave = () => { window._mousePosition[2] = 0.0; };
+    this._onPointerUp = () => { window._mousePosition[2] = 0.0; notifyMouseInput(); };
+    this._onPointerLeave = () => { window._mousePosition[2] = 0.0; notifyMouseInput(); };
 
     this.canvas.addEventListener("pointermove", this._onPointerMove, { passive: true });
     this.canvas.addEventListener("pointerdown", this._onPointerDown, { passive: true });

@@ -134,10 +134,12 @@ updateTimeNodes() {
   const intrinsicTimeNodeIds = this.editor.graph.nodes
     .filter(node => {
       const kind = node?.kind?.toLowerCase();
-      // Mouse is input- rather than clock-driven, but like Time/RandomTime its value
-      // comes from outside the graph (window._mousePosition) with no parameter
-      // expression, so it must be refreshed every frame or its preview freezes.
-      return kind === 'time' || kind === 'randomtime' || kind === 'mouse';
+      // Mouse is deliberately excluded here: it is input-driven, not clock-driven.
+      // Refreshing it every frame on this shared path kept the scene permanently
+      // "animated" and ran the heavy recompute continuously, which throttled the
+      // final preview. Mouse previews are refreshed event-driven in
+      // notifyMouseInput() instead, on a throttle separate from the render path.
+      return kind === 'time' || kind === 'randomtime';
     })
     .map(node => node.id);
 
@@ -246,6 +248,65 @@ updateTimeNodes() {
     this.editor.draw();
   }
 }
+
+  // Event-driven refresh of Mouse node previews and everything downstream of them.
+  // Called from the GPU renderer's pointer listeners (not the per-frame loop), so it
+  // runs ONLY while the cursor is actually moving/clicking over the preview, and on
+  // its own throttle — keeping the mouse value-update cost entirely separate from the
+  // final GPU preview, which reads window._mousePosition every frame on its own.
+  notifyMouseInput() {
+    if (!this.editor?.graph?.nodes || !this.editor?.previewComputer) return;
+
+    const now = performance.now();
+    if (!this._lastMouseInputUpdate) this._lastMouseInputUpdate = 0;
+    // Throttle the value/thumbnail recompute independently of the render loop.
+    if (now - this._lastMouseInputUpdate < 50) return;
+    this._lastMouseInputUpdate = now;
+
+    const mouseNodeIds = this.editor.graph.nodes
+      .filter(node => node?.kind?.toLowerCase() === 'mouse')
+      .map(node => node.id);
+    if (mouseNodeIds.length === 0) return;
+
+    // Collect mouse nodes + transitive dependents (wired connections AND
+    // node_<id> parameter-expression references), mirroring updateTimeNodes().
+    const nodesToUpdate = new Set(mouseNodeIds);
+    const expressionDependents = this._buildExpressionDependentsMap();
+    const connections = this.editor.graph.connections || [];
+    const findDependents = (nodeId, visited = new Set()) => {
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+      connections
+        .filter(conn => conn.from?.nodeId === nodeId)
+        .forEach(conn => {
+          nodesToUpdate.add(conn.to.nodeId);
+          findDependents(conn.to.nodeId, visited);
+        });
+      const exprDeps = expressionDependents.get(String(nodeId));
+      if (exprDeps) {
+        exprDeps.forEach(depId => {
+          nodesToUpdate.add(depId);
+          findDependents(depId, visited);
+        });
+      }
+    };
+    mouseNodeIds.forEach(nodeId => findDependents(nodeId));
+
+    const pc = this.editor.previewComputer;
+    nodesToUpdate.forEach(nodeId => pc.markNodeDirty(nodeId, 'mouse-input'));
+    pc.requestPreviewComputation(
+      this.editor.graph,
+      { time: performance.now() / 1000 },
+      {},
+      () => {
+        if (this.editor.paramPanel?.refreshParameterDisplays) {
+          this.editor.paramPanel.refreshParameterDisplays();
+        }
+        if (this.editor.markDirty) this.editor.markDirty('mouse-input');
+        this.editor.draw();
+      }
+    );
+  }
 
   /**
    * Build a reverse dependency map from node id -> set of node ids whose parameter expressions
