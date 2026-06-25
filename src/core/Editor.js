@@ -1110,7 +1110,9 @@ connectGPURenderer(renderFunction) {
     }
     return nodes.some(node => {
       const kind = node?.kind?.toLowerCase();
-      return kind === 'time' || kind === 'randomtime';
+      // Mouse pulls its value from window._mousePosition each frame, so the render
+      // loop must stay alive while one exists (same reasoning as Time/RandomTime).
+      return kind === 'time' || kind === 'randomtime' || kind === 'mouse';
     });
   }
 

@@ -134,7 +134,10 @@ updateTimeNodes() {
   const intrinsicTimeNodeIds = this.editor.graph.nodes
     .filter(node => {
       const kind = node?.kind?.toLowerCase();
-      return kind === 'time' || kind === 'randomtime';
+      // Mouse is input- rather than clock-driven, but like Time/RandomTime its value
+      // comes from outside the graph (window._mousePosition) with no parameter
+      // expression, so it must be refreshed every frame or its preview freezes.
+      return kind === 'time' || kind === 'randomtime' || kind === 'mouse';
     })
     .map(node => node.id);
 

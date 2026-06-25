@@ -21,6 +21,7 @@ export class NodeValueComputer {
     const kind = node?.kind?.toLowerCase();
     return kind === 'time' ||
            kind === 'randomtime' ||
+           kind === 'mouse' ||
            kind === 'stripe' ||
            kind === 'stripefield' ||
            kind === 'checker' ||
@@ -119,6 +120,13 @@ case "checkerfield": {
         case "uv":
           result = 0.5;
           break;
+
+        case "mouse": {
+          // Live cursor position (normalized 0..1), tracked by the GPU renderer.
+          const m = (typeof window !== "undefined" && window._mousePosition) || null;
+          result = m ? [m[0], m[1]] : [0.5, 0.5];
+          break;
+        }
 
 
         case "multiply": {
