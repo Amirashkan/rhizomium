@@ -1925,13 +1925,36 @@ _renderOutputThumbnail(ctx, size, color) {
 
   _buildDependentsMap(nodes) {
     const map = new Map();
+    const addEdge = (sourceId, dependentId) => {
+      if (sourceId === undefined || sourceId === null || sourceId === '') return;
+      if (!map.has(sourceId)) {
+        map.set(sourceId, new Set());
+      }
+      map.get(sourceId).add(dependentId);
+    };
+
     for (const node of nodes) {
+      // Wire-based dependents (graph connections).
       for (const input of node.inputs || []) {
         if (!input) continue;
-        if (!map.has(input)) {
-          map.set(input, new Set());
+        addEdge(input, node.id);
+      }
+
+      // Expression-based dependents. A node whose parameter references another node via
+      // `node_<id>` (e.g. a Vec2 with `=node_28` or `=node_27 > 1 ? 10 : 20`, or a Switch
+      // whose `select` is driven by `=node_X`) depends on that node even though there is no
+      // wire between them. Without this edge the referencing node is never marked dirty when
+      // its source changes, so its cached value — and the thumbnail regenerated from it —
+      // freezes while the floating preview (which re-evaluates expressions on demand) stays
+      // correct. Node ids are strings (see makeNode in NodeDefs.js) and _extractNodeReferences
+      // returns string ids, so the keys line up with the wire-based edges above.
+      if (node.params && typeof node.params === 'object') {
+        for (const paramValue of Object.values(node.params)) {
+          for (const refId of this._extractNodeReferences(paramValue)) {
+            if (refId === node.id) continue; // ignore self-references
+            addEdge(refId, node.id);
+          }
         }
-        map.get(input).add(node.id);
       }
     }
     return map;
