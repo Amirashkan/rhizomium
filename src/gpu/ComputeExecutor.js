@@ -76,6 +76,11 @@ export class ComputeExecutor {
     // Set true while initialize() is rebuilding managers so gpuRenderer won't flush
     // _pendingDestroys until the new textures are ready and bound.
     this._reinitializing = false;
+
+    // Set for the duration of a reinitialize() pass. Lets initializeComputeNode
+    // reuse an unchanged node's existing manager (preserving feedback ping-pong
+    // state) instead of tearing it down and recreating it on every rebuild.
+    this._reuseContext = null;
   }
 
   _deferDestroy(fn) {
@@ -122,38 +127,26 @@ export class ComputeExecutor {
     }
 
     // Clean up old resources if reinitializing
+    let reuseContext = null;
+    let oldFallback = null;
     if (this.initialized) {
       // Hold old textures alive until the new managers are ready and bound.
       // gpuRenderer checks _reinitializing before flushing _pendingDestroys, so
       // the old GPUTextures won't be destroyed until after _reinitializing = false.
       this._reinitializing = true;
 
-      const oldManagers = [...this.computeManagers.values()];
-      const oldFallback = this.fallbackTexture;
-      const oldOutputTextures = new Set(
-        oldManagers
-          .map((m) => (typeof m.getOutputTexture === 'function' ? m.getOutputTexture() : null))
-          .filter(Boolean)
-      );
-      this._deferDestroy(() => {
-        // Before destroying the old textures, repoint any nodeOutputs entries
-        // still referencing them at the new managers' outputs. Nodes that never
-        // re-dispatch after reinit (static inputs, dispatch errors) would
-        // otherwise keep feeding destroyed textures into bind groups, failing
-        // every submit ("Destroyed texture used in a submit").
-        for (const [id, tex] of this.nodeOutputs) {
-          if (oldOutputTextures.has(tex)) {
-            const fresh = this.computeTextures.get(id)?.texture;
-            if (fresh) {
-              this.nodeOutputs.set(id, fresh);
-            } else {
-              this.nodeOutputs.delete(id);
-            }
-          }
-        }
-        for (const m of oldManagers) m.destroy();
-        oldFallback?.destroy();
-      });
+      // Snapshot the previous managers/textures so nodes whose generated WGSL,
+      // resolution and feedback/input config are unchanged can keep their
+      // existing manager. This is what stops feedback nodes (ComputeFeedback,
+      // ComputeFeedbackField, reaction-diffusion, etc.) from losing their
+      // accumulated ping-pong state every time an unrelated canvas edit triggers
+      // a rebuild. Only managers that are NOT reused get destroyed below.
+      reuseContext = {
+        previousManagers: new Map(this.computeManagers),
+        previousTextures: new Map(this.computeTextures),
+        reused: new Set(),
+      };
+      oldFallback = this.fallbackTexture;
 
       this.fallbackTexture = null;
       this.computeManagers.clear();
@@ -179,11 +172,56 @@ export class ComputeExecutor {
       this.clearFragmentCache();
     }
 
+    // Expose the reuse snapshot to initializeComputeNode for the duration of
+    // this pass only.
+    this._reuseContext = reuseContext;
+
     // Create fallback texture
     this.createFallbackTexture();
 
     for (const [nodeId, nodeData] of window.computeNodeRegistry) {
       await this.initializeComputeNode(nodeId, nodeData);
+    }
+
+    this._reuseContext = null;
+
+    // Tear down the previous resources that were NOT reused this pass. Deferred
+    // so the old textures stay alive until the freshly built/reused bind groups
+    // are bound (gpuRenderer waits on _reinitializing before flushing).
+    if (reuseContext) {
+      const { previousManagers, previousTextures, reused } = reuseContext;
+      const staleOutputs = new Set();
+      for (const [id, m] of previousManagers) {
+        if (reused.has(id)) continue;
+        const tex = typeof m.getOutputTexture === 'function' ? m.getOutputTexture() : null;
+        if (tex) staleOutputs.add(tex);
+      }
+      this._deferDestroy(() => {
+        // Before destroying the old textures, repoint any nodeOutputs entries
+        // still referencing a destroyed (non-reused) manager's output at the new
+        // manager's output. Nodes that never re-dispatch after reinit (static
+        // inputs, dispatch errors) would otherwise keep feeding destroyed
+        // textures into bind groups, failing every submit.
+        for (const [id, tex] of this.nodeOutputs) {
+          if (staleOutputs.has(tex)) {
+            const fresh = this.computeTextures.get(id)?.texture;
+            if (fresh) {
+              this.nodeOutputs.set(id, fresh);
+            } else {
+              this.nodeOutputs.delete(id);
+            }
+          }
+        }
+        for (const [id, m] of previousManagers) {
+          if (reused.has(id)) continue;
+          m.destroy();
+        }
+        oldFallback?.destroy();
+        // Drop snapshot references so the reused/destroyed managers aren't
+        // pinned alive by this closure after it runs.
+        previousManagers.clear();
+        previousTextures.clear();
+      });
     }
 
     this.updateExecutionOrder();
@@ -250,9 +288,33 @@ export class ComputeExecutor {
                                      'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels', 'ComputeHSV', 'ComputeHistogram', 'ComputeLuminance'].includes(node.kind);
       const needsInput = nodeDesignedForInput;
 
+      // Reuse signature: a node can keep its existing manager (and its
+      // accumulated feedback state) across a rebuild only if everything that
+      // shapes the GPU pipeline/textures is identical. Parameters that map to
+      // uniforms (decay, scale, offset, …) don't appear here because they don't
+      // change the WGSL, so tweaking them no longer wipes the feedback buffer.
+      const initSignature = `${node.kind}|${width}x${height}|fb${supportsFeedback ? 1 : 0}|in${needsInput ? 1 : 0}|${wgslCode}`;
+
+      // Reuse an unchanged node's manager during a reinitialize() pass.
+      const reuseContext = this._reuseContext;
+      if (reuseContext && !reuseContext.reused.has(nodeId)) {
+        const prev = reuseContext.previousManagers.get(nodeId);
+        if (prev && prev._initSignature === initSignature) {
+          prev.node = node; // keep the live node reference current for params
+          reuseContext.reused.add(nodeId);
+          this.computeManagers.set(nodeId, prev);
+          const prevTex = reuseContext.previousTextures.get(nodeId);
+          if (prevTex) {
+            this.computeTextures.set(nodeId, prevTex);
+          }
+          return;
+        }
+      }
+
       // Create compute shader manager with node reference for parameters
       const manager = new ComputeShaderManager(this.device, node);
       await manager.initialize(wgslCode, width, height, supportsFeedback, needsInput);
+      manager._initSignature = initSignature;
 
       // Store manager
       this.computeManagers.set(nodeId, manager);
@@ -280,6 +342,23 @@ export class ComputeExecutor {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Clear the feedback/ping-pong state for a single node (Feedback node reset
+   * button). nodeId is the raw graph id; managers are keyed by the sanitized
+   * registry key, so sanitize the same way registerComputeNode does.
+   * @param {string|number} nodeId
+   * @returns {boolean} true if a feedback manager was found and cleared
+   */
+  resetNodeFeedback(nodeId) {
+    const key = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+    const manager = this.computeManagers.get(key) || this.computeManagers.get(nodeId);
+    if (manager && typeof manager.clearFeedback === 'function') {
+      manager.clearFeedback();
+      return true;
+    }
+    return false;
   }
 
   /**

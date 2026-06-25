@@ -1052,9 +1052,17 @@ case 'flip2d':
   }
 
   renderParameter(param, node) {
+    // Action buttons (e.g. the Feedback node's "Reset Feedback") are momentary
+    // controls, not stored values, so they skip the binding/keyframe/value
+    // machinery entirely.
+    if (param.type === 'button') {
+      this.renderActionButton(param, node);
+      return;
+    }
+
     const paramContainer = document.createElement('div');
     paramContainer.className = 'parameter-container';
-    
+
     // Get binding info
     const bindingInfo = this.bindingSystem ? 
       this.bindingSystem.getBindingInfo(node.id, param.name) : 
@@ -1169,6 +1177,62 @@ case 'flip2d':
     }
 
     this.panelContent.appendChild(paramContainer);
+  }
+
+  /**
+   * Render a momentary action button parameter (param.type === 'button').
+   * Dispatches a named action rather than storing a value.
+   */
+  renderActionButton(param, node) {
+    const paramContainer = document.createElement('div');
+    paramContainer.className = 'parameter-container';
+    paramContainer.style.cssText = `
+      margin-bottom: 12px;
+      padding: 8px;
+      background: #333;
+      border-radius: 4px;
+      border-left: 3px solid #4CAF50;
+    `;
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = param.displayName || param.name;
+    if (param.description) button.title = param.description;
+    button.style.cssText = `
+      width: 100%;
+      padding: 8px;
+      background: #444;
+      color: #fff;
+      border: 1px solid #666;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    `;
+    button.addEventListener('mouseenter', () => { button.style.background = '#555'; });
+    button.addEventListener('mouseleave', () => { button.style.background = '#444'; });
+
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.runParameterAction(param.action, node);
+    });
+
+    paramContainer.appendChild(button);
+    this.panelContent.appendChild(paramContainer);
+  }
+
+  /**
+   * Execute a named parameter action triggered by a button parameter.
+   */
+  runParameterAction(action, node) {
+    switch (action) {
+      case 'resetFeedback':
+        if (window.computeExecutor?.resetNodeFeedback) {
+          window.computeExecutor.resetNodeFeedback(node.id);
+        }
+        break;
+      default:
+        console.warn(`[ParameterPanel] Unknown parameter action: ${action}`);
+    }
   }
 
   createBindingControls(param, node, bindingInfo) {

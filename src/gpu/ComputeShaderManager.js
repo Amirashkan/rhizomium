@@ -686,6 +686,36 @@ export class ComputeShaderManager {
   }
 
   /**
+   * Clear the feedback ping-pong textures back to transparent black.
+   * Used by the Feedback node's reset button to wipe the accumulated trail
+   * without rebuilding the pipeline. No-op for non-feedback nodes.
+   */
+  clearFeedback() {
+    if (!this.supportsFeedback) return;
+
+    // Reaction-diffusion needs its structured seed state, not a blank field.
+    if (this.node?.kind === 'ComputeReactionDiffusion') {
+      this.resetReactionDiffusion();
+      return;
+    }
+
+    const w = this.textureWidth;
+    const h = this.textureHeight;
+    if (!w || !h) return;
+
+    const zeros = new Uint8Array(w * h * 4); // all-zero = transparent black
+    for (const tex of [this.storageTextureA, this.storageTextureB]) {
+      if (!tex) continue;
+      this.device.queue.writeTexture(
+        { texture: tex },
+        zeros,
+        { bytesPerRow: w * 4, rowsPerImage: h },
+        { width: w, height: h, depthOrArrayLayers: 1 }
+      );
+    }
+  }
+
+  /**
    * Swap ping-pong buffers
    */
   swapBuffers() {

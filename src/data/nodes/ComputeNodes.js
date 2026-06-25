@@ -72,7 +72,8 @@ export const ComputeNodes = {
       { name: 'scale', type: 'float', default: 1.01, min: 0.9, max: 1.1 },
       { name: 'rotation', type: 'float', default: 0.0, min: -180.0, max: 180.0 },
       { name: 'offsetX', type: 'float', default: 0.0, min: -0.1, max: 0.1 },
-      { name: 'offsetY', type: 'float', default: 0.0, min: -0.1, max: 0.1 }
+      { name: 'offsetY', type: 'float', default: 0.0, min: -0.1, max: 0.1 },
+      { name: 'reset', type: 'button', displayName: 'Reset Feedback', action: 'resetFeedback', description: 'Clear the accumulated feedback trail' }
     ],
     description: "Feedback loop with transformation",
     workgroupSize: [8, 8, 1]
