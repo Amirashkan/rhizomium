@@ -294,18 +294,20 @@ updateTimeNodes() {
 
     const pc = this.editor.previewComputer;
     nodesToUpdate.forEach(nodeId => pc.markNodeDirty(nodeId, 'mouse-input'));
-    pc.requestPreviewComputation(
-      this.editor.graph,
-      { time: performance.now() / 1000 },
-      {},
-      () => {
-        if (this.editor.paramPanel?.refreshParameterDisplays) {
-          this.editor.paramPanel.refreshParameterDisplays();
-        }
-        if (this.editor.markDirty) this.editor.markDirty('mouse-input');
-        this.editor.draw();
-      }
-    );
+    // Compute directly rather than via requestPreviewComputation: the latter skips
+    // entirely while _interactionMode is set (e.g. right after adding/dragging a
+    // node), which would freeze the Mouse readout. Moving the cursor over the
+    // preview is precisely when live values are wanted, even mid-interaction, so
+    // this path must not be gated. It is already throttled above and only the
+    // mouse + its dependents are dirty, so the recompute stays cheap.
+    try {
+      pc.computePreviews(this.editor.graph, { time: performance.now() / 1000 });
+    } catch (_) {}
+    if (this.editor.paramPanel?.refreshParameterDisplays) {
+      this.editor.paramPanel.refreshParameterDisplays();
+    }
+    if (this.editor.markDirty) this.editor.markDirty('mouse-input');
+    this.editor.draw();
   }
 
   /**
