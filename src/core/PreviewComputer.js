@@ -114,9 +114,10 @@ export class PreviewComputer {
       this.animationTime = timeContext.time;
     }
 
-    // Run computation synchronously
+    // Run computation synchronously. Pass the caller's time through so it is honored when the
+    // render loop's sim clock isn't available yet (computePreviews prefers the sim clock).
     const startTime = performance.now();
-    const result = this.computePreviews(graph);
+    const result = this.computePreviews(graph, { time: timeContext?.time });
     const duration = performance.now() - startTime;
     
     // Log duration if >16ms
@@ -260,8 +261,23 @@ export class PreviewComputer {
       const startTime = performance.now();
       const maxTime = options.maxTime || 50; // Default 50ms max
       const timeBudget = options.timeBudget || maxTime;
-      
-      this.animationTime = performance.now() / 1000;
+
+      // Drive time-based expressions from the render loop's sim time — the SAME clock the GPU
+      // shader and node thumbnails use — so numeric pin previews stay in lock-step with the
+      // visuals and freeze when playback is paused/scrubbed. Previously this unconditionally used
+      // performance.now()/1000, ignoring both the time the render loop passes in and the sim clock.
+      // That wall-clock ran on a different phase than the GPU (offset by app start-up time and
+      // unaffected by pause/timeScale), so a time-driven value like a Compare fed by sin(time)
+      // flipped at a moment unrelated to the animation on screen. Honor an explicit options.time
+      // next, and only fall back to wall-clock before the render loop exists (e.g. in tests).
+      const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
+      if (Number.isFinite(simTime)) {
+        this.animationTime = simTime;
+      } else if (typeof options.time === 'number' && Number.isFinite(options.time)) {
+        this.animationTime = options.time;
+      } else {
+        this.animationTime = performance.now() / 1000;
+      }
 
       // PERFORMANCE: Limit graph size to prevent excessive computation
       // If graph is too large, only process a subset to stay within time budget
