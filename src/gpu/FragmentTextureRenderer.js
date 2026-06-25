@@ -221,6 +221,20 @@ export class FragmentTextureRenderer {
         }
       }
 
+      // Add parameter-expression dependencies. A node can reference another node by id
+      // through a parameter expression (e.g. a Switch whose `select` is `=node_28 > 0 ? 1 : 0`)
+      // rather than a wire. Those nodes are not in node.inputs, so without including them the
+      // reference compiles to 0 (unknown identifiers fall back to 0.0) and the node behaves as
+      // if the expression were constant — e.g. the Switch always shows its first input. The
+      // codegen already re-sorts expression-referenced nodes into dependency order; it just
+      // needs them present in the subgraph. Mirrors the wire handling above.
+      for (const refId of this._extractParamNodeReferences(node)) {
+        const refNode = window.graph?.getNode(refId);
+        if (refNode) {
+          addNodeWithDependencies(refNode);
+        }
+      }
+
       // Add the node itself (including compute nodes, which will be compiled as texture samplers)
       subgraphNodes.push(node);
     };
@@ -248,6 +262,30 @@ export class FragmentTextureRenderer {
       connections: connections,
       getNode: (id) => subgraphNodes.find(n => n.id === id)
     };
+  }
+
+  /**
+   * Extract node ids referenced via `node_<id>` in a node's parameter expressions.
+   * Lets _extractSubgraph pull in nodes that are referenced by an expression (e.g. a Switch's
+   * `select`) rather than wired, so their value is available in the subgraph shader.
+   * Mirrors GraphProcessor.extractNodeReferencesFromExpression / PreviewComputer._extractNodeReferences.
+   * @param {object} node
+   * @returns {Array<string>} referenced node ids (as strings)
+   * @private
+   */
+  _extractParamNodeReferences(node) {
+    if (!node?.params || typeof node.params !== 'object') return [];
+    const ids = new Set();
+    const pattern = /node_(\d+)(?:_\w+)?/g;
+    for (const value of Object.values(node.params)) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (!trimmed.startsWith('=') && !trimmed.includes('node_')) continue;
+      for (const match of trimmed.matchAll(pattern)) {
+        ids.add(match[1]);
+      }
+    }
+    return Array.from(ids);
   }
 
   /**

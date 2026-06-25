@@ -303,6 +303,9 @@ updateTimeNodes() {
     // Collect every node whose thumbnail must be re-read this frame because its output is live.
     const toUpdate = new Set();
     const visited = new Set();
+    // Built once and threaded through the recursion so downstream collection also follows
+    // `node_<id>` parameter-expression references (e.g. a Switch's `select`), not just wires.
+    const exprDeps = this._buildExpressionDependentsMap();
 
     // Compute nodes write a fresh output texture every frame. Re-read each one's own thumbnail
     // (via its dedicated texture-readback path) AND mark everything downstream of it for refresh —
@@ -313,14 +316,14 @@ updateTimeNodes() {
     for (const node of this.editor.graph.nodes) {
       if (spm.isComputeNode(node)) {
         this._refreshNodePreview(node);
-        this._collectWithDownstream(node.id, toUpdate, visited);
+        this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
       }
     }
 
     // Fragment nodes that reference time/audio in their params, plus all transitive dependents.
     const animated = window.editor?.paramPanel?.expressionSystem?.timeAnimatedNodes;
     if (animated) {
-      animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited));
+      animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited, exprDeps));
     }
 
     // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
@@ -345,7 +348,7 @@ updateTimeNodes() {
     this._lastDragPreview = now;
 
     const toUpdate = new Set();
-    this._collectWithDownstream(node.id, toUpdate, new Set());
+    this._collectWithDownstream(node.id, toUpdate, new Set(), this._buildExpressionDependentsMap());
     for (const nodeId of toUpdate) {
       const n = this.editor.graph.nodes.find(x => x.id === nodeId);
       if (n) this._refreshNodePreview(n);
@@ -389,14 +392,24 @@ updateTimeNodes() {
     return nx + nw >= minX && nx <= maxX && ny + nh >= minY && ny <= maxY;
   }
 
-  // Collect a node id and all its transitive downstream node ids into `into`.
-  _collectWithDownstream(nodeId, into, visited) {
+  // Collect a node id and all its transitive downstream node ids into `into`. Downstream means
+  // both wired consumers (graph.connections) and expression consumers — a node whose parameter
+  // references this one via `node_<id>` (e.g. a Switch whose `select` is `=node_28 > 0 ? 1 : 0`)
+  // depends on it without a wire, so its thumbnail must refresh alongside the wired ones. Pass a
+  // prebuilt expression-dependents map (from _buildExpressionDependentsMap) to avoid rebuilding it
+  // on every recursive step; it is built lazily if omitted.
+  _collectWithDownstream(nodeId, into, visited, exprDeps = null) {
     if (visited.has(nodeId)) return;
     visited.add(nodeId);
     into.add(nodeId);
+    const deps = exprDeps || (exprDeps = this._buildExpressionDependentsMap());
     const connections = this.editor.graph?.connections || [];
     for (const c of connections) {
-      if (c.from?.nodeId === nodeId) this._collectWithDownstream(c.to.nodeId, into, visited);
+      if (c.from?.nodeId === nodeId) this._collectWithDownstream(c.to.nodeId, into, visited, deps);
+    }
+    const refDependents = deps.get(String(nodeId));
+    if (refDependents) {
+      refDependents.forEach(depId => this._collectWithDownstream(depId, into, visited, deps));
     }
   }
 
