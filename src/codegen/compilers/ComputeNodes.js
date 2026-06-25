@@ -631,7 +631,9 @@ struct Uniforms {
   time: f32,
   decay: f32,
   scale: f32,
-  rotation: f32
+  rotation: f32,
+  offsetX: f32,
+  offsetY: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -664,6 +666,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   );
 
   feedbackUV += 0.5;
+
+  // Apply per-frame offset (pans the feedback trail). offsetX/offsetY are in
+  // UV space so small values (±0.1) shift the trail a fraction of the frame.
+  feedbackUV += vec2<f32>(uniforms.offsetX, uniforms.offsetY);
 
   // Sample input and feedback
   let input = textureLoad(inputTexture, texCoord, 0);
