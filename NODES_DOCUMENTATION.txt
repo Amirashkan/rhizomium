@@ -205,20 +205,23 @@ Usage: Use this to create animated effects. Time continuously increases.
 Mouse
 --------------------------------------------------------------------------------
 Category: Input
-Description: Provides the current mouse position
+Description: Provides the current mouse position and click state
 
 Inputs:
   (none)
 
 Outputs:
-  - pos (vec2): Mouse position as 2D vector
-  - x (f32): Mouse X position
-  - y (f32): Mouse Y position
+  - mouse (vec4): Cursor state, following ShaderToy's iMouse
+      .xy = position, normalized to the viewport (0..1, Y up)
+      .z  = 1.0 while a mouse button is held over the preview, else 0.0
+      .w  = 1.0 on the frame a press begins (click), else 0.0
 
 Parameters:
   (none)
 
-Usage: Use this to create interactive effects based on mouse position.
+Usage: Use this to create interactive effects based on mouse position and
+clicks. Split the vec4 (or swizzle) to read components: .xy for position,
+.z to test whether the button is held, .w to detect a click.
 
 --------------------------------------------------------------------------------
 Resolution

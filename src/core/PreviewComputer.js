@@ -271,7 +271,23 @@ export class PreviewComputer {
         : graph.nodes;
 
       const byId = new Map(nodesToProcess.map((n) => [n.id, n]));
-      
+
+      // node.inputs[] only records the SOURCE node id, not which of its output pins
+      // a wire came from. For multi-output nodes (Split2/3/4) that loses the channel,
+      // so a downstream scalar consumer (e.g. Remap fed by Split.x) would receive the
+      // whole split object instead of the component. Rebuild the source-pin lookup from
+      // the connection list (which does carry from.pin) so _resolveInputValue can index
+      // the right channel. Keyed "<toNodeId>|<toPin>" -> fromPin.
+      this._inputSourcePins = new Map();
+      const _conns = graph?.connections || [];
+      for (const c of _conns) {
+        const toId = c?.to?.nodeId ?? c?.toNode;
+        if (toId == null) continue;
+        const toPin = c?.to?.pin ?? c?.toPin ?? 0;
+        const fromPin = c?.from?.pin ?? c?.fromPin ?? 0;
+        this._inputSourcePins.set(`${toId}|${toPin}`, fromPin);
+      }
+
       // Evaluate dirty nodes first to determine what needs computation
       const { dirtyNodes, parameterHashes, structureChanged } = this._evaluateDirtyNodes(graph, nodesToProcess, byId);
       
@@ -335,7 +351,7 @@ export class PreviewComputer {
 
 
 case "ColorRamp": {
-  const t = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0.5;
+  const t = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
   const stops = node.params?.stops || [
     { position: 0.0, color: [0, 0, 0, 1] },
     { position: 1.0, color: [1, 1, 1, 1] }
@@ -419,15 +435,15 @@ case "ConicGradient": {
             }
 
             case "Trigger": {
-              const inputValue = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const inputValue = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
               result = inputValue >= threshold ? 1.0 : 0.0;
               break;
             }
 
             case "Hold": {
-              const value = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const pulse = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const value = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const pulse = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
               result = pulse >= threshold ? value : 0.0;
               break;
@@ -532,9 +548,14 @@ case "ConicGradient": {
               break;
             }
 
-            case "Mouse":
-              result = [0.5, 0.5]; // Default mouse position
+            case "Mouse": {
+              // Live cursor state tracked by the GPU renderer (iMouse layout):
+              // xy = position (normalized 0..1), z = held, w = click. Falls back
+              // to screen center, not pressed, before any input.
+              const m = (typeof window !== "undefined" && window._mousePosition) || null;
+              result = m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];
               break;
+            }
 
             case "Resolution":
               result = [1920, 1080]; // Default resolution
@@ -546,251 +567,251 @@ case "ConicGradient": {
 
             // Math Nodes - Arithmetic
             case "Add": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 0);
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 0);
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 0);
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 0);
               result = a + b;
               break;
             }
 
             case "Subtract": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 0);
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 0);
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 0);
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 0);
               result = a - b;
               break;
             }
 
             case "Multiply": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 1);
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 1);
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 1);
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 1);
               result = a * b;
               break;
             }
 
             case "Divide": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.a, values, 1);
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.b, values, 1);
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 1);
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 1);
               result = b !== 0 ? a / b : 0;
               break;
             }
 
             case "Power": {
-              const base = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : this._evaluateParam(node.params?.base, values, 1);
-              const exp = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : this._evaluateParam(node.params?.exp, values, 2);
+              const base = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.base, values, 1);
+              const exp = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.exp, values, 2);
               result = Math.pow(base, exp);
               break;
             }
 
             // Math Nodes - Trigonometry
             case "Sin": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.sin(x);
               break;
             }
 
             case "Cos": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.cos(x);
               break;
             }
 
             case "Tan": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.tan(x);
               break;
             }
 
             case "Asin": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.asin(Math.max(-1, Math.min(1, x)));
               break;
             }
 
             case "Acos": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.acos(Math.max(-1, Math.min(1, x)));
               break;
             }
 
             case "Atan": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.atan(x);
               break;
             }
 
             case "Atan2": {
-              const y = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const x = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
+              const y = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const x = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
               result = Math.atan2(y, x);
               break;
             }
 
             // Math Nodes - Functions
             case "Floor": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.floor(x);
               break;
             }
 
             case "Ceil": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.ceil(x);
               break;
             }
 
             case "Round": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.round(x);
               break;
             }
 
             case "Fract": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = x - Math.floor(x);
               break;
             }
 
             case "Abs": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.abs(x);
               break;
             }
 
             case "Sqrt": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.sqrt(Math.max(0, x));
               break;
             }
 
             case "Sign": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.sign(x);
               break;
             }
 
             case "Mod": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const y = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
               result = y !== 0 ? x % y : 0;
               break;
             }
 
             case "Exp": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.exp(x);
               break;
             }
 
             case "Exp2": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.pow(2, x);
               break;
             }
 
             case "Log": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
               result = x > 0 ? Math.log(x) : 0;
               break;
             }
 
             case "Log2": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
               result = x > 0 ? Math.log2(x) : 0;
               break;
             }
 
             // Math Nodes - Range/Comparison
             case "Min": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               result = Math.min(a, b);
               break;
             }
 
             case "Max": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               result = Math.max(a, b);
               break;
             }
 
             case "Clamp": {
-              const value = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const min = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
-              const max = node.inputs?.[2] ? this._toF32(values.get(node.inputs[2])) : 1;
+              const value = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const min = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+              const max = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 1;
               result = Math.max(min, Math.min(max, value));
               break;
             }
 
             // Math Nodes - Interpolation
             case "Smoothstep": {
-              const edge0 = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const edge1 = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
-              const x = node.inputs?.[2] ? this._toF32(values.get(node.inputs[2])) : 0.5;
+              const edge0 = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const edge1 = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+              const x = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
               const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(0.0001, edge1 - edge0)));
               result = t * t * (3 - 2 * t);
               break;
             }
 
             case "Step": {
-              const edge = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0.5;
-              const x = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const edge = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
+              const x = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               result = x < edge ? 0 : 1;
               break;
             }
 
             case "Mix":
             case "Lerp": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
-              const t = node.inputs?.[2] ? this._toF32(values.get(node.inputs[2])) : 0.5;
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+              const t = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
               result = a * (1 - t) + b * t;
               break;
             }
 
             case "InverseLerp": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
-              const value = node.inputs?.[2] ? this._toF32(values.get(node.inputs[2])) : 0.5;
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+              const value = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
               result = b !== a ? (value - a) / (b - a) : 0;
               break;
             }
 
             case "Saturate": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = Math.max(0, Math.min(1, x));
               break;
             }
 
             // Math Nodes - Utilities
             case "OneMinus": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = 1.0 - x;
               break;
             }
 
             case "Negate": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               result = -x;
               break;
             }
 
             case "Reciprocal": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 1;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
               result = x !== 0 ? 1.0 / x : 0;
               break;
             }
 
             // Vector Nodes
             case "Dot": {
-              const a = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [0, 1, 0];
+              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
+              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
               result = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
               break;
             }
 
             case "Cross": {
-              const a = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [0, 1, 0];
+              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
+              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
               result = [
                 a[1] * b[2] - a[2] * b[1],
                 a[2] * b[0] - a[0] * b[2],
@@ -800,29 +821,29 @@ case "ConicGradient": {
             }
 
             case "Normalize": {
-              const vec = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, 0, 0];
+              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
               const length = Math.sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
               result = length > 1e-6 ? [vec[0] / length, vec[1] / length, vec[2] / length] : [0, 0, 0];
               break;
             }
 
             case "Length": {
-              const vec = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [0, 0, 0];
+              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
               result = Math.sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
               break;
             }
 
             case "Distance": {
-              const a = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [0, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [0, 0, 0];
+              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
               const diff = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
               result = Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
               break;
             }
 
             case "Reflect": {
-              const incident = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, -1, 0];
-              const normal = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [0, 1, 0];
+              const incident = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, -1, 0];
+              const normal = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
               const nLength = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
               const n = nLength > 1e-6 ? [normal[0] / nLength, normal[1] / nLength, normal[2] / nLength] : [0, 1, 0];
               const dotNI = n[0] * incident[0] + n[1] * incident[1] + n[2] * incident[2];
@@ -835,9 +856,9 @@ case "ConicGradient": {
             }
 
             case "Refract": {
-              const incident = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, -1, 0];
-              const normal = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [0, 1, 0];
-              const eta = node.inputs?.[2] ? this._toF32(values.get(node.inputs[2])) : 1.5;
+              const incident = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, -1, 0];
+              const normal = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
+              const eta = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 1.5;
               const nLength = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
               const n = nLength > 1e-6 ? [normal[0] / nLength, normal[1] / nLength, normal[2] / nLength] : [0, 1, 0];
               const iLength = Math.sqrt(incident[0] * incident[0] + incident[1] * incident[1] + incident[2] * incident[2]);
@@ -858,71 +879,71 @@ case "ConicGradient": {
             }
 
             case "Split2": {
-              const v = node.inputs?.[0] ? this._toVec2(values.get(node.inputs[0])) : [0, 0];
+              const v = node.inputs?.[0] ? this._toVec2(this._resolveInputValue(node, 0, values)) : [0, 0];
               result = { type: "split", values: v };
               break;
             }
 
             case "Split3": {
-              const v = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [0, 0, 0];
+              const v = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
               result = { type: "split", values: v };
               break;
             }
 
             case "Split4": {
-              const v = node.inputs?.[0] ? this._toVec4(values.get(node.inputs[0])) : [0, 0, 0, 1];
+              const v = node.inputs?.[0] ? this._toVec4(this._resolveInputValue(node, 0, values)) : [0, 0, 0, 1];
               result = { type: "split", values: v };
               break;
             }
 
             case "Combine2": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const y = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               result = [x, y];
               break;
             }
 
             case "Combine3": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const y = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
-              const z = node.inputs?.[2] ? this._toF32(values.get(node.inputs[2])) : 0;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+              const z = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0;
               result = [x, y, z];
               break;
             }
 
             case "Combine4": {
-              const x = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const y = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
-              const z = node.inputs?.[2] ? this._toF32(values.get(node.inputs[2])) : 0;
-              const w = node.inputs?.[3] ? this._toF32(values.get(node.inputs[3])) : 1;
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+              const z = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0;
+              const w = node.inputs?.[3] ? this._toF32(this._resolveInputValue(node, 3, values)) : 1;
               result = [x, y, z, w];
               break;
             }
 
             case "VectorAdd": {
-              const a = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [0, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [0, 0, 0];
+              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
               result = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
               break;
             }
 
             case "VectorSubtract": {
-              const a = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [0, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [0, 0, 0];
+              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
               result = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
               break;
             }
 
             case "VectorMultiply": {
-              const a = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, 1, 1];
-              const b = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [1, 1, 1];
+              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
+              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [1, 1, 1];
               result = [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
               break;
             }
 
             case "VectorDivide": {
-              const a = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, 1, 1];
-              const b = node.inputs?.[1] ? this._toVec3(values.get(node.inputs[1])) : [1, 1, 1];
+              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
+              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [1, 1, 1];
               result = [
                 b[0] !== 0 ? a[0] / b[0] : 0,
                 b[1] !== 0 ? a[1] / b[1] : 0,
@@ -932,14 +953,14 @@ case "ConicGradient": {
             }
 
             case "VectorScale": {
-              const vec = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [1, 1, 1];
-              const scale = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 1;
+              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
+              const scale = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
               result = [vec[0] * scale, vec[1] * scale, vec[2] * scale];
               break;
             }
 
             case "Swizzle": {
-              const vec = node.inputs?.[0] ? this._toVec3(values.get(node.inputs[0])) : [0, 0, 0];
+              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
               const pattern = node.params?.pattern || "xyz";
               const swizzled = [];
               for (const char of pattern) {
@@ -956,8 +977,8 @@ case "ConicGradient": {
 
             // Utility Nodes
             case "Expr": {
-              const a = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0;
-              const b = node.inputs?.[1] ? this._toF32(values.get(node.inputs[1])) : 0;
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               const expr = (node.expr || "a").toString();
 
               try {
@@ -995,7 +1016,7 @@ case "ConicGradient": {
             }
 
             case "Remap": {
-              const input = node.inputs?.[0] ? this._toF32(values.get(node.inputs[0])) : 0.5;
+              const input = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
               const inMin = this._evaluateParam(node.params?.inMin, values, 0.0);
               const inMax = this._evaluateParam(node.params?.inMax, values, 1.0);
               const outMin = this._evaluateParam(node.params?.outMin, values, 0.0);
@@ -1029,7 +1050,7 @@ case "Rectangle": {
 }
             // Output
             case "OutputFinal": {
-              const c = node.inputs?.[0] ? values.get(node.inputs[0]) : [0, 0, 0];
+              const c = node.inputs?.[0] ? this._resolveInputValue(node, 0, values) : [0, 0, 0];
               result = this._toVec3(c);
               break;
             }
@@ -2342,6 +2363,22 @@ _renderOutputThumbnail(ctx, size, color) {
     if (Array.isArray(v) && v.length === 2) return [v[0], v[1], 0, 1];
     if (typeof v === "number") return [v, v, v, 1];
     return [0, 0, 0, 1];
+  }
+
+  // Resolve the value flowing into input pin `inputIndex` of `node`, honoring the
+  // source's output pin. Identical to values.get(node.inputs[i]) for normal
+  // single-output sources; for a multi-output Split source it returns the specific
+  // channel (the wired from.pin) instead of the whole { type:'split', values } object,
+  // which _toF32/_toVec* would otherwise collapse to 0.
+  _resolveInputValue(node, inputIndex, values) {
+    const sourceId = node?.inputs?.[inputIndex];
+    if (sourceId === undefined || sourceId === null) return undefined;
+    const raw = values.get(sourceId);
+    if (raw && typeof raw === "object" && raw.type === "split" && Array.isArray(raw.values)) {
+      const pin = this._inputSourcePins?.get(`${node.id}|${inputIndex}`) ?? 0;
+      return raw.values[pin] ?? raw.values[0];
+    }
+    return raw;
   }
 
   _toF32(v) {

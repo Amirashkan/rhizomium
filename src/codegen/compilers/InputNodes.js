@@ -83,8 +83,8 @@ export class InputNodes {
         
       case 'Mouse':
         return {
-          line: `let node_${nodeId} = vec2<f32>(0.0, 0.0);`,
-          outputType: "vec2"
+          line: `let node_${nodeId} = g.mouse;`,
+          outputType: "vec4"
         };
         
       case 'Resolution':

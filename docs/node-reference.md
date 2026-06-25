@@ -89,16 +89,17 @@ Provides the current elapsed time.
 - **Description**: Outputs continuously increasing time value, useful for animations and time-based effects.
 
 #### Mouse
-Provides the current mouse position.
+Provides the current mouse position and click state.
 
 - **Category**: Input
 - **Inputs**: None
 - **Outputs**:
-  - `pos` (vec2) - Mouse position as 2D vector
-  - `x` (f32) - Mouse X coordinate
-  - `y` (f32) - Mouse Y coordinate
+  - `mouse` (vec4) - Cursor state, following ShaderToy's `iMouse`:
+    - `.xy` - Cursor position, normalized to the viewport (0–1, Y up)
+    - `.z` - `1.0` while a mouse button is held over the preview, else `0.0`
+    - `.w` - `1.0` on the frame a press begins (click), else `0.0`
 - **Parameters**: None
-- **Description**: Outputs the current mouse cursor position, normalized to the viewport.
+- **Description**: Outputs the current mouse cursor position and click state. Use a Split node (or a swizzle) to read individual components — e.g. `.xy` for position, `.z` to test whether the button is held, `.w` to detect a click.
 
 #### Resolution
 Provides information about the current viewport resolution.

@@ -1110,6 +1110,11 @@ connectGPURenderer(renderFunction) {
     }
     return nodes.some(node => {
       const kind = node?.kind?.toLowerCase();
+      // Mouse is intentionally NOT treated as an intrinsic animation: it changes
+      // only on pointer input, not the clock. Its preview value is refreshed
+      // event-driven via PreviewIntegration.notifyMouseInput(), so it must not
+      // force a permanent animation loop / continuous recompute (which would
+      // compete with the final preview).
       return kind === 'time' || kind === 'randomtime';
     });
   }

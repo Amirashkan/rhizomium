@@ -79,10 +79,12 @@ export const InputNodes = {
     cat: "Input",
     inputs: 0,
     pinsIn: [],
+    // Single output, following ShaderToy's iMouse (vec4):
+    //   .xy = normalized cursor position (0..1)
+    //   .z  = 1.0 while a mouse button is held over the preview, else 0.0
+    //   .w  = 1.0 on the frame a press begins (click), else 0.0
     pinsOut: [
-      { label: "pos", type: "vec2" },
-      { label: "x", type: "f32" },
-      { label: "y", type: "f32" },
+      { label: "mouse", type: "vec4" },
     ],
     params: [],
   },

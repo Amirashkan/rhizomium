@@ -130,7 +130,7 @@ Global parameters passed to the shader:
 struct Uniforms {
   time: f32,           // Current time in seconds
   resolution: vec2<f32>, // Canvas size in pixels
-  mouse: vec2<f32>,    // Mouse position (normalized)
+  mouse: vec4<f32>,    // iMouse: .xy position (normalized), .z held, .w click
   deltaTime: f32,      // Time since last frame
 }
 ```
