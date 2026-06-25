@@ -114,9 +114,10 @@ export class PreviewComputer {
       this.animationTime = timeContext.time;
     }
 
-    // Run computation synchronously
+    // Run computation synchronously. Pass the caller's time through so it is honored when the
+    // render loop's sim clock isn't available yet (computePreviews prefers the sim clock).
     const startTime = performance.now();
-    const result = this.computePreviews(graph);
+    const result = this.computePreviews(graph, { time: timeContext?.time });
     const duration = performance.now() - startTime;
     
     // Log duration if >16ms
@@ -260,8 +261,23 @@ export class PreviewComputer {
       const startTime = performance.now();
       const maxTime = options.maxTime || 50; // Default 50ms max
       const timeBudget = options.timeBudget || maxTime;
-      
-      this.animationTime = performance.now() / 1000;
+
+      // Drive time-based expressions from the render loop's sim time — the SAME clock the GPU
+      // shader and node thumbnails use — so numeric pin previews stay in lock-step with the
+      // visuals and freeze when playback is paused/scrubbed. Previously this unconditionally used
+      // performance.now()/1000, ignoring both the time the render loop passes in and the sim clock.
+      // That wall-clock ran on a different phase than the GPU (offset by app start-up time and
+      // unaffected by pause/timeScale), so a time-driven value like a Compare fed by sin(time)
+      // flipped at a moment unrelated to the animation on screen. Honor an explicit options.time
+      // next, and only fall back to wall-clock before the render loop exists (e.g. in tests).
+      const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
+      if (Number.isFinite(simTime)) {
+        this.animationTime = simTime;
+      } else if (typeof options.time === 'number' && Number.isFinite(options.time)) {
+        this.animationTime = options.time;
+      } else {
+        this.animationTime = performance.now() / 1000;
+      }
 
       // PERFORMANCE: Limit graph size to prevent excessive computation
       // If graph is too large, only process a subset to stay within time budget
@@ -756,6 +772,30 @@ case "ConicGradient": {
               const edge = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
               const x = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               result = x < edge ? 0 : 1;
+              break;
+            }
+
+            case "Compare": {
+              // Mirror compileCompare(): output is select(0.0, 1.0, comparison),
+              // i.e. 1.0 when the comparison holds, 0.0 otherwise. Without this case
+              // Compare fell through to the default (result = 0), so the numeric pin
+              // preview always showed 0.00 even though the thumbnail rendered correctly.
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+              const operator = node.params?.operator || "greater";
+              const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.001));
+
+              let comparison;
+              switch (operator) {
+                case "equal":        comparison = Math.abs(a - b) < epsilon; break;
+                case "notEqual":     comparison = Math.abs(a - b) >= epsilon; break;
+                case "greater":      comparison = a > b; break;
+                case "greaterEqual": comparison = a >= b; break;
+                case "less":         comparison = a < b; break;
+                case "lessEqual":    comparison = a <= b; break;
+                default:             comparison = a > b;
+              }
+              result = comparison ? 1 : 0;
               break;
             }
 
