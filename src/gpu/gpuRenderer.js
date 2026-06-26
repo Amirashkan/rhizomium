@@ -1221,6 +1221,41 @@ export class GPURenderer {
     this._rebuildBindGroups(true);
   }
 
+  /**
+   * Dispatch the registered compute nodes without rendering the main fragment shader.
+   * Used when there is no main pipeline (the output node isn't wired up yet) so that
+   * disconnected compute nodes still produce output textures for their per-node previews.
+   * @param {number} timeSec - Simulation time for the dispatch.
+   * @private
+   */
+  async _dispatchComputeOnly(timeSec) {
+    const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
+    if (!computeExecutor || !computeExecutor.initialized) return;
+
+    const timeValue = Number.isFinite(timeSec) ? timeSec : performance.now() * 0.001;
+    const encoder = this.device.createCommandEncoder({ label: "compute-only-encoder" });
+
+    try {
+      await computeExecutor.execute(encoder, timeValue, {
+        audioEnvelope: window._audioEnvelopeValue || 0.0,
+        audioEnvelopeBass: window._audioEnvelopeBass || 0.0,
+        audioEnvelopeMids: window._audioEnvelopeMids || 0.0,
+        audioEnvelopeHighs: window._audioEnvelopeHighs || 0.0,
+        audioEnvelopeFull: window._audioEnvelopeFull || 0.0,
+      });
+    } catch (computeErr) {
+      console.warn("[GPURenderer] Compute-only execution error:", computeErr);
+    }
+
+    try {
+      this.device.queue.submit([encoder.finish()]);
+      this._lastFramePromise = this.device.queue.onSubmittedWorkDone?.() || Promise.resolve();
+    } catch (submitErr) {
+      console.warn("[GPURenderer] Compute-only submit error:", submitErr);
+      this._lastFramePromise = Promise.resolve();
+    }
+  }
+
   async render(config) {
     let options = {};
     if (Array.isArray(config)) {
@@ -1270,6 +1305,10 @@ export class GPURenderer {
     this._updateAspectUniform();
 
     if (!this.pipeline) {
+      // No main shader (e.g. the output node isn't wired up yet). Still dispatch any registered
+      // compute nodes so their per-node preview thumbnails render real output instead of a
+      // placeholder, then present the fallback color for the empty main canvas.
+      await this._dispatchComputeOnly(timeSec);
       this.presentFallbackColor();
       return;
     }
