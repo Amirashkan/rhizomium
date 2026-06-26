@@ -160,7 +160,7 @@ export const ComputeNodes = {
       { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' },
       { name: 'reset', type: 'button', displayName: 'Reset Field', action: 'resetFeedback', description: 'Clear the accumulated feedback field' }
     ],
-    description: "Persistent feedback field for simulations using FeedbackManager",
+    description: "Persistent feedback field for flow, reaction-diffusion and accumulation simulations",
     workgroupSize: [8, 8, 1]
   },
 
