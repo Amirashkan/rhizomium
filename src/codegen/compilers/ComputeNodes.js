@@ -3114,14 +3114,19 @@ fn binOf(value: f32, numBins: i32) -> i32 {
   return clamp(i32(value * f32(numBins)), 0, numBins - 1);
 }
 
-// Sample a region around a pixel to build local histogram
+// Sample a region around a pixel to build local histogram.
+// The neighbourhood is SUBSAMPLED with a stride so the tap count stays bounded
+// (~9x9 = 81 reads) regardless of radius: a full radius-16 scan is 33x33 = 1089
+// textureLoads per pixel, which saturates the GPU at full resolution and is far
+// worse when a second viewer runs its own copy of the graph on the same device.
 fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, channel: i32, numBins: i32) -> array<f32, 256> {
   var histogram: array<f32, 256>;
   var count = 0.0;
+  let step = max(1, radius / 4);
 
   // Build histogram from local neighborhood
-  for (var dy = -radius; dy <= radius; dy++) {
-    for (var dx = -radius; dx <= radius; dx++) {
+  for (var dy = -radius; dy <= radius; dy += step) {
+    for (var dx = -radius; dx <= radius; dx += step) {
       let sampleCoord = texCoord + vec2<i32>(dx, dy);
 
       // Bounds check
@@ -3277,9 +3282,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var minVal = 1.0;
     var maxVal = 0.0;
 
-    // Find local min/max
-    for (var dy = -radius; dy <= radius; dy++) {
-      for (var dx = -radius; dx <= radius; dx++) {
+    // Find local min/max (subsampled with the same step as the histogram build)
+    let step = max(1, radius / 4);
+    for (var dy = -radius; dy <= radius; dy += step) {
+      for (var dx = -radius; dx <= radius; dx += step) {
         let sampleCoord = texCoord + vec2<i32>(dx, dy);
 
         if (sampleCoord.x >= 0 && sampleCoord.x < i32(texSize.x) &&
