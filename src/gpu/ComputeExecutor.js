@@ -351,17 +351,17 @@ export class ComputeExecutor {
           if (prevTex) {
             this.computeTextures.set(nodeId, prevTex);
           }
-          if (supportsFeedback) {
+          if (supportsFeedback && window.DEBUG_FEEDBACK_REUSE) {
             console.log(`[FEEDBACK-REUSE] ${node.kind} #${nodeId}: REUSED (state preserved)`);
           }
           return;
         }
       }
 
-      // TEMP DIAGNOSTIC: explain why a feedback node could NOT reuse its manager
-      // (which is what wipes its accumulated state). Logs only on graph-edit
-      // rebuilds, so volume is low. Remove once the root cause is confirmed.
-      if (supportsFeedback) {
+      // Optional diagnostic: explain why a feedback node could NOT reuse its
+      // manager (which wipes its accumulated state). Off by default; enable with
+      // `window.DEBUG_FEEDBACK_REUSE = true` in the console, then edit a param.
+      if (supportsFeedback && window.DEBUG_FEEDBACK_REUSE) {
         let reason;
         if (!reuseContext) {
           reason = `no reuseContext (executor.initialized=${this.initialized} at pass start)`;
