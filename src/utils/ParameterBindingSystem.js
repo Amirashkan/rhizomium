@@ -443,6 +443,47 @@ export class ParameterBindingSystem {
     return true;
   }
 
+  // Live-propagate an in-progress drag of a source node to every parameter bound to it.
+  //
+  // Bindings aren't graph edges, so the preview dependency walk can't see them; and the numeric
+  // drag handlers only fire PARAMETER_CHANGED (which drives updateBoundParameters) on mouse-up.
+  // Without this, a bound parameter's thumbnail freezes until the drag is released. The source
+  // node.params are already live (the drag handler updates them every move), so we read the current
+  // source value, run each binding's transform, write the result into the target's node.params, and
+  // keep its GPU uniform in sync so both the main canvas and the thumbnail track the drag. Returns
+  // the set of affected target nodes so the caller can refresh their previews in the same pass.
+  refreshLiveTargetsForSource(sourceNode) {
+    const affected = new Set();
+    if (!sourceNode) return affected;
+
+    const prefix = `${sourceNode.id}.`;
+    const uniformManager = (typeof window !== 'undefined')
+      ? window.nodeCompiler?.uniformManager
+      : null;
+
+    this.bindings.forEach((targets, sourceKey) => {
+      if (!sourceKey.startsWith(prefix)) return;
+      const sourceParamName = sourceKey.slice(prefix.length);
+      const sourceValue = this.getParameterValue(sourceNode, sourceParamName);
+
+      targets.forEach(bound => {
+        const targetNode = this.graph.nodes.find(n => n.id === bound.nodeId);
+        if (!targetNode) return;
+
+        const finalValue = this._applyTransform(targetNode, bound.parameterName, sourceValue);
+        this.setParameterValueDirect(targetNode, bound.parameterName, finalValue);
+
+        if (uniformManager && typeof finalValue === 'number') {
+          uniformManager.uniformValues.set(`${targetNode.id}.${bound.parameterName}`, finalValue);
+        }
+
+        affected.add(targetNode);
+      });
+    });
+
+    return affected;
+  }
+
   // Check if creating a binding would create circular dependency
   wouldCreateCircularDependency(sourceNodeId, sourceParamName, targetNodeId, targetParamName) {
     const visited = new Set();

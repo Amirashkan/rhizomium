@@ -425,6 +425,16 @@ updateTimeNodes() {
     if (now - this._lastDragPreview < 33) return; // ~30 fps cap (queue self-limits under load)
     this._lastDragPreview = now;
 
+    // Bindings aren't graph edges, so the dependency walk below can't see them and the bound
+    // targets' node.params aren't touched mid-drag. Push the live drag value through each binding
+    // first (updating target node.params + GPU uniforms) so the CPU label recompute and the GPU
+    // thumbnail refresh below both pick up the driven values, instead of freezing until mouseup.
+    let boundTargets = null;
+    const bindingSystem = window.editor?.paramPanel?.bindingSystem;
+    if (bindingSystem?.refreshLiveTargetsForSource) {
+      boundTargets = bindingSystem.refreshLiveTargetsForSource(node);
+    }
+
     // Refresh the CPU-computed node values that back the numeric pin-value labels. Those labels
     // read from previewComputer.lastComputedValues, which the main render loop only recomputes
     // when NOT dragging — so without this a computed downstream label (e.g. a Compare node's
@@ -449,7 +459,14 @@ updateTimeNodes() {
     if (!spm || !spm.enableGPUPreview) return;
 
     const toUpdate = new Set();
-    this._collectWithDownstream(node.id, toUpdate, new Set(), this._buildExpressionDependentsMap());
+    const exprDeps = this._buildExpressionDependentsMap();
+    this._collectWithDownstream(node.id, toUpdate, new Set(), exprDeps);
+    // Include bound targets (and their own downstream) so their thumbnails track the drag too.
+    if (boundTargets) {
+      for (const targetNode of boundTargets) {
+        this._collectWithDownstream(targetNode.id, toUpdate, new Set(), exprDeps);
+      }
+    }
     for (const nodeId of toUpdate) {
       const n = this.editor.graph.nodes.find(x => x.id === nodeId);
       if (n) this._refreshNodePreview(n);

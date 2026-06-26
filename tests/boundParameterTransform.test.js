@@ -100,6 +100,21 @@ describe('bound parameter transform expressions', () => {
     expect(info.transform).toBe('=bound * 2');
   });
 
+  it('live drag propagation pushes the current source value through the transform', () => {
+    bindingSystem.setBoundTransform('t', 'radius', '=bound * 2');
+    // Simulate the drag handler updating the source node.params mid-drag (no event fired yet).
+    source.params.value = 9;
+    const affected = bindingSystem.refreshLiveTargetsForSource(source);
+    expect(target.params.radius).toBe(18);
+    expect(affected.has(target)).toBe(true);
+  });
+
+  it('live drag propagation mirrors the raw value when there is no transform', () => {
+    source.params.value = 11;
+    bindingSystem.refreshLiveTargetsForSource(source);
+    expect(target.params.radius).toBe(11);
+  });
+
   it('transforms survive a serialize/deserialize round trip', () => {
     bindingSystem.setBoundTransform('t', 'radius', '=bound + 1');
     const data = bindingSystem.serialize();
