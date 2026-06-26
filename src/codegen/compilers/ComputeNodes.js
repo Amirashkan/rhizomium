@@ -3105,9 +3105,18 @@ fn getLuminance(color: vec3<f32>) -> f32 {
   return dot(color, vec3<f32>(0.299, 0.587, 0.114));
 }
 
+// Maximum number of histogram bins (matches the 'bins' param max in the UI).
+// Arrays are sized to this maximum; only the first numBins entries are used.
+const MAX_BINS: i32 = 256;
+
+// Map a [0,1] value to a bin index in [0, numBins - 1].
+fn binOf(value: f32, numBins: i32) -> i32 {
+  return clamp(i32(value * f32(numBins)), 0, numBins - 1);
+}
+
 // Sample a region around a pixel to build local histogram
-fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, channel: i32) -> array<f32, 16> {
-  var histogram: array<f32, 16>;
+fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, channel: i32, numBins: i32) -> array<f32, 256> {
+  var histogram: array<f32, 256>;
   var count = 0.0;
 
   // Build histogram from local neighborhood
@@ -3133,8 +3142,7 @@ fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, c
           value = getLuminance(color.rgb);
         }
 
-        let binIndex = i32(clamp(value * 15.999, 0.0, 15.999));
-        histogram[binIndex] += 1.0;
+        histogram[binOf(value, numBins)] += 1.0;
         count += 1.0;
       }
     }
@@ -3142,7 +3150,7 @@ fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, c
 
   // Normalize histogram
   if (count > 0.0) {
-    for (var i = 0; i < 16; i++) {
+    for (var i = 0; i < numBins; i++) {
       histogram[i] /= count;
     }
   }
@@ -3151,11 +3159,11 @@ fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, c
 }
 
 // Compute cumulative distribution function
-fn computeCDF(histogram: array<f32, 16>) -> array<f32, 16> {
-  var cdf: array<f32, 16>;
+fn computeCDF(histogram: array<f32, 256>, numBins: i32) -> array<f32, 256> {
+  var cdf: array<f32, 256>;
   cdf[0] = histogram[0];
 
-  for (var i = 1; i < 16; i++) {
+  for (var i = 1; i < numBins; i++) {
     cdf[i] = cdf[i - 1] + histogram[i];
   }
 
@@ -3163,9 +3171,8 @@ fn computeCDF(histogram: array<f32, 16>) -> array<f32, 16> {
 }
 
 // Apply histogram equalization
-fn equalizeValue(value: f32, cdf: array<f32, 16>) -> f32 {
-  let binIndex = i32(clamp(value * 15.999, 0.0, 15.999));
-  return cdf[binIndex];
+fn equalizeValue(value: f32, cdf: array<f32, 256>, numBins: i32) -> f32 {
+  return cdf[binOf(value, numBins)];
 }
 
 // Apply contrast stretch
@@ -3177,17 +3184,17 @@ fn stretchValue(value: f32, minVal: f32, maxVal: f32) -> f32 {
 }
 
 // Create histogram visualization
-fn visualizeHistogram(uv: vec2<f32>, color: vec4<f32>, histogram: array<f32, 16>) -> vec4<f32> {
+fn visualizeHistogram(uv: vec2<f32>, color: vec4<f32>, histogram: array<f32, 256>, numBins: i32) -> vec4<f32> {
   let barHeight = 0.25; // Height of histogram overlay
   let barY = 0.85; // Bottom position
 
   // Check if we're in the histogram region
   if (uv.y > barY && uv.y < barY + barHeight) {
-    let binIndex = i32(uv.x * 16.0);
-    if (binIndex >= 0 && binIndex < 16) {
+    let binIndex = i32(uv.x * f32(numBins));
+    if (binIndex >= 0 && binIndex < numBins) {
       // Find max histogram value for scaling
       var maxHist = 0.0;
-      for (var i = 0; i < 16; i++) {
+      for (var i = 0; i < numBins; i++) {
         maxHist = max(maxHist, histogram[i]);
       }
 
@@ -3198,7 +3205,7 @@ fn visualizeHistogram(uv: vec2<f32>, color: vec4<f32>, histogram: array<f32, 16>
       // Draw histogram bar
       if (normalizedY < histValue) {
         // Color bars based on intensity
-        let intensity = f32(binIndex) / 15.0;
+        let intensity = f32(binIndex) / max(f32(numBins - 1), 1.0);
         return vec4<f32>(intensity, intensity * 0.7, 1.0 - intensity * 0.5, 0.9);
       } else {
         // Semi-transparent background
@@ -3225,37 +3232,38 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let op = i32(uniforms.operation);
   let chan = i32(uniforms.channel);
   let str = uniforms.strength;
+  let numBins = clamp(i32(uniforms.bins), 2, MAX_BINS);
 
   // Compute local histogram for adaptive processing
   let radius = 16; // Local neighborhood radius
-  let histogram = computeLocalHistogram(texCoord, texSize, radius, chan);
+  let histogram = computeLocalHistogram(texCoord, texSize, radius, chan, numBins);
 
   if (op == 0) {
     // Equalize - histogram equalization
-    let cdf = computeCDF(histogram);
+    let cdf = computeCDF(histogram, numBins);
 
     if (chan == 0) {
       // Apply to RGB
-      let newR = mix(inputColor.r, equalizeValue(inputColor.r, cdf), str);
-      let newG = mix(inputColor.g, equalizeValue(inputColor.g, cdf), str);
-      let newB = mix(inputColor.b, equalizeValue(inputColor.b, cdf), str);
+      let newR = mix(inputColor.r, equalizeValue(inputColor.r, cdf, numBins), str);
+      let newG = mix(inputColor.g, equalizeValue(inputColor.g, cdf, numBins), str);
+      let newB = mix(inputColor.b, equalizeValue(inputColor.b, cdf, numBins), str);
       outputColor = vec4<f32>(newR, newG, newB, inputColor.a);
     } else if (chan == 1) {
       // Red channel
-      let newR = mix(inputColor.r, equalizeValue(inputColor.r, cdf), str);
+      let newR = mix(inputColor.r, equalizeValue(inputColor.r, cdf, numBins), str);
       outputColor = vec4<f32>(newR, inputColor.g, inputColor.b, inputColor.a);
     } else if (chan == 2) {
       // Green channel
-      let newG = mix(inputColor.g, equalizeValue(inputColor.g, cdf), str);
+      let newG = mix(inputColor.g, equalizeValue(inputColor.g, cdf, numBins), str);
       outputColor = vec4<f32>(inputColor.r, newG, inputColor.b, inputColor.a);
     } else if (chan == 3) {
       // Blue channel
-      let newB = mix(inputColor.b, equalizeValue(inputColor.b, cdf), str);
+      let newB = mix(inputColor.b, equalizeValue(inputColor.b, cdf, numBins), str);
       outputColor = vec4<f32>(inputColor.r, inputColor.g, newB, inputColor.a);
     } else {
       // Luminance - equalize while preserving color
       let lum = getLuminance(inputColor.rgb);
-      let newLum = mix(lum, equalizeValue(lum, cdf), str);
+      let newLum = mix(lum, equalizeValue(lum, cdf, numBins), str);
 
       if (lum > 0.001) {
         let scale = newLum / lum;
@@ -3327,7 +3335,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   } else if (op == 3) {
     // Visualize - overlay histogram
     let uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
-    outputColor = visualizeHistogram(uv, inputColor, histogram);
+    outputColor = visualizeHistogram(uv, inputColor, histogram, numBins);
   }
 
   textureStore(outputTexture, vec2<u32>(texCoord), outputColor);
