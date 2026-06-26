@@ -891,7 +891,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * This shader uses the FeedbackManager for persistent state
    */
   generateFeedbackFieldShader(node, getInput) {
-    const mode = this.getParam(node, 'mode', 'Flow');
+    // NOTE: `mode` is intentionally NOT baked into the shader. It is delivered
+    // via uniforms.mode (packed at u[7] by packComputeUniforms) and read at
+    // runtime below, so switching modes updates a uniform instead of
+    // regenerating the WGSL. A WGSL change would change the manager's reuse
+    // signature and wipe the accumulated field — exactly the reset we want to
+    // avoid. decay/diffusion/feedback/speed are likewise uniforms.
     const decay = this.getParam(node, 'decay', 0.98);
     const diffusion = this.getParam(node, 'diffusion', 0.1);
     const feedback = this.getParam(node, 'feedback', 0.5);
@@ -1025,8 +1030,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   // Select mode (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom)
   var result: vec4<f32>;
 
-  // Mode selection based on parameter
-  let modeType = ${this.getModeIndex(mode)};
+  // Mode selection based on parameter (runtime uniform, not baked — see note in
+  // generateFeedbackFieldShader). 0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom.
+  let modeType = i32(uniforms.mode + 0.5);
 
   if (modeType == 0) {
     result = flowMode(texCoord, texSize, input);
@@ -1040,19 +1046,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   textureStore(outputTexture, vec2<u32>(texCoord), result);
 }`;
-  }
-
-  /**
-   * Convert mode string to index
-   */
-  getModeIndex(mode) {
-    const modes = {
-      'Flow': 0,
-      'Reaction-Diffusion': 1,
-      'Accumulate': 2,
-      'Custom': 3
-    };
-    return modes[mode] || 0;
   }
 
   /**

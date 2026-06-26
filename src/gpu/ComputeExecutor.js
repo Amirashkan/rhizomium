@@ -81,6 +81,14 @@ export class ComputeExecutor {
     // reuse an unchanged node's existing manager (preserving feedback ping-pong
     // state) instead of tearing it down and recreating it on every rebuild.
     this._reuseContext = null;
+
+    // Serializes overlapping initialize() calls. initialize() clears
+    // computeManagers up front and rebuilds asynchronously; if a second call
+    // started mid-rebuild it would snapshot an already-empty manager map, defeat
+    // the reuse path, and wipe every feedback node's accumulated state. _initInFlight
+    // holds the running rebuild promise; _initQueued requests one more pass after it.
+    this._initInFlight = null;
+    this._initQueued = false;
   }
 
   _deferDestroy(fn) {
@@ -119,9 +127,45 @@ export class ComputeExecutor {
   }
 
   /**
-   * Initialize compute nodes from registry
+   * Initialize compute nodes from registry.
+   *
+   * Re-entrancy guard: graph edits (param drags, node moves, selection changes)
+   * funnel through updateShaderFromGraph -> initialize(), which is async and can
+   * span several frames while GPU pipelines build. If a second call landed while
+   * the first was still awaiting, it would snapshot an already-cleared manager
+   * map and rebuild every node from scratch — wiping the ping-pong state of every
+   * feedback node (ComputeFeedback, ComputeFeedbackField, reaction-diffusion).
+   * Overlapping calls are coalesced into the in-flight pass plus at most one
+   * follow-up pass, so reuse always sees the previous managers.
    */
   async initialize() {
+    if (this._initInFlight) {
+      // A rebuild is already running; ask it to run once more when it finishes so
+      // the latest registry state is picked up, then share its completion.
+      this._initQueued = true;
+      return this._initInFlight;
+    }
+
+    const run = (async () => {
+      do {
+        this._initQueued = false;
+        await this._initializeOnce();
+      } while (this._initQueued);
+    })();
+
+    this._initInFlight = run;
+    try {
+      await run;
+    } finally {
+      this._initInFlight = null;
+    }
+  }
+
+  /**
+   * Perform a single initialize pass. Always invoked through initialize(), which
+   * serializes overlapping calls — never call this directly.
+   */
+  async _initializeOnce() {
     if (!window.computeNodeRegistry || window.computeNodeRegistry.size === 0) {
       return;
     }

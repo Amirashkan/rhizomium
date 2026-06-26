@@ -157,8 +157,8 @@ export const ComputeNodes = {
       { name: 'diffusion', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
       { name: 'feedback', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
       { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
-      { name: 'reset', type: 'boolean', default: false },
-      { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' }
+      { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' },
+      { name: 'reset', type: 'button', displayName: 'Reset Field', action: 'resetFeedback', description: 'Clear the accumulated feedback field' }
     ],
     description: "Persistent feedback field for simulations using FeedbackManager",
     workgroupSize: [8, 8, 1]
