@@ -14,8 +14,7 @@ register(registry) {
     'simplexnoise': (ctx, node) => this.renderSimplexNoise(ctx, node),
     'voronoinoise': (ctx, node) => this.renderVoronoiNoise(ctx, node),
     'ridgednoise': (ctx, node) => this.renderRidgedNoise(ctx, node),
-    'turbulence': (ctx, node) => this.renderTurbulence(ctx, node),
-    
+
     // ADD THESE THREE:
     'perlinnoise': (ctx, node) => this.renderPerlinNoise(ctx, node),
     'warpnoise': (ctx, node) => this.renderWarpNoise(ctx, node),
@@ -197,27 +196,36 @@ register(registry) {
 
   renderSimplexNoise(ctx, node) {
     const size = ctx.canvas.width;
+    // Mirror the GPU SimplexNoise node: scale/amplitude/offset plus ridge & turbulence modes.
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 4.0), 4.0);
-    const frequency1 = this.toSafeNumber(this.getParameterValue(node, "frequency1", 1.5), 1.5);
-    const frequency2 = this.toSafeNumber(this.getParameterValue(node, "frequency2", 3.0), 3.0);
-    const mix = this.toSafeNumber(this.getParameterValue(node, "mix", 0.7), 0.7);
+    const amplitude = this.toSafeNumber(this.getParameterValue(node, "amplitude", 1.0), 1.0);
+    const offset = this.toSafeNumber(this.getParameterValue(node, "offset", 0.0), 0.0);
+    const ridge = !!this.getParameterValue(node, "ridge", false);
+    const turbulence = !!this.getParameterValue(node, "turbulence", false);
 
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const u = (x / size) * scale;
         const v = (y / size) * scale;
 
-        const noise1 = this._simpleNoise(u * frequency1, v * frequency1);
-        const noise2 = this._simpleNoise(u * frequency2, v * frequency2);
-        const noise = noise1 * mix + noise2 * (1 - mix);
-        
-        const color = Math.floor((noise * 0.5 + 0.5) * 255);
+        const base = this._simpleNoise(u, v);
+        let processed;
+        if (ridge) {
+          processed = Math.max(0, Math.min(1, 1 - Math.abs(base)));
+        } else if (turbulence) {
+          processed = Math.max(0, Math.min(1, Math.abs(base)));
+        } else {
+          processed = base * 0.5 + 0.5;
+        }
+
+        const noise = processed * amplitude + offset;
+        const color = Math.floor(Math.max(0, Math.min(255, noise * 255)));
         ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
         ctx.fillRect(x, y, 1, 1);
       }
     }
 
-    this.drawParameterInfo(ctx, { scale, freq1: frequency1, freq2: frequency2 });
+    this.drawParameterInfo(ctx, { scale, amp: amplitude, offset });
 
     if (this.hasExpressions(node)) {
       this.drawExpressionIndicator(ctx);
@@ -453,35 +461,6 @@ renderWorleyNoise(ctx, node) {
     }
 
     this.drawParameterInfo(ctx, { scale, rand: randomness });
-
-    if (this.hasExpressions(node)) {
-      this.drawExpressionIndicator(ctx);
-    }
-  }
-
-  renderTurbulence(ctx, node) {
-    const size = ctx.canvas.width;
-    const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 3.0), 3.0);
-    const power = this.toSafeNumber(this.getParameterValue(node, "power", 1.0), 1.0);
-    const roughness = this.toSafeNumber(this.getParameterValue(node, "roughness", 2.0), 2.0);
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const u = (x / size) * scale;
-        const v = (y / size) * scale;
-
-        // Turbulence using domain distortion
-        const distortX = this._simpleNoise(u * roughness, v * roughness) * power;
-        const distortY = this._simpleNoise(u * roughness + 100, v * roughness + 100) * power;
-
-        const noise = this._simpleNoise(u + distortX, v + distortY);
-        const color = Math.floor((Math.abs(noise) * 0.5 + 0.5) * 255);
-        ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
-        ctx.fillRect(x, y, 1, 1);
-      }
-    }
-
-    this.drawParameterInfo(ctx, { scale, power, rough: roughness });
 
     if (this.hasExpressions(node)) {
       this.drawExpressionIndicator(ctx);
