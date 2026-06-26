@@ -3077,6 +3077,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     const bins = this.getParam(node, 'bins', 16);
     const strength = this.getParam(node, 'strength', 1.0);
 
+    // Per-invocation histogram arrays are sized to this maximum, so it directly
+    // sets the WGSL local-memory footprint per GPU thread (MAX_BINS f32 each, used
+    // for the histogram + CDF). A LOCAL adaptive histogram is built from only the
+    // subsampled neighbourhood (~81 taps), so bins beyond ~32 can't be populated
+    // and just waste local memory and crater occupancy. Keep it small; the runtime
+    // `bins` uniform (clamped to this) controls how many of these entries are used.
+    const MAX_BINS = 32;
+
     // Convert operation to index: 0=Equalize, 1=Normalize, 2=Stretch, 3=Visualize
     const operationIndex = operation === 'Equalize' ? 0 : operation === 'Normalize' ? 1 : operation === 'Stretch' ? 2 : 3;
 
@@ -3105,9 +3113,9 @@ fn getLuminance(color: vec3<f32>) -> f32 {
   return dot(color, vec3<f32>(0.299, 0.587, 0.114));
 }
 
-// Maximum number of histogram bins (matches the 'bins' param max in the UI).
-// Arrays are sized to this maximum; only the first numBins entries are used.
-const MAX_BINS: i32 = 256;
+// Maximum number of histogram bins. Arrays are sized to this maximum; only the
+// first numBins entries are used. Kept small to bound per-thread local memory.
+const MAX_BINS: i32 = ${MAX_BINS};
 
 // Map a [0,1] value to a bin index in [0, numBins - 1].
 fn binOf(value: f32, numBins: i32) -> i32 {
@@ -3119,8 +3127,8 @@ fn binOf(value: f32, numBins: i32) -> i32 {
 // (~9x9 = 81 reads) regardless of radius: a full radius-16 scan is 33x33 = 1089
 // textureLoads per pixel, which saturates the GPU at full resolution and is far
 // worse when a second viewer runs its own copy of the graph on the same device.
-fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, channel: i32, numBins: i32) -> array<f32, 256> {
-  var histogram: array<f32, 256>;
+fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, channel: i32, numBins: i32) -> array<f32, ${MAX_BINS}> {
+  var histogram: array<f32, ${MAX_BINS}>;
   var count = 0.0;
   let step = max(1, radius / 4);
 
@@ -3164,8 +3172,8 @@ fn computeLocalHistogram(texCoord: vec2<i32>, texSize: vec2<u32>, radius: i32, c
 }
 
 // Compute cumulative distribution function
-fn computeCDF(histogram: array<f32, 256>, numBins: i32) -> array<f32, 256> {
-  var cdf: array<f32, 256>;
+fn computeCDF(histogram: array<f32, ${MAX_BINS}>, numBins: i32) -> array<f32, ${MAX_BINS}> {
+  var cdf: array<f32, ${MAX_BINS}>;
   cdf[0] = histogram[0];
 
   for (var i = 1; i < numBins; i++) {
@@ -3176,7 +3184,7 @@ fn computeCDF(histogram: array<f32, 256>, numBins: i32) -> array<f32, 256> {
 }
 
 // Apply histogram equalization
-fn equalizeValue(value: f32, cdf: array<f32, 256>, numBins: i32) -> f32 {
+fn equalizeValue(value: f32, cdf: array<f32, ${MAX_BINS}>, numBins: i32) -> f32 {
   return cdf[binOf(value, numBins)];
 }
 
@@ -3189,7 +3197,7 @@ fn stretchValue(value: f32, minVal: f32, maxVal: f32) -> f32 {
 }
 
 // Create histogram visualization
-fn visualizeHistogram(uv: vec2<f32>, color: vec4<f32>, histogram: array<f32, 256>, numBins: i32) -> vec4<f32> {
+fn visualizeHistogram(uv: vec2<f32>, color: vec4<f32>, histogram: array<f32, ${MAX_BINS}>, numBins: i32) -> vec4<f32> {
   let barHeight = 0.25; // Height of histogram overlay
   let barY = 0.85; // Bottom position
 

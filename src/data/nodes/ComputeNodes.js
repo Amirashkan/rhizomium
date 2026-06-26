@@ -499,7 +499,7 @@ export const ComputeNodes = {
     params: [
       { name: 'operation', type: 'select', options: ['Equalize', 'Normalize', 'Stretch', 'Visualize'], default: 'Equalize' },
       { name: 'channel', type: 'select', options: ['RGB', 'R', 'G', 'B', 'Luminance'], default: 'Luminance' },
-      { name: 'bins', type: 'int', default: 16, min: 16, max: 256 },
+      { name: 'bins', type: 'int', default: 16, min: 8, max: 32 },
       { name: 'strength', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
     ],
     description: "Histogram-based image analysis and equalization",
