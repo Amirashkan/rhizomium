@@ -45,6 +45,76 @@ export class FragmentTextureRenderer {
     // path's externalUniformMode / writeRawComputeUniforms. Off in the editor.
     this.externalUniformMode = false;
     this.externalUniforms = new Map(); // nodeId -> Float32Array (evaluated u_params)
+
+    // Use-after-destroy guard. The preview path samples a node's cached texture in
+    // an ASYNC readback (renderNodeToTexture -> downscale submit -> mapAsync). When a
+    // graph edit triggers invalidateNode()/clearCache() mid-readback, the deferred
+    // texture.destroy() can land before the readback's queue.submit() — WebGPU then
+    // rejects the submit with "destroyed texture used in a submit". We hold the
+    // destroy of any texture whose node is being read until the read completes.
+    this._readHolds = new Map();        // nodeId -> active read count
+    this._heldDestroys = new Map();     // nodeId -> [textures awaiting a safe destroy]
+  }
+
+  /**
+   * Mark a node's cached texture as being read by an in-flight preview readback, so
+   * invalidateNode()/clearCache() won't destroy it out from under the GPU submit.
+   * Pair every beginRead() with an endRead() (use try/finally).
+   */
+  beginRead(nodeId) {
+    const key = String(nodeId);
+    this._readHolds.set(key, (this._readHolds.get(key) || 0) + 1);
+  }
+
+  /** Release a read hold; once the last reader for a node is done, flush deferred destroys. */
+  endRead(nodeId) {
+    const key = String(nodeId);
+    const n = (this._readHolds.get(key) || 0) - 1;
+    if (n > 0) { this._readHolds.set(key, n); return; }
+    this._readHolds.delete(key);
+    const pending = this._heldDestroys.get(key);
+    if (pending && pending.length) {
+      this._heldDestroys.delete(key);
+      this._destroyTextures(pending);
+    }
+  }
+
+  /** True while a preview readback is sampling this node's texture. */
+  _isHeld(nodeId) {
+    return (this._readHolds.get(String(nodeId)) || 0) > 0;
+  }
+
+  /**
+   * Deferred GPU texture destruction. Routed through the compute executor's frame
+   * fence when available (destroys after onSubmittedWorkDone), else a macrotask.
+   * @private
+   */
+  _destroyTextures(textures) {
+    const live = textures.filter(Boolean);
+    if (!live.length) return;
+    const ce = (typeof window !== 'undefined') ? window.computeExecutor : null;
+    if (ce?._deferDestroy) {
+      ce._deferDestroy(() => { for (const t of live) { try { t.destroy(); } catch (_) {} } });
+    } else {
+      setTimeout(() => { for (const t of live) { try { t.destroy(); } catch (_) {} } }, 0);
+    }
+  }
+
+  /**
+   * Schedule a node's texture for destruction, deferring past any in-flight preview
+   * read of that node (see the use-after-destroy guard above).
+   * @private
+   */
+  _scheduleNodeTextureDestroy(nodeId, texture) {
+    if (!texture) return;
+    if (this._isHeld(nodeId)) {
+      const key = String(nodeId);
+      const list = this._heldDestroys.get(key) || [];
+      list.push(texture);
+      this._heldDestroys.set(key, list);
+    } else {
+      this._destroyTextures([texture]);
+    }
   }
 
   /**
@@ -52,14 +122,8 @@ export class FragmentTextureRenderer {
    * Call this when graph structure changes (nodes added/removed, connections changed)
    */
   clearCache() {
-    const textures = [...this.textureCache.values()].map(c => c.texture).filter(Boolean);
-    if (textures.length) {
-      const ce = window.computeExecutor;
-      if (ce?._deferDestroy) {
-        ce._deferDestroy(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } });
-      } else {
-        setTimeout(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } }, 0);
-      }
+    for (const cached of this.textureCache.values()) {
+      if (cached && cached.texture) this._scheduleNodeTextureDestroy(cached.nodeId, cached.texture);
     }
     this.textureCache.clear();
     this.shaderCache.clear();
@@ -118,6 +182,7 @@ export class FragmentTextureRenderer {
       const shaderChanged = this.shaderCache.get(nodeId) !== shaderCode;
       if (shaderChanged || !cached) {
         cached = await this._buildPipeline(nodeId, shaderCode, width, height, uniformManager);
+        if (cached) cached.nodeId = nodeId; // for the destroy guard to key by node
         this.textureCache.set(cacheKey, cached);
         this.shaderCache.set(nodeId, shaderCode);
         // New texture is empty — force a render even if params haven't changed.
@@ -979,23 +1044,6 @@ export class FragmentTextureRenderer {
   }
 
   /**
-   * Clear the texture cache
-   */
-  clearCache() {
-    const textures = [...this.textureCache.values()].map(c => c.texture).filter(Boolean);
-    if (textures.length) {
-      const ce = window.computeExecutor;
-      if (ce?._deferDestroy) {
-        ce._deferDestroy(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } });
-      } else {
-        setTimeout(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } }, 0);
-      }
-    }
-    this.textureCache.clear();
-    this.shaderCache.clear();
-  }
-
-  /**
    * Remove a specific node from cache
    */
   invalidateNode(nodeId) {
@@ -1004,17 +1052,12 @@ export class FragmentTextureRenderer {
       if (key.startsWith(`${nodeId}_`)) keysToDelete.push(key);
     }
 
-    const textures = keysToDelete.map(k => this.textureCache.get(k)?.texture).filter(Boolean);
-    if (textures.length) {
-      const ce = window.computeExecutor;
-      if (ce?._deferDestroy) {
-        ce._deferDestroy(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } });
-      } else {
-        setTimeout(() => { for (const t of textures) { try { t.destroy(); } catch (_) {} } }, 0);
-      }
+    for (const key of keysToDelete) {
+      const cached = this.textureCache.get(key);
+      if (cached && cached.texture) this._scheduleNodeTextureDestroy(nodeId, cached.texture);
+      this.textureCache.delete(key);
     }
-
-    for (const key of keysToDelete) this.textureCache.delete(key);
     this.shaderCache.delete(nodeId);
+    this.parameterHashes.delete(nodeId);
   }
 }

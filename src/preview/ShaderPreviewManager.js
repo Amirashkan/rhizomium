@@ -485,14 +485,22 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     const time = this._currentTime();
     const audioContext = this._currentAudioContext();
 
-    const texture = await this.fragmentRenderer.renderNodeToTexture(
-      renderId, size, size, time, audioContext, null, /* force */ true
-    );
-    if (!texture) {
-      this.fallbackToLegacyPreview(node);
-      return;
+    // Hold the node's texture across the async render+readback so a concurrent graph
+    // edit (invalidateNode/clearCache) can't destroy it mid-submit — see the guard in
+    // FragmentTextureRenderer.beginRead.
+    this.fragmentRenderer.beginRead?.(renderId);
+    try {
+      const texture = await this.fragmentRenderer.renderNodeToTexture(
+        renderId, size, size, time, audioContext, null, /* force */ true
+      );
+      if (!texture) {
+        this.fallbackToLegacyPreview(node);
+        return;
+      }
+      await this._textureToThumbnail(texture, node);
+    } finally {
+      this.fragmentRenderer.endRead?.(renderId);
     }
-    await this._textureToThumbnail(texture, node);
   }
 
   /**
