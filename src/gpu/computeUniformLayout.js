@@ -225,6 +225,26 @@ export function packComputeUniforms(kind, params, ctx) {
       break;
     }
 
+    case 'ComputeHistogram': {
+      // struct order: operation, channel, bins, strength, _padding
+      const operation = p.operation ?? 'Equalize';
+      u[3] =
+        operation === 'Equalize' ? 0.0
+        : operation === 'Normalize' ? 1.0
+        : operation === 'Stretch' ? 2.0
+        : 3.0; // Visualize
+      const channel = p.channel ?? 'Luminance';
+      u[4] =
+        channel === 'RGB' ? 0.0
+        : channel === 'R' ? 1.0
+        : channel === 'G' ? 2.0
+        : channel === 'B' ? 3.0
+        : 4.0; // Luminance
+      u[5] = ev(p.bins, 256);
+      u[6] = ev(p.strength, 1.0);
+      break;
+    }
+
     case 'ComputeLuminance': {
       const method = p.method ?? 'Rec709';
       u[3] =
@@ -243,9 +263,9 @@ export function packComputeUniforms(kind, params, ctx) {
     }
 
     default:
-      // Unknown / unimplemented node type (e.g. ComputeParticles, ComputeFluidSim,
-      // ComputeHistogram): resolution + time only, all params left at 0. This
-      // matches the editor's default case.
+      // Unknown / unimplemented node type (e.g. ComputeParticles, ComputeFluidSim):
+      // resolution + time only, all params left at 0. This matches the editor's
+      // default case.
       break;
   }
 
