@@ -1133,33 +1133,42 @@ case 'flip2d':
     const inputContainer = document.createElement('div');
     inputContainer.className = 'parameter-input-container';
 
-    const handler = this.getInputHandler(param);
-    if (handler) {
-      try {
-        handler.create(
-          param, 
-          node, 
-          inputContainer, 
-          label, 
-          this.valueManager, 
-          (action) => this.handleParameterUpdate(action)
-        );
-        
-        // Disable input if parameter is bound
-        if (bindingInfo.isBound) {
-          const input = inputContainer.querySelector('.param-input');
-          if (input) {
-            input.disabled = true;
-            input.style.opacity = '0.6';
-            input.title = `Bound to ${bindingInfo.source.nodeId}.${bindingInfo.source.parameterName}`;
-          }
-        }
-      } catch (error) {
+    // A bound numeric parameter is driven by its source. Rather than disabling the input,
+    // expose an expression field that post-processes that driven value (the live source value
+    // is available as `bound`/`self`, e.g. "=bound * 2"). Non-numeric bound params have no
+    // sensible scalar transform, so they keep the read-only disabled treatment.
+    const transformableTypes = ['float', 'int', 'expression'];
+    if (bindingInfo.isBound && transformableTypes.includes(param.type)) {
+      this.createBoundTransformInput(param, node, inputContainer, bindingInfo);
+    } else {
+      const handler = this.getInputHandler(param);
+      if (handler) {
+        try {
+          handler.create(
+            param,
+            node,
+            inputContainer,
+            label,
+            this.valueManager,
+            (action) => this.handleParameterUpdate(action)
+          );
 
+          // Disable input if parameter is bound (non-numeric types only)
+          if (bindingInfo.isBound) {
+            const input = inputContainer.querySelector('.param-input');
+            if (input) {
+              input.disabled = true;
+              input.style.opacity = '0.6';
+              input.title = `Bound to ${bindingInfo.source.nodeId}.${bindingInfo.source.parameterName}`;
+            }
+          }
+        } catch (error) {
+
+          this.createFallbackInput(param, node, inputContainer);
+        }
+      } else {
         this.createFallbackInput(param, node, inputContainer);
       }
-    } else {
-      this.createFallbackInput(param, node, inputContainer);
     }
 
     paramContainer.appendChild(inputContainer);
@@ -1178,6 +1187,97 @@ case 'flip2d':
     }
 
     this.panelContent.appendChild(paramContainer);
+  }
+
+  /**
+   * Render the input for a bound numeric parameter as an expression that transforms the live
+   * driven value. The parameter stays bound to its source; the expression here post-processes the
+   * incoming value, with that value exposed as `bound` (and `self`). An empty field means "use the
+   * driven value as-is". The transform is owned by the binding system, not node.params, so the
+   * binding keeps writing the computed numeric result downstream (codegen/uniforms/preview).
+   */
+  createBoundTransformInput(param, node, inputContainer, bindingInfo) {
+    const sourceNode = this.graph.nodes.find(n => n.id === bindingInfo.source.nodeId);
+    const sourceLabel = `${sourceNode?.kind || 'Unknown'}.${bindingInfo.source.parameterName}`;
+
+    const container = document.createElement('div');
+    container.className = 'expression-input-container';
+    container.style.cssText = 'position: relative; margin-bottom: 4px;';
+
+    const input = document.createElement('textarea');
+    input.className = 'param-input expression-capable has-expression';
+    input.setAttribute('data-param', param.name);
+    input.setAttribute('data-param-type', param.type);
+    input.setAttribute('rows', '1');
+    input.autocomplete = 'off';
+    input.autocapitalize = 'off';
+    input.spellcheck = false;
+    input.value = this.bindingSystem.getBoundTransform(node.id, param.name) || '';
+    input.placeholder = '=bound (e.g. =bound * 2)';
+    input.title = `Bound to ${sourceLabel}. Type an expression of "bound" (the driven value) to transform it; leave empty to use it directly.`;
+    input.style.cssText = `
+      width: 100%;
+      min-height: 28px;
+      max-height: 200px;
+      padding: 6px;
+      background: #2a2a3e;
+      color: #a8e6cf;
+      border: 1px solid #ff9800;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: monospace;
+      line-height: 1.4;
+      box-sizing: border-box;
+      resize: vertical;
+      overflow-y: auto;
+    `;
+
+    const resultDisplay = document.createElement('div');
+    resultDisplay.className = 'expression-result';
+    resultDisplay.style.cssText = `
+      font-size: 10px;
+      color: #4CAF50;
+      margin-top: 2px;
+      font-style: italic;
+      min-height: 12px;
+      padding-left: 2px;
+    `;
+
+    const refreshResult = () => {
+      const current = this.valueManager.getValue(node, param.name);
+      const shown = typeof current === 'number' ? Math.round(current * 10000) / 10000 : current;
+      resultDisplay.textContent = `→ ${shown}`;
+    };
+    refreshResult();
+
+    const commit = () => {
+      const changed = this.bindingSystem.setBoundTransform(node.id, param.name, input.value);
+      if (changed) {
+        refreshResult();
+        this.handleParameterUpdate({
+          parameterName: param.name,
+          newValue: this.valueManager.getValue(node, param.name),
+        });
+      }
+    };
+
+    // Keep editor-level shortcuts from firing while typing in the field.
+    input.addEventListener('keydown', (e) => {
+      if (['Delete', 'Backspace', 'Enter'].includes(e.key)) {
+        e.stopPropagation();
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        commit();
+        input.blur();
+      }
+    });
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('blur', commit);
+
+    container.appendChild(input);
+    container.appendChild(resultDisplay);
+    inputContainer.appendChild(container);
   }
 
   /**

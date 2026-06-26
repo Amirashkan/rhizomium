@@ -1,15 +1,25 @@
 // src/utils/ParameterBindingSystem.js
+import { expressionSystem } from './ParameterExpressionSystem.js';
+
 export class ParameterBindingSystem {
   constructor(graph, eventSystem, undoManager) {
     this.graph = graph;
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
 
+    // Expression system used to evaluate per-binding transform expressions.
+    this.expressionSystem = expressionSystem;
+
     // Map of parameter bindings: sourceId -> Set of bound parameters
     this.bindings = new Map();
 
     // Reverse map for quick lookup: boundId -> source parameter
     this.boundToSource = new Map();
+
+    // Optional transform expression per bound target: targetKey -> "=bound * 2".
+    // A bound parameter mirrors its source value; the transform (when present) post-processes
+    // that driven value, with the live source value exposed to the expression as `bound`/`self`.
+    this.transforms = new Map();
 
     // Parameter clipboard for copy/paste operations
     this.clipboard = null;
@@ -225,6 +235,9 @@ export class ParameterBindingSystem {
     // Remove from reverse map
     this.boundToSource.delete(targetKey);
 
+    // Drop any transform expression attached to this binding
+    this.transforms.delete(targetKey);
+
     // Emit event
     this.eventSystem.emit('BINDING_REMOVED', {
       sourceNodeId,
@@ -303,8 +316,10 @@ export class ParameterBindingSystem {
     boundParams.forEach(bound => {
       const targetNode = this.graph.nodes.find(n => n.id === bound.nodeId);
       if (targetNode) {
-        // Set the EVALUATED value, not the expression string
-        this.setParameterValueDirect(targetNode, bound.parameterName, valueToPropagate);
+        // Set the EVALUATED value, run through this binding's transform expression (if any)
+        // so an expression like "=bound * 2" post-processes the live driven value.
+        const finalValue = this._applyTransform(targetNode, bound.parameterName, valueToPropagate);
+        this.setParameterValueDirect(targetNode, bound.parameterName, finalValue);
 
         // For MIDI sources, skip expensive preview updates during active control
         if (source === 'midi') {
@@ -342,6 +357,90 @@ export class ParameterBindingSystem {
       this.midiBindingUpdateTimer = null;
       this.processPendingMidiBindingUpdates();
     }
+  }
+
+  // Normalize a transform expression: trim, drop empties, ensure the leading '='.
+  _normalizeTransform(expression) {
+    if (typeof expression !== 'string') return '';
+    const trimmed = expression.trim();
+    if (!trimmed || trimmed === '=') return '';
+    return trimmed.startsWith('=') ? trimmed : `=${trimmed}`;
+  }
+
+  // Apply a bound parameter's transform expression to the incoming source value.
+  // The live source value is exposed to the expression as `bound` (and `self`). Only scalar
+  // numeric values are transformed; vectors and non-numbers pass through unchanged, and any
+  // evaluation error falls back to the raw driven value so a bad expression can't blank output.
+  _applyTransform(targetNode, targetParamName, sourceValue) {
+    const targetKey = `${targetNode.id}.${targetParamName}`;
+    const transform = this.transforms.get(targetKey);
+    if (!transform) return sourceValue;
+    if (typeof sourceValue !== 'number') return sourceValue;
+
+    try {
+      const result = this.expressionSystem.evaluateExpression(
+        transform,
+        { bound: sourceValue, self: sourceValue },
+        targetNode,
+      );
+      return (typeof result === 'number' && isFinite(result)) ? result : sourceValue;
+    } catch (error) {
+      return sourceValue;
+    }
+  }
+
+  // Read the transform expression attached to a bound parameter (or null if none).
+  getBoundTransform(targetNodeId, targetParamName) {
+    return this.transforms.get(`${targetNodeId}.${targetParamName}`) ?? null;
+  }
+
+  // Attach/replace/clear the transform expression for a bound parameter, then re-apply it
+  // against the current source value so the change takes effect immediately. A parameter must
+  // already be bound for a transform to be meaningful. Returns true if anything changed.
+  setBoundTransform(targetNodeId, targetParamName, expression) {
+    const targetKey = `${targetNodeId}.${targetParamName}`;
+    if (!this.boundToSource.has(targetKey)) {
+      return false;
+    }
+
+    const targetNode = this.graph.nodes.find(n => n.id === targetNodeId);
+    if (!targetNode) {
+      return false;
+    }
+
+    const normalized = this._normalizeTransform(expression);
+    const previous = this.transforms.get(targetKey) ?? '';
+    if (normalized === previous) {
+      return false;
+    }
+
+    if (normalized) {
+      this.transforms.set(targetKey, normalized);
+    } else {
+      this.transforms.delete(targetKey);
+    }
+
+    // Re-evaluate against the current source value so the transformed value is live immediately.
+    const source = this.boundToSource.get(targetKey);
+    const sourceNode = this.graph.nodes.find(n => n.id === source.nodeId);
+    if (sourceNode) {
+      const sourceValue = this.getParameterValue(sourceNode, source.parameterName);
+      this.setParameterValueDirect(
+        targetNode,
+        targetParamName,
+        this._applyTransform(targetNode, targetParamName, sourceValue),
+      );
+    }
+
+    this.updateNodePreview(targetNode);
+
+    this.eventSystem.emit('BINDING_TRANSFORM_CHANGED', {
+      targetNodeId,
+      targetParamName,
+      transform: normalized,
+    });
+
+    return true;
   }
 
   // Check if creating a binding would create circular dependency
@@ -384,7 +483,8 @@ export class ParameterBindingSystem {
       isBound: !!source,
       hasTargets: !!(targets && targets.size > 0),
       source,
-      targets: targets ? Array.from(targets) : []
+      targets: targets ? Array.from(targets) : [],
+      transform: this.transforms.get(targetKey) ?? null
     };
   }
 
@@ -486,6 +586,13 @@ export class ParameterBindingSystem {
     });
     
     toRemoveAsSource.forEach(sourceKey => {
+      // Drop transforms on the targets that were driven by this (now-deleted) source.
+      const targets = this.bindings.get(sourceKey);
+      if (targets) {
+        targets.forEach(target => {
+          this.transforms.delete(`${target.nodeId}.${target.parameterName}`);
+        });
+      }
       this.bindings.delete(sourceKey);
     });
 
@@ -511,6 +618,10 @@ export class ParameterBindingSystem {
       bindings: Array.from(this.bindings.entries()).map(([sourceKey, targets]) => ({
         source: sourceKey,
         targets: Array.from(targets)
+      })),
+      transforms: Array.from(this.transforms.entries()).map(([target, expression]) => ({
+        target,
+        expression
       }))
     };
   }
@@ -519,7 +630,17 @@ export class ParameterBindingSystem {
   deserialize(data) {
     this.bindings.clear();
     this.boundToSource.clear();
-    
+    this.transforms.clear();
+
+    if (data.transforms) {
+      data.transforms.forEach(({ target, expression }) => {
+        const normalized = this._normalizeTransform(expression);
+        if (target && normalized) {
+          this.transforms.set(target, normalized);
+        }
+      });
+    }
+
     if (data.bindings) {
       data.bindings.forEach(binding => {
         const sourceKey = binding.source;
@@ -551,6 +672,7 @@ export class ParameterBindingSystem {
   destroy() {
     this.bindings.clear();
     this.boundToSource.clear();
+    this.transforms.clear();
     this.clipboard = null;
   }
 }
