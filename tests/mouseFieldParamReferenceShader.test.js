@@ -1,15 +1,18 @@
 // Regression test: a Mouse (or Time/RandomTime) node referenced by a Field node's parameter
-// (e.g. a Circle's radius = "=node_28_x") must resolve to the live GPU global (g.mouse.x),
-// not be emitted verbatim as an undefined identifier.
+// (e.g. a Circle's radius = "=node_28_x") must resolve to the live GPU global, produce valid
+// scalar WGSL, and never emit an undefined identifier — including while the reference is still
+// being typed.
 //
-// Bug: FieldNodes.getParam resolved node references via the ambient window.editor.graph. In the
-// external viewer / studio context window.editor is absent, so the reference fell through to the
-// generator's passthrough and produced WGSL like `shape_circle_27(..., (node_28_x), ...)`, failing
-// the whole shader module with "unresolved value 'node_28'". The radius then read as 0.00.
-//
-// Fix: the graph being compiled is threaded into the compilers (NodeCompiler.compileNodes -> each
-// compiler's setGraph), so generateShader resolves input-node references off that graph regardless
-// of window.editor.
+// Bugs fixed:
+//  1. FieldNodes.getParam resolved node references via the ambient window.editor.graph, which is
+//     absent in the external viewer / studio context, so the reference fell through to the
+//     generator's passthrough -> "unresolved value 'node_28'".
+//  2. A Mouse node is a vec4 (g.mouse); referenced bare into an f32 radius it produced a
+//     "type mismatch ... expected 'f32', got 'vec4<f32>'". Shape params are scalar, so a Mouse
+//     reference now maps to a single channel (default .x).
+//  3. While typing (e.g. "=node_2" on the way to "=node_28"), the incomplete reference named a
+//     node that does not exist yet and was emitted verbatim, spamming WGSL parse errors on every
+//     keystroke. Unknown references now fall back to the parameter default.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildWGSL } from '../src/codegen/glslBuilder.js';
@@ -40,9 +43,11 @@ describe('Mouse node reference in a Circle parameter (no window.editor / studio 
     expect(line).not.toContain('node_28_x');
   });
 
-  it('resolves a bare reference (=node_28) to the whole g.mouse global, not an undefined identifier', () => {
+  it('reduces a bare Mouse reference (=node_28) to a single scalar channel, not a vec4', () => {
     const line = buildCircleRadiusCall('=node_28');
-    expect(line).toContain('g.mouse');
+    expect(line).toContain('g.mouse.x');
+    // The whole vec4 (bare g.mouse) must not be passed into the f32 radius slot.
+    expect(line).not.toMatch(/\(g\.mouse\)/);
     expect(line).not.toMatch(/\(node_28\)/);
   });
 
@@ -50,5 +55,18 @@ describe('Mouse node reference in a Circle parameter (no window.editor / studio 
     const line = buildCircleRadiusCall('=node_28_y * 0.5');
     expect(line).toContain('g.mouse.y');
     expect(line).not.toMatch(/\bnode_28\b/);
+  });
+
+  it('falls back to the default for an incomplete reference being typed (=node_2)', () => {
+    // Only node 28 exists; "=node_2" is a half-typed id and must not reach the shader.
+    const line = buildCircleRadiusCall('=node_2');
+    expect(line).not.toMatch(/node_2\b/);
+    expect(line).toContain('0.25'); // Circle radius default
+  });
+
+  it('resolves an incomplete suffix (=node_28_) to the default channel without crashing', () => {
+    const line = buildCircleRadiusCall('=node_28_');
+    expect(line).toContain('g.mouse.x');
+    expect(line).not.toMatch(/\(node_28_\)/);
   });
 });

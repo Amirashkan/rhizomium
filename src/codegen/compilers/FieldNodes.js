@@ -19,6 +19,82 @@ export class FieldNodes {
     this.graph = graph;
   }
 
+  /**
+   * Format a parameter default as a WGSL float literal, used when an expression
+   * cannot be resolved (e.g. an incomplete reference typed by the user).
+   */
+  _defaultLiteral(defaultValue) {
+    const n = typeof defaultValue === 'number' ? defaultValue : parseFloat(defaultValue);
+    if (!Number.isFinite(n)) return '0.0';
+    return Number.isInteger(n) ? `${n}.0` : `${n}`;
+  }
+
+  /**
+   * True if the expression references a `node_<id>` that is not present in the graph
+   * being compiled. This happens mid-typing (the id is incomplete) and would otherwise
+   * be emitted verbatim as an undefined identifier, breaking the shader module.
+   */
+  _referencesUnknownNode(expression) {
+    if (!this.graph?.nodes?.length) return false;
+    let identifiers;
+    try {
+      identifiers = unifiedExpressionSystem.extractIdentifiers(expression);
+    } catch {
+      return false;
+    }
+    const known = new Set(this.graph.nodes.map((n) => String(n.id)));
+    for (const name of identifiers) {
+      const match = /^node_(\d+)/.exec(name);
+      if (match && !known.has(match[1])) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Map references to Mouse/Time/RandomTime input nodes to their GPU global, reducing
+   * vector globals to a single channel because shape parameters are scalars (f32).
+   * Mirrors UnifiedExpressionSystem._buildInputNodeReferenceMapping, except Mouse maps
+   * to a single g.mouse channel (default .x) rather than the whole vec4.
+   */
+  _buildScalarInputRefMapping(expression) {
+    const mapping = {};
+    if (!this.graph?.nodes?.length) return mapping;
+    let identifiers;
+    try {
+      identifiers = unifiedExpressionSystem.extractIdentifiers(expression);
+    } catch {
+      return mapping;
+    }
+    if (!identifiers.length) return mapping;
+
+    const rgbaToXyzw = { r: 'x', g: 'y', b: 'z', a: 'w' };
+    for (const node of this.graph.nodes) {
+      const kind = node?.kind?.toLowerCase();
+      if (kind !== 'time' && kind !== 'randomtime' && kind !== 'mouse') continue;
+      const base = `node_${node.id}`;
+      for (const name of identifiers) {
+        if (name !== base && !name.startsWith(`${base}_`)) continue;
+        if (kind === 'time') {
+          mapping[name] = 'g.time';
+        } else if (kind === 'randomtime') {
+          const speed = Number(node.params?.speed);
+          const speedLiteral = Number.isFinite(speed)
+            ? (Number.isInteger(speed) ? `${speed}.0` : `${speed}`)
+            : '1.0';
+          mapping[name] = `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
+        } else {
+          // Mouse in a scalar parameter: pick a single channel (default X).
+          const suffix = name === base ? '' : name.slice(base.length + 1);
+          let channel = 'x';
+          if (/^[xyzw]$/.test(suffix)) channel = suffix;
+          else if (/^[rgba]$/.test(suffix)) channel = rgbaToXyzw[suffix];
+          mapping[name] = `g.mouse.${channel}`;
+        }
+      }
+    }
+    return mapping;
+  }
+
   makeSafeIdentifier(id) {
     return /^[A-Za-z_]/.test(id) ? id : `n_${id}`;
   }
@@ -273,24 +349,28 @@ clearFunctionCache() {
 getParam(node, paramName, defaultValue) {
   const rawValue = node.params?.[paramName] ?? defaultValue;
 
-  // Handle expressions with = prefix (like "=node_14" or "=time*2")
-  if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
-    try {
-      return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
-    } catch (error) {
-
-      return String(defaultValue);
+  // Handle expressions: with = prefix (like "=node_14" or "=time*2") or bare
+  // dynamic expressions referencing time/audio.
+  const isExpr = typeof rawValue === 'string' &&
+    (rawValue.startsWith('=') || /time|audioEnvelope/.test(rawValue));
+  if (isExpr) {
+    // While the user is still typing a reference, the value can name a node that
+    // does not exist yet (e.g. "=node_2" on the way to "=node_28"). Emitting that
+    // verbatim produces invalid WGSL and floods the console with shader-compile
+    // errors on every keystroke, so fall back to the static default until the
+    // reference resolves to a real node.
+    if (this._referencesUnknownNode(rawValue)) {
+      return this._defaultLiteral(defaultValue);
     }
-  }
-
-  // USE UNIFIED AST SYSTEM for dynamic expressions
-  // This ensures shader code matches CPU evaluation exactly
-  if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
     try {
-      return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
+      // Shape parameters are scalars (f32). Map references to multi-component input
+      // nodes (Mouse = vec4) to a single channel so the call type-checks, instead of
+      // passing the whole vector into an f32 slot.
+      const scalarMapping = this._buildScalarInputRefMapping(rawValue);
+      const result = unifiedExpressionSystem.generateShader(rawValue, scalarMapping, this.graph);
+      return result === '0.0' ? this._defaultLiteral(defaultValue) : result;
     } catch (error) {
-
-      return String(defaultValue);
+      return this._defaultLiteral(defaultValue);
     }
   }
 
