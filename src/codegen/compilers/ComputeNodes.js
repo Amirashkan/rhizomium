@@ -999,18 +999,27 @@ fn accumulateMode(coord: vec2<i32>, size: vec2<i32>, input: vec4<f32>) -> vec4<f
   return clamp(result, vec4<f32>(0.0), vec4<f32>(1.0));
 }
 
-// Custom mode: user-defined behavior
-fn customMode(coord: vec2<i32>, size: vec2<i32>, input: vec4<f32>) -> vec4<f32> {
-  let prev = sampleWrap(prevFrame, coord, size);
+// Swirl mode: rotational advection. Sample the previous frame from a position
+// rotated about the field centre, so the accumulated field spins into a vortex.
+// The rotation rate is driven by speed and tightens toward the centre, which
+// makes it visibly distinct from Flow's input-driven linear advection.
+fn swirlMode(coord: vec2<i32>, size: vec2<i32>, input: vec4<f32>) -> vec4<f32> {
+  let center = vec2<f32>(size) * 0.5;
+  let rel = vec2<f32>(coord) - center;
+  let dist = length(rel);
+
+  // Angle per frame: larger near the centre, easing off with distance.
+  let angle = uniforms.speed * 0.08 / (1.0 + dist * 0.01);
+  let c = cos(angle);
+  let s = sin(angle);
+  let rotated = vec2<f32>(rel.x * c - rel.y * s, rel.x * s + rel.y * c) + center;
+  let prev = sampleWrap(prevFrame, vec2<i32>(floor(rotated)), size);
+
   let diff = computeDiffusion(coord, size);
 
-  // Custom: mix of all behaviors
   var result = prev * uniforms.decay;
   result += diff * uniforms.diffusion * 0.1;
   result += input * uniforms.feedback * 0.2;
-
-  // Add some interesting non-linear behavior
-  result = result + result * result * 0.1 * uniforms.speed;
 
   return clamp(result, vec4<f32>(0.0), vec4<f32>(1.0));
 }
@@ -1027,11 +1036,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   // Load input
   let input = textureLoad(inputTexture, texCoord, 0);
 
-  // Select mode (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom)
+  // Select mode (0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Swirl)
   var result: vec4<f32>;
 
   // Mode selection based on parameter (runtime uniform, not baked — see note in
-  // generateFeedbackFieldShader). 0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Custom.
+  // generateFeedbackFieldShader). 0=Flow, 1=Reaction-Diffusion, 2=Accumulate, 3=Swirl.
   let modeType = i32(uniforms.mode + 0.5);
 
   if (modeType == 0) {
@@ -1041,7 +1050,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   } else if (modeType == 2) {
     result = accumulateMode(texCoord, texSize, input);
   } else {
-    result = customMode(texCoord, texSize, input);
+    result = swirlMode(texCoord, texSize, input);
   }
 
   textureStore(outputTexture, vec2<u32>(texCoord), result);

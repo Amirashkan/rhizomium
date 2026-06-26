@@ -158,7 +158,9 @@ export function packComputeUniforms(kind, params, ctx) {
       let modeValue = 0.0; // Flow
       if (p.mode === 'Reaction-Diffusion') modeValue = 1.0;
       else if (p.mode === 'Accumulate') modeValue = 2.0;
-      else if (p.mode === 'Custom') modeValue = 3.0;
+      // 'Custom' is the legacy name for the 4th mode (now 'Swirl'); keep it mapped
+      // so projects saved before the rename still select the 4th mode.
+      else if (p.mode === 'Swirl' || p.mode === 'Custom') modeValue = 3.0;
       u[7] = modeValue;
       break;
     }

@@ -152,7 +152,7 @@ export const ComputeNodes = {
     pinsIn: ["Input"],
     pinsOut: ["Texture"],
     params: [
-      { name: 'mode', type: 'select', options: ['Flow', 'Reaction-Diffusion', 'Accumulate', 'Custom'], default: 'Flow' },
+      { name: 'mode', type: 'select', options: ['Flow', 'Reaction-Diffusion', 'Accumulate', 'Swirl'], default: 'Flow' },
       { name: 'decay', type: 'float', default: 0.98, min: 0.0, max: 1.0 },
       { name: 'diffusion', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
       { name: 'feedback', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
