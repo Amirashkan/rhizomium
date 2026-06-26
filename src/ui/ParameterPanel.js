@@ -1198,7 +1198,7 @@ case 'flip2d':
    */
   createBoundTransformInput(param, node, inputContainer, bindingInfo) {
     const sourceNode = this.graph.nodes.find(n => n.id === bindingInfo.source.nodeId);
-    const sourceLabel = `${sourceNode?.kind || 'Unknown'}.${bindingInfo.source.parameterName}`;
+    const sourceLabel = `${sourceNode?.kind || 'Unknown'} #${bindingInfo.source.nodeId}.${bindingInfo.source.parameterName}`;
 
     const container = document.createElement('div');
     container.className = 'expression-input-container';
@@ -1541,11 +1541,24 @@ case 'flip2d':
     if (bindingInfo.isBound) {
       const sourceNode = this.graph.nodes.find(n => n.id === bindingInfo.source.nodeId);
       const sourceNodeName = sourceNode ? sourceNode.kind : 'Unknown';
-      
-      status.innerHTML = `
-        <span style="color: #ff9800;">⬅ Bound to:</span> 
-        <span style="color: #fff;">${sourceNodeName}.${bindingInfo.source.parameterName}</span>
+      // Include the node id so the exact source is identifiable when several nodes share a kind
+      // (e.g. multiple ConstFloats). The line is clickable to jump to that source node.
+      const sourceLabel = `${sourceNodeName} #${bindingInfo.source.nodeId}.${bindingInfo.source.parameterName}`;
+
+      const boundLine = document.createElement('div');
+      boundLine.innerHTML = `
+        <span style="color: #ff9800;">⬅ Bound to:</span>
+        <span style="color: #fff; text-decoration: underline dotted;">${sourceLabel}</span>
       `;
+      if (sourceNode) {
+        boundLine.style.cursor = 'pointer';
+        boundLine.title = 'Click to select the source node';
+        boundLine.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.focusSourceNode(sourceNode);
+        });
+      }
+      status.appendChild(boundLine);
     }
 
     if (bindingInfo.hasTargets) {
@@ -1565,6 +1578,24 @@ case 'flip2d':
     }
 
     return status;
+  }
+
+  // Select a bound parameter's source node and show its parameters, so "⬅ Bound to: …" is a way to
+  // jump straight to the driver. Selection is a plain Set of node ids on the graph.
+  focusSourceNode(sourceNode) {
+    if (!sourceNode) return;
+    try {
+      if (this.graph?.selection) {
+        this.graph.selection.clear();
+        this.graph.selection.add(sourceNode.id);
+      }
+      this.selectedNode = sourceNode;
+      this.renderParameters(sourceNode);
+      if (window.editor?.markDirty) window.editor.markDirty('binding-source-focus');
+      if (window.editor?.draw) window.editor.draw();
+    } catch (error) {
+      // Non-fatal: the binding status is informational even if focusing fails.
+    }
   }
 
   copyParameterReference(node, param) {
