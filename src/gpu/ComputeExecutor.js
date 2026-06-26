@@ -351,8 +351,40 @@ export class ComputeExecutor {
           if (prevTex) {
             this.computeTextures.set(nodeId, prevTex);
           }
+          if (supportsFeedback) {
+            console.log(`[FEEDBACK-REUSE] ${node.kind} #${nodeId}: REUSED (state preserved)`);
+          }
           return;
         }
+      }
+
+      // TEMP DIAGNOSTIC: explain why a feedback node could NOT reuse its manager
+      // (which is what wipes its accumulated state). Logs only on graph-edit
+      // rebuilds, so volume is low. Remove once the root cause is confirmed.
+      if (supportsFeedback) {
+        let reason;
+        if (!reuseContext) {
+          reason = `no reuseContext (executor.initialized=${this.initialized} at pass start)`;
+        } else if (reuseContext.reused.has(nodeId)) {
+          reason = 'nodeId already reused this pass (duplicate registry entry?)';
+        } else {
+          const prev = reuseContext.previousManagers.get(nodeId);
+          if (!prev) {
+            reason = `no previous manager for key "${nodeId}". previous keys=[${[...reuseContext.previousManagers.keys()].join(',')}]`;
+          } else if (prev._initSignature !== initSignature) {
+            // Find the first differing field between the two signatures.
+            const a = String(prev._initSignature).split('|');
+            const b = initSignature.split('|');
+            const labels = ['kind', 'resolution', 'feedbackFlag', 'inputFlag', 'wgsl'];
+            const diffs = labels.filter((_, i) => a[i] !== b[i]);
+            reason = `signature changed in: ${diffs.join(', ') || 'unknown'}` +
+              (diffs.includes('resolution') ? ` (was ${a[1]}, now ${b[1]})` : '') +
+              (diffs.includes('wgsl') ? ` (wgsl len ${a[4]?.length}->${b[4]?.length})` : '');
+          } else {
+            reason = 'unknown';
+          }
+        }
+        console.warn(`[FEEDBACK-REUSE] ${node.kind} #${nodeId}: RECREATED (state wiped) — ${reason}`);
       }
 
       // Create compute shader manager with node reference for parameters
