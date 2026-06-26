@@ -240,7 +240,7 @@ export function packComputeUniforms(kind, params, ctx) {
         : channel === 'G' ? 2.0
         : channel === 'B' ? 3.0
         : 4.0; // Luminance
-      u[5] = ev(p.bins, 256);
+      u[5] = ev(p.bins, 16);
       u[6] = ev(p.strength, 1.0);
       break;
     }

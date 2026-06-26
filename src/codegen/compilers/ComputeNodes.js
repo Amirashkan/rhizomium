@@ -3074,7 +3074,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   generateHistogramShader(node, getInput) {
     const operation = this.getParam(node, 'operation', 'Equalize');
     const channel = this.getParam(node, 'channel', 'Luminance');
-    const bins = this.getParam(node, 'bins', 256);
+    const bins = this.getParam(node, 'bins', 16);
     const strength = this.getParam(node, 'strength', 1.0);
 
     // Convert operation to index: 0=Equalize, 1=Normalize, 2=Stretch, 3=Visualize
