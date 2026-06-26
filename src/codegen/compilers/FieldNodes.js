@@ -49,6 +49,27 @@ export class FieldNodes {
   }
 
   /**
+   * Normalize a reference suffix to a vector component letter (x/y/z/w), or null. Accepts the
+   * xyzw and rgba names plus a numeric output-pin/component index (0=x, 1=y, 2=z, 3=w) — the
+   * editor stores references to a vector node's channel as a numeric suffix, e.g. "node_27_1".
+   */
+  _suffixToComponent(suffix) {
+    if (!suffix) return null;
+    if (/^[xyzw]$/.test(suffix)) return suffix;
+    const rgba = { r: 'x', g: 'y', b: 'z', a: 'w' };
+    if (/^[rgba]$/.test(suffix)) return rgba[suffix];
+    if (/^\d+$/.test(suffix)) return ['x', 'y', 'z', 'w'][Number(suffix)] ?? null;
+    return null;
+  }
+
+  _componentCount(type) {
+    if (type === 'vec2') return 2;
+    if (type === 'vec3') return 3;
+    if (type === 'vec4') return 4;
+    return 1;
+  }
+
+  /**
    * Resolve a single `node_<id>` / `node_<id>_<comp>` identifier to a scalar WGSL expression,
    * or null if it cannot be resolved (incomplete/unknown id -> caller falls back to default),
    * or undefined if the identifier is not a node reference at all (e.g. `time`, `PI`).
@@ -81,10 +102,8 @@ export class FieldNodes {
       return `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
     }
     if (kind === 'mouse') {
-      const rgbaToXyzw = { r: 'x', g: 'y', b: 'z', a: 'w' };
-      let channel = 'x';
-      if (suffix && /^[xyzw]$/.test(suffix)) channel = suffix;
-      else if (suffix && /^[rgba]$/.test(suffix)) channel = rgbaToXyzw[suffix];
+      // g.mouse is a vec4; a scalar parameter needs one channel (default .x).
+      const channel = this._suffixToComponent(suffix) || 'x';
       return `g.mouse.${channel}`;
     }
 
@@ -92,8 +111,14 @@ export class FieldNodes {
     if (this.typeConverter?.expressions?.has(id)) {
       const expr = this.typeConverter.expressions.get(id);
       const type = this.typeConverter.types.get(id);
-      if (suffix && /^[xyzw]$/.test(suffix)) {
-        return type === 'f32' ? expr : `(${expr}).${suffix}`;
+      const component = this._suffixToComponent(suffix);
+      if (component) {
+        if (type === 'f32') return expr; // scalar node: ignore the component suffix
+        // Only emit member access the type actually has; otherwise reduce to a scalar
+        // rather than producing invalid WGSL like a vec2's `.w`.
+        if (['x', 'y', 'z', 'w'].indexOf(component) < this._componentCount(type)) {
+          return `(${expr}).${component}`;
+        }
       }
       return this._toScalar(expr, type);
     }

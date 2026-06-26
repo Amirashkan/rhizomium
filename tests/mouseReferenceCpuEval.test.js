@@ -44,4 +44,10 @@ describe('CPU evaluation of live input-node references', () => {
     const value = expressionSystem.evaluateExpression('=node_28_y * 2', {}, circle);
     expect(value).toBeCloseTo(0.5, 5);
   });
+
+  it('resolves a numeric channel index (=node_28_1 == the y channel)', () => {
+    window._mousePosition = [0.42, 0.73, 0, 0];
+    const value = expressionSystem.evaluateExpression('=node_28_1', {}, circle);
+    expect(value).toBeCloseTo(0.73, 5);
+  });
 });

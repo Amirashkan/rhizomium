@@ -89,4 +89,28 @@ describe('Mouse node reference in a Circle parameter (no window.editor / studio 
     expect(line).toContain('node_2).y');
     expect(line).not.toContain('node_2_y');
   });
+
+  it('treats a numeric suffix on a Mouse reference (=node_28_1) as channel index (1 = y)', () => {
+    const line = buildCircleRadiusCall('=node_28_1');
+    expect(line).toContain('g.mouse.y');
+    expect(line).not.toMatch(/\(g\.mouse\)/);
+  });
+
+  it('resolves a numeric channel on a Split Vec4 node (=node_6_1 -> .y)', () => {
+    // Mouse -> Split Vec4 (node 6, a vec4 var); the Circle references channel 1 of the split.
+    const graph = {
+      nodes: [
+        { id: '28', kind: 'Mouse', params: {}, inputs: [] },
+        { id: '6', kind: 'Split4', params: {}, inputs: ['28'] },
+        { id: '27', kind: 'Circle', params: { centerX: 0.5, centerY: 0.5, radius: '=node_6_1', epsilon: 0.01 }, inputs: [] },
+        { id: '99', kind: 'OutputFinal', params: {}, inputs: ['27'] },
+      ],
+      connections: [{ from: { nodeId: '28', pin: 0 }, to: { nodeId: '6', pin: 0 } }],
+    };
+    const result = buildWGSL(graph);
+    const code = typeof result === 'string' ? result : result.wgsl;
+    const line = code.split('\n').find((l) => l.includes('let node_27 = shape_circle_27'));
+    expect(line).toContain('node_6).y');
+    expect(line).not.toContain('node_6_1');
+  });
 });

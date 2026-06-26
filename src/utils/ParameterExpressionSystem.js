@@ -531,7 +531,12 @@ buildEvaluationContext(context, node) {
         if (Array.isArray(liveValue)) {
           evalContext[nodeVarName] = liveValue;
           const comps = ['x', 'y', 'z', 'w'];
-          liveValue.forEach((v, i) => { if (comps[i]) evalContext[`${nodeVarName}_${comps[i]}`] = v; });
+          liveValue.forEach((v, i) => {
+            // Expose both the letter component (node_5_x) and the numeric channel index
+            // (node_5_1), the form the editor stores for a vector node's pin reference.
+            if (comps[i]) evalContext[`${nodeVarName}_${comps[i]}`] = v;
+            evalContext[`${nodeVarName}_${i}`] = v;
+          });
         } else {
           evalContext[nodeVarName] = liveValue;
         }
@@ -561,17 +566,20 @@ buildEvaluationContext(context, node) {
         // Add the full array
         evalContext[nodeVarName] = nodeValue;
 
-        // Also add component accessors for vectors
-        if (nodeValue.length >= 1) evalContext[`${nodeVarName}_x`] = nodeValue[0];
-        if (nodeValue.length >= 2) evalContext[`${nodeVarName}_y`] = nodeValue[1];
-        if (nodeValue.length >= 3) evalContext[`${nodeVarName}_z`] = nodeValue[2];
-        if (nodeValue.length >= 4) evalContext[`${nodeVarName}_w`] = nodeValue[3];
+        // Also add component accessors for vectors, by both letter (node_5_x) and numeric
+        // channel index (node_5_1) — the form the editor stores for a vector node's pin.
+        const comps = ['x', 'y', 'z', 'w'];
+        nodeValue.forEach((v, i) => {
+          if (comps[i]) evalContext[`${nodeVarName}_${comps[i]}`] = v;
+          evalContext[`${nodeVarName}_${i}`] = v;
+        });
       } else if (typeof nodeValue === 'object' && nodeValue.type === 'split') {
         // Handle split node outputs
         evalContext[nodeVarName] = nodeValue.values;
         nodeValue.values.forEach((val, idx) => {
           const component = ['x', 'y', 'z', 'w'][idx];
           if (component) evalContext[`${nodeVarName}_${component}`] = val;
+          evalContext[`${nodeVarName}_${idx}`] = val;
         });
       }
     });
