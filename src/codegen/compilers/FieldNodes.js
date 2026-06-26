@@ -19,6 +19,10 @@ export class FieldNodes {
     this.graph = graph;
   }
 
+  setTypeConverter(typeConverter) {
+    this.typeConverter = typeConverter;
+  }
+
   /**
    * Format a parameter default as a WGSL float literal, used when an expression
    * cannot be resolved (e.g. an incomplete reference typed by the user).
@@ -30,67 +34,92 @@ export class FieldNodes {
   }
 
   /**
-   * True if the expression references a `node_<id>` that is not present in the graph
-   * being compiled. This happens mid-typing (the id is incomplete) and would otherwise
-   * be emitted verbatim as an undefined identifier, breaking the shader module.
+   * Reduce a WGSL expression of the given type to a scalar (f32). Shape parameters are
+   * scalars, so a vector reference must be coerced rather than passed straight in (which
+   * produces a "type mismatch ... expected 'f32'" shader error). Mirrors
+   * TypeConverter.toF32 so a referenced node behaves like a wired one.
    */
-  _referencesUnknownNode(expression) {
-    if (!this.graph?.nodes?.length) return false;
-    let identifiers;
-    try {
-      identifiers = unifiedExpressionSystem.extractIdentifiers(expression);
-    } catch {
-      return false;
+  _toScalar(expr, type) {
+    switch (type) {
+      case 'vec2': return `((${expr}).x + (${expr}).y) * 0.5`;
+      case 'vec3': return `((${expr}).x + (${expr}).y + (${expr}).z) / 3.0`;
+      case 'vec4': return `dot((${expr}).xyz, vec3<f32>(0.299, 0.587, 0.114))`;
+      default: return expr; // f32 / unknown
     }
-    const known = new Set(this.graph.nodes.map((n) => String(n.id)));
-    for (const name of identifiers) {
-      const match = /^node_(\d+)/.exec(name);
-      if (match && !known.has(match[1])) return true;
-    }
-    return false;
   }
 
   /**
-   * Map references to Mouse/Time/RandomTime input nodes to their GPU global, reducing
-   * vector globals to a single channel because shape parameters are scalars (f32).
-   * Mirrors UnifiedExpressionSystem._buildInputNodeReferenceMapping, except Mouse maps
-   * to a single g.mouse channel (default .x) rather than the whole vec4.
+   * Resolve a single `node_<id>` / `node_<id>_<comp>` identifier to a scalar WGSL expression,
+   * or null if it cannot be resolved (incomplete/unknown id -> caller falls back to default),
+   * or undefined if the identifier is not a node reference at all (e.g. `time`, `PI`).
+   *
+   * Handles three sources, in order:
+   *   1. Mouse/Time/RandomTime input nodes  -> their GPU global (Mouse reduced to one channel).
+   *   2. A node already compiled in this pass -> its variable, with component access or scalar
+   *      coercion based on the type recorded by the TypeConverter.
+   *   3. Anything else (id not in the graph, or present but not compiled) -> null.
    */
-  _buildScalarInputRefMapping(expression) {
+  _resolveScalarRef(name) {
+    // Lenient suffix capture so a half-typed component (e.g. "node_28_") still resolves
+    // instead of falling through to the generator's vec4 default.
+    const match = /^node_(\d+)(?:_(.*))?$/.exec(name);
+    if (!match) return undefined; // not a node reference
+    const id = match[1];
+    const suffix = match[2];
+
+    const nodes = this.graph?.nodes || [];
+    const node = nodes.find((n) => String(n.id) === id);
+
+    // 1. Live input nodes -> GPU globals.
+    const kind = node?.kind?.toLowerCase();
+    if (kind === 'time') return 'g.time';
+    if (kind === 'randomtime') {
+      const speed = Number(node.params?.speed);
+      const speedLiteral = Number.isFinite(speed)
+        ? (Number.isInteger(speed) ? `${speed}.0` : `${speed}`)
+        : '1.0';
+      return `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
+    }
+    if (kind === 'mouse') {
+      const rgbaToXyzw = { r: 'x', g: 'y', b: 'z', a: 'w' };
+      let channel = 'x';
+      if (suffix && /^[xyzw]$/.test(suffix)) channel = suffix;
+      else if (suffix && /^[rgba]$/.test(suffix)) channel = rgbaToXyzw[suffix];
+      return `g.mouse.${channel}`;
+    }
+
+    // 2. Regular node already compiled in this pass.
+    if (this.typeConverter?.expressions?.has(id)) {
+      const expr = this.typeConverter.expressions.get(id);
+      const type = this.typeConverter.types.get(id);
+      if (suffix && /^[xyzw]$/.test(suffix)) {
+        return type === 'f32' ? expr : `(${expr}).${suffix}`;
+      }
+      return this._toScalar(expr, type);
+    }
+
+    // 3. Unknown id (still being typed) or referenced node not compiled in this pass.
+    return null;
+  }
+
+  /**
+   * Build a variable mapping for every `node_<id>` reference in the expression, scalar-coerced
+   * for shape parameters. Returns null if any reference cannot be resolved, signalling the
+   * caller to fall back to the parameter default instead of emitting invalid WGSL.
+   */
+  _buildScalarRefMapping(expression) {
     const mapping = {};
-    if (!this.graph?.nodes?.length) return mapping;
     let identifiers;
     try {
       identifiers = unifiedExpressionSystem.extractIdentifiers(expression);
     } catch {
       return mapping;
     }
-    if (!identifiers.length) return mapping;
-
-    const rgbaToXyzw = { r: 'x', g: 'y', b: 'z', a: 'w' };
-    for (const node of this.graph.nodes) {
-      const kind = node?.kind?.toLowerCase();
-      if (kind !== 'time' && kind !== 'randomtime' && kind !== 'mouse') continue;
-      const base = `node_${node.id}`;
-      for (const name of identifiers) {
-        if (name !== base && !name.startsWith(`${base}_`)) continue;
-        if (kind === 'time') {
-          mapping[name] = 'g.time';
-        } else if (kind === 'randomtime') {
-          const speed = Number(node.params?.speed);
-          const speedLiteral = Number.isFinite(speed)
-            ? (Number.isInteger(speed) ? `${speed}.0` : `${speed}`)
-            : '1.0';
-          mapping[name] = `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
-        } else {
-          // Mouse in a scalar parameter: pick a single channel (default X).
-          const suffix = name === base ? '' : name.slice(base.length + 1);
-          let channel = 'x';
-          if (/^[xyzw]$/.test(suffix)) channel = suffix;
-          else if (/^[rgba]$/.test(suffix)) channel = rgbaToXyzw[suffix];
-          mapping[name] = `g.mouse.${channel}`;
-        }
-      }
+    for (const name of identifiers) {
+      const resolved = this._resolveScalarRef(name);
+      if (resolved === undefined) continue; // not a node reference (time/PI/etc.)
+      if (resolved === null) return null;    // incomplete/unknown -> fall back to default
+      mapping[name] = resolved;
     }
     return mapping;
   }
@@ -354,19 +383,17 @@ getParam(node, paramName, defaultValue) {
   const isExpr = typeof rawValue === 'string' &&
     (rawValue.startsWith('=') || /time|audioEnvelope/.test(rawValue));
   if (isExpr) {
-    // While the user is still typing a reference, the value can name a node that
-    // does not exist yet (e.g. "=node_2" on the way to "=node_28"). Emitting that
-    // verbatim produces invalid WGSL and floods the console with shader-compile
-    // errors on every keystroke, so fall back to the static default until the
-    // reference resolves to a real node.
-    if (this._referencesUnknownNode(rawValue)) {
+    // Shape parameters are scalars (f32). Resolve every node_<id> reference to a scalar
+    // WGSL expression up front: input nodes -> their GPU global (Mouse reduced to one
+    // channel), regular nodes -> their variable with component access or scalar coercion
+    // based on the recorded type. A reference that names no real node yet (mid-typing,
+    // e.g. "=node_2" on the way to "=node_28") returns null, so we fall back to the static
+    // default instead of emitting invalid WGSL that floods the console with shader errors.
+    const scalarMapping = this._buildScalarRefMapping(rawValue);
+    if (scalarMapping === null) {
       return this._defaultLiteral(defaultValue);
     }
     try {
-      // Shape parameters are scalars (f32). Map references to multi-component input
-      // nodes (Mouse = vec4) to a single channel so the call type-checks, instead of
-      // passing the whole vector into an f32 slot.
-      const scalarMapping = this._buildScalarInputRefMapping(rawValue);
       const result = unifiedExpressionSystem.generateShader(rawValue, scalarMapping, this.graph);
       return result === '0.0' ? this._defaultLiteral(defaultValue) : result;
     } catch (error) {

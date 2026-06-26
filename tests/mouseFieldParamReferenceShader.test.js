@@ -17,10 +17,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildWGSL } from '../src/codegen/glslBuilder.js';
 
-function buildCircleRadiusCall(radiusExpr) {
+function buildCircleRadiusCall(radiusExpr, extraNodes = []) {
   const graph = {
     nodes: [
       { id: '28', kind: 'Mouse', params: {}, inputs: [] },
+      ...extraNodes,
       { id: '27', kind: 'Circle', params: { centerX: 0.5, centerY: 0.5, radius: radiusExpr, epsilon: 0.01 }, inputs: [] },
       { id: '99', kind: 'OutputFinal', params: {}, inputs: ['27'] },
     ],
@@ -68,5 +69,24 @@ describe('Mouse node reference in a Circle parameter (no window.editor / studio 
     const line = buildCircleRadiusCall('=node_28_');
     expect(line).toContain('g.mouse.x');
     expect(line).not.toMatch(/\(node_28_\)/);
+  });
+
+  it('coerces a regular vector node (vec2) referenced bare into the scalar radius', () => {
+    // node_2 is a vec2; passing it straight in produced "type mismatch ... expected 'f32'".
+    const line = buildCircleRadiusCall('=node_2', [
+      { id: '2', kind: 'ConstVec2', params: { x: 0.3, y: 0.7 }, inputs: [] },
+    ]);
+    // node_2 must be reduced to a scalar (its components), not passed as a bare vec2.
+    expect(line).toContain('node_2');
+    expect(line).toMatch(/node_2\)?\.x/); // component access appears in the reduction
+    expect(line).not.toMatch(/,\s*\(node_2\),/); // not the bare vec2 argument
+  });
+
+  it('maps a component reference on a regular vector node (=node_2_y) to member access', () => {
+    const line = buildCircleRadiusCall('=node_2_y', [
+      { id: '2', kind: 'ConstVec2', params: { x: 0.3, y: 0.7 }, inputs: [] },
+    ]);
+    expect(line).toContain('node_2).y');
+    expect(line).not.toContain('node_2_y');
   });
 });

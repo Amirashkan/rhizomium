@@ -195,6 +195,12 @@ export class NodeCompiler {
       if (compiler.setGraph) {
         compiler.setGraph(graph);
       }
+      // Hand compilers the TypeConverter so they can resolve the type of a node referenced
+      // by a parameter expression (e.g. a vec2 node referenced into a scalar param) and coerce
+      // it, rather than emitting a type-mismatched call.
+      if (compiler.setTypeConverter) {
+        compiler.setTypeConverter(this.typeConverter);
+      }
     });
 
     this.uniformManager.clear();
