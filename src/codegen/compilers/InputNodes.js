@@ -1,8 +1,26 @@
 // src/codegen/compilers/InputNodes.js
+import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { buildScalarRefMapping } from '../processors/scalarRef.js';
+
 export class InputNodes {
+  constructor() {
+    // Graph + TypeConverter for the pass being compiled, used to scalar-coerce node references in
+    // these nodes' (all f32) parameter expressions. Set by NodeCompiler before each pass.
+    this.graph = null;
+    this.typeConverter = null;
+  }
+
+  setGraph(graph) {
+    this.graph = graph;
+  }
+
+  setTypeConverter(typeConverter) {
+    this.typeConverter = typeConverter;
+  }
+
   /**
    * Check if this compiler handles the given node kind
-   * @param {string} kind 
+   * @param {string} kind
    * @returns {boolean}
    */
   handles(kind) {
@@ -11,7 +29,38 @@ export class InputNodes {
       'Mouse', 'Resolution', 'Pi', 'RandomTime', 'Trigger', 'Hold'
     ].includes(kind);
   }
-  
+
+  /**
+   * Format a parameter default as a WGSL float literal, used when an expression can't be resolved.
+   */
+  _defaultLiteral(defaultValue) {
+    if (typeof defaultValue !== 'number') {
+      const parsed = parseFloat(defaultValue);
+      if (!Number.isFinite(parsed)) return typeof defaultValue === 'string' ? defaultValue : '0.0';
+      return Number.isInteger(parsed) ? `${parsed}.0` : `${parsed}`;
+    }
+    return Number.isInteger(defaultValue) ? `${defaultValue}.0` : `${defaultValue}`;
+  }
+
+  /**
+   * Resolve a SCALAR parameter expression (these input nodes are all f32) to WGSL, coercing any
+   * node reference to a scalar. Without this a reference to a vector node — e.g. a ConstFloat whose
+   * value is "=node_<mouse>" (a vec4) — would emit `let node_X = <vec4>;` while the node is typed
+   * f32, and a downstream f32 consumer (a Circle radius) would then fail with a type mismatch and
+   * blank the render. An unresolvable reference falls back to the default literal.
+   */
+  _resolveScalarExpr(rawValue, defaultValue) {
+    const fallback = this._defaultLiteral(defaultValue);
+    const mapping = buildScalarRefMapping(rawValue, this.graph, this.typeConverter);
+    if (mapping === null) return fallback;
+    try {
+      const result = unifiedExpressionSystem.generateShader(rawValue, mapping, this.graph);
+      return result === '0.0' ? fallback : result;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
   /**
    * Compile input nodes
    * @param {Object} node
@@ -22,13 +71,21 @@ export class InputNodes {
   compile(node, getInput, getParam = null) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
 
-    // Fallback for when getParam is not provided (backwards compatibility)
-    const resolveParam = getParam || ((paramName, defaultValue) => {
-      const value = node.params?.[paramName];
-      if (typeof value === 'number') return value.toFixed(6);
-      const parsed = parseFloat(value);
+    // Resolve a scalar parameter. Expression values are scalar-coerced here (so a vector reference
+    // can't slip through as the wrong type); plain numbers go through the provided getParam, which
+    // registers them as live uniforms.
+    const resolveParam = (paramName, defaultValue) => {
+      const raw = node.params?.[paramName];
+      const isExpr = typeof raw === 'string'
+        && (raw.trim().startsWith('=') || /\b(time|audioEnvelope)\b/.test(raw));
+      if (isExpr) {
+        return this._resolveScalarExpr(raw, defaultValue);
+      }
+      if (getParam) return getParam(paramName, defaultValue);
+      if (typeof raw === 'number') return raw.toFixed(6);
+      const parsed = parseFloat(raw);
       return isNaN(parsed) ? defaultValue : parsed.toFixed(6);
-    });
+    };
 
     switch (node.kind) {
       case 'UV':
