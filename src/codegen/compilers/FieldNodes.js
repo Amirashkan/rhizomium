@@ -187,8 +187,7 @@ export class FieldNodes {
   handles(kind) {
     return [
       'ConicGradient',
-      'ColorRamp', 'Displacement', 'Circle', 'Rectangle', 'Polygon',
-      'Worley', 'CellNoise'
+      'ColorRamp', 'Displacement', 'Circle', 'Rectangle', 'Polygon'
     ].includes(kind);
   }
 

@@ -20,6 +20,8 @@ register(registry) {
     'perlinnoise': (ctx, node) => this.renderPerlinNoise(ctx, node),
     'warpnoise': (ctx, node) => this.renderWarpNoise(ctx, node),
     'worleynoise': (ctx, node) => this.renderWorleyNoise(ctx, node),
+    'worley': (ctx, node) => this.renderWorleyNoise(ctx, node),
+    'cellnoise': (ctx, node) => this.renderCellNoise(ctx, node),
   });
 }
 
@@ -104,20 +106,18 @@ register(registry) {
 
   renderRandom(ctx, node) {
     const size = ctx.canvas.width;
-    // Get seed parameter for consistent random patterns
-    const seed = this.toSafeNumber(this.getParameterValue(node, "seed", 0), 0);
-    const density = this.toSafeNumber(this.getParameterValue(node, "density", 1.0), 1.0);
-    
-    // Use seed for reproducible randomness
-    let randomSeed = seed;
-    const seededRandom = () => {
-      randomSeed = (randomSeed * 9301 + 49297) % 233280;
-      return randomSeed / 233280;
-    };
+    // Match the GPU "Random" node: per-pixel white noise driven by seed + scale.
+    const seed = this.toSafeNumber(this.getParameterValue(node, "seed", 1.0), 1.0);
+    const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 1.0), 1.0);
+    const cellSize = Math.max(1, scale);
 
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        const noise = seededRandom() * density;
+        // Hash the (block) pixel coordinate so the result is reproducible and looks
+        // like real static, rather than a smooth gradient.
+        const px = Math.floor(x / cellSize);
+        const py = Math.floor(y / cellSize);
+        const noise = this._pseudoRandom(px + seed, py + seed);
         const color = Math.floor(Math.min(255, noise * 255));
         ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
         ctx.fillRect(x, y, 1, 1);
@@ -125,7 +125,7 @@ register(registry) {
     }
 
     // Show parameter info
-    this.drawParameterInfo(ctx, { seed, density });
+    this.drawParameterInfo(ctx, { seed, scale });
 
     if (this.hasExpressions(node)) {
       this.drawExpressionIndicator(ctx);
@@ -413,6 +413,52 @@ renderWorleyNoise(ctx, node) {
     this.drawExpressionIndicator(ctx);
   }
 }
+  renderCellNoise(ctx, node) {
+    const size = ctx.canvas.width;
+    const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 8.0), 8.0);
+    const randomness = this.toSafeNumber(this.getParameterValue(node, "randomness", 1.0), 1.0);
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = (x / size) * scale;
+        const v = (y / size) * scale;
+
+        const cellX = Math.floor(u);
+        const cellY = Math.floor(v);
+
+        let minDist = 999;
+        let bestX = cellX;
+        let bestY = cellY;
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const pointX = cellX + dx + this._pseudoRandom(cellX + dx, cellY + dy) * randomness;
+            const pointY = cellY + dy + this._pseudoRandom(cellX + dx + 1, cellY + dy + 1) * randomness;
+
+            const dist = (u - pointX) ** 2 + (v - pointY) ** 2;
+            if (dist < minDist) {
+              minDist = dist;
+              bestX = cellX + dx;
+              bestY = cellY + dy;
+            }
+          }
+        }
+
+        // Flat random value per cell.
+        const value = this._pseudoRandom(bestX, bestY);
+        const color = Math.floor(value * 255);
+        ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+
+    this.drawParameterInfo(ctx, { scale, rand: randomness });
+
+    if (this.hasExpressions(node)) {
+      this.drawExpressionIndicator(ctx);
+    }
+  }
+
   renderTurbulence(ctx, node) {
     const size = ctx.canvas.width;
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 3.0), 3.0);
