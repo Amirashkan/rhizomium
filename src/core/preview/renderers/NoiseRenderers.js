@@ -14,12 +14,13 @@ register(registry) {
     'simplexnoise': (ctx, node) => this.renderSimplexNoise(ctx, node),
     'voronoinoise': (ctx, node) => this.renderVoronoiNoise(ctx, node),
     'ridgednoise': (ctx, node) => this.renderRidgedNoise(ctx, node),
-    'turbulence': (ctx, node) => this.renderTurbulence(ctx, node),
-    
+
     // ADD THESE THREE:
     'perlinnoise': (ctx, node) => this.renderPerlinNoise(ctx, node),
     'warpnoise': (ctx, node) => this.renderWarpNoise(ctx, node),
     'worleynoise': (ctx, node) => this.renderWorleyNoise(ctx, node),
+    'worley': (ctx, node) => this.renderWorleyNoise(ctx, node),
+    'cellnoise': (ctx, node) => this.renderCellNoise(ctx, node),
   });
 }
 
@@ -104,20 +105,18 @@ register(registry) {
 
   renderRandom(ctx, node) {
     const size = ctx.canvas.width;
-    // Get seed parameter for consistent random patterns
-    const seed = this.toSafeNumber(this.getParameterValue(node, "seed", 0), 0);
-    const density = this.toSafeNumber(this.getParameterValue(node, "density", 1.0), 1.0);
-    
-    // Use seed for reproducible randomness
-    let randomSeed = seed;
-    const seededRandom = () => {
-      randomSeed = (randomSeed * 9301 + 49297) % 233280;
-      return randomSeed / 233280;
-    };
+    // Match the GPU "Random" node: per-pixel white noise driven by seed + scale.
+    const seed = this.toSafeNumber(this.getParameterValue(node, "seed", 1.0), 1.0);
+    const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 1.0), 1.0);
+    const cellSize = Math.max(1, scale);
 
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        const noise = seededRandom() * density;
+        // Hash the (block) pixel coordinate so the result is reproducible and looks
+        // like real static, rather than a smooth gradient.
+        const px = Math.floor(x / cellSize);
+        const py = Math.floor(y / cellSize);
+        const noise = this._pseudoRandom(px + seed, py + seed);
         const color = Math.floor(Math.min(255, noise * 255));
         ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
         ctx.fillRect(x, y, 1, 1);
@@ -125,7 +124,7 @@ register(registry) {
     }
 
     // Show parameter info
-    this.drawParameterInfo(ctx, { seed, density });
+    this.drawParameterInfo(ctx, { seed, scale });
 
     if (this.hasExpressions(node)) {
       this.drawExpressionIndicator(ctx);
@@ -197,27 +196,36 @@ register(registry) {
 
   renderSimplexNoise(ctx, node) {
     const size = ctx.canvas.width;
+    // Mirror the GPU SimplexNoise node: scale/amplitude/offset plus ridge & turbulence modes.
     const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 4.0), 4.0);
-    const frequency1 = this.toSafeNumber(this.getParameterValue(node, "frequency1", 1.5), 1.5);
-    const frequency2 = this.toSafeNumber(this.getParameterValue(node, "frequency2", 3.0), 3.0);
-    const mix = this.toSafeNumber(this.getParameterValue(node, "mix", 0.7), 0.7);
+    const amplitude = this.toSafeNumber(this.getParameterValue(node, "amplitude", 1.0), 1.0);
+    const offset = this.toSafeNumber(this.getParameterValue(node, "offset", 0.0), 0.0);
+    const ridge = !!this.getParameterValue(node, "ridge", false);
+    const turbulence = !!this.getParameterValue(node, "turbulence", false);
 
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const u = (x / size) * scale;
         const v = (y / size) * scale;
 
-        const noise1 = this._simpleNoise(u * frequency1, v * frequency1);
-        const noise2 = this._simpleNoise(u * frequency2, v * frequency2);
-        const noise = noise1 * mix + noise2 * (1 - mix);
-        
-        const color = Math.floor((noise * 0.5 + 0.5) * 255);
+        const base = this._simpleNoise(u, v);
+        let processed;
+        if (ridge) {
+          processed = Math.max(0, Math.min(1, 1 - Math.abs(base)));
+        } else if (turbulence) {
+          processed = Math.max(0, Math.min(1, Math.abs(base)));
+        } else {
+          processed = base * 0.5 + 0.5;
+        }
+
+        const noise = processed * amplitude + offset;
+        const color = Math.floor(Math.max(0, Math.min(255, noise * 255)));
         ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
         ctx.fillRect(x, y, 1, 1);
       }
     }
 
-    this.drawParameterInfo(ctx, { scale, freq1: frequency1, freq2: frequency2 });
+    this.drawParameterInfo(ctx, { scale, amp: amplitude, offset });
 
     if (this.hasExpressions(node)) {
       this.drawExpressionIndicator(ctx);
@@ -413,29 +421,46 @@ renderWorleyNoise(ctx, node) {
     this.drawExpressionIndicator(ctx);
   }
 }
-  renderTurbulence(ctx, node) {
+  renderCellNoise(ctx, node) {
     const size = ctx.canvas.width;
-    const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 3.0), 3.0);
-    const power = this.toSafeNumber(this.getParameterValue(node, "power", 1.0), 1.0);
-    const roughness = this.toSafeNumber(this.getParameterValue(node, "roughness", 2.0), 2.0);
+    const scale = this.toSafeNumber(this.getParameterValue(node, "scale", 8.0), 8.0);
+    const randomness = this.toSafeNumber(this.getParameterValue(node, "randomness", 1.0), 1.0);
 
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const u = (x / size) * scale;
         const v = (y / size) * scale;
 
-        // Turbulence using domain distortion
-        const distortX = this._simpleNoise(u * roughness, v * roughness) * power;
-        const distortY = this._simpleNoise(u * roughness + 100, v * roughness + 100) * power;
+        const cellX = Math.floor(u);
+        const cellY = Math.floor(v);
 
-        const noise = this._simpleNoise(u + distortX, v + distortY);
-        const color = Math.floor((Math.abs(noise) * 0.5 + 0.5) * 255);
+        let minDist = 999;
+        let bestX = cellX;
+        let bestY = cellY;
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const pointX = cellX + dx + this._pseudoRandom(cellX + dx, cellY + dy) * randomness;
+            const pointY = cellY + dy + this._pseudoRandom(cellX + dx + 1, cellY + dy + 1) * randomness;
+
+            const dist = (u - pointX) ** 2 + (v - pointY) ** 2;
+            if (dist < minDist) {
+              minDist = dist;
+              bestX = cellX + dx;
+              bestY = cellY + dy;
+            }
+          }
+        }
+
+        // Flat random value per cell.
+        const value = this._pseudoRandom(bestX, bestY);
+        const color = Math.floor(value * 255);
         ctx.fillStyle = `rgb(${color}, ${color}, ${color})`;
         ctx.fillRect(x, y, 1, 1);
       }
     }
 
-    this.drawParameterInfo(ctx, { scale, power, rough: roughness });
+    this.drawParameterInfo(ctx, { scale, rand: randomness });
 
     if (this.hasExpressions(node)) {
       this.drawExpressionIndicator(ctx);

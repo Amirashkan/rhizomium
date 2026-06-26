@@ -18,7 +18,8 @@ export class NoiseNodes {
   handles(kind) {
     const noiseTypes = [
       'Random', 'ValueNoise', 'FBMNoise', 'SimplexNoise',
-      'VoronoiNoise', 'RidgedNoise', 'WarpNoise', 'PerlinNoise'
+      'VoronoiNoise', 'RidgedNoise', 'WarpNoise', 'PerlinNoise',
+      'Worley', 'CellNoise'
     ];
     return noiseTypes.includes(kind);
   }
@@ -57,6 +58,8 @@ export class NoiseNodes {
       'ridgedNoise': ['fastNoise'],
       'voronoiNoise': ['hash22'],
       'warpNoise': ['fastNoise'],
+      'worleyNoise': ['hash22'],
+      'cellNoise': ['hash22', 'hash12'],
     };
 
     // Collect all needed functions including dependencies
@@ -74,7 +77,8 @@ export class NoiseNodes {
     // Build the output in the correct order
     const orderedFunctions = [
       'hash12', 'hash22', 'fastNoise', 'valueNoise', 'perlinNoise',
-      'simplexNoise', 'fbmNoise', 'ridgedNoise', 'voronoiNoise', 'warpNoise'
+      'simplexNoise', 'fbmNoise', 'ridgedNoise', 'voronoiNoise', 'warpNoise',
+      'worleyNoise', 'cellNoise'
     ];
 
     const parts = [];
@@ -115,6 +119,10 @@ export class NoiseNodes {
         return this.compileRidgedNoise(node, getInput, getParam, nodeId);
       case 'WarpNoise':
         return this.compileWarpNoise(node, getInput, getParam, nodeId);
+      case 'Worley':
+        return this.compileWorley(node, getInput, getParam, nodeId);
+      case 'CellNoise':
+        return this.compileCellNoise(node, getInput, getParam, nodeId);
       default:
         return this.compileGenericNoise(node, getInput, getParam, nodeId);
     }
@@ -229,12 +237,16 @@ export class NoiseNodes {
     const seed = getParam('seed', 1.0);
     const scale = getParam('scale', 1.0);
 
-    // Apply aspect ratio correction
-    const uvAspect = `uvAspect_${nodeId}`;
+    // Random = per-pixel white noise (TV static). We must hash distinct values for
+    // neighbouring pixels, so multiply the UV by the render resolution before hashing.
+    // Hashing the raw [0,1] UV (the old behaviour) fed nearly-identical inputs to
+    // hash12 for adjacent pixels and produced a smooth low-frequency gradient that did
+    // not look random at all. `scale` now controls the size of the noise cells: 1.0 is
+    // one cell per pixel, larger values make coarser blocks.
+    const coord = `randCoord_${nodeId}`;
     const line = `
-  var ${uvAspect} = ${uv};
-  ${uvAspect}.x *= u.aspect;
-  let node_${nodeId} = vec3<f32>(hash12(${uvAspect} * ${scale} + vec2<f32>(${seed})));`;
+  let ${coord} = floor(${uv} * g.resolution / max(${scale}, 1.0));
+  let node_${nodeId} = vec3<f32>(hash12(${coord} + vec2<f32>(${seed})));`;
     return { line, outputType: "vec3" };
   }
   
@@ -365,7 +377,63 @@ export class NoiseNodes {
   let node_${nodeId} = vec3<f32>(warpNoise(${uvAspect} * ${scale}, ${warpScale}, ${warpStrength}, ${octaves}) * ${amplitude});`;
     return { line, outputType: "vec3" };
   }
-  
+
+  // Worley (cellular) noise. Outputs F1 (distance to nearest feature point),
+  // F2 (distance to second nearest) and Combined (F2 - F1, the classic cell edges).
+  compileWorley(node, getInput, getParam, nodeId) {
+    this.markFunctionUsed('worleyNoise');
+
+    const uv = getInput(0, "vec2", "in.uv");
+    const scale = getParam('scale', 8.0);
+    const jitter = getParam('jitter', 1.0);
+    const minkowskiP = getParam('minkowskiP', 2.0);
+
+    // distanceMetric is a select; map it to the int the WGSL function expects.
+    const metricMap = { euclidean: 0, manhattan: 1, chebyshev: 2, minkowski: 3 };
+    const metric = metricMap[node.params?.distanceMetric] ?? 0;
+
+    const uvAspect = `uvAspect_${nodeId}`;
+    const result = `worley_${nodeId}`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let ${result} = worleyNoise(${uvAspect} * ${scale}, ${jitter}, ${metric}, ${minkowskiP});
+  let node_${nodeId} = vec3<f32>(${result}.x);`;
+
+    const outputPins = [
+      { expression: `${result}.x`, type: "f32" },
+      { expression: `${result}.y`, type: "f32" },
+      { expression: `(${result}.y - ${result}.x)`, type: "f32" },
+    ];
+
+    return { line, outputType: "f32", outputPins };
+  }
+
+  // Cell noise. Each Voronoi cell is filled with a flat random value. Outputs the
+  // cell value plus the cell id (its integer grid coordinate) for further indexing.
+  compileCellNoise(node, getInput, getParam, nodeId) {
+    this.markFunctionUsed('cellNoise');
+
+    const uv = getInput(0, "vec2", "in.uv");
+    const scale = getParam('scale', 8.0);
+    const randomness = getParam('randomness', 1.0);
+
+    const uvAspect = `uvAspect_${nodeId}`;
+    const result = `cell_${nodeId}`;
+    const line = `
+  var ${uvAspect} = ${uv};
+  ${uvAspect}.x *= u.aspect;
+  let ${result} = cellNoise(${uvAspect} * ${scale}, ${randomness});
+  let node_${nodeId} = vec3<f32>(${result}.x);`;
+
+    const outputPins = [
+      { expression: `${result}.x`, type: "f32" },
+      { expression: `${result}.yz`, type: "vec2" },
+    ];
+
+    return { line, outputType: "f32", outputPins };
+  }
+
   compileGenericNoise(node, getInput, getParam, nodeId) {
     this.markFunctionUsed('fastNoise');
 
@@ -602,6 +670,68 @@ fn warpNoise(p: vec2<f32>, warpScale: f32, warpStrength: f32, octaves: i32) -> f
   );
 
   return fastNoise(p + r * warpStrength);
+}`,
+
+  worleyNoise: `// Worley (cellular) Noise - returns F1 and F2 distances
+fn worleyNoise(p: vec2<f32>, jitter: f32, distMetric: i32, minkowskiP: f32) -> vec2<f32> {
+  let i = floor(p);
+  let f = fract(p);
+
+  var f1 = 1e9;
+  var f2 = 1e9;
+
+  for (var y = -1; y <= 1; y = y + 1) {
+    for (var x = -1; x <= 1; x = x + 1) {
+      let neighbor = vec2<f32>(f32(x), f32(y));
+      let point = neighbor + hash22(i + neighbor) * jitter;
+      let diff = point - f;
+
+      var dist: f32;
+      if (distMetric == 1) {
+        dist = abs(diff.x) + abs(diff.y);                 // manhattan
+      } else if (distMetric == 2) {
+        dist = max(abs(diff.x), abs(diff.y));             // chebyshev
+      } else if (distMetric == 3) {
+        dist = pow(pow(abs(diff.x), minkowskiP) + pow(abs(diff.y), minkowskiP), 1.0 / minkowskiP); // minkowski
+      } else {
+        dist = length(diff);                              // euclidean
+      }
+
+      if (dist < f1) {
+        f2 = f1;
+        f1 = dist;
+      } else if (dist < f2) {
+        f2 = dist;
+      }
+    }
+  }
+
+  return vec2<f32>(f1, f2);
+}`,
+
+  cellNoise: `// Cell Noise - flat random value per Voronoi cell, plus the cell id
+fn cellNoise(p: vec2<f32>, randomness: f32) -> vec3<f32> {
+  let i = floor(p);
+  let f = fract(p);
+
+  var minDist = 1e9;
+  var cellId = vec2<f32>(0.0);
+
+  for (var y = -1; y <= 1; y = y + 1) {
+    for (var x = -1; x <= 1; x = x + 1) {
+      let neighbor = vec2<f32>(f32(x), f32(y));
+      let point = neighbor + hash22(i + neighbor) * randomness;
+      let diff = point - f;
+      let dist = dot(diff, diff);
+
+      if (dist < minDist) {
+        minDist = dist;
+        cellId = i + neighbor;
+      }
+    }
+  }
+
+  return vec3<f32>(hash12(cellId), cellId.x, cellId.y);
 }`
 };
 
