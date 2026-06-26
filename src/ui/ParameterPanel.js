@@ -1246,9 +1246,21 @@ case 'flip2d':
     const refreshResult = () => {
       const current = this.valueManager.getValue(node, param.name);
       const shown = typeof current === 'number' ? Math.round(current * 10000) / 10000 : current;
-      resultDisplay.textContent = `→ ${shown}`;
+      const live = this.expressionSystem.isExpression(node.params?.[param.name]);
+      resultDisplay.textContent = `→ ${shown}${live ? ' (live)' : ''}`;
     };
     refreshResult();
+
+    // When the driven value is a live expression (e.g. the source is =sin(time)), keep the readout
+    // ticking so it doesn't look like a frozen number. The loop self-cancels once the input is
+    // detached (panel re-render/close) or the value stops being an expression.
+    const liveTick = () => {
+      if (!input.isConnected) return;
+      if (!this.expressionSystem.isExpression(node.params?.[param.name])) return;
+      refreshResult();
+      setTimeout(() => requestAnimationFrame(liveTick), 66); // ~15 fps, cheap text update
+    };
+    requestAnimationFrame(liveTick);
 
     const commit = () => {
       const changed = this.bindingSystem.setBoundTransform(node.id, param.name, input.value);
@@ -1367,8 +1379,9 @@ case 'flip2d':
     copyBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.copyParameterReference(node, param);
-      // Confirm right at the icon: the corner toast can sit behind the parameter panel, so flash
-      // the button to ✅ momentarily as unmistakable "copied" feedback next to the parameter.
+      // Confirm right at the icon. The corner toast renders top-right, away from where the user is
+      // looking in the panel, so flash the button to ✅ and pop a small "Copied!" label anchored to
+      // the icon as unmistakable feedback next to the parameter.
       copyBtn.innerHTML = '✅';
       copyBtn.title = `Copied ${node.kind}.${param.name} as reference`;
       clearTimeout(this._copyFlashTimer);
@@ -1376,6 +1389,7 @@ case 'flip2d':
         copyBtn.innerHTML = '📋';
         copyBtn.title = 'Copy as reference (Ctrl+Shift+C)';
       }, 1000);
+      this.showAnchoredMessage(copyBtn, 'Copied!');
     });
 
     // Paste reference button
@@ -1400,7 +1414,11 @@ case 'flip2d':
 
     pasteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      const clip = this.bindingSystem.clipboard;
       this.pasteParameterReference(node, param);
+      // Confirm at the icon (the corner toast is easy to miss). Reflect whether a binding was made.
+      const bound = clip && this.bindingSystem.isParameterBound(node.id, param.name);
+      this.showAnchoredMessage(pasteBtn, bound ? 'Bound!' : 'Nothing to paste');
     });
 
     // Unbind button (only show if parameter is bound)
@@ -1597,6 +1615,39 @@ case 'flip2d':
         this.renderParameters(node);
       }
     }
+  }
+
+  // Pop a brief message anchored directly beneath an element (e.g. a parameter's copy icon), so the
+  // confirmation appears where the user is looking instead of in the far corner like showToast.
+  showAnchoredMessage(anchorEl, message) {
+    if (!anchorEl) return;
+    const rect = anchorEl.getBoundingClientRect();
+    const tip = document.createElement('div');
+    tip.textContent = message;
+    tip.style.cssText = `
+      position: fixed;
+      left: ${rect.left + rect.width / 2}px;
+      top: ${rect.bottom + 6}px;
+      transform: translateX(-50%);
+      background: #4CAF50;
+      color: #fff;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 100000;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      opacity: 0;
+      transition: opacity 0.15s;
+    `;
+    document.body.appendChild(tip);
+    requestAnimationFrame(() => { tip.style.opacity = '1'; });
+    setTimeout(() => {
+      tip.style.opacity = '0';
+      setTimeout(() => tip.remove(), 200);
+    }, 1100);
   }
 
   showToast(message, type = 'info') {
