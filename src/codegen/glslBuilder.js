@@ -78,7 +78,14 @@ export function buildWGSL(graph, options = {}) {
   }
 
   if (!outputNode || orderedNodes.length === 0) {
-
+    // There's no compilable output chain (e.g. the OutputFinal node isn't wired up yet), but the
+    // canvas may still hold compute nodes. Register the disconnected ones so the compute pipeline
+    // dispatches them and their per-node preview shows real output instead of a placeholder —
+    // otherwise a compute node placed before the output is connected sits as a placeholder until
+    // something happens to reach the output. Skipped for subgraph builds (single-node previews).
+    if (!options.skipCacheClear) {
+      compiler.compilers.compute?.registerDisconnectedComputeNodes?.(graph);
+    }
     compiler.isSubgraphCompilation = false;
     return { wgsl: '', uniformManager: finishUniformState() };
   }

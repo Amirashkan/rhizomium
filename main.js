@@ -3240,6 +3240,34 @@ function computePreviewStructureHash(graph) {
   return `${graph.nodes.length}:${graph.connections?.length ?? 0}:${nodeSignature}:${connectionSignature}`;
 }
 
+// Compute nodes that aren't wired into the output still need to be dispatched so their per-node
+// preview thumbnails show real GPU output instead of a placeholder. When the graph has no connected
+// OutputFinal, updateShaderFromGraph bails before buildWGSL / computeExecutor.initialize() ever run,
+// so the compute nodes never get registered or dispatched. This helper performs just that work:
+// buildWGSL registers the disconnected compute nodes into window.computeNodeRegistry (even when it
+// can't compile a main shader), then computeExecutor.initialize() builds their managers and the
+// render loop dispatches them every frame (gpuRenderer.render dispatches compute even with no main
+// pipeline). It's a no-op when the graph has no compute nodes, so the common case pays nothing.
+async function ensureDisconnectedComputePreviews() {
+  try {
+    if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) return;
+    const hasComputeNode = graph.nodes.some(
+      (node) => node && typeof node.kind === "string" && node.kind.toLowerCase().startsWith("compute")
+    );
+    if (!hasComputeNode) return;
+
+    // Side effect: registers disconnected compute nodes into window.computeNodeRegistry.
+    buildWGSL(window.editor.graph);
+
+    if (computeExecutor && window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
+      await computeExecutor.initialize();
+    }
+  } catch (err) {
+    // Non-fatal: previews simply fall back to the placeholder if this fails.
+    console.warn("[main] Failed to prepare disconnected compute previews:", err);
+  }
+}
+
 async function updateShaderFromGraph() {
   try {
     // Every graph edit funnels through here - flag it so the 30s
@@ -3259,6 +3287,9 @@ async function updateShaderFromGraph() {
     );
 
     if (!outputNode) {
+      // No output to render the main canvas, but compute nodes on the canvas still need their
+      // per-node previews dispatched (otherwise they sit as placeholders until an output exists).
+      await ensureDisconnectedComputePreviews();
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();
         window.gpuRenderer.presentFallbackColor();
@@ -3272,6 +3303,10 @@ async function updateShaderFromGraph() {
       outputNode.inputs[0] !== undefined;
 
     if (!hasConnection) {
+      // The output isn't wired up yet, so the main shader can't compile — but a freshly placed
+      // compute node should still preview its own output rather than a placeholder. Register and
+      // dispatch the disconnected compute nodes so the render loop produces their thumbnails.
+      await ensureDisconnectedComputePreviews();
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();
         window.gpuRenderer.presentFallbackColor();
