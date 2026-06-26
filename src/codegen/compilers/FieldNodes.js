@@ -9,6 +9,14 @@ export class FieldNodes {
     this.uniformManager = null;
     this.paramHandler = new UnifiedParameterHandler();
     this.functionDefinitions = new Map();
+    // Graph currently being compiled. Used to resolve node references in parameter
+    // expressions (e.g. a Mouse node referenced by a Circle's radius) without relying
+    // on the ambient window.editor.graph, which is absent in the external viewer.
+    this.graph = null;
+  }
+
+  setGraph(graph) {
+    this.graph = graph;
   }
 
   makeSafeIdentifier(id) {
@@ -268,7 +276,7 @@ getParam(node, paramName, defaultValue) {
   // Handle expressions with = prefix (like "=node_14" or "=time*2")
   if (typeof rawValue === 'string' && rawValue.startsWith('=')) {
     try {
-      return unifiedExpressionSystem.generateShader(rawValue);
+      return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
     } catch (error) {
 
       return String(defaultValue);
@@ -279,7 +287,7 @@ getParam(node, paramName, defaultValue) {
   // This ensures shader code matches CPU evaluation exactly
   if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
     try {
-      return unifiedExpressionSystem.generateShader(rawValue);
+      return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
     } catch (error) {
 
       return String(defaultValue);

@@ -84,7 +84,10 @@ export function buildWGSL(graph, options = {}) {
   }
 
   // --- Compile all nodes into WGSL lines ---
-  const compiledData = compiler.compileNodes(orderedNodes);
+  // Pass the graph being compiled so node-reference resolution (e.g. a Mouse/Time node
+  // referenced by a parameter expression) works off this graph rather than the ambient
+  // window.editor.graph, which is absent in the external viewer / studio context.
+  const compiledData = compiler.compileNodes(orderedNodes, graph);
 
   // Reset the flag after compilation
   compiler.isSubgraphCompilation = false;
