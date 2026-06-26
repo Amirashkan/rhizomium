@@ -1547,37 +1547,18 @@ setValue(node, paramName, value) {
     const isComputeNode = node.kind && node.kind.toLowerCase().startsWith('compute');
 
     if (isComputeNode) {
-      // Compute nodes bake parameters into WGSL shader code
-      // Trigger full shader recompilation to regenerate with new parameters
-
-      // Clear the compute node registry entry so it gets regenerated
-      const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
-
-      if (window.computeNodeRegistry) {
-        window.computeNodeRegistry.delete(nodeId);
-      }
-
-      // CRITICAL: Also destroy the existing compute manager so it gets recreated
-      // When the registry entry is deleted and recreated, the ComputeExecutor needs to
-      // destroy the old GPU pipeline and create a new one with the updated shader
-      if (window.computeExecutor && window.computeExecutor.computeManagers) {
-        const manager = window.computeExecutor.computeManagers.get(nodeId);
-        if (manager && manager.destroy) {
-          const ce = window.computeExecutor;
-          if (ce._deferDestroy) {
-            ce._deferDestroy(() => { try { manager.destroy(); } catch (_) {} });
-          } else {
-            setTimeout(() => { try { manager.destroy(); } catch (_) {} }, 0);
-          }
-        }
-        window.computeExecutor.computeManagers.delete(nodeId);
-        window.computeExecutor.computeTextures.delete(nodeId);
-        window.computeExecutor.nodeOutputs.delete(nodeId);
-        window.computeExecutor.inputHashes.delete(nodeId);
-
-      }
-
-      // Trigger full shader recompilation
+      // Trigger a full shader recompile so the new parameter takes effect.
+      //
+      // Do NOT pre-delete the registry entry or destroy the compute manager here.
+      // Compute parameters are delivered as uniforms now (read live every dispatch),
+      // so the generated WGSL is unchanged for a numeric/most param edits. The
+      // recompile funnels through ComputeExecutor.initialize(), whose reuse path
+      // keeps the existing manager when the WGSL/resolution/feedback config is
+      // identical — and only that reuse preserves a feedback node's accumulated
+      // ping-pong state. Destroying the manager here wiped that state on every
+      // edit (the original drag-release reset). When a param genuinely changes the
+      // WGSL (e.g. a baked enum), the reuse signature differs and initialize()
+      // recreates the manager on its own, so the explicit teardown is redundant.
       if (window.editor && window.editor.onChange) {
         window.editor.onChange(`Compute node parameter change: ${node.kind}.${paramName}`);
       }

@@ -152,15 +152,15 @@ export const ComputeNodes = {
     pinsIn: ["Input"],
     pinsOut: ["Texture"],
     params: [
-      { name: 'mode', type: 'select', options: ['Flow', 'Reaction-Diffusion', 'Accumulate', 'Custom'], default: 'Flow' },
+      { name: 'mode', type: 'select', options: ['Flow', 'Reaction-Diffusion', 'Accumulate', 'Swirl'], default: 'Flow' },
       { name: 'decay', type: 'float', default: 0.98, min: 0.0, max: 1.0 },
       { name: 'diffusion', type: 'float', default: 0.1, min: 0.0, max: 1.0 },
       { name: 'feedback', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
       { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
-      { name: 'reset', type: 'boolean', default: false },
-      { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' }
+      { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' },
+      { name: 'reset', type: 'button', displayName: 'Reset Field', action: 'resetFeedback', description: 'Clear the accumulated feedback field' }
     ],
-    description: "Persistent feedback field for simulations using FeedbackManager",
+    description: "Persistent feedback field for flow, reaction-diffusion and accumulation simulations",
     workgroupSize: [8, 8, 1]
   },
 
