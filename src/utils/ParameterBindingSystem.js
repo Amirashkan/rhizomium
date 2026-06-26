@@ -384,13 +384,15 @@ export class ParameterBindingSystem {
     }
   }
 
-  // Read a parameter's RAW stored value (an expression string is returned as-is, not evaluated),
-  // mirroring where ParameterValueManager keeps values (node.value / node.expr / params / props).
+  // Read a parameter's RAW stored value (an expression string is returned as-is, not evaluated).
+  // node.params is checked FIRST: it's where the expression-aware value manager and the shader
+  // codegen both keep the live value (e.g. a ConstFloat's "=sin(time)"). The legacy top-level
+  // node.value / node.expr can lag behind as a stale number, so they're only a fallback.
   _getRawValue(node, paramName) {
     if (!node) return undefined;
+    if (node.params && node.params[paramName] !== undefined) return node.params[paramName];
     if (paramName === 'value' && node.value !== undefined) return node.value;
     if (paramName === 'expr' && node.expr !== undefined) return node.expr;
-    if (node.params && node.params[paramName] !== undefined) return node.params[paramName];
     if (node.props && node.props[paramName] !== undefined) return node.props[paramName];
     return undefined;
   }

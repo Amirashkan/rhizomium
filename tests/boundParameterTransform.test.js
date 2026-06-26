@@ -153,6 +153,18 @@ describe('bound parameter transform expressions', () => {
       expect(t.params.radius).toBe('=(audioEnvelope) * 2');
     });
 
+    it('reads the live expression from node.params even when node.value is a stale number', () => {
+      // A ConstFloat keeps its live value in node.params.value (where codegen + the expression
+      // panel read it); the legacy node.value can lag as an old number. The binding must follow
+      // node.params, otherwise the source looks static and the target freezes.
+      const s = { id: 's3', kind: 'ConstFloat', value: 0, params: { value: '=sin(time)' } };
+      const t = { id: 't3', kind: 'ConstFloat', value: 0, params: { value: 0 } };
+      const g = { nodes: [s, t], connections: [] };
+      const bs = new ParameterBindingSystem(g, makeEventSystem(), null);
+      bs.createBinding('s3', 'value', 't3', 'value');
+      expect(t.params.value).toBe('=(sin(time))');
+    });
+
     it('falls back to a plain number once the source becomes static', () => {
       const { s, t, bs } = bindExprSource('=time');
       expect(t.params.radius).toBe('=(time)');

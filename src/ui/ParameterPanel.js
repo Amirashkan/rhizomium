@@ -1367,6 +1367,15 @@ case 'flip2d':
     copyBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.copyParameterReference(node, param);
+      // Confirm right at the icon: the corner toast can sit behind the parameter panel, so flash
+      // the button to ✅ momentarily as unmistakable "copied" feedback next to the parameter.
+      copyBtn.innerHTML = '✅';
+      copyBtn.title = `Copied ${node.kind}.${param.name} as reference`;
+      clearTimeout(this._copyFlashTimer);
+      this._copyFlashTimer = setTimeout(() => {
+        copyBtn.innerHTML = '📋';
+        copyBtn.title = 'Copy as reference (Ctrl+Shift+C)';
+      }, 1000);
     });
 
     // Paste reference button
