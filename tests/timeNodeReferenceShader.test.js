@@ -51,3 +51,34 @@ describe('generateShader resolves Time/RandomTime node references to the GPU clo
     expect(unifiedExpressionSystem.generateShader('=node_5', {}, null)).toBe('node_5');
   });
 });
+
+// Regression test: referencing a Mouse node from a parameter (e.g. =node_3_x) must read the live
+// GPU mouse global, mirroring a wired Mouse node which compiles to `g.mouse` (see InputNodes.js).
+//
+// Bug: a Mouse node reference (`=node_3_x`) was not resolved by the shader generator — only
+// Time/RandomTime were. The undefined identifier `node_3_x` made the generator fall back to `0.0`,
+// so the parameter (and everything downstream of it) rendered as 0 regardless of cursor position.
+describe('generateShader resolves Mouse node references to the GPU mouse global', () => {
+  const mouseGraph = { nodes: [{ id: 3, kind: 'Mouse', params: {} }] };
+
+  it('compiles a component reference to the matching g.mouse channel', () => {
+    expect(unifiedExpressionSystem.generateShader('=node_3_x', {}, mouseGraph)).toBe('g.mouse.x');
+    expect(unifiedExpressionSystem.generateShader('=node_3_y', {}, mouseGraph)).toBe('g.mouse.y');
+    expect(unifiedExpressionSystem.generateShader('=node_3_z', {}, mouseGraph)).toBe('g.mouse.z');
+    expect(unifiedExpressionSystem.generateShader('=node_3_w', {}, mouseGraph)).toBe('g.mouse.w');
+  });
+
+  it('compiles a bare Mouse node reference to the whole vec4', () => {
+    expect(unifiedExpressionSystem.generateShader('=node_3', {}, mouseGraph)).toBe('g.mouse');
+  });
+
+  it('resolves a Mouse component inside a larger expression', () => {
+    expect(unifiedExpressionSystem.generateShader('=node_3_x * 2', {}, mouseGraph)).toBe('(g.mouse.x * 2.0)');
+    expect(unifiedExpressionSystem.generateShader('=sin(node_3_y)', {}, mouseGraph)).toBe('sin(g.mouse.y)');
+  });
+
+  it('matches the kind case-insensitively', () => {
+    const graph = { nodes: [{ id: 3, kind: 'mouse', params: {} }] };
+    expect(unifiedExpressionSystem.generateShader('=node_3_x', {}, graph)).toBe('g.mouse.x');
+  });
+});
