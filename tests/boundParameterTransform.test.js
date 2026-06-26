@@ -61,7 +61,8 @@ describe('bound parameter transform expressions', () => {
 
   it('the transform re-applies when the source value changes', () => {
     bindingSystem.setBoundTransform('t', 'radius', '=bound * 2');
-    // Simulate the source parameter changing (as PARAMETER_CHANGED would drive it).
+    // Simulate the source parameter changing (PARAMETER_CHANGED fires after node.params is set).
+    source.params.value = 7;
     bindingSystem.updateBoundParameters(source, 'value', 7, 'user');
     expect(target.params.radius).toBe(14);
   });
@@ -113,6 +114,52 @@ describe('bound parameter transform expressions', () => {
     source.params.value = 11;
     bindingSystem.refreshLiveTargetsForSource(source);
     expect(target.params.radius).toBe(11);
+  });
+
+  describe('expression sources', () => {
+    function bindExprSource(sourceExpr) {
+      const s = { id: 's2', kind: 'Time', params: { value: sourceExpr } };
+      const t = { id: 't2', kind: 'CircleField', params: { radius: 0 } };
+      const g = { nodes: [s, t], connections: [] };
+      const bs = new ParameterBindingSystem(g, makeEventSystem(), null);
+      bs.createBinding('s2', 'value', 't2', 'radius');
+      return { s, t, bs };
+    }
+
+    it('composes a live expression on the target instead of a frozen snapshot', () => {
+      const { t } = bindExprSource('=time');
+      expect(t.params.radius).toBe('=(time)');
+    });
+
+    it('substitutes the source expression into the transform', () => {
+      const { t, bs } = bindExprSource('=time');
+      bs.setBoundTransform('t2', 'radius', '=bound * 2');
+      expect(t.params.radius).toBe('=(time) * 2');
+    });
+
+    it('substitutes "self" as well', () => {
+      const { t, bs } = bindExprSource('=audioEnvelope');
+      bs.setBoundTransform('t2', 'radius', '=self + 1');
+      expect(t.params.radius).toBe('=(audioEnvelope) + 1');
+    });
+
+    it('recomposes when the source expression changes', () => {
+      const { s, t, bs } = bindExprSource('=time');
+      bs.setBoundTransform('t2', 'radius', '=bound * 2');
+      expect(t.params.radius).toBe('=(time) * 2');
+      // Source expression edited; PARAMETER_CHANGED would drive this.
+      s.params.value = '=audioEnvelope';
+      bs.updateBoundParameters(s, 'value', '=audioEnvelope', 'user');
+      expect(t.params.radius).toBe('=(audioEnvelope) * 2');
+    });
+
+    it('falls back to a plain number once the source becomes static', () => {
+      const { s, t, bs } = bindExprSource('=time');
+      expect(t.params.radius).toBe('=(time)');
+      s.params.value = 4;
+      bs.updateBoundParameters(s, 'value', 4, 'user');
+      expect(t.params.radius).toBe(4);
+    });
   });
 
   it('transforms survive a serialize/deserialize round trip', () => {
