@@ -480,6 +480,30 @@ buildEvaluationContext(context, node) {
 }
 
   /**
+   * Live value for a clock/cursor-driven input node, or undefined for other kinds.
+   * Mirrors the GPU globals (g.time, g.mouse, the RandomTime formula) so CPU evaluation of a
+   * reference matches what the shader renders.
+   */
+  _liveInputNodeValue(node) {
+    const kind = node?.kind?.toLowerCase();
+    if (kind !== 'time' && kind !== 'randomtime' && kind !== 'mouse') return undefined;
+
+    const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
+    const time = Number.isFinite(simTime) ? simTime : (Date.now() / 1000);
+
+    if (kind === 'time') return time;
+    if (kind === 'randomtime') {
+      const speed = Number(node.params?.speed);
+      const s = Number.isFinite(speed) ? speed : 1.0;
+      const v = Math.sin(time * s * 12.9898) * 43758.5453;
+      return v - Math.floor(v); // fract()
+    }
+    // Mouse: iMouse layout xy=position (0..1), z=held, w=click. Center before any input.
+    const m = (typeof window !== 'undefined' && window._mousePosition) || null;
+    return m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];
+  }
+
+  /**
    * Adds node output values to the evaluation context
    * Supports syntax like: =node_1, =node_1_x, =node_1_y, etc.
    */
@@ -495,6 +519,29 @@ buildEvaluationContext(context, node) {
     graph.nodes.forEach(node => {
       // Don't reference the current node to avoid circular dependencies
       if (node.id === currentNode?.id) return;
+
+      // Live input nodes (Mouse/Time/RandomTime) are driven by the clock/cursor, not by
+      // graph computation. If one is referenced but not wired into the output it may have
+      // no computed value, so resolve it to its live value directly — otherwise the
+      // reference (e.g. node_28_x) is an undefined identifier and reads as 0. Mirrors the
+      // GPU mapping in UnifiedExpressionSystem and the wired-node codegen in InputNodes.
+      const liveValue = this._liveInputNodeValue(node);
+      if (liveValue !== undefined) {
+        const nodeVarName = `node_${node.id}`;
+        if (Array.isArray(liveValue)) {
+          evalContext[nodeVarName] = liveValue;
+          const comps = ['x', 'y', 'z', 'w'];
+          liveValue.forEach((v, i) => {
+            // Expose both the letter component (node_5_x) and the numeric channel index
+            // (node_5_1), the form the editor stores for a vector node's pin reference.
+            if (comps[i]) evalContext[`${nodeVarName}_${comps[i]}`] = v;
+            evalContext[`${nodeVarName}_${i}`] = v;
+          });
+        } else {
+          evalContext[nodeVarName] = liveValue;
+        }
+        return;
+      }
 
       // Get the node's computed value
       let nodeValue = node.__preview;
@@ -519,17 +566,20 @@ buildEvaluationContext(context, node) {
         // Add the full array
         evalContext[nodeVarName] = nodeValue;
 
-        // Also add component accessors for vectors
-        if (nodeValue.length >= 1) evalContext[`${nodeVarName}_x`] = nodeValue[0];
-        if (nodeValue.length >= 2) evalContext[`${nodeVarName}_y`] = nodeValue[1];
-        if (nodeValue.length >= 3) evalContext[`${nodeVarName}_z`] = nodeValue[2];
-        if (nodeValue.length >= 4) evalContext[`${nodeVarName}_w`] = nodeValue[3];
+        // Also add component accessors for vectors, by both letter (node_5_x) and numeric
+        // channel index (node_5_1) — the form the editor stores for a vector node's pin.
+        const comps = ['x', 'y', 'z', 'w'];
+        nodeValue.forEach((v, i) => {
+          if (comps[i]) evalContext[`${nodeVarName}_${comps[i]}`] = v;
+          evalContext[`${nodeVarName}_${i}`] = v;
+        });
       } else if (typeof nodeValue === 'object' && nodeValue.type === 'split') {
         // Handle split node outputs
         evalContext[nodeVarName] = nodeValue.values;
         nodeValue.values.forEach((val, idx) => {
           const component = ['x', 'y', 'z', 'w'][idx];
           if (component) evalContext[`${nodeVarName}_${component}`] = val;
+          evalContext[`${nodeVarName}_${idx}`] = val;
         });
       }
     });

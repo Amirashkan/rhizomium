@@ -10,10 +10,17 @@ export class ComputeNodes {
     this.paramHandler = new UnifiedParameterHandler();
     this.computeTextureRegistry = new Map(); // Maps nodeId -> { texture, manager, lastUpdate }
     this.computeManagers = new Map(); // Maps nodeId -> ComputeShaderManager instance
+    // Graph being compiled, used to resolve node references in parameter expressions
+    // without relying on the ambient window.editor.graph (absent in the external viewer).
+    this.graph = null;
   }
 
   setUniformManager(manager) {
     this.uniformManager = manager;
+  }
+
+  setGraph(graph) {
+    this.graph = graph;
   }
 
   setExpressionSystem(expressionSystem) {
@@ -3599,7 +3606,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // BUT NOT node references - those need CPU evaluation
     if (typeof rawValue === 'string' && rawValue.startsWith('=') && !isNodeReference) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue);
+        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
       } catch (error) {
 
         // Fall through to uniform registration below
@@ -3610,7 +3617,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // This ensures shader code matches CPU evaluation exactly
     if (typeof rawValue === 'string' && !isNodeReference && (/time|audioEnvelope/.test(rawValue))) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue);
+        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
       } catch (error) {
 
         // Fall through to uniform registration below

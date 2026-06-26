@@ -6,10 +6,17 @@ export class UtilityNodes {
   constructor() {
     this.uniformManager = null;
     this.requiresColorHelpers = false;
+    // Graph being compiled, used to resolve node references in parameter expressions
+    // without relying on the ambient window.editor.graph (absent in the external viewer).
+    this.graph = null;
   }
 
   setUniformManager(manager) {
     this.uniformManager = manager;
+  }
+
+  setGraph(graph) {
+    this.graph = graph;
   }
 
   resetHelperTracking() {
@@ -41,7 +48,7 @@ export class UtilityNodes {
     // Handle expressions with = prefix (like "=audioEnvelope*5")
     if (typeof value === 'string' && value.startsWith('=')) {
       try {
-        return unifiedExpressionSystem.generateShader(value);
+        return unifiedExpressionSystem.generateShader(value, {}, this.graph);
       } catch (error) {
 
         return String(defaultValue);
@@ -51,7 +58,7 @@ export class UtilityNodes {
     // Handle expressions without = prefix (like "time" or "audioEnvelope*2")
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
       try {
-        return unifiedExpressionSystem.generateShader(value);
+        return unifiedExpressionSystem.generateShader(value, {}, this.graph);
       } catch (error) {
 
         return String(defaultValue);

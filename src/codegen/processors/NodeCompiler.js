@@ -185,7 +185,24 @@ export class NodeCompiler {
     return null;
   }
 
-  compileNodes(orderedNodes) {
+  compileNodes(orderedNodes, graph = null) {
+    // Hand the graph being compiled to child compilers so they can resolve node
+    // references (e.g. a parameter expression referencing a Mouse/Time node) against
+    // it, instead of relying on the ambient window.editor.graph which is unavailable
+    // in the external viewer / studio context.
+    this.currentGraph = graph;
+    Object.values(this.compilers).forEach((compiler) => {
+      if (compiler.setGraph) {
+        compiler.setGraph(graph);
+      }
+      // Hand compilers the TypeConverter so they can resolve the type of a node referenced
+      // by a parameter expression (e.g. a vec2 node referenced into a scalar param) and coerce
+      // it, rather than emitting a type-mismatched call.
+      if (compiler.setTypeConverter) {
+        compiler.setTypeConverter(this.typeConverter);
+      }
+    });
+
     this.uniformManager.clear();
     // Clear stale type/expression/pin data so nodes excluded from this pass
     // cannot be referenced by downstream nodes via the previous run's outputPins.

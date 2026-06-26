@@ -6,6 +6,13 @@ export class NoiseNodes {
   constructor() {
     // Track which noise functions are actually used during compilation
     this.usedFunctions = new Set();
+    // Graph being compiled, used to resolve node references in parameter expressions
+    // without relying on the ambient window.editor.graph (absent in the external viewer).
+    this.graph = null;
+  }
+
+  setGraph(graph) {
+    this.graph = graph;
   }
 
   handles(kind) {
@@ -120,7 +127,7 @@ export class NoiseNodes {
     // This ensures shader code matches CPU evaluation exactly
     if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue);
+        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
       } catch (error) {
 
         return String(defaultValue);
@@ -130,7 +137,7 @@ export class NoiseNodes {
     // Handle regular expressions starting with =
     if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
       try {
-        return unifiedExpressionSystem.generateShader(rawValue);
+        return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
       } catch (error) {
 
         const numericValue = parseFloat(rawValue.substring(1));

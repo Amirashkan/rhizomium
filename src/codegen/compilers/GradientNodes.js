@@ -2,10 +2,17 @@
 export class GradientNodes {
   constructor() {
     this.uniformManager = null;
+    // Graph being compiled, used to resolve node references in parameter expressions
+    // without relying on the ambient window.editor.graph (absent in the external viewer).
+    this.graph = null;
   }
 
   setUniformManager(manager) {
     this.uniformManager = manager;
+  }
+
+  setGraph(graph) {
+    this.graph = graph;
   }
 
   handles(kind) {
@@ -31,7 +38,7 @@ export class GradientNodes {
     // Handle expressions with = prefix (like "=node_14" or "=audioEnvelope*5")
     if (typeof value === 'string' && value.startsWith('=')) {
       try {
-        return window.unifiedExpressionSystem.generateShader(value);
+        return window.unifiedExpressionSystem.generateShader(value, {}, this.graph);
       } catch (error) {
 
         return String(defaultValue);
@@ -41,7 +48,7 @@ export class GradientNodes {
     // Handle expressions without = prefix (like "time" or "audioEnvelope*2")
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
       try {
-        return window.unifiedExpressionSystem.generateShader(value);
+        return window.unifiedExpressionSystem.generateShader(value, {}, this.graph);
       } catch (error) {
 
         return String(defaultValue);

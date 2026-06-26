@@ -306,6 +306,19 @@ updateTimeNodes() {
     if (this.editor.paramPanel?.refreshParameterDisplays) {
       this.editor.paramPanel.refreshParameterDisplays();
     }
+    // computePreviews only refreshes CPU-computed values (numeric pin labels). A fragment node
+    // whose parameter references the Mouse (e.g. a Circle's radius = node_<mouse>_x) has a
+    // GPU-rendered thumbnail that those values do not touch, so without this its node preview
+    // freezes while the main render tracks the cursor. Re-render the real GPU thumbnail of every
+    // mouse-dependent visual/compute node (already collected above; _refreshNodePreview is
+    // visibility-culled and honors the per-node toggle).
+    const spm = window.shaderPreviewManager;
+    if (spm && spm.enableGPUPreview) {
+      nodesToUpdate.forEach(nodeId => {
+        const node = this.editor.graph.nodes.find(n => n.id === nodeId);
+        if (node) this._refreshNodePreview(node);
+      });
+    }
     if (this.editor.markDirty) this.editor.markDirty('mouse-input');
     this.editor.draw();
   }

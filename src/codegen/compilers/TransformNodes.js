@@ -18,10 +18,17 @@ import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js'
 export class TransformNodes {
   constructor() {
     this.uniformManager = null;
+    // Graph being compiled, used to resolve node references in parameter expressions
+    // without relying on the ambient window.editor.graph (absent in the external viewer).
+    this.graph = null;
   }
 
   setUniformManager(uniformManager) {
     this.uniformManager = uniformManager;
+  }
+
+  setGraph(graph) {
+    this.graph = graph;
   }
 
   handles(kind) {
@@ -68,11 +75,11 @@ export class TransformNodes {
     const value = this.getParam(node, name, defaultValue);
 
     if (typeof value === 'string' && value.startsWith('=')) {
-      try { return unifiedExpressionSystem.generateShader(value); } catch { return String(defaultValue); }
+      try { return unifiedExpressionSystem.generateShader(value, {}, this.graph); } catch { return String(defaultValue); }
     }
 
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
-      try { return unifiedExpressionSystem.generateShader(value); } catch { return String(defaultValue); }
+      try { return unifiedExpressionSystem.generateShader(value, {}, this.graph); } catch { return String(defaultValue); }
     }
 
     if (this.uniformManager) {
@@ -104,7 +111,7 @@ export class TransformNodes {
     const textureInputId = node.inputs?.[1];
     if (!textureInputId) return null;
 
-    const graph = window.editor?.graph || window.graph;
+    const graph = this.graph || window.editor?.graph || window.graph;
     const inputNode = graph?.nodes?.find(n => String(n.id) === String(textureInputId));
     if (!inputNode) return null;
 
