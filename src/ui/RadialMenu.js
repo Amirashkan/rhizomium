@@ -32,8 +32,9 @@ export class RadialMenu {
     this.element = null;
     this.centerX = 0;
     this.centerY = 0;
-    this.radius = 80;
-    this.expandedRadius = 180;
+    this.radius = 112;
+    this.innerRadius = 52;
+    this.expandedRadius = 210;
     this.isVisible = false;
     this.expandedCategory = null;
     this.scrollOffsets = new Map();
@@ -433,11 +434,15 @@ export class RadialMenu {
     );
     centerCircle.setAttribute("cx", centerX);
     centerCircle.setAttribute("cy", centerY);
-    centerCircle.setAttribute("r", "15");
+    centerCircle.setAttribute("r", this.innerRadius - 6);
     centerCircle.setAttribute("fill", "url(#centerGrad)");
     centerCircle.setAttribute("stroke", "rgba(255,255,255,0.1)");
     centerCircle.setAttribute("stroke-width", "2");
     this.svg.appendChild(centerCircle);
+
+    if (!this.showingSearch) {
+      this._renderCenterReadout(centerX, centerY);
+    }
 
     if (!this.showingSearch && !this.expandedCategory) {
       this._renderHelpBox(centerX, centerY);
@@ -454,8 +459,67 @@ export class RadialMenu {
     }
   }
 
+  _renderCenterReadout(centerX, centerY) {
+    // The hub shows the active category's name. It reflects the expanded
+    // category, else the keyboard-selected one, else a neutral prompt — and
+    // updates live as the pointer hovers segments (see _renderCategories).
+    let defaultName = "ADD NODE";
+    if (this.expandedCategory) {
+      defaultName = this.expandedCategory;
+    } else if (
+      this.selectedCategoryIndex >= 0 &&
+      this.categories[this.selectedCategoryIndex]
+    ) {
+      defaultName = this.categories[this.selectedCategoryIndex].name;
+    }
+    this._centerDefaultName = defaultName;
+
+    const name = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    name.setAttribute("x", centerX);
+    name.setAttribute("y", centerY - 2);
+    name.setAttribute("text-anchor", "middle");
+    name.setAttribute("dominant-baseline", "central");
+    name.setAttribute("fill", "#ffffff");
+    name.setAttribute("font-size", "15");
+    name.setAttribute("font-weight", "700");
+    name.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    name.style.pointerEvents = "none";
+    name.textContent = defaultName;
+    this.svg.appendChild(name);
+    this._centerLabelEl = name;
+
+    const caption = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    caption.setAttribute("x", centerX);
+    caption.setAttribute("y", centerY + 14);
+    caption.setAttribute("text-anchor", "middle");
+    caption.setAttribute("dominant-baseline", "central");
+    caption.setAttribute("fill", "#7d838f");
+    caption.setAttribute("font-size", "8");
+    caption.setAttribute("font-weight", "500");
+    caption.setAttribute("letter-spacing", "0.16em");
+    caption.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    caption.style.pointerEvents = "none";
+    caption.textContent = this.expandedCategory ? "SELECT NODE" : "CATEGORY";
+    this.svg.appendChild(caption);
+    this._centerCaptionEl = caption;
+  }
+
+  // Update the hub readout to a hovered category name (transient — the next
+  // _renderMenu restores the default from selection/expansion state).
+  _setCenterReadout(name) {
+    if (this._centerLabelEl) {
+      this._centerLabelEl.textContent = name ?? this._centerDefaultName;
+    }
+  }
+
   _renderHelpBox(centerX, centerY) {
-    const boxY = centerY - 110;
+    const boxY = centerY - this.radius - 42;
 
     const helpBg = document.createElementNS(
       "http://www.w3.org/2000/svg",
@@ -644,7 +708,7 @@ export class RadialMenu {
       const segment = this._createSegmentPath(
         centerX,
         centerY,
-        30,
+        this.innerRadius,
         this.radius - 3,
         startAngle,
         endAngle,
@@ -671,65 +735,60 @@ export class RadialMenu {
         this._renderMenu();
       });
 
+      // Surface the category name in the hub readout while hovering.
+      segment.addEventListener("mouseenter", () =>
+        this._setCenterReadout(category.name),
+      );
+      segment.addEventListener("mouseleave", () => this._setCenterReadout(null));
+
       this.svg.appendChild(segment);
 
       const labelAngle = startAngle + angleStep / 2;
-      const labelRadius = (30 + this.radius - 3) / 2;
+      const glyphRadius = (this.innerRadius + this.radius - 3) / 2;
+      const glyphX = centerX + Math.cos(labelAngle) * glyphRadius;
+      const glyphY = centerY + Math.sin(labelAngle) * glyphRadius;
       const hasIcon = CATEGORY_ICON_IDS.has(category.name.toLowerCase());
 
-      // When an icon is present, stack it inside the segment with the name just
-      // outward of it; otherwise keep the label centered as before.
       if (hasIcon) {
-        const iconSize = 20;
-        const iconRadius = labelRadius - 11;
-        const iconX = centerX + Math.cos(labelAngle) * iconRadius;
-        const iconY = centerY + Math.sin(labelAngle) * iconRadius;
-
+        // Icon-forward: a centered glyph is the segment's affordance; the name
+        // lives in the hub readout. currentColor tints it — white, brightened
+        // when the segment is selected/expanded.
+        const iconSize = 26;
         const icon = document.createElementNS(
           "http://www.w3.org/2000/svg",
           "use",
         );
         const iconHref = `#icon-${category.name.toLowerCase()}`;
         icon.setAttribute("href", iconHref);
-        icon.setAttributeNS(
-          "http://www.w3.org/1999/xlink",
-          "href",
-          iconHref,
-        );
-        icon.setAttribute("x", iconX - iconSize / 2);
-        icon.setAttribute("y", iconY - iconSize / 2);
+        icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", iconHref);
+        icon.setAttribute("x", glyphX - iconSize / 2);
+        icon.setAttribute("y", glyphY - iconSize / 2);
         icon.setAttribute("width", iconSize);
         icon.setAttribute("height", iconSize);
-        // currentColor on the glyph — white reads cleanly on the dark menu,
-        // brightened to pure white when the segment is selected/expanded.
-        icon.style.color =
-          isExpanded || isSelected ? "#ffffff" : "#e6e6e6";
+        icon.style.color = isExpanded || isSelected ? "#ffffff" : "#e6e6e6";
         icon.style.pointerEvents = "none";
         this.svg.appendChild(icon);
+      } else {
+        // No glyph for this category (e.g. Compute) — fall back to a label.
+        const label = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "text",
+        );
+        label.setAttribute("x", glyphX);
+        label.setAttribute("y", glyphY);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("dominant-baseline", "central");
+        label.setAttribute(
+          "fill",
+          isExpanded || isSelected ? "#ffffff" : "#c0c0c0",
+        );
+        label.setAttribute("font-size", "11");
+        label.setAttribute("font-weight", "600");
+        label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+        label.style.pointerEvents = "none";
+        label.textContent = category.name;
+        this.svg.appendChild(label);
       }
-
-      const textRadius = hasIcon ? labelRadius + 9 : labelRadius;
-      const labelX = centerX + Math.cos(labelAngle) * textRadius;
-      const labelY = centerY + Math.sin(labelAngle) * textRadius;
-
-      const label = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text",
-      );
-      label.setAttribute("x", labelX);
-      label.setAttribute("y", labelY);
-      label.setAttribute("text-anchor", "middle");
-      label.setAttribute("dominant-baseline", "central");
-      label.setAttribute(
-        "fill",
-        isExpanded ? "#ffffff" : isSelected ? "#ffffff" : "#c0c0c0",
-      );
-      label.setAttribute("font-size", hasIcon ? "10" : "12");
-      label.setAttribute("font-weight", "600");
-      label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
-      label.style.pointerEvents = "none";
-      label.textContent = category.name;
-      this.svg.appendChild(label);
     });
   }
 
