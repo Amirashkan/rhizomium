@@ -211,7 +211,7 @@ compileBinaryOp(nodeId, node, getInput, getParam, operator, defaultA = '0.0', de
 
 convertToType(expr, fromType, toType) {
   if (fromType === toType) return expr;
-  
+
   if (toType === 'vec2') return `vec2<f32>(${expr})`;
   if (toType === 'vec3') {
     if (fromType === 'vec2') return `vec3<f32>(${expr}, 0.0)`;
@@ -223,6 +223,42 @@ convertToType(expr, fromType, toType) {
     return `vec4<f32>(${expr})`;
   }
   return expr;
+}
+
+/**
+ * Coerce an expression from one WGSL width to another. Unlike convertToType this also
+ * narrows (vector -> scalar / smaller vector), so a secondary argument (clamp min/max,
+ * smoothstep edges, mix endpoints, mod divisor, ...) whose width no longer matches the
+ * value it is combined with is brought back in line instead of emitting a width-mismatched
+ * builtin call. This makes codegen depend on the value's actual type rather than trusting a
+ * secondary input's own (possibly stale, e.g. after an undo restore) type metadata.
+ */
+coerceToType(expr, fromType, toType) {
+  if (!fromType || !toType || fromType === toType) return expr;
+
+  switch (toType) {
+    case 'f32':
+      if (fromType === 'vec2') return `((${expr}).x + (${expr}).y) * 0.5`;
+      if (fromType === 'vec3') return `((${expr}).x + (${expr}).y + (${expr}).z) / 3.0`;
+      if (fromType === 'vec4') return `dot((${expr}).xyz, vec3<f32>(0.299, 0.587, 0.114))`;
+      return expr;
+    case 'vec2':
+      if (fromType === 'f32') return `vec2<f32>(${expr})`;
+      if (fromType === 'vec3' || fromType === 'vec4') return `(${expr}).xy`;
+      return expr;
+    case 'vec3':
+      if (fromType === 'f32') return `vec3<f32>(${expr})`;
+      if (fromType === 'vec2') return `vec3<f32>(${expr}, 0.0)`;
+      if (fromType === 'vec4') return `(${expr}).xyz`;
+      return expr;
+    case 'vec4':
+      if (fromType === 'f32') return `vec4<f32>(${expr})`;
+      if (fromType === 'vec2') return `vec4<f32>(${expr}, 0.0, 1.0)`;
+      if (fromType === 'vec3') return `vec4<f32>(${expr}, 1.0)`;
+      return expr;
+    default:
+      return expr;
+  }
 }
   
   /**
@@ -303,12 +339,18 @@ convertToType(expr, fromType, toType) {
     const minInfo = getInput(1, null, null);
     const maxInfo = getInput(2, null, null);
     
+    // The value input drives the width of the whole clamp(); min/max must match it. Derive
+    // their width from outputType rather than each input's own (possibly stale) type metadata.
     const outputType = valueInfo.type || 'f32';
-    
+
     const value = valueInfo.code || this.getDefaultForType(outputType);
-    const minVal = minInfo.code || this.getDefaultForType(outputType);
-    const maxVal = maxInfo.code || this.getOneForType(outputType);
-    
+    const minVal = minInfo.code
+      ? this.coerceToType(minInfo.code, minInfo.type || outputType, outputType)
+      : this.getDefaultForType(outputType);
+    const maxVal = maxInfo.code
+      ? this.coerceToType(maxInfo.code, maxInfo.type || outputType, outputType)
+      : this.getOneForType(outputType);
+
     return {
       line: `let node_${nodeId} = clamp(${value}, ${minVal}, ${maxVal});`,
       outputType: outputType
@@ -323,12 +365,17 @@ convertToType(expr, fromType, toType) {
     const edge1Info = getInput(1, null, null);
     const xInfo = getInput(2, null, null);
     
+    // x drives the width; both edges must match it (WGSL smoothstep needs uniform argument types).
     const outputType = xInfo.type || 'f32';
-    
-    const edge0 = edge0Info.code || this.getDefaultForType(outputType);
-    const edge1 = edge1Info.code || this.getOneForType(outputType);
+
+    const edge0 = edge0Info.code
+      ? this.coerceToType(edge0Info.code, edge0Info.type || outputType, outputType)
+      : this.getDefaultForType(outputType);
+    const edge1 = edge1Info.code
+      ? this.coerceToType(edge1Info.code, edge1Info.type || outputType, outputType)
+      : this.getOneForType(outputType);
     const x = xInfo.code || this.getDefaultForType(outputType);
-    
+
     return {
       line: `let node_${nodeId} = smoothstep(${edge0}, ${edge1}, ${x});`,
       outputType: outputType
@@ -342,11 +389,14 @@ convertToType(expr, fromType, toType) {
     const edgeInfo = getInput(0, null, null);
     const xInfo = getInput(1, null, null);
     
+    // x drives the width; edge must match it (WGSL step needs uniform argument types).
     const outputType = xInfo.type || 'f32';
-    
-    const edge = edgeInfo.code || '0.5';
+
+    const edge = edgeInfo.code
+      ? this.coerceToType(edgeInfo.code, edgeInfo.type || outputType, outputType)
+      : (outputType === 'f32' ? '0.5' : this.coerceToType('0.5', 'f32', outputType));
     const x = xInfo.code || this.getDefaultForType(outputType);
-    
+
     return {
       line: `let node_${nodeId} = step(${edge}, ${x});`,
       outputType: outputType
@@ -361,12 +411,17 @@ convertToType(expr, fromType, toType) {
     const bInfo = getInput(1, null, null);
     const tInfo = getInput(2, null, null);
     
+    // a and b must share a width; t stays scalar (WGSL mix accepts a scalar blend factor).
     const outputType = aInfo.type || bInfo.type || 'f32';
-    
-    const a = aInfo.code || this.getDefaultForType(outputType);
-    const b = bInfo.code || this.getOneForType(outputType);
-    const t = tInfo.code || '0.5';
-    
+
+    const a = aInfo.code
+      ? this.coerceToType(aInfo.code, aInfo.type || outputType, outputType)
+      : this.getDefaultForType(outputType);
+    const b = bInfo.code
+      ? this.coerceToType(bInfo.code, bInfo.type || outputType, outputType)
+      : this.getOneForType(outputType);
+    const t = tInfo.code ? this.coerceToType(tInfo.code, tInfo.type || 'f32', 'f32') : '0.5';
+
     return {
       line: `let node_${nodeId} = mix(${a}, ${b}, ${t});`,
       outputType: outputType
@@ -411,12 +466,18 @@ convertToType(expr, fromType, toType) {
     const aInfo = getInput(0, null, null);
     const bInfo = getInput(1, null, null);
     
-    const a = aInfo.code || this.getDefaultForType(aInfo.type || 'f32');
-    const b = bInfo.code || this.getOneForType(bInfo.type || 'f32');
-    
+    // a drives the width; b (the divisor) must match it so the elementwise mod stays uniform.
     const outputType = aInfo.type || bInfo.type || 'f32';
+
+    const a = aInfo.code
+      ? this.coerceToType(aInfo.code, aInfo.type || outputType, outputType)
+      : this.getDefaultForType(outputType);
+    const b = bInfo.code
+      ? this.coerceToType(bInfo.code, bInfo.type || outputType, outputType)
+      : this.getOneForType(outputType);
+
     const epsilon = this.getEpsilonForType(outputType);
-    
+
     return {
       line: `let node_${nodeId} = ${a} - ${b} * floor(${a} / max(${b}, ${epsilon}));`,
       outputType: outputType
