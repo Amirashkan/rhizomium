@@ -58,6 +58,13 @@ export class SaveLoadManager {
     this._lastAutosaveHash = null;
     this._lastBackupHash = null;
 
+    // The file the project is currently bound to. When the browser supports
+    // the File System Access API we keep a live handle so "Save" writes back
+    // in place instead of spilling a new timestamped download every time.
+    // currentProjectName drives the suggested file name and the window title.
+    this.currentFileHandle = null;
+    this.currentProjectName = null;
+
     // Backups live in IndexedDB - full texture dataUrls don't fit in the
     // ~5MB localStorage quota once a project grows
     this.backupStore = new BackupStore();
@@ -155,7 +162,9 @@ export class SaveLoadManager {
    */
   markUnsaved() {
     if (this.isImporting) return;
+    const wasClean = !this.hasUnsavedChanges;
     this.hasUnsavedChanges = true;
+    if (wasClean) this._updateDocumentTitle();
   }
 
   /**
@@ -1281,6 +1290,283 @@ async reinitializeWebGPU() {
     }
   }
 
+  // ===========================================================================
+  // PROJECT FILE SAVE (location + name aware)
+  //
+  //   saveProject()    "Save"    - writes back to the bound file when we hold a
+  //                                live handle; otherwise behaves like Save As.
+  //   saveProjectAs()  "Save As" - lets the user pick a location and name via
+  //                                the native file picker, or a naming dialog +
+  //                                download when that API is unavailable.
+  //
+  // saveToFile() above is kept for the unconditional exports (Export JSON/WGSL,
+  // backups) that should never reuse the bound project file.
+  // ===========================================================================
+
+  get supportsFileSystemAccess() {
+    return (
+      typeof window !== "undefined" &&
+      typeof window.showSaveFilePicker === "function"
+    );
+  }
+
+  getProjectName() {
+    return this._baseName(this.currentProjectName) || "Untitled";
+  }
+
+  /**
+   * Bind the project to a name (and optionally a handle) and reflect it in the
+   * window title. Passing markDirty flags the project as needing a save.
+   */
+  setProjectName(name, { handle = undefined, markDirty = false } = {}) {
+    this.currentProjectName = name || null;
+    if (handle !== undefined) this.currentFileHandle = handle;
+    if (markDirty) {
+      this.markUnsaved();
+    } else {
+      this._updateDocumentTitle();
+    }
+  }
+
+  _baseName(name) {
+    return String(name || "").replace(/\.[^/.]+$/, "").trim();
+  }
+
+  /** Strip characters that are illegal in file names on common platforms. */
+  _sanitizeFileName(name) {
+    return this._baseName(name)
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, " ")
+      .replace(/^[\s-]+|[\s-]+$/g, "")
+      .trim();
+  }
+
+  _suggestedFileName(format = "rhizomium") {
+    const ext = format === "wgsl" ? "wgsl" : format === "json" ? "json" : "rz";
+    const base = this.currentProjectName
+      ? this._sanitizeFileName(this.currentProjectName)
+      : `rhizomium-project-${new Date().toISOString().slice(0, 10)}`;
+    return `${base || "untitled"}.${ext}`;
+  }
+
+  _updateDocumentTitle() {
+    try {
+      const app = "Rhizomium";
+      const name = this.currentProjectName
+        ? this._baseName(this.currentProjectName)
+        : null;
+      const marker = this.hasUnsavedChanges ? "• " : "";
+      document.title = name ? `${marker}${name} — ${app}` : app;
+    } catch (_) {
+      /* document may be unavailable in non-DOM contexts */
+    }
+  }
+
+  /**
+   * "Save" - persist to the bound file when possible, else fall through to a
+   * Save As so the user can choose a location the first time around.
+   *
+   * Guarded against re-entrancy: the Save control has more than one click
+   * handler, and a second native file picker while one is open throws
+   * "File picker already active". The first call wins; duplicates no-op.
+   */
+  async saveProject() {
+    if (this._saveInProgress) return false;
+    this._saveInProgress = true;
+    try {
+      if (this.supportsFileSystemAccess && this.currentFileHandle) {
+        try {
+          const content = JSON.stringify(this.exportProject(), null, 2);
+          await this._writeToHandle(this.currentFileHandle, content);
+          this.hasUnsavedChanges = false;
+          this._updateDocumentTitle();
+          this.updateStatus(`Saved ${this.currentFileHandle.name}`);
+          return true;
+        } catch (error) {
+          // A stale handle (file moved, permission revoked) should not be a
+          // dead end - drop it and let the user re-pick a destination.
+          if (
+            error &&
+            (error.name === "NotAllowedError" || error.name === "NotFoundError")
+          ) {
+            this.currentFileHandle = null;
+            return await this._saveProjectAs();
+          }
+          window.errorHandler?.handleError(error, { component: "project-save" });
+          this.updateStatus(`Save failed: ${error.message}`, "error");
+          return false;
+        }
+      }
+      return await this._saveProjectAs();
+    } finally {
+      this._saveInProgress = false;
+    }
+  }
+
+  /**
+   * "Save As" - always asks where/what to save. Public entry point; guards
+   * against the duplicate-trigger / "File picker already active" race.
+   */
+  async saveProjectAs(format = "rhizomium") {
+    if (this._saveInProgress) return false;
+    this._saveInProgress = true;
+    try {
+      return await this._saveProjectAs(format);
+    } finally {
+      this._saveInProgress = false;
+    }
+  }
+
+  /**
+   * Save As implementation (no re-entrancy guard - callers hold it). Uses the
+   * native picker when available (true location + name selection, remembers the
+   * file for later saves), otherwise prompts for a name and downloads.
+   */
+  async _saveProjectAs(format = "rhizomium") {
+    try {
+      const content = JSON.stringify(this.exportProject(), null, 2);
+
+      if (this.supportsFileSystemAccess) {
+        let handle;
+        try {
+          handle = await window.showSaveFilePicker({
+            suggestedName: this._suggestedFileName(format),
+            types: [
+              {
+                description: "Rhizomium Project",
+                accept: { "application/json": [".rz", ".json"] },
+              },
+            ],
+          });
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            this.updateStatus("Save cancelled");
+            return false;
+          }
+          throw err;
+        }
+
+        await this._writeToHandle(handle, content);
+        this.currentFileHandle = handle;
+        this.currentProjectName = handle.name;
+        this.hasUnsavedChanges = false;
+        this._updateDocumentTitle();
+        this.updateStatus(`Saved to ${handle.name}`);
+        return true;
+      }
+
+      // Fallback for browsers without the File System Access API: name it
+      // ourselves (the old flow just emitted a timestamped file) and download.
+      const suggested = this._baseName(this._suggestedFileName(format));
+      const name = await this._promptForName(suggested);
+      if (name === null) {
+        this.updateStatus("Save cancelled");
+        return false;
+      }
+      const ext = format === "json" ? "json" : "rz";
+      const cleaned = this._sanitizeFileName(name) || suggested;
+      const fileName = /\.(rz|json)$/i.test(cleaned)
+        ? cleaned
+        : `${cleaned}.${ext}`;
+
+      this.downloadFile(content, fileName, "application/json");
+      this.currentFileHandle = null; // downloads don't yield a writable handle
+      this.currentProjectName = fileName;
+      this.hasUnsavedChanges = false;
+      this._updateDocumentTitle();
+      this.updateStatus(`Saved as ${fileName}`);
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: "project-save-as",
+        format,
+      });
+      this.updateStatus(`Save failed: ${error.message}`, "error");
+      return false;
+    }
+  }
+
+  /** Write a string to a FileSystemFileHandle, re-checking write permission. */
+  async _writeToHandle(handle, content) {
+    if (typeof handle.queryPermission === "function") {
+      const opts = { mode: "readwrite" };
+      let perm = await handle.queryPermission(opts);
+      if (perm !== "granted" && typeof handle.requestPermission === "function") {
+        perm = await handle.requestPermission(opts);
+      }
+      if (perm !== "granted") {
+        const err = new Error("Write permission denied");
+        err.name = "NotAllowedError";
+        throw err;
+      }
+    }
+    const writable = await handle.createWritable();
+    await writable.write(content);
+    await writable.close();
+  }
+
+  /** Naming dialog used by the download fallback; degrades to window.prompt. */
+  async _promptForName(defaultValue) {
+    try {
+      const { modalManager } = await import("../ui/ModalManager.js");
+      return await modalManager.prompt(
+        "Name your project",
+        "Save Project",
+        defaultValue,
+        {
+          placeholder: "my-shader",
+          validator: (v) => (v && v.trim() ? null : "Please enter a name"),
+        },
+      );
+    } catch (_) {
+      return window.prompt("Save project as:", defaultValue);
+    }
+  }
+
+  /**
+   * "Open…" via the native picker so the opened file becomes the bound file
+   * and later saves write straight back to it. Returns the File (and stores the
+   * handle) or null if unavailable/cancelled, so callers can fall back to the
+   * hidden <input type=file> flow.
+   */
+  async pickProjectFile() {
+    if (
+      typeof window === "undefined" ||
+      typeof window.showOpenFilePicker !== "function"
+    ) {
+      return null;
+    }
+    // Same re-entrancy guard as save: a duplicate trigger must not open a
+    // second picker ("File picker already active").
+    if (this._pickerInProgress) return null;
+    this._pickerInProgress = true;
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [
+          {
+            description: "Rhizomium Project",
+            accept: {
+              "application/json": [".rz", ".json"],
+              "text/plain": [".wgsl", ".glsl"],
+            },
+          },
+        ],
+        multiple: false,
+      });
+      const file = await handle.getFile();
+      // Only .rz/.json round-trip to a writable project; shaders are imports.
+      const ext = file.name.split(".").pop().toLowerCase();
+      this.currentFileHandle = ext === "rz" || ext === "json" ? handle : null;
+      return file;
+    } catch (err) {
+      if (err && err.name === "AbortError") return null;
+      window.errorHandler?.handleError(err, { component: "project-open-pick" });
+      return null;
+    } finally {
+      this._pickerInProgress = false;
+    }
+  }
+
   async loadFromFile(file) {
     try {
       this.updateStatus("Loading project...");
@@ -1307,9 +1593,17 @@ async reinitializeWebGPU() {
       }
 
       await this.importProject(projectData);
+
+      // Bind the project to the file we just opened so the title and the next
+      // "Save" reflect it. pickProjectFile() may already have set a writable
+      // handle; the hidden <input> path has none, so a later Save becomes Save As.
+      this.currentProjectName = file.name;
+      this.hasUnsavedChanges = false;
+      this._updateDocumentTitle();
+
       this.updateStatus(`Loaded ${file.name}`);
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'file-load',
         filename: file?.name,
         extension: file?.name?.split(".").pop()

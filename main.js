@@ -686,7 +686,26 @@ function onConnectionDeleted(connection) {
 
 // Global function to trigger file load dialog
 // This needs to be accessible from both setupUIEventHandlers and setupRhizomiumMenu
-function triggerFileLoad() {
+// Prefers the native file picker (so an opened project becomes the bound file
+// and later "Save" writes straight back to it); falls back to the hidden input.
+async function triggerFileLoad() {
+  if (saveLoadManager?.pickProjectFile) {
+    try {
+      const file = await saveLoadManager.pickProjectFile();
+      if (file) {
+        await loadProjectFromFile(file);
+        return;
+      }
+      // null can mean "cancelled" or "picker unavailable". Only fall through to
+      // the hidden input when the API isn't supported at all.
+      if (saveLoadManager.supportsFileSystemAccess && typeof window.showOpenFilePicker === "function") {
+        return; // user cancelled the native dialog
+      }
+    } catch (error) {
+      console.error("Open via picker failed, falling back to file input:", error);
+    }
+  }
+
   const fileInput = document.getElementById("file-import");
   if (fileInput) {
     fileInput.value = "";
@@ -698,6 +717,104 @@ function triggerFileLoad() {
 
 // Expose globally to ensure it's accessible everywhere
 window.triggerFileLoad = triggerFileLoad;
+
+// Load a project File into the editor and run the post-load graph refresh.
+// Shared by the hidden <input> path and the native open picker.
+async function loadProjectFromFile(file) {
+  try {
+    await saveLoadManager.loadFromFile(file);
+
+    // Clear undo history when loading a new project
+    if (undoManager) {
+      undoManager.clear();
+    }
+
+    if (graph && graph.nodes) {
+      graph.nodes.forEach((node) => {
+        delete node.cachedValue;
+        delete node.cached;
+        node.needsUpdate = true;
+      });
+
+      const nodeWithConnection = graph.nodes.find(
+        (node) => node.inputs && node.inputs.some((input) => input !== null),
+      );
+
+      if (nodeWithConnection) {
+        const inputIndex = nodeWithConnection.inputs.findIndex(
+          (input) => input !== null,
+        );
+        const originalInput = nodeWithConnection.inputs[inputIndex];
+
+        nodeWithConnection.inputs[inputIndex] = null;
+
+        setTimeout(() => {
+          nodeWithConnection.inputs[inputIndex] = originalInput;
+          if (editor.draw) {
+            if (editor.markDirty) editor.markDirty('file-load-input-restore');
+            editor.draw();
+          }
+        }, 10);
+      }
+
+      if (editor && editor.nodePreviews) {
+        graph.nodes.forEach((node) => {
+          if (editor.nodePreviews.has(node.id)) {
+            const preview = editor.nodePreviews.get(node.id);
+            editor.nodePreviews.delete(node.id);
+            editor.nodePreviews.set(node.id, {
+              enabled: preview.enabled,
+              size: preview.size || "small",
+              showVisualInfo: preview.showVisualInfo !== false,
+              needsUpdate: true,
+            });
+          } else {
+            editor.nodePreviews.set(node.id, {
+              enabled: true,
+              size: "small",
+              showVisualInfo: true,
+              needsUpdate: true,
+            });
+          }
+        });
+
+        setTimeout(() => {
+          if (editor.draw) {
+            if (editor.markDirty) editor.markDirty('file-load-preview-refresh');
+            editor.draw();
+          }
+        }, 100);
+      }
+
+      graph.nodes.forEach((node) => {
+        if (node.inputs) {
+          node.inputs.forEach((input, index) => {
+            if (input) {
+              const originalInput = input;
+              node.inputs[index] = null;
+              setTimeout(() => {
+                node.inputs[index] = originalInput;
+                if (editor.draw) {
+                  if (editor.markDirty) editor.markDirty('file-load-node-refresh');
+                  editor.draw();
+                }
+              }, 5);
+            }
+          });
+        }
+      });
+
+      setTimeout(() => {
+        if (window.updateShaderFromGraph) {
+          updateShaderFromGraph();
+        }
+      }, 50);
+    }
+  } catch (error) {
+    console.error("Load failed:", error);
+  }
+}
+window.loadProjectFromFile = loadProjectFromFile;
 
 function onNodesMovement(movementData) {
   if (undoManager && movementData) {
@@ -972,7 +1089,7 @@ function setupUIEventHandlers() {
   if (saveBtn) {
     saveBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      saveLoadManager.saveToFile();
+      saveLoadManager.saveProject();
     });
   }
 
@@ -986,106 +1103,15 @@ function setupUIEventHandlers() {
   }
   // Open Project button (new ID - also handled in setupRhizomiumMenu)
 
-  // File input change handler
+  // File input change handler. The hidden <input> path has no writable handle,
+  // so clear any previously bound file before loading this one.
   const fileInput = removeExistingHandlers("file-import");
   if (fileInput) {
     fileInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (file) {
-        try {
-          await saveLoadManager.loadFromFile(file);
-
-          // Clear undo history when loading a new project
-          if (undoManager) {
-            undoManager.clear();
-          }
-
-          if (graph && graph.nodes) {
-            graph.nodes.forEach((node) => {
-              delete node.cachedValue;
-              delete node.cached;
-              node.needsUpdate = true;
-            });
-
-            const nodeWithConnection = graph.nodes.find(
-              (node) =>
-                node.inputs && node.inputs.some((input) => input !== null),
-            );
-
-            if (nodeWithConnection) {
-              const inputIndex = nodeWithConnection.inputs.findIndex(
-                (input) => input !== null,
-              );
-              const originalInput = nodeWithConnection.inputs[inputIndex];
-
-              nodeWithConnection.inputs[inputIndex] = null;
-
-              setTimeout(() => {
-                nodeWithConnection.inputs[inputIndex] = originalInput;
-                if (editor.draw) {
-                  if (editor.markDirty) editor.markDirty('file-load-input-restore');
-                  editor.draw();
-                }
-              }, 10);
-            }
-
-            if (editor && editor.nodePreviews) {
-              graph.nodes.forEach((node) => {
-                if (editor.nodePreviews.has(node.id)) {
-                  const preview = editor.nodePreviews.get(node.id);
-                  editor.nodePreviews.delete(node.id);
-                  editor.nodePreviews.set(node.id, {
-                    enabled: preview.enabled,
-                    size: preview.size || "small",
-                    showVisualInfo: preview.showVisualInfo !== false,
-                    needsUpdate: true,
-                  });
-                } else {
-                  editor.nodePreviews.set(node.id, {
-                    enabled: true,
-                    size: "small",
-                    showVisualInfo: true,
-                    needsUpdate: true,
-                  });
-                }
-              });
-
-              setTimeout(() => {
-                if (editor.draw) {
-                  if (editor.markDirty) editor.markDirty('file-load-preview-refresh');
-                  editor.draw();
-                }
-              }, 100);
-            }
-
-            graph.nodes.forEach((node) => {
-              if (node.inputs) {
-                node.inputs.forEach((input, index) => {
-                  if (input) {
-                    const originalInput = input;
-                    node.inputs[index] = null;
-                    setTimeout(() => {
-                      node.inputs[index] = originalInput;
-                      if (editor.draw) {
-                        if (editor.markDirty) editor.markDirty('file-load-node-refresh');
-                        editor.draw();
-                      }
-                    }, 5);
-                  }
-                });
-              }
-            });
-
-            setTimeout(() => {
-              if (window.updateShaderFromGraph) {
-                updateShaderFromGraph();
-              }
-            }, 50);
-          }
-        } catch (error) {
-          console.error("Load failed:", error);
-        }
-
+        if (saveLoadManager) saveLoadManager.currentFileHandle = null;
+        await loadProjectFromFile(file);
         e.target.value = "";
       }
     });
@@ -1999,21 +2025,17 @@ function setupRhizomiumMenu() {
     saveBtnNew.setAttribute("data-handler-attached", "true");
     saveBtnNew.addEventListener("click", (e) => {
       e.preventDefault();
-      saveLoadManager.saveToFile();
+      saveLoadManager.saveProject();
     });
   }
 
-  // Save As (placeholder)
+  // Save As - always prompts for a new location/name.
   const saveAsBtn = document.getElementById("btn-save-as");
   if (saveAsBtn) {
     saveAsBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // TODO: Implement Save As dialog
-      saveLoadManager.saveToFile(null, "json"); // Temporary: use regular save
-      if (typeof updateStatus === "function") {
-        updateStatus("Save As: Use regular Save for now");
-      }
+      saveLoadManager.saveProjectAs();
     });
   }
 
@@ -2675,14 +2697,20 @@ function setupKeyboardShortcuts() {
       case "s":
         e.preventDefault();
         if (e.shiftKey) {
-          saveLoadManager?.saveToLocal?.();
+          // Ctrl/Cmd+Shift+S -> Save As (pick a new location/name)
+          saveLoadManager?.saveProjectAs?.();
         } else {
-          saveLoadManager?.saveToFile?.();
+          // Ctrl/Cmd+S -> Save (write back to the bound file)
+          saveLoadManager?.saveProject?.();
         }
         break;
 
       case "o":
         e.preventDefault();
+        if (typeof triggerFileLoad === "function") {
+          triggerFileLoad();
+          break;
+        }
         const fileInput = document.getElementById("file-import");
         if (fileInput) {
           fileInput.value = "";
@@ -3072,6 +3100,9 @@ if (graph && graph.nodes) {
   }, 50);
 }
   if (saveLoadManager) {
+    // Unbind from any previously opened file so the next Save prompts fresh.
+    saveLoadManager.currentFileHandle = null;
+    saveLoadManager.setProjectName(null);
     saveLoadManager.hasUnsavedChanges = false;
     saveLoadManager.updateStatus("New project created");
   }
