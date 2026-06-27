@@ -540,14 +540,17 @@ export class Renderer {
     //  - Pins are laid out from y+32 at 18px spacing (see _getNodePinPositions), so a node
     //    with many inputs/outputs (e.g. the 4-output Resolution node) needs extra height.
     //  - Bigger thumbnails (the S/M/L button) would otherwise spill past the right/bottom edges.
-    // This only depends on the pin layout (static per kind) and the current thumbnail size, so
-    // recompute it just when that size changes (what the S/M/L button does) rather than every
-    // frame. Height is fully recomputed on change so it also shrinks back when the thumbnail is
-    // made smaller; width only grows, since the default already covers normal thumbnails.
+    // This only depends on the pin layout (static per kind), the current thumbnail size, and the
+    // widest output value tag, so recompute it just when one of those changes (the S/M/L button, or
+    // a value getting longer) rather than every frame. Height is fully recomputed on change so it
+    // also shrinks back when the thumbnail is made smaller; width only grows, since the default
+    // already covers normal thumbnails.
     const editor = window.editor;
     const thumbSize = (node.__thumb && editor?.getPreviewSize) ? editor.getPreviewSize(node.id) : 0;
-    if (node.__sizedForThumb !== thumbSize) {
+    const tagW = node.__valueTagW || 0;
+    if (node.__sizedForThumb !== thumbSize || node.__sizedForTagW !== tagW) {
       node.__sizedForThumb = thumbSize;
+      node.__sizedForTagW = tagW;
       const thumb = this._thumbnailExtent(node);
       node.h = Math.max(80, this._minNodeHeight(node), thumb.height);
       if (node.w < thumb.width) node.w = thumb.width;
@@ -595,12 +598,15 @@ export class Renderer {
     // Render preview controls
     this._renderPreviewControls(node);
 
-    // Draw node ID (for referencing in expressions) at the bottom-right — the title-bar top-right
-    // is now occupied by the control buttons. AFTER the thumbnail so it stays visible.
+    // Draw node ID (for referencing in expressions) in the title bar, right-aligned just left of
+    // the control buttons. Keeping it on the title row (not the bottom) avoids colliding with the
+    // last output pin / its value tag on multi-output nodes. Baseline matches the label and buttons.
     // PERFORMANCE: Use cached font string
     ctx.fillStyle = "#888";
     ctx.font = this._cachedFonts.nodeId;
-    ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + node.h - 6);
+    const idText = `#${node.id}`;
+    const idRight = node.x + node.w - 65 - 6; // 65 = control-button strip, 6 = gap
+    ctx.fillText(idText, idRight - ctx.measureText(idText).width, node.y + 18);
 
     // Render pins with enhanced styling
     this._renderNodePins(node);
@@ -635,7 +641,8 @@ export class Renderer {
 
     const ctx = this.ctx;
     // In the title bar (top-right), so the controls never sit on top of the thumbnail or pins.
-    const controlY = node.y + 14;
+    // controlY-1 is the button-glyph baseline; keep it equal to the label/id baseline (node.y+18).
+    const controlY = node.y + 19;
     const buttonWidth = 12;
     const buttonHeight = 10;
 
@@ -844,6 +851,11 @@ export class Renderer {
     // Enhanced pin rendering with glow effects
     ctx.save();
 
+    // Reset the measured value-tag width; _renderOutputPinLabel accumulates the widest tag this
+    // frame so _thumbnailExtent can reserve a matching column next frame (keeps long values off the
+    // thumbnail). Recomputed every frame so it also shrinks back when values get shorter.
+    node.__valueTagW = 0;
+
     // Render output pins with enhanced styling
     for (const [i, pos] of outputPins.entries()) {
       const pinType = NodeDefs[node.kind]?.pinsOut?.[i]?.type || "default";
@@ -1037,13 +1049,17 @@ export class Renderer {
       }
     }
 
+    // Measure the tag width and record the node's widest, so _thumbnailExtent can reserve enough
+    // room on the right for it. Done before the zoom-skip below so the reserved width (and thus the
+    // node width) doesn't change as you zoom out past the label-draw threshold.
+    ctx.font = this._cachedFonts.pinLabel;
+    const textWidth = ctx.measureText(labelText).width + 8;
+    node.__valueTagW = Math.max(node.__valueTagW || 0, textWidth);
+
     // Skip label if it would be too cramped
     if (this.viewport.scale < 0.7) return;
 
     ctx.save();
-    // PERFORMANCE: Use cached font string
-    ctx.font = this._cachedFonts.pinLabel;
-    const textWidth = ctx.measureText(labelText).width + 8;
 
     // Place the value tag just INSIDE the node, ending a few px left of the output pin. Previously
     // it floated outside the right edge, where it overlapped the outgoing wire and ran off the node;
@@ -1132,7 +1148,12 @@ export class Renderer {
     if (!node.__thumb || !editor?.getPreviewSize) return { width: 0, height: 0 };
     const thumbSize = editor.getPreviewSize(node.id);
     const padding = 6;
-    const valueColumn = (NodeDefs[node.kind]?.pinsOut?.length) ? Renderer.OUTPUT_VALUE_COLUMN : padding;
+    // Reserve room on the right for the output value tags. A tag occupies (14 + its text width)
+    // from the right edge (see _renderOutputPinLabel), plus a small gap; node.__valueTagW is the
+    // widest tag measured last frame. Fall back to a sensible default before any measurement.
+    const hasOutputs = !!(NodeDefs[node.kind]?.pinsOut?.length);
+    const measured = node.__valueTagW ? 14 + node.__valueTagW + 4 : 0;
+    const valueColumn = hasOutputs ? Math.max(Renderer.OUTPUT_VALUE_COLUMN, measured) : padding;
     return {
       width: padding + this._thumbInset(node) + thumbSize + valueColumn,
       height: 25 + thumbSize + padding,

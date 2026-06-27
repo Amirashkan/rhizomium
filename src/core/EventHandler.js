@@ -930,7 +930,7 @@ export class EventHandler {
         continue;
 
       // Title-bar top-right, kept in sync with Renderer._renderPreviewControls.
-      const controlY = node.y + 14;
+      const controlY = node.y + 19;
       const buttonHeight = 10;
       const buttonWidth = 12;
 

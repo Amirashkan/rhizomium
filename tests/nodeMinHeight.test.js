@@ -59,4 +59,12 @@ describe('_thumbnailExtent sizes the box to contain the S/M/L preview', () => {
     expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
       .toEqual({ width: 204, height: 159 });
   });
+
+  it('widens the value-tag column to fit a long measured value (keeps it off the thumbnail)', () => {
+    withPreviewSize(128);
+    // A wide tag (__valueTagW=70) reserves 14 + 70 + 4 = 88 > the 54 default.
+    // width = pad(6) + inset(0) + 128 + 88 = 222.
+    const node = { id: '1', kind: 'Resolution', __thumb: {}, __valueTagW: 70 };
+    expect(renderer._thumbnailExtent(node)).toEqual({ width: 222, height: 159 });
+  });
 });
