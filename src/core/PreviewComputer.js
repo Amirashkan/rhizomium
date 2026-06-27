@@ -185,6 +185,31 @@ export class PreviewComputer {
    * @param {*} defaultValue - Default value if evaluation fails
    * @returns {number} - Evaluated number value
    */
+  // Populate `context` with every computed node value as node_<id>, exposing each vector component
+  // under BOTH its letter (node_5_x) and its numeric channel index (node_5_0) — the editor stores a
+  // vector-node pin reference in the numeric form. A Split node's value is a
+  // { type:'split', values:[...] } object rather than a bare array, so unwrap it; otherwise a
+  // reference like "=node_<split>_0" resolves to nothing and the consuming value freezes at 0.
+  _addNodeRefsToContext(context, values) {
+    const comps = ['x', 'y', 'z', 'w'];
+    values.forEach((val, id) => {
+      const channels = Array.isArray(val)
+        ? val
+        : (val && typeof val === 'object' && val.type === 'split' && Array.isArray(val.values))
+          ? val.values
+          : null;
+      if (channels) {
+        context[`node_${id}`] = channels;
+        channels.forEach((v, i) => {
+          if (comps[i]) context[`node_${id}_${comps[i]}`] = v;
+          context[`node_${id}_${i}`] = v;
+        });
+      } else {
+        context[`node_${id}`] = val;
+      }
+    });
+  }
+
   _evaluateParam(value, values, defaultValue = 0) {
     // Already a number
     if (typeof value === 'number') {
@@ -228,16 +253,8 @@ export class PreviewComputer {
           E: Math.E,
         };
 
-        // Add other node values to context
-        values.forEach((val, id) => {
-          context[`node_${id}`] = val;
-          if (Array.isArray(val)) {
-            context[`node_${id}_x`] = val[0];
-            context[`node_${id}_y`] = val[1];
-            if (val.length > 2) context[`node_${id}_z`] = val[2];
-            if (val.length > 3) context[`node_${id}_w`] = val[3];
-          }
-        });
+        // Add other node values to context (handles split objects + numeric channel suffixes).
+        this._addNodeRefsToContext(context, values);
 
         // Remove = prefix if present
         const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
@@ -502,16 +519,8 @@ case "ConicGradient": {
                       E: Math.E,
                     };
 
-                    // Add other node values to context
-                    values.forEach((val, id) => {
-                      context[`node_${id}`] = val;
-                      if (Array.isArray(val)) {
-                        context[`node_${id}_x`] = val[0];
-                        context[`node_${id}_y`] = val[1];
-                        if (val.length > 2) context[`node_${id}_z`] = val[2];
-                        if (val.length > 3) context[`node_${id}_w`] = val[3];
-                      }
-                    });
+                    // Add other node values to context (handles split objects + numeric suffixes).
+                    this._addNodeRefsToContext(context, values);
 
                     // Remove = prefix if present before evaluation
                     const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;

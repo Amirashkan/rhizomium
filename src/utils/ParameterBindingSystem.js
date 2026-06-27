@@ -1,15 +1,25 @@
 // src/utils/ParameterBindingSystem.js
+import { expressionSystem } from './ParameterExpressionSystem.js';
+
 export class ParameterBindingSystem {
   constructor(graph, eventSystem, undoManager) {
     this.graph = graph;
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
 
+    // Expression system used to evaluate per-binding transform expressions.
+    this.expressionSystem = expressionSystem;
+
     // Map of parameter bindings: sourceId -> Set of bound parameters
     this.bindings = new Map();
 
     // Reverse map for quick lookup: boundId -> source parameter
     this.boundToSource = new Map();
+
+    // Optional transform expression per bound target: targetKey -> "=bound * 2".
+    // A bound parameter mirrors its source value; the transform (when present) post-processes
+    // that driven value, with the live source value exposed to the expression as `bound`/`self`.
+    this.transforms = new Map();
 
     // Parameter clipboard for copy/paste operations
     this.clipboard = null;
@@ -160,9 +170,11 @@ export class ParameterBindingSystem {
       parameterName: sourceParamName
     });
 
-    // Set initial value (this will evaluate expressions like =audioEnvelope)
-    const sourceValue = this.getParameterValue(sourceNode, sourceParamName);
-    this.setParameterValue(targetNode, targetParamName, sourceValue);
+    // Set initial value. A static source yields a number; an expression source (=audioEnvelope,
+    // =time, ...) yields a composed expression so the target tracks it live instead of freezing.
+    const initialValue = this._composeTargetValue(targetNode, targetParamName, sourceNode, sourceParamName);
+    this.setParameterValue(targetNode, targetParamName, initialValue);
+    this._requestRebuildIfExpression(initialValue);
 
     // Record for undo
     if (recordUndo && this.undoManager) {
@@ -224,6 +236,9 @@ export class ParameterBindingSystem {
 
     // Remove from reverse map
     this.boundToSource.delete(targetKey);
+
+    // Drop any transform expression attached to this binding
+    this.transforms.delete(targetKey);
 
     // Emit event
     this.eventSystem.emit('BINDING_REMOVED', {
@@ -289,22 +304,17 @@ export class ParameterBindingSystem {
 
     if (!boundParams || boundParams.size === 0) return;
 
-    // Get the EVALUATED value if source is an expression
-    let valueToPropagate = newValue;
-    if (window.editor?.paramPanel?.valueManager) {
-      // This will evaluate expressions like "=audioEnvelope" to their numeric value
-      valueToPropagate = window.editor.paramPanel.valueManager.getValue(sourceNode, sourceParamName);
-
-      // Skip expensive console.log for MIDI (100+ times/sec)
-      if (source !== 'midi') {
-      }
-    }
-
     boundParams.forEach(bound => {
       const targetNode = this.graph.nodes.find(n => n.id === bound.nodeId);
       if (targetNode) {
-        // Set the EVALUATED value, not the expression string
-        this.setParameterValueDirect(targetNode, bound.parameterName, valueToPropagate);
+        // Compose the target value from the source's current raw value + this binding's transform:
+        // a number for a static source, or a live expression when the source is itself an
+        // expression (so it keeps animating instead of freezing on the last numeric snapshot).
+        const finalValue = this._composeTargetValue(
+          targetNode, bound.parameterName, sourceNode, sourceParamName,
+        );
+        this.setParameterValueDirect(targetNode, bound.parameterName, finalValue);
+        this._requestRebuildIfExpression(finalValue);
 
         // For MIDI sources, skip expensive preview updates during active control
         if (source === 'midi') {
@@ -342,6 +352,184 @@ export class ParameterBindingSystem {
       this.midiBindingUpdateTimer = null;
       this.processPendingMidiBindingUpdates();
     }
+  }
+
+  // Normalize a transform expression: trim, drop empties, ensure the leading '='.
+  _normalizeTransform(expression) {
+    if (typeof expression !== 'string') return '';
+    const trimmed = expression.trim();
+    if (!trimmed || trimmed === '=') return '';
+    return trimmed.startsWith('=') ? trimmed : `=${trimmed}`;
+  }
+
+  // Apply a bound parameter's transform expression to the incoming source value.
+  // The live source value is exposed to the expression as `bound` (and `self`). Only scalar
+  // numeric values are transformed; vectors and non-numbers pass through unchanged, and any
+  // evaluation error falls back to the raw driven value so a bad expression can't blank output.
+  _applyTransform(targetNode, targetParamName, sourceValue) {
+    const targetKey = `${targetNode.id}.${targetParamName}`;
+    const transform = this.transforms.get(targetKey);
+    if (!transform) return sourceValue;
+    if (typeof sourceValue !== 'number') return sourceValue;
+
+    try {
+      const result = this.expressionSystem.evaluateExpression(
+        transform,
+        { bound: sourceValue, self: sourceValue },
+        targetNode,
+      );
+      return (typeof result === 'number' && isFinite(result)) ? result : sourceValue;
+    } catch (error) {
+      return sourceValue;
+    }
+  }
+
+  // Read a parameter's RAW stored value (an expression string is returned as-is, not evaluated).
+  // node.params is checked FIRST: it's where the expression-aware value manager and the shader
+  // codegen both keep the live value (e.g. a ConstFloat's "=sin(time)"). The legacy top-level
+  // node.value / node.expr can lag behind as a stale number, so they're only a fallback.
+  _getRawValue(node, paramName) {
+    if (!node) return undefined;
+    if (node.params && node.params[paramName] !== undefined) return node.params[paramName];
+    if (paramName === 'value' && node.value !== undefined) return node.value;
+    if (paramName === 'expr' && node.expr !== undefined) return node.expr;
+    if (node.props && node.props[paramName] !== undefined) return node.props[paramName];
+    return undefined;
+  }
+
+  // Compute what a bound target should store for its current source + transform.
+  //
+  // Two regimes:
+  //  - Static numeric source → a plain number (source value run through the transform). This stays a
+  //    GPU uniform and avoids shader recompiles, exactly as before.
+  //  - Expression source (=audioEnvelope, =time, ...) → a composed EXPRESSION string. The source's
+  //    value changes every frame on the GPU without firing PARAMETER_CHANGED, so a snapshot number
+  //    would freeze the target. Emitting an expression instead lets the target compile/animate live
+  //    just like the source. The transform's `bound`/`self` identifiers are substituted with the
+  //    source expression, so "=bound * 2" over "=audioEnvelope" becomes "=(audioEnvelope) * 2".
+  _composeTargetValue(targetNode, targetParamName, sourceNode, sourceParamName) {
+    const rawSource = this._getRawValue(sourceNode, sourceParamName);
+
+    if (this.expressionSystem.isExpression(rawSource)) {
+      const sourceBody = `(${rawSource.trim().slice(1).trim()})`;
+      const targetKey = `${targetNode.id}.${targetParamName}`;
+      const transform = this.transforms.get(targetKey);
+      if (transform) {
+        const body = transform.trim().slice(1).trim()
+          .replace(/\bbound\b/g, sourceBody)
+          .replace(/\bself\b/g, sourceBody);
+        return `=${body}`;
+      }
+      return `=${sourceBody}`;
+    }
+
+    const sourceValue = this.getParameterValue(sourceNode, sourceParamName);
+    return this._applyTransform(targetNode, targetParamName, sourceValue);
+  }
+
+  // A composed expression target must be recompiled to take effect on the main output (unlike a
+  // numeric uniform, which updates live). Binding changes don't otherwise trigger a rebuild, so
+  // request one when we've written an expression value. No-op for plain numbers.
+  _requestRebuildIfExpression(value) {
+    if (this.expressionSystem.isExpression(value)
+        && typeof window !== 'undefined'
+        && window.editor?.onChange) {
+      window.editor.onChange('Bound parameter expression update');
+    }
+  }
+
+  // Read the transform expression attached to a bound parameter (or null if none).
+  getBoundTransform(targetNodeId, targetParamName) {
+    return this.transforms.get(`${targetNodeId}.${targetParamName}`) ?? null;
+  }
+
+  // Attach/replace/clear the transform expression for a bound parameter, then re-apply it
+  // against the current source value so the change takes effect immediately. A parameter must
+  // already be bound for a transform to be meaningful. Returns true if anything changed.
+  setBoundTransform(targetNodeId, targetParamName, expression) {
+    const targetKey = `${targetNodeId}.${targetParamName}`;
+    if (!this.boundToSource.has(targetKey)) {
+      return false;
+    }
+
+    const targetNode = this.graph.nodes.find(n => n.id === targetNodeId);
+    if (!targetNode) {
+      return false;
+    }
+
+    const normalized = this._normalizeTransform(expression);
+    const previous = this.transforms.get(targetKey) ?? '';
+    if (normalized === previous) {
+      return false;
+    }
+
+    if (normalized) {
+      this.transforms.set(targetKey, normalized);
+    } else {
+      this.transforms.delete(targetKey);
+    }
+
+    // Re-evaluate against the current source so the transformed value is live immediately (a
+    // composed expression when the source is an expression, otherwise a plain number).
+    const source = this.boundToSource.get(targetKey);
+    const sourceNode = this.graph.nodes.find(n => n.id === source.nodeId);
+    if (sourceNode) {
+      const composed = this._composeTargetValue(targetNode, targetParamName, sourceNode, source.parameterName);
+      this.setParameterValueDirect(targetNode, targetParamName, composed);
+      this._requestRebuildIfExpression(composed);
+    }
+
+    this.updateNodePreview(targetNode);
+
+    this.eventSystem.emit('BINDING_TRANSFORM_CHANGED', {
+      targetNodeId,
+      targetParamName,
+      transform: normalized,
+    });
+
+    return true;
+  }
+
+  // Live-propagate an in-progress drag of a source node to every parameter bound to it.
+  //
+  // Bindings aren't graph edges, so the preview dependency walk can't see them; and the numeric
+  // drag handlers only fire PARAMETER_CHANGED (which drives updateBoundParameters) on mouse-up.
+  // Without this, a bound parameter's thumbnail freezes until the drag is released. The source
+  // node.params are already live (the drag handler updates them every move), so we read the current
+  // source value, run each binding's transform, write the result into the target's node.params, and
+  // keep its GPU uniform in sync so both the main canvas and the thumbnail track the drag. Returns
+  // the set of affected target nodes so the caller can refresh their previews in the same pass.
+  refreshLiveTargetsForSource(sourceNode) {
+    const affected = new Set();
+    if (!sourceNode) return affected;
+
+    const prefix = `${sourceNode.id}.`;
+    const uniformManager = (typeof window !== 'undefined')
+      ? window.nodeCompiler?.uniformManager
+      : null;
+
+    this.bindings.forEach((targets, sourceKey) => {
+      if (!sourceKey.startsWith(prefix)) return;
+      const sourceParamName = sourceKey.slice(prefix.length);
+
+      targets.forEach(bound => {
+        const targetNode = this.graph.nodes.find(n => n.id === bound.nodeId);
+        if (!targetNode) return;
+
+        const finalValue = this._composeTargetValue(
+          targetNode, bound.parameterName, sourceNode, sourceParamName,
+        );
+        this.setParameterValueDirect(targetNode, bound.parameterName, finalValue);
+
+        if (uniformManager && typeof finalValue === 'number') {
+          uniformManager.uniformValues.set(`${targetNode.id}.${bound.parameterName}`, finalValue);
+        }
+
+        affected.add(targetNode);
+      });
+    });
+
+    return affected;
   }
 
   // Check if creating a binding would create circular dependency
@@ -384,7 +572,8 @@ export class ParameterBindingSystem {
       isBound: !!source,
       hasTargets: !!(targets && targets.size > 0),
       source,
-      targets: targets ? Array.from(targets) : []
+      targets: targets ? Array.from(targets) : [],
+      transform: this.transforms.get(targetKey) ?? null
     };
   }
 
@@ -486,6 +675,13 @@ export class ParameterBindingSystem {
     });
     
     toRemoveAsSource.forEach(sourceKey => {
+      // Drop transforms on the targets that were driven by this (now-deleted) source.
+      const targets = this.bindings.get(sourceKey);
+      if (targets) {
+        targets.forEach(target => {
+          this.transforms.delete(`${target.nodeId}.${target.parameterName}`);
+        });
+      }
       this.bindings.delete(sourceKey);
     });
 
@@ -511,6 +707,10 @@ export class ParameterBindingSystem {
       bindings: Array.from(this.bindings.entries()).map(([sourceKey, targets]) => ({
         source: sourceKey,
         targets: Array.from(targets)
+      })),
+      transforms: Array.from(this.transforms.entries()).map(([target, expression]) => ({
+        target,
+        expression
       }))
     };
   }
@@ -519,7 +719,17 @@ export class ParameterBindingSystem {
   deserialize(data) {
     this.bindings.clear();
     this.boundToSource.clear();
-    
+    this.transforms.clear();
+
+    if (data.transforms) {
+      data.transforms.forEach(({ target, expression }) => {
+        const normalized = this._normalizeTransform(expression);
+        if (target && normalized) {
+          this.transforms.set(target, normalized);
+        }
+      });
+    }
+
     if (data.bindings) {
       data.bindings.forEach(binding => {
         const sourceKey = binding.source;
@@ -551,6 +761,7 @@ export class ParameterBindingSystem {
   destroy() {
     this.bindings.clear();
     this.boundToSource.clear();
+    this.transforms.clear();
     this.clipboard = null;
   }
 }

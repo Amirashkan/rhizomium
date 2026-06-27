@@ -3,6 +3,13 @@
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import {
+  buildScalarRefMapping,
+  resolveScalarRef,
+  toScalar,
+  suffixToComponent,
+  componentCount,
+} from '../processors/scalarRef.js';
 
 export class FieldNodes {
   constructor() {
@@ -33,120 +40,27 @@ export class FieldNodes {
     return Number.isInteger(n) ? `${n}.0` : `${n}`;
   }
 
-  /**
-   * Reduce a WGSL expression of the given type to a scalar (f32). Shape parameters are
-   * scalars, so a vector reference must be coerced rather than passed straight in (which
-   * produces a "type mismatch ... expected 'f32'" shader error). Mirrors
-   * TypeConverter.toF32 so a referenced node behaves like a wired one.
-   */
-  _toScalar(expr, type) {
-    switch (type) {
-      case 'vec2': return `((${expr}).x + (${expr}).y) * 0.5`;
-      case 'vec3': return `((${expr}).x + (${expr}).y + (${expr}).z) / 3.0`;
-      case 'vec4': return `dot((${expr}).xyz, vec3<f32>(0.299, 0.587, 0.114))`;
-      default: return expr; // f32 / unknown
-    }
+  // Scalar coercion of node references in scalar shape params lives in ../processors/scalarRef.js
+  // (shared with the scalar input nodes). Thin wrappers keep this.graph/this.typeConverter implicit
+  // at the call sites.
+  _resolveScalarRef(name) {
+    return resolveScalarRef(name, this.graph, this.typeConverter);
   }
 
-  /**
-   * Normalize a reference suffix to a vector component letter (x/y/z/w), or null. Accepts the
-   * xyzw and rgba names plus a numeric output-pin/component index (0=x, 1=y, 2=z, 3=w) — the
-   * editor stores references to a vector node's channel as a numeric suffix, e.g. "node_27_1".
-   */
+  _buildScalarRefMapping(expression) {
+    return buildScalarRefMapping(expression, this.graph, this.typeConverter);
+  }
+
+  _toScalar(expr, type) {
+    return toScalar(expr, type);
+  }
+
   _suffixToComponent(suffix) {
-    if (!suffix) return null;
-    if (/^[xyzw]$/.test(suffix)) return suffix;
-    const rgba = { r: 'x', g: 'y', b: 'z', a: 'w' };
-    if (/^[rgba]$/.test(suffix)) return rgba[suffix];
-    if (/^\d+$/.test(suffix)) return ['x', 'y', 'z', 'w'][Number(suffix)] ?? null;
-    return null;
+    return suffixToComponent(suffix);
   }
 
   _componentCount(type) {
-    if (type === 'vec2') return 2;
-    if (type === 'vec3') return 3;
-    if (type === 'vec4') return 4;
-    return 1;
-  }
-
-  /**
-   * Resolve a single `node_<id>` / `node_<id>_<comp>` identifier to a scalar WGSL expression,
-   * or null if it cannot be resolved (incomplete/unknown id -> caller falls back to default),
-   * or undefined if the identifier is not a node reference at all (e.g. `time`, `PI`).
-   *
-   * Handles three sources, in order:
-   *   1. Mouse/Time/RandomTime input nodes  -> their GPU global (Mouse reduced to one channel).
-   *   2. A node already compiled in this pass -> its variable, with component access or scalar
-   *      coercion based on the type recorded by the TypeConverter.
-   *   3. Anything else (id not in the graph, or present but not compiled) -> null.
-   */
-  _resolveScalarRef(name) {
-    // Lenient suffix capture so a half-typed component (e.g. "node_28_") still resolves
-    // instead of falling through to the generator's vec4 default.
-    const match = /^node_(\d+)(?:_(.*))?$/.exec(name);
-    if (!match) return undefined; // not a node reference
-    const id = match[1];
-    const suffix = match[2];
-
-    const nodes = this.graph?.nodes || [];
-    const node = nodes.find((n) => String(n.id) === id);
-
-    // 1. Live input nodes -> GPU globals.
-    const kind = node?.kind?.toLowerCase();
-    if (kind === 'time') return 'g.time';
-    if (kind === 'randomtime') {
-      const speed = Number(node.params?.speed);
-      const speedLiteral = Number.isFinite(speed)
-        ? (Number.isInteger(speed) ? `${speed}.0` : `${speed}`)
-        : '1.0';
-      return `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
-    }
-    if (kind === 'mouse') {
-      // g.mouse is a vec4; a scalar parameter needs one channel (default .x).
-      const channel = this._suffixToComponent(suffix) || 'x';
-      return `g.mouse.${channel}`;
-    }
-
-    // 2. Regular node already compiled in this pass.
-    if (this.typeConverter?.expressions?.has(id)) {
-      const expr = this.typeConverter.expressions.get(id);
-      const type = this.typeConverter.types.get(id);
-      const component = this._suffixToComponent(suffix);
-      if (component) {
-        if (type === 'f32') return expr; // scalar node: ignore the component suffix
-        // Only emit member access the type actually has; otherwise reduce to a scalar
-        // rather than producing invalid WGSL like a vec2's `.w`.
-        if (['x', 'y', 'z', 'w'].indexOf(component) < this._componentCount(type)) {
-          return `(${expr}).${component}`;
-        }
-      }
-      return this._toScalar(expr, type);
-    }
-
-    // 3. Unknown id (still being typed) or referenced node not compiled in this pass.
-    return null;
-  }
-
-  /**
-   * Build a variable mapping for every `node_<id>` reference in the expression, scalar-coerced
-   * for shape parameters. Returns null if any reference cannot be resolved, signalling the
-   * caller to fall back to the parameter default instead of emitting invalid WGSL.
-   */
-  _buildScalarRefMapping(expression) {
-    const mapping = {};
-    let identifiers;
-    try {
-      identifiers = unifiedExpressionSystem.extractIdentifiers(expression);
-    } catch {
-      return mapping;
-    }
-    for (const name of identifiers) {
-      const resolved = this._resolveScalarRef(name);
-      if (resolved === undefined) continue; // not a node reference (time/PI/etc.)
-      if (resolved === null) return null;    // incomplete/unknown -> fall back to default
-      mapping[name] = resolved;
-    }
-    return mapping;
+    return componentCount(type);
   }
 
   makeSafeIdentifier(id) {
