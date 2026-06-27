@@ -534,13 +534,16 @@ export class Renderer {
 
     // Make sure nodes have proper dimensions
     if (!node.w) node.w = 120; // Default width
-    if (!node.h) node.h = 80; // Default height
 
-    // Grow the box so every pin fits inside it. Pins are laid out from y+32 at 18px
-    // spacing (see _getNodePinPositions), so a node with many inputs/outputs (e.g. the
-    // 4-output Resolution node) would otherwise have pins spilling past the bottom edge.
-    const minHeight = this._minNodeHeight(node);
-    if (node.h < minHeight) node.h = minHeight;
+    // Size the box to contain both its pins and its preview thumbnail.
+    //  - Pins are laid out from y+32 at 18px spacing (see _getNodePinPositions), so a node
+    //    with many inputs/outputs (e.g. the 4-output Resolution node) needs extra height.
+    //  - Bigger thumbnails (the S/M/L button) would otherwise spill past the right/bottom edges.
+    // Height is recomputed every frame so it also shrinks back when the thumbnail is made
+    // smaller; width only grows, since the default already covers normal thumbnails.
+    const thumb = this._thumbnailExtent(node);
+    node.h = Math.max(80, this._minNodeHeight(node), thumb.height);
+    if (node.w < thumb.width) node.w = thumb.width;
 
     // PERFORMANCE: Use solid color instead of gradient for better performance
     // Gradients are expensive to create and render. Solid color looks almost identical.
@@ -1097,6 +1100,23 @@ export class Renderer {
     const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
     const pinCount = Math.max(inCount, outCount);
     return PIN_TOP + Math.max(0, pinCount - 1) * PIN_SPACING + BOTTOM_MARGIN;
+  }
+
+  // Node-relative width/height the preview thumbnail needs so it stays inside the box.
+  // Mirrors _renderNodeThumbnail's placement: small/medium (<=96) sit top-right with `padding`
+  // on each side; large (>96) sits below the title (y+25) on the left. Returns {0,0} when the
+  // node has no thumbnail so non-preview nodes keep their default size.
+  _thumbnailExtent(node) {
+    const editor = window.editor;
+    if (!node.__thumb || !editor?.getPreviewSize) return { width: 0, height: 0 };
+    const thumbSize = editor.getPreviewSize(node.id);
+    const padding = 6;
+    if (thumbSize <= 96) {
+      // Top-right: padding above and below, padding on each horizontal side.
+      return { width: thumbSize + padding * 2, height: thumbSize + padding * 2 };
+    }
+    // Large: below the title bar, with a bottom margin.
+    return { width: thumbSize + padding * 2, height: 25 + thumbSize + padding };
   }
 
   _getNodePinPositions(node) {
