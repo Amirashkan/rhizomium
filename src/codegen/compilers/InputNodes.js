@@ -145,9 +145,18 @@ export class InputNodes {
         };
         
       case 'Resolution':
+        // Matches the node's declared pins: res (vec2), width, height, aspect.
+        // Each pin needs its own expression so downstream f32 consumers get the
+        // real width/height/aspect instead of a vec2->f32 average of g.resolution.
         return {
           line: `let node_${nodeId} = g.resolution;`,
-          outputType: "vec2"
+          outputType: "vec2",
+          outputPins: [
+            { expression: `node_${nodeId}`, type: "vec2" },                    // res
+            { expression: `node_${nodeId}.x`, type: "f32" },                   // width
+            { expression: `node_${nodeId}.y`, type: "f32" },                   // height
+            { expression: `(node_${nodeId}.x / node_${nodeId}.y)`, type: "f32" }, // aspect
+          ]
         };
         
       case 'Pi':
