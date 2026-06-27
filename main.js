@@ -764,14 +764,14 @@ async function loadProjectFromFile(file) {
             editor.nodePreviews.delete(node.id);
             editor.nodePreviews.set(node.id, {
               enabled: preview.enabled,
-              size: preview.size || "small",
+              size: preview.size || "large",
               showVisualInfo: preview.showVisualInfo !== false,
               needsUpdate: true,
             });
           } else {
             editor.nodePreviews.set(node.id, {
               enabled: true,
-              size: "small",
+              size: "large",
               showVisualInfo: true,
               needsUpdate: true,
             });

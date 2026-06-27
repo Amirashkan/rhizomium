@@ -678,7 +678,7 @@ export class Renderer {
 
     // Button 3: Size cycle - "S/M/L" (disabled when preview off)
     const sizeX = node.x + node.w - 25;
-    const currentSize = editor.nodePreviews.get(node.id)?.size || "small";
+    const currentSize = editor.nodePreviews.get(node.id)?.size || "large";
     const sizeLabel =
       currentSize === "small" ? "S" : currentSize === "medium" ? "M" : "L";
     const sizeDisabled = !isPreviewEnabled;
