@@ -2035,7 +2035,7 @@ connectGPURenderer(renderFunction) {
       if (!this.nodePreviews.has(nodeId)) {
         this.nodePreviews.set(nodeId, {
           enabled: true,
-          size: "small",
+          size: "large",
           showVisualInfo: true,
         });
       }
@@ -2075,7 +2075,7 @@ connectGPURenderer(renderFunction) {
       if (!this.nodePreviews.has(nodeId)) {
         this.nodePreviews.set(nodeId, {
           enabled: true,
-          size: "small",
+          size: "large",
           showVisualInfo: true,
         });
       }
@@ -2114,7 +2114,7 @@ connectGPURenderer(renderFunction) {
       if (!this.nodePreviews.has(nodeId)) {
         this.nodePreviews.set(nodeId, {
           enabled: true,
-          size: "small",
+          size: "large",
           showVisualInfo: true,
         });
       }
@@ -2199,8 +2199,8 @@ connectGPURenderer(renderFunction) {
     try {
       if (typeof nodeId === 'undefined') return this.previewSizes.small;
       const preview = this.nodePreviews.get(nodeId);
-      const sizeKey = preview?.size || "small";
-      return this.previewSizes[sizeKey] || this.previewSizes.small;
+      const sizeKey = preview?.size || "large";
+      return this.previewSizes[sizeKey] || this.previewSizes.large;
     } catch (error) {
 
       return this.previewSizes.small;

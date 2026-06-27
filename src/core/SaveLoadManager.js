@@ -2211,7 +2211,7 @@ importConnections(connectionData) {
       for (const [nodeId, previewSettings] of Object.entries(previewData)) {
         this.editor.nodePreviews.set(nodeId, {
           enabled: true,
-          size: previewSettings.size || "small",
+          size: previewSettings.size || "large",
           showVisualInfo: previewSettings.showVisualInfo !== false,
         });
       }

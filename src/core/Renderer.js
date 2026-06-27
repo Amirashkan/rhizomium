@@ -3,7 +3,18 @@ import { NodeDefs } from "../data/NodeDefs.js";
 import { RedrawScheduler } from "./RedrawScheduler.js";
 import { getPerfProbe } from "../utils/PerfProbe.js";
 import { getResolutionForNode } from "../utils/resolutionMode.js";
-import { pinGroupStartY, PIN_TOP, PIN_SPACING, PIN_BOTTOM_MARGIN } from "./pinLayout.js";
+import {
+  nodePinPositions,
+  nodePreviewHeight,
+  nodeMinHeight,
+  socketRowCount,
+  rowsTop,
+  HEADER_H,
+  ROW_H,
+  PREVIEW_TOP_GAP,
+  PREVIEW_SIDE_MARGIN,
+  EDGE_INSET,
+} from "./pinLayout.js";
 
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
@@ -534,28 +545,11 @@ export class Renderer {
     const ctx = this.ctx;
 
     // Make sure nodes have proper dimensions
-    if (!node.w) node.w = 120; // Default width
+    if (!node.w) node.w = 160; // Default width
     if (!node.h) node.h = 80;  // Default height
 
-    // Size the box to contain both its pins and its preview thumbnail:
-    //  - Pins are laid out from y+32 at 18px spacing (see _getNodePinPositions), so a node
-    //    with many inputs/outputs (e.g. the 4-output Resolution node) needs extra height.
-    //  - Bigger thumbnails (the S/M/L button) would otherwise spill past the right/bottom edges.
-    // This only depends on the pin layout (static per kind), the current thumbnail size, and the
-    // widest output value tag, so recompute it just when one of those changes (the S/M/L button, or
-    // a value getting longer) rather than every frame. Height is fully recomputed on change so it
-    // also shrinks back when the thumbnail is made smaller; width only grows, since the default
-    // already covers normal thumbnails.
-    const editor = window.editor;
-    const thumbSize = (node.__thumb && editor?.getPreviewSize) ? editor.getPreviewSize(node.id) : 0;
-    const tagW = node.__valueTagW || 0;
-    if (node.__sizedForThumb !== thumbSize || node.__sizedForTagW !== tagW) {
-      node.__sizedForThumb = thumbSize;
-      node.__sizedForTagW = tagW;
-      const thumb = this._thumbnailExtent(node);
-      node.h = Math.max(80, this._minNodeHeight(node), thumb.height);
-      if (node.w < thumb.width) node.w = thumb.width;
-    }
+    // Size the box to the shared node anatomy (header → optional preview band → fixed socket rows).
+    this._ensureNodeSize(node);
 
     // PERFORMANCE: Use solid color instead of gradient for better performance
     // Gradients are expensive to create and render. Solid color looks almost identical.
@@ -583,8 +577,9 @@ export class Renderer {
     const categoryColor = this._getCategoryColor(
       NodeDefs[node.kind]?.cat || "default",
     );
+    // Left accent bar (4px) carries the node's category colour — the full-height edge marker.
     ctx.fillStyle = categoryColor;
-    ctx.fillRect(node.x, node.y + 8, 3, node.h - 16);
+    ctx.fillRect(node.x, node.y + 8, 4, node.h - 16);
 
     // Draw node label with better typography
     // PERFORMANCE: Use cached font string
@@ -683,7 +678,7 @@ export class Renderer {
 
     // Button 3: Size cycle - "S/M/L" (disabled when preview off)
     const sizeX = node.x + node.w - 25;
-    const currentSize = editor.nodePreviews.get(node.id)?.size || "small";
+    const currentSize = editor.nodePreviews.get(node.id)?.size || "large";
     const sizeLabel =
       currentSize === "small" ? "S" : currentSize === "medium" ? "M" : "L";
     const sizeDisabled = !isPreviewEnabled;
@@ -716,14 +711,15 @@ export class Renderer {
     if (!editor) return;
 
     const ctx = this.ctx;
-    const thumbSize = editor.getPreviewSize(node.id);
-    const padding = 6;
 
-    // Every size sits below the title bar (reserved for the label, controls and id) and is
-    // indented past the input-pin column so it doesn't cover the pins. The right edge is left
-    // free for the output pins and their value tags (mirrors _thumbnailExtent).
-    const thumbX = node.x + padding + this._thumbInset(node);
-    const thumbY = node.y + 25; // Below title bar
+    // The preview is a full-width band that sits between the header and the socket-row grid: its
+    // height follows the S/M/L chip while the node width and the row grid stay constant, so the
+    // sockets below never shift when the preview size changes (see pinLayout.js anatomy).
+    const previewH = editor.getPreviewSize(node.id);
+    const thumbX = node.x + PREVIEW_SIDE_MARGIN;
+    const thumbY = node.y + HEADER_H + PREVIEW_TOP_GAP;
+    const thumbW = Math.max(8, node.w - 2 * PREVIEW_SIDE_MARGIN);
+    const thumbH = previewH;
 
     ctx.save();
 
@@ -732,31 +728,53 @@ export class Renderer {
     ctx.strokeStyle = "#555"; // Brighter border for visibility
     ctx.lineWidth = 2; // Thicker border for clarity
     ctx.beginPath();
-    ctx.roundRect(thumbX - 2, thumbY - 2, thumbSize + 4, thumbSize + 4, 5);
+    ctx.roundRect(thumbX - 2, thumbY - 2, thumbW + 4, thumbH + 4, 6);
     ctx.fill();
     ctx.stroke();
+
+    // Clip to the band so the thumbnail content can't spill past the rounded corners.
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(thumbX, thumbY, thumbW, thumbH, 4);
+    ctx.clip();
+
+    // Fill the band black first so any area the (aspect-preserved) thumbnail doesn't cover shows as
+    // a clean letterbox/pillarbox instead of a stretched image.
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(thumbX, thumbY, thumbW, thumbH);
 
     // Enable smooth scaling for high-quality thumbnails
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
+    // Fit the source into the band preserving its aspect ratio ("contain"): scale by the smaller of
+    // the two axis ratios and centre, so a square render in a landscape band gets side bars (and a
+    // wide render gets top/bottom bars) rather than being distorted.
+    const srcW = node.__thumb.width || thumbW;
+    const srcH = node.__thumb.height || thumbH;
+    const fit = Math.min(thumbW / srcW, thumbH / srcH);
+    const dw = srcW * fit;
+    const dh = srcH * fit;
+    const dx = thumbX + (thumbW - dw) / 2;
+    const dy = thumbY + (thumbH - dh) / 2;
+
     // Handle both ImageData and Canvas thumbnails
     if (node.__thumb instanceof HTMLCanvasElement) {
       // Draw thumbnail with better quality
-      ctx.drawImage(node.__thumb, thumbX, thumbY, thumbSize, thumbSize);
+      ctx.drawImage(node.__thumb, dx, dy, dw, dh);
     } else if (node.__thumb instanceof ImageData) {
       // PERFORMANCE: Cache temporary canvases per node to avoid recreating every frame
       // putImageData is blocking, but we cache the canvas to at least avoid canvas creation overhead
       const cacheKey = `${node.id}-${node.__thumb.width}x${node.__thumb.height}`;
       let tempCanvas = this._tempCanvasCache.get(cacheKey);
-      
+
       if (!tempCanvas || tempCanvas.width !== node.__thumb.width || tempCanvas.height !== node.__thumb.height) {
         tempCanvas = document.createElement("canvas");
         tempCanvas.width = node.__thumb.width;
         tempCanvas.height = node.__thumb.height;
         this._tempCanvasCache.set(cacheKey, tempCanvas);
       }
-      
+
       // putImageData is blocking but necessary - the real fix needs to happen where thumbnails are created
       // Thumbnails should be converted to canvas elements, not ImageData
       const tempCtx = tempCanvas.getContext("2d");
@@ -764,33 +782,24 @@ export class Renderer {
       tempCtx.imageSmoothingQuality = "high";
       tempCtx.putImageData(node.__thumb, 0, 0);
       getPerfProbe().count("thumbPutImageData");
-      ctx.drawImage(tempCanvas, thumbX, thumbY, thumbSize, thumbSize);
+      ctx.drawImage(tempCanvas, dx, dy, dw, dh);
     }
+    ctx.restore(); // drop the band clip
 
     // Enhanced inner border for better visibility
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(thumbX, thumbY, thumbSize, thumbSize, 3);
-    ctx.stroke();
-
-    // Add subtle glow effect for better visibility
-    ctx.shadowColor = "rgba(102, 170, 255, 0.3)";
-    ctx.shadowBlur = 4;
-    ctx.strokeStyle = "rgba(102, 170, 255, 0.15)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(thumbX + 1, thumbY + 1, thumbSize - 2, thumbSize - 2, 2);
+    ctx.roundRect(thumbX, thumbY, thumbW, thumbH, 4);
     ctx.stroke();
-    ctx.shadowBlur = 0; // Reset shadow
 
     // ENHANCEMENT: Display numeric value overlay for scalar outputs (including audio envelope)
-    this._renderNumericValueOverlay(ctx, node, thumbX, thumbY, thumbSize);
+    this._renderNumericValueOverlay(ctx, node, thumbX, thumbY, thumbW, thumbH);
 
     ctx.restore();
   }
 
-  _renderNumericValueOverlay(ctx, node, thumbX, thumbY, thumbSize) {
+  _renderNumericValueOverlay(ctx, node, thumbX, thumbY, thumbW, thumbH) {
     // Check if node outputs a scalar value (f32 type)
     const nodeDef = NodeDefs[node.kind];
     const outputType = nodeDef?.pinsOut?.[0]?.type;
@@ -817,8 +826,8 @@ export class Renderer {
       displayText = previewValue.toFixed(3);
     }
 
-    // Calculate font size based on thumbnail size
-    const fontSize = Math.max(8, Math.min(thumbSize * 0.25, 14));
+    // Calculate font size based on the preview band height
+    const fontSize = Math.max(8, Math.min(thumbH * 0.3, 14));
     ctx.font = `bold ${fontSize}px monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
@@ -828,8 +837,8 @@ export class Renderer {
     const textWidth = textMetrics.width;
     const textHeight = fontSize;
     const padding = 2;
-    const bgX = thumbX + (thumbSize - textWidth) / 2 - padding;
-    const bgY = thumbY + thumbSize - padding - textHeight;
+    const bgX = thumbX + (thumbW - textWidth) / 2 - padding;
+    const bgY = thumbY + thumbH - padding - textHeight;
     const bgWidth = textWidth + padding * 2;
     const bgHeight = textHeight + padding * 2;
 
@@ -841,7 +850,7 @@ export class Renderer {
     ctx.fillStyle = "#ffffff";
     ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
     ctx.shadowBlur = 2;
-    ctx.fillText(displayText, thumbX + thumbSize / 2, thumbY + thumbSize - padding);
+    ctx.fillText(displayText, thumbX + thumbW / 2, thumbY + thumbH - padding);
     ctx.shadowBlur = 0; // Reset shadow
   }
 
@@ -852,9 +861,9 @@ export class Renderer {
     // Enhanced pin rendering with glow effects
     ctx.save();
 
-    // Reset the measured value-tag width; _renderOutputPinLabel accumulates the widest tag this
-    // frame so _thumbnailExtent can reserve a matching column next frame (keeps long values off the
-    // thumbnail). Recomputed every frame so it also shrinks back when values get shorter.
+    // Reset the measured value-tag width; _renderOutputPinLabel accumulates the widest output value
+    // tag this frame so _ensureNodeSize can keep the node wide enough for it next frame. Recomputed
+    // every frame so it also shrinks back when values get shorter.
     node.__valueTagW = 0;
 
     // Render output pins with enhanced styling
@@ -877,17 +886,16 @@ export class Renderer {
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 4, "input");
 
-      // Input pin label
-      // PERFORMANCE: Use cached font string
-      if (!connected) {
-        const inputLabel = NodeDefs[node.kind]?.pinsIn?.[i] || `In${i}`;
-        ctx.fillStyle = "#666";
+      // Input label sits INSIDE the node, just right of its port and centred on the same row — so
+      // port ↔ label stay locked together on the socket grid (mirrors the output value tag on the
+      // right). A connected input is dimmer since its wire already identifies it.
+      const inputLabel = this._inputLabel(node, i);
+      if (inputLabel) {
+        ctx.fillStyle = connected ? "#777" : "#9b9ca3";
         ctx.font = this._cachedFonts.pinLabel;
-        ctx.fillText(
-          inputLabel,
-          pos.x - ctx.measureText(inputLabel).width - 8,
-          pos.y + 3,
-        );
+        ctx.textAlign = "left";
+        ctx.fillText(inputLabel, pos.x + 10, pos.y + 3);
+        ctx.textAlign = "left";
       }
     }
 
@@ -1050,9 +1058,9 @@ export class Renderer {
       }
     }
 
-    // Measure the tag width and record the node's widest, so _thumbnailExtent can reserve enough
-    // room on the right for it. Done before the zoom-skip below so the reserved width (and thus the
-    // node width) doesn't change as you zoom out past the label-draw threshold.
+    // Measure the tag width and record the node's widest, so _ensureNodeSize can keep the node wide
+    // enough for it. Done before the zoom-skip below so the reserved width (and thus the node width)
+    // doesn't change as you zoom out past the label-draw threshold.
     ctx.font = this._cachedFonts.pinLabel;
     const textWidth = ctx.measureText(labelText).width + 8;
     node.__valueTagW = Math.max(node.__valueTagW || 0, textWidth);
@@ -1115,80 +1123,86 @@ export class Renderer {
   }
 
   // Helper methods
-  // Minimum node height that keeps all pins inside the box, using the shared pin-layout constants.
-  // Driven by whichever side (inputs or outputs) has more pins.
-  _minNodeHeight(node) {
-    const inCount = NodeDefs[node.kind]?.inputs || 0;
-    const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
-    const pinCount = Math.max(inCount, outCount);
-    return PIN_TOP + Math.max(0, pinCount - 1) * PIN_SPACING + PIN_BOTTOM_MARGIN;
+
+  // An input pin's display label. pinsIn entries are usually plain strings, but a few nodes use the
+  // object form `{ label, type }`; normalise both, returning "" when there's nothing to show.
+  _inputLabel(node, i) {
+    const entry = NodeDefs[node.kind]?.pinsIn?.[i];
+    if (!entry) return "";
+    return typeof entry === "string" ? entry : entry.label || "";
   }
 
-  // Horizontal indent for a large (below-title, left-placed) thumbnail so it clears the input-pin
-  // column (pins sit at x+8 with ~5px radius) instead of covering it. Zero when the node has no
-  // inputs (e.g. the Resolution node). Single source of truth for both placement and sizing.
-  _thumbInset(node) {
-    return (NodeDefs[node.kind]?.inputs || 0) > 0 ? 16 : 0;
+  // Size the node box to the shared anatomy: header → optional preview band → fixed socket rows.
+  // Height is recomputed every frame (cheap, no text measuring) so it tracks preview-size and
+  // row-count changes both up and down — and so changing the S/M/L chip resizes only the preview
+  // band, leaving every socket row where it was. Width only grows, keyed on the inputs that affect
+  // it so we don't re-measure text every frame.
+  _ensureNodeSize(node) {
+    const def = NodeDefs[node.kind];
+    const inCount = def?.inputs || 0;
+    const outCount = (def?.pinsOut || []).length || 1;
+    const previewH = nodePreviewHeight(node);
+
+    node.h = nodeMinHeight(node, inCount, outCount, previewH);
+
+    const tagW = node.__valueTagW || 0;
+    const hasPreview = previewH > 0;
+    if (node.__sizedForTagW !== tagW || node.__sizedForPreview !== hasPreview) {
+      node.__sizedForTagW = tagW;
+      node.__sizedForPreview = hasPreview;
+      const minW = this._minNodeWidth(node, inCount, outCount, hasPreview, tagW);
+      if (!node.w || node.w < minW) node.w = minW;
+    }
   }
 
-  // Right-side column reserved for the output pins' value tags, so a big thumbnail grows the node
-  // wide enough to sit left of the tags instead of sliding under them. Covers a typical tag plus a
-  // small gap; only large thumbnails actually hit it (smaller ones fit the default width already).
-  static OUTPUT_VALUE_COLUMN = 54;
+  // Minimum width that fits the header cluster (title + #id + control chips), the widest socket row
+  // (input label inside-left + output value tag inside-right), and a landscape preview band.
+  _minNodeWidth(node, inCount, outCount, hasPreview, tagW) {
+    const ctx = this.ctx;
+    const def = NodeDefs[node.kind];
 
-  // Node-relative width/height the preview thumbnail needs so it stays inside the box.
-  // Mirrors _renderNodeThumbnail's placement: every size sits below the title bar (y+25),
-  // indented past the input pins, and keeps clear of the output value-tag column on the right.
-  // Returns {0,0} when the node has no thumbnail so non-preview nodes keep their default size.
-  _thumbnailExtent(node) {
-    const editor = window.editor;
-    if (!node.__thumb || !editor?.getPreviewSize) return { width: 0, height: 0 };
-    const thumbSize = editor.getPreviewSize(node.id);
-    const padding = 6;
-    // Reserve room on the right for the output value tags. A tag occupies (14 + its text width)
-    // from the right edge (see _renderOutputPinLabel), plus a small gap; node.__valueTagW is the
-    // widest tag measured last frame. Fall back to a sensible default before any measurement.
-    const hasOutputs = !!(NodeDefs[node.kind]?.pinsOut?.length);
-    const measured = node.__valueTagW ? 14 + node.__valueTagW + 4 : 0;
-    const valueColumn = hasOutputs ? Math.max(Renderer.OUTPUT_VALUE_COLUMN, measured) : padding;
-    return {
-      width: padding + this._thumbInset(node) + thumbSize + valueColumn,
-      height: 25 + thumbSize + padding,
-    };
+    // Header: label + gap + #id + gap + the fixed control-chip cluster (~65px from the right edge).
+    ctx.font = this._cachedFonts.nodeLabel || "600 13px sans-serif";
+    const titleW = ctx.measureText(def?.label || node.kind).width;
+    ctx.font = this._cachedFonts.nodeId || "10px monospace";
+    const idW = ctx.measureText(`#${node.id}`).width;
+    const headerW = 10 + titleW + 8 + idW + 8 + 65 + 6;
+
+    // Widest socket row: an input label (inside, right of its port) plus the output value tag
+    // (inside, left of its port). Inputs and outputs can share a row, so reserve room for both.
+    ctx.font = this._cachedFonts.pinLabel || "10px sans-serif";
+    let inLabelW = 0;
+    for (let i = 0; i < inCount; i++) {
+      const lbl = this._inputLabel(node, i);
+      if (lbl) inLabelW = Math.max(inLabelW, ctx.measureText(lbl).width);
+    }
+    const rowW = EDGE_INSET + 10 + inLabelW + (inLabelW && tagW ? 12 : 0) + tagW + 14 + EDGE_INSET;
+
+    const previewMinW = hasPreview ? 180 : 0;
+
+    return Math.ceil(Math.max(160, headerW, rowW, previewMinW));
   }
 
   _getNodePinPositions(node) {
-    // PERFORMANCE: Cache pin positions per frame - they only change when node position changes
-    // This prevents recalculating pin positions multiple times per frame for the same node
-    // (e.g., when rendering multiple connections from/to the same node)
-    
-    // Check if we have a cached result for this node in the current frame
-    const cacheKey = `${node.id}_${node.x}_${node.y}`;
+    // PERFORMANCE: Cache pin positions per frame - they only change when the node's box does.
+    // This prevents recalculating positions multiple times per frame for the same node (e.g. when
+    // rendering multiple connections from/to it). The cache is cleared at the start of every frame.
+    const cacheKey = `${node.id}_${node.x}_${node.y}_${node.w}`;
     const cached = this._nodePinCache.get(cacheKey);
     if (cached) {
       return { inputPins: cached.inputPins, outputPins: cached.outputPins };
     }
-    
-    // Calculate pin positions. Each side's pins are vertically centered on the node (see pinLayout),
-    // so a single output lands at the node's middle instead of near the top.
+
+    // Geometry comes from the shared socket-row layout: header → optional preview band → fixed rows,
+    // ports centred on their row and on the node edge (see pinLayout.js).
     const inCount = NodeDefs[node.kind]?.inputs || 0;
-    const inputPins = [];
-    const inStartY = pinGroupStartY(node, inCount);
-    for (let i = 0; i < inCount; i++) {
-      inputPins.push({ x: node.x + 8, y: inStartY + i * PIN_SPACING });
-    }
-
     const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
-    const outputPins = [];
-    const outStartY = pinGroupStartY(node, outCount);
-    for (let i = 0; i < outCount; i++) {
-      outputPins.push({ x: node.x + node.w - 8, y: outStartY + i * PIN_SPACING });
-    }
-    
-    // Cache the result (will be cleared at start of next frame)
-    this._nodePinCache.set(cacheKey, { inputPins, outputPins });
+    const previewH = nodePreviewHeight(node);
+    const { inputs, outputs } = nodePinPositions(node, inCount, outCount, previewH);
 
-    return { inputPins, outputPins };
+    this._nodePinCache.set(cacheKey, { inputPins: inputs, outputPins: outputs });
+
+    return { inputPins: inputs, outputPins: outputs };
   }
   
   /**
