@@ -61,7 +61,7 @@ export class MathNodes {
       case 'Atan':
         return this.compileUnaryMath(nodeId, getInput, 'atan');
       case 'Atan2':
-        return this.compileBinaryMath(nodeId, getInput, 'atan2');
+        return this.compileBinaryMath(nodeId, node, getInput, resolveParam, 'atan2');
         
       // Mathematical Functions
       case 'Floor':
@@ -91,9 +91,9 @@ export class MathNodes {
         
       // Range and Comparison Functions
       case 'Min':
-        return this.compileBinaryMath(nodeId, getInput, 'min');
+        return this.compileBinaryMath(nodeId, node, getInput, resolveParam, 'min');
       case 'Max':
-        return this.compileBinaryMath(nodeId, getInput, 'max');
+        return this.compileBinaryMath(nodeId, node, getInput, resolveParam, 'max');
       case 'Clamp':
         return this.compileClamp(nodeId, getInput);
         
