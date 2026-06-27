@@ -1,43 +1,70 @@
-// Node sizing: the node splits into a top thumbnail band and a content area below it (title, pins,
-// value tags, id). _thumbBandHeight gives the band; _minContentHeight gives the content area.
+// Regression test: nodes with many pins (e.g. the 4-output Resolution node) must grow tall
+// enough that no pin spills past the bottom edge. Pins are laid out from y+32 at 18px spacing,
+// so a fixed 80px box couldn't contain 4 output pins (the 4th sits at y+86).
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Renderer } from '../src/core/Renderer.js';
 
-describe('_minContentHeight fits the title row, pins and the id strip', () => {
+describe('_minNodeHeight grows the node box to fit its pins', () => {
   const renderer = new Renderer(null, null, {});
 
-  it('reserves room for a single pin plus the title and id rows', () => {
-    // 1 pin -> PIN_TOP(32) + 0 + PIN_ID_RESERVE(22) = 54.
-    expect(renderer._minContentHeight({ kind: 'Add' })).toBeGreaterThanOrEqual(54);
+  it('keeps the default height for nodes with few pins', () => {
+    // 2 pins -> 32 + 18 + 16 = 66, below the 80px default, so the default still wins.
+    expect(renderer._minNodeHeight({ kind: 'Add' })).toBeLessThanOrEqual(80);
   });
 
-  it('grows with the busier side for a multi-output node', () => {
-    // Resolution has 4 outputs -> 32 + 3*18 + 22 = 108.
-    expect(renderer._minContentHeight({ kind: 'Resolution' })).toBe(108);
+  it('is tall enough to contain all four Resolution output pins', () => {
+    // 4 pins -> 32 + 3*18 + 16 = 102, and the lowest pin sits at 32 + 3*18 = 86.
+    const h = renderer._minNodeHeight({ kind: 'Resolution' });
+    expect(h).toBe(102);
+    expect(h).toBeGreaterThan(86);
   });
 });
 
-describe('_thumbBandHeight reserves the top band for the thumbnail', () => {
+describe('_thumbnailExtent sizes the box to contain the S/M/L preview', () => {
   const renderer = new Renderer(null, null, {});
 
   afterEach(() => {
     delete globalThis.window;
   });
 
-  it('is zero when the node has no thumbnail', () => {
-    globalThis.window = { editor: { getPreviewSize: () => 128 } };
-    expect(renderer._thumbBandHeight({ id: '1', kind: 'Add' })).toBe(0);
+  const withPreviewSize = (size) => {
+    globalThis.window = { editor: { getPreviewSize: () => size } };
+  };
+
+  it('returns nothing when the node has no thumbnail', () => {
+    withPreviewSize(128);
+    expect(renderer._thumbnailExtent({ id: '1', kind: 'Add' })).toEqual({ width: 0, height: 0 });
   });
 
-  it('is the thumbnail size plus padding above and below', () => {
-    globalThis.window = { editor: { getPreviewSize: () => 128 } };
-    // 6 + 128 + 6 = 140.
-    expect(renderer._thumbBandHeight({ id: '1', kind: 'Add', __thumb: {} })).toBe(140);
+  it('contains a medium (96) thumbnail below the title bar, with room for the value tags', () => {
+    withPreviewSize(96);
+    // height = 25 + 96 + 6 = 127; width = pad(6) + inset(16, Add has inputs) + 96 + valueColumn(54) = 172.
+    expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
+      .toEqual({ width: 172, height: 127 });
   });
 
-  it('shrinks with a smaller (medium) thumbnail', () => {
-    globalThis.window = { editor: { getPreviewSize: () => 96 } };
-    expect(renderer._thumbBandHeight({ id: '1', kind: 'Add', __thumb: {} })).toBe(108);
+  it('keeps a large (128) thumbnail clear of the value-tag column, no inset for an input-less node', () => {
+    withPreviewSize(128);
+    // Resolution has no inputs -> no inset. width = 6 + 0 + 128 + 54 = 188; height = 25 + 128 + 6 = 159.
+    expect(renderer._thumbnailExtent({ id: '1', kind: 'Resolution', __thumb: {} }))
+      .toEqual({ width: 188, height: 159 });
+  });
+
+  it('indents the thumbnail past the input-pin column on nodes with inputs', () => {
+    withPreviewSize(128);
+    // Add has inputs -> 16px inset so the thumbnail clears the pins. width = 6 + 16 + 128 + 54 = 204.
+    expect(renderer._thumbInset({ kind: 'Add' })).toBe(16);
+    expect(renderer._thumbInset({ kind: 'Resolution' })).toBe(0);
+    expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
+      .toEqual({ width: 204, height: 159 });
+  });
+
+  it('widens the value-tag column to fit a long measured value (keeps it off the thumbnail)', () => {
+    withPreviewSize(128);
+    // A wide tag (__valueTagW=70) reserves 14 + 70 + 4 = 88 > the 54 default.
+    // width = pad(6) + inset(0) + 128 + 88 = 222.
+    const node = { id: '1', kind: 'Resolution', __thumb: {}, __valueTagW: 70 };
+    expect(renderer._thumbnailExtent(node)).toEqual({ width: 222, height: 159 });
   });
 });

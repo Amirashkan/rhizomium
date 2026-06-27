@@ -929,8 +929,8 @@ export class EventHandler {
       )
         continue;
 
-      // Content title row (below the thumbnail band), kept in sync with Renderer._renderPreviewControls.
-      const controlY = node.y + (node.__thumbBand || 0) + 19;
+      // Title-bar top-right, kept in sync with Renderer._renderPreviewControls.
+      const controlY = node.y + 19;
       const buttonHeight = 10;
       const buttonWidth = 12;
 

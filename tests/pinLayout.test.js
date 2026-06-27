@@ -1,38 +1,30 @@
-// Pins live in the content area below the thumbnail band and are centered between the title row
-// (PIN_TOP) and the bottom id strip (PIN_ID_RESERVE), so a single pin sits at the content's middle.
+// Pins are centered vertically on the node so a single output lands at the node's middle instead
+// of near the top (which looked "a little upper" on the now-taller nodes). On a node sized to
+// exactly fit many pins this collapses back to the old top-anchored layout.
 
 import { describe, it, expect } from 'vitest';
-import { pinGroupStartY, PIN_TOP, PIN_SPACING, PIN_ID_RESERVE } from '../src/core/pinLayout.js';
+import { pinGroupStartY, PIN_TOP, PIN_SPACING } from '../src/core/pinLayout.js';
 
-describe('pinGroupStartY centers a pin group within the content area', () => {
-  it('centers a single pin on a default-height node with no thumbnail', () => {
-    // region [y+32, y+58] on an 80px node -> center y+45.
-    expect(pinGroupStartY({ y: 0, h: 80 }, 1)).toBe(45);
+describe('pinGroupStartY centers a pin group on the node', () => {
+  it('places a single pin at the node center on a default-height node', () => {
+    // h=80 -> center y+40; clamped within [y+32, y+64] -> y+40.
+    expect(pinGroupStartY({ y: 0, h: 80 }, 1)).toBe(40);
   });
 
-  it('centers a single pin lower on a taller node', () => {
-    // region [y+32, y+98] on a 120px node -> center y+65.
-    expect(pinGroupStartY({ y: 0, h: 120 }, 1)).toBe(65);
+  it('centers a single pin on a tall (big-thumbnail) node', () => {
+    // h=160 -> center y+80; well within the clamp range.
+    expect(pinGroupStartY({ y: 0, h: 160 }, 1)).toBe(80);
   });
 
-  it('offsets the pin region below the thumbnail band', () => {
-    // band 140, h = 140 + content(54) = 194 -> region [y+172, y+172] -> y+172 (just below the band).
-    expect(pinGroupStartY({ y: 0, h: 194, __thumbBand: 140 }, 1)).toBe(172);
-  });
-
-  it('keeps the first pin below the title row when the node only just fits its pins', () => {
-    // 4 pins need content 32 + 3*18 + 22 = 108; centering collapses to the top anchor (y+32),
-    // and the last pin sits PIN_SPACING*3 below that, inside the box.
-    const start = pinGroupStartY({ y: 0, h: 108 }, 4);
-    expect(start).toBe(PIN_TOP);
-    expect(start + 3 * PIN_SPACING).toBe(86);
+  it('keeps the first pin below the title bar when the node only just fits its pins', () => {
+    // 4 pins need height 32 + 3*18 + 16 = 102; centering collapses to the top anchor (y+32).
+    expect(pinGroupStartY({ y: 0, h: 102 }, 4)).toBe(PIN_TOP);
+    // And the pins step down by PIN_SPACING from there.
+    const start = pinGroupStartY({ y: 0, h: 102 }, 4);
+    expect(start + 3 * PIN_SPACING).toBe(86); // last pin inside the 102px box
   });
 
   it('respects the node origin offset', () => {
-    expect(pinGroupStartY({ y: 200, h: 80 }, 1)).toBe(245);
-  });
-
-  it('exposes the expected layout constants', () => {
-    expect([PIN_TOP, PIN_SPACING, PIN_ID_RESERVE]).toEqual([32, 18, 22]);
+    expect(pinGroupStartY({ y: 200, h: 80 }, 1)).toBe(240);
   });
 });
