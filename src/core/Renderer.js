@@ -906,7 +906,23 @@ export class Renderer {
     // This ensures MIDI-bound parameters and dragged sliders show current values immediately
     let previewValue;
 
-    if (node.kind === "ConstFloat") {
+    // Resolution shows the live render dimensions per output pin (res / width / height / aspect),
+    // matching g.resolution on the GPU. The pins are a mix of a vec2 and scalars, so the generic
+    // vector/scalar formatting below can't map them — and the CPU preview would otherwise report 0.
+    // Format each pin directly here and skip the shared preview path.
+    let labelResolved = false;
+    if (node.kind === "Resolution") {
+      const rc = (window.gpuRenderer && window.gpuRenderer.canvas) || null;
+      const w = Math.max(1, (rc && rc.width) || 1);
+      const h = Math.max(1, (rc && rc.height) || 1);
+      if (pinIndex === 1) labelText = `${Math.round(w)}`;        // width
+      else if (pinIndex === 2) labelText = `${Math.round(h)}`;   // height
+      else if (pinIndex === 3) labelText = (w / h).toFixed(2);   // aspect
+      else labelText = `${Math.round(w)}×${Math.round(h)}`;      // res (vec2)
+      labelResolved = true;
+    }
+
+    if (!labelResolved && node.kind === "ConstFloat") {
       // Read directly from params for real-time display
       const rawValue = node.params?.value ?? node.value;
 
@@ -949,7 +965,7 @@ export class Renderer {
     }
 
     // If we didn't get a value above (expression or non-ConstFloat node), use computed preview
-    if (previewValue === undefined) {
+    if (!labelResolved && previewValue === undefined) {
       previewValue = node.__preview;
 
       // Try to get from PreviewComputer if available (most up-to-date for expressions)
@@ -962,7 +978,7 @@ export class Renderer {
     }
 
     // Format the preview value
-    if (previewValue !== undefined && previewValue !== null) {
+    if (!labelResolved && previewValue !== undefined && previewValue !== null) {
       if (typeof previewValue === 'number') {
         // Single number output
         labelText = previewValue.toFixed(2);
@@ -984,7 +1000,7 @@ export class Renderer {
           labelText = previewValue.values[pinIndex].toFixed(2);
         }
       }
-    } else {
+    } else if (!labelResolved) {
       // Fallback to old behavior for specific node types
       if (node.kind === "ConstFloat") {
         const value = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
