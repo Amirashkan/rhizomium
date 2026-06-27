@@ -67,6 +67,17 @@ export class FieldNodes {
     return /^[A-Za-z_]/.test(id) ? id : `n_${id}`;
   }
 
+  /**
+   * Coerce a shape parameter to an f32 WGSL expression. Bound parameters resolve to
+   * string expressions whose type isn't guaranteed to be f32 (a bound boolean or int
+   * reference would otherwise produce a WGSL type error when passed to the shape
+   * functions, which declare every parameter as f32). Wrapping with f32(...) makes
+   * booleans/ints coerce; numeric (already-f32) values pass through unchanged.
+   */
+  _coerceScalarParam(value) {
+    return typeof value === 'string' ? `f32(${value})` : value;
+  }
+
   setUniformManager(manager) {
     this.uniformManager = manager;
     // Clear function cache when uniform manager changes
@@ -146,10 +157,10 @@ export class FieldNodes {
         // FIXED: Use 'epsilon' to match ParameterDefs, fallback to 'smoothness' for compatibility
         const smoothness = this.getParam(node, 'epsilon', this.getParam(node, 'smoothness', 0.01));
 
-        const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
-        const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;
-        const radiusExpr = typeof radius === 'string' ? `(${radius})` : radius;
-        const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
+        const centerXExpr = this._coerceScalarParam(centerX);
+        const centerYExpr = this._coerceScalarParam(centerY);
+        const radiusExpr = this._coerceScalarParam(radius);
+        const smoothnessExpr = this._coerceScalarParam(smoothness);
 
         paramExprs = `, ${centerXExpr}, ${centerYExpr}, ${radiusExpr}, ${smoothnessExpr}`;
         break;
@@ -166,13 +177,13 @@ export class FieldNodes {
         // FIXED: Use 'epsilon' to match ParameterDefs, fallback to 'smoothness' for compatibility
         const smoothness = this.getParam(node, 'epsilon', this.getParam(node, 'smoothness', 0.01));
 
-        const widthExpr = typeof width === 'string' ? `(${width})` : width;
-        const heightExpr = typeof height === 'string' ? `(${height})` : height;
-        const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
-        const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;
+        const widthExpr = this._coerceScalarParam(width);
+        const heightExpr = this._coerceScalarParam(height);
+        const centerXExpr = this._coerceScalarParam(centerX);
+        const centerYExpr = this._coerceScalarParam(centerY);
         const scaleExpr = scale;
         const rotationExpr = rotation;
-        const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
+        const smoothnessExpr = this._coerceScalarParam(smoothness);
 
         paramExprs = `, ${widthExpr}, ${heightExpr}, ${centerXExpr}, ${centerYExpr}, ${scaleExpr}, ${rotationExpr}, ${smoothnessExpr}`;
         break;
@@ -188,12 +199,12 @@ export class FieldNodes {
         // FIXED: Use 'epsilon' to match ParameterDefs, fallback to 'smoothness' for compatibility
         const smoothness = this.getParam(node, 'epsilon', this.getParam(node, 'smoothness', 0.01));
 
-        const centerXExpr = typeof centerX === 'string' ? `(${centerX})` : centerX;
-        const centerYExpr = typeof centerY === 'string' ? `(${centerY})` : centerY;
-        const sidesExpr = typeof sides === 'string' ? `(${sides})` : sides;
-        const radiusExpr = typeof radius === 'string' ? `(${radius})` : radius;
-        const rotationExpr = typeof rotation === 'string' ? `(${rotation})` : rotation;
-        const smoothnessExpr = typeof smoothness === 'string' ? `(${smoothness})` : smoothness;
+        const centerXExpr = this._coerceScalarParam(centerX);
+        const centerYExpr = this._coerceScalarParam(centerY);
+        const sidesExpr = this._coerceScalarParam(sides);
+        const radiusExpr = this._coerceScalarParam(radius);
+        const rotationExpr = this._coerceScalarParam(rotation);
+        const smoothnessExpr = this._coerceScalarParam(smoothness);
 
         paramExprs = `, ${centerXExpr}, ${centerYExpr}, ${sidesExpr}, ${radiusExpr}, ${rotationExpr}, ${smoothnessExpr}`;
         break;
