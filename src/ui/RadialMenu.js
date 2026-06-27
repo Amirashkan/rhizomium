@@ -1,6 +1,30 @@
 // src/ui/RadialMenu.js
 import { makeNode, NodeDefs } from "../data/NodeDefs.js";
 
+// Category glyphs for the radial "Add Node" menu. Monoline set on a 24x24 grid,
+// 1.6px stroke, single-color (currentColor) so each segment tints its own icon.
+// Source of truth: src/assets/category-icons.svg. Referenced by <use href="#icon-<category>">.
+const CATEGORY_ICON_SYMBOLS = `
+  <symbol id="icon-transform" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><path d="M9.5 5.5 12 3l2.5 2.5M9.5 18.5 12 21l2.5-2.5M5.5 9.5 3 12l2.5 2.5M18.5 9.5 21 12l-2.5 2.5"/></g></symbol>
+  <symbol id="icon-input" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4v16"/><path d="M4 12h10"/><path d="M10 8l4 4-4 4"/></g></symbol>
+  <symbol id="icon-output" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M10 12h11"/><path d="M17 8l4 4-4 4"/></g></symbol>
+  <symbol id="icon-texture" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h7v7H5z" fill="currentColor" stroke="none"/><path d="M12 12h7v7h-7z" fill="currentColor" stroke="none"/><rect x="5" y="5" width="14" height="14" rx="1"/><path d="M12 5v14M5 12h14"/></g></symbol>
+  <symbol id="icon-blend" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/></g></symbol>
+  <symbol id="icon-math" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v4M6 8h4"/><path d="M14 8h4"/><path d="M6.4 14.4l3.2 3.2M9.6 14.4l-3.2 3.2"/><path d="M14 16h4"/><circle cx="16" cy="14.2" r="0.7" fill="currentColor" stroke="none"/><circle cx="16" cy="17.8" r="0.7" fill="currentColor" stroke="none"/></g></symbol>
+  <symbol id="icon-utility" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></g></symbol>
+  <symbol id="icon-vector" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="19" r="1.3" fill="currentColor" stroke="none"/><path d="M5 19 17 7"/><path d="M11 7h6v6"/></g></symbol>
+  <symbol id="icon-simulation" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(30 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-30 12 12)"/></g></symbol>
+  <symbol id="icon-generators" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/></g></symbol>
+  <symbol id="icon-effects" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5c.5 4.5 1 5 5.5 5.5-4.5.5-5 1-5.5 5.5-.5-4.5-1-5-5.5-5.5 4.5-.5 5-1 5.5-5.5z" transform="translate(0 1)"/><path d="M18.7 4.5c.2 1.7.4 1.9 2.1 2.1-1.7.2-1.9.4-2.1 2.1-.2-1.7-.4-1.9-2.1-2.1 1.7-.2 1.9-.4 2.1-2.1z"/></g></symbol>
+  <symbol id="icon-modifiers" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r="2.2" fill="currentColor" stroke="none"/></g></symbol>
+`;
+
+// Categories that have a glyph in CATEGORY_ICON_SYMBOLS (icon id = `icon-${name.toLowerCase()}`).
+const CATEGORY_ICON_IDS = new Set([
+  "transform", "input", "output", "texture", "blend", "math",
+  "utility", "vector", "simulation", "generators", "effects", "modifiers",
+]);
+
 export class RadialMenu {
   constructor(graph, onChange) {
     this.graph = graph;
@@ -389,6 +413,9 @@ export class RadialMenu {
     });
     defs.appendChild(pressedGrad);
 
+    // Category glyph sprite — <symbol> defs referenced by <use> in _renderCategories.
+    defs.insertAdjacentHTML("beforeend", CATEGORY_ICON_SYMBOLS);
+
     this.svg.appendChild(defs);
   }
 
@@ -648,8 +675,42 @@ export class RadialMenu {
 
       const labelAngle = startAngle + angleStep / 2;
       const labelRadius = (30 + this.radius - 3) / 2;
-      const labelX = centerX + Math.cos(labelAngle) * labelRadius;
-      const labelY = centerY + Math.sin(labelAngle) * labelRadius;
+      const hasIcon = CATEGORY_ICON_IDS.has(category.name.toLowerCase());
+
+      // When an icon is present, stack it inside the segment with the name just
+      // outward of it; otherwise keep the label centered as before.
+      if (hasIcon) {
+        const iconSize = 20;
+        const iconRadius = labelRadius - 11;
+        const iconX = centerX + Math.cos(labelAngle) * iconRadius;
+        const iconY = centerY + Math.sin(labelAngle) * iconRadius;
+
+        const icon = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "use",
+        );
+        const iconHref = `#icon-${category.name.toLowerCase()}`;
+        icon.setAttribute("href", iconHref);
+        icon.setAttributeNS(
+          "http://www.w3.org/1999/xlink",
+          "href",
+          iconHref,
+        );
+        icon.setAttribute("x", iconX - iconSize / 2);
+        icon.setAttribute("y", iconY - iconSize / 2);
+        icon.setAttribute("width", iconSize);
+        icon.setAttribute("height", iconSize);
+        // currentColor on the glyph — white reads cleanly on the dark menu,
+        // brightened to pure white when the segment is selected/expanded.
+        icon.style.color =
+          isExpanded || isSelected ? "#ffffff" : "#e6e6e6";
+        icon.style.pointerEvents = "none";
+        this.svg.appendChild(icon);
+      }
+
+      const textRadius = hasIcon ? labelRadius + 9 : labelRadius;
+      const labelX = centerX + Math.cos(labelAngle) * textRadius;
+      const labelY = centerY + Math.sin(labelAngle) * textRadius;
 
       const label = document.createElementNS(
         "http://www.w3.org/2000/svg",
@@ -663,7 +724,7 @@ export class RadialMenu {
         "fill",
         isExpanded ? "#ffffff" : isSelected ? "#ffffff" : "#c0c0c0",
       );
-      label.setAttribute("font-size", "12");
+      label.setAttribute("font-size", hasIcon ? "10" : "12");
       label.setAttribute("font-weight", "600");
       label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
       label.style.pointerEvents = "none";
@@ -890,6 +951,7 @@ export class RadialMenu {
   _getCategoryColor(categoryName) {
     return (
       {
+        Transform: "#0f766e",
         Input: "#1e40af",
         Output: "#92400e",
         Math: "#991b1b",
@@ -908,6 +970,7 @@ export class RadialMenu {
   _getSubmenuBgColor(categoryName) {
     return (
       {
+        Transform: "#134e4a",
         Input: "#1e3a8a",
         Output: "#78350f",
         Math: "#7f1d1d",
@@ -926,6 +989,7 @@ export class RadialMenu {
   _getSubmenuHoverColor(categoryName) {
     return (
       {
+        Transform: "#0d9488",
         Input: "#2563eb",
         Output: "#a16207",
         Math: "#b91c1c",

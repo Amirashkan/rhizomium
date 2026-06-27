@@ -99,8 +99,10 @@ export class MenuManager {
       categories.get(cat).push({ kind, label: def.label || kind });
     }
 
-    // Convert to array format expected by RadialMenu
-    const orderedCategories = [
+    // Convert to array format expected by RadialMenu.
+    // primaryOrder matches the category-icon set's wheel order (Transform first).
+    const primaryOrder = [
+      "Transform",
       "Input",
       "Output",
       "Math",
@@ -112,9 +114,10 @@ export class MenuManager {
       "Utility",
       "Blend",
       "Texture",
-      ...Array.from(categories.keys()).filter(
-        (c) => !["Input", "Output", "Math", "Vector", "Generators", "Modifiers", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
-      ),
+    ];
+    const orderedCategories = [
+      ...primaryOrder,
+      ...Array.from(categories.keys()).filter((c) => !primaryOrder.includes(c)),
     ];
 
     return orderedCategories
