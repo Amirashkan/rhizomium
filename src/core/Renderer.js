@@ -536,6 +536,12 @@ export class Renderer {
     if (!node.w) node.w = 120; // Default width
     if (!node.h) node.h = 80; // Default height
 
+    // Grow the box so every pin fits inside it. Pins are laid out from y+32 at 18px
+    // spacing (see _getNodePinPositions), so a node with many inputs/outputs (e.g. the
+    // 4-output Resolution node) would otherwise have pins spilling past the bottom edge.
+    const minHeight = this._minNodeHeight(node);
+    if (node.h < minHeight) node.h = minHeight;
+
     // PERFORMANCE: Use solid color instead of gradient for better performance
     // Gradients are expensive to create and render. Solid color looks almost identical.
     ctx.fillStyle = "#252525"; // Use middle gradient color
@@ -1080,6 +1086,19 @@ export class Renderer {
   }
 
   // Helper methods
+  // Minimum node height that keeps all pins inside the box. Mirrors the pin layout in
+  // _getNodePinPositions: the first pin sits at y+32, each subsequent pin 18px lower, plus
+  // a bottom margin below the last one. Driven by whichever side (inputs or outputs) has more pins.
+  _minNodeHeight(node) {
+    const PIN_TOP = 32;     // y offset of the first pin
+    const PIN_SPACING = 18; // vertical gap between pins
+    const BOTTOM_MARGIN = 16;
+    const inCount = NodeDefs[node.kind]?.inputs || 0;
+    const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
+    const pinCount = Math.max(inCount, outCount);
+    return PIN_TOP + Math.max(0, pinCount - 1) * PIN_SPACING + BOTTOM_MARGIN;
+  }
+
   _getNodePinPositions(node) {
     // PERFORMANCE: Cache pin positions per frame - they only change when node position changes
     // This prevents recalculating pin positions multiple times per frame for the same node
