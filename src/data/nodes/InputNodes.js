@@ -100,7 +100,11 @@ export const InputNodes = {
       { label: "height", type: "f32" },
       { label: "aspect", type: "f32" },
     ],
-    params: [],
+    // Preview: the render canvas size (live g.resolution, as before).
+    // Display: the monitor's actual native resolution, baked at compile time.
+    params: [
+      { name: "mode", type: "select", options: ["Preview", "Display"], default: "Preview", label: "Mode" }
+    ],
   },
 
   Pi: {

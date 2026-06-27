@@ -1,4 +1,5 @@
 // src/core/preview/NodeValueComputer.js
+import { getResolutionForNode } from '../../utils/resolutionMode.js';
 
 export class NodeValueComputer {
   constructor(editor) {
@@ -125,12 +126,10 @@ case "checkerfield": {
           break;
 
         case "resolution": {
-          // Live render dimensions, mirroring g.resolution written by the GPU
-          // renderer each frame (canvas.width/height). Base value is the vec2.
-          const rc = (typeof window !== "undefined" && window.gpuRenderer?.canvas) || null;
-          const w = Math.max(1, (rc && rc.width) || 1);
-          const h = Math.max(1, (rc && rc.height) || 1);
-          result = [w, h];
+          // Base value is the [width, height] vec2. The source honors the node's mode param:
+          // Preview = render canvas size (g.resolution), Display = monitor native resolution.
+          const { width, height } = getResolutionForNode(node);
+          result = [width, height];
           break;
         }
 

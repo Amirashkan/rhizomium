@@ -24,4 +24,14 @@ describe('NodeValueComputer resolves the Resolution node to live canvas dimensio
     expect(computer.computeNodeValue({ id: 'r2', kind: 'Resolution', params: {} }))
       .toEqual([1, 1]);
   });
+
+  it('returns the monitor native resolution in Display mode', () => {
+    globalThis.window = {
+      gpuRenderer: { canvas: { width: 800, height: 600 } }, // preview size, should be ignored
+      devicePixelRatio: 2,
+      screen: { width: 1920, height: 1080 },
+    };
+    expect(computer.computeNodeValue({ id: 'r3', kind: 'Resolution', params: { mode: 'Display' } }))
+      .toEqual([3840, 2160]);
+  });
 });

@@ -1,6 +1,7 @@
 // src/codegen/compilers/InputNodes.js
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { buildScalarRefMapping } from '../processors/scalarRef.js';
+import { isDisplayMode, getDisplayResolution } from '../../utils/resolutionMode.js';
 
 export class InputNodes {
   constructor() {
@@ -144,12 +145,21 @@ export class InputNodes {
           outputType: "vec4"
         };
         
-      case 'Resolution':
-        // Matches the node's declared pins: res (vec2), width, height, aspect.
-        // Each pin needs its own expression so downstream f32 consumers get the
-        // real width/height/aspect instead of a vec2->f32 average of g.resolution.
+      case 'Resolution': {
+        // Two modes (see the node's `mode` param):
+        //   Preview - the live render canvas size from g.resolution (default).
+        //   Display - the monitor's actual native resolution, baked as a constant
+        //             at compile time (it doesn't change frame-to-frame).
+        // Either way the node's declared pins are res (vec2), width, height, aspect, and
+        // each gets its own expression so downstream f32 consumers get the real component
+        // instead of a vec2->f32 average.
+        let source = 'g.resolution';
+        if (isDisplayMode(node)) {
+          const { width, height } = getDisplayResolution();
+          source = `vec2<f32>(${width}.0, ${height}.0)`;
+        }
         return {
-          line: `let node_${nodeId} = g.resolution;`,
+          line: `let node_${nodeId} = ${source};`,
           outputType: "vec2",
           outputPins: [
             { expression: `node_${nodeId}`, type: "vec2" },                    // res
@@ -158,6 +168,7 @@ export class InputNodes {
             { expression: `(node_${nodeId}.x / node_${nodeId}.y)`, type: "f32" }, // aspect
           ]
         };
+      }
         
       case 'Pi':
         return {

@@ -7,7 +7,7 @@
 // Fix: InputNodes Resolution codegen returns explicit outputPins for all four
 // outputs so each pin resolves to its own live g.resolution component.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { InputNodes } from '../src/codegen/compilers/InputNodes.js';
 
 describe('Resolution node emits a pin per declared output', () => {
@@ -15,7 +15,7 @@ describe('Resolution node emits a pin per declared output', () => {
   const node = { id: '12', kind: 'Resolution', params: {} };
   const result = compiler.compile(node, () => null, () => '0.0');
 
-  it('assigns the whole g.resolution vec2 to the node variable', () => {
+  it('assigns the whole g.resolution vec2 to the node variable (Preview is the default)', () => {
     expect(result.line).toBe('let node_12 = g.resolution;');
     expect(result.outputType).toBe('vec2');
   });
@@ -27,5 +27,29 @@ describe('Resolution node emits a pin per declared output', () => {
       { expression: 'node_12.y', type: 'f32' },
       { expression: '(node_12.x / node_12.y)', type: 'f32' },
     ]);
+  });
+});
+
+describe('Resolution node Display mode bakes the monitor resolution as a constant', () => {
+  const compiler = new InputNodes();
+
+  afterEach(() => {
+    delete globalThis.window;
+  });
+
+  it('emits a vec2 literal of screen size * devicePixelRatio instead of g.resolution', () => {
+    globalThis.window = { devicePixelRatio: 2, screen: { width: 1280, height: 720 } };
+    const node = { id: '7', kind: 'Resolution', params: { mode: 'Display' } };
+    const result = compiler.compile(node, () => null, () => '0.0');
+    expect(result.line).toBe('let node_7 = vec2<f32>(2560.0, 1440.0);');
+    // Pins still resolve to components of the baked constant.
+    expect(result.outputPins[1]).toEqual({ expression: 'node_7.x', type: 'f32' });
+  });
+
+  it('still uses g.resolution when mode is explicitly Preview', () => {
+    globalThis.window = { devicePixelRatio: 2, screen: { width: 1280, height: 720 } };
+    const node = { id: '8', kind: 'Resolution', params: { mode: 'Preview' } };
+    const result = compiler.compile(node, () => null, () => '0.0');
+    expect(result.line).toBe('let node_8 = g.resolution;');
   });
 });
