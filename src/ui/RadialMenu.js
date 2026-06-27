@@ -1,6 +1,30 @@
 // src/ui/RadialMenu.js
 import { makeNode, NodeDefs } from "../data/NodeDefs.js";
 
+// Category glyphs for the radial "Add Node" menu. Monoline set on a 24x24 grid,
+// 1.6px stroke, single-color (currentColor) so each segment tints its own icon.
+// Source of truth: src/assets/category-icons.svg. Referenced by <use href="#icon-<category>">.
+const CATEGORY_ICON_SYMBOLS = `
+  <symbol id="icon-transform" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><path d="M9.5 5.5 12 3l2.5 2.5M9.5 18.5 12 21l2.5-2.5M5.5 9.5 3 12l2.5 2.5M18.5 9.5 21 12l-2.5 2.5"/></g></symbol>
+  <symbol id="icon-input" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4v16"/><path d="M4 12h10"/><path d="M10 8l4 4-4 4"/></g></symbol>
+  <symbol id="icon-output" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M10 12h11"/><path d="M17 8l4 4-4 4"/></g></symbol>
+  <symbol id="icon-texture" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h7v7H5z" fill="currentColor" stroke="none"/><path d="M12 12h7v7h-7z" fill="currentColor" stroke="none"/><rect x="5" y="5" width="14" height="14" rx="1"/><path d="M12 5v14M5 12h14"/></g></symbol>
+  <symbol id="icon-blend" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/></g></symbol>
+  <symbol id="icon-math" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v4M6 8h4"/><path d="M14 8h4"/><path d="M6.4 14.4l3.2 3.2M9.6 14.4l-3.2 3.2"/><path d="M14 16h4"/><circle cx="16" cy="14.2" r="0.7" fill="currentColor" stroke="none"/><circle cx="16" cy="17.8" r="0.7" fill="currentColor" stroke="none"/></g></symbol>
+  <symbol id="icon-utility" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></g></symbol>
+  <symbol id="icon-vector" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="19" r="1.3" fill="currentColor" stroke="none"/><path d="M5 19 17 7"/><path d="M11 7h6v6"/></g></symbol>
+  <symbol id="icon-simulation" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(30 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-30 12 12)"/></g></symbol>
+  <symbol id="icon-generators" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/></g></symbol>
+  <symbol id="icon-effects" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5c.5 4.5 1 5 5.5 5.5-4.5.5-5 1-5.5 5.5-.5-4.5-1-5-5.5-5.5 4.5-.5 5-1 5.5-5.5z" transform="translate(0 1)"/><path d="M18.7 4.5c.2 1.7.4 1.9 2.1 2.1-1.7.2-1.9.4-2.1 2.1-.2-1.7-.4-1.9-2.1-2.1 1.7-.2 1.9-.4 2.1-2.1z"/></g></symbol>
+  <symbol id="icon-modifiers" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="8" cy="17" r="2.2" fill="currentColor" stroke="none"/></g></symbol>
+`;
+
+// Categories that have a glyph in CATEGORY_ICON_SYMBOLS (icon id = `icon-${name.toLowerCase()}`).
+const CATEGORY_ICON_IDS = new Set([
+  "transform", "input", "output", "texture", "blend", "math",
+  "utility", "vector", "simulation", "generators", "effects", "modifiers",
+]);
+
 export class RadialMenu {
   constructor(graph, onChange) {
     this.graph = graph;
@@ -8,8 +32,9 @@ export class RadialMenu {
     this.element = null;
     this.centerX = 0;
     this.centerY = 0;
-    this.radius = 80;
-    this.expandedRadius = 180;
+    this.radius = 112;
+    this.innerRadius = 52;
+    this.expandedRadius = 210;
     this.isVisible = false;
     this.expandedCategory = null;
     this.scrollOffsets = new Map();
@@ -389,6 +414,9 @@ export class RadialMenu {
     });
     defs.appendChild(pressedGrad);
 
+    // Category glyph sprite — <symbol> defs referenced by <use> in _renderCategories.
+    defs.insertAdjacentHTML("beforeend", CATEGORY_ICON_SYMBOLS);
+
     this.svg.appendChild(defs);
   }
 
@@ -406,11 +434,15 @@ export class RadialMenu {
     );
     centerCircle.setAttribute("cx", centerX);
     centerCircle.setAttribute("cy", centerY);
-    centerCircle.setAttribute("r", "15");
+    centerCircle.setAttribute("r", this.innerRadius - 6);
     centerCircle.setAttribute("fill", "url(#centerGrad)");
     centerCircle.setAttribute("stroke", "rgba(255,255,255,0.1)");
     centerCircle.setAttribute("stroke-width", "2");
     this.svg.appendChild(centerCircle);
+
+    if (!this.showingSearch) {
+      this._renderCenterReadout(centerX, centerY);
+    }
 
     if (!this.showingSearch && !this.expandedCategory) {
       this._renderHelpBox(centerX, centerY);
@@ -427,8 +459,67 @@ export class RadialMenu {
     }
   }
 
+  _renderCenterReadout(centerX, centerY) {
+    // The hub shows the active category's name. It reflects the expanded
+    // category, else the keyboard-selected one, else a neutral prompt — and
+    // updates live as the pointer hovers segments (see _renderCategories).
+    let defaultName = "ADD NODE";
+    if (this.expandedCategory) {
+      defaultName = this.expandedCategory;
+    } else if (
+      this.selectedCategoryIndex >= 0 &&
+      this.categories[this.selectedCategoryIndex]
+    ) {
+      defaultName = this.categories[this.selectedCategoryIndex].name;
+    }
+    this._centerDefaultName = defaultName;
+
+    const name = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    name.setAttribute("x", centerX);
+    name.setAttribute("y", centerY - 2);
+    name.setAttribute("text-anchor", "middle");
+    name.setAttribute("dominant-baseline", "central");
+    name.setAttribute("fill", "#ffffff");
+    name.setAttribute("font-size", "15");
+    name.setAttribute("font-weight", "700");
+    name.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    name.style.pointerEvents = "none";
+    name.textContent = defaultName;
+    this.svg.appendChild(name);
+    this._centerLabelEl = name;
+
+    const caption = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    caption.setAttribute("x", centerX);
+    caption.setAttribute("y", centerY + 14);
+    caption.setAttribute("text-anchor", "middle");
+    caption.setAttribute("dominant-baseline", "central");
+    caption.setAttribute("fill", "#7d838f");
+    caption.setAttribute("font-size", "8");
+    caption.setAttribute("font-weight", "500");
+    caption.setAttribute("letter-spacing", "0.16em");
+    caption.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    caption.style.pointerEvents = "none";
+    caption.textContent = this.expandedCategory ? "SELECT NODE" : "CATEGORY";
+    this.svg.appendChild(caption);
+    this._centerCaptionEl = caption;
+  }
+
+  // Update the hub readout to a hovered category name (transient — the next
+  // _renderMenu restores the default from selection/expansion state).
+  _setCenterReadout(name) {
+    if (this._centerLabelEl) {
+      this._centerLabelEl.textContent = name ?? this._centerDefaultName;
+    }
+  }
+
   _renderHelpBox(centerX, centerY) {
-    const boxY = centerY - 110;
+    const boxY = centerY - this.radius - 42;
 
     const helpBg = document.createElementNS(
       "http://www.w3.org/2000/svg",
@@ -617,7 +708,7 @@ export class RadialMenu {
       const segment = this._createSegmentPath(
         centerX,
         centerY,
-        30,
+        this.innerRadius,
         this.radius - 3,
         startAngle,
         endAngle,
@@ -644,31 +735,60 @@ export class RadialMenu {
         this._renderMenu();
       });
 
+      // Surface the category name in the hub readout while hovering.
+      segment.addEventListener("mouseenter", () =>
+        this._setCenterReadout(category.name),
+      );
+      segment.addEventListener("mouseleave", () => this._setCenterReadout(null));
+
       this.svg.appendChild(segment);
 
       const labelAngle = startAngle + angleStep / 2;
-      const labelRadius = (30 + this.radius - 3) / 2;
-      const labelX = centerX + Math.cos(labelAngle) * labelRadius;
-      const labelY = centerY + Math.sin(labelAngle) * labelRadius;
+      const glyphRadius = (this.innerRadius + this.radius - 3) / 2;
+      const glyphX = centerX + Math.cos(labelAngle) * glyphRadius;
+      const glyphY = centerY + Math.sin(labelAngle) * glyphRadius;
+      const hasIcon = CATEGORY_ICON_IDS.has(category.name.toLowerCase());
 
-      const label = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text",
-      );
-      label.setAttribute("x", labelX);
-      label.setAttribute("y", labelY);
-      label.setAttribute("text-anchor", "middle");
-      label.setAttribute("dominant-baseline", "central");
-      label.setAttribute(
-        "fill",
-        isExpanded ? "#ffffff" : isSelected ? "#ffffff" : "#c0c0c0",
-      );
-      label.setAttribute("font-size", "12");
-      label.setAttribute("font-weight", "600");
-      label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
-      label.style.pointerEvents = "none";
-      label.textContent = category.name;
-      this.svg.appendChild(label);
+      if (hasIcon) {
+        // Icon-forward: a centered glyph is the segment's affordance; the name
+        // lives in the hub readout. currentColor tints it — white, brightened
+        // when the segment is selected/expanded.
+        const iconSize = 26;
+        const icon = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "use",
+        );
+        const iconHref = `#icon-${category.name.toLowerCase()}`;
+        icon.setAttribute("href", iconHref);
+        icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", iconHref);
+        icon.setAttribute("x", glyphX - iconSize / 2);
+        icon.setAttribute("y", glyphY - iconSize / 2);
+        icon.setAttribute("width", iconSize);
+        icon.setAttribute("height", iconSize);
+        icon.style.color = isExpanded || isSelected ? "#ffffff" : "#e6e6e6";
+        icon.style.pointerEvents = "none";
+        this.svg.appendChild(icon);
+      } else {
+        // No glyph for this category (e.g. Compute) — fall back to a label.
+        const label = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "text",
+        );
+        label.setAttribute("x", glyphX);
+        label.setAttribute("y", glyphY);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("dominant-baseline", "central");
+        label.setAttribute(
+          "fill",
+          isExpanded || isSelected ? "#ffffff" : "#c0c0c0",
+        );
+        label.setAttribute("font-size", "11");
+        label.setAttribute("font-weight", "600");
+        label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+        label.style.pointerEvents = "none";
+        label.textContent = category.name;
+        this.svg.appendChild(label);
+      }
     });
   }
 
@@ -890,6 +1010,7 @@ export class RadialMenu {
   _getCategoryColor(categoryName) {
     return (
       {
+        Transform: "#0f766e",
         Input: "#1e40af",
         Output: "#92400e",
         Math: "#991b1b",
@@ -908,6 +1029,7 @@ export class RadialMenu {
   _getSubmenuBgColor(categoryName) {
     return (
       {
+        Transform: "#134e4a",
         Input: "#1e3a8a",
         Output: "#78350f",
         Math: "#7f1d1d",
@@ -926,6 +1048,7 @@ export class RadialMenu {
   _getSubmenuHoverColor(categoryName) {
     return (
       {
+        Transform: "#0d9488",
         Input: "#2563eb",
         Output: "#a16207",
         Math: "#b91c1c",
