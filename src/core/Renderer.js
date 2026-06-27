@@ -732,20 +732,36 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
-    // Clip to the band so the (square) thumbnail content fills it without spilling past the corners.
+    // Clip to the band so the thumbnail content can't spill past the rounded corners.
     ctx.save();
     ctx.beginPath();
     ctx.roundRect(thumbX, thumbY, thumbW, thumbH, 4);
     ctx.clip();
 
+    // Fill the band black first so any area the (aspect-preserved) thumbnail doesn't cover shows as
+    // a clean letterbox/pillarbox instead of a stretched image.
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(thumbX, thumbY, thumbW, thumbH);
+
     // Enable smooth scaling for high-quality thumbnails
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
+    // Fit the source into the band preserving its aspect ratio ("contain"): scale by the smaller of
+    // the two axis ratios and centre, so a square render in a landscape band gets side bars (and a
+    // wide render gets top/bottom bars) rather than being distorted.
+    const srcW = node.__thumb.width || thumbW;
+    const srcH = node.__thumb.height || thumbH;
+    const fit = Math.min(thumbW / srcW, thumbH / srcH);
+    const dw = srcW * fit;
+    const dh = srcH * fit;
+    const dx = thumbX + (thumbW - dw) / 2;
+    const dy = thumbY + (thumbH - dh) / 2;
+
     // Handle both ImageData and Canvas thumbnails
     if (node.__thumb instanceof HTMLCanvasElement) {
       // Draw thumbnail with better quality
-      ctx.drawImage(node.__thumb, thumbX, thumbY, thumbW, thumbH);
+      ctx.drawImage(node.__thumb, dx, dy, dw, dh);
     } else if (node.__thumb instanceof ImageData) {
       // PERFORMANCE: Cache temporary canvases per node to avoid recreating every frame
       // putImageData is blocking, but we cache the canvas to at least avoid canvas creation overhead
@@ -766,7 +782,7 @@ export class Renderer {
       tempCtx.imageSmoothingQuality = "high";
       tempCtx.putImageData(node.__thumb, 0, 0);
       getPerfProbe().count("thumbPutImageData");
-      ctx.drawImage(tempCanvas, thumbX, thumbY, thumbW, thumbH);
+      ctx.drawImage(tempCanvas, dx, dy, dw, dh);
     }
     ctx.restore(); // drop the band clip
 
