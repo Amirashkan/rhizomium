@@ -595,11 +595,12 @@ export class Renderer {
     // Render preview controls
     this._renderPreviewControls(node);
 
-    // Draw node ID (for referencing in expressions) - AFTER thumbnail so it's visible
+    // Draw node ID (for referencing in expressions) at the bottom-right — the title-bar top-right
+    // is now occupied by the control buttons. AFTER the thumbnail so it stays visible.
     // PERFORMANCE: Use cached font string
     ctx.fillStyle = "#888";
     ctx.font = this._cachedFonts.nodeId;
-    ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + 16);
+    ctx.fillText(`#${node.id}`, node.x + node.w - ctx.measureText(`#${node.id}`).width - 6, node.y + node.h - 6);
 
     // Render pins with enhanced styling
     this._renderNodePins(node);
@@ -633,7 +634,8 @@ export class Renderer {
     if (!editor || !editor.shouldShowPreview(node)) return;
 
     const ctx = this.ctx;
-    const controlY = node.y + 50;
+    // In the title bar (top-right), so the controls never sit on top of the thumbnail or pins.
+    const controlY = node.y + 14;
     const buttonWidth = 12;
     const buttonHeight = 10;
 
@@ -709,19 +711,11 @@ export class Renderer {
     const thumbSize = editor.getPreviewSize(node.id);
     const padding = 6;
 
-    // Smart positioning based on thumbnail size
-    let thumbX, thumbY;
-
-    if (thumbSize <= 96) {
-      // Small/Medium: Traditional positioning
-      thumbX = node.x + node.w - thumbSize - padding;
-      thumbY = node.y + padding;
-    } else {
-      // Large: Position below node title, indented past the input-pin column so it doesn't
-      // cover the pins (mirrors _thumbnailExtent, which grows the box to fit this inset).
-      thumbX = node.x + padding + this._thumbInset(node);
-      thumbY = node.y + 25; // Below title
-    }
+    // Every size sits below the title bar (reserved for the label, controls and id) and is
+    // indented past the input-pin column so it doesn't cover the pins. The right edge is left
+    // free for the output pins and their value tags (mirrors _thumbnailExtent).
+    const thumbX = node.x + padding + this._thumbInset(node);
+    const thumbY = node.y + 25; // Below title bar
 
     ctx.save();
 
@@ -1051,19 +1045,25 @@ export class Renderer {
     ctx.font = this._cachedFonts.pinLabel;
     const textWidth = ctx.measureText(labelText).width + 8;
 
+    // Place the value tag just INSIDE the node, ending a few px left of the output pin. Previously
+    // it floated outside the right edge, where it overlapped the outgoing wire and ran off the node;
+    // inside-and-right-aligned keeps each value visually attached to its pin and clear of the wire.
+    const boxX = pinPos.x - 6 - textWidth;
+
     // PERFORMANCE: Use solid color instead of gradient for better performance
     ctx.fillStyle = "rgba(20, 20, 25, 0.95)";
     ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(pinPos.x + 8, pinPos.y - 8, textWidth, 12, 3);
+    ctx.roundRect(boxX, pinPos.y - 8, textWidth, 12, 3);
     ctx.fill();
     ctx.stroke();
 
     // Label text with better color based on pin type
     const textColor = this._getWireColor(pinType);
     ctx.fillStyle = textColor;
-    ctx.fillText(labelText, pinPos.x + 12, pinPos.y + 2);
+    ctx.textAlign = "right";
+    ctx.fillText(labelText, pinPos.x - 10, pinPos.y + 2);
     ctx.restore();
   }
 
@@ -1119,19 +1119,15 @@ export class Renderer {
   }
 
   // Node-relative width/height the preview thumbnail needs so it stays inside the box.
-  // Mirrors _renderNodeThumbnail's placement: small/medium (<=96) sit top-right with `padding`
-  // on each side; large (>96) sits below the title (y+25), indented past the input pins. Returns
-  // {0,0} when the node has no thumbnail so non-preview nodes keep their default size.
+  // Mirrors _renderNodeThumbnail's placement: every size sits below the title bar (y+25),
+  // indented past the input pins. Returns {0,0} when the node has no thumbnail so non-preview
+  // nodes keep their default size.
   _thumbnailExtent(node) {
     const editor = window.editor;
     if (!node.__thumb || !editor?.getPreviewSize) return { width: 0, height: 0 };
     const thumbSize = editor.getPreviewSize(node.id);
     const padding = 6;
-    if (thumbSize <= 96) {
-      // Top-right: padding above and below, padding on each horizontal side.
-      return { width: thumbSize + padding * 2, height: thumbSize + padding * 2 };
-    }
-    // Large: below the title bar, indented past the input pins, with a bottom margin.
+    // Below the title bar, indented past the input pins, with a bottom margin. Same for every size.
     return {
       width: padding + this._thumbInset(node) + thumbSize + padding,
       height: 25 + thumbSize + padding,

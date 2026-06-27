@@ -37,11 +37,11 @@ describe('_thumbnailExtent sizes the box to contain the S/M/L preview', () => {
     expect(renderer._thumbnailExtent({ id: '1', kind: 'Add' })).toEqual({ width: 0, height: 0 });
   });
 
-  it('contains a medium (96) top-right thumbnail with padding on every side', () => {
+  it('contains a medium (96) thumbnail below the title bar', () => {
     withPreviewSize(96);
-    // 96 + 6*2 padding = 108 each way. The old fixed 80px box would clip the bottom.
+    // Below the title: height = 25 + 96 + 6 = 127; Add has inputs -> width = 6 + 16 + 96 + 6 = 124.
     expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
-      .toEqual({ width: 108, height: 108 });
+      .toEqual({ width: 124, height: 127 });
   });
 
   it('contains a large (128) thumbnail below the title, no inset for an input-less node', () => {
@@ -51,7 +51,7 @@ describe('_thumbnailExtent sizes the box to contain the S/M/L preview', () => {
       .toEqual({ width: 140, height: 159 });
   });
 
-  it('indents a large thumbnail past the input-pin column on nodes with inputs', () => {
+  it('indents the thumbnail past the input-pin column on nodes with inputs', () => {
     withPreviewSize(128);
     // Add has inputs -> 16px inset so the thumbnail clears the pins. width = 6 + 16 + 128 + 6 = 156.
     expect(renderer._thumbInset({ kind: 'Add' })).toBe(16);
