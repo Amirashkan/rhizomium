@@ -23,7 +23,9 @@ function makeStub(overrides = {}) {
     _promptForName: P._promptForName,
     saveProject: P.saveProject,
     saveProjectAs: P.saveProjectAs,
+    _saveProjectAs: P._saveProjectAs,
     getProjectName: P.getProjectName,
+    _saveInProgress: false,
     ...overrides,
   };
 }
@@ -64,40 +66,56 @@ describe('SaveLoadManager.saveProject routing', () => {
       currentFileHandle: handle,
       hasUnsavedChanges: true,
       _writeToHandle: write,
-      saveProjectAs: vi.fn(),
+      _saveProjectAs: vi.fn(),
     });
 
     const ok = await P.saveProject.call(stub);
 
     expect(ok).toBe(true);
     expect(write).toHaveBeenCalledWith(handle, expect.any(String));
-    expect(stub.saveProjectAs).not.toHaveBeenCalled();
+    expect(stub._saveProjectAs).not.toHaveBeenCalled();
     expect(stub.hasUnsavedChanges).toBe(false);
   });
 
   it('delegates to Save As when no file is bound', async () => {
-    const saveProjectAs = vi.fn().mockResolvedValue(true);
-    const stub = makeStub({ saveProjectAs });
+    const _saveProjectAs = vi.fn().mockResolvedValue(true);
+    const stub = makeStub({ _saveProjectAs });
     const ok = await P.saveProject.call(stub);
-    expect(saveProjectAs).toHaveBeenCalled();
+    expect(_saveProjectAs).toHaveBeenCalled();
     expect(ok).toBe(true);
   });
 
   it('re-prompts via Save As when the bound handle is stale', async () => {
     const err = new Error('gone');
     err.name = 'NotFoundError';
-    const saveProjectAs = vi.fn().mockResolvedValue(true);
+    const _saveProjectAs = vi.fn().mockResolvedValue(true);
     const stub = makeStub({
       supportsFileSystemAccess: true,
       currentFileHandle: { name: 'old.rz' },
       _writeToHandle: vi.fn().mockRejectedValue(err),
-      saveProjectAs,
+      _saveProjectAs,
     });
 
     await P.saveProject.call(stub);
 
     expect(stub.currentFileHandle).toBe(null);
-    expect(saveProjectAs).toHaveBeenCalled();
+    expect(_saveProjectAs).toHaveBeenCalled();
+  });
+
+  it('ignores a duplicate Save trigger while one is in progress', async () => {
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const _saveProjectAs = vi.fn().mockReturnValue(gate.then(() => true));
+    const stub = makeStub({ _saveProjectAs });
+
+    const first = P.saveProject.call(stub); // takes the lock, awaits the gate
+    const second = await P.saveProject.call(stub); // should no-op immediately
+
+    expect(second).toBe(false);
+    expect(_saveProjectAs).toHaveBeenCalledTimes(1);
+
+    release();
+    expect(await first).toBe(true);
   });
 });
 

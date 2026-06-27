@@ -1365,40 +1365,64 @@ async reinitializeWebGPU() {
   /**
    * "Save" - persist to the bound file when possible, else fall through to a
    * Save As so the user can choose a location the first time around.
+   *
+   * Guarded against re-entrancy: the Save control has more than one click
+   * handler, and a second native file picker while one is open throws
+   * "File picker already active". The first call wins; duplicates no-op.
    */
   async saveProject() {
-    if (this.supportsFileSystemAccess && this.currentFileHandle) {
-      try {
-        const content = JSON.stringify(this.exportProject(), null, 2);
-        await this._writeToHandle(this.currentFileHandle, content);
-        this.hasUnsavedChanges = false;
-        this._updateDocumentTitle();
-        this.updateStatus(`Saved ${this.currentFileHandle.name}`);
-        return true;
-      } catch (error) {
-        // A stale handle (file moved, permission revoked) should not be a dead
-        // end - drop it and let the user re-pick a destination.
-        if (
-          error &&
-          (error.name === "NotAllowedError" || error.name === "NotFoundError")
-        ) {
-          this.currentFileHandle = null;
-          return this.saveProjectAs();
+    if (this._saveInProgress) return false;
+    this._saveInProgress = true;
+    try {
+      if (this.supportsFileSystemAccess && this.currentFileHandle) {
+        try {
+          const content = JSON.stringify(this.exportProject(), null, 2);
+          await this._writeToHandle(this.currentFileHandle, content);
+          this.hasUnsavedChanges = false;
+          this._updateDocumentTitle();
+          this.updateStatus(`Saved ${this.currentFileHandle.name}`);
+          return true;
+        } catch (error) {
+          // A stale handle (file moved, permission revoked) should not be a
+          // dead end - drop it and let the user re-pick a destination.
+          if (
+            error &&
+            (error.name === "NotAllowedError" || error.name === "NotFoundError")
+          ) {
+            this.currentFileHandle = null;
+            return await this._saveProjectAs();
+          }
+          window.errorHandler?.handleError(error, { component: "project-save" });
+          this.updateStatus(`Save failed: ${error.message}`, "error");
+          return false;
         }
-        window.errorHandler?.handleError(error, { component: "project-save" });
-        this.updateStatus(`Save failed: ${error.message}`, "error");
-        return false;
       }
+      return await this._saveProjectAs();
+    } finally {
+      this._saveInProgress = false;
     }
-    return this.saveProjectAs();
   }
 
   /**
-   * "Save As" - always asks where/what to save. Uses the native picker when
-   * available (true location + name selection, remembers the file for later
-   * saves), otherwise prompts for a name and downloads.
+   * "Save As" - always asks where/what to save. Public entry point; guards
+   * against the duplicate-trigger / "File picker already active" race.
    */
   async saveProjectAs(format = "rhizomium") {
+    if (this._saveInProgress) return false;
+    this._saveInProgress = true;
+    try {
+      return await this._saveProjectAs(format);
+    } finally {
+      this._saveInProgress = false;
+    }
+  }
+
+  /**
+   * Save As implementation (no re-entrancy guard - callers hold it). Uses the
+   * native picker when available (true location + name selection, remembers the
+   * file for later saves), otherwise prompts for a name and downloads.
+   */
+  async _saveProjectAs(format = "rhizomium") {
     try {
       const content = JSON.stringify(this.exportProject(), null, 2);
 
@@ -1512,6 +1536,10 @@ async reinitializeWebGPU() {
     ) {
       return null;
     }
+    // Same re-entrancy guard as save: a duplicate trigger must not open a
+    // second picker ("File picker already active").
+    if (this._pickerInProgress) return null;
+    this._pickerInProgress = true;
     try {
       const [handle] = await window.showOpenFilePicker({
         types: [
@@ -1534,6 +1562,8 @@ async reinitializeWebGPU() {
       if (err && err.name === "AbortError") return null;
       window.errorHandler?.handleError(err, { component: "project-open-pick" });
       return null;
+    } finally {
+      this._pickerInProgress = false;
     }
   }
 
