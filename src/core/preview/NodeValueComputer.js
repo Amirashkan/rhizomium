@@ -1,4 +1,5 @@
 // src/core/preview/NodeValueComputer.js
+import { getResolutionForNode } from '../../utils/resolutionMode.js';
 
 export class NodeValueComputer {
   constructor(editor) {
@@ -15,13 +16,16 @@ export class NodeValueComputer {
     this._lastParamHashes = new Map();
   }
 
-  // Kinds whose value is derived from the wall clock (Date.now()) rather than from inputs or
-  // parameters. Their output changes every frame on its own, so they must never be cached.
+  // Kinds whose value is derived from live external state (the wall clock, cursor, or render
+  // size) rather than from inputs or parameters. Their output changes on its own — e.g. on a
+  // window resize for Resolution — so caching them would serve a stale value, and they must
+  // recompute every call.
   _isTimeDependentKind(node) {
     const kind = node?.kind?.toLowerCase();
     return kind === 'time' ||
            kind === 'randomtime' ||
            kind === 'mouse' ||
+           kind === 'resolution' ||
            kind === 'stripe' ||
            kind === 'stripefield' ||
            kind === 'checker' ||
@@ -120,6 +124,14 @@ case "checkerfield": {
         case "uv":
           result = 0.5;
           break;
+
+        case "resolution": {
+          // Base value is the [width, height] vec2. The source honors the node's mode param:
+          // Preview = render canvas size (g.resolution), Display = monitor native resolution.
+          const { width, height } = getResolutionForNode(node);
+          result = [width, height];
+          break;
+        }
 
         case "mouse": {
           // Live cursor state tracked by the GPU renderer (iMouse layout):

@@ -1,5 +1,6 @@
 // src/core/ConnectionManager.js - Fixed preview updates
 import { NodeDefs } from "../data/NodeDefs.js";
+import { pinGroupStartY, PIN_SPACING } from "./pinLayout.js";
 
 export class ConnectionManager {
   constructor(graph, onChange) {
@@ -381,21 +382,25 @@ export class ConnectionManager {
         return { ins: [], outs: [] };
       }
 
+      // Vertical positions come from the shared pin layout so hit-testing matches the renderer
+      // (pins are centered on the node — see pinLayout.js).
       const ins = [];
       const inputCount = nodeDef.inputs || 0;
+      const inStartY = pinGroupStartY(n, inputCount);
       for (let i = 0; i < inputCount; i++) {
-        ins.push({ 
-          x: (n.x || 0) + 8, 
-          y: (n.y || 0) + 32 + i * 18 
+        ins.push({
+          x: (n.x || 0) + 8,
+          y: inStartY + i * PIN_SPACING
         });
       }
 
       const outs = [];
       const outCount = (nodeDef.pinsOut || []).length || 1;
+      const outStartY = pinGroupStartY(n, outCount);
       for (let i = 0; i < outCount; i++) {
-        outs.push({ 
-          x: (n.x || 0) + (n.w || 100) - 8, 
-          y: (n.y || 0) + 32 + i * 18 
+        outs.push({
+          x: (n.x || 0) + (n.w || 100) - 8,
+          y: outStartY + i * PIN_SPACING
         });
       }
 
