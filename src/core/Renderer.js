@@ -3,6 +3,7 @@ import { NodeDefs } from "../data/NodeDefs.js";
 import { RedrawScheduler } from "./RedrawScheduler.js";
 import { getPerfProbe } from "../utils/PerfProbe.js";
 import { getResolutionForNode } from "../utils/resolutionMode.js";
+import { pinGroupStartY, PIN_TOP, PIN_SPACING, PIN_BOTTOM_MARGIN } from "./pinLayout.js";
 
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
@@ -1114,17 +1115,13 @@ export class Renderer {
   }
 
   // Helper methods
-  // Minimum node height that keeps all pins inside the box. Mirrors the pin layout in
-  // _getNodePinPositions: the first pin sits at y+32, each subsequent pin 18px lower, plus
-  // a bottom margin below the last one. Driven by whichever side (inputs or outputs) has more pins.
+  // Minimum node height that keeps all pins inside the box, using the shared pin-layout constants.
+  // Driven by whichever side (inputs or outputs) has more pins.
   _minNodeHeight(node) {
-    const PIN_TOP = 32;     // y offset of the first pin
-    const PIN_SPACING = 18; // vertical gap between pins
-    const BOTTOM_MARGIN = 16;
     const inCount = NodeDefs[node.kind]?.inputs || 0;
     const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
     const pinCount = Math.max(inCount, outCount);
-    return PIN_TOP + Math.max(0, pinCount - 1) * PIN_SPACING + BOTTOM_MARGIN;
+    return PIN_TOP + Math.max(0, pinCount - 1) * PIN_SPACING + PIN_BOTTOM_MARGIN;
   }
 
   // Horizontal indent for a large (below-title, left-placed) thumbnail so it clears the input-pin
@@ -1172,16 +1169,20 @@ export class Renderer {
       return { inputPins: cached.inputPins, outputPins: cached.outputPins };
     }
     
-    // Calculate pin positions
+    // Calculate pin positions. Each side's pins are vertically centered on the node (see pinLayout),
+    // so a single output lands at the node's middle instead of near the top.
+    const inCount = NodeDefs[node.kind]?.inputs || 0;
     const inputPins = [];
-    for (let i = 0; i < (NodeDefs[node.kind]?.inputs || 0); i++) {
-      inputPins.push({ x: node.x + 8, y: node.y + 32 + i * 18 });
+    const inStartY = pinGroupStartY(node, inCount);
+    for (let i = 0; i < inCount; i++) {
+      inputPins.push({ x: node.x + 8, y: inStartY + i * PIN_SPACING });
     }
 
-    const outputPins = [];
     const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
+    const outputPins = [];
+    const outStartY = pinGroupStartY(node, outCount);
     for (let i = 0; i < outCount; i++) {
-      outputPins.push({ x: node.x + node.w - 8, y: node.y + 32 + i * 18 });
+      outputPins.push({ x: node.x + node.w - 8, y: outStartY + i * PIN_SPACING });
     }
     
     // Cache the result (will be cleared at start of next frame)
