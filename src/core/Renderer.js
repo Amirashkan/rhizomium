@@ -534,16 +534,24 @@ export class Renderer {
 
     // Make sure nodes have proper dimensions
     if (!node.w) node.w = 120; // Default width
+    if (!node.h) node.h = 80;  // Default height
 
-    // Size the box to contain both its pins and its preview thumbnail.
+    // Size the box to contain both its pins and its preview thumbnail:
     //  - Pins are laid out from y+32 at 18px spacing (see _getNodePinPositions), so a node
     //    with many inputs/outputs (e.g. the 4-output Resolution node) needs extra height.
     //  - Bigger thumbnails (the S/M/L button) would otherwise spill past the right/bottom edges.
-    // Height is recomputed every frame so it also shrinks back when the thumbnail is made
-    // smaller; width only grows, since the default already covers normal thumbnails.
-    const thumb = this._thumbnailExtent(node);
-    node.h = Math.max(80, this._minNodeHeight(node), thumb.height);
-    if (node.w < thumb.width) node.w = thumb.width;
+    // This only depends on the pin layout (static per kind) and the current thumbnail size, so
+    // recompute it just when that size changes (what the S/M/L button does) rather than every
+    // frame. Height is fully recomputed on change so it also shrinks back when the thumbnail is
+    // made smaller; width only grows, since the default already covers normal thumbnails.
+    const editor = window.editor;
+    const thumbSize = (node.__thumb && editor?.getPreviewSize) ? editor.getPreviewSize(node.id) : 0;
+    if (node.__sizedForThumb !== thumbSize) {
+      node.__sizedForThumb = thumbSize;
+      const thumb = this._thumbnailExtent(node);
+      node.h = Math.max(80, this._minNodeHeight(node), thumb.height);
+      if (node.w < thumb.width) node.w = thumb.width;
+    }
 
     // PERFORMANCE: Use solid color instead of gradient for better performance
     // Gradients are expensive to create and render. Solid color looks almost identical.
@@ -709,8 +717,9 @@ export class Renderer {
       thumbX = node.x + node.w - thumbSize - padding;
       thumbY = node.y + padding;
     } else {
-      // Large: Position below node title to avoid overlap
-      thumbX = node.x + padding;
+      // Large: Position below node title, indented past the input-pin column so it doesn't
+      // cover the pins (mirrors _thumbnailExtent, which grows the box to fit this inset).
+      thumbX = node.x + padding + this._thumbInset(node);
       thumbY = node.y + 25; // Below title
     }
 
@@ -1102,10 +1111,17 @@ export class Renderer {
     return PIN_TOP + Math.max(0, pinCount - 1) * PIN_SPACING + BOTTOM_MARGIN;
   }
 
+  // Horizontal indent for a large (below-title, left-placed) thumbnail so it clears the input-pin
+  // column (pins sit at x+8 with ~5px radius) instead of covering it. Zero when the node has no
+  // inputs (e.g. the Resolution node). Single source of truth for both placement and sizing.
+  _thumbInset(node) {
+    return (NodeDefs[node.kind]?.inputs || 0) > 0 ? 16 : 0;
+  }
+
   // Node-relative width/height the preview thumbnail needs so it stays inside the box.
   // Mirrors _renderNodeThumbnail's placement: small/medium (<=96) sit top-right with `padding`
-  // on each side; large (>96) sits below the title (y+25) on the left. Returns {0,0} when the
-  // node has no thumbnail so non-preview nodes keep their default size.
+  // on each side; large (>96) sits below the title (y+25), indented past the input pins. Returns
+  // {0,0} when the node has no thumbnail so non-preview nodes keep their default size.
   _thumbnailExtent(node) {
     const editor = window.editor;
     if (!node.__thumb || !editor?.getPreviewSize) return { width: 0, height: 0 };
@@ -1115,8 +1131,11 @@ export class Renderer {
       // Top-right: padding above and below, padding on each horizontal side.
       return { width: thumbSize + padding * 2, height: thumbSize + padding * 2 };
     }
-    // Large: below the title bar, with a bottom margin.
-    return { width: thumbSize + padding * 2, height: 25 + thumbSize + padding };
+    // Large: below the title bar, indented past the input pins, with a bottom margin.
+    return {
+      width: padding + this._thumbInset(node) + thumbSize + padding,
+      height: 25 + thumbSize + padding,
+    };
   }
 
   _getNodePinPositions(node) {

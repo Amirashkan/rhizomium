@@ -44,10 +44,19 @@ describe('_thumbnailExtent sizes the box to contain the S/M/L preview', () => {
       .toEqual({ width: 108, height: 108 });
   });
 
-  it('contains a large (128) thumbnail placed below the title bar', () => {
+  it('contains a large (128) thumbnail below the title, no inset for an input-less node', () => {
     withPreviewSize(128);
-    // width 128 + 12 = 140; height = title(25) + 128 + 6 = 159.
-    expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
+    // Resolution has no inputs -> no inset. width = 6 + 0 + 128 + 6 = 140; height = 25 + 128 + 6 = 159.
+    expect(renderer._thumbnailExtent({ id: '1', kind: 'Resolution', __thumb: {} }))
       .toEqual({ width: 140, height: 159 });
+  });
+
+  it('indents a large thumbnail past the input-pin column on nodes with inputs', () => {
+    withPreviewSize(128);
+    // Add has inputs -> 16px inset so the thumbnail clears the pins. width = 6 + 16 + 128 + 6 = 156.
+    expect(renderer._thumbInset({ kind: 'Add' })).toBe(16);
+    expect(renderer._thumbInset({ kind: 'Resolution' })).toBe(0);
+    expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
+      .toEqual({ width: 156, height: 159 });
   });
 });
