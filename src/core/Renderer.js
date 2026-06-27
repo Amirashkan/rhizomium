@@ -1118,18 +1118,23 @@ export class Renderer {
     return (NodeDefs[node.kind]?.inputs || 0) > 0 ? 16 : 0;
   }
 
+  // Right-side column reserved for the output pins' value tags, so a big thumbnail grows the node
+  // wide enough to sit left of the tags instead of sliding under them. Covers a typical tag plus a
+  // small gap; only large thumbnails actually hit it (smaller ones fit the default width already).
+  static OUTPUT_VALUE_COLUMN = 54;
+
   // Node-relative width/height the preview thumbnail needs so it stays inside the box.
   // Mirrors _renderNodeThumbnail's placement: every size sits below the title bar (y+25),
-  // indented past the input pins. Returns {0,0} when the node has no thumbnail so non-preview
-  // nodes keep their default size.
+  // indented past the input pins, and keeps clear of the output value-tag column on the right.
+  // Returns {0,0} when the node has no thumbnail so non-preview nodes keep their default size.
   _thumbnailExtent(node) {
     const editor = window.editor;
     if (!node.__thumb || !editor?.getPreviewSize) return { width: 0, height: 0 };
     const thumbSize = editor.getPreviewSize(node.id);
     const padding = 6;
-    // Below the title bar, indented past the input pins, with a bottom margin. Same for every size.
+    const valueColumn = (NodeDefs[node.kind]?.pinsOut?.length) ? Renderer.OUTPUT_VALUE_COLUMN : padding;
     return {
-      width: padding + this._thumbInset(node) + thumbSize + padding,
+      width: padding + this._thumbInset(node) + thumbSize + valueColumn,
       height: 25 + thumbSize + padding,
     };
   }

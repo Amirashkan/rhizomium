@@ -37,26 +37,26 @@ describe('_thumbnailExtent sizes the box to contain the S/M/L preview', () => {
     expect(renderer._thumbnailExtent({ id: '1', kind: 'Add' })).toEqual({ width: 0, height: 0 });
   });
 
-  it('contains a medium (96) thumbnail below the title bar', () => {
+  it('contains a medium (96) thumbnail below the title bar, with room for the value tags', () => {
     withPreviewSize(96);
-    // Below the title: height = 25 + 96 + 6 = 127; Add has inputs -> width = 6 + 16 + 96 + 6 = 124.
+    // height = 25 + 96 + 6 = 127; width = pad(6) + inset(16, Add has inputs) + 96 + valueColumn(54) = 172.
     expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
-      .toEqual({ width: 124, height: 127 });
+      .toEqual({ width: 172, height: 127 });
   });
 
-  it('contains a large (128) thumbnail below the title, no inset for an input-less node', () => {
+  it('keeps a large (128) thumbnail clear of the value-tag column, no inset for an input-less node', () => {
     withPreviewSize(128);
-    // Resolution has no inputs -> no inset. width = 6 + 0 + 128 + 6 = 140; height = 25 + 128 + 6 = 159.
+    // Resolution has no inputs -> no inset. width = 6 + 0 + 128 + 54 = 188; height = 25 + 128 + 6 = 159.
     expect(renderer._thumbnailExtent({ id: '1', kind: 'Resolution', __thumb: {} }))
-      .toEqual({ width: 140, height: 159 });
+      .toEqual({ width: 188, height: 159 });
   });
 
   it('indents the thumbnail past the input-pin column on nodes with inputs', () => {
     withPreviewSize(128);
-    // Add has inputs -> 16px inset so the thumbnail clears the pins. width = 6 + 16 + 128 + 6 = 156.
+    // Add has inputs -> 16px inset so the thumbnail clears the pins. width = 6 + 16 + 128 + 54 = 204.
     expect(renderer._thumbInset({ kind: 'Add' })).toBe(16);
     expect(renderer._thumbInset({ kind: 'Resolution' })).toBe(0);
     expect(renderer._thumbnailExtent({ id: '1', kind: 'Add', __thumb: {} }))
-      .toEqual({ width: 156, height: 159 });
+      .toEqual({ width: 204, height: 159 });
   });
 });
