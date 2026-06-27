@@ -1,6 +1,6 @@
 // src/core/ConnectionManager.js - Fixed preview updates
 import { NodeDefs } from "../data/NodeDefs.js";
-import { pinGroupStartY, PIN_SPACING } from "./pinLayout.js";
+import { nodePinPositions, nodePreviewHeight } from "./pinLayout.js";
 
 export class ConnectionManager {
   constructor(graph, onChange) {
@@ -382,29 +382,14 @@ export class ConnectionManager {
         return { ins: [], outs: [] };
       }
 
-      // Vertical positions come from the shared pin layout so hit-testing matches the renderer
-      // (pins are centered on the node — see pinLayout.js).
-      const ins = [];
+      // Geometry comes from the shared socket-row layout so hit-testing always matches the
+      // renderer: header → optional preview band → fixed-height rows (see pinLayout.js).
       const inputCount = nodeDef.inputs || 0;
-      const inStartY = pinGroupStartY(n, inputCount);
-      for (let i = 0; i < inputCount; i++) {
-        ins.push({
-          x: (n.x || 0) + 8,
-          y: inStartY + i * PIN_SPACING
-        });
-      }
-
-      const outs = [];
       const outCount = (nodeDef.pinsOut || []).length || 1;
-      const outStartY = pinGroupStartY(n, outCount);
-      for (let i = 0; i < outCount; i++) {
-        outs.push({
-          x: (n.x || 0) + (n.w || 100) - 8,
-          y: outStartY + i * PIN_SPACING
-        });
-      }
+      const previewH = nodePreviewHeight(n);
+      const { inputs, outputs } = nodePinPositions(n, inputCount, outCount, previewH);
 
-      return { ins, outs };
+      return { ins: inputs, outs: outputs };
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'pin-position-calculation',
