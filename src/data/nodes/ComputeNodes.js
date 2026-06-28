@@ -64,8 +64,11 @@ export const ComputeNodes = {
   ComputeFeedback: {
     label: "Compute Feedback",
     cat: "Effects",
-    inputs: 1,
-    pinsIn: ["Input"],
+    inputs: 2,
+    // Pin 1 (Reset) is a CPU-only control pin: a rising edge on it clears the feedback trail
+    // (FeedbackResetProcessor watches it). `control: true` keeps the texture pipeline from
+    // mistaking its scalar source (e.g. a Trigger) for a fragment input to auto-bridge.
+    pinsIn: ["Input", { label: "Reset", type: "f32", control: true }],
     pinsOut: ["Texture"],
     params: [
       { name: 'decay', type: 'float', default: 0.95, min: 0.0, max: 1.0 },
@@ -73,7 +76,7 @@ export const ComputeNodes = {
       { name: 'rotation', type: 'float', default: 0.0, min: -180.0, max: 180.0 },
       { name: 'offsetX', type: 'float', default: 0.0, min: -0.1, max: 0.1 },
       { name: 'offsetY', type: 'float', default: 0.0, min: -0.1, max: 0.1 },
-      { name: 'reset', type: 'button', displayName: 'Reset Feedback', action: 'resetFeedback', description: 'Clear the accumulated feedback trail' }
+      { name: 'reset', type: 'button', displayName: 'Reset Feedback', action: 'resetFeedback', description: 'Clear the accumulated feedback trail (or wire a Trigger to the Reset pin)' }
     ],
     description: "Feedback loop with transformation",
     workgroupSize: [8, 8, 1]
@@ -148,8 +151,9 @@ export const ComputeNodes = {
   ComputeFeedbackField: {
     label: "Feedback Field",
     cat: "Simulation",
-    inputs: 1,
-    pinsIn: ["Input"],
+    inputs: 2,
+    // Pin 1 (Reset) is a CPU-only control pin — see ComputeFeedback above.
+    pinsIn: ["Input", { label: "Reset", type: "f32", control: true }],
     pinsOut: ["Texture"],
     params: [
       { name: 'mode', type: 'select', options: ['Flow', 'Reaction-Diffusion', 'Accumulate', 'Swirl'], default: 'Flow' },
@@ -158,7 +162,7 @@ export const ComputeNodes = {
       { name: 'feedback', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
       { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
       { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' },
-      { name: 'reset', type: 'button', displayName: 'Reset Field', action: 'resetFeedback', description: 'Clear the accumulated feedback field' }
+      { name: 'reset', type: 'button', displayName: 'Reset Field', action: 'resetFeedback', description: 'Clear the accumulated feedback field (or wire a Trigger to the Reset pin)' }
     ],
     description: "Persistent feedback field for flow, reaction-diffusion and accumulation simulations",
     workgroupSize: [8, 8, 1]
