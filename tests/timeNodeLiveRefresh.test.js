@@ -1,4 +1,4 @@
-// Regression test: a bare Time / RandomTime node must keep updating live, not freeze on a fixed
+// Regression test: a bare Time node must keep updating live, not freeze on a fixed
 // value.
 //
 // Bug: the editor only treated a node as "animated" when it had a parameter expression referencing
@@ -11,7 +11,7 @@
 // Connecting the node to something triggered a one-time invalidation — hence "it updates once then
 // stays fixed".
 //
-// Contract: clock-driven generator kinds (Time / RandomTime) are recomputed every frame and are
+// Contract: clock-driven generator kinds (Time) are recomputed every frame and are
 // never served from cache; the per-frame refresh marks them and their downstream dependents dirty.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -47,7 +47,7 @@ describe('NodeValueComputer does not cache clock-driven nodes', () => {
   });
 });
 
-describe('updateTimeNodes refreshes intrinsic Time / RandomTime nodes', () => {
+describe('updateTimeNodes refreshes intrinsic Time nodes', () => {
   let previousEditor;
 
   // Drive updateTimeNodes without constructing PreviewIntegration (its constructor schedules
@@ -118,15 +118,6 @@ describe('updateTimeNodes refreshes intrinsic Time / RandomTime nodes', () => {
     expect(marked).toContain('t');
     expect(marked).toContain('m');
     expect(marked).toContain('o');
-  });
-
-  it('marks a RandomTime node dirty', () => {
-    const graph = {
-      nodes: [{ id: 'r', kind: 'RandomTime', inputs: [] }],
-      connections: [],
-    };
-
-    expect(makeHarness(graph)).toContain('r');
   });
 
   it('does nothing when there are no time nodes and no time expressions', () => {

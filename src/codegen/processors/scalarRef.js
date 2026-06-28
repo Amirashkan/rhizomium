@@ -42,7 +42,7 @@ export function toScalar(expr, type) {
 // undefined if the identifier is not a node reference at all (e.g. `time`, `PI`).
 //
 // Handles three sources, in order:
-//   1. Mouse/Time/RandomTime input nodes  -> their GPU global (Mouse reduced to one channel).
+//   1. Mouse/Time input nodes  -> their GPU global (Mouse reduced to one channel).
 //   2. A node already compiled in this pass -> its variable, with component access or scalar
 //      coercion based on the type recorded by the TypeConverter.
 //   3. Anything else (id not in the graph, or present but not compiled) -> null.
@@ -60,13 +60,6 @@ export function resolveScalarRef(name, graph, typeConverter) {
   // 1. Live input nodes -> GPU globals.
   const kind = node?.kind?.toLowerCase();
   if (kind === 'time') return 'g.time';
-  if (kind === 'randomtime') {
-    const speed = Number(node.params?.speed);
-    const speedLiteral = Number.isFinite(speed)
-      ? (Number.isInteger(speed) ? `${speed}.0` : `${speed}`)
-      : '1.0';
-    return `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
-  }
   if (kind === 'mouse') {
     // g.mouse is a vec4; a scalar parameter needs one channel (default .x).
     const channel = suffixToComponent(suffix) || 'x';

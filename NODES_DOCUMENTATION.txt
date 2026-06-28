@@ -261,23 +261,6 @@ Parameters:
 Usage: Useful for trigonometric calculations and angle conversions.
 
 --------------------------------------------------------------------------------
-RandomTime (Random Time)
---------------------------------------------------------------------------------
-Category: Input
-Description: Generates random noise that changes over time
-
-Inputs:
-  (none)
-
-Outputs:
-  - rand (f32): Random value (0-1)
-
-Parameters:
-  - speed (float): Rate of change [default: 1.0]
-
-Usage: Creates animated random noise. Higher speed means faster changes.
-
---------------------------------------------------------------------------------
 Trigger
 --------------------------------------------------------------------------------
 Category: Input

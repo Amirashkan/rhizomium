@@ -23,7 +23,6 @@ export class NodeValueComputer {
   _isTimeDependentKind(node) {
     const kind = node?.kind?.toLowerCase();
     return kind === 'time' ||
-           kind === 'randomtime' ||
            kind === 'mouse' ||
            kind === 'resolution' ||
            kind === 'stripe' ||
@@ -50,7 +49,7 @@ export class NodeValueComputer {
         throw new Error('Maximum recursion depth exceeded');
       }
 
-      // Clock-driven nodes (Time, RandomTime, animated fields) derive their value from Date.now(),
+      // Clock-driven nodes (Time, animated fields) derive their value from Date.now(),
       // not from their inputs/params. Since the cache is keyed on input/param hashes — which never
       // change for these nodes — a cache hit would freeze them at their first computed value. Skip
       // the cache entirely so they recompute with the current time on every call.
@@ -113,13 +112,6 @@ case "checkerfield": {
         case "time":
           result = (Date.now() / 1000) % 1;
           break;
-
-        case "randomtime": {
-          const speed = this._getParameter(node, "speed") || 1.0;
-          const t = (Date.now() / 1000) * speed;
-          result = Math.abs(Math.sin(t * 12.9898) * 43758.5453) % 1.0;
-          break;
-        }
 
         case "uv":
           result = 0.5;

@@ -481,23 +481,17 @@ buildEvaluationContext(context, node) {
 
   /**
    * Live value for a clock/cursor-driven input node, or undefined for other kinds.
-   * Mirrors the GPU globals (g.time, g.mouse, the RandomTime formula) so CPU evaluation of a
+   * Mirrors the GPU globals (g.time, g.mouse) so CPU evaluation of a
    * reference matches what the shader renders.
    */
   _liveInputNodeValue(node) {
     const kind = node?.kind?.toLowerCase();
-    if (kind !== 'time' && kind !== 'randomtime' && kind !== 'mouse') return undefined;
+    if (kind !== 'time' && kind !== 'mouse') return undefined;
 
     const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
     const time = Number.isFinite(simTime) ? simTime : (Date.now() / 1000);
 
     if (kind === 'time') return time;
-    if (kind === 'randomtime') {
-      const speed = Number(node.params?.speed);
-      const s = Number.isFinite(speed) ? speed : 1.0;
-      const v = Math.sin(time * s * 12.9898) * 43758.5453;
-      return v - Math.floor(v); // fract()
-    }
     // Mouse: iMouse layout xy=position (0..1), z=held, w=click. Center before any input.
     const m = (typeof window !== 'undefined' && window._mousePosition) || null;
     return m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];
@@ -520,7 +514,7 @@ buildEvaluationContext(context, node) {
       // Don't reference the current node to avoid circular dependencies
       if (node.id === currentNode?.id) return;
 
-      // Live input nodes (Mouse/Time/RandomTime) are driven by the clock/cursor, not by
+      // Live input nodes (Mouse/Time) are driven by the clock/cursor, not by
       // graph computation. If one is referenced but not wired into the output it may have
       // no computed value, so resolve it to its live value directly — otherwise the
       // reference (e.g. node_28_x) is an undefined identifier and reads as 0. Mirrors the

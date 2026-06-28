@@ -27,7 +27,7 @@ export class InputNodes {
   handles(kind) {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
-      'Mouse', 'Resolution', 'Pi', 'RandomTime', 'Trigger', 'Hold'
+      'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold'
     ].includes(kind);
   }
 
@@ -175,14 +175,6 @@ export class InputNodes {
           line: `let node_${nodeId} = 3.14159265359;`,
           outputType: "f32"
         };
-
-      case 'RandomTime': {
-        const speed = resolveParam('speed', '1.0');
-        return {
-          line: `let node_${nodeId} = fract(sin(g.time * ${speed} * 12.9898) * 43758.5453);`,
-          outputType: "f32"
-        };
-      }
 
       case 'Trigger': {
         const input = getInput(0, 'f32', '0.0');
