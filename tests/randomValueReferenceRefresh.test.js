@@ -71,6 +71,29 @@ describe('updateAnimatedFragmentPreviews refreshes Random Value references', () 
     expect(refreshed).not.toContain('1'); // Random Value itself has no visual thumbnail
   });
 
+  it('does NOT refresh a wired chain out of a Random Value (would freeze on per-frame readback)', () => {
+    // Regression: a Random Value WIRED through to the output (RandomValue -> Count -> OutputFinal)
+    // must not trigger a per-frame GPU re-render/readback of every visual node on the chain — that
+    // froze the editor when a Count was added between a Random Value and the output via drag+tab.
+    // Only `=node_<id>` expression references are refreshed here; plain wires are not.
+    const graph = {
+      nodes: [
+        { id: '1', kind: 'RandomValue', inputs: [], params: {} },
+        { id: '2', kind: 'Count', inputs: ['1'], params: {} },
+        { id: '3', kind: 'OutputFinal', inputs: ['2'], params: {} },
+      ],
+      connections: [
+        { from: { nodeId: '1' }, to: { nodeId: '2' } },
+        { from: { nodeId: '2' }, to: { nodeId: '3' } },
+      ],
+    };
+
+    const refreshed = makeHarness(graph);
+
+    expect(refreshed).not.toContain('3'); // OutputFinal is NOT re-read every frame
+    expect(refreshed).toEqual([]);
+  });
+
   it('does not refresh consumers when there is no Random Value node', () => {
     const graph = {
       nodes: [

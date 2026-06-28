@@ -443,19 +443,23 @@ updateTimeNodes() {
     }
 
     // Random Value nodes are clock-driven (their fract(sin(g.time...)) churns every frame), so a
-    // fragment node that references one via `=node_<id>` (e.g. a Circle whose radius is
-    // `=node_<random>`) has a live GPU thumbnail that no param/input edit triggers — without this it
-    // would freeze on a single random value, defeating the node. Collect each Random Value node's
-    // downstream every frame (the value changes every frame, so no change-gating like Hold). The
-    // Random Value node itself is numeric/no visual thumbnail; only its visual consumers are
-    // re-rendered, via the isVisualNode filter below. (Plain Time references are intentionally NOT
-    // refreshed here — see TIME_NODE_REFERENCE_NOTES.md — to avoid piling per-frame GPU readback on
-    // heavy graphs; the cost is justified for Random Value because a frozen thumbnail makes it
-    // useless, whereas a referenced Time value is at least monotonic and its output is still live.)
+    // fragment node that references one via a `=node_<id>` PARAMETER expression (e.g. a Circle
+    // whose radius is `=node_<random>`) has a live GPU thumbnail that no param/input edit triggers —
+    // without this it would freeze on a single random value, defeating the node. Seed the refresh
+    // only from those expression dependents (then walk their downstream).
+    //
+    // Deliberately do NOT follow plain WIRES out of the Random Value here. A wired Random Value
+    // already flows through the compiled shader to every downstream node's own render, so refreshing
+    // a whole wired chain (e.g. RandomValue -> Count -> OutputFinal) would re-render+read-back every
+    // visual node on it EVERY frame — that per-frame GPU work froze the editor when a Count (or any
+    // node) was wired between a Random Value and the output. Wired clock->visual thumbnails stay on
+    // the normal cadence, matching how wired Time references already behave
+    // (see TIME_NODE_REFERENCE_NOTES.md). Only its visual consumers are re-rendered, via the
+    // isVisualNode filter below.
     for (const node of this.editor.graph.nodes) {
-      if (node?.kind?.toLowerCase() === 'randomvalue') {
-        this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
-      }
+      if (node?.kind?.toLowerCase() !== 'randomvalue') continue;
+      const refs = exprDeps.get(String(node.id));
+      if (refs) refs.forEach(depId => this._collectWithDownstream(depId, toUpdate, visited, exprDeps));
     }
 
     // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
