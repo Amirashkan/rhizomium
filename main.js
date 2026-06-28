@@ -48,6 +48,7 @@ import { getPerfProbe } from "./src/utils/PerfProbe.js";
 import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
+import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -67,6 +68,8 @@ installPerfBench();
 const holdNodeProcessor = new HoldNodeProcessor();
 // Drives the Count node's CPU-side counter each frame. See CountNodeProcessor.
 const countNodeProcessor = new CountNodeProcessor();
+// Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
+const feedbackResetProcessor = new FeedbackResetProcessor();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3540,6 +3543,12 @@ function handleRenderFrame(frameState) {
       countNodeProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         uniformManager: window.nodeCompiler.uniformManager,
+      });
+      // Clear Feedback nodes whose Reset pin saw a rising edge this frame (e.g. a Trigger pulse).
+      // Same unthrottled cadence so brief pulses aren't missed.
+      feedbackResetProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        computeExecutor: window.computeExecutor,
       });
     } catch (err) {
       // Never let the hold/count latch break the render loop.

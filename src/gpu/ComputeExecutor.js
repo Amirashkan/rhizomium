@@ -25,6 +25,7 @@ import { ComputeShaderManager } from './ComputeShaderManager.js';
 import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
+import { controlInputPinIndices } from '../data/NodeDefs.js';
 
 export class ComputeExecutor {
   constructor(device) {
@@ -637,7 +638,10 @@ export class ComputeExecutor {
       const nodeData = window.computeNodeRegistry?.get(nodeId);
       const node = nodeData?.node;
       if (node?.inputs && Array.isArray(node.inputs)) {
-        for (const inputNodeId of node.inputs) {
+        const controlPins = controlInputPinIndices(node.kind);
+        for (let pin = 0; pin < node.inputs.length; pin++) {
+          if (controlPins.has(pin)) continue; // control pins (e.g. Reset) carry a scalar, not a texture
+          const inputNodeId = node.inputs[pin];
           if (inputNodeId !== null && inputNodeId !== undefined && !this.computeManagers.has(inputNodeId)) {
             hasFragmentInputs = true;
             break;
@@ -668,8 +672,15 @@ export class ComputeExecutor {
       const node = nodeData?.node;
       if (!node || !node.inputs || !Array.isArray(node.inputs)) continue;
 
+      const controlPins = controlInputPinIndices(node.kind);
+
       // Check each input
-      for (const inputNodeId of node.inputs) {
+      for (let pin = 0; pin < node.inputs.length; pin++) {
+        // Control pins (e.g. the Feedback Reset pulse) feed a CPU-side processor, not a texture —
+        // never auto-bridge their scalar source into a fragment texture.
+        if (controlPins.has(pin)) continue;
+
+        const inputNodeId = node.inputs[pin];
         if (inputNodeId === null || inputNodeId === undefined) continue;
 
         // Skip if already rendered this frame

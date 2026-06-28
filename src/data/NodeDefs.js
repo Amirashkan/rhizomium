@@ -210,3 +210,24 @@ export function validateNodeDef(nodeDef) {
 export function getNodeDef(kind) {
   return NodeDefs[kind] || null;
 }
+
+/**
+ * Input-pin indices flagged as control pins (pinsIn[i].control === true) for a node kind.
+ *
+ * Control pins carry CPU-only signals (e.g. the Feedback nodes' Reset pulse) rather than a texture.
+ * The GPU texture pipeline must skip them so a scalar source wired into one (a Trigger, say) isn't
+ * mistaken for a fragment input to auto-bridge into a texture.
+ *
+ * @param {string} kind
+ * @returns {Set<number>} indices into pinsIn that are control pins (empty for most nodes)
+ */
+export function controlInputPinIndices(kind) {
+  const pins = NodeDefs[kind]?.pinsIn;
+  const indices = new Set();
+  if (Array.isArray(pins)) {
+    pins.forEach((pin, i) => {
+      if (pin && typeof pin === 'object' && pin.control) indices.add(i);
+    });
+  }
+  return indices;
+}
