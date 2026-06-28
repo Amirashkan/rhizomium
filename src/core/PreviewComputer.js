@@ -1188,6 +1188,16 @@ _generateEnhancedThumbnails(nodes, values) {
       if (spm?.enableGPUPreview && (spm.isComputeNode(node) || spm.isVisualNode(node))) {
         continue;
       }
+      // Respect the per-node preview toggle (the eye/dot button). The GPU path already honors this
+      // in PreviewSystem.generateNodePreview and _refreshNodePreview, but this CPU thumbnail path
+      // runs on every computePreviews() (each parameter change and the render loop), so without the
+      // same guard a node toggled off here gets its thumbnail regenerated on the next computation —
+      // the toggle "won't stay off". Clear any stale thumbnail and skip the (re)render.
+      const nodePreview = window.editor?.nodePreviews?.get(node.id);
+      if (nodePreview && nodePreview.enabled === false) {
+        node.__thumb = null;
+        continue;
+      }
       node.__thumb = this._createNodeThumbnail(node, values);
     }
   } catch (error) {
