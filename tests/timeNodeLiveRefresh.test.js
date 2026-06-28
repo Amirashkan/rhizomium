@@ -176,6 +176,40 @@ describe('updateTimeNodes refreshes intrinsic Time nodes', () => {
     expect(marked).toContain('6'); // the Circle whose radius references it
   });
 
+  // Regression: a Random Value node is clock-driven (fract(sin(g.time...))) and, like a bare Time
+  // node, has no time/audio parameter expression, so it never registers in timeAnimatedNodes. It
+  // must still be marked dirty each frame here, otherwise its live value freezes — most visibly
+  // when one is wired through to the output via drag+tab (which also left the value frozen by
+  // leaving interaction mode set; see the hadTimeAnimatedNodes gate in main.js).
+  it('marks a bare Random Value node dirty even with no time-based expressions', () => {
+    const graph = {
+      nodes: [{ id: 'r', kind: 'RandomValue', inputs: [] }],
+      connections: [],
+    };
+
+    expect(makeHarness(graph)).toContain('r');
+  });
+
+  it('marks a Random Value and everything wired downstream of it dirty', () => {
+    const graph = {
+      nodes: [
+        { id: 'r', kind: 'RandomValue', inputs: [] },
+        { id: 'c', kind: 'Count', inputs: ['r'] },
+        { id: 'o', kind: 'OutputFinal', inputs: ['c'] },
+      ],
+      connections: [
+        { from: { nodeId: 'r' }, to: { nodeId: 'c' } },
+        { from: { nodeId: 'c' }, to: { nodeId: 'o' } },
+      ],
+    };
+
+    const marked = makeHarness(graph);
+
+    expect(marked).toContain('r');
+    expect(marked).toContain('c');
+    expect(marked).toContain('o');
+  });
+
   it('follows expression references transitively through a chain', () => {
     const graph = {
       nodes: [

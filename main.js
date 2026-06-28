@@ -3631,7 +3631,17 @@ function handleRenderFrame(frameState) {
           const graphInstance = editor.graph;
           const animationTime = frameState.simTime || performance.now() / 1000;
           const expressionSystem = editor.expressionSystem || previewComputer.expressionSystem;
-          const hadTimeAnimatedNodes = (expressionSystem?.timeAnimatedNodes?.size || 0) > 0;
+          // Count BOTH expression-time-animated nodes (=time / =audio, tracked in
+          // timeAnimatedNodes) AND intrinsic clock nodes (Time / Random Value), which animate every
+          // frame from g.time alone and so never register in timeAnimatedNodes. Without the
+          // intrinsic check, a graph whose only animation is such a node never flags
+          // needsPreviewCompute, so this loop never calls setInteractionMode — and the interaction
+          // flag left set by a drag+tab node creation (that gesture has no balancing
+          // interaction-end) is never cleared, freezing requestPreviewComputation and the node's
+          // live value. hasActiveAnimations() short-circuits on timeAnimatedNodes, then on a cheap
+          // intrinsic-kind scan, so this stays cheap.
+          const hadTimeAnimatedNodes = (expressionSystem?.timeAnimatedNodes?.size || 0) > 0
+            || (typeof editor.hasActiveAnimations === 'function' && editor.hasActiveAnimations());
           const timeChanged = hadTimeAnimatedNodes &&
             (lastPreviewAnimationTime === null || Math.abs(animationTime - lastPreviewAnimationTime) > 1e-4);
 
