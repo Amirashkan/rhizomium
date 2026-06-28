@@ -511,8 +511,8 @@ updateTimeNodes() {
   _refreshNodePreview(node) {
     const spm = window.shaderPreviewManager;
     if (!spm || !node?.id) return;
-    const pv = this.editor.nodePreviews?.get(node.id);
-    if (pv && pv.enabled === false) return; // hidden via the per-node toggle
+    // Hidden via the per-node toggle or the per-kind default (numeric nodes default off).
+    if (this.editor.isNodePreviewEnabled && !this.editor.isNodePreviewEnabled(node)) return;
     // Skip nodes scrolled off-screen: their thumbnail isn't visible, so the per-frame GPU
     // render/readback would be wasted. They refresh on the next tick once panned back into view.
     if (!this._isNodeVisible(node)) return;

@@ -2010,12 +2010,14 @@ async reinitializeWebGPU() {
 
       const previews = {};
       for (const [nodeId, preview] of this.editor.nodePreviews) {
-        if (preview.enabled) {
-          previews[nodeId] = {
-            size: preview.size,
-            showVisualInfo: preview.showVisualInfo,
-          };
-        }
+        // Persist every entry with its on/off state (not just the enabled ones) so a thumbnail the
+        // user explicitly hid — including a normally-visible visual node — stays hidden on reload
+        // rather than reverting to its default.
+        previews[nodeId] = {
+          enabled: preview.enabled !== false,
+          size: preview.size,
+          showVisualInfo: preview.showVisualInfo,
+        };
       }
       return previews;
     } catch (error) {
@@ -2210,7 +2212,9 @@ importConnections(connectionData) {
 
       for (const [nodeId, previewSettings] of Object.entries(previewData)) {
         this.editor.nodePreviews.set(nodeId, {
-          enabled: true,
+          // Respect the saved on/off state (default on) so a thumbnail the user hid stays hidden
+          // across save/reload instead of springing back on.
+          enabled: previewSettings.enabled !== false,
           size: previewSettings.size || "large",
           showVisualInfo: previewSettings.showVisualInfo !== false,
         });

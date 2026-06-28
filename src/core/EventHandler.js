@@ -956,7 +956,7 @@ export class EventHandler {
         pos.y <= controlY - 8 + buttonHeight
       ) {
 
-        // This toggles the GLOBAL preview state
+        // Toggle THIS node's thumbnail (per-node, not a global flag).
         this.editor.toggleNodePreview(node.id);
         this._requestDraw('toggle-preview');
         return true;
@@ -970,7 +970,9 @@ export class EventHandler {
         pos.y >= controlY - 8 &&
         pos.y <= controlY - 8 + buttonHeight
       ) {
-        if (this.editor.isPreviewEnabled) {
+        if (this.editor.isNodePreviewEnabled
+              ? this.editor.isNodePreviewEnabled(node)
+              : this.editor.isPreviewEnabled) {
           this.editor.cyclePreviewSize(node.id);
           this._requestDraw('cycle-preview-size');
         }
