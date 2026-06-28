@@ -442,6 +442,22 @@ updateTimeNodes() {
       }
     }
 
+    // Random Value nodes are clock-driven (their fract(sin(g.time...)) churns every frame), so a
+    // fragment node that references one via `=node_<id>` (e.g. a Circle whose radius is
+    // `=node_<random>`) has a live GPU thumbnail that no param/input edit triggers — without this it
+    // would freeze on a single random value, defeating the node. Collect each Random Value node's
+    // downstream every frame (the value changes every frame, so no change-gating like Hold). The
+    // Random Value node itself is numeric/no visual thumbnail; only its visual consumers are
+    // re-rendered, via the isVisualNode filter below. (Plain Time references are intentionally NOT
+    // refreshed here — see TIME_NODE_REFERENCE_NOTES.md — to avoid piling per-frame GPU readback on
+    // heavy graphs; the cost is justified for Random Value because a frozen thumbnail makes it
+    // useless, whereas a referenced Time value is at least monotonic and its output is still live.)
+    for (const node of this.editor.graph.nodes) {
+      if (node?.kind?.toLowerCase() === 'randomvalue') {
+        this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
+      }
+    }
+
     // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
     // their texture-readback path (and isVisualNode is false for them anyway), so skip them here.
     for (const nodeId of toUpdate) {
