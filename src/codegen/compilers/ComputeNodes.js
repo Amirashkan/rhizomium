@@ -687,7 +687,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     feedback = textureLoad(feedbackTexture, fbCoord, 0);
   }
 
-  let result = input + feedback * uniforms.decay;
+  // Blend the fresh input with the decayed, transformed feedback. The old
+  // additive form (input + feedback * decay) kept adding full-strength input on
+  // top of near-fully-retained feedback every frame, so any coloured region
+  // saturated all three channels to 1.0 and the trail blew out to white -- the
+  // input's colours were lost. A convex mix stays within [0,1] per channel, so
+  // hue is preserved and the trail keeps the input's colour. decay controls how
+  // long the trail persists (0 = no trail, 1 = never fades).
+  var result = mix(input, feedback, uniforms.decay);
+  // Keep content opaque so the colours are visible in the preview/composite even
+  // while the (initially cleared) feedback buffer still has zero alpha.
+  result.a = max(input.a, feedback.a * uniforms.decay);
   textureStore(outputTexture, vec2<u32>(texCoord), result);
 }`;
   }
