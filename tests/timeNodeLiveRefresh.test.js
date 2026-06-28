@@ -148,6 +148,34 @@ describe('updateTimeNodes refreshes intrinsic Time nodes', () => {
     expect(marked).toContain('2'); // the float whose expression references it
   });
 
+  // Regression: a Hold (sample-and-hold) node's held value is advanced on the CPU every frame by
+  // HoldNodeProcessor, so it has no time/audio parameter expression and is never registered in
+  // timeAnimatedNodes. It must still be treated as a live node here, otherwise a consumer that
+  // references it (e.g. a Circle radius = `=node_<hold>`) freezes at a stale value.
+  it('marks a bare Hold node dirty even with no time-based expressions', () => {
+    const graph = {
+      nodes: [{ id: 'h', kind: 'Hold', inputs: [] }],
+      connections: [],
+    };
+
+    expect(makeHarness(graph)).toContain('h');
+  });
+
+  it('marks a node that references a Hold node via =node_<id> (e.g. Circle radius) dirty', () => {
+    const graph = {
+      nodes: [
+        { id: '5', kind: 'Hold', inputs: [] },
+        { id: '6', kind: 'Circle', inputs: [], params: { radius: '=node_5' } },
+      ],
+      connections: [], // no wire — the dependency exists only through the expression
+    };
+
+    const marked = makeHarness(graph);
+
+    expect(marked).toContain('5'); // the Hold node itself
+    expect(marked).toContain('6'); // the Circle whose radius references it
+  });
+
   it('follows expression references transitively through a chain', () => {
     const graph = {
       nodes: [

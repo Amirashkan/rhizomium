@@ -134,12 +134,19 @@ updateTimeNodes() {
   const intrinsicTimeNodeIds = this.editor.graph.nodes
     .filter(node => {
       const kind = node?.kind?.toLowerCase();
+      // Hold (sample-and-hold) nodes carry CPU-side state that HoldNodeProcessor advances every
+      // frame (node.__holdValue), so their output can change frame-to-frame without any param or
+      // input edit and without a time/audio expression that timeAnimatedNodes would catch. Treat
+      // them like intrinsic clock nodes here so the held value — and everything downstream that
+      // consumes it, including a node that references it via `=node_<id>` (e.g. a Circle radius) —
+      // keeps refreshing instead of freezing at the value it had when last marked dirty.
+      //
       // Mouse is deliberately excluded here: it is input-driven, not clock-driven.
       // Refreshing it every frame on this shared path kept the scene permanently
       // "animated" and ran the heavy recompute continuously, which throttled the
       // final preview. Mouse previews are refreshed event-driven in
       // notifyMouseInput() instead, on a throttle separate from the render path.
-      return kind === 'time';
+      return kind === 'time' || kind === 'hold';
     })
     .map(node => node.id);
 
@@ -403,6 +410,17 @@ updateTimeNodes() {
     const animated = window.editor?.paramPanel?.expressionSystem?.timeAnimatedNodes;
     if (animated) {
       animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited, exprDeps));
+    }
+
+    // Hold (sample-and-hold) nodes: their held value is advanced on the CPU every frame by
+    // HoldNodeProcessor, so a fragment node that references one via `=node_<id>` (e.g. a Circle
+    // whose radius is `=node_<hold>`) has a live GPU thumbnail that no param/input edit triggers.
+    // Mark each Hold node's downstream so those thumbnails re-read every frame, matching the main
+    // render. (The Hold node itself has no visual thumbnail; only its consumers need refreshing.)
+    for (const node of this.editor.graph.nodes) {
+      if (node?.kind?.toLowerCase() === 'hold') {
+        this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
+      }
     }
 
     // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
