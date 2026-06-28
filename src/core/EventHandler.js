@@ -922,12 +922,10 @@ export class EventHandler {
     if (!this.editor) return false;
 
     for (const node of this.editor.graph.nodes) {
-      // Always show controls if preview system is available
-      if (
-        !this.editor.shouldShowPreview ||
-        !this.editor.shouldShowPreview(node)
-      )
-        continue;
+      // The title-bar controls are ALWAYS drawn (see Renderer._renderPreviewControls) — including
+      // for nodes whose preview band is hidden — so their hit areas must always be live too.
+      // Gating this on shouldShowPreview made a hidden node's eye button unclickable, leaving no way
+      // to turn its thumbnail back on.
 
       // Title-bar top-right, kept in sync with Renderer._renderPreviewControls.
       const controlY = node.y + 19;
@@ -956,7 +954,7 @@ export class EventHandler {
         pos.y <= controlY - 8 + buttonHeight
       ) {
 
-        // This toggles the GLOBAL preview state
+        // Toggle THIS node's thumbnail (per-node, not a global flag).
         this.editor.toggleNodePreview(node.id);
         this._requestDraw('toggle-preview');
         return true;
@@ -970,7 +968,9 @@ export class EventHandler {
         pos.y >= controlY - 8 &&
         pos.y <= controlY - 8 + buttonHeight
       ) {
-        if (this.editor.isPreviewEnabled) {
+        if (this.editor.isNodePreviewEnabled
+              ? this.editor.isNodePreviewEnabled(node)
+              : this.editor.isPreviewEnabled) {
           this.editor.cyclePreviewSize(node.id);
           this._requestDraw('cycle-preview-size');
         }

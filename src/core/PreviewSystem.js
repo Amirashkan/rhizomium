@@ -130,12 +130,12 @@ export class PreviewSystem {
       return;
     }
 
-    // Respect the per-node preview toggle (the green dot button). When a node's preview is
-    // switched off we skip ALL preview work for it here — not just in the live RAF refresh — so
-    // parameter edits, dependent updates and bulk reloads don't waste a render on a hidden node
-    // (or make its thumbnail flicker back). Frees the preview cost, not the node's computation.
-    const nodePreview = this.editor.nodePreviews?.get(node.id);
-    if (nodePreview && nodePreview.enabled === false) {
+    // Respect the per-node preview toggle (the eye button) AND the per-kind default (numeric nodes
+    // are hidden by default). When a node's preview is off we skip ALL preview work for it here —
+    // not just in the live RAF refresh — so parameter edits, dependent updates and bulk reloads
+    // don't waste a render on a hidden node (or make its thumbnail flicker back). Frees the preview
+    // cost, not the node's computation.
+    if (this.editor.isNodePreviewEnabled && !this.editor.isNodePreviewEnabled(node)) {
       node.__thumb = null;
       return;
     }

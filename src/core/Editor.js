@@ -2032,6 +2032,15 @@ connectGPURenderer(renderFunction) {
         throw new Error('Node ID is required for preview toggle');
       }
 
+      const node = this.graph.nodes.find((n) => n.id === nodeId);
+
+      // Flip the EFFECTIVE current state, not a blanket `true` default. A numeric node is hidden by
+      // default (no entry), so its first click must turn the preview ON — seeding the entry with
+      // `enabled: true` and then negating it would otherwise leave it stuck off.
+      const currentlyEnabled = node
+        ? this.isNodePreviewEnabled(node)
+        : (this.nodePreviews.get(nodeId)?.enabled !== false);
+
       if (!this.nodePreviews.has(nodeId)) {
         this.nodePreviews.set(nodeId, {
           enabled: true,
@@ -2041,10 +2050,9 @@ connectGPURenderer(renderFunction) {
       }
 
       const preview = this.nodePreviews.get(nodeId);
-      preview.enabled = !preview.enabled;
+      preview.enabled = !currentlyEnabled;
 
       if (preview.enabled) {
-        const node = this.graph.nodes.find((n) => n.id === nodeId);
         if (node && this.previewIntegration) {
           try {
             this.previewIntegration.generateNodePreview(node);
@@ -2055,7 +2063,6 @@ connectGPURenderer(renderFunction) {
 
         }
       } else {
-        const node = this.graph.nodes.find((n) => n.id === nodeId);
         if (node) node.__thumb = null;
       }
 
@@ -2166,10 +2173,45 @@ connectGPURenderer(renderFunction) {
   shouldShowPreview(node) {
     try {
       if (!node) return false;
-      return this.isPreviewEnabled || !!node.__thumb;
+      // The preview BAND (and the layout space it reserves) follows the effective per-node toggle.
+      // A node whose preview is off — explicitly, or by the per-kind default for numeric nodes —
+      // collapses to a compact node with no empty thumbnail gap. The title-bar controls are drawn
+      // separately (always), so a hidden node can still be toggled back on.
+      return this.isNodePreviewEnabled(node);
     } catch (error) {
 
       return false;
+    }
+  }
+
+  // Default thumbnail visibility for a node that has NO explicit per-node preview entry yet.
+  // Numeric/scalar nodes (not a visual/vector-output node, not a compute node) default to HIDDEN:
+  // their thumbnail is only a flat numeric swatch, so showing it for every Math / Const / Time node
+  // by default just adds clutter. Visual and compute nodes — whose thumbnails are real rendered
+  // output — default to visible. Falls back to visible when the preview manager isn't available
+  // yet (e.g. before GPU init), so we never wrongly hide everything.
+  defaultNodePreviewEnabled(node) {
+    try {
+      if (!node) return false;
+      const spm = window.shaderPreviewManager;
+      if (!spm) return true;
+      return !!(spm.isComputeNode(node) || spm.isVisualNode(node));
+    } catch (error) {
+      return true;
+    }
+  }
+
+  // Effective thumbnail-visibility for a node: an explicit per-node toggle wins; otherwise the
+  // per-kind default above. This is the single source of truth every preview path consults so the
+  // eye-button icon, the layout band, and the GPU/CPU thumbnail generators all stay in agreement.
+  isNodePreviewEnabled(node) {
+    try {
+      if (!node) return false;
+      const preview = this.nodePreviews.get(node.id);
+      if (preview) return preview.enabled !== false;
+      return this.defaultNodePreviewEnabled(node);
+    } catch (error) {
+      return true;
     }
   }
 

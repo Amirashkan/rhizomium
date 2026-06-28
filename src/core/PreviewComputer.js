@@ -1188,6 +1188,17 @@ _generateEnhancedThumbnails(nodes, values) {
       if (spm?.enableGPUPreview && (spm.isComputeNode(node) || spm.isVisualNode(node))) {
         continue;
       }
+      // Respect the per-node preview toggle (the eye button) AND the per-kind default — numeric
+      // nodes are hidden by default. The GPU path already honors this in
+      // PreviewSystem.generateNodePreview and _refreshNodePreview, but this CPU thumbnail path runs
+      // on every computePreviews() (each parameter change and the render loop), so without the same
+      // guard a hidden node gets its thumbnail regenerated on the next computation — the toggle
+      // "won't stay off". Clear any stale thumbnail and skip the (re)render.
+      const editor = window.editor;
+      if (editor?.isNodePreviewEnabled && !editor.isNodePreviewEnabled(node)) {
+        node.__thumb = null;
+        continue;
+      }
       node.__thumb = this._createNodeThumbnail(node, values);
     }
   } catch (error) {

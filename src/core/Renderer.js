@@ -633,7 +633,9 @@ export class Renderer {
 
   _renderPreviewControls(node) {
     const editor = window.editor;
-    if (!editor || !editor.shouldShowPreview(node)) return;
+    // Controls live in the title bar and must ALWAYS draw — including for nodes whose preview band
+    // is hidden — otherwise a hidden node loses its eye button and can never be toggled back on.
+    if (!editor) return;
 
     const ctx = this.ctx;
     // In the title bar (top-right), so the controls never sit on top of the thumbnail or pins.
@@ -642,8 +644,11 @@ export class Renderer {
     const buttonWidth = 12;
     const buttonHeight = 10;
 
-    // FIXED: Use property instead of function call
-    const isPreviewEnabled = editor.isPreviewEnabled;
+    // Per-node effective state (explicit toggle, else per-kind default) — drives the eye glyph and
+    // the size button so they reflect THIS node, not the (always-true) global preview flag.
+    const isPreviewEnabled = editor.isNodePreviewEnabled
+      ? editor.isNodePreviewEnabled(node)
+      : editor.isPreviewEnabled;
 
     ctx.save();
     // PERFORMANCE: Use cached font string

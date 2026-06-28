@@ -773,8 +773,13 @@ async function loadProjectFromFile(file) {
               needsUpdate: true,
             });
           } else {
+            // No saved per-node entry: seed from the per-kind default so numeric nodes load with
+            // their thumbnail hidden (visual/compute nodes stay visible), matching freshly created
+            // nodes which have no entry at all.
             editor.nodePreviews.set(node.id, {
-              enabled: true,
+              enabled: editor.defaultNodePreviewEnabled
+                ? editor.defaultNodePreviewEnabled(node)
+                : true,
               size: "large",
               showVisualInfo: true,
               needsUpdate: true,
