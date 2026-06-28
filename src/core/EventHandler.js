@@ -922,12 +922,10 @@ export class EventHandler {
     if (!this.editor) return false;
 
     for (const node of this.editor.graph.nodes) {
-      // Always show controls if preview system is available
-      if (
-        !this.editor.shouldShowPreview ||
-        !this.editor.shouldShowPreview(node)
-      )
-        continue;
+      // The title-bar controls are ALWAYS drawn (see Renderer._renderPreviewControls) — including
+      // for nodes whose preview band is hidden — so their hit areas must always be live too.
+      // Gating this on shouldShowPreview made a hidden node's eye button unclickable, leaving no way
+      // to turn its thumbnail back on.
 
       // Title-bar top-right, kept in sync with Renderer._renderPreviewControls.
       const controlY = node.y + 19;
