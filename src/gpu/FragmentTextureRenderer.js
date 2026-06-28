@@ -522,6 +522,21 @@ export class FragmentTextureRenderer {
       }
     }
 
+    // Fold in the live value of any Hold node referenced via a `=node_<id>` parameter expression
+    // (e.g. a Circle whose radius is `=node_<hold>`). A Hold's value is advanced on the CPU each
+    // frame and is NOT visible in this node's own params or as a `time`/`audioEnvelope` keyword, so
+    // without this the hash never changes and a non-forced render path — most importantly the
+    // texture materialized to feed a compute node — keeps a stale frame, freezing the compute output
+    // and everything downstream of it. Including __holdValue makes the hash change exactly when the
+    // held value does, so the render re-fires only when it must.
+    for (const refId of this._extractParamNodeReferences(node)) {
+      const refNode = window.graph?.getNode?.(refId)
+        || window.editor?.graph?.nodes?.find(n => String(n.id) === refId);
+      if (refNode?.kind?.toLowerCase() === 'hold' && typeof refNode.__holdValue === 'number') {
+        hash += `${refId}.hold:${refNode.__holdValue};`;
+      }
+    }
+
     // Hash inputs (texture references)
     if (node.inputs && Array.isArray(node.inputs)) {
       const computeExecutor = window.computeExecutor;
