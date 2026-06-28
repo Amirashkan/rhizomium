@@ -38,7 +38,8 @@ export class PreviewIntegration {
           // Limit to 60 FPS max for time updates (16.67ms between updates)
           if (timestamp - this.lastTimeUpdate >= 16.67) {
             this.updateTimeNodes();
-            // Re-render real GPU thumbnails for time-animated visual nodes (self-throttled).
+            // Re-render real GPU thumbnails for animated visual nodes at the render cadence (the
+            // 16.67ms gate above is the only frame cap; the GPU preview queue self-limits on load).
             this.updateAnimatedFragmentPreviews();
             this.lastTimeUpdate = timestamp;
           }
@@ -134,12 +135,19 @@ updateTimeNodes() {
   const intrinsicTimeNodeIds = this.editor.graph.nodes
     .filter(node => {
       const kind = node?.kind?.toLowerCase();
+      // Hold (sample-and-hold) nodes carry CPU-side state that HoldNodeProcessor advances every
+      // frame (node.__holdValue), so their output can change frame-to-frame without any param or
+      // input edit and without a time/audio expression that timeAnimatedNodes would catch. Treat
+      // them like intrinsic clock nodes here so the held value — and everything downstream that
+      // consumes it, including a node that references it via `=node_<id>` (e.g. a Circle radius) —
+      // keeps refreshing instead of freezing at the value it had when last marked dirty.
+      //
       // Mouse is deliberately excluded here: it is input-driven, not clock-driven.
       // Refreshing it every frame on this shared path kept the scene permanently
       // "animated" and ran the heavy recompute continuously, which throttled the
       // final preview. Mouse previews are refreshed event-driven in
       // notifyMouseInput() instead, on a throttle separate from the render path.
-      return kind === 'time';
+      return kind === 'time' || kind === 'hold';
     })
     .map(node => node.id);
 
@@ -374,10 +382,10 @@ updateTimeNodes() {
     const spm = window.shaderPreviewManager;
     if (!spm || !spm.enableGPUPreview || !this.editor.graph?.nodes) return;
 
-    const now = performance.now();
-    if (!this._lastAnimPreview) this._lastAnimPreview = 0;
-    if (now - this._lastAnimPreview < 33) return; // ~30 fps cap (queue self-limits if the GPU can't keep up)
-    this._lastAnimPreview = now;
+    // No internal frame cap here: the caller already runs this at most once per ~16.67ms (60 fps),
+    // and the GPU preview queue self-limits when the GPU can't keep up. An extra ~30 fps cap on top
+    // just made animated thumbnails refresh at half the render rate, so they visibly stuttered
+    // behind the live output — let them ride the render cadence instead.
 
     // Collect every node whose thumbnail must be re-read this frame because its output is live.
     const toUpdate = new Set();
@@ -403,6 +411,31 @@ updateTimeNodes() {
     const animated = window.editor?.paramPanel?.expressionSystem?.timeAnimatedNodes;
     if (animated) {
       animated.forEach(id => this._collectWithDownstream(id, toUpdate, visited, exprDeps));
+    }
+
+    // Hold (sample-and-hold) nodes: their held value is advanced on the CPU every frame by
+    // HoldNodeProcessor, so a fragment node that references one via `=node_<id>` (e.g. a Circle
+    // whose radius is `=node_<hold>`) has a live GPU thumbnail that no param/input edit triggers.
+    // Only collect a Hold's downstream when the held value actually CHANGED this frame: a Hold
+    // holds, so most frames its value is steady, and a steady value needs no fresh GPU readback of
+    // its consumers (the costly part). A continuously changing hold still refreshes every frame.
+    // (The Hold node itself has no visual thumbnail; only its consumers need refreshing.)
+    if (!this._lastHoldValues) this._lastHoldValues = new Map();
+    const seenHold = new Set();
+    for (const node of this.editor.graph.nodes) {
+      if (node?.kind?.toLowerCase() !== 'hold') continue;
+      seenHold.add(node.id);
+      const held = node.__holdValue;
+      if (held !== this._lastHoldValues.get(node.id)) {
+        this._lastHoldValues.set(node.id, held);
+        this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
+      }
+    }
+    // Drop tracking for Hold nodes that were deleted so the map doesn't leak across edits.
+    if (this._lastHoldValues.size > seenHold.size) {
+      for (const id of this._lastHoldValues.keys()) {
+        if (!seenHold.has(id)) this._lastHoldValues.delete(id);
+      }
     }
 
     // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
