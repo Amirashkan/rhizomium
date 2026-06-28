@@ -203,6 +203,14 @@ export class FragmentTextureRenderer {
       // cached pipeline's struct was compiled with.
       cached.uniformManager = uniformManager;
 
+      // Stream live Hold (sample-and-hold) values into this detached uniform snapshot. A Hold node
+      // compiles to a `<id>.hold` uniform whose value lives on the CPU — HoldNodeProcessor advances
+      // node.__holdValue every frame and writes it into the MAIN renderer's uniform manager. This
+      // preview builds its OWN manager, so without this its hold uniform stays at the compile-time
+      // default and any node that references the Hold (e.g. a Circle whose radius is `=node_<hold>`)
+      // renders a frozen value even though its CPU readout tracks the latch.
+      this._syncHoldUniforms(uniformManager);
+
       // Store node reference for parameter updates
       cached.node = node;
 
@@ -932,6 +940,28 @@ export class FragmentTextureRenderer {
       }
       default:
         throw new Error(`Unknown resource kind: ${meta.kind}`);
+    }
+  }
+
+  /**
+   * Overwrite each `<id>.hold` entry in a (detached) uniform snapshot with the live held value
+   * from its Hold node (node.__holdValue, advanced every frame by HoldNodeProcessor). Map.set on an
+   * existing key preserves insertion order, so the Float32Array _updateUniforms builds from
+   * uniformValues.values() still matches the compiled ParamUniforms struct layout.
+   * @private
+   */
+  _syncHoldUniforms(uniformManager) {
+    const values = uniformManager?.uniformValues;
+    if (!values || values.size === 0) return;
+    for (const key of values.keys()) {
+      if (!key.endsWith('.hold')) continue;
+      const nodeId = key.slice(0, -'.hold'.length);
+      const node = window.graph?.getNode?.(nodeId)
+        || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
+      const held = node?.__holdValue;
+      if (typeof held === 'number' && isFinite(held)) {
+        values.set(key, held);
+      }
     }
   }
 

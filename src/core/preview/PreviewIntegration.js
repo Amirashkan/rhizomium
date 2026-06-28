@@ -416,11 +416,25 @@ updateTimeNodes() {
     // Hold (sample-and-hold) nodes: their held value is advanced on the CPU every frame by
     // HoldNodeProcessor, so a fragment node that references one via `=node_<id>` (e.g. a Circle
     // whose radius is `=node_<hold>`) has a live GPU thumbnail that no param/input edit triggers.
-    // Mark each Hold node's downstream so those thumbnails re-read every frame, matching the main
-    // render. (The Hold node itself has no visual thumbnail; only its consumers need refreshing.)
+    // Only collect a Hold's downstream when the held value actually CHANGED this frame: a Hold
+    // holds, so most frames its value is steady, and a steady value needs no fresh GPU readback of
+    // its consumers (the costly part). A continuously changing hold still refreshes every frame.
+    // (The Hold node itself has no visual thumbnail; only its consumers need refreshing.)
+    if (!this._lastHoldValues) this._lastHoldValues = new Map();
+    const seenHold = new Set();
     for (const node of this.editor.graph.nodes) {
-      if (node?.kind?.toLowerCase() === 'hold') {
+      if (node?.kind?.toLowerCase() !== 'hold') continue;
+      seenHold.add(node.id);
+      const held = node.__holdValue;
+      if (held !== this._lastHoldValues.get(node.id)) {
+        this._lastHoldValues.set(node.id, held);
         this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
+      }
+    }
+    // Drop tracking for Hold nodes that were deleted so the map doesn't leak across edits.
+    if (this._lastHoldValues.size > seenHold.size) {
+      for (const id of this._lastHoldValues.keys()) {
+        if (!seenHold.has(id)) this._lastHoldValues.delete(id);
       }
     }
 
