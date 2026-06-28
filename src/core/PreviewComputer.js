@@ -476,6 +476,22 @@ case "ConicGradient": {
               break;
             }
 
+            case "Count": {
+              // The running counter lives on the CPU in CountNodeProcessor (advanced every frame so
+              // brief pulses aren't missed). Mirror its current value here so the thumbnail matches
+              // the shader.
+              result = typeof node.__countValue === 'number' ? node.__countValue : 0.0;
+              break;
+            }
+
+            case "RandomValue": {
+              // Clock-driven pseudo-random noise in [0, 1]; mirror the shader's fract(sin(...)) hash.
+              const speed = this._evaluateParam(node.params?.speed, values, 1.0);
+              const s = Math.sin(this.animationTime * speed * 12.9898) * 43758.5453;
+              result = s - Math.floor(s);
+              break;
+            }
+
             case "ConstFloat": {
               // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
               let value = node.params?.value ?? node.value;

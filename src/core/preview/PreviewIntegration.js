@@ -147,7 +147,11 @@ updateTimeNodes() {
       // "animated" and ran the heavy recompute continuously, which throttled the
       // final preview. Mouse previews are refreshed event-driven in
       // notifyMouseInput() instead, on a throttle separate from the render path.
-      return kind === 'time' || kind === 'hold';
+      // Count carries the same kind of CPU-side state as Hold (advanced every frame by
+      // CountNodeProcessor via node.__countValue), and Random Value is clock-driven, so both need
+      // to be refreshed here alongside Time/Hold so their thumbnails and downstream consumers don't
+      // freeze at a stale value.
+      return kind === 'time' || kind === 'hold' || kind === 'count' || kind === 'randomvalue';
     })
     .map(node => node.id);
 

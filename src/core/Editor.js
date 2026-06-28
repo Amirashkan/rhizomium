@@ -1115,7 +1115,12 @@ connectGPURenderer(renderFunction) {
       // event-driven via PreviewIntegration.notifyMouseInput(), so it must not
       // force a permanent animation loop / continuous recompute (which would
       // compete with the final preview).
-      return kind === 'time';
+      //
+      // Random Value is clock-driven like Time (its fract(sin(g.time...)) churns on its own with
+      // no input), so it must keep the loop alive too. Count is deliberately excluded — like Hold
+      // it only changes when its pulse source does, and that source (a Time/Trigger/expression) is
+      // what keeps the scene animated; Count's preview is refreshed via PreviewIntegration.
+      return kind === 'time' || kind === 'randomvalue';
     });
   }
 
