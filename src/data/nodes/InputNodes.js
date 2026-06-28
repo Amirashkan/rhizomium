@@ -145,4 +145,37 @@ export const InputNodes = {
       { name: "threshold", type: "float", default: 0.5, label: "Threshold" }
     ],
   },
+
+  Count: {
+    label: "Count",
+    cat: "Input",
+    inputs: 1,
+    pinsIn: [{ label: "pulse", type: "f32" }],
+    pinsOut: [{ label: "count", type: "f32" }],
+    // A counter that advances by `step` on each rising edge of the pulse input (when it crosses
+    // `threshold`). Like Hold it has no shader-expressible memory, so the running count lives on
+    // the CPU in CountNodeProcessor and is streamed in as a per-frame uniform. With "Loop" on,
+    // the count wraps around the [min, max] range instead of growing without bound.
+    params: [
+      { name: "step", type: "float", default: 1.0, label: "Step" },
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+      { name: "loop", type: "bool", default: false, label: "Loop" },
+      { name: "min", type: "float", default: 0.0, label: "Min" },
+      { name: "max", type: "float", default: 10.0, label: "Max" }
+    ],
+  },
+
+  RandomValue: {
+    label: "Random Value",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: [{ label: "value", type: "f32" }],
+    // A clock-driven pseudo-random noise value in [0, 1] (fract(sin(...)) hash on g.time).
+    // `speed` controls how fast it churns — higher speed = a new-looking value every frame.
+    // (Named RandomValue, not Random, to avoid colliding with the Generators "Random" field node.)
+    params: [
+      { name: "speed", type: "float", default: 1.0, label: "Speed" }
+    ],
+  },
 };

@@ -296,6 +296,49 @@ Parameters:
 Usage: Captures and holds a value when the pulse input crosses the threshold.
 
 --------------------------------------------------------------------------------
+Count
+--------------------------------------------------------------------------------
+Category: Input
+Description: A counter that increments on each input pulse, with optional looping
+
+Inputs:
+  - pulse (f32): Pulse signal; each rising edge advances the count
+
+Outputs:
+  - count (f32): Current count value
+
+Parameters:
+  - step (float): Amount added per pulse [default: 1.0]
+  - threshold (float): Pulse threshold [default: 0.5]
+  - loop (bool): Wrap the count within [min, max] instead of growing [default: false]
+  - min (float): Lower bound of the loop range [default: 0.0]
+  - max (float): Upper bound of the loop range [default: 10.0]
+
+Usage: Counts pulses. Each time the pulse input crosses the threshold (a rising
+edge) the count increases by `step`. Enable Loop to make the count cycle within
+the [min, max] range (e.g. step through a fixed number of states). The running
+count is maintained on the CPU and streamed to the shader each frame.
+
+--------------------------------------------------------------------------------
+Random Value
+--------------------------------------------------------------------------------
+Category: Input
+Description: A clock-driven pseudo-random noise value in the range 0 to 1
+
+Inputs: (none)
+
+Outputs:
+  - value (f32): Random value (0-1)
+
+Parameters:
+  - speed (float): How fast the value churns [default: 1.0]
+
+Usage: Produces a time-varying random value between 0 and 1 (a fract(sin(...))
+hash on the GPU clock). Higher speed yields a new-looking value more often.
+Distinct from the Generators "Random" node, which is a spatial (UV-based) noise
+pattern.
+
+--------------------------------------------------------------------------------
 Texture2D (Texture 2D)
 --------------------------------------------------------------------------------
 Category: Input

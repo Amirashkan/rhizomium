@@ -54,6 +54,15 @@ describe('ShaderPreviewManager node classification', () => {
     it('keeps plain scalar outputs on the CPU numeric path', () => {
       expect(spm.isVisualNode('ConstFloat')).toBe(false); // f32, no UV input, single output
       expect(spm.isVisualNode('Time')).toBe(false);       // f32, no input
+      expect(spm.isVisualNode('RandomValue')).toBe(false); // f32, no input (clock-driven scalar)
+    });
+
+    it('keeps CPU-driven scalar Input nodes (Trigger/Hold/Count) on the numeric path', () => {
+      // These take an input but their output is a single uniform VALUE, not a per-pixel field, so
+      // the scalar-with-inputs heuristic must not promote them to the GPU preview path.
+      expect(spm.isVisualNode('Trigger')).toBe(false);
+      expect(spm.isVisualNode('Hold')).toBe(false);
+      expect(spm.isVisualNode('Count')).toBe(false);
     });
 
     it('never treats compute nodes as visual fragment previews', () => {

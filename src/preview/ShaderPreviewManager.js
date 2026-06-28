@@ -169,6 +169,12 @@ export class ShaderPreviewManager {
     const kind = typeof nodeOrKind === 'string' ? nodeOrKind : nodeOrKind?.kind;
     if (!kind || this.isComputeNode(kind)) return false;
 
+    // CPU-driven scalar Input nodes (Trigger, Hold, Count) take an input but their output is a
+    // single uniform VALUE, not a per-pixel field — so the scalar-with-inputs heuristic below would
+    // wrongly mark them visual and show a flat numeric swatch by default. They belong on the numeric
+    // path (hidden-by-default thumbnail) alongside Time / ConstFloat / Random Value.
+    if (kind === 'Trigger' || kind === 'Hold' || kind === 'Count') return false;
+
     const def = NodeDefs[kind];
     const out = def?.pinsOut?.[0];
     if (!out) {

@@ -27,7 +27,7 @@ export class InputNodes {
   handles(kind) {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
-      'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold'
+      'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue'
     ].includes(kind);
   }
 
@@ -201,6 +201,36 @@ export class InputNodes {
         const threshold = resolveParam('threshold', '0.5');
         return {
           line: `let node_${nodeId} = select(0.0, ${value}, ${pulse} >= ${threshold});`,
+          outputType: "f32"
+        };
+      }
+
+      case 'Count': {
+        // Like Hold, the running count needs memory across frames that a fragment shader can't
+        // keep. CountNodeProcessor advances the counter on the CPU each frame (rising-edge detect,
+        // step, optional [min,max] wrap) and writes it into the "count" uniform that getParam
+        // registers (node.id + ".count"); the shader just reads it.
+        const countRef = getParam ? getParam('count', 0.0) : null;
+        if (countRef) {
+          return { line: `let node_${nodeId} = ${countRef};`, outputType: "f32" };
+        }
+        // Fallback (uniform registration unavailable): emit the current pulse as a 0/1 so the
+        // node still produces something rather than failing to compile.
+        const pulse = getInput(0, 'f32', '0.0');
+        const threshold = resolveParam('threshold', '0.5');
+        return {
+          line: `let node_${nodeId} = select(0.0, 1.0, ${pulse} >= ${threshold});`,
+          outputType: "f32"
+        };
+      }
+
+      case 'RandomValue': {
+        // Clock-driven pseudo-random noise in [0, 1]. fract(sin(x) * large) is the standard GLSL
+        // hash; driving x off g.time makes it churn. Mirrors the RandomTime formula used on the
+        // CPU side (HoldNodeProcessor / PreviewComputer) so preview and shader agree.
+        const speed = resolveParam('speed', '1.0');
+        return {
+          line: `let node_${nodeId} = fract(sin(g.time * ${speed} * 12.9898) * 43758.5453);`,
           outputType: "f32"
         };
       }

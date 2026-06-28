@@ -47,6 +47,7 @@ import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 import { getPerfProbe } from "./src/utils/PerfProbe.js";
 import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
+import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -64,6 +65,8 @@ installPerfBench();
 
 // Drives the Hold (sample-and-hold) node's CPU-side latch each frame. See HoldNodeProcessor.
 const holdNodeProcessor = new HoldNodeProcessor();
+// Drives the Count node's CPU-side counter each frame. See CountNodeProcessor.
+const countNodeProcessor = new CountNodeProcessor();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3532,8 +3535,14 @@ function handleRenderFrame(frameState) {
         time: frameState.simTime,
         uniformManager: window.nodeCompiler.uniformManager,
       });
+      // Advance the Count node's counter on the same cadence (every frame, unthrottled) so
+      // rising edges of brief pulses aren't missed before the GPU frame is dispatched.
+      countNodeProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
+      });
     } catch (err) {
-      // Never let the hold latch break the render loop.
+      // Never let the hold/count latch break the render loop.
     }
   }
 
@@ -3622,7 +3631,17 @@ function handleRenderFrame(frameState) {
           const graphInstance = editor.graph;
           const animationTime = frameState.simTime || performance.now() / 1000;
           const expressionSystem = editor.expressionSystem || previewComputer.expressionSystem;
-          const hadTimeAnimatedNodes = (expressionSystem?.timeAnimatedNodes?.size || 0) > 0;
+          // Count BOTH expression-time-animated nodes (=time / =audio, tracked in
+          // timeAnimatedNodes) AND intrinsic clock nodes (Time / Random Value), which animate every
+          // frame from g.time alone and so never register in timeAnimatedNodes. Without the
+          // intrinsic check, a graph whose only animation is such a node never flags
+          // needsPreviewCompute, so this loop never calls setInteractionMode — and the interaction
+          // flag left set by a drag+tab node creation (that gesture has no balancing
+          // interaction-end) is never cleared, freezing requestPreviewComputation and the node's
+          // live value. hasActiveAnimations() short-circuits on timeAnimatedNodes, then on a cheap
+          // intrinsic-kind scan, so this stays cheap.
+          const hadTimeAnimatedNodes = (expressionSystem?.timeAnimatedNodes?.size || 0) > 0
+            || (typeof editor.hasActiveAnimations === 'function' && editor.hasActiveAnimations());
           const timeChanged = hadTimeAnimatedNodes &&
             (lastPreviewAnimationTime === null || Math.abs(animationTime - lastPreviewAnimationTime) > 1e-4);
 

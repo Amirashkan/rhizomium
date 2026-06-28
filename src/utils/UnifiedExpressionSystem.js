@@ -889,7 +889,7 @@ export class UnifiedExpressionSystem {
 
     for (const node of graph.nodes) {
       const kind = node?.kind?.toLowerCase();
-      if (kind !== 'time' && kind !== 'mouse') {
+      if (kind !== 'time' && kind !== 'mouse' && kind !== 'randomvalue') {
         continue;
       }
 
@@ -901,6 +901,11 @@ export class UnifiedExpressionSystem {
         }
         if (kind === 'time') {
           mapping[name] = 'g.time';
+        } else if (kind === 'randomvalue') {
+          // Clock-driven pseudo-random in [0,1]; mirror the wired-node formula in InputNodes.js.
+          // speed isn't available as a GPU global here, so use its numeric param default of 1.0.
+          const speed = this._toFloatLiteral(Number(node.params?.speed) || 1.0);
+          mapping[name] = `fract(sin(g.time * ${speed} * 12.9898) * 43758.5453)`;
         } else {
           // Mouse is the vec4 global g.mouse (iMouse layout: .xy position, .z held, .w click).
           // Map a component suffix (node_<id>_x / _y / _z / _w, or any xyzw/rgba swizzle) to the

@@ -25,6 +25,8 @@ export class NodeValueComputer {
     return kind === 'time' ||
            kind === 'mouse' ||
            kind === 'resolution' ||
+           kind === 'randomvalue' ||
+           kind === 'count' ||
            kind === 'stripe' ||
            kind === 'stripefield' ||
            kind === 'checker' ||
