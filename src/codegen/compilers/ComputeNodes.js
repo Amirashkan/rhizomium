@@ -687,7 +687,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     feedback = textureLoad(feedbackTexture, fbCoord, 0);
   }
 
-  let result = input + feedback * uniforms.decay;
+  // Combine the fresh input with the decayed, transformed feedback using a
+  // per-channel max. The original additive form (input + feedback * decay) kept
+  // adding full-strength input on top of near-fully-retained feedback every
+  // frame, so any coloured region saturated all three channels to 1.0 and the
+  // trail blew out to white -- losing the input's colours. A convex mix avoided
+  // the blowout but dimmed the input to a few percent per frame, so everything
+  // looked too dark. max() keeps the input at full brightness where it is
+  // present and lets the trail (feedback * decay) fade out gradually while still
+  // never summing past 1.0, so colours are preserved at their true brightness.
+  // decay controls how long the trail persists (0 = no trail, 1 = never fades).
+  var result = max(input, feedback * uniforms.decay);
+  // Keep content opaque so the colours are visible in the preview/composite even
+  // while the (initially cleared) feedback buffer still has zero alpha.
+  result.a = max(input.a, feedback.a * uniforms.decay);
   textureStore(outputTexture, vec2<u32>(texCoord), result);
 }`;
   }
