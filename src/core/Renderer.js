@@ -16,6 +16,13 @@ import {
   EDGE_INSET,
 } from "./pinLayout.js";
 
+// Integer-digit budget used when reserving node width for a numeric value tag. A node's width is
+// reserved from the value's SHAPE, not its live digits, so animating/dragged values up to this many
+// integer digits never resize the node. Values past it still render in full (the tag box uses the
+// real text width) — they just spill a few px into the node body for that frame instead of latching
+// the whole node permanently wider.
+const VALUE_TAG_INT_DIGITS = 3;
+
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
     this.ctx = ctx;
@@ -940,6 +947,10 @@ export class Renderer {
     const pinType = pinDef?.type || "•";
 
     let labelText = pinType;
+    // True once labelText holds a live numeric value (scalar/vector) that can change frame-to-frame.
+    // Those are the tags that must reserve a STABLE width (see the width-measure block below); static
+    // tags like the pin type, Resolution, or an expression reserve their real width instead.
+    let numericTag = false;
 
     // For simple const nodes, read the ACTUAL parameter value directly for real-time updates
     // This ensures MIDI-bound parameters and dragged sliders show current values immediately
@@ -1019,6 +1030,7 @@ export class Renderer {
       if (typeof previewValue === 'number') {
         // Single number output
         labelText = previewValue.toFixed(2);
+        numericTag = true;
       } else if (Array.isArray(previewValue)) {
         // Vector output
         if (pinIndex > 0 && previewValue.length > pinIndex) {
@@ -1031,10 +1043,12 @@ export class Renderer {
         } else if (previewValue.length === 4) {
           labelText = `(${previewValue[0].toFixed(1)}, ${previewValue[1].toFixed(1)}, ${previewValue[2].toFixed(1)}, ${previewValue[3].toFixed(1)})`;
         }
+        numericTag = true;
       } else if (typeof previewValue === 'object' && previewValue.type === 'split') {
         // Split node - show component value
         if (previewValue.values && previewValue.values[pinIndex] !== undefined) {
           labelText = previewValue.values[pinIndex].toFixed(2);
+          numericTag = true;
         }
       }
     } else if (!labelResolved) {
@@ -1043,18 +1057,21 @@ export class Renderer {
         const value = typeof node.value === "number" ? node.value : (node.params?.value ?? 0);
         if (typeof value === 'number') {
           labelText = `${value.toFixed(2)}`;
+          numericTag = true;
         }
       } else if (node.kind === "ConstVec2") {
         // Param values only — node.x/node.y are the canvas position, not the vector value.
         const x = node.params?.x ?? 0;
         const y = node.params?.y ?? 0;
         labelText = `(${x.toFixed(1)}, ${y.toFixed(1)})`;
+        numericTag = true;
       } else if (node.kind === "ConstVec3") {
         // Param values only — node.x/node.y are the canvas position, not the vector value.
         const x = node.params?.x ?? 0;
         const y = node.params?.y ?? 0;
         const z = node.params?.z ?? 0;
         labelText = `(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`;
+        numericTag = true;
       } else if (node.kind === "Expr" && node.expr) {
         labelText =
           node.expr.length > 8 ? node.expr.substring(0, 8) + "..." : node.expr;
@@ -1063,12 +1080,21 @@ export class Renderer {
       }
     }
 
-    // Measure the tag width and record the node's widest, so _ensureNodeSize can keep the node wide
-    // enough for it. Done before the zoom-skip below so the reserved width (and thus the node width)
-    // doesn't change as you zoom out past the label-draw threshold.
+    // Two widths, on purpose:
+    //   • textWidth   — the REAL width of this frame's text; the tag box is drawn to it, so the value
+    //                   is always shown in full and is never clipped.
+    //   • reserveWidth — a STABLE width that drives the node's minimum size. For a live numeric tag it
+    //                   measures a fixed-shape template (see _valueTagReserveText) instead of the live
+    //                   digits, so a value that animates/drags wider doesn't latch the whole node
+    //                   permanently wider ("nodes going wide while you work"). Static tags reserve
+    //                   their real width.
+    // Done before the zoom-skip below so the reserved width (and thus the node width) doesn't change
+    // as you zoom out past the label-draw threshold.
     ctx.font = this._cachedFonts.pinLabel;
     const textWidth = ctx.measureText(labelText).width + 8;
-    node.__valueTagW = Math.max(node.__valueTagW || 0, textWidth);
+    const reserveText = numericTag ? this._valueTagReserveText(labelText) : labelText;
+    const reserveWidth = ctx.measureText(reserveText).width + 8;
+    node.__valueTagW = Math.max(node.__valueTagW || 0, reserveWidth);
 
     // Skip label if it would be too cramped
     if (this.viewport.scale < 0.7) return;
@@ -1095,6 +1121,18 @@ export class Renderer {
     ctx.textAlign = "right";
     ctx.fillText(labelText, pinPos.x - 10, pinPos.y + 2);
     ctx.restore();
+  }
+
+  // Map a live numeric value tag to a fixed-SHAPE template so its reserved width doesn't depend on
+  // the current digits. Each number (scalar, or a vector component inside "(...)") becomes a signed,
+  // VALUE_TAG_INT_DIGITS-wide integer part with the same decimal count — so 0.50, -0.50, 12.34 and
+  // 123.45 all reserve the same width, and the node stops growing as the value animates or is dragged.
+  // The tag itself is still drawn with its real text, so longer values render in full.
+  _valueTagReserveText(labelText) {
+    const intPart = "0".repeat(VALUE_TAG_INT_DIGITS);
+    return labelText.replace(/-?\d+(?:\.(\d+))?/g, (_m, dec) =>
+      "-" + intPart + (dec ? "." + "0".repeat(dec.length) : "")
+    );
   }
 
   _renderSelectionOutline(node) {
@@ -1140,8 +1178,10 @@ export class Renderer {
   // Size the node box to the shared anatomy: header → optional preview band → fixed socket rows.
   // Height is recomputed every frame (cheap, no text measuring) so it tracks preview-size and
   // row-count changes both up and down — and so changing the S/M/L chip resizes only the preview
-  // band, leaving every socket row where it was. Width only grows, keyed on the inputs that affect
-  // it so we don't re-measure text every frame.
+  // band, leaving every socket row where it was. Width tracks its minimum both up AND down, but the
+  // sizing inputs (notably the value-tag width) are now stable per node config, so it settles instead
+  // of drifting. We only re-measure when one of those inputs changes, so it isn't measured every
+  // frame, and tracking down also self-heals any node saved while it was latched too wide.
   _ensureNodeSize(node) {
     const def = NodeDefs[node.kind];
     const inCount = def?.inputs || 0;
@@ -1155,8 +1195,8 @@ export class Renderer {
     if (node.__sizedForTagW !== tagW || node.__sizedForPreview !== hasPreview) {
       node.__sizedForTagW = tagW;
       node.__sizedForPreview = hasPreview;
-      const minW = this._minNodeWidth(node, inCount, outCount, hasPreview, tagW);
-      if (!node.w || node.w < minW) node.w = minW;
+      // _minNodeWidth already floors at 160, so this never collapses a node too far.
+      node.w = this._minNodeWidth(node, inCount, outCount, hasPreview, tagW);
     }
   }
 
