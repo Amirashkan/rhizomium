@@ -46,6 +46,7 @@ import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
 import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 import { getPerfProbe } from "./src/utils/PerfProbe.js";
 import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
+import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -60,6 +61,9 @@ window.updateNodeIdCounter = updateNodeIdCounter;
 // Console: window.perfReport(), window.perfBench.mixedGraph(300), .blurTower(6)
 const perfProbe = getPerfProbe();
 installPerfBench();
+
+// Drives the Hold (sample-and-hold) node's CPU-side latch each frame. See HoldNodeProcessor.
+const holdNodeProcessor = new HoldNodeProcessor();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3514,6 +3518,20 @@ function handleRenderFrame(frameState) {
   // Only skip GPU rendering if budget is exceeded (reuse last frame), otherwise render every frame
   const shouldRenderGPU = !gpuBudgetExceeded;
   
+  // Advance the Hold (sample-and-hold) latch before dispatching the GPU frame so the held
+  // value uniform reflects this frame's pulse. Runs every frame (not throttled like the
+  // preview pass) so brief trigger pulses and rising edges aren't missed.
+  if (window.editor?.graph && window.nodeCompiler?.uniformManager) {
+    try {
+      holdNodeProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
+      });
+    } catch (err) {
+      // Never let the hold latch break the render loop.
+    }
+  }
+
   if (shouldRenderGPU) {
     const gpuToken = previewPerfMonitor?.timeSection("gpu");
     // Check if compute shader test is active

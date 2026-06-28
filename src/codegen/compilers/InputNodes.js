@@ -186,6 +186,16 @@ export class InputNodes {
       }
 
       case 'Hold': {
+        // Sample-and-hold needs state across frames, which a fragment shader has none of: the
+        // held value is computed on the CPU each frame (HoldNodeProcessor evaluates the value /
+        // pulse inputs, applies the rising-edge / continuous latch, and keeps holding after the
+        // pulse falls to 0) and streamed in as a per-frame uniform. The shader just reads it.
+        // getParam registers the "hold" uniform (node.id + ".hold") that the processor writes to.
+        const holdRef = getParam ? getParam('hold', 0.0) : null;
+        if (holdRef) {
+          return { line: `let node_${nodeId} = ${holdRef};`, outputType: "f32" };
+        }
+        // Fallback (uniform registration unavailable): latch the value while the pulse is high.
         const value = getInput(0, 'f32', '0.0');
         const pulse = getInput(1, 'f32', '0.0');
         const threshold = resolveParam('threshold', '0.5');

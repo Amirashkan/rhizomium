@@ -136,7 +136,12 @@ export const InputNodes = {
       { label: "pulse", type: "f32" }
     ],
     pinsOut: [{ label: "out", type: "f32" }],
+    // Sample-and-hold: latch the value input while the pulse crosses the threshold, then
+    // keep holding it after the pulse falls back to 0 (it no longer drops to 0). Mode picks
+    // when to sample: "Continuous" re-samples every frame the pulse is high; "Once per
+    // trigger" samples a single time on the rising edge of each pulse and holds until the next.
     params: [
+      { name: "mode", type: "select", options: ["Continuous", "Once per trigger"], default: "Continuous", label: "Update" },
       { name: "threshold", type: "float", default: 0.5, label: "Threshold" }
     ],
   },

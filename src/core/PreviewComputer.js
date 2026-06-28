@@ -468,10 +468,11 @@ case "ConicGradient": {
             }
 
             case "Hold": {
-              const value = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const pulse = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
-              result = pulse >= threshold ? value : 0.0;
+              // The sample-and-hold latch lives on the CPU in HoldNodeProcessor (it runs every
+              // frame and survives the pulse falling to 0, which this preview pass — throttled to
+              // ~10fps — can't track on its own). Mirror its held value here so the node thumbnail
+              // matches what the shader renders.
+              result = typeof node.__holdValue === 'number' ? node.__holdValue : 0.0;
               break;
             }
 
