@@ -1088,7 +1088,7 @@ connectGPURenderer(renderFunction) {
     if (this.expressionSystem?.timeAnimatedNodes?.size > 0) {
       return true;
     }
-    // Time / RandomTime generator nodes are driven by the clock alone — they have no
+    // Time generator nodes are driven by the clock alone — they have no
     // time-referencing parameter expression, so the expression system never registers them in
     // timeAnimatedNodes. Without counting them here the scene is treated as static, the render
     // loop stops redrawing, and their previews freeze at a fixed value.
@@ -1102,7 +1102,7 @@ connectGPURenderer(renderFunction) {
   }
 
   // True when the graph contains a node whose output advances every frame from the clock alone
-  // (Time / RandomTime), independent of any parameter expression.
+  // (Time), independent of any parameter expression.
   _hasIntrinsicTimeNodes() {
     const nodes = this.graph?.nodes;
     if (!Array.isArray(nodes)) {
@@ -1115,7 +1115,7 @@ connectGPURenderer(renderFunction) {
       // event-driven via PreviewIntegration.notifyMouseInput(), so it must not
       // force a permanent animation loop / continuous recompute (which would
       // compete with the final preview).
-      return kind === 'time' || kind === 'randomtime';
+      return kind === 'time';
     });
   }
 

@@ -1,4 +1,4 @@
-// Regression test: a Mouse (or Time/RandomTime) node referenced by a Field node's parameter
+// Regression test: a Mouse (or Time) node referenced by a Field node's parameter
 // (e.g. a Circle's radius = "=node_28_x") must resolve to the live GPU global, produce valid
 // scalar WGSL, and never emit an undefined identifier — including while the reference is still
 // being typed.

@@ -124,7 +124,7 @@ updateTimeNodes() {
   // Nodes that advance with the clock come from two sources:
   //  1. Parameter expressions referencing time/frame/audioEnvelope, tracked by the expression
   //     system in timeAnimatedNodes.
-  //  2. Intrinsic Time / RandomTime generator nodes, which have no such expression and are
+  //  2. Intrinsic Time generator nodes, which have no such expression and are
   //     therefore never registered above. Including them here is what keeps their previews
   //     (and everything downstream of them) refreshing instead of freezing at a fixed value.
   const expressionSystem = window.editor?.paramPanel?.expressionSystem;
@@ -139,7 +139,7 @@ updateTimeNodes() {
       // "animated" and ran the heavy recompute continuously, which throttled the
       // final preview. Mouse previews are refreshed event-driven in
       // notifyMouseInput() instead, on a throttle separate from the render path.
-      return kind === 'time' || kind === 'randomtime';
+      return kind === 'time';
     })
     .map(node => node.id);
 

@@ -863,13 +863,13 @@ export class UnifiedExpressionSystem {
   }
 
   /**
-   * Map references to global input nodes (Time / RandomTime / Mouse) to their GPU expression so
+   * Map references to global input nodes (Time / Mouse) to their GPU expression so
    * a parameter that *references* such a node reads the live GPU global — exactly like the built-in
    * `time` keyword does. A referenced node is not necessarily wired into the shader, so its
    * `node_<id>` variable may never be declared; emitting an undefined identifier would break shader
    * compilation, and the generator then falls back to `0.0` (the value appears stuck at zero, along
    * with everything downstream). Formulas mirror src/codegen/compilers/InputNodes.js (the wired-node
-   * code path): Time -> g.time, RandomTime -> the fract(sin(...)) formula, Mouse -> g.mouse (vec4).
+   * code path): Time -> g.time, Mouse -> g.mouse (vec4).
    */
   _buildInputNodeReferenceMapping(expressionString, graph) {
     const mapping = {};
@@ -889,7 +889,7 @@ export class UnifiedExpressionSystem {
 
     for (const node of graph.nodes) {
       const kind = node?.kind?.toLowerCase();
-      if (kind !== 'time' && kind !== 'randomtime' && kind !== 'mouse') {
+      if (kind !== 'time' && kind !== 'mouse') {
         continue;
       }
 
@@ -901,10 +901,6 @@ export class UnifiedExpressionSystem {
         }
         if (kind === 'time') {
           mapping[name] = 'g.time';
-        } else if (kind === 'randomtime') {
-          const speed = Number(node.params?.speed);
-          const speedLiteral = Number.isFinite(speed) ? this._toFloatLiteral(speed) : '1.0';
-          mapping[name] = `fract(sin(g.time * ${speedLiteral} * 12.9898) * 43758.5453)`;
         } else {
           // Mouse is the vec4 global g.mouse (iMouse layout: .xy position, .z held, .w click).
           // Map a component suffix (node_<id>_x / _y / _z / _w, or any xyzw/rgba swizzle) to the

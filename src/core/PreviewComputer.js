@@ -460,13 +460,6 @@ case "ConicGradient": {
               result = this.animationTime;
               break;
 
-            case "RandomTime": {
-              const speed = this._evaluateParam(node.params?.speed, values, 1.0);
-              const t = this.animationTime * speed;
-              result = Math.abs(Math.sin(t * 12.9898) * 43758.5453) % 1.0;
-              break;
-            }
-
             case "Trigger": {
               const inputValue = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);

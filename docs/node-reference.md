@@ -124,17 +124,6 @@ Provides the mathematical constant Pi.
 - **Parameters**: None
 - **Description**: Outputs the constant π, useful for trigonometric calculations.
 
-#### Random Time
-Generates a time-varying random value.
-
-- **Category**: Input
-- **Inputs**: None
-- **Outputs**:
-  - `rand` (f32) - Random value that changes over time
-- **Parameters**:
-  - `Speed` (float, default: 1.0) - Rate of random value change
-- **Description**: Outputs a pseudo-random value that evolves over time, useful for animated noise effects.
-
 #### Trigger
 Converts a continuous value into a pulse trigger.
 

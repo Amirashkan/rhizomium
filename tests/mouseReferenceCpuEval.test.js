@@ -1,5 +1,5 @@
 // Regression test: evaluating a parameter expression that references a live input node
-// (Mouse/Time/RandomTime) on the CPU must read the live cursor/clock value, not 0.
+// (Mouse/Time) on the CPU must read the live cursor/clock value, not 0.
 //
 // Bug: the CPU evaluation context only included nodes that the PreviewComputer had computed.
 // An unwired Mouse node referenced only by an expression (e.g. radius = "=node_28_x") was never
