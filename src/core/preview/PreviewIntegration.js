@@ -38,7 +38,8 @@ export class PreviewIntegration {
           // Limit to 60 FPS max for time updates (16.67ms between updates)
           if (timestamp - this.lastTimeUpdate >= 16.67) {
             this.updateTimeNodes();
-            // Re-render real GPU thumbnails for time-animated visual nodes (self-throttled).
+            // Re-render real GPU thumbnails for animated visual nodes at the render cadence (the
+            // 16.67ms gate above is the only frame cap; the GPU preview queue self-limits on load).
             this.updateAnimatedFragmentPreviews();
             this.lastTimeUpdate = timestamp;
           }
@@ -381,10 +382,10 @@ updateTimeNodes() {
     const spm = window.shaderPreviewManager;
     if (!spm || !spm.enableGPUPreview || !this.editor.graph?.nodes) return;
 
-    const now = performance.now();
-    if (!this._lastAnimPreview) this._lastAnimPreview = 0;
-    if (now - this._lastAnimPreview < 33) return; // ~30 fps cap (queue self-limits if the GPU can't keep up)
-    this._lastAnimPreview = now;
+    // No internal frame cap here: the caller already runs this at most once per ~16.67ms (60 fps),
+    // and the GPU preview queue self-limits when the GPU can't keep up. An extra ~30 fps cap on top
+    // just made animated thumbnails refresh at half the render rate, so they visibly stuttered
+    // behind the live output — let them ride the render cadence instead.
 
     // Collect every node whose thumbnail must be re-read this frame because its output is live.
     const toUpdate = new Set();
