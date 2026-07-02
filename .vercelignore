@@ -1,0 +1,11 @@
+# Local-only Python viewer/streaming tooling (see DEPLOYMENT_NOTES.md) —
+# keep it out of the Vercel build context so Python auto-detection
+# doesn't run "uv pip install" on packages that need local GL/audio libs.
+*.py
+requirements.txt
+
+# Not needed to build the site
+*.docx
+src-tauri/
+tests/
+coverage/
