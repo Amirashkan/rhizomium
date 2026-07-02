@@ -543,15 +543,15 @@ export class PreferencesWindow {
 
     const customizeBtn = this._createButton("Customize Shortcuts (opens keymap editor)", () => {
       // TODO: Open keymap editor
-      if (typeof updateStatus === "function") {
-        updateStatus("Shortcuts editor: Feature coming soon");
+      if (typeof window.updateStatus === "function") {
+        window.updateStatus("Shortcuts editor: Feature coming soon");
       }
     });
 
     const resetBtn = this._createButton("Reset to Default Shortcuts", () => {
       // TODO: Reset shortcuts to defaults
-      if (typeof updateStatus === "function") {
-        updateStatus("Shortcuts reset: Feature coming soon");
+      if (typeof window.updateStatus === "function") {
+        window.updateStatus("Shortcuts reset: Feature coming soon");
       }
     }, false, true);
 
@@ -682,8 +682,8 @@ export class PreferencesWindow {
     this.hide();
     setTimeout(() => this.show(), 250);
 
-    if (typeof updateStatus === "function") {
-      updateStatus("All preferences reset to defaults");
+    if (typeof window.updateStatus === "function") {
+      window.updateStatus("All preferences reset to defaults");
     }
   }
 }

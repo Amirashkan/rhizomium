@@ -713,6 +713,7 @@ async show() {
   async toggleFullscreen() {
     if (!this.isVisible || this.isDocked) return;
 
+    const perfToken = this._getPerfMonitor()?.timeSection("previewFullscreen");
     this.isFullscreen = !this.isFullscreen;
     const btn = this.container.querySelector(".btn-fullscreen");
     const hud = document.getElementById("hud");

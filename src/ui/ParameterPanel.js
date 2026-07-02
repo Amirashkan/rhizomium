@@ -598,47 +598,6 @@ case 'colorramp':
     }
   );
   break;
-      case 'colorramp':
-  definitions.push(
-    {
-      name: 'stops',
-      type: 'colorstops',
-      displayName: 'Color Stops',
-      default: [
-        { position: 0.0, color: [0, 0, 0, 1] },
-        { position: 1.0, color: [1, 1, 1, 1] }
-      ],
-      description: 'Gradient color stops'
-    },
-    {
-      name: 'mode',
-      type: 'select',
-      displayName: 'Interpolation',
-      options: ['Linear', 'Step', 'Smooth'],
-      default: 'Linear',
-      description: 'Interpolation mode'
-    }
-  );
-  break;
-case 'lineargradient':
-  definitions.push(
-    { name: 'angle', type: 'float', displayName: 'Angle', default: 0.0, min: 0, max: 360, description: 'Gradient angle in degrees' },
-    { name: 'offset', type: 'float', displayName: 'Offset', default: 0.0, description: 'Gradient offset' },
-    { name: 'scale', type: 'float', displayName: 'Scale', default: 1.0, min: 0.1, max: 10.0, description: 'Gradient scale' },
-    { name: 'repeat', type: 'boolean', displayName: 'Repeat', default: false, description: 'Repeat gradient' }
-  );
-  break;
-
-case 'radialgradient':
-  definitions.push(
-    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, min: 0, max: 1, description: 'Center X position' },
-    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, min: 0, max: 1, description: 'Center Y position' },
-    { name: 'radius', type: 'float', displayName: 'Radius', default: 0.5, min: 0.01, max: 2.0, description: 'Gradient radius' },
-    { name: 'falloff', type: 'float', displayName: 'Falloff', default: 1.0, min: 0.1, max: 5.0, description: 'Falloff power' },
-    { name: 'invert', type: 'boolean', displayName: 'Invert', default: false, description: 'Invert gradient' }
-  );
-  break;
-
       case 'constfloat':
         definitions.push({
           name: 'value',
@@ -1846,7 +1805,9 @@ handleParameterUpdate(action) {
 
   // Warn for negative geometry parameters
   if (Number(value) < 0 && name === "radius") {
-    StatusManager.warn("Radius cannot be negative – auto-corrected");
+    if (typeof window.updateStatus === "function") {
+      window.updateStatus("Radius cannot be negative – auto-corrected", "warning");
+    }
   }
 
   // Clear any existing timeout

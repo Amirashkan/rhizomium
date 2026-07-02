@@ -618,26 +618,6 @@ export class Renderer {
     // The visual difference is minimal and the performance cost is significant
   }
 
-  // Also make sure this method exists for category colors:
-  _getCategoryColor(category) {
-    switch (category) {
-      case "Input":
-        return "#10b981"; // Emerald
-      case "Math":
-        return "#f59e0b"; // Amber
-      case "Field":
-        return "#8b5cf6"; // Violet
-      case "Utility":
-        return "#06b6d4"; // Cyan
-      case "Output":
-        return "#ef4444"; // Red
-      case "Misc":
-        return "#6b7280"; // Gray
-      default:
-        return "#6b7280"; // Gray
-    }
-  }
-
   _renderPreviewControls(node) {
     const editor = window.editor;
     // Controls live in the title bar and must ALWAYS draw — including for nodes whose preview band

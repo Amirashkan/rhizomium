@@ -752,8 +752,8 @@ export class FileManager {
         if (this.saveLoadManager && this.saveLoadManager.loadFromFile) {
           await this.saveLoadManager.loadFromFile(file);
           this.hide();
-          if (typeof updateStatus === 'function') {
-            updateStatus(`Loaded ${filePath}`);
+          if (typeof window.updateStatus === 'function') {
+            window.updateStatus(`Loaded ${filePath}`);
           }
           return;
         } else {
@@ -767,8 +767,8 @@ export class FileManager {
       if (this.saveLoadManager && projectData) {
         await this.saveLoadManager.importProject(projectData);
         this.hide();
-        if (typeof updateStatus === 'function') {
-          updateStatus(`Loaded ${filePath}`);
+        if (typeof window.updateStatus === 'function') {
+          window.updateStatus(`Loaded ${filePath}`);
         }
       }
     } catch (error) {
@@ -801,8 +801,8 @@ export class FileManager {
       }
 
       await this.loadFiles();
-      if (typeof updateStatus === 'function') {
-        updateStatus('File deleted');
+      if (typeof window.updateStatus === 'function') {
+        window.updateStatus('File deleted');
       }
     } catch (error) {
       console.error('Failed to delete file:', error);
@@ -869,8 +869,8 @@ export class FileManager {
       // Refresh file list and show success
       await this.loadFiles();
       
-      if (typeof updateStatus === 'function') {
-        updateStatus(`Project saved: ${finalFileName}`);
+      if (typeof window.updateStatus === 'function') {
+        window.updateStatus(`Project saved: ${finalFileName}`);
       }
 
       // Show success message in the dialog
@@ -918,8 +918,8 @@ export class FileManager {
         }
 
         await this.loadFiles();
-        if (typeof updateStatus === 'function') {
-          updateStatus(`File uploaded: ${file.name}`);
+        if (typeof window.updateStatus === 'function') {
+          window.updateStatus(`File uploaded: ${file.name}`);
         }
       } catch (error) {
         console.error('Upload failed:', error);
@@ -959,8 +959,8 @@ export class FileManager {
       }
 
       await this.loadFiles();
-      if (typeof updateStatus === 'function') {
-        updateStatus(`Folder created: ${folderName}`);
+      if (typeof window.updateStatus === 'function') {
+        window.updateStatus(`Folder created: ${folderName}`);
       }
     } catch (error) {
       console.error('Failed to create folder:', error);

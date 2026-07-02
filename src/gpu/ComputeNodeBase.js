@@ -31,7 +31,7 @@ export class ComputeNodeBase {
     this.kind = nodeConfig.kind || 'ComputeNodeBase';
 
     // Parameters
-    this.params = { ...nodeConfig.params } || {};
+    this.params = { ...nodeConfig.params };
 
     // Metadata
     this.metadata = {
