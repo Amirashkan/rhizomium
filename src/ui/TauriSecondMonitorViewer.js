@@ -33,6 +33,7 @@
 // constructed when isTauri() is true (see main.js).
 
 import { isTauri } from '../utils/isTauri.js';
+import { controlInputPinIndices } from '../data/NodeDefs.js';
 import {
   SecondMonitorMessage as MSG,
   SecondMonitorTier as TIER,
@@ -470,10 +471,28 @@ export class TauriSecondMonitorViewer {
   }
 
   /**
+   * A compute node's inputs with control-pin slots (e.g. the Feedback nodes' Reset
+   * pin) masked to null. Control pins carry CPU-only scalars the receiver never
+   * consumes — resets arrive as FEEDBACK_RESET messages instead — so their wiring
+   * must not enter the broadcast graph or its structure signature. Otherwise merely
+   * wiring a Trigger into a Reset pin rebuilt the receiver's compute graph, which
+   * cleared its feedback sims. Masking (not removing) preserves pin indices.
+   */
+  _broadcastableInputs(node) {
+    const inputs = Array.isArray(node.inputs) ? node.inputs.slice() : [];
+    const controlPins = controlInputPinIndices(node.kind);
+    if (controlPins.size) {
+      for (const pin of controlPins) { if (pin < inputs.length) inputs[pin] = null; }
+    }
+    return inputs;
+  }
+
+  /**
    * Cheap signature of the compute subgraph's STRUCTURE (node ids, kinds, input
    * wiring and texture sizes). Changes when a node is added/removed, rewired, or
    * resized — used to re-broadcast COMPUTE_GRAPH so the receiver rebuilds. Does NOT
-   * include per-frame uniforms (those stream separately).
+   * include per-frame uniforms (those stream separately) or control-pin wiring
+   * (resets ride FEEDBACK_RESET; a rebuild would clear the receiver's sims).
    */
   _computeGraphSignature() {
     const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
@@ -488,7 +507,7 @@ export class TauriSecondMonitorViewer {
       const res = data.resolution || node.computeResolution || [];
       const w = (mgr && mgr.textureWidth) || res[0] || 0;
       const h = (mgr && mgr.textureHeight) || res[1] || 0;
-      const inputs = Array.isArray(node.inputs) ? node.inputs.join(',') : '';
+      const inputs = this._broadcastableInputs(node).join(',');
       parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}`);
     });
     return parts.join('|');
@@ -567,7 +586,7 @@ export class TauriSecondMonitorViewer {
         width,
         height,
         supportsFeedback: !!data.supportsFeedback,
-        inputs: Array.isArray(node.inputs) ? node.inputs.slice() : [],
+        inputs: this._broadcastableInputs(node),
       });
     });
     const executionOrder = Array.isArray(exec.executionOrder) ? exec.executionOrder.slice() : [];
@@ -608,10 +627,13 @@ export class TauriSecondMonitorViewer {
       });
       if (Array.isArray(node.inputs)) for (const inId of node.inputs) visit(inId);
     };
-    // Seed from every compute node's non-compute (fragment) inputs.
+    // Seed from every compute node's non-compute (fragment) inputs. Control pins
+    // (e.g. the Feedback nodes' Reset pin) are masked out: their scalar sources
+    // (a Trigger, say) are CPU-only and must not be broadcast as fragment feeders.
     registry.forEach((data) => {
-      const inputs = (data && data.node && data.node.inputs) || [];
-      for (const inId of inputs) {
+      const node = data && data.node;
+      if (!node) return;
+      for (const inId of this._broadcastableInputs(node)) {
         if (inId != null && !isCompute(inId)) visit(inId);
       }
     });
@@ -661,6 +683,18 @@ export class TauriSecondMonitorViewer {
     const tm = (typeof window !== 'undefined') ? window.textureManager : null;
     if (!tm || !tm.textures || typeof tm.textures.forEach !== 'function') return;
     tm.textures.forEach((info, nodeId) => { this._broadcastTexture(nodeId, info); });
+  }
+
+  /**
+   * Called by the editor when a Feedback node's sim was reset (the panel's
+   * "Reset Feedback" button or a rising edge on its Reset pin — both funnel
+   * through ComputeExecutor.resetNodeFeedback). The receiver replicates feedback
+   * sims independently, so it must clear its own copy too. No-op unless a
+   * native-compute mirror is open.
+   */
+  onFeedbackReset(nodeId) {
+    if (!this._active || this._mode !== 'native-compute') return;
+    try { this._channel?.postMessage({ type: MSG.FEEDBACK_RESET, nodeId }); } catch (_) { /* ignore */ }
   }
 
   /**

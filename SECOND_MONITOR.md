@@ -39,7 +39,8 @@ The editor picks a tier per shader and advertises it via the `CAPS` message:
 Editor → viewer: `SHADER`, `UNIFORMS` (per-frame), `CAPS`, `COMPUTE_GRAPH` (on
 structure change), `COMPUTE_UNIFORMS` (per-frame), `FRAGMENT_GRAPH` (fragment-fed
 compute; on structure/expression change), `FRAGMENT_UNIFORMS` (per-frame), `TEXTURE`,
-`FRAME` (fallback only), `RENDER_RES`, `CLOSE`.
+`FEEDBACK_RESET` (a Feedback node was reset), `FRAME` (fallback only), `RENDER_RES`,
+`CLOSE`.
 Viewer → editor: `READY`, `RESIZE`, `NEED_FALLBACK`, `CLOSED`.
 
 On `READY` the editor re-sends shader/compute-graph/fragment-graph/textures/caps/
@@ -102,6 +103,19 @@ until the editor aspect is known.
 (node ids, kinds, **input wiring**, sizes) changes — not just on a WGSL change — so
 rewiring a compute node's input (e.g. connecting a node into ComputeEdgeDetect)
 updates the viewer live. The viewer's rebuild-dedup key includes `inputs`.
+
+**Control pins are excluded.** The Feedback nodes' Reset pin is a CPU-only control
+pin: its wiring is masked (to `null`, preserving pin indices) in the broadcast
+`inputs` and in the structure signature, and its scalar source (a Trigger, say) is
+never collected into `FRAGMENT_GRAPH`. Otherwise merely wiring a Trigger into a
+Reset pin rebuilt the receiver's compute graph — which cleared its feedback sims.
+
+**Feedback resets are mirrored.** The viewer replicates feedback sims independently,
+so resetting one in the editor (the panel's "Reset Feedback" button or a rising edge
+on the Reset pin — both funnel through `ComputeExecutor.resetNodeFeedback`)
+broadcasts `FEEDBACK_RESET { nodeId }` and the receiver clears its own copy of that
+sim. Textures restored by a project load also re-broadcast (`SaveLoadManager` calls
+the same `onTextureChanged` hook a fresh upload does).
 
 ## In-viewer controls
 

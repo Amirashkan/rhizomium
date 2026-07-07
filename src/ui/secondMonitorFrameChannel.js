@@ -44,6 +44,7 @@ export const SecondMonitorMessage = Object.freeze({
   TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
   RENDER_RES: 'render-res', // { maxDim } — viewer compute long-edge override (0 = match editor); decouples the viewer from the editor's preview resolution
+  FEEDBACK_RESET: 'feedback-reset', // { nodeId } — a Feedback node was reset in the editor (panel button or Reset pin); the receiver clears its own sim to match
   CLOSE: 'close',       // shut the window down
   // receiver → editor
   READY: 'ready',       // { webgpu } page loaded and now listening

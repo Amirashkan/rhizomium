@@ -352,6 +352,27 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.executionOrder).toEqual(['1']);
     });
 
+    it('clears its own feedback sim on FEEDBACK_RESET (editor reset button / Reset pin)', async () => {
+      const rt = installFakeRuntime();
+      rt.computeExecutor.resetNodeFeedback = vi.fn();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+
+      // Before the compute runtime exists there is no accumulated sim — ignored safely.
+      ch.emit({ type: MSG.FEEDBACK_RESET, nodeId: 'fb1' });
+      expect(rt.computeExecutor.resetNodeFeedback).not.toHaveBeenCalled();
+
+      ch.emit({
+        type: MSG.COMPUTE_GRAPH,
+        nodes: [{ id: 'fb1', kind: 'ComputeFeedback', wgsl: 'W', width: 64, height: 64, supportsFeedback: true, inputs: [] }],
+        executionOrder: ['fb1'],
+      });
+      await settle();
+
+      ch.emit({ type: MSG.FEEDBACK_RESET, nodeId: 'fb1' });
+      expect(rt.computeExecutor.resetNodeFeedback).toHaveBeenCalledWith('fb1');
+    });
+
     it('letterboxes to the compute texture aspect, not the editor display box (square edge-detect output)', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));

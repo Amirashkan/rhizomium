@@ -565,6 +565,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       case MSG.RENDER_RES:
         setComputeMaxDim(d.maxDim);
         break;
+      case MSG.FEEDBACK_RESET:
+        // A Feedback node was reset in the editor (panel button / Reset pin). Our
+        // sim is an independent replica, so clear it too. Before the runtime
+        // exists there is nothing accumulated yet — safe to ignore.
+        try { computeRuntime?.computeExecutor?.resetNodeFeedback?.(d.nodeId); } catch (_) { /* ignore */ }
+        break;
       case MSG.CLOSE:
         closeSelf();
         break;
