@@ -65,31 +65,44 @@ the last frame instead of spinning.
 
 ## Resolution control (`RENDER_RES { maxDim }`)
 
-"Viewer Res" decouples the viewer's **compute** resolution from the editor's
-floating-preview size (the soft look came from the preview defaulting to 512px, then
-upscaling):
+**The viewer is independent of the editor's floating preview.** Nothing done to the
+preview — resizing it, changing its resolution setting, hiding it — reshapes,
+rescales, or rebuilds the second-monitor output. Modes:
 
-- `0` = **Match editor** (use the broadcast/preview size).
-- A fixed long-edge (720/1080/1440/2048, capped at `MAX_COMPUTE_RES` = 2048) scales
-  every compute node (preserving aspect) so the viewer renders at that detail
-  regardless of the editor's preview. The packed resolution uniform (floats 0,1) is
-  overridden to match so UV/texel math (edge kernels, blur radii) is correct.
+- `0` = **Auto (display)** — the default. Every compute node renders display-shaped
+  at the viewer display's own resolution (long edge capped at `MAX_COMPUTE_RES` =
+  2048) and the output fills the display edge-to-edge. The broadcast
+  (preview-derived) sizes are ignored entirely, so an editor preview-resolution
+  change never rebuilds the receiver (which would reset feedback sims).
+- A fixed long-edge (720/1080/1440/2048) — same as Auto but at the chosen detail
+  (display aspect).
+- `-1` = **Match editor** — the explicit opt-in that adopts the editor's
+  preview-derived compute sizes and letterboxes to the editor's framing. This is the
+  mode for **exact feedback-sim matching** (state seeding requires equal dims), and
+  the only mode in which the preview affects the viewer — by design, since it *is*
+  "follow the editor".
 
-The output fragment always renders at the display backing res (a cheap blit); detail
-is the compute res, not output scale. Controls: editor "Viewer Res" dropdown + viewer
-`[` / `]` hotkeys.
+In every mode the packed resolution uniform (floats 0,1) is overridden to the
+receiver's actual texture size whenever it differs from the editor's, so UV/texel
+math (edge kernels, blur radii) stays correct. The output fragment always renders at
+the display backing res (a cheap blit); detail is the compute res, not output scale.
+Controls: editor "Viewer Res" dropdown + viewer `[` / `]` hotkeys (hotkeys step
+Auto/fixed presets; Match editor is dropdown-only).
 
 > **Important:** compute effects are **resolution-dependent**. Reaction-diffusion,
-> blur radius, edge thickness etc. change with the compute resolution. So a fixed
-> Viewer Res that differs from the editor makes feedback/compute look different from
-> the editor. Use **Match editor** to keep the look identical in scale.
+> blur radius, edge thickness etc. change with the compute resolution. A viewer
+> resolution that differs from the editor's makes feedback/compute look different in
+> scale — use **Match editor** to keep the look (and the sims, via state seeding)
+> identical.
 
 ## Aspect ratio
 
-The viewer letterboxes the native output to the **editor's** aspect ratio (black bars
-from the body background), matching the editor's framing instead of stretching to the
-display. Derived from the broadcast resolution; falls back to filling the display
-until the editor aspect is known.
+By default the viewer **fills its own display**: Auto/fixed compute textures are
+display-shaped by construction and fragments are resolution-independent, so there is
+nothing to letterbox and the editor's preview shape is irrelevant. Only **Match
+editor** letterboxes (black bars from the body background) — to the compute output
+texture's aspect for compute graphs, else to the editor's broadcast aspect — so the
+framing matches the editor.
 
 ## Performance notes
 
@@ -179,9 +192,11 @@ which was the step-lock option previously listed under deferred work:
   receiver drops queued steps the seed already contains instead of replaying them on
   top. Resets stay mirrored via `FEEDBACK_RESET`.
 
-Caveats: a fixed **Viewer Res** still decouples the look (different sim resolution =
-different pattern scale — the state seed is skipped on a dimension mismatch); use
-**Match editor** for exact matching. ComputeWarp/ComputeMix allocate ping-pong but
-carry no cross-frame state, so they are excluded from seeding. Sims with state
-outside the ping-pong textures (e.g. particle storage buffers) seed approximately but
-remain step-locked.
+Caveats: in the default Auto (and fixed) resolution modes the viewer renders sims at
+its own display resolution, so the pattern scale differs from the editor and the
+state seed is skipped (dimension mismatch) — sims are still step-locked (same rate,
+same resets) but evolve their own copy. Select **Viewer Res → Match editor** for
+byte-exact sim matching. ComputeWarp/ComputeMix allocate ping-pong but carry no
+cross-frame state, so they are excluded from seeding. Sims with state outside the
+ping-pong textures (e.g. particle storage buffers) seed approximately but remain
+step-locked.

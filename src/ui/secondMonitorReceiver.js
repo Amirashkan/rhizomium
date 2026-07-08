@@ -137,10 +137,15 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   const IDLE_HOLD_MS = 200;                // hold the last frame after this much silence
   let lastRenderTs = null;                 // rAF timestamp of the previous actual render
   let lastMessageTs = nowMs();             // wall clock of the last inbound editor message
-  // Viewer compute-resolution override (long edge in px; 0 = match the editor's
-  // broadcast/preview size). A fixed value decouples the viewer from the editor's
-  // floating-preview resolution and renders compute at the chosen detail.
+  // Viewer compute-resolution mode. The viewer is INDEPENDENT of the editor's
+  // floating preview: 0 = Auto (default — compute renders at THIS display's own
+  // resolution) and a positive value fixes the long edge; in both, the broadcast
+  // (preview-derived) sizes are ignored so nothing the user does to the floating
+  // preview can reshape, rescale, or rebuild this window. MATCH_EDITOR (-1) is the
+  // explicit opt-in that adopts the editor's dims for exact feedback-sim matching.
+  const MATCH_EDITOR = -1;
   let computeMaxDim = 0;
+  const isMatchEditor = () => computeMaxDim === MATCH_EDITOR;
   let editorAspect = 0;                     // editor's aspect ratio (w/h); 0 = unknown → fill
   let computeAspect = 0;                    // compute output texture aspect (w/h); preferred in the
                                             // native-compute tier so the viewer letterboxes to the
@@ -254,39 +259,47 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (!exec) return;
     lastComputeGraphMsg = msg; // remember so a compute-res change can re-apply it
     const nodes = msg.nodes || [];
+    // Compute sizing. In Auto (0, default) and fixed modes the broadcast
+    // (preview-derived) sizes are IGNORED: every node renders display-shaped at
+    // this display's resolution (or the fixed long edge), so nothing the user does
+    // to the editor's floating preview can rescale or rebuild this window. Only
+    // "Match editor" (-1) adopts the editor's dims (exact feedback-sim matching).
+    const MAX_COMPUTE_RES = 2048;
+    let ourDims = null; // non-match modes: one display-shaped size for all nodes
+    if (!isMatchEditor()) {
+      const { bw, bh } = backingSize();
+      const longEdge = Math.max(1, Math.min(MAX_COMPUTE_RES, computeMaxDim > 0 ? computeMaxDim : Math.max(bw, bh)));
+      const scale = longEdge / Math.max(1, Math.max(bw, bh));
+      ourDims = [
+        Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(bw * scale))),
+        Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(bh * scale))),
+      ];
+    }
+    const dimsFor = (n) => (ourDims ? ourDims.slice() : [n.width || 0, n.height || 0]);
     // Dedup key includes `inputs` (rewiring, e.g. a node connected into
-    // ComputeEdgeDetect, changes the graph even when ids/kinds/sizes don't) and the
-    // compute-res override (changing the viewer resolution forces a rebuild at the
-    // new size). Without these the receiver kept stale state until re-opened.
-    const key = JSON.stringify([computeMaxDim, nodes.map((n) => [n.id, n.kind, n.wgsl, n.width, n.height, n.inputs || []])]);
+    // ComputeEdgeDetect, changes the graph even when ids/kinds don't) and the sizes
+    // that actually apply: OUR display-derived dims outside match mode (so a preview
+    // resize on the editor never rebuilds us, but a real display change does), the
+    // broadcast dims only in match mode.
+    const key = JSON.stringify([
+      computeMaxDim,
+      ourDims,
+      nodes.map((n) => [n.id, n.kind, n.wgsl, ...(isMatchEditor() ? [n.width, n.height] : []), n.inputs || []]),
+    ]);
     if (key === appliedComputeKey) return; // unchanged graph — skip the costly re-init
     if (!win.computeNodeRegistry) win.computeNodeRegistry = new Map();
     if (!win.graph) {
       win.graph = { nodes: [], getNode(id) { return this.nodes.find((n) => String(n.id) === String(id)) || null; } };
     }
-    // Compute-resolution override: scale every node so the largest long-edge becomes
-    // computeMaxDim (preserving aspect), capped at the executor's MAX_COMPUTE_RES.
-    // 0 → no override (use the editor's broadcast/preview size).
-    const MAX_COMPUTE_RES = 2048;
-    let scale = 1;
-    if (computeMaxDim > 0) {
-      let maxEdge = 0;
-      for (const n of nodes) maxEdge = Math.max(maxEdge, n.width || 0, n.height || 0);
-      if (maxEdge > 0) scale = computeMaxDim / maxEdge;
-    }
-    const dimsFor = (n) => {
-      if (computeMaxDim <= 0 || !n.width || !n.height) return [n.width || 0, n.height || 0];
-      const w = Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(n.width * scale)));
-      const h = Math.max(1, Math.min(MAX_COMPUTE_RES, Math.round(n.height * scale)));
-      return [w, h];
-    };
     const registry = win.computeNodeRegistry;
     registry.clear();
     win.graph.nodes = [];
     computeDimsOverride.clear();
     for (const n of nodes) {
       const [w, h] = dimsFor(n);
-      if (computeMaxDim > 0 && n.width && n.height) computeDimsOverride.set(n.id, [w, h]);
+      // Whenever our size differs from the editor's, the packed per-frame resolution
+      // (floats 0,1) must be overridden so UV/texel math matches OUR texture.
+      if ((n.width || 0) !== w || (n.height || 0) !== h) computeDimsOverride.set(n.id, [w, h]);
       const node = {
         id: n.id,
         kind: n.kind,
@@ -672,10 +685,14 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     };
   }
 
-  // Prefer the compute output texture's aspect in the native-compute tier; the
-  // editor's broadcast aspect (its on-screen display box) can differ from the
-  // compute texture's shape and would stretch the sampled output.
+  // Letterboxing applies ONLY in the explicit "Match editor" mode. In Auto/fixed
+  // modes the compute textures are display-shaped by construction and fragments are
+  // resolution-independent, so the output always fills this display — the editor's
+  // floating preview can never reshape it. In match mode prefer the compute output
+  // texture's aspect; the editor's broadcast aspect (its on-screen display box) can
+  // differ from the compute texture's shape and would stretch the sampled output.
   function effectiveAspect() {
+    if (!isMatchEditor()) return 0; // fill the display
     if (tier === TIER.NATIVE_COMPUTE && computeAspect > 0) return computeAspect;
     return editorAspect;
   }
@@ -683,18 +700,14 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   function sizeGpuCanvas() {
     if (!gpuCanvas) return;
     const { dpr, cssW, cssH } = backingSize();
-    // Letterbox the output to the EDITOR's aspect ratio so the viewer matches the
-    // editor's framing (black bars from the body background) rather than stretching
-    // to the display. renderNative derives the shader resolution/aspect from this
-    // canvas, so sizing it to the editor aspect makes the composition match. When the
-    // editor aspect is unknown, fill the display.
+    // Fill the display by default. Only the explicit "Match editor" mode letterboxes
+    // (effectiveAspect() > 0) to the editor's framing — the black bars come from the
+    // body background. renderNative derives the shader resolution/aspect from this
+    // canvas, so in the default modes the composition is framed to THIS display and
+    // the editor's floating preview can never reshape it.
     let elW = cssW, elH = cssH, left = 0, top = 0;
-    // "Match editor" (computeMaxDim 0) letterboxes to the editor's preview aspect so
-    // the viewer mirrors the editor's framing — which means it reshapes when the
-    // floating preview is resized. A fixed "Viewer res" decouples the viewer: it
-    // fills the display at a stable aspect and no longer follows the preview.
     const a = effectiveAspect();
-    if (a > 0 && computeMaxDim <= 0) {
+    if (a > 0) {
       const rect = letterboxRect(a, 1, cssW, cssH);
       if (rect.dw > 0 && rect.dh > 0) { elW = rect.dw; elH = rect.dh; left = rect.dx; top = rect.dy; }
     }
@@ -738,25 +751,29 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   }
 
   // --- viewer compute resolution -------------------------------------------
-  // Long-edge presets (px). 0 = match the editor's preview/broadcast size.
+  // Long-edge presets (px) for the [ / ] hotkeys. 0 = Auto (this display's own
+  // resolution). "Match editor" (-1) is reachable only from the editor's dropdown.
   const COMPUTE_RES_PRESETS = [0, 720, 1080, 1440, 2048];
 
   /**
-   * Set the viewer's compute-resolution override (long edge in px; 0 = match the
-   * editor). Rebuilds the compute graph at the new size, decoupled from the editor's
-   * preview resolution.
+   * Set the viewer's compute-resolution mode: 0 = Auto (this display's own
+   * resolution, the default), a positive long edge in px, or -1 = "Match editor"
+   * (adopt the editor's preview-derived dims for exact sim matching). Rebuilds the
+   * compute graph at the new size.
    */
   function setComputeMaxDim(next) {
-    const v = Math.max(0, Math.min(2048, Math.round(Number(next) || 0)));
+    let v = Math.round(Number(next));
+    if (!Number.isFinite(v)) v = 0;
+    v = v <= MATCH_EDITOR ? MATCH_EDITOR : Math.max(0, Math.min(2048, v));
     if (v === computeMaxDim) return;
     computeMaxDim = v;
     if (lastComputeGraphMsg) {
       appliedComputeKey = null;          // force a rebuild at the new resolution
       applyComputeGraph(lastComputeGraphMsg);
     }
-    // Switching between "match editor" (letterboxed to the preview aspect) and a
-    // fixed res (fill the display) changes the canvas shape — re-size now so the
-    // viewer stops/starts following the preview immediately, not on the next resize.
+    // Switching between "match editor" (letterboxed to the editor's framing) and the
+    // display-filling modes changes the canvas shape — re-size now so the viewer
+    // stops/starts following the editor immediately, not on the next resize.
     sizeGpuCanvas();
     reportSize();
   }
@@ -777,6 +794,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     sizeFallbackCanvas();
     sizeGpuCanvas();
     reportSize();
+    // Auto mode sizes compute to THIS display — a real window/display size change
+    // must rebuild at the new size. The dedup key includes our derived dims, so a
+    // no-op resize (same backing size) is skipped inside applyComputeGraph.
+    if (!isMatchEditor() && lastComputeGraphMsg && computeRuntime) {
+      applyComputeGraph(lastComputeGraphMsg);
+    }
     lastMessageTs = nowMs(); // count a resize as activity so we repaint at the new size
   }
   sizeFallbackCanvas();

@@ -240,28 +240,32 @@ export class TauriSecondMonitorViewer {
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
       }
-      // A (re)connecting receiver also needs the current compute-resolution override.
-      if (this._computeMaxDim > 0) {
+      // A (re)connecting receiver also needs the current compute-resolution mode
+      // (a fixed long edge, or -1 = match editor; 0 = auto is the receiver default).
+      if (this._computeMaxDim !== 0) {
         try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: this._computeMaxDim }); } catch (_) { /* ignore */ }
       }
     }
   }
 
   /**
-   * Set the second viewer's compute resolution (long edge in px; 0 = match the
-   * editor's preview resolution). A fixed value DECOUPLES the viewer from the
-   * editor's floating-preview size and renders compute at the chosen detail (up to
-   * 2048), so the viewer can be Full HD regardless of the editor's preview. Persists
+   * Set the second viewer's compute resolution. The viewer is INDEPENDENT of the
+   * editor's floating preview: 0 = Auto (the viewer renders at its own display's
+   * resolution, the default) and a positive value fixes the long edge (up to 2048).
+   * -1 = "Match editor", the explicit opt-in that follows the editor's
+   * preview-derived compute size so feedback sims can match exactly. Persists
    * across reconnects (re-sent on READY). No-op until a viewer is open.
    * @param {number} maxDim
    */
   setComputeResolution(maxDim) {
-    const v = Math.max(0, Math.min(2048, Math.round(Number(maxDim) || 0)));
+    let v = Math.round(Number(maxDim));
+    if (!Number.isFinite(v)) v = 0;
+    v = v <= -1 ? -1 : Math.max(0, Math.min(2048, v));
     this._computeMaxDim = v;
     try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: v }); } catch (_) { /* ignore */ }
   }
 
-  /** Current compute-resolution override (long edge px; 0 = match editor). */
+  /** Current compute-resolution mode (long edge px; 0 = auto/display; -1 = match editor). */
   get computeMaxDim() { return this._computeMaxDim; }
 
   /**

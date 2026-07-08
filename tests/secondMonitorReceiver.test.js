@@ -267,16 +267,24 @@ describe('secondMonitorReceiver', () => {
     expect(gpuCanvas.style.width).toBe('1280px');
   });
 
-  it('letterboxes the gpu canvas to the editor aspect ratio (matches editor framing)', () => {
+  it('fills the display by default; letterboxes to the editor aspect only in Match editor mode', () => {
     initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
     const ch = FakeBroadcastChannel.instances[0];
-    // Editor is 2:1 (1000x500); display is 1280x720 → letterbox to 1280x640, centred.
-    ch.emit({
+    // Editor is 2:1 (1000x500); display is 1280x720. By default the viewer is
+    // independent of the editor's preview framing and fills its own display.
+    const uniforms = () => ch.emit({
       type: MSG.UNIFORMS,
       aspect: new Float32Array([2, 0, 0, 0]),
       globals: new Float32Array([1000, 500, 0, 0, 0, 0, 0, 0]),
       params: new Float32Array([0]),
     });
+    uniforms();
+    expect(gpuCanvas.width).toBe(1280);
+    expect(gpuCanvas.height).toBe(720);
+
+    // Match editor (explicit opt-in) → letterbox to 1280x640, centred.
+    ch.emit({ type: MSG.RENDER_RES, maxDim: -1 });
+    uniforms();
     expect(gpuCanvas.width).toBe(1280);
     expect(gpuCanvas.height).toBe(640);
     expect(gpuCanvas.style.height).toBe('640px');
@@ -360,7 +368,9 @@ describe('secondMonitorReceiver', () => {
       await settle();
 
       expect(win.computeNodeRegistry.get('1')).toMatchObject({ wgslCode: 'W1', supportsFeedback: false });
-      expect(win.graph.nodes[0]).toMatchObject({ id: '1', kind: 'ComputeNoise', computeResolution: [64, 64] });
+      // Auto (default): compute renders display-shaped at THIS window's resolution —
+      // the broadcast (editor preview-derived) 64x64 is ignored.
+      expect(win.graph.nodes[0]).toMatchObject({ id: '1', kind: 'ComputeNoise', computeResolution: [1280, 720] });
       expect(rt.computeExecutor.initialize).toHaveBeenCalled();
       expect(rt.computeExecutor.computeManagers.get('1').externalUniformMode).toBe(true);
       expect(rt.computeExecutor.executionOrder).toEqual(['1']);
@@ -494,10 +504,11 @@ describe('secondMonitorReceiver', () => {
       expect(mgr.writeRawComputeUniforms).toHaveBeenCalledTimes(1);
     });
 
-    it('letterboxes to the compute texture aspect, not the editor display box (square edge-detect output)', async () => {
+    it('Match editor mode letterboxes to the compute texture aspect, not the editor display box', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
       const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 }); // explicit opt-in: follow the editor
 
       // The editor's on-screen preview box is 16:9, but the compute output texture
       // is square (sized from the render-resolution setting). The viewer must frame
@@ -523,10 +534,11 @@ describe('secondMonitorReceiver', () => {
       expect(gpuCanvas.style.left).toBe('280px'); // (1280-720)/2 — black bars left & right
     });
 
-    it('re-frames the mirror when a resolution preset changes the compute texture aspect', async () => {
+    it('Match editor mode re-frames the mirror when a preset changes the compute texture aspect', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
       const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 }); // explicit opt-in: follow the editor
 
       // Preset switch re-broadcasts COMPUTE_GRAPH with the new texture size (the
       // editor's signature includes WxH). Start on a non-square preset (FHD): the
@@ -619,26 +631,51 @@ describe('secondMonitorReceiver', () => {
         { id: '1', kind: 'ComputeNoise', wgsl: 'A', width: 512, height: 512, inputs: [] },
       ], executionOrder: ['1'] });
       await settle();
-      expect(win.graph.nodes[0].computeResolution).toEqual([512, 512]); // match editor
+      // Auto (default): display-shaped at this window's resolution, not the
+      // broadcast (preview-derived) 512x512.
+      expect(win.graph.nodes[0].computeResolution).toEqual([1280, 720]);
 
       ch.emit({ type: MSG.RENDER_RES, maxDim: 1024 });
       await settle();
       expect(r.computeMaxDim).toBe(1024);
-      // Long edge scaled to 1024 (preserving aspect), independent of the broadcast size.
-      expect(win.graph.nodes[0].computeResolution).toEqual([1024, 1024]);
+      // Fixed preset: the chosen long edge at the DISPLAY aspect (16:9 here) —
+      // still independent of the broadcast size.
+      expect(win.graph.nodes[0].computeResolution).toEqual([1024, 576]);
 
-      // The per-frame packed resolution (floats 0,1) is overridden to the new size,
-      // so the shader's UV/texel math matches the larger texture.
+      // The per-frame packed resolution (floats 0,1) is overridden to our size,
+      // so the shader's UV/texel math matches our texture.
       emitUniforms(ch);
       const packed = new Float32Array([512, 512, 0, 1]);
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed }] });
       step();
       await settle();
       expect(packed[0]).toBe(1024);
-      expect(packed[1]).toBe(1024);
+      expect(packed[1]).toBe(576);
     });
 
-    it('stops following the editor preview aspect once a fixed Viewer res is set', async () => {
+    it('ignores editor preview-resolution changes entirely (viewer is preview-independent)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [
+        { id: '1', kind: 'ComputeFeedback', wgsl: 'W', width: 512, height: 512, supportsFeedback: true, inputs: [] },
+      ], executionOrder: ['1'] });
+      await settle();
+      expect(win.graph.nodes[0].computeResolution).toEqual([1280, 720]);
+      expect(rt.computeExecutor.initialize).toHaveBeenCalledTimes(1);
+
+      // The user changes the floating preview's resolution → the editor re-broadcasts
+      // the graph with new (preview-derived) dims. The viewer must NOT rebuild — a
+      // rebuild would reset the feedback sim — and must NOT change its own size.
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [
+        { id: '1', kind: 'ComputeFeedback', wgsl: 'W', width: 1920, height: 1080, supportsFeedback: true, inputs: [] },
+      ], executionOrder: ['1'] });
+      await settle();
+      expect(rt.computeExecutor.initialize).toHaveBeenCalledTimes(1); // deduped, no rebuild
+      expect(win.graph.nodes[0].computeResolution).toEqual([1280, 720]);
+    });
+
+    it('never follows the editor preview aspect except in explicit Match editor mode', async () => {
       const renderer = makeFakeRenderer();
       initSecondMonitorReceiver(doc, win, { createRenderer: () => renderer });
       const ch = FakeBroadcastChannel.instances[0];
@@ -646,24 +683,25 @@ describe('secondMonitorReceiver', () => {
       ch.emit({ type: MSG.SHADER, wgsl: 'W' });
       await flush();
 
-      // "Match editor": a square editor aspect letterboxes the 1280x720 display to
-      // 720x720, so the viewer reshapes with the preview.
+      // Default (Auto): a square editor preview must NOT reshape the viewer — it
+      // keeps filling its own 1280x720 display.
       const globals = new Float32Array([600, 600, 0, 0, 0, 0, 0, 0]);
-      ch.emit({ type: MSG.UNIFORMS, aspect: new Float32Array([1, 0, 0, 0]), globals, params: null });
-      expect(gpuCanvas.width).toBe(720);
-      expect(gpuCanvas.height).toBe(720);
-
-      // A fixed Viewer res decouples: the canvas fills the display and no longer
-      // tracks the editor's preview aspect.
-      ch.emit({ type: MSG.RENDER_RES, maxDim: 1080 });
-      await settle();
+      const uniforms = () => ch.emit({ type: MSG.UNIFORMS, aspect: new Float32Array([1, 0, 0, 0]), globals: globals.slice(), params: null });
+      uniforms();
       expect(gpuCanvas.width).toBe(1280);
       expect(gpuCanvas.height).toBe(720);
 
-      // Back to "match editor" → it letterboxes to the preview aspect again.
+      // Explicit "Match editor" opt-in → letterboxes to the editor's square framing.
+      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 });
+      await settle();
+      uniforms();
+      expect(gpuCanvas.width).toBe(720);
+      expect(gpuCanvas.height).toBe(720);
+
+      // Back to Auto → fills the display again, independent of the preview.
       ch.emit({ type: MSG.RENDER_RES, maxDim: 0 });
       await settle();
-      expect(gpuCanvas.width).toBe(720);
+      expect(gpuCanvas.width).toBe(1280);
       expect(gpuCanvas.height).toBe(720);
     });
 
@@ -868,7 +906,8 @@ describe('secondMonitorReceiver', () => {
         });
         await settle();
         expect(win.graph.nodes.find((n) => n.id === '9')).toMatchObject({ params: { scale: 5 } });
-        expect(win.graph.nodes.find((n) => n.id === '2').computeResolution).toEqual([16, 16]);
+        // Auto (default) sizes to this display, ignoring the broadcast 16x16.
+        expect(win.graph.nodes.find((n) => n.id === '2').computeResolution).toEqual([1280, 720]);
       });
 
       it('does not let a fragment node shadow a compute node of the same id', async () => {

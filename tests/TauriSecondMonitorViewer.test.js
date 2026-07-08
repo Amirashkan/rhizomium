@@ -239,6 +239,13 @@ describe('TauriSecondMonitorViewer', () => {
     channel.emit({ type: MSG.READY, webgpu: true });
     expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(1080);
 
+    // "Match editor" (-1) is a valid mode and survives a reconnect too.
+    viewer.setComputeResolution(-1);
+    expect(viewer.computeMaxDim).toBe(-1);
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(-1);
+
     await viewer.close();
   });
 
