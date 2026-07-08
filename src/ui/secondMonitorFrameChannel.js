@@ -38,7 +38,8 @@ export const SecondMonitorMessage = Object.freeze({
   UNIFORMS: 'uniforms', // { aspect, globals, params } — per-frame uniform byte snapshot (Float32Arrays)
   CAPS: 'caps',         // { tier }            — which path to use (see SecondMonitorTier)
   COMPUTE_GRAPH: 'compute-graph',       // { nodes:[{id,kind,wgsl,width,height,supportsFeedback,inputs}], executionOrder } — on change
-  COMPUTE_UNIFORMS: 'compute-uniforms', // { nodes:[{id,packed,colorStops}] } — per-frame packed compute uniform bytes
+  COMPUTE_UNIFORMS: 'compute-uniforms', // { nodes:[{id,packed,colorStops}] } — per-frame packed compute uniform bytes. One message = ONE editor sim step: the receiver steps its compute graph exactly once per message (step-lock), so feedback sims stay 1:1 with the editor
+  FEEDBACK_STATE: 'feedback-state',     // { nodeId, width, height, data:Uint8Array } — a feedback node's current sim state (its next-read ping-pong texture); seeds the receiver's sim so a mid-session viewer matches the editor exactly
   FRAGMENT_GRAPH: 'fragment-graph',     // { nodes:[{id,kind,params,inputs}] } — fragment subgraph feeding compute (on structure/expression change)
   FRAGMENT_UNIFORMS: 'fragment-uniforms', // { nodes:[{id,params}] } — per-frame evaluated fragment u_params bytes (static params; streams without a rebuild)
   TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)

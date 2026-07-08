@@ -13,8 +13,12 @@
 //
 //    Compute graphs — including stateful/feedback sims and fragment-fed compute (a
 //    compute node whose input is a GLSL/fragment node) — are reproduced here too:
-//    this window runs its OWN ComputeExecutor (and FragmentTextureRenderer) and
-//    evolves an independent copy from the broadcast graph + per-frame uniform bytes.
+//    this window runs its OWN ComputeExecutor (and FragmentTextureRenderer), rebuilt
+//    from the broadcast graph. Feedback sims are STEP-LOCKED to the editor: each
+//    COMPUTE_UNIFORMS message is one editor sim step, replayed here with that step's
+//    exact uniform bytes (held when none arrived, caught up when several queued), and
+//    seeded from the editor's current sim state (FEEDBACK_STATE) on connect — so the
+//    two sims evolve identically instead of drifting on independent clocks.
 //
 //  • FALLBACK (pixels): for the few graphs the receiver can't reproduce from state
 //    alone (a fragment storage buffer — only the un-mirrored 3D path uses these),
@@ -154,6 +158,18 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   let appliedComputeKey = null;     // dedupe costly graph rebuilds
   const prevPacked = new Map();     // node id -> last packed bytes (re-dispatch detection)
   const prevColorStops = new Map(); // node id -> last color-stop bytes (gradient re-dispatch)
+
+  // Step-lock: ONE editor sim step per COMPUTE_UNIFORMS message. The editor emits it
+  // once per rendered editor frame (its executor steps feedback sims once per render),
+  // so replaying exactly one executor pass per message — with that message's exact
+  // uniform bytes — keeps the receiver's feedback sims in lockstep with the editor
+  // instead of free-running on this window's own clock (which over-advanced them on
+  // fast displays and under-advanced them when the editor slowed down).
+  const STEP_QUEUE_MAX = 4;         // pending steps kept while this display lags
+  const STEP_CATCHUP_MAX = 3;       // steps replayed in a single rendered frame
+  let stepQueue = [];               // queued COMPUTE_UNIFORMS messages (1 = 1 step)
+  let stepJobBusy = false;          // an async catch-up replay is in flight
+  let pendingFeedbackStates = [];   // FEEDBACK_STATE seen before the managers existed
 
   // Fragment-fed compute (Tier 2): the fragment subgraph feeding compute nodes, plus
   // the editor's per-frame evaluated u_params bytes. Reconstructed into the synthetic
@@ -314,7 +330,45 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         exec.executionOrder = msg.executionOrder.slice();
       }
       if (latestComputeUniforms) applyComputeUniforms(latestComputeUniforms);
+      // Seed feedback sims whose state arrived before the managers existed.
+      if (pendingFeedbackStates.length) {
+        const states = pendingFeedbackStates;
+        pendingFeedbackStates = [];
+        states.forEach(applyFeedbackState);
+      }
     }).catch(() => { appliedComputeKey = null; });
+  }
+
+  /**
+   * Seed a feedback sim with the editor's current state (FEEDBACK_STATE). The
+   * manager uploads it into its next-read ping-pong texture, so with the per-step
+   * lockstep both sims evolve identically from here. Before the manager exists
+   * (graph still initializing) the state is parked and re-applied after init.
+   * A dimension mismatch (viewer-resolution override) is rejected by the manager
+   * — the receiver keeps its own sim, which by design differs in scale anyway.
+   */
+  function applyFeedbackState(msg) {
+    if (!msg || msg.nodeId == null) return;
+    const exec = computeRuntime && computeRuntime.computeExecutor;
+    const managers = exec && exec.computeManagers;
+    const mgr = (managers && typeof managers.get === 'function')
+      ? (managers.get(msg.nodeId) || managers.get(String(msg.nodeId)))
+      : null;
+    if (!mgr || typeof mgr.writeFeedbackState !== 'function') {
+      // Bounded parking: the editor re-sends the full state on every (re)connect
+      // and graph change, so dropping the oldest entries is safe.
+      pendingFeedbackStates.push(msg);
+      if (pendingFeedbackStates.length > 16) pendingFeedbackStates.shift();
+      ensureComputeRuntime();
+      return;
+    }
+    try {
+      if (mgr.writeFeedbackState(msg.data, msg.width, msg.height) && typeof msg.step === 'number') {
+        // The seed already contains every step up to msg.step — replaying those
+        // queued steps on top would advance the sim past the editor. Drop them.
+        stepQueue = stepQueue.filter((s) => !(typeof s.step === 'number' && s.step <= msg.step));
+      }
+    } catch (_) { /* keep own state */ }
   }
 
   function applyComputeUniforms(msg) {
@@ -495,6 +549,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     try { win.computeExecutor?.clear?.(); } catch (_) { /* ignore */ }
     appliedComputeKey = null;
     latestComputeUniforms = null;
+    stepQueue = [];
+    pendingFeedbackStates = [];
     prevPacked.clear();
     prevColorStops.clear();
     lastFragmentGraphMsg = null;
@@ -547,7 +603,16 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         applyComputeGraph(d);
         break;
       case MSG.COMPUTE_UNIFORMS:
-        applyComputeUniforms(d);
+        // One message = one editor sim step. Queue it; the render loop applies each
+        // step's exact uniform bytes and runs exactly one executor pass per step
+        // (step-lock). Bounded: if this display can't keep up, drop the OLDEST steps
+        // — the sims fall a few steps behind rather than the queue growing forever.
+        latestComputeUniforms = d;
+        stepQueue.push(d);
+        if (stepQueue.length > STEP_QUEUE_MAX) stepQueue.splice(0, stepQueue.length - STEP_QUEUE_MAX);
+        break;
+      case MSG.FEEDBACK_STATE:
+        applyFeedbackState(d);
         break;
       case MSG.FRAGMENT_GRAPH:
         setTier(TIER.NATIVE_COMPUTE);
@@ -727,6 +792,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   function renderNative() {
     const r = renderer;
     if (!r || !r.pipeline || !snapshot) return false;
+    if (stepJobBusy) return true; // a catch-up replay from a previous frame is still in flight
     const g = snapshot.globals;
     const a = snapshot.aspect;
     const w = gpuCanvas.width;
@@ -749,6 +815,53 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       win._audioEnvelopeHighs = g[6];
       win._audioEnvelopeFull = g[7];
     }
+
+    // Step-lock (native-compute): run the executor once per queued editor step, with
+    // that step's exact uniform bytes — never on this window's own cadence.
+    const exec = (tier === TIER.NATIVE_COMPUTE) ? (computeRuntime && computeRuntime.computeExecutor) : null;
+    if (exec) {
+      if (stepQueue.length === 0) {
+        // No editor step since the last render (this display outpaced the editor):
+        // hold the sims at their current state; the blit re-presents the last result.
+        exec.holdDispatch = true;
+      } else if (stepQueue.length === 1) {
+        exec.holdDispatch = false;
+        applyComputeUniforms(stepQueue.shift());
+      } else {
+        // Backlog (rAF jitter or a slow display): replay each missed step with its
+        // own uniforms so the sims advance exactly as the editor's did, then render
+        // the final one. Async because executor passes await pipeline work; guarded
+        // by stepJobBusy so frames can't interleave.
+        const steps = stepQueue.splice(0, STEP_CATCHUP_MAX);
+        const last = steps.pop();
+        const audio = (g && g.length >= 8)
+          ? { audioEnvelope: g[3], audioEnvelopeBass: g[4], audioEnvelopeMids: g[5], audioEnvelopeHighs: g[6], audioEnvelopeFull: g[7] }
+          : {};
+        stepJobBusy = true;
+        (async () => {
+          try {
+            exec.holdDispatch = false;
+            for (const s of steps) {
+              const device = r.device;
+              if (!device || typeof device.createCommandEncoder !== 'function') break;
+              applyComputeUniforms(s);
+              const encoder = device.createCommandEncoder({ label: 'step-lock-catchup' });
+              await exec.execute(encoder, timeSec, audio);
+              device.queue.submit([encoder.finish()]);
+            }
+            applyComputeUniforms(last);
+            r.writeRawUniforms(snapshot);
+            r.render({ timeSec });
+          } catch (_) {
+            /* skip this frame — the next tick renders */
+          } finally {
+            stepJobBusy = false;
+          }
+        })();
+        return true;
+      }
+    }
+
     try {
       r.writeRawUniforms(snapshot);
       r.render({ timeSec });

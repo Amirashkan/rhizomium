@@ -120,6 +120,94 @@ describe('ComputeShaderManager external uniforms', () => {
     expect(mgr.currentWriteTexture).toBe('A'); // unchanged
   });
 
+  // Feedback state capture/seed — how the second-monitor mirror starts its sim
+  // replica from the editor's current state instead of t=0.
+  it('_feedbackStateTexture returns the texture the next dispatch will READ', () => {
+    const a = { id: 'A' };
+    const b = { id: 'B' };
+    const mgr = bare({ supportsFeedback: true, currentWriteTexture: 'A', storageTextureA: a, storageTextureB: b });
+    expect(mgr._feedbackStateTexture()).toBe(b); // next dispatch writes A, reads B
+    mgr.currentWriteTexture = 'B';
+    expect(mgr._feedbackStateTexture()).toBe(a);
+  });
+
+  it('writeFeedbackState seeds the next-read ping-pong texture and the output', () => {
+    const writes = [];
+    const device = { queue: { writeTexture: (dst) => writes.push(dst.texture.id) } };
+    const mgr = bare({
+      device,
+      supportsFeedback: true,
+      currentWriteTexture: 'A',
+      storageTextureA: { id: 'A' },
+      storageTextureB: { id: 'B' },
+      outputTexture: { id: 'OUT' },
+      textureWidth: 2,
+      textureHeight: 2,
+      node: { kind: 'ComputeFeedback' },
+    });
+
+    expect(mgr.writeFeedbackState(new Uint8Array(16), 2, 2)).toBe(true);
+    expect(writes).toEqual(['B', 'OUT']); // sim state + immediately-visible output
+
+    // Dimension mismatch (viewer-resolution override) → rejected, own state kept.
+    writes.length = 0;
+    expect(mgr.writeFeedbackState(new Uint8Array(64), 4, 4)).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it('feedback state is refused for Warp/Mix (their ping-pong holds no sim state)', () => {
+    const mgr = bare({
+      device: { queue: { writeTexture: vi.fn() } },
+      supportsFeedback: true,
+      currentWriteTexture: 'A',
+      storageTextureA: {},
+      storageTextureB: {},
+      textureWidth: 2,
+      textureHeight: 2,
+      node: { kind: 'ComputeWarp' },
+    });
+    expect(mgr.writeFeedbackState(new Uint8Array(16), 2, 2)).toBe(false);
+  });
+
+  it('captureFeedbackState reads back the sim state, de-padding the 256-byte rows', async () => {
+    // 2x2 rgba8: tight rows are 8 bytes, but copyTextureToBuffer pads rows to 256.
+    const padded = 256;
+    const backing = new Uint8Array(padded * 2);
+    backing.set([1, 2, 3, 4, 5, 6, 7, 8], 0);             // row 0
+    backing.set([9, 10, 11, 12, 13, 14, 15, 16], padded); // row 1
+    let destroyed = false;
+    const buffer = {
+      mapAsync: vi.fn(async () => {}),
+      getMappedRange: () => backing.buffer,
+      unmap: vi.fn(),
+      destroy: () => { destroyed = true; },
+    };
+    const copies = [];
+    const device = {
+      createBuffer: vi.fn(() => buffer),
+      createCommandEncoder: () => ({ copyTextureToBuffer: (src) => copies.push(src.texture.id), finish: () => ({}) }),
+      queue: { submit: vi.fn() },
+    };
+    const mgr = bare({
+      device,
+      supportsFeedback: true,
+      currentWriteTexture: 'A',
+      storageTextureA: { id: 'A' },
+      storageTextureB: { id: 'B' },
+      textureWidth: 2,
+      textureHeight: 2,
+      node: { kind: 'ComputeFeedback' },
+    });
+
+    const state = await mgr.captureFeedbackState();
+
+    expect(copies).toEqual(['B']); // captured the next-READ texture (current state)
+    expect(state).toMatchObject({ width: 2, height: 2 });
+    expect(Array.from(state.data)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(buffer.unmap).toHaveBeenCalled();
+    expect(destroyed).toBe(true); // readback buffer never leaks
+  });
+
   it('destroy() releases both ping-pong textures (no feedback leak on rebuild)', () => {
     const destroyed = [];
     const tex = (id) => ({ id, destroy: () => destroyed.push(id) });

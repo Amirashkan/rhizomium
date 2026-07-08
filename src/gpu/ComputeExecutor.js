@@ -769,6 +769,16 @@ export class ComputeExecutor {
       return;
     }
 
+    // Step-lock hold: the second-monitor receiver replicates feedback sims 1:1 with
+    // the editor's frames, so on a frame where no editor sim step arrived it sets
+    // this flag to keep the sims (and every other dispatch) frozen at their last
+    // state — otherwise a faster display would over-advance the simulation. The
+    // output textures persist, so the fragment blit keeps presenting the last
+    // result. The editor never sets this.
+    if (this.holdDispatch) {
+      return;
+    }
+
     if (!this.initialized || this.computeManagers.size === 0) {
       return;
     }

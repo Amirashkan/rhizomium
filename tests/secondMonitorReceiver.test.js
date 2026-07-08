@@ -58,7 +58,11 @@ function installFakeRuntime() {
     initialize: vi.fn(async () => {
       computeExecutor._registry?.forEach((data, id) => {
         if (!managers.has(id)) {
-          managers.set(id, { externalUniformMode: false, writeRawComputeUniforms: vi.fn() });
+          managers.set(id, {
+            externalUniformMode: false,
+            writeRawComputeUniforms: vi.fn(),
+            writeFeedbackState: vi.fn(() => true),
+          });
         }
       });
     }),
@@ -333,6 +337,16 @@ describe('secondMonitorReceiver', () => {
       createComputeRuntime: rt.factory,
     });
 
+    // Provide the uniform snapshot renderNative needs, so step() can run a frame.
+    // Under step-lock, COMPUTE_UNIFORMS apply at the next rendered frame (one
+    // editor step per message), not at message arrival — tests emit + step().
+    const emitUniforms = (ch) => ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([1, 0, 0, 0]),
+      globals: new Float32Array([8, 8, 0, 0, 0, 0, 0, 0]),
+      params: null,
+    });
+
     it('builds the compute graph and initializes the executor on COMPUTE_GRAPH', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
@@ -371,6 +385,113 @@ describe('secondMonitorReceiver', () => {
 
       ch.emit({ type: MSG.FEEDBACK_RESET, nodeId: 'fb1' });
       expect(rt.computeExecutor.resetNodeFeedback).toHaveBeenCalledWith('fb1');
+    });
+
+    it('step-locks: holds sims when no editor step arrived, steps once per COMPUTE_UNIFORMS', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: '1', kind: 'ComputeFeedback', wgsl: 'W', width: 8, height: 8, supportsFeedback: true, inputs: [] }], executionOrder: ['1'] });
+      await settle();
+      emitUniforms(ch);
+      const mgr = rt.computeExecutor.computeManagers.get('1');
+
+      // This display's frame fired but the editor emitted no step → dispatch held,
+      // and the sim's uniforms are untouched (no phantom step).
+      step();
+      expect(rt.computeExecutor.holdDispatch).toBe(true);
+      expect(mgr.writeRawComputeUniforms).not.toHaveBeenCalled();
+
+      // One editor step arrives → exactly one application, dispatch released.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.1, 1]) }] });
+      step();
+      expect(rt.computeExecutor.holdDispatch).toBe(false);
+      expect(mgr.writeRawComputeUniforms).toHaveBeenCalledTimes(1);
+
+      // No further step → held again at the next frame.
+      step();
+      expect(rt.computeExecutor.holdDispatch).toBe(true);
+      expect(mgr.writeRawComputeUniforms).toHaveBeenCalledTimes(1);
+    });
+
+    it('replays a backlog of steps with each step\'s own uniforms (catch-up)', async () => {
+      const renderer = makeFakeRenderer();
+      // Catch-up runs extra executor passes on its own encoder before the final render.
+      renderer.device = {
+        createCommandEncoder: vi.fn(() => ({ finish: () => ({}) })),
+        queue: { submit: vi.fn() },
+      };
+      const rt = installFakeRuntime();
+      rt.computeExecutor.execute = vi.fn(async () => {});
+      initSecondMonitorReceiver(doc, win, opts(rt, renderer));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: '1', kind: 'ComputeFeedback', wgsl: 'W', width: 8, height: 8, supportsFeedback: true, inputs: [] }], executionOrder: ['1'] });
+      await settle();
+      emitUniforms(ch);
+      const mgr = rt.computeExecutor.computeManagers.get('1');
+
+      // Three editor steps land between this display's frames (rAF jitter / slow display).
+      for (const v of [1, 2, 3]) {
+        ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.1, v]) }] });
+      }
+      step();
+      await settle();
+
+      // Every missed step was replayed with its own uniform bytes, in order —
+      // two extra executor passes plus the final rendered one.
+      expect(mgr.writeRawComputeUniforms).toHaveBeenCalledTimes(3);
+      const seen = mgr.writeRawComputeUniforms.mock.calls.map((c) => c[0][3]);
+      expect(seen).toEqual([1, 2, 3]);
+      expect(rt.computeExecutor.execute).toHaveBeenCalledTimes(2);
+      expect(renderer.device.queue.submit).toHaveBeenCalledTimes(2);
+      expect(renderer.render).toHaveBeenCalled();
+    });
+
+    it('seeds a feedback sim from FEEDBACK_STATE (editor state on connect)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      const data = new Uint8Array(8 * 8 * 4).fill(7);
+
+      // State can arrive before the managers exist (READY bootstrap) — it is
+      // parked and applied once the graph initializes.
+      ch.emit({ type: MSG.FEEDBACK_STATE, nodeId: 'fb1', width: 8, height: 8, data });
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: 'fb1', kind: 'ComputeFeedback', wgsl: 'W', width: 8, height: 8, supportsFeedback: true, inputs: [] }], executionOrder: ['fb1'] });
+      await settle();
+      const mgr = rt.computeExecutor.computeManagers.get('fb1');
+      expect(mgr.writeFeedbackState).toHaveBeenCalledWith(data, 8, 8);
+
+      // A later state (graph-change re-seed) applies directly.
+      const data2 = new Uint8Array(8 * 8 * 4).fill(9);
+      ch.emit({ type: MSG.FEEDBACK_STATE, nodeId: 'fb1', width: 8, height: 8, data: data2 });
+      expect(mgr.writeFeedbackState).toHaveBeenCalledWith(data2, 8, 8);
+    });
+
+    it('a state seed drops queued steps it already contains (no double-advance)', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: 'fb1', kind: 'ComputeFeedback', wgsl: 'W', width: 8, height: 8, supportsFeedback: true, inputs: [] }], executionOrder: ['fb1'] });
+      await settle();
+      emitUniforms(ch);
+      const mgr = rt.computeExecutor.computeManagers.get('fb1');
+
+      // Connect burst: steps 1–2 queue, then a seed capturing state up to step 2
+      // lands. Replaying those steps on top would advance past the editor.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, step: 1, nodes: [{ id: 'fb1', packed: new Float32Array([8, 8, 0.1, 1]) }] });
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, step: 2, nodes: [{ id: 'fb1', packed: new Float32Array([8, 8, 0.2, 2]) }] });
+      ch.emit({ type: MSG.FEEDBACK_STATE, nodeId: 'fb1', width: 8, height: 8, step: 2, data: new Uint8Array(8 * 8 * 4) });
+
+      step();
+      // Superseded steps were dropped: nothing to replay, sims held this frame.
+      expect(rt.computeExecutor.holdDispatch).toBe(true);
+      expect(mgr.writeRawComputeUniforms).not.toHaveBeenCalled();
+
+      // The next (newer) step flows normally.
+      ch.emit({ type: MSG.COMPUTE_UNIFORMS, step: 3, nodes: [{ id: 'fb1', packed: new Float32Array([8, 8, 0.3, 3]) }] });
+      step();
+      expect(rt.computeExecutor.holdDispatch).toBe(false);
+      expect(mgr.writeRawComputeUniforms).toHaveBeenCalledTimes(1);
     });
 
     it('letterboxes to the compute texture aspect, not the editor display box (square edge-detect output)', async () => {
@@ -454,11 +575,13 @@ describe('secondMonitorReceiver', () => {
       expect(rt.computeExecutor.computeManagers.size).toBe(2);
       expect(rt.computeExecutor.executionOrder).toEqual(['1', '2']);
 
-      // Per-frame uniforms reach every sim.
+      // Per-frame uniforms reach every sim (applied at the next rendered step).
+      emitUniforms(ch);
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [
         { id: '1', packed: new Float32Array([64, 64, 0, 1]) },
         { id: '2', packed: new Float32Array([64, 64, 0, 2]) },
       ] });
+      step();
       await settle();
       expect(rt.computeExecutor.computeManagers.get('1').writeRawComputeUniforms).toHaveBeenCalled();
       expect(rt.computeExecutor.computeManagers.get('2').writeRawComputeUniforms).toHaveBeenCalled();
@@ -506,8 +629,10 @@ describe('secondMonitorReceiver', () => {
 
       // The per-frame packed resolution (floats 0,1) is overridden to the new size,
       // so the shader's UV/texel math matches the larger texture.
+      emitUniforms(ch);
       const packed = new Float32Array([512, 512, 0, 1]);
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed }] });
+      step();
       await settle();
       expect(packed[0]).toBe(1024);
       expect(packed[1]).toBe(1024);
@@ -550,7 +675,9 @@ describe('secondMonitorReceiver', () => {
       await settle();
       rt.computeExecutor.inputHashes.set('1', 'stale');
 
+      emitUniforms(ch);
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([1, 2, 3]), colorStops: null }] });
+      step();
       await settle();
 
       expect(rt.computeExecutor.computeManagers.get('1').writeRawComputeUniforms).toHaveBeenCalled();
@@ -563,19 +690,23 @@ describe('secondMonitorReceiver', () => {
       const ch = FakeBroadcastChannel.instances[0];
       ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: '1', kind: 'ComputeBlur', wgsl: 'W', width: 8, height: 8, inputs: [] }], executionOrder: ['1'] });
       await settle();
+      emitUniforms(ch);
 
       // First uniforms establish a baseline (always invalidates once).
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.1, 5]) }] });
+      step();
       await settle();
       rt.computeExecutor.inputHashes.set('1', 'cached');
 
       // Only time (index 2) ticked → must NOT invalidate (no redundant re-dispatch).
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.2, 5]) }] });
+      step();
       await settle();
       expect(rt.computeExecutor.inputHashes.get('1')).toBe('cached');
 
       // A real param change (index 3, e.g. blur radius) → must invalidate.
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.3, 9]) }] });
+      step();
       await settle();
       expect(rt.computeExecutor.inputHashes.has('1')).toBe(false);
     });
@@ -586,12 +717,15 @@ describe('secondMonitorReceiver', () => {
       const ch = FakeBroadcastChannel.instances[0];
       ch.emit({ type: MSG.COMPUTE_GRAPH, nodes: [{ id: '1', kind: 'ComputeGradient', wgsl: 'W', width: 8, height: 8, inputs: [] }], executionOrder: ['1'] });
       await settle();
+      emitUniforms(ch);
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.1, 2]), colorStops: new Float32Array([0, 0, 0, 0, 1, 0, 0, 0]) }] });
+      step();
       await settle();
       rt.computeExecutor.inputHashes.set('1', 'cached');
 
       // packed differs only by time (index 2), but the color stops changed → invalidate.
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [{ id: '1', packed: new Float32Array([8, 8, 0.2, 2]), colorStops: new Float32Array([0, 0, 0, 0, 1, 1, 1, 1]) }] });
+      step();
       await settle();
       expect(rt.computeExecutor.inputHashes.has('1')).toBe(false);
     });
@@ -610,11 +744,13 @@ describe('secondMonitorReceiver', () => {
         executionOrder: ['1', '2', '3'],
       });
       await settle();
+      emitUniforms(ch);
       ch.emit({ type: MSG.COMPUTE_UNIFORMS, nodes: [
         { id: '1', packed: new Float32Array([8, 8, 0.1, 5]) },
         { id: '2', packed: new Float32Array([8, 8, 0.1, 3]) },
         { id: '3', packed: new Float32Array([8, 8, 0.1, 1]) },
       ] });
+      step();
       await settle();
       rt.computeExecutor.inputHashes.set('1', 'a');
       rt.computeExecutor.inputHashes.set('2', 'b');
@@ -626,6 +762,7 @@ describe('secondMonitorReceiver', () => {
         { id: '2', packed: new Float32Array([8, 8, 0.2, 3]) },
         { id: '3', packed: new Float32Array([8, 8, 0.2, 1]) },
       ] });
+      step();
       await settle();
 
       // The change at node 1 cascades through the whole chain.

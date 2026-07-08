@@ -37,10 +37,12 @@ The editor picks a tier per shader and advertises it via the `CAPS` message:
 ## Protocol (`SecondMonitorMessage`)
 
 Editor → viewer: `SHADER`, `UNIFORMS` (per-frame), `CAPS`, `COMPUTE_GRAPH` (on
-structure change), `COMPUTE_UNIFORMS` (per-frame), `FRAGMENT_GRAPH` (fragment-fed
-compute; on structure/expression change), `FRAGMENT_UNIFORMS` (per-frame), `TEXTURE`,
-`FEEDBACK_RESET` (a Feedback node was reset), `FRAME` (fallback only), `RENDER_RES`,
-`CLOSE`.
+structure change), `COMPUTE_UNIFORMS` (per-frame; **one message = one sim step**, see
+"Step-locked feedback"), `FRAGMENT_GRAPH` (fragment-fed compute; on
+structure/expression change), `FRAGMENT_UNIFORMS` (per-frame), `TEXTURE`,
+`FEEDBACK_STATE` (a feedback sim's current state; seeds the viewer on connect/graph
+change), `FEEDBACK_RESET` (a Feedback node was reset), `FRAME` (fallback only),
+`RENDER_RES`, `CLOSE`.
 Viewer → editor: `READY`, `RESIZE`, `NEED_FALLBACK`, `CLOSED`.
 
 On `READY` the editor re-sends shader/compute-graph/fragment-graph/textures/caps/
@@ -150,23 +152,36 @@ A compute node whose input is a GLSL/fragment node (e.g. a fragment pattern →
   **audio envelopes** are mirrored onto the viewer window so `=audioEnvelope`
   expressions evaluate the same.
 
-## Deferred / future work
+## Step-locked feedback (exact matching, fully native)
 
-- **Exact feedback matching.** Native feedback (reaction-diffusion, feedback trails,
-  fluid) runs as an **independent** simulation on the viewer. Two reasons it can look
-  different from the editor:
-  1. **Resolution** (primary, and controllable): a different Viewer Res changes the
-     pattern scale — use **Match editor** to avoid this.
-  2. **Chaotic divergence** (secondary): even with an identical deterministic seed and
-     the same resolution, the editor and viewer step the sim at slightly different
-     counts (independent pacing), and chaotic sims amplify any difference over time.
-  A deterministic seed (already in `ComputeShaderManager.initializeReactionDiffusion`)
-  makes t=0 identical but can't hold chaotic sims in sync. Options if exact matching
-  is wanted later:
-  - **Mirror pixels** — route feedback graphs to the pixel fallback (exact, but a
-    per-frame GPU→CPU canvas copy on the editor).
-  - **Mirror the feedback texture** — broadcast just that node's output each frame;
-    the viewer binds it and renders the rest natively (exact for feedback, lighter
-    than full-canvas mirror, more plumbing).
-  - **Step-lock** — drive the viewer's sim to dispatch 1:1 with the editor's frames so
-    the deterministic sims stay in lockstep (fully native, no copy, but complex).
+Feedback sims (reaction-diffusion, feedback trails, feedback fields) used to run as
+**independent** simulations on the viewer — free-running on its own clock, so a fast
+display over-advanced them, a slow editor under-fed them, and chaotic sims drifted
+visibly from the editor within seconds. They are now **step-locked and state-seeded**,
+which was the step-lock option previously listed under deferred work:
+
+- **One `COMPUTE_UNIFORMS` message = one sim step.** The editor's executor steps its
+  feedback sims once per rendered editor frame, and the state tap emits one snapshot
+  per render — so each message *is* one step. The viewer queues them and runs exactly
+  one executor pass per message, with **that step's exact uniform bytes**. On a frame
+  where no step arrived, `ComputeExecutor.holdDispatch` freezes every dispatch and the
+  blit re-presents the last result (a high-refresh display can no longer over-drive
+  the sim). A backlog (rAF jitter, slow display) is replayed up to 3 steps per frame,
+  each with its own uniforms, so the dispatch counts stay 1:1 with the editor; beyond
+  a 4-step queue the oldest steps drop (a persistently slower display trails rather
+  than the queue growing forever).
+- **State seeding on connect.** Opening the viewer mid-session (or any compute-graph
+  change, which rebuilds the receiver) broadcasts each feedback node's current sim
+  state — a one-shot readback of its next-read ping-pong texture (`FEEDBACK_STATE`) —
+  and the receiver uploads it into the same slot, so both sims evolve from the same
+  state, in the same steps, from that moment on. Each `COMPUTE_UNIFORMS` message
+  carries a step counter and the seed is stamped with the counter at capture, so the
+  receiver drops queued steps the seed already contains instead of replaying them on
+  top. Resets stay mirrored via `FEEDBACK_RESET`.
+
+Caveats: a fixed **Viewer Res** still decouples the look (different sim resolution =
+different pattern scale — the state seed is skipped on a dimension mismatch); use
+**Match editor** for exact matching. ComputeWarp/ComputeMix allocate ping-pong but
+carry no cross-frame state, so they are excluded from seeding. Sims with state
+outside the ping-pong textures (e.g. particle storage buffers) seed approximately but
+remain step-locked.

@@ -314,6 +314,11 @@ describe('TauriSecondMonitorViewer', () => {
     const cu = channel.posted.find((m) => m.type === MSG.COMPUTE_UNIFORMS);
     expect(cu?.nodes).toHaveLength(1);
     expect(Array.from(cu.nodes[0].packed)).toEqual([1, 2, 3]);
+    // One message = one sim step; the counter lets the receiver align state seeds.
+    expect(cu.step).toBe(1);
+    renderer.emitState(computeSnap('WGSL_C'));
+    const steps = channel.posted.filter((m) => m.type === MSG.COMPUTE_UNIFORMS).map((m) => m.step);
+    expect(steps).toEqual([1, 2]);
 
     await viewer.close();
   });
@@ -462,6 +467,39 @@ describe('TauriSecondMonitorViewer', () => {
     viewer.onFeedbackReset('1');
 
     expect(channel.posted.find((m) => m.type === MSG.FEEDBACK_RESET)?.nodeId).toBe('1');
+    await viewer.close();
+  });
+
+  it('broadcasts FEEDBACK_STATE for feedback sims (on graph broadcast and on READY)', async () => {
+    stubComputeGlobals({ nodes: [{ id: '1', kind: 'ComputeFeedback', wgsl: 'F', width: 8, height: 8, supportsFeedback: true }] });
+    const state = { width: 8, height: 8, data: new Uint8Array(8 * 8 * 4).fill(3) };
+    const mgr = window.computeExecutor.computeManagers.get('1');
+    mgr.supportsFeedback = true;
+    mgr.captureFeedbackState = vi.fn(async () => state);
+
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('W'));
+    await flush();
+    await flush();
+
+    // The sim's current state (next-read ping-pong texture) seeds the receiver,
+    // stamped with the step counter at capture time (before this frame's step
+    // message posts) so the receiver can drop steps the seed already contains.
+    const fs = channel.posted.find((m) => m.type === MSG.FEEDBACK_STATE);
+    expect(fs).toMatchObject({ nodeId: '1', width: 8, height: 8, step: 0 });
+    expect(fs.data).toBe(state.data);
+
+    // A late/reconnecting receiver (READY) gets the current state again.
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    await flush();
+    await flush();
+    expect(channel.posted.some((m) => m.type === MSG.FEEDBACK_STATE)).toBe(true);
+
     await viewer.close();
   });
 

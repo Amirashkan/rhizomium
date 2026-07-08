@@ -22,10 +22,13 @@
 // Textured and compute graphs (including stateful/feedback sims and fragment-fed
 // compute — a compute node whose input is a fragment node) are reproduced natively
 // too: the WGSL, the compute subgraph, the fragment subgraph and the per-frame
-// uniform bytes are broadcast and the receiver re-renders from them. Only graphs the
-// receiver can't reproduce from state alone — a fragment storage buffer (3D path) —
-// revert to the pixel FRAME tap (GPURenderer.setFrameTap) so the second monitor
-// never shows broken output.
+// uniform bytes are broadcast and the receiver re-renders from them. Feedback sims
+// are exact, not approximate: each per-frame COMPUTE_UNIFORMS message is one editor
+// sim step the receiver replays 1:1 (step-lock), and on connect/graph-change each
+// sim's current ping-pong state is read back once and broadcast (FEEDBACK_STATE) to
+// seed the receiver's replica. Only graphs the receiver can't reproduce from state
+// alone — a fragment storage buffer (3D path) — revert to the pixel FRAME tap
+// (GPURenderer.setFrameTap) so the second monitor never shows broken output.
 //
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
@@ -74,6 +77,8 @@ export class TauriSecondMonitorViewer {
     this._sentFragmentNodes = false; // whether a non-empty FRAGMENT_GRAPH has been sent
     this._forceFallback = false; // receiver can't render natively → pixels only
     this._computeMaxDim = 0;     // viewer compute long-edge override (0 = match editor)
+    this._feedbackStateInFlight = false; // a feedback-state capture/broadcast is running
+    this._stepSeq = 0;           // sim-step counter (one per COMPUTE_UNIFORMS message)
     this._active = false;
   }
 
@@ -230,6 +235,7 @@ export class TauriSecondMonitorViewer {
         this._broadcastComputeGraph();
         this._broadcastFragmentGraph();
         this._broadcastAllTextures();
+        this._broadcastFeedbackStates();
       }
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
@@ -426,6 +432,7 @@ export class TauriSecondMonitorViewer {
           this._broadcastComputeGraph();
           this._broadcastFragmentGraph();
           this._broadcastAllTextures();
+          this._broadcastFeedbackStates();
           this._lastComputeSig = this._computeGraphSignature();
           this._lastFragmentSig = this._fragmentGraphSignature();
         }
@@ -441,6 +448,9 @@ export class TauriSecondMonitorViewer {
         this._lastComputeSig = sig;
         this._broadcastComputeGraph();
         this._broadcastAllTextures();
+        // A structure change rebuilds the receiver's compute graph, which clears
+        // its feedback sims — re-seed them from the editor's current state.
+        this._broadcastFeedbackStates();
       }
       // Re-broadcast the fragment subgraph when ITS structure changes (a fragment
       // node rewired into compute, or an expression param edited — both change the
@@ -462,7 +472,10 @@ export class TauriSecondMonitorViewer {
         });
       } catch (_) { /* channel closed mid-flight */ }
       if (this._mode === 'native-compute' && snap.compute) {
-        try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute }); } catch (_) { /* ignore */ }
+        // One message = one editor sim step; `step` lets the receiver align a
+        // FEEDBACK_STATE seed with the stream (drop steps the state already contains).
+        this._stepSeq += 1;
+        try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute, step: this._stepSeq }); } catch (_) { /* ignore */ }
       }
       if (this._mode === 'native-compute' && snap.fragment) {
         try { this._channel.postMessage({ type: MSG.FRAGMENT_UNIFORMS, nodes: snap.fragment }); } catch (_) { /* ignore */ }
@@ -683,6 +696,54 @@ export class TauriSecondMonitorViewer {
     const tm = (typeof window !== 'undefined') ? window.textureManager : null;
     if (!tm || !tm.textures || typeof tm.textures.forEach !== 'function') return;
     tm.textures.forEach((info, nodeId) => { this._broadcastTexture(nodeId, info); });
+  }
+
+  /**
+   * Broadcast the CURRENT state of every feedback sim (its next-read ping-pong
+   * texture, read back once) so the receiver's replica starts from the editor's
+   * state instead of t=0. With the per-step COMPUTE_UNIFORMS lockstep, the two
+   * sims then evolve identically. Fire-and-forget: capture is async (GPU→CPU
+   * readback) and must never block the state tap; sequential per node so the
+   * readbacks don't pile up. Coalesced — a call while one is running is dropped
+   * (every call site re-sends the full current state anyway).
+   */
+  _broadcastFeedbackStates() {
+    if (this._feedbackStateInFlight) return;
+    const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
+    const managers = exec && exec.computeManagers;
+    if (!managers || typeof managers.forEach !== 'function') return;
+    const jobs = [];
+    managers.forEach((m, id) => {
+      if (m && m.supportsFeedback && typeof m.captureFeedbackState === 'function') jobs.push([id, m]);
+    });
+    if (!jobs.length) return;
+    this._feedbackStateInFlight = true;
+    (async () => {
+      try {
+        for (const [nodeId, mgr] of jobs) {
+          if (!this._active || !this._channel) break;
+          // Read the step counter in the same sync block that encodes/submits the
+          // readback, so the state is stamped with the last step it contains and the
+          // receiver can drop queued steps the seed already includes.
+          const atStep = this._stepSeq;
+          let state = null;
+          try { state = await mgr.captureFeedbackState(); } catch (_) { /* skip node */ }
+          if (!state || !this._active || !this._channel) continue;
+          try {
+            this._channel.postMessage({
+              type: MSG.FEEDBACK_STATE,
+              nodeId,
+              width: state.width,
+              height: state.height,
+              data: state.data,
+              step: atStep,
+            });
+          } catch (_) { /* channel closed mid-flight */ }
+        }
+      } finally {
+        this._feedbackStateInFlight = false;
+      }
+    })();
   }
 
   /**
