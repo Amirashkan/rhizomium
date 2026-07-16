@@ -80,12 +80,12 @@ Rhizomium automatically converts between compatible types:
 
 ## Node Categories
 
-Rhizomium organizes nodes into 8 categories:
+Rhizomium organizes nodes into 12 categories (as shown in the add-node menu). Several categories contain both fragment nodes and GPU compute nodes — see [Compute Nodes Guide](compute-nodes.md) for how compute nodes differ.
 
 ### 1. Input Nodes
-Provide data sources and constants.
+Provide data sources, constants, and CPU-side signal utilities.
 
-**Examples**: UV, Time, Mouse, Audio, Float constants
+**Examples**: UV, Time, Mouse, Resolution, Float constants, Trigger, Hold, Count, Random Value
 
 **Use**: Starting points for your graph
 
@@ -96,49 +96,75 @@ Final rendering output.
 
 **Use**: End point of your graph
 
-### 3. Field Nodes
-Generate patterns and procedural content.
-
-**Examples**: Circle, Noise, Voronoi, Gradients
-
-**Use**: Creating visual patterns and shapes
-
-### 4. Math Nodes
+### 3. Math Nodes
 Perform mathematical operations.
 
 **Examples**: Add, Multiply, Sin, Cos, Clamp
 
 **Use**: Transforming and combining values
 
-### 5. Utility Nodes
-Data manipulation and color operations.
+### 4. Vector Nodes
+Construct, deconstruct, and rearrange vectors.
 
-**Examples**: ColorRamp, Remap, Mix, Select
+**Examples**: Split Vec2/3/4, Combine Vec2/3/4, Swizzle
 
-**Use**: Converting and adjusting data
+**Use**: Working with individual vector/color components
 
-### 6. Blend Nodes
+### 5. Generator Nodes
+Generate patterns and procedural content.
+
+**Examples**: Circle, Rectangle, Polygon, Perlin/Simplex/FBM Noise, Color Ramp, Compute Noise, Gradient, Pattern, Voronoi
+
+**Use**: Creating visual patterns and shapes
+
+### 6. Transform Nodes
+Manipulate UV coordinates and space.
+
+**Examples**: Rotate 2D, Scale 2D, Tile and Offset, Polar Coordinates, Twirl, Displacement
+
+**Use**: Warping and distorting space
+
+### 7. Modifier Nodes
+Adjust and process colors and textures.
+
+**Examples**: To Grayscale, Invert Color, Color Mix, Compute Blur, Color Adjust, Edge Detect, Threshold
+
+**Use**: Color grading and image processing
+
+### 8. Effect Nodes
+GPU compute effects.
+
+**Examples**: Compute Feedback, Warp, Kaleidoscope, Glitch
+
+**Use**: Trails, distortion, mirror, and glitch effects
+
+### 9. Simulation Nodes
+Stateful GPU simulations.
+
+**Examples**: Compute Particles, Reaction Diffusion, Fluid Simulation, Cellular Automata, Feedback Field
+
+**Use**: Particle systems and physics-based visuals
+
+### 10. Utility Nodes
+Data manipulation, logic, and texture compositing.
+
+**Examples**: Expression, Remap, Select, Compare, Switch, Custom GLSL, Mix, Channels, HSV
+
+**Use**: Converting and adjusting data, custom code
+
+### 11. Blend Nodes
 Combine signed distance fields (SDFs).
 
 **Examples**: Union, Intersection, Smooth Blend
 
 **Use**: Combining multiple shapes
 
-### 7. Transform Nodes
-Manipulate UV coordinates and space.
+### 12. Texture Nodes
+Sample image files.
 
-**Examples**: Rotate, Scale, Tile, Kaleidoscope
+**Examples**: Texture 2D, Texture Cube
 
-**Use**: Warping and distorting space
-
-### 8. Compute Nodes
-GPU-accelerated pre-processing effects.
-
-**Examples**: ComputeNoise, ComputeBlur, ComputeParticles, ReactionDiffusion
-
-**Use**: Particle systems, simulations, complex effects
-
-**Note:** See [Compute Nodes Guide](compute-nodes.md) for detailed information.
+**Use**: Bringing images and cubemaps into the graph
 
 ---
 
@@ -147,7 +173,7 @@ GPU-accelerated pre-processing effects.
 ### Basic Pattern Creation
 
 ```
-UV → Field Node → ColorRamp → Output
+UV → Generator Node → ColorRamp → Output
 ```
 
 Create a simple pattern with color.
@@ -155,7 +181,7 @@ Create a simple pattern with color.
 ### Animated Pattern
 
 ```
-UV → Field Node → \
+UV → Generator Node → \
                    Add → ColorRamp → Output
 Time → Sine →     /
 ```
@@ -165,9 +191,9 @@ Add time-based animation to a pattern.
 ### Layered Composition
 
 ```
-UV → Field 1 → ColorRamp 1 → \
+UV → Generator 1 → ColorRamp 1 → \
                               Mix → Output
-UV → Field 2 → ColorRamp 2 → /
+UV → Generator 2 → ColorRamp 2 → /
 ```
 
 Blend multiple patterns together.
@@ -175,7 +201,7 @@ Blend multiple patterns together.
 ### Space Transformation
 
 ```
-UV → Transform → Field → ColorRamp → Output
+UV → Transform → Generator → ColorRamp → Output
 ```
 
 Warp space before applying a pattern.
@@ -198,6 +224,10 @@ Nodes can have various parameter types:
 ### Complex Parameters
 - **colorstops**: Gradient editor with color stops
 - **expr**: Expression input (for Expression node)
+- **glsl**: Shader code editor (for Custom GLSL node)
+- **button**: One-shot action (e.g. Reset Feedback)
+
+Numeric parameters also accept [parameter expressions](parameter-expressions.md) — type `=` followed by an expression to animate them.
 
 ---
 

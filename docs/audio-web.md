@@ -13,36 +13,27 @@ Make your visuals react to music and sound! Rhizomium includes built-in audio an
 3. Allow microphone access when prompted
 4. You should see audio levels responding to sound
 
-### Step 2: Add Audio Node
+### Step 2: Use Audio in Parameter Expressions
 
-1. Right-click on canvas
-2. **Input → Audio**
-3. Place the Audio node in your graph
+Audio reactivity works through **parameter expressions**: type `=` followed by an expression into any numeric parameter field. The audio level is available as the `audioEnvelope` variable:
 
-### Step 3: Connect to Parameters
+1. Select a node (e.g. a Circle)
+2. Click into a parameter field (e.g. `Radius`)
+3. Type `=audioEnvelope * 0.5`
 
-The Audio node outputs different frequency bands:
+The parameter now follows the audio level every frame. See [Parameter Expressions](parameter-expressions.md) for the full expression syntax.
 
-- **Bass** - Low frequencies (kick drums, bass)
-- **Mid** - Middle frequencies (vocals, guitars)
-- **High** - High frequencies (hi-hats, cymbals)
-- **Overall** - Combined intensity
+### Step 3: Pick a Frequency Band
 
-Connect these to any node parameter to make it react!
+Several audio variables are available in expressions:
 
----
+- `audioEnvelope` - Overall intensity (smoothed)
+- `audioEnvelopeBass` - Low frequencies (kick drums, bass)
+- `audioEnvelopeMids` - Middle frequencies (vocals, guitars)
+- `audioEnvelopeHighs` - High frequencies (hi-hats, cymbals)
+- `audioEnvelopeFull` - Total energy
 
-## Audio Node Outputs
-
-```
-[Audio Node]
-├─ Bass     (Low frequencies 20-250 Hz)
-├─ Mid      (Mid frequencies 250-4000 Hz)
-├─ High     (High frequencies 4000-20000 Hz)
-└─ Overall  (Total energy)
-```
-
-All outputs range from **0.0 to 1.0**.
+All values range from **0.0 to 1.0**.
 
 ---
 
@@ -50,41 +41,38 @@ All outputs range from **0.0 to 1.0**.
 
 ### Pulsing Circle
 
-Make a circle pulse to the beat:
+Make a circle pulse to the beat — on a Circle node, set:
 
 ```
-UV → Circle → ColorRamp → Output
-Audio (Bass) → Circle (radius)
+Radius = 0.15 + audioEnvelopeBass * 0.3
 ```
 
 The circle grows with bass hits!
 
 ### Color Changes
 
-Change colors with different frequencies:
+Shift colors with different frequencies — on a Color Adjust (compute) node, set:
 
 ```
-UV → Circle → ColorRamp → Output
-Audio (Mid) → ColorRamp (position shift)
+hue = audioEnvelopeMids * 180
 ```
 
 ### Rotation Speed
 
-Control rotation speed with audio:
+Control rotation speed with audio — on a Rotate 2D node, set:
 
 ```
-UV → Rotate → Circle → Output
-Audio (High) → Rotate (angle)
+Rotation = time * (30 + audioEnvelopeHighs * 300)
 ```
 
 ### Multi-Band Visualization
 
-Use all frequency bands:
+Use all frequency bands on three Circle nodes:
 
 ```
-Audio (Bass) → Circle 1 (radius)
-Audio (Mid) → Circle 2 (radius)
-Audio (High) → Circle 3 (radius)
+Circle 1: Radius = audioEnvelopeBass * 0.4
+Circle 2: Radius = audioEnvelopeMids * 0.4
+Circle 3: Radius = audioEnvelopeHighs * 0.4
 ```
 
 ---
@@ -145,7 +133,7 @@ Customize which frequencies go to each band (advanced).
 Audio values are 0-1, but you may want larger ranges:
 
 ```
-Audio (Bass) → Multiply (×10) → Parameter
+=audioEnvelope * 10
 ```
 
 ### 2. Add Offsets
@@ -153,15 +141,15 @@ Audio (Bass) → Multiply (×10) → Parameter
 Ensure a minimum value:
 
 ```
-Audio (Mid) → Add (0.5) → Parameter
+=0.5 + audioEnvelope * 0.5
 ```
 
-### 3. Smooth Motion
+### 3. Interpolate Between Bounds
 
-Use math to smooth transitions:
+Map audio into an exact range:
 
 ```
-Audio → Smoothstep → Parameter
+=lerp(0.2, 0.8, audioEnvelope)
 ```
 
 ### 4. Combine Frequencies
@@ -169,51 +157,48 @@ Audio → Smoothstep → Parameter
 Mix different bands:
 
 ```
-Audio (Bass) → Mix (A) ┐
-Audio (High) → Mix (B) ┘→ Parameter
+=(audioEnvelopeBass + audioEnvelopeHighs) * 0.5
 ```
 
-### 5. Remap Ranges
+### 5. Gate Quiet Signals
 
-Scale audio to your desired range:
+Only react above a threshold:
 
 ```
-Audio → Remap (0-1 to 0.2-0.8) → Parameter
+=audioEnvelope > 0.5 ? audioEnvelope : 0
 ```
 
 ---
 
 ## Common Patterns
 
-### Reactive Colors
-
-```
-Audio → ColorRamp input → Shifts colors with music
-```
-
 ### Reactive Size
 
 ```
-Audio → Circle/Shape radius → Grows with beat
+Circle Radius = 0.1 + audioEnvelopeBass * 0.4
 ```
 
 ### Reactive Speed
 
 ```
-Audio → Time multiplier → Faster animation
+Rotation = time * (1 + audioEnvelope * 10)
 ```
 
 ### Reactive Complexity
 
 ```
-Audio → Noise scale → More detail with sound
+Noise Scale = 3 + audioEnvelope * 10
 ```
 
 ### Reactive Position
 
 ```
-Audio → Transform offset → Movement with music
+Translate X = audioEnvelopeMids * 0.2
 ```
+
+### Beat-Reset Feedback
+
+Wire an audio-driven signal through a **Trigger** node into the **Reset** pin of a Compute Feedback node to clear trails on the beat.
 
 ---
 
@@ -231,13 +216,14 @@ Audio → Transform offset → Movement with music
 
 ### Audio Not Reacting
 
-**Problem**: Audio node connected but nothing happens
+**Problem**: An `=audioEnvelope` expression is set but nothing happens
 
 **Solutions**:
 1. Make sure Audio Settings is enabled
-2. Check that sound is playing/microphone is receiving audio
-3. Increase Gain in Audio Settings
-4. Try different frequency bands
+2. Check the expression starts with `=` and uses a valid variable name
+3. Check that sound is playing/microphone is receiving audio
+4. Increase Gain in Audio Settings
+5. Try different frequency bands
 
 ### Too Sensitive
 
@@ -246,8 +232,8 @@ Audio → Transform offset → Movement with music
 **Solutions**:
 1. Reduce Gain in Audio Settings
 2. Increase Smoothing
-3. Add a Clamp node to limit range
-4. Use multiply node with value < 1.0
+3. Clamp the expression, e.g. `=clamp(audioEnvelope * 2, 0, 1)`
+4. Scale it down, e.g. `=audioEnvelope * 0.5`
 
 ### Too Subtle
 

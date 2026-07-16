@@ -44,9 +44,9 @@ Standard 2D image texture for flat images.
 - Image-based effects
 
 **Outputs:**
-- **RGBA** - Full color with alpha channel
-- **RGB** - Color channels only
-- **R, G, B, A** - Individual channels
+- **Color** (vec4) - Full color with alpha channel
+
+To work with individual channels, feed the Color output into a **Split Vec4** node (x/y/z/w = R/G/B/A).
 
 ### Texture Cube
 
@@ -234,10 +234,10 @@ Blend → Output
 **Use individual channels:**
 
 ```
-UV → Texture 2D → R Channel → Output
+UV → Texture 2D → Split Vec4 → (x output) → Output
 ```
 
-Extract red channel as grayscale.
+Extract red channel as grayscale. For channel remixing on compute textures, use the **Channels** compute node.
 
 ---
 
@@ -248,8 +248,10 @@ Extract red channel as grayscale.
 **Adjust texture colors:**
 
 ```
-UV → Texture 2D → Brightness → Contrast → Saturation → Output
+UV → Texture 2D → Color Adjust (compute) → Output
 ```
+
+The **Color Adjust** compute node handles brightness, contrast, saturation, hue, gamma, and exposure in a single pass.
 
 ### Inversion
 

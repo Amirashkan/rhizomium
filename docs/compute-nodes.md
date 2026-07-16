@@ -12,8 +12,9 @@ Compute nodes are **GPU-accelerated pre-processing nodes** that run before your 
 - **Reaction-diffusion** - Organic patterns and textures
 - **Fluid simulation** - Smoke, ink, and water effects
 - **Cellular automata** - Game of Life and emergent patterns
-- **Noise generation** - Complex procedural noise textures
-- **Blur effects** - Fast Gaussian blur and depth of field
+- **Noise, gradients, and patterns** - Procedural textures
+- **Image processing** - Blur, edge detection, color grading, glitch effects
+- **Feedback loops** - Trails and recursive visuals
 
 ---
 
@@ -22,15 +23,15 @@ Compute nodes are **GPU-accelerated pre-processing nodes** that run before your 
 ### Step 1: Add a Compute Node
 
 1. Right-click on the canvas
-2. Navigate to **Compute** → Choose a compute node (e.g., **ComputeNoise**)
-3. Click to place it on the canvas
+2. Compute nodes live in the same categories as fragment nodes — look in **Generators** (Compute Noise, Voronoi, Gradient, Pattern), **Modifiers** (Compute Blur, Edge Detect, ...), **Effects** (Compute Feedback, Warp, Kaleidoscope, Glitch), **Simulation** (Particles, Fluid, ...), and **Utility** (Mix, Transform, Channels, HSV)
+3. Click to place the node on the canvas
 
 ### Step 2: Connect to Fragment Shader
 
 Compute nodes output textures that can be sampled in your fragment shader:
 
 ```
-ComputeNoise → Texture Sample → Output
+Compute Noise → Texture Sample → Output
 ```
 
 **Important:** Compute nodes don't connect directly to the Output node. You need to sample their output texture in a fragment shader.
@@ -47,118 +48,88 @@ Click on the compute node to open its parameters panel. Adjust settings like:
 
 ## Available Compute Nodes
 
-### ComputeNoise
+For full pin and parameter listings, see the [Node Reference](node-reference.md). The current set:
+
+**Generators**
+- **Compute Noise** - Animated FBM noise (scale, octaves, speed, colorize, resolution)
+- **Voronoi** - Voronoi diagrams and Worley noise (Cells/Distance/Borders/Worley modes, animated points)
+- **Gradient** - Linear, radial, angular, and diamond gradients with a visual color-stop editor
+- **Pattern** - Checkerboard, stripes, dots, grid, hexagon, and brick patterns
+
+**Modifiers (image processing)**
+- **Compute Blur** - Gaussian blur (radius, quality, direction)
+- **Compute Convolution** - Sharpen, edge detect, emboss kernels
+- **Threshold** - Binary, range, and adaptive thresholding
+- **Color Adjust** - Brightness, contrast, saturation, hue, gamma, exposure
+- **Edge Detect** - Sobel, Scharr, Prewitt, Roberts operators
+- **Morphology** - Dilate, erode, open, close
+- **Histogram** - Equalize, normalize, stretch, visualize
+- **Luminance** - Luminance extraction with several formulas
+
+**Effects**
+- **Compute Feedback** - Feedback loop with per-frame transform (trails, tunnels); has a **Reset** input pin
+- **Warp** - Displace, twist, bulge, pinch, and wave distortion, optionally driven by a warp-field texture
+- **Kaleidoscope** - Mirror symmetry with optional animation
+- **Glitch** - RGB shift, block, scanline, pixelate, and corrupt effects
+
+**Simulation**
+- **Compute Particles** - GPU particle system with force/velocity field inputs
+- **Reaction Diffusion** - Gray-Scott simulation with pattern presets (Coral, Spots, Stripes, ...)
+- **Fluid Simulation** - Navier-Stokes fluid dynamics
+- **Cellular Automata** - Conway Life, Seeds, Brian's Brain, Day & Night
+- **Feedback Field** - Persistent field with Flow/Reaction-Diffusion/Accumulate/Swirl modes; has a **Reset** input pin
+
+**Utility**
+- **Mix** - Blend two textures with standard blend modes
+- **Transform** - Translate/rotate/scale a texture
+- **Channels** - Swap, extract, combine, remap color channels
+- **HSV** - RGB↔HSV conversion and HSV adjustments
+- **3D Field Visualizer** - Map field data to 3D points, surfaces, or volumes (see [3D Field Visualization](field-visualization.md))
+
+### Spotlight: Compute Noise
 
 Generates animated procedural noise using Fractal Brownian Motion.
 
-**Use cases:**
-- Animated backgrounds
-- Cloud patterns
-- Organic textures
-
 **Key Parameters:**
 - `scale` - Noise frequency (default: 8.0)
-- `octaves` - Detail layers (default: 4)
+- `octaves` - Detail layers (default: 5)
 - `speed` - Animation speed (default: 0.1)
-- `colorize` - Enable color output (default: false)
+- `colorize` - Enable color output (default: true)
+- `resolution` - Output texture size: 256/512/1024 (default: 512)
 
 **Example:**
 ```
-ComputeNoise (scale: 5.0, octaves: 6) → Texture Sample → Output
+Compute Noise (scale: 5.0, octaves: 6) → Texture Sample → Output
 ```
 
-### ComputeBlur
+### Spotlight: Compute Feedback
 
-Applies fast Gaussian blur to input textures.
+Creates feedback loops for trails and recursive patterns.
 
-**Use cases:**
-- Depth of field effects
-- Glow effects
-- Soft shadows
-
-**Key Parameters:**
-- `radius` - Blur radius (default: 5.0)
-- `iterations` - Quality (default: 1)
-
-**Example:**
-```
-[Your Pattern] → ComputeBlur (radius: 10.0) → Output
-```
-
-### ComputeParticles
-
-GPU-accelerated particle system with physics simulation.
-
-**Use cases:**
-- Particle effects
-- Visual effects (VFX)
-- Animated particles
+**Inputs:**
+- `Input` - The texture to feed back
+- `Reset` - Control pin: a rising edge (e.g. from a **Trigger** node) clears the accumulated trail
 
 **Key Parameters:**
-- `count` - Number of particles (default: 1000)
-- `speed` - Particle velocity (default: 1.0)
-- `gravity` - Gravity strength (default: 0.1)
+- `decay` - Trail persistence (default: 0.95)
+- `scale` - Zoom per frame (default: 1.01)
+- `rotation` - Rotation per frame in degrees (default: 0.0)
+- `offsetX` / `offsetY` - Drift per frame (default: 0.0)
+- `Reset Feedback` (button) - Manually clear the trail
 
-### ComputeFeedback
+**Note:** This node uses ping-pong buffers for temporal effects. The Reset pin performs the same clear as the button, but signal-driven — wire a Trigger to reset on a beat or event. The same applies to **Feedback Field**.
 
-Creates feedback loops for trails and kaleidoscope effects.
-
-**Use cases:**
-- Trails and motion blur
-- Kaleidoscope effects
-- Recursive patterns
-
-**Key Parameters:**
-- `feedback` - Feedback amount (default: 0.95)
-- `decay` - Trail decay rate (default: 0.02)
-
-**Note:** This node uses ping-pong buffers for temporal effects.
-
-### ComputeReactionDiffusion
+### Spotlight: Reaction Diffusion
 
 Simulates Gray-Scott reaction-diffusion patterns.
 
-**Use cases:**
-- Organic patterns
-- Turing patterns
-- Biological textures
-
 **Key Parameters:**
-- `feed` - Feed rate (default: 0.055)
-- `kill` - Kill rate (default: 0.062)
-- `diffusionA` - Diffusion rate A (default: 1.0)
-- `diffusionB` - Diffusion rate B (default: 0.5)
-
-**Note:** This node supports feedback for continuous evolution.
-
-### ComputeFluidSim
-
-Navier-Stokes fluid simulation.
-
-**Use cases:**
-- Smoke effects
-- Ink in water
-- Fluid dynamics
-
-**Key Parameters:**
-- `viscosity` - Fluid viscosity (default: 0.01)
-- `velocity` - Flow velocity (default: 1.0)
-- `pressure` - Pressure (default: 0.1)
-
-**Note:** Requires feedback for continuous simulation.
-
-### ComputeCellular
-
-Cellular automata simulation (like Game of Life).
-
-**Use cases:**
-- Emergent patterns
-- Game of Life
-- Cellular patterns
-
-**Key Parameters:**
-- `rule` - CA rule (default: "B3/S23" for Game of Life)
-- `neighborhood` - Cell neighborhood type (default: "moore")
+- `pattern` - Preset: Coral, Spots, Stripes, Waves, Mitosis, Worms, Spirals (default: Coral)
+- `feedRate` - Feed rate (default: 0.0545)
+- `killRate` - Kill rate (default: 0.062)
+- `diffusionA` / `diffusionB` - Diffusion rates (defaults: 1.0 / 0.5)
+- `timestep` - Simulation speed (default: 1.0)
+- `resolution` - Simulation resolution: 256/512/1024 (default: 512)
 
 ---
 
@@ -171,8 +142,8 @@ Compute nodes execute **before** your fragment shader:
 ```
 Frame Start
     ↓
-1. ComputeNoise executes → Creates texture
-2. ComputeBlur executes → Processes texture
+1. Compute Noise executes → Creates texture
+2. Compute Blur executes → Processes texture
     ↓
 3. Fragment shader executes → Samples compute textures
     ↓
@@ -184,16 +155,22 @@ The system automatically handles execution order based on dependencies.
 ### Texture Outputs
 
 Compute nodes output textures in `rgba8unorm` format:
-- **Resolution**: Configurable (128x128 to 2048x2048)
+- **Resolution**: Configurable on generator/simulation nodes (256, 512, or 1024)
 - **Format**: RGBA (Red, Green, Blue, Alpha)
 - **Usage**: Can be sampled in fragment shaders
 
 ### Feedback Loops
 
-Some compute nodes (Feedback, ReactionDiffusion, FluidSim, Cellular) support **feedback**:
+Some compute nodes (Compute Feedback, Feedback Field, Reaction Diffusion, Fluid Simulation, Cellular Automata) keep **state between frames**:
 - Uses ping-pong buffers
 - Previous frame output becomes next frame input
 - Enables temporal effects and simulations
+
+The two feedback nodes expose a **Reset input pin** in addition to their panel button, so any scalar signal (a Trigger on an audio envelope, a MIDI control, a mouse click) can clear the accumulated state on a rising edge.
+
+### Control Pins
+
+The Reset pins on Compute Feedback and Feedback Field are **control pins**: they carry a CPU-side scalar signal rather than a texture. They are evaluated once per frame on the CPU (like Hold and Count), not per pixel on the GPU.
 
 ---
 
@@ -202,8 +179,8 @@ Some compute nodes (Feedback, ReactionDiffusion, FluidSim, Cellular) support **f
 ### Resolution Settings
 
 Lower resolutions = better performance:
-- **Preview**: 256x256 or 512x512
-- **Final**: 1024x1024 or 2048x2048
+- **Preview**: 256 or 512
+- **Final**: 1024
 
 ### Node Count
 
@@ -214,18 +191,17 @@ Limit compute nodes per graph:
 ### Expensive Operations
 
 Most expensive compute nodes:
-1. **ComputeFluidSim** - Complex physics simulation
-2. **ComputeReactionDiffusion** - Multiple passes
-3. **ComputeParticles** - Many particles
-4. **ComputeBlur** - Large radius blur
+1. **Fluid Simulation** - Complex physics simulation
+2. **Reaction Diffusion** - Multiple passes
+3. **Compute Particles** - Many particles
+4. **Compute Blur** - Large radius blur
 
 ### Optimization Strategies
 
 1. **Reduce resolution** for preview
 2. **Lower octaves** in noise nodes
-3. **Use fewer iterations** in blur
+3. **Use lower quality** in blur
 4. **Limit particle count** in particle systems
-5. **Disable feedback** when not needed
 
 ---
 
@@ -234,7 +210,7 @@ Most expensive compute nodes:
 ### Pattern 1: Animated Noise Background
 
 ```
-ComputeNoise (scale: 4.0, speed: 0.2)
+Compute Noise (scale: 4.0, speed: 0.2)
     ↓
 Texture Sample
     ↓
@@ -248,25 +224,25 @@ Output
 ```
 [Your Pattern]
     ↓
-ComputeBlur (radius: 8.0)
+Compute Blur (radius: 8.0)
     ↓
 Output
 ```
 
-### Pattern 3: Particle System
+### Pattern 3: Beat-Reset Feedback Trail
 
 ```
-ComputeParticles (count: 2000)
-    ↓
-Texture Sample
-    ↓
-Output
+[Your Pattern] → Compute Feedback → Texture Sample → Output
+                        ↑ Reset
+Audio Envelope → Trigger
 ```
+
+The trail accumulates continuously and clears every time the audio envelope crosses the trigger threshold.
 
 ### Pattern 4: Reaction-Diffusion Pattern
 
 ```
-ComputeReactionDiffusion (feed: 0.055, kill: 0.062)
+Reaction Diffusion (pattern: Coral)
     ↓
 Texture Sample
     ↓
@@ -286,7 +262,7 @@ Output
 **Solutions:**
 - Check that compute node is connected to a fragment shader
 - Verify parameters are set correctly
-- Check resolution isn't too low (try 256x256 minimum)
+- Check resolution isn't too low (try 256 minimum)
 - Look for errors in browser console (F12)
 
 ### Low Performance
@@ -294,7 +270,7 @@ Output
 **Problem:** Frame rate drops when using compute nodes
 
 **Solutions:**
-- Reduce resolution (try 256x256)
+- Reduce resolution (try 256)
 - Lower octaves/iterations
 - Reduce particle count
 - Close other GPU-intensive applications
@@ -305,8 +281,8 @@ Output
 **Problem:** Feedback effects don't accumulate
 
 **Solutions:**
-- Ensure feedback parameter > 0
-- Check that node supports feedback (Feedback, ReactionDiffusion, FluidSim, Cellular)
+- Check decay isn't 0 (a decay of 0 clears the trail every frame)
+- Make sure nothing is pulsing the Reset pin every frame
 - Verify node is executing every frame
 - Check browser console for errors
 
@@ -315,7 +291,7 @@ Output
 **Problem:** Compute texture doesn't change over time
 
 **Solutions:**
-- Ensure time-based parameters are connected
+- Ensure time-based parameters (speed, animate) are set
 - Check that node is marked as "dirty" when parameters change
 - Verify compute shader is re-dispatched each frame
 - Check for caching issues
@@ -329,7 +305,7 @@ Output
 You can chain multiple compute nodes:
 
 ```
-ComputeNoise → ComputeBlur → Texture Sample → Output
+Compute Noise → Compute Blur → Texture Sample → Output
 ```
 
 The system automatically handles execution order.
@@ -341,7 +317,7 @@ Compute nodes work seamlessly with fragment nodes:
 ```
 UV → Circle
     ↓
-ComputeBlur → Texture Sample
+Compute Blur → Texture Sample
     ↓
 Blend → Output
 ```
@@ -360,8 +336,8 @@ See [Parameter Expressions](parameter-expressions.md) for more details.
 
 ## See Also
 
+- [Node Reference](node-reference.md) - Full pin/parameter listings for every compute node
 - [Parameter Expressions](parameter-expressions.md) - Animate compute node parameters
 - [Performance Tips](performance.md) - Optimize your graphs
 - [3D Field Visualization](field-visualization.md) - Visualize compute outputs in 3D
 - [Compute Node API](../COMPUTE_NODE_API.md) - Developer reference
-

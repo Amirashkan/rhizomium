@@ -213,8 +213,8 @@ Recipients import the JSON file to use it.
 1. Click **Audio Settings** button in toolbar
 2. Click **Enable Audio Input**
 3. Allow microphone access when prompted
-4. Add an **Audio** node (Right-click → Input → Audio)
-5. Connect Audio outputs (Bass, Mid, High) to node parameters
+4. Type an audio expression into any numeric parameter field, e.g. `=audioEnvelope * 0.5`
+5. Use `audioEnvelopeBass`, `audioEnvelopeMids`, or `audioEnvelopeHighs` for individual frequency bands
 
 See [Audio Reactivity Guide](audio-web.md) for detailed instructions.
 
@@ -326,22 +326,27 @@ For best performance: **Use Chrome 113+ or Edge 113+**
 
 ### How many nodes are available?
 
-Rhizomium includes **90+ nodes** across 7 categories:
-- Input (14) - Constants, UV, Time, Mouse, Audio, etc.
+Rhizomium includes **130+ nodes** across 12 categories:
+- Input (13) - Constants, UV, Time, Mouse, Trigger/Hold/Count, etc.
 - Output (1) - Final output
-- Field (24) - Gradients, patterns, noise, shapes
-- Math (36) - Arithmetic, trigonometry, interpolation
-- Utility (11) - Color operations, data manipulation
+- Math (43) - Arithmetic, trigonometry, interpolation, vector math
+- Vector (7) - Split, Combine, Swizzle
+- Generators (19) - Gradients, patterns, noise, shapes (fragment + compute)
+- Transform (10) - UV manipulation, distortion
+- Modifiers (11) - Color operations, image processing (fragment + compute)
+- Effects (4) - Feedback, warp, kaleidoscope, glitch (compute)
+- Simulation (5) - Particles, fluids, reaction-diffusion, cellular automata (compute)
+- Utility (12) - Data manipulation, logic, custom code, compositing
 - Blend (7) - SDF operations
-- Transform (15) - UV manipulation, distortion
+- Texture (2) - 2D and cubemap sampling
 
 See [Node Reference](node-reference.md) for complete catalog.
 
 ### Can I create custom nodes?
 
-Custom nodes currently require modifying the source code. A plugin system for user-created nodes may be added in the future.
+For custom per-pixel logic, use the **Custom GLSL** node (Utility category) — it gives you four input pins and a code editor, so you can write shader expressions directly without modifying the source.
 
-To add nodes now: Clone the repository and edit the node definitions.
+Fully custom node types still require modifying the source code. A plugin system for user-created nodes may be added in the future.
 
 ### Can I export my visuals as video?
 

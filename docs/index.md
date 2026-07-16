@@ -31,7 +31,7 @@ npm run dev
 ## ✨ Key Features
 
 ### Visual Node Editor
-- **90+ nodes** across 8 categories
+- **130+ nodes** across 12 categories
 - **Real-time preview** with live updates
 - **Intuitive interface** - no coding required
 - **Visual programming** - connect nodes to create shaders

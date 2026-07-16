@@ -137,13 +137,11 @@ Each node has several parts:
 ### Header
 - **Title** - Node type name
 - **Color bar** - Category color coding:
-  - Blue: Input nodes
-  - Green: Output nodes
-  - Yellow: Field nodes
-  - Orange: Math nodes
-  - Purple: Utility nodes
-  - Red: Blend nodes
-  - Cyan: Transform nodes
+  - Green (emerald): Input nodes
+  - Amber: Math nodes
+  - Cyan: Utility nodes
+  - Red: Output node
+  - Gray: other categories
 
 ### Body
 - **Input pins** (left side) - Receive data
@@ -290,9 +288,14 @@ Opens when you double-click a node:
 
 Individual nodes can show preview thumbnails:
 
-**Enable Preview:**
-- Click eye button on node
-- Or enable globally in settings
+**Per-Node Toggle:**
+- Click the eye button on a node to show or hide its thumbnail
+- The eye icon reflects the node's current state (open = visible, closed = hidden)
+- The on/off state is saved with your graph
+
+**Defaults:**
+- Visual nodes (patterns, colors, textures, compute nodes) show a thumbnail by default
+- Numeric/scalar nodes (Math, constants, Time, etc.) hide their thumbnail by default — it would only be a flat swatch. Their output value still shows next to the output pin, and the first click on the eye button turns the thumbnail on
 
 **Preview Sizes:**
 - **S** (Small) - 32x32 pixels
