@@ -375,13 +375,29 @@ export class NodeCompiler {
     } else if (this.compilers.blend.handles(kind)) {
       result = this.compilers.blend.compile(node, getInput, getParam);
     } else if (kind === 'ComputeFieldMapper') {
-      // ComputeFieldMapper is a 3D visualization node, not a shader node
-      // It outputs 3D geometry to the viewport, not 2D shader data
-      // Skip it in shader compilation - it will be handled by FieldMapperIntegration
-      result = {
-        line: `// ComputeFieldMapper node_${nodeId} (3D visualization - outputs to viewport)`,
-        outputType: "skip"
-      };
+      // 3D Field Visualizer: the 3D scene is rendered offscreen by
+      // SceneRenderer3D and published into computeExecutor.computeTextures /
+      // nodeOutputs under this node's id (FieldMapperIntegration.publishOutputs).
+      // Downstream, the node behaves like any compute node: sample its output
+      // texture. TextureBindings emits the compute_node_<id> binding because
+      // the kind starts with "Compute".
+      {
+        let texId = nodeId;
+        if (texId.startsWith('node_')) {
+          texId = texId.substring(5);
+        }
+        const textureId = `compute_node_${texId}`;
+        result = {
+          line: `let uv_${texId} = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
+    let node_${nodeId}_rgba = textureSample(${textureId}, sampler_${textureId}, uv_${texId});
+    let node_${nodeId} = node_${nodeId}_rgba;`,
+          outputType: "vec4",
+          outputPins: [
+            { expression: `node_${nodeId}_rgba`, type: "vec4" }
+          ],
+          isComputeNode: true
+        };
+      }
     } else {
       result = {
         line: `let node_${nodeId} = vec3<f32>(0.0);`,

@@ -1182,7 +1182,7 @@ export class GPURenderer {
     if (!this.pipeline || !this.bindGroups) return;
 
     const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
-    if (!computeExecutor || !computeExecutor.initialized) return;
+    if (!computeExecutor || (!computeExecutor.initialized && !computeExecutor.fieldMapperBridgeActive)) return;
 
     let hasComputeTextures = false;
     let texturesChanged = false;
@@ -1230,7 +1230,7 @@ export class GPURenderer {
    */
   async _dispatchComputeOnly(timeSec) {
     const computeExecutor = typeof window !== "undefined" ? window.computeExecutor : null;
-    if (!computeExecutor || !computeExecutor.initialized) return;
+    if (!computeExecutor || (!computeExecutor.initialized && !computeExecutor.fieldMapperBridgeActive)) return;
 
     const timeValue = Number.isFinite(timeSec) ? timeSec : performance.now() * 0.001;
     const encoder = this.device.createCommandEncoder({ label: "compute-only-encoder" });
@@ -1343,8 +1343,10 @@ export class GPURenderer {
     // PERFORMANCE: Label encoder for better GPU profiling/debugging
     const encoder = this.device.createCommandEncoder({ label: 'gpu-render-encoder' });
 
-    // Execute compute shaders BEFORE fragment shader
-    if (window.computeExecutor && window.computeExecutor.initialized) {
+    // Execute compute shaders BEFORE fragment shader. The field-mapper bridge
+    // needs execute() even with no registered compute nodes (pure fragment
+    // graphs feeding a 3D Field Visualizer are auto-wrapped there).
+    if (window.computeExecutor && (window.computeExecutor.initialized || window.computeExecutor.fieldMapperBridgeActive)) {
       // Get audio envelope values for compute shader expressions
       const audioEnvelope = window._audioEnvelopeValue || 0.0;
       const audioEnvelopeBass = window._audioEnvelopeBass || 0.0;

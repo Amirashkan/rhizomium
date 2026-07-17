@@ -84,9 +84,18 @@ export class FieldMapperIntegration {
             }
         }
 
-        // Render the 3D scene if there are active field mappers
+        // Let the executor know it must run its fragment auto-bridge even when
+        // no compute nodes are registered (pure fragment graph -> mapper)
+        if (this.computeExecutor) {
+            this.computeExecutor.fieldMapperBridgeActive = this.fieldMappers.size > 0;
+        }
+
+        // Render the 3D scene if there are active field mappers, and publish
+        // the frame immediately so shader bind groups built right after this
+        // graph update already find the mapper's output texture
         if (this.sceneRenderer3D && activeNodeIds.size > 0) {
             this.sceneRenderer3D.render();
+            this.publishOutputs(this.sceneRenderer3D.getSceneTexture?.());
         }
     }
 
@@ -339,6 +348,14 @@ export class FieldMapperIntegration {
      * @param {string} nodeId
      */
     removeFieldMapper(nodeId) {
+        // Drop the published output so downstream bindings don't keep sampling
+        // a deleted node's view (the scene texture itself is owned by
+        // SceneRenderer3D and must not be destroyed here)
+        if (this.computeExecutor) {
+            this.computeExecutor.nodeOutputs?.delete(nodeId);
+            this.computeExecutor.computeTextures?.delete(nodeId);
+        }
+
         const fieldMapper = this.fieldMappers.get(nodeId);
         if (fieldMapper) {
             // Remove from scene
@@ -362,6 +379,43 @@ export class FieldMapperIntegration {
     cleanup() {
         for (const nodeId of this.fieldMappers.keys()) {
             this.removeFieldMapper(nodeId);
+        }
+        if (this.computeExecutor) {
+            this.computeExecutor.fieldMapperBridgeActive = false;
+        }
+    }
+
+    /**
+     * Publish the rendered 3D view as each mapper node's graph output. With
+     * an entry in computeTextures/nodeOutputs, the whole downstream pipeline
+     * lights up for free: the node's own GPU thumbnail, downstream node
+     * previews, and fragment chains that sample compute_node_<id> (including
+     * OutputFinal).
+     * @param {GPUTexture} sceneTexture - SceneRenderer3D's offscreen frame
+     */
+    publishOutputs(sceneTexture) {
+        if (!sceneTexture || !this.computeExecutor || this.fieldMappers.size === 0) {
+            return;
+        }
+
+        if (!this._outputSampler && this.device) {
+            this._outputSampler = this.device.createSampler({
+                magFilter: 'linear',
+                minFilter: 'linear'
+            });
+        }
+
+        for (const nodeId of this.fieldMappers.keys()) {
+            this.computeExecutor.nodeOutputs.set(nodeId, sceneTexture);
+            const existing = this.computeExecutor.computeTextures.get(nodeId);
+            if (existing) {
+                existing.texture = sceneTexture;
+            } else {
+                this.computeExecutor.computeTextures.set(nodeId, {
+                    texture: sceneTexture,
+                    sampler: this._outputSampler
+                });
+            }
         }
     }
 

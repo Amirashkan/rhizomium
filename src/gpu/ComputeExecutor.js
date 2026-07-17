@@ -633,14 +633,37 @@ export class ComputeExecutor {
    * @param {number} time - Current time in seconds
    * @param {Object} audioContext - Audio envelope values
    */
+  /**
+   * 3D Field Visualizer nodes whose source is a fragment (or mixed) subgraph
+   * rather than a registered compute node. These sources are auto-wrapped:
+   * rendered to a texture each frame exactly like fragment-fed compute inputs.
+   * @returns {Array<{node: Object, sourceId: string|number}>}
+   */
+  _fieldMapperFragmentSources() {
+    const consumers = [];
+    const nodes = (typeof window !== 'undefined' && window.graph?.nodes) || [];
+    for (const node of nodes) {
+      if (!node || node.kind !== 'ComputeFieldMapper') continue;
+      const sourceId = Array.isArray(node.inputs) ? node.inputs[0] : null;
+      if (sourceId === null || sourceId === undefined) continue;
+      if (this.computeManagers.has(sourceId)) continue; // real compute source
+      const sanitized = String(sourceId).replace(/[^a-zA-Z0-9_]/g, '_');
+      if (this.computeManagers.has(sanitized)) continue;
+      consumers.push({ node, sourceId });
+    }
+    return consumers;
+  }
+
   async _renderFragmentInputs(commandEncoder, time, audioContext) {
     if (!window.graph || !window.graph.nodes) {
       return;
     }
 
+    const mapperConsumers = this._fieldMapperFragmentSources();
+
     // PERFORMANCE: Early exit if no fragment inputs need rendering
     // This avoids expensive iteration when there are no fragment→compute connections
-    let hasFragmentInputs = false;
+    let hasFragmentInputs = mapperConsumers.length > 0;
     for (const nodeId of this.executionOrder) {
       const nodeData = window.computeNodeRegistry?.get(nodeId);
       const node = nodeData?.node;
@@ -748,6 +771,46 @@ export class ComputeExecutor {
       }
     }
 
+    // Auto-wrap fragment (or mixed) subgraphs feeding 3D Field Visualizer
+    // nodes: render them to a texture exactly like fragment-fed compute
+    // inputs, so the mapper can consume ANY graph output
+    for (const { sourceId } of mapperConsumers) {
+      if (this.renderedFragmentNodes.has(sourceId)) continue;
+
+      const inputNode = window.graph.getNode(sourceId);
+      if (!inputNode) continue;
+
+      try {
+        let width = 512;
+        let height = 512;
+        if (window.floatingPreview?.settings?.settings?.resolution) {
+          const previewRes = window.floatingPreview.settings.settings.resolution;
+          width = previewRes.width || width;
+          height = previewRes.height || height;
+        }
+        const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
+        width = Math.min(width, MAX_COMPUTE_RES);
+        height = Math.min(height, MAX_COMPUTE_RES);
+
+        const texture = await this._renderFragmentNodeWithDependencies(
+          sourceId,
+          width,
+          height,
+          commandEncoder,
+          time,
+          audioContext
+        );
+
+        if (texture) {
+          this.nodeOutputs.set(sourceId, texture);
+          this.renderedFragmentNodes.add(sourceId);
+          this.fragmentNodesRenderedThisFrame.add(sourceId);
+        }
+      } catch {
+        // Non-fatal: the mapper renders its bare shape until the source works
+      }
+    }
+
     // Invalidate input hashes for compute nodes that had fragment inputs re-rendered
     for (const nodeId of computeNodesToClearHash) {
       this.inputHashes.delete(nodeId);
@@ -779,7 +842,11 @@ export class ComputeExecutor {
       return;
     }
 
-    if (!this.initialized || this.computeManagers.size === 0) {
+    // Field mappers with a fragment-node source need the auto-bridge below
+    // even when there isn't a single registered compute node in the graph
+    const mapperFragmentSources = this._fieldMapperFragmentSources();
+
+    if ((!this.initialized || this.computeManagers.size === 0) && mapperFragmentSources.length === 0) {
       return;
     }
 

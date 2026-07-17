@@ -5,14 +5,20 @@ compute shader's output onto a live 3D shape in the floating viewport.
 
 ## Quick start
 
-1. Create a compute node (e.g. **ComputeNoise**, **ComputeFeedback**).
+1. Create any texture-producing node or subgraph — compute (**ComputeNoise**,
+   **ComputeFeedback**, …), fragment (**FBMNoise**, **VoronoiNoise**, …), or a
+   mix of both.
 2. Create a **3D Field Visualizer** node.
-3. Connect: compute node → **Field Input**.
-4. The 3D viewport opens automatically (toggle any time with **Ctrl/Cmd+3**).
+3. Connect: your graph → **Field Input**. Fragment (or mixed) sources are
+   auto-wrapped: rendered to a texture each frame, no extra nodes needed.
+4. The 3D viewport window opens automatically (toggle with **Ctrl/Cmd+3**).
 
-You immediately get a **displaced, textured plane** driven by the live compute
-field. Do **not** wire the visualizer into OutputFinal — it renders into the 3D
-viewport, not the 2D shader chain, and works fine with no OutputFinal at all.
+You immediately get a **displaced, textured plane** driven by the live field.
+
+The node also **outputs the rendered 3D view** as an ordinary color texture:
+wire it into OutputFinal (or any downstream node) to bring the 3D render back
+into the 2D chain. Its thumbnail and downstream previews stay live even while
+the viewport window is closed.
 
 ## Shapes
 
@@ -40,14 +46,15 @@ the viewport panel:
 Legacy projects that used `mappingMode` load fine: `points` stays points,
 `surface`/`volume` map to the plane shape.
 
-## Viewport panel
+## Viewport window
 
 - **Shape** dropdown — applies to every 3D Field Visualizer node
 - **FOV** slider — perspective field of view
 - **Spin** — slow turntable auto-rotation (pauses while you orbit)
 - **Reset Camera**, **Perspective/Orthographic**
 - Left-drag orbit · Shift+drag / middle-drag pan · wheel / right-drag zoom
-- Draggable header, resizable corner. **Ctrl/Cmd+3** toggles the panel.
+- A real floating window: draggable header, resizable corner, maximize/restore
+  (▢) and close buttons. **Ctrl/Cmd+3** toggles it.
 
 ## Live thumbnail
 
@@ -67,14 +74,23 @@ window.fieldMapperIntegration; // inspect live field mappers
 ```
 graph edit ──► updateShaderFromGraph ──► FieldMapperIntegration.processFieldMappers
                                           (create/update/remove mappers, auto-show viewport)
-render loop (viewport visible)
+render loop (whenever a visualizer node exists)
+  ├► ComputeExecutor._renderFragmentInputs     (auto-wraps fragment/mixed sources)
   ├► FieldMapperIntegration.updateFrame        (points mode only: GPU→CPU readback)
   ├► SceneRenderer3D.render ──► offscreen sceneTexture ──► blit to canvas
   │     ├► ShapeRenderer        (plane/sphere/box/torus: texture sampled in-shader)
   │     ├► PointCloudRenderer   (instanced billboard quads)
   │     └► MeshRenderer         (indexed CPU geometry, e.g. marching cubes)
+  ├► FieldMapperIntegration.publishOutputs     (sceneTexture -> nodeOutputs/computeTextures)
   └► ShaderPreviewManager.updateNodeThumbnailFromTexture(sceneTexture)  (~4 Hz)
 ```
+
+- The node compiles like a compute node downstream: fragment chains sample
+  `compute_node_<id>`, which resolves to the published scene texture — so the
+  3D view can feed OutputFinal or any effect chain.
+- The global editor stylesheet's `canvas { position: fixed; left: 0 }` rule
+  must be overridden inline on the viewport canvas, or it escapes the window
+  and stretches across the full display.
 
 Key implementation notes:
 

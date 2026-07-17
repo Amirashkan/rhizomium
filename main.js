@@ -3604,8 +3604,11 @@ function handleRenderFrame(frameState) {
     }
   }
 
-  // 3D Viewport rendering
-  if (sceneRenderer3D && viewportPanel && viewportPanel.isVisible) {
+  // 3D scene rendering. Runs whenever a 3D Field Visualizer node exists -
+  // not just while the viewport panel is open - because the rendered frame is
+  // also the node's graph OUTPUT (own preview, downstream nodes, OutputFinal).
+  const hasFieldMappers = fieldMapperIntegration && fieldMapperIntegration.fieldMappers.size > 0;
+  if (sceneRenderer3D && (hasFieldMappers || (viewportPanel && viewportPanel.isVisible))) {
     // Regenerate points-mode geometry from the live compute textures so
     // animated fields keep moving. Async and self-guarded: if the previous
     // GPU readback is still in flight this is a no-op for the frame.
@@ -3615,6 +3618,12 @@ function handleRenderFrame(frameState) {
       fieldMapperIntegration.updateFrame();
     }
     sceneRenderer3D.render(frameState.simTime);
+
+    // Publish the rendered frame as each mapper node's output texture so
+    // downstream nodes and the main canvas can consume the 3D view
+    if (hasFieldMappers) {
+      fieldMapperIntegration.publishOutputs(sceneRenderer3D.getSceneTexture?.());
+    }
 
     // Mirror the rendered frame into the 3D node's editor thumbnail so it
     // stays live. Throttled: a readback 4x/sec is imperceptible on the tiny
