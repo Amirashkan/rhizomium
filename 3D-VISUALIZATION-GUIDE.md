@@ -56,6 +56,20 @@ Legacy projects that used `mappingMode` load fine: `points` stays points,
 - A real floating window: draggable header, resizable corner, maximize/restore
   (▢) and close buttons. **Ctrl/Cmd+3** toggles it.
 
+## Render resolution
+
+The 3D view renders at the **final render resolution** (the same
+preview/export setting the compute pipeline uses), independent of the
+viewport window's size — the window shows an aspect-fit (letterboxed)
+preview of the exact frame the graph consumes. Changing the resolution
+setting retargets the render automatically.
+
+## Real-time parameters
+
+Node parameters (`shape`, `scale`, `displacementScale`, `textureAmount`, …)
+are re-read from the node every frame, so dragging them updates the 3D view
+immediately — no graph rebuild involved.
+
 ## Live thumbnail
 
 While the viewport is open, the node's thumbnail on the editor canvas mirrors

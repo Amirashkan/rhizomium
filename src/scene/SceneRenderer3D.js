@@ -74,7 +74,32 @@ export class SceneRenderer3D {
   }
 
   /**
-   * Create depth texture for 3D rendering
+   * The resolution the 3D view renders at. Follows the final render
+   * resolution (the preview/export setting the compute pipeline also uses),
+   * so the node's output texture matches the rest of the graph. Falls back
+   * to the viewport canvas size, then 512.
+   * @returns {[number, number]}
+   */
+  _getRenderResolution() {
+    const MAX_RES = 2048;
+    const res = typeof window !== 'undefined'
+      ? window.floatingPreview?.settings?.settings?.resolution
+      : null;
+    let width = res?.width;
+    let height = res?.height;
+    if (!(width > 0) || !(height > 0)) {
+      width = this.canvas?.width;
+      height = this.canvas?.height;
+    }
+    if (!(width > 0) || !(height > 0)) {
+      width = 512;
+      height = 512;
+    }
+    return [Math.min(Math.round(width), MAX_RES), Math.min(Math.round(height), MAX_RES)];
+  }
+
+  /**
+   * Create the offscreen render targets at the current render resolution
    */
   createDepthTexture() {
     if (this.depthTexture) {
@@ -84,11 +109,10 @@ export class SceneRenderer3D {
       this.sceneTexture.destroy();
     }
 
-    const size = {
-      width: Math.max(1, this.canvas.width),
-      height: Math.max(1, this.canvas.height),
-      depthOrArrayLayers: 1
-    };
+    const [width, height] = this._getRenderResolution();
+    this._targetWidth = width;
+    this._targetHeight = height;
+    const size = { width, height, depthOrArrayLayers: 1 };
 
     this.depthTexture = this.device.createTexture({
       size,
@@ -96,12 +120,65 @@ export class SceneRenderer3D {
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
 
-    // Offscreen color target: the scene renders here, gets blitted to the
-    // canvas, and stays sampleable so the node thumbnail can mirror it live
+    // Offscreen color target: the scene renders here at output resolution,
+    // gets aspect-fit blitted to the viewport canvas, and stays sampleable
+    // for the node's graph output and live thumbnail
     this.sceneTexture = this.device.createTexture({
       size,
       format: this.preferredFormat || navigator.gpu.getPreferredCanvasFormat(),
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    });
+  }
+
+  /**
+   * Lazily build the aspect-fit blit pipeline that presents the offscreen
+   * frame on the viewport canvas (letterboxing when aspects differ - the
+   * render resolution is independent of the window size).
+   * @private
+   */
+  _ensureBlitPipeline() {
+    if (this._blitPipeline) return;
+
+    const format = this.preferredFormat || navigator.gpu.getPreferredCanvasFormat();
+    const module = this.device.createShaderModule({
+      label: 'viewport-blit',
+      code: `
+        struct BlitParams { uvScale: vec2<f32>, _pad: vec2<f32> }
+        @group(0) @binding(0) var srcTex: texture_2d<f32>;
+        @group(0) @binding(1) var srcSampler: sampler;
+        @group(0) @binding(2) var<uniform> params: BlitParams;
+
+        struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> }
+
+        @vertex fn vs(@builtin(vertex_index) vid: u32) -> VsOut {
+          var p = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+          var o: VsOut;
+          o.pos = vec4<f32>(p[vid], 0.0, 1.0);
+          o.uv = vec2<f32>((p[vid].x + 1.0) * 0.5, (1.0 - p[vid].y) * 0.5);
+          return o;
+        }
+
+        @fragment fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+          let cuv = (uv - 0.5) * params.uvScale + 0.5;
+          if (cuv.x < 0.0 || cuv.x > 1.0 || cuv.y < 0.0 || cuv.y > 1.0) {
+            return vec4<f32>(0.04, 0.04, 0.06, 1.0); // letterbox bars
+          }
+          return textureSampleLevel(srcTex, srcSampler, cuv, 0.0);
+        }
+      `
+    });
+
+    this._blitPipeline = this.device.createRenderPipeline({
+      label: 'viewport-blit',
+      layout: 'auto',
+      vertex: { module, entryPoint: 'vs' },
+      fragment: { module, entryPoint: 'fs', targets: [{ format }] },
+      primitive: { topology: 'triangle-list' }
+    });
+    this._blitSampler = this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    this._blitUniforms = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
   }
 
@@ -259,15 +336,22 @@ export class SceneRenderer3D {
   render(time = 0) {
     if (!this.initialized) return;
 
-    // Check if canvas size changed and recreate depth texture if needed
-    if (this.depthTexture.width !== this.canvas.width ||
-        this.depthTexture.height !== this.canvas.height) {
+    // Recreate targets when the final render resolution setting changes
+    const [targetWidth, targetHeight] = this._getRenderResolution();
+    if (targetWidth !== this._targetWidth || targetHeight !== this._targetHeight) {
       this.createDepthTexture();
     }
 
-    // Update viewport
+    // Update viewport, then pin the camera aspect to the OUTPUT resolution -
+    // the graph consumes this frame, so it must not distort when the panel
+    // window is resized (the blit letterboxes instead)
     if (this.viewport3D) {
       this.viewport3D.update();
+      const camera = this.viewport3D.getCamera?.();
+      const aspect = this._targetWidth / this._targetHeight;
+      if (camera && Math.abs((camera.aspect ?? 0) - aspect) > 1e-4) {
+        camera.setAspect(aspect);
+      }
     }
 
     // Create command encoder
@@ -319,17 +403,43 @@ export class SceneRenderer3D {
 
     passEncoder.end();
 
-    // Blit the finished frame to the canvas
+    // Aspect-fit blit of the finished frame onto the viewport canvas
     try {
       const currentTexture = this.context.getCurrentTexture();
-      commandEncoder.copyTextureToTexture(
-        { texture: this.sceneTexture },
-        { texture: currentTexture },
-        { width: this.sceneTexture.width, height: this.sceneTexture.height, depthOrArrayLayers: 1 }
-      );
+      this._ensureBlitPipeline();
+
+      const canvasAspect = Math.max(1, this.canvas.width) / Math.max(1, this.canvas.height);
+      const texAspect = this._targetWidth / this._targetHeight;
+      // Fit the frame inside the canvas: expand the sampled UV range on the
+      // axis where the canvas is proportionally larger (bars fill the rest)
+      const uvScaleX = canvasAspect > texAspect ? canvasAspect / texAspect : 1;
+      const uvScaleY = canvasAspect > texAspect ? 1 : texAspect / canvasAspect;
+      this.device.queue.writeBuffer(this._blitUniforms, 0, new Float32Array([uvScaleX, uvScaleY, 0, 0]));
+
+      const blitBindGroup = this.device.createBindGroup({
+        layout: this._blitPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.sceneTexture.createView() },
+          { binding: 1, resource: this._blitSampler },
+          { binding: 2, resource: { buffer: this._blitUniforms } }
+        ]
+      });
+
+      const blitPass = commandEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: currentTexture.createView(),
+          clearValue: { r: 0.04, g: 0.04, b: 0.06, a: 1 },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }]
+      });
+      blitPass.setPipeline(this._blitPipeline);
+      blitPass.setBindGroup(0, blitBindGroup);
+      blitPass.draw(3, 1, 0, 0);
+      blitPass.end();
     } catch {
       // Canvas texture unavailable (e.g. zero-sized while hidden) - the
-      // offscreen render still completed for thumbnail consumers
+      // offscreen render still completed for graph-output consumers
     }
 
     // Submit commands
@@ -573,6 +683,12 @@ export class SceneRenderer3D {
     if (this.sceneTexture) {
       this.sceneTexture.destroy();
       this.sceneTexture = null;
+    }
+
+    if (this._blitUniforms) {
+      this._blitUniforms.destroy();
+      this._blitUniforms = null;
+      this._blitPipeline = null;
     }
 
     if (this.uniformBuffer) {

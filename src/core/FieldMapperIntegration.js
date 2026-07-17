@@ -304,7 +304,22 @@ export class FieldMapperIntegration {
      * each mapper honors its updateFrequency (0 = every opportunity).
      */
     async updateFrame() {
-        if (this._updating || this.fieldMappers.size === 0) {
+        if (this.fieldMappers.size === 0) {
+            return;
+        }
+
+        // Re-sync parameters from the graph nodes every frame so edits apply
+        // in REAL TIME - parameter drags update node.params without a full
+        // graph rebuild, and this is the only place that reads them per frame.
+        // (A handful of property writes; negligible per-frame cost.)
+        for (const [nodeId, fieldMapper] of this.fieldMappers.entries()) {
+            const graphNode = this._graphNodes.find(n => n && n.id === nodeId);
+            if (graphNode) {
+                this.updateFieldMapperParams(fieldMapper, graphNode);
+            }
+        }
+
+        if (this._updating) {
             return;
         }
 
