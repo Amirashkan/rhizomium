@@ -65,7 +65,7 @@ The UV node outputs normalized coordinates (0-1) for each pixel on the screen.
 Now let's create a circular distance field.
 
 1. Right-click on the canvas
-2. Navigate to **Field** → **Circle**
+2. Navigate to **Generators** → **Circle**
 3. Place it near your UV node
 
 The Circle node calculates the distance from the center, creating a radial pattern.
@@ -89,11 +89,11 @@ Let's make it animate!
 
 Now we'll use the time to animate the circle's radius.
 
-1. Add a **Sine** node: **Math** → **Sine**
-2. Connect **Multiply** output to **Sine** input
+1. Add a **Sin** node: **Math** → **Sin**
+2. Connect **Multiply** output to **Sin** input
 3. Add an **Add** node: **Math** → **Add**
 4. Connect **Circle** output to **Add** input 1
-5. Connect **Sine** output to **Add** input 2
+5. Connect **Sin** output to **Add** input 2
 
 This creates a pulsing effect!
 
@@ -101,7 +101,7 @@ This creates a pulsing effect!
 
 Time to add some color to our visual.
 
-1. Add a **ColorRamp** node: **Utility** → **ColorRamp**
+1. Add a **Color Ramp** node: **Generators** → **Color Ramp**
 2. Connect the **Add** output to **ColorRamp** input
 3. Click on the ColorRamp node to open its parameters
 4. Add color stops by clicking the gradient:
@@ -125,7 +125,7 @@ Now that you have a basic graph, try experimenting:
 
 - **Change colors** - Modify the ColorRamp stops
 - **Adjust speed** - Change the Multiply value (step 4)
-- **Add complexity** - Try different Field nodes (Voronoi, Noise, etc.)
+- **Add complexity** - Try different Generator nodes (Voronoi, Noise, etc.)
 - **Layer patterns** - Use Blend nodes to combine multiple patterns
 - **Add more animation** - Connect Time to other parameters
 
@@ -133,7 +133,7 @@ Now that you have a basic graph, try experimenting:
 
 #### Experiment 1: Add Rotation
 
-1. Add a **Rotate** node between UV and Circle
+1. Add a **Rotate 2D** node (**Transform** → **Rotate 2D**) between UV and Circle
 2. Connect Time to the angle parameter
 3. Watch your pattern spin!
 
@@ -146,9 +146,11 @@ Now that you have a basic graph, try experimenting:
 
 #### Experiment 3: Audio Reactivity
 
-1. Add an **Audio** node: **Input** → **Audio**
-2. Connect it to various parameters
+1. Enable audio input in the **Audio Settings** panel
+2. Type an expression like `=audioEnvelope * 0.5` into a parameter field (e.g. the Circle's Radius)
 3. Play some music and watch your visual dance!
+
+See [Audio Reactivity](audio-web.md) for details.
 
 ---
 
@@ -176,7 +178,7 @@ Rhizomium automatically converts between compatible types when possible.
 
 ## 🔍 Common Patterns
 
-### Pattern 1: UV → Field → Color → Output
+### Pattern 1: UV → Generator → Color → Output
 
 The most basic pattern - create a field and color it.
 
@@ -184,7 +186,7 @@ The most basic pattern - create a field and color it.
 UV → Circle → ColorRamp → Output
 ```
 
-### Pattern 2: UV → Transform → Field → Color → Output
+### Pattern 2: UV → Transform → Generator → Color → Output
 
 Add movement and transformation.
 
@@ -207,7 +209,7 @@ UV → Noise →  /
 Use Time to animate any parameter.
 
 ```
-Time → Sine → [Parameter Input]
+Time → Sin → [Parameter Input]
 ```
 
 ---

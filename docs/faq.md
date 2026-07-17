@@ -193,9 +193,9 @@ See [External Viewer Guide](external-viewer.md).
 
 ### Can I use audio input?
 
-Yes! Rhizomium supports audio reactivity. Use the **Audio** input node to react to audio frequency bands.
+Yes! Rhizomium supports audio reactivity. Type an audio expression like `=audioEnvelope * 0.5` into any numeric parameter field (per-band variables like `audioEnvelopeBass` are also available).
 
-See [Audio Setup Guide](audio.md).
+See [Audio Reactivity](audio-web.md) and the [Audio Setup Guide](audio.md).
 
 ### Can I export my visuals?
 
@@ -210,7 +210,9 @@ Yes! Use the **Texture 2D** node to load image files into your graph.
 
 ### Does Rhizomium support MIDI input?
 
-MIDI support depends on the browser's Web MIDI API. This feature may be added in future versions.
+Yes! Rhizomium supports MIDI controllers via the browser's Web MIDI API (Chrome/Edge). You can map hardware knobs and faders to node parameters.
+
+See [MIDI Controller Integration](midi.md).
 
 ---
 
@@ -252,14 +254,19 @@ See [Vercel Deployment Guide](vercel.md) for details.
 
 ### How many nodes are available?
 
-Rhizomium includes 90+ nodes across 7 categories:
-- **Input** (14) - Constants, UV, Time, Mouse, etc.
+Rhizomium includes 130+ nodes across 12 categories:
+- **Input** (13) - Constants, UV, Time, Mouse, Trigger/Hold/Count, etc.
 - **Output** (1) - Final output
-- **Field** (24) - Gradients, patterns, noise, shapes
-- **Math** (36) - Arithmetic, trigonometry, interpolation
-- **Utility** (11) - Data manipulation, color operations
+- **Math** (43) - Arithmetic, trigonometry, interpolation, vector math
+- **Vector** (7) - Split, Combine, Swizzle
+- **Generators** (19) - Gradients, patterns, noise, shapes
+- **Transform** (10) - UV manipulation, distortion
+- **Modifiers** (11) - Color operations, image processing
+- **Effects** (4) - Feedback, warp, kaleidoscope, glitch
+- **Simulation** (5) - Particles, fluids, reaction-diffusion
+- **Utility** (12) - Data manipulation, logic, custom code
 - **Blend** (7) - SDF operations
-- **Transform** (15) - UV manipulation, distortion
+- **Texture** (2) - 2D and cubemap sampling
 
 ### Where can I find a complete node list?
 
@@ -267,11 +274,11 @@ See the [Node Reference](node-reference.md) for a complete catalog with descript
 
 ### Can I create custom nodes?
 
-Currently, custom nodes require modifying the source code. A plugin system for custom nodes may be added in the future.
+For custom per-pixel logic, use the **Custom GLSL** node (Utility category) — it gives you four input pins and a code editor for writing shader expressions directly. Fully custom node types still require modifying the source code; a plugin system for custom nodes may be added in the future.
 
-### What's the difference between Field nodes and Math nodes?
+### What's the difference between Generator nodes and Math nodes?
 
-- **Field nodes** generate spatial patterns and procedural content (circles, noise, gradients)
+- **Generator nodes** generate spatial patterns and procedural content (circles, noise, gradients)
 - **Math nodes** perform numerical operations on values (add, multiply, sine, etc.)
 
 Both are essential for creating visuals!

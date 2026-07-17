@@ -48,7 +48,7 @@ Ready to create? You're just a few clicks away:
 
 ### Working with Rhizomium
 
-- **[Node Reference](node-reference.md)** - Complete catalog of 90+ nodes
+- **[Node Reference](node-reference.md)** - Complete catalog of 130+ nodes
 - **[Audio Reactivity](audio-web.md)** - Make visuals react to sound
 - **[Saving Your Work](save-load-web.md)** - Manage your projects
 - **[Keyboard Shortcuts](shortcuts.md)** - Work faster

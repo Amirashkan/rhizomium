@@ -145,7 +145,7 @@ fn node_Add(a: f32, b: f32) -> f32 {
   return a + b;
 }
 
-// Field node: Noise
+// Generator node: Noise
 fn node_Noise(uv: vec2<f32>, scale: f32) -> f32 {
   return noise(uv * scale);  // Calls noise function
 }

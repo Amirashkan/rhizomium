@@ -32,7 +32,7 @@ The UV node provides coordinates for every pixel on the screen.
 ### Add a Circle Node
 
 1. **Right-click** again
-2. Navigate to **Field → Circle**
+2. Navigate to **Generators → Circle**
 3. Place it to the right of the UV node
 
 ### Connect Them
@@ -48,7 +48,7 @@ You've made your first connection!
 
 ### Add a ColorRamp Node
 
-1. Right-click → **Field → Color Ramp**
+1. Right-click → **Generators → Color Ramp**
 2. Place it to the right of Circle
 3. Connect **Circle output** to **ColorRamp input**
 
@@ -102,9 +102,8 @@ Now that you have the basics, try:
 - Use **Math** nodes to combine values
 
 ### Add Audio Reactivity
-- Add an **Audio** node (**Input → Audio**)
 - Click the **Audio Settings** button to enable microphone
-- Connect Audio to node parameters
+- Type `=audioEnvelope * 0.5` into a parameter field (e.g. the Circle's Radius)
 - Play some music! 🎵
 
 ---
