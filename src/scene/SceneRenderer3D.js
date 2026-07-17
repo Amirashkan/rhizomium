@@ -7,6 +7,8 @@
 
 import { MeshRenderer } from './renderers/MeshRenderer.js';
 import { PointCloudRenderer } from './renderers/PointCloudRenderer.js';
+import { ShapeRenderer } from './renderers/ShapeRenderer.js';
+import { ShapeGeometry } from './generators/ShapeGeometry.js';
 
 export class SceneRenderer3D {
   constructor(device, canvas, scene, viewport3D, computeExecutor = null) {
@@ -44,13 +46,15 @@ export class SceneRenderer3D {
         throw new Error('Failed to get WebGPU context');
       }
 
-      // Configure context
+      // Configure context. COPY_DST lets us blit the offscreen scene texture
+      // (which doubles as the live node-thumbnail source) onto the canvas.
       const preferredFormat = navigator.gpu.getPreferredCanvasFormat();
       this.preferredFormat = preferredFormat;
       this.context.configure({
         device: this.device,
         format: preferredFormat,
-        alphaMode: 'premultiplied'
+        alphaMode: 'premultiplied',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST
       });
 
       // Create depth texture
@@ -76,16 +80,37 @@ export class SceneRenderer3D {
     if (this.depthTexture) {
       this.depthTexture.destroy();
     }
+    if (this.sceneTexture) {
+      this.sceneTexture.destroy();
+    }
+
+    const size = {
+      width: Math.max(1, this.canvas.width),
+      height: Math.max(1, this.canvas.height),
+      depthOrArrayLayers: 1
+    };
 
     this.depthTexture = this.device.createTexture({
-      size: {
-        width: this.canvas.width,
-        height: this.canvas.height,
-        depthOrArrayLayers: 1
-      },
+      size,
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
+
+    // Offscreen color target: the scene renders here, gets blitted to the
+    // canvas, and stays sampleable so the node thumbnail can mirror it live
+    this.sceneTexture = this.device.createTexture({
+      size,
+      format: this.preferredFormat || navigator.gpu.getPreferredCanvasFormat(),
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    });
+  }
+
+  /**
+   * The sampleable offscreen texture holding the latest rendered frame
+   * @returns {GPUTexture|null}
+   */
+  getSceneTexture() {
+    return this.sceneTexture;
   }
 
   /**
@@ -248,13 +273,10 @@ export class SceneRenderer3D {
     // Create command encoder
     const commandEncoder = this.device.createCommandEncoder();
 
-    // Get current texture
-    const currentTexture = this.context.getCurrentTexture();
-
-    // Create render pass
+    // Render into the offscreen scene texture (blitted to the canvas below)
     const renderPassDescriptor = {
       colorAttachments: [{
-        view: currentTexture.createView(),
+        view: this.sceneTexture.createView(),
         clearValue: { r: 0.1, g: 0.1, b: 0.15, a: 1.0 },
         loadOp: 'clear',
         storeOp: 'store'
@@ -296,6 +318,19 @@ export class SceneRenderer3D {
     }
 
     passEncoder.end();
+
+    // Blit the finished frame to the canvas
+    try {
+      const currentTexture = this.context.getCurrentTexture();
+      commandEncoder.copyTextureToTexture(
+        { texture: this.sceneTexture },
+        { texture: currentTexture },
+        { width: this.sceneTexture.width, height: this.sceneTexture.height, depthOrArrayLayers: 1 }
+      );
+    } catch {
+      // Canvas texture unavailable (e.g. zero-sized while hidden) - the
+      // offscreen render still completed for thumbnail consumers
+    }
 
     // Submit commands
     this.device.queue.submit([commandEncoder.finish()]);
@@ -376,6 +411,36 @@ export class SceneRenderer3D {
    * drawn as a point cloud of camera-facing quads.
    */
   renderFieldMapperNode(passEncoder, fieldNode, time) {
+    const renderers = this.getFieldRenderers(fieldNode);
+    const viewMatrix = this.viewport3D.getViewMatrix();
+    const projectionMatrix = this.viewport3D.getProjectionMatrix();
+    const modelMatrix = fieldNode.getWorldMatrix();
+
+    const shapeParams = fieldNode.shapeParams || {};
+    const shape = shapeParams.shape || 'plane';
+
+    if (shape !== 'points') {
+      // GPU shape path: sample the live compute texture directly - color in
+      // the fragment stage, displacement in the vertex stage. Zero readback.
+      const geometry = ShapeGeometry.get(shape, shapeParams.resolution ?? 96);
+
+      let texture = null;
+      if (this.computeExecutor && fieldNode.sourceNodeId !== null && fieldNode.sourceNodeId !== undefined) {
+        const output = this.computeExecutor.getNodeOutput(fieldNode.sourceNodeId);
+        if (output && output !== this.computeExecutor.fallbackTexture) {
+          texture = output;
+        }
+      }
+
+      renderers.shape.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, {
+        texture,
+        displacementScale: shapeParams.displacementScale ?? 0.4,
+        textureAmount: shapeParams.textureAmount ?? 1.0
+      });
+      return;
+    }
+
+    // Points path: CPU-generated cloud from the readback pipeline
     const geometry = typeof fieldNode.getGeometry === 'function'
       ? fieldNode.getGeometry()
       : fieldNode.geometry;
@@ -383,11 +448,6 @@ export class SceneRenderer3D {
     if (!geometry || !geometry.positions || !geometry.vertexCount) {
       return;
     }
-
-    const renderers = this.getFieldRenderers(fieldNode);
-    const viewMatrix = this.viewport3D.getViewMatrix();
-    const projectionMatrix = this.viewport3D.getProjectionMatrix();
-    const modelMatrix = fieldNode.getWorldMatrix();
 
     if (geometry.indices && geometry.indexCount > 0) {
       renderers.mesh.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix);
@@ -406,12 +466,14 @@ export class SceneRenderer3D {
       const format = this.preferredFormat || navigator.gpu.getPreferredCanvasFormat();
       renderers = {
         mesh: new MeshRenderer(this.device),
-        points: new PointCloudRenderer(this.device)
+        points: new PointCloudRenderer(this.device),
+        shape: new ShapeRenderer(this.device)
       };
       // initialize() completes synchronously (no awaits inside), so the
       // renderers are usable as soon as these calls return
       renderers.mesh.initialize(format);
       renderers.points.initialize(format);
+      renderers.shape.initialize(format);
       this.fieldRenderers.set(fieldNode, renderers);
     }
     return renderers;
@@ -426,6 +488,7 @@ export class SceneRenderer3D {
       if (!active.has(node)) {
         renderers.mesh.destroy();
         renderers.points.destroy();
+        renderers.shape.destroy();
         this.fieldRenderers.delete(node);
       }
     }
@@ -498,12 +561,18 @@ export class SceneRenderer3D {
     for (const renderers of this.fieldRenderers.values()) {
       renderers.mesh.destroy();
       renderers.points.destroy();
+      renderers.shape.destroy();
     }
     this.fieldRenderers.clear();
 
     if (this.depthTexture) {
       this.depthTexture.destroy();
       this.depthTexture = null;
+    }
+
+    if (this.sceneTexture) {
+      this.sceneTexture.destroy();
+      this.sceneTexture = null;
     }
 
     if (this.uniformBuffer) {

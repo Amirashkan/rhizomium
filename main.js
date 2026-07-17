@@ -3606,13 +3606,32 @@ function handleRenderFrame(frameState) {
 
   // 3D Viewport rendering
   if (sceneRenderer3D && viewportPanel && viewportPanel.isVisible) {
-    // Regenerate field-mapper geometry from the live compute textures so
+    // Regenerate points-mode geometry from the live compute textures so
     // animated fields keep moving. Async and self-guarded: if the previous
     // GPU readback is still in flight this is a no-op for the frame.
+    // (GPU shape modes sample the compute texture in the render pass and
+    // need no per-frame CPU work.)
     if (fieldMapperIntegration) {
       fieldMapperIntegration.updateFrame();
     }
     sceneRenderer3D.render(frameState.simTime);
+
+    // Mirror the rendered frame into the 3D node's editor thumbnail so it
+    // stays live. Throttled: a readback 4x/sec is imperceptible on the tiny
+    // thumbnail but keeps GPU->CPU traffic negligible.
+    const now = performance.now();
+    if (now - (window.__fieldMapperThumbAt || 0) > 250) {
+      window.__fieldMapperThumbAt = now;
+      const previewManager = window.editor?.shaderPreviewManager;
+      const sceneTexture = sceneRenderer3D.getSceneTexture?.();
+      if (previewManager && sceneTexture && graph?.nodes) {
+        for (const node of graph.nodes) {
+          if (node && node.kind === 'ComputeFieldMapper') {
+            previewManager.updateNodeThumbnailFromTexture(node, sceneTexture);
+          }
+        }
+      }
+    }
   }
 
   // Update viewport panel

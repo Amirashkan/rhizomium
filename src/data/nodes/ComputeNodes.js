@@ -175,53 +175,27 @@ export const ComputeNodes = {
     pinsIn: ["Field Input"],
     pinsOut: ["3D Geometry"],
     params: [
-      // Field dimensions
-      { name: 'width', type: 'int', default: 64, min: 8, max: 256 },
-      { name: 'height', type: 'int', default: 64, min: 8, max: 256 },
-      { name: 'depth', type: 'int', default: 64, min: 1, max: 256 },
+      // What to map the field onto (GPU-rendered, always live)
+      { name: 'shape', type: 'select', options: ['plane', 'sphere', 'box', 'torus', 'points'], default: 'plane', description: 'Shape the field is mapped onto' },
+      { name: 'resolution', type: 'int', default: 96, min: 8, max: 256, description: 'Shape tessellation (segments)' },
+      { name: 'scale', type: 'float', default: 1.5, min: 0.1, max: 5.0, description: 'Shape size in the viewport' },
+      { name: 'displacementScale', type: 'float', default: 0.4, min: 0.0, max: 2.0, description: 'Field-driven surface displacement' },
+      { name: 'textureAmount', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'How strongly the field colors the shape' },
 
-      // Visualization mode
-      { name: 'mappingMode', type: 'select', options: ['points', 'surface', 'volume'], default: 'points' },
-      { name: 'updateFrequency', type: 'int', default: 0, min: 0, max: 60, description: 'Update every N frames (0 = every frame)' },
-
-      // Field bounds in world space
-      { name: 'boundsMinX', type: 'float', default: -1.0, min: -10.0, max: 10.0 },
-      { name: 'boundsMinY', type: 'float', default: -1.0, min: -10.0, max: 10.0 },
-      { name: 'boundsMinZ', type: 'float', default: -1.0, min: -10.0, max: 10.0 },
-      { name: 'boundsMaxX', type: 'float', default: 1.0, min: -10.0, max: 10.0 },
-      { name: 'boundsMaxY', type: 'float', default: 1.0, min: -10.0, max: 10.0 },
-      { name: 'boundsMaxZ', type: 'float', default: 1.0, min: -10.0, max: 10.0 },
-
-      // Visualization parameters
-      { name: 'threshold', type: 'float', default: 0.5, min: 0.0, max: 1.0, description: 'Point generation threshold' },
-      { name: 'isoThreshold', type: 'float', default: 0.5, min: 0.0, max: 1.0, description: 'Surface isosurface threshold' },
-      { name: 'pointSize', type: 'float', default: 0.02, min: 0.001, max: 0.5, description: 'Point size in world units' },
-      { name: 'sampleRate', type: 'int', default: 1, min: 1, max: 10, description: 'Sample every N cells' },
-
-      // Color settings
-      { name: 'colorMode', type: 'select', options: ['solid', 'gradient', 'field'], default: 'gradient' },
+      // Points mode (CPU-sampled cloud)
+      { name: 'threshold', type: 'float', default: 0.35, min: 0.0, max: 1.0, description: 'Points: field value cutoff' },
+      { name: 'pointSize', type: 'float', default: 0.035, min: 0.001, max: 0.5, description: 'Points: size in world units' },
+      { name: 'gridSize', type: 'int', default: 64, min: 8, max: 256, description: 'Points: sampling grid per axis' },
+      { name: 'colorMode', type: 'select', options: ['gradient', 'solid'], default: 'gradient', description: 'Points: coloring' },
       { name: 'colorAR', type: 'float', default: 0.2, min: 0.0, max: 1.0, description: 'Gradient start R' },
       { name: 'colorAG', type: 'float', default: 0.4, min: 0.0, max: 1.0, description: 'Gradient start G' },
       { name: 'colorAB', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Gradient start B' },
-      { name: 'colorAA', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Gradient start A' },
       { name: 'colorBR', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Gradient end R' },
       { name: 'colorBG', type: 'float', default: 0.4, min: 0.0, max: 1.0, description: 'Gradient end G' },
       { name: 'colorBB', type: 'float', default: 0.2, min: 0.0, max: 1.0, description: 'Gradient end B' },
-      { name: 'colorBA', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Gradient end A' },
-      { name: 'solidColorR', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Solid color R' },
-      { name: 'solidColorG', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Solid color G' },
-      { name: 'solidColorB', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Solid color B' },
-      { name: 'solidColorA', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Solid color A' },
-      { name: 'colorScaleMin', type: 'float', default: 0.0, min: 0.0, max: 1.0, description: 'Color mapping min' },
-      { name: 'colorScaleMax', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Color mapping max' },
-
-      // Displacement
-      { name: 'displacementScale', type: 'float', default: 0.0, min: 0.0, max: 2.0, description: 'Displacement amount' },
-      { name: 'displacementAxisX', type: 'float', default: 0.0, min: -1.0, max: 1.0 },
-      { name: 'displacementAxisY', type: 'float', default: 1.0, min: -1.0, max: 1.0 },
-      { name: 'displacementAxisZ', type: 'float', default: 0.0, min: -1.0, max: 1.0 }
+      { name: 'updateFrequency', type: 'int', default: 0, min: 0, max: 60, description: 'Points: update every N frames (0 = every frame)' }
     ],
-    description: "Visualize compute field data as 3D points, surfaces, or volumes",
+    description: "Map compute field data onto a live 3D shape (plane, sphere, box, torus, or point cloud)",
     workgroupSize: [8, 8, 1]
   },
 

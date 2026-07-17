@@ -158,22 +158,107 @@ export class ViewportPanel {
       }
     };
 
-    // Frame scene button
-    const frameBtn = this.createButton('Frame All', buttonStyle);
-    frameBtn.onclick = () => {
-      if (this.viewport3D && this.scene) {
-        // Calculate scene bounds
-        const meshNodes = this.scene.getMeshNodes();
-        if (meshNodes.length > 0) {
-          // Simple framing - could be improved
-          this.viewport3D.resetCamera();
+    const labelStyle = `
+      color: #aaa;
+      font-size: 11px;
+      align-self: center;
+      user-select: none;
+    `;
+    const selectStyle = `
+      padding: 3px 6px;
+      background: rgba(60, 60, 70, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      color: #fff;
+      font-size: 11px;
+      cursor: pointer;
+    `;
+
+    // Shape selector - applies to every 3D Field Visualizer node in the graph
+    const shapeLabel = document.createElement('span');
+    shapeLabel.textContent = 'Shape';
+    shapeLabel.style.cssText = labelStyle;
+
+    this.shapeSelect = document.createElement('select');
+    this.shapeSelect.style.cssText = selectStyle;
+    for (const shape of ['plane', 'sphere', 'box', 'torus', 'points']) {
+      const option = document.createElement('option');
+      option.value = shape;
+      option.textContent = shape[0].toUpperCase() + shape.slice(1);
+      this.shapeSelect.appendChild(option);
+    }
+    this.shapeSelect.onchange = () => {
+      const graph = window.editor?.graph;
+      if (!graph?.nodes) return;
+      let changed = false;
+      for (const node of graph.nodes) {
+        if (node && node.kind === 'ComputeFieldMapper') {
+          node.params = node.params || {};
+          node.params.shape = this.shapeSelect.value;
+          changed = true;
         }
+      }
+      if (changed && typeof window.updateShaderFromGraph === 'function') {
+        window.updateShaderFromGraph();
+      } else if (changed && typeof window.rebuild === 'function') {
+        window.rebuild();
       }
     };
 
+    // FOV slider (perspective camera)
+    const fovLabel = document.createElement('span');
+    fovLabel.textContent = 'FOV';
+    fovLabel.style.cssText = labelStyle;
+
+    const fovSlider = document.createElement('input');
+    fovSlider.type = 'range';
+    fovSlider.min = '25';
+    fovSlider.max = '110';
+    fovSlider.value = String(this.viewport3D?.getCamera?.()?.fov ?? 60);
+    fovSlider.style.cssText = 'width: 70px; align-self: center;';
+    fovSlider.oninput = () => {
+      const camera = this.viewport3D?.getCamera?.();
+      if (camera && typeof camera.setPerspective === 'function') {
+        camera.setPerspective(Number(fovSlider.value), camera.aspect, camera.near, camera.far);
+      }
+    };
+
+    // Auto-rotate toggle
+    const spinLabel = document.createElement('label');
+    spinLabel.style.cssText = labelStyle + 'display: flex; gap: 4px; align-items: center; cursor: pointer;';
+    const spinCheckbox = document.createElement('input');
+    spinCheckbox.type = 'checkbox';
+    spinCheckbox.onchange = () => {
+      if (this.viewport3D) {
+        this.viewport3D.autoRotate = spinCheckbox.checked;
+      }
+    };
+    spinLabel.appendChild(spinCheckbox);
+    spinLabel.appendChild(document.createTextNode('Spin'));
+
+    this.controlsContainer.appendChild(shapeLabel);
+    this.controlsContainer.appendChild(this.shapeSelect);
+    this.controlsContainer.appendChild(fovLabel);
+    this.controlsContainer.appendChild(fovSlider);
+    this.controlsContainer.appendChild(spinLabel);
     this.controlsContainer.appendChild(resetBtn);
     this.controlsContainer.appendChild(cameraTypeBtn);
-    this.controlsContainer.appendChild(frameBtn);
+  }
+
+  /**
+   * Reflect the current graph's field-mapper shape in the selector
+   */
+  syncShapeSelect() {
+    if (!this.shapeSelect) return;
+    const graph = window.editor?.graph;
+    const mapper = graph?.nodes?.find?.((n) => n && n.kind === 'ComputeFieldMapper');
+    if (mapper) {
+      const shape = mapper.params?.shape
+        || (mapper.params?.mappingMode === 'points' ? 'points' : 'plane');
+      if (this.shapeSelect.value !== shape) {
+        this.shapeSelect.value = shape;
+      }
+    }
   }
 
   /**
@@ -329,6 +414,7 @@ export class ViewportPanel {
     this.isVisible = true;
     this.panelElement.style.display = 'flex';
     this.panelElement.classList.remove('hidden');
+    this.syncShapeSelect();
 
     // The canvas had no layout while hidden; sync its backing size (and the
     // camera aspect) to the now-measurable container

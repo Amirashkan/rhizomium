@@ -270,11 +270,26 @@ export class ShaderPreviewManager {
       while (this._thumbQueue.size > 0) {
         const [id, item] = this._thumbQueue.entries().next().value;
         this._thumbQueue.delete(id);
+        // Node was deleted (or the graph replaced) while queued - rendering
+        // its preview would be wasted GPU time that delays live thumbnails
+        const stillInGraph = this.editor?.graph?.nodes?.some?.((n) => n && n.id === id);
+        if (!stillInGraph) {
+          continue;
+        }
         try {
-          if (item.type === 'compute') await this._doComputePreview(item.node);
-          else await this._doFragmentPreview(item.node);
+          if (item.type === 'external') {
+            // Externally rendered texture (e.g. the 3D viewport mirror);
+            // no fallback - the previous thumbnail simply stays
+            if (item.texture) await this._textureToThumbnail(item.texture, item.node);
+          } else if (item.type === 'compute') {
+            await this._doComputePreview(item.node);
+          } else {
+            await this._doFragmentPreview(item.node);
+          }
         } catch (_) {
-          this.fallbackToLegacyPreview(item.node);
+          if (item.type !== 'external') {
+            this.fallbackToLegacyPreview(item.node);
+          }
         }
       }
     } finally {
@@ -304,6 +319,24 @@ export class ShaderPreviewManager {
       node.__gpuPreview = computeInfo;
       this.fallbackToLegacyPreview(node);
     }
+  }
+
+  /**
+   * Public entry for nodes whose preview comes from an externally rendered
+   * texture rather than the compute/fragment pipelines - e.g. the 3D Field
+   * Visualizer mirrors its viewport render into its thumbnail. Serialized
+   * through the same queue-free path as other thumbnails; errors are
+   * swallowed (the previous thumbnail simply stays).
+   * @param {object} node - Graph node to attach the thumbnail to
+   * @param {GPUTexture} texture - Sampleable source texture
+   */
+  updateNodeThumbnailFromTexture(node, texture) {
+    if (!this.enableGPUPreview || !node?.id || !texture) return;
+    this._syncDevice();
+    // Serialize through the shared thumbnail queue - the readback buffer is
+    // pooled, so concurrent direct calls would collide with pending maps
+    this._thumbQueue.set(node.id, { node, type: 'external', texture });
+    this._processThumbQueue();
   }
 
   /**
