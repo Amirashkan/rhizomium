@@ -726,6 +726,111 @@ export class ComputeShaderManager {
   }
 
   /**
+   * Whether this manager carries real cross-frame sim state in its ping-pong
+   * textures. ComputeWarp/ComputeMix allocate ping-pong (supportsFeedback) but
+   * bind the second slot to their second INPUT, not the previous frame — each
+   * dispatch fully rewrites the output, so there is no state to capture/seed.
+   */
+  _hasFeedbackState() {
+    const kind = this.node?.kind;
+    return !!this.supportsFeedback && kind !== 'ComputeWarp' && kind !== 'ComputeMix';
+  }
+
+  /**
+   * The ping-pong texture the NEXT dispatch will READ — i.e. the current sim
+   * state. dispatch() writes currentWriteTexture, reads the other, then swaps;
+   * so at rest the last-written state sits opposite currentWriteTexture.
+   */
+  _feedbackStateTexture() {
+    return this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
+  }
+
+  /**
+   * Read back the current feedback sim state (the next-read ping-pong texture)
+   * as tightly-packed rgba8 bytes. Used by the second-monitor mirror to seed the
+   * receiver's replica of this sim so a viewer opened mid-session starts from
+   * the editor's current state instead of t=0. One-shot (not per-frame), so the
+   * GPU→CPU readback cost is paid only on connect/graph-change.
+   * @returns {Promise<{width:number,height:number,data:Uint8Array}|null>}
+   */
+  async captureFeedbackState() {
+    if (!this._hasFeedbackState() || !this.device) return null;
+    const src = this._feedbackStateTexture();
+    const w = this.textureWidth;
+    const h = this.textureHeight;
+    if (!src || !w || !h) return null;
+
+    // copyTextureToBuffer requires bytesPerRow % 256 == 0; de-pad after mapping.
+    const tightRow = w * 4;
+    const paddedRow = Math.ceil(tightRow / 256) * 256;
+    let buffer = null;
+    try {
+      // Spec-constant fallbacks keep this testable outside a browser (COPY_DST=0x8, MAP_READ=0x1).
+      const usage = (typeof GPUBufferUsage !== 'undefined')
+        ? (GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)
+        : 0x0008 | 0x0001;
+      buffer = this.device.createBuffer({
+        size: paddedRow * h,
+        usage,
+        label: 'feedback-state-readback',
+      });
+      const encoder = this.device.createCommandEncoder({ label: 'feedback-state-capture' });
+      encoder.copyTextureToBuffer(
+        { texture: src },
+        { buffer, bytesPerRow: paddedRow, rowsPerImage: h },
+        { width: w, height: h, depthOrArrayLayers: 1 }
+      );
+      this.device.queue.submit([encoder.finish()]);
+
+      const READ = (typeof GPUMapMode !== 'undefined') ? GPUMapMode.READ : 1;
+      await buffer.mapAsync(READ);
+      const mapped = new Uint8Array(buffer.getMappedRange());
+      const data = new Uint8Array(tightRow * h);
+      for (let y = 0; y < h; y++) {
+        data.set(mapped.subarray(y * paddedRow, y * paddedRow + tightRow), y * tightRow);
+      }
+      buffer.unmap();
+      return { width: w, height: h, data };
+    } catch (_) {
+      return null;
+    } finally {
+      try { buffer?.destroy(); } catch (_) { /* ignore */ }
+    }
+  }
+
+  /**
+   * Seed this manager's feedback sim with a state captured on the editor
+   * (captureFeedbackState). Writes the bytes into the next-read ping-pong
+   * texture — so the following dispatch evolves from exactly this state — and
+   * into the output texture so the seeded frame shows before the first step.
+   * Dimensions must match; a mismatch (e.g. the viewer-resolution override
+   * rescaled this sim) keeps the receiver's own state.
+   * @param {Uint8Array|ArrayBuffer} data  tight rgba8 rows
+   * @returns {boolean} true if the state was applied
+   */
+  writeFeedbackState(data, width, height) {
+    if (!this._hasFeedbackState() || !this.device || !data) return false;
+    const w = this.textureWidth;
+    const h = this.textureHeight;
+    if (!w || !h || width !== w || height !== h) return false;
+    const bytes = (data instanceof Uint8Array) ? data : new Uint8Array(data);
+    if (bytes.byteLength < w * h * 4) return false;
+
+    const layout = { bytesPerRow: w * 4, rowsPerImage: h };
+    const size = { width: w, height: h, depthOrArrayLayers: 1 };
+    try {
+      const dst = this._feedbackStateTexture();
+      if (dst) this.device.queue.writeTexture({ texture: dst }, bytes, layout, size);
+      if (this.outputTexture) {
+        this.device.queue.writeTexture({ texture: this.outputTexture }, bytes, layout, size);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
    * Dispatch compute shader and copy result to output texture
    * @param {GPUCommandEncoder} commandEncoder - WebGPU command encoder
    * @param {number} time - Current time in seconds

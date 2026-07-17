@@ -264,6 +264,11 @@ async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
 
           // Invalidate bind group since we have new textures
           this.textureManager.bindGroup = null;
+
+          // An open second-monitor viewer keeps its own texture copies — re-broadcast
+          // the restored texture so a project load shows up there too (same hook
+          // FileInputHandler uses for a fresh upload).
+          window.secondMonitorViewer?.onTextureChanged?.(nodeId);
         }
 
         resolve();

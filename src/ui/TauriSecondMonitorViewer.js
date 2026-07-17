@@ -22,10 +22,13 @@
 // Textured and compute graphs (including stateful/feedback sims and fragment-fed
 // compute — a compute node whose input is a fragment node) are reproduced natively
 // too: the WGSL, the compute subgraph, the fragment subgraph and the per-frame
-// uniform bytes are broadcast and the receiver re-renders from them. Only graphs the
-// receiver can't reproduce from state alone — a fragment storage buffer (3D path) —
-// revert to the pixel FRAME tap (GPURenderer.setFrameTap) so the second monitor
-// never shows broken output.
+// uniform bytes are broadcast and the receiver re-renders from them. Feedback sims
+// are exact, not approximate: each per-frame COMPUTE_UNIFORMS message is one editor
+// sim step the receiver replays 1:1 (step-lock), and on connect/graph-change each
+// sim's current ping-pong state is read back once and broadcast (FEEDBACK_STATE) to
+// seed the receiver's replica. Only graphs the receiver can't reproduce from state
+// alone — a fragment storage buffer (3D path) — revert to the pixel FRAME tap
+// (GPURenderer.setFrameTap) so the second monitor never shows broken output.
 //
 // All '@tauri-apps/api' access is via dynamic import() so that statically
 // importing this module stays safe on the raw web deployments, which serve the
@@ -33,6 +36,7 @@
 // constructed when isTauri() is true (see main.js).
 
 import { isTauri } from '../utils/isTauri.js';
+import { controlInputPinIndices } from '../data/NodeDefs.js';
 import {
   SecondMonitorMessage as MSG,
   SecondMonitorTier as TIER,
@@ -73,6 +77,8 @@ export class TauriSecondMonitorViewer {
     this._sentFragmentNodes = false; // whether a non-empty FRAGMENT_GRAPH has been sent
     this._forceFallback = false; // receiver can't render natively → pixels only
     this._computeMaxDim = 0;     // viewer compute long-edge override (0 = match editor)
+    this._feedbackStateInFlight = false; // a feedback-state capture/broadcast is running
+    this._stepSeq = 0;           // sim-step counter (one per COMPUTE_UNIFORMS message)
     this._active = false;
   }
 
@@ -229,32 +235,37 @@ export class TauriSecondMonitorViewer {
         this._broadcastComputeGraph();
         this._broadcastFragmentGraph();
         this._broadcastAllTextures();
+        this._broadcastFeedbackStates();
       }
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
       }
-      // A (re)connecting receiver also needs the current compute-resolution override.
-      if (this._computeMaxDim > 0) {
+      // A (re)connecting receiver also needs the current compute-resolution mode
+      // (a fixed long edge, or -1 = match editor; 0 = auto is the receiver default).
+      if (this._computeMaxDim !== 0) {
         try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: this._computeMaxDim }); } catch (_) { /* ignore */ }
       }
     }
   }
 
   /**
-   * Set the second viewer's compute resolution (long edge in px; 0 = match the
-   * editor's preview resolution). A fixed value DECOUPLES the viewer from the
-   * editor's floating-preview size and renders compute at the chosen detail (up to
-   * 2048), so the viewer can be Full HD regardless of the editor's preview. Persists
+   * Set the second viewer's compute resolution. The viewer is INDEPENDENT of the
+   * editor's floating preview: 0 = Auto (the viewer renders at its own display's
+   * resolution, the default) and a positive value fixes the long edge (up to 2048).
+   * -1 = "Match editor", the explicit opt-in that follows the editor's
+   * preview-derived compute size so feedback sims can match exactly. Persists
    * across reconnects (re-sent on READY). No-op until a viewer is open.
    * @param {number} maxDim
    */
   setComputeResolution(maxDim) {
-    const v = Math.max(0, Math.min(2048, Math.round(Number(maxDim) || 0)));
+    let v = Math.round(Number(maxDim));
+    if (!Number.isFinite(v)) v = 0;
+    v = v <= -1 ? -1 : Math.max(0, Math.min(2048, v));
     this._computeMaxDim = v;
     try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: v }); } catch (_) { /* ignore */ }
   }
 
-  /** Current compute-resolution override (long edge px; 0 = match editor). */
+  /** Current compute-resolution mode (long edge px; 0 = auto/display; -1 = match editor). */
   get computeMaxDim() { return this._computeMaxDim; }
 
   /**
@@ -425,6 +436,7 @@ export class TauriSecondMonitorViewer {
           this._broadcastComputeGraph();
           this._broadcastFragmentGraph();
           this._broadcastAllTextures();
+          this._broadcastFeedbackStates();
           this._lastComputeSig = this._computeGraphSignature();
           this._lastFragmentSig = this._fragmentGraphSignature();
         }
@@ -440,6 +452,9 @@ export class TauriSecondMonitorViewer {
         this._lastComputeSig = sig;
         this._broadcastComputeGraph();
         this._broadcastAllTextures();
+        // A structure change rebuilds the receiver's compute graph, which clears
+        // its feedback sims — re-seed them from the editor's current state.
+        this._broadcastFeedbackStates();
       }
       // Re-broadcast the fragment subgraph when ITS structure changes (a fragment
       // node rewired into compute, or an expression param edited — both change the
@@ -461,7 +476,10 @@ export class TauriSecondMonitorViewer {
         });
       } catch (_) { /* channel closed mid-flight */ }
       if (this._mode === 'native-compute' && snap.compute) {
-        try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute }); } catch (_) { /* ignore */ }
+        // One message = one editor sim step; `step` lets the receiver align a
+        // FEEDBACK_STATE seed with the stream (drop steps the state already contains).
+        this._stepSeq += 1;
+        try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute, step: this._stepSeq }); } catch (_) { /* ignore */ }
       }
       if (this._mode === 'native-compute' && snap.fragment) {
         try { this._channel.postMessage({ type: MSG.FRAGMENT_UNIFORMS, nodes: snap.fragment }); } catch (_) { /* ignore */ }
@@ -470,10 +488,28 @@ export class TauriSecondMonitorViewer {
   }
 
   /**
+   * A compute node's inputs with control-pin slots (e.g. the Feedback nodes' Reset
+   * pin) masked to null. Control pins carry CPU-only scalars the receiver never
+   * consumes — resets arrive as FEEDBACK_RESET messages instead — so their wiring
+   * must not enter the broadcast graph or its structure signature. Otherwise merely
+   * wiring a Trigger into a Reset pin rebuilt the receiver's compute graph, which
+   * cleared its feedback sims. Masking (not removing) preserves pin indices.
+   */
+  _broadcastableInputs(node) {
+    const inputs = Array.isArray(node.inputs) ? node.inputs.slice() : [];
+    const controlPins = controlInputPinIndices(node.kind);
+    if (controlPins.size) {
+      for (const pin of controlPins) { if (pin < inputs.length) inputs[pin] = null; }
+    }
+    return inputs;
+  }
+
+  /**
    * Cheap signature of the compute subgraph's STRUCTURE (node ids, kinds, input
    * wiring and texture sizes). Changes when a node is added/removed, rewired, or
    * resized — used to re-broadcast COMPUTE_GRAPH so the receiver rebuilds. Does NOT
-   * include per-frame uniforms (those stream separately).
+   * include per-frame uniforms (those stream separately) or control-pin wiring
+   * (resets ride FEEDBACK_RESET; a rebuild would clear the receiver's sims).
    */
   _computeGraphSignature() {
     const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
@@ -488,7 +524,7 @@ export class TauriSecondMonitorViewer {
       const res = data.resolution || node.computeResolution || [];
       const w = (mgr && mgr.textureWidth) || res[0] || 0;
       const h = (mgr && mgr.textureHeight) || res[1] || 0;
-      const inputs = Array.isArray(node.inputs) ? node.inputs.join(',') : '';
+      const inputs = this._broadcastableInputs(node).join(',');
       parts.push(`${id}:${node.kind}:${inputs}:${w}x${h}`);
     });
     return parts.join('|');
@@ -567,7 +603,7 @@ export class TauriSecondMonitorViewer {
         width,
         height,
         supportsFeedback: !!data.supportsFeedback,
-        inputs: Array.isArray(node.inputs) ? node.inputs.slice() : [],
+        inputs: this._broadcastableInputs(node),
       });
     });
     const executionOrder = Array.isArray(exec.executionOrder) ? exec.executionOrder.slice() : [];
@@ -608,10 +644,13 @@ export class TauriSecondMonitorViewer {
       });
       if (Array.isArray(node.inputs)) for (const inId of node.inputs) visit(inId);
     };
-    // Seed from every compute node's non-compute (fragment) inputs.
+    // Seed from every compute node's non-compute (fragment) inputs. Control pins
+    // (e.g. the Feedback nodes' Reset pin) are masked out: their scalar sources
+    // (a Trigger, say) are CPU-only and must not be broadcast as fragment feeders.
     registry.forEach((data) => {
-      const inputs = (data && data.node && data.node.inputs) || [];
-      for (const inId of inputs) {
+      const node = data && data.node;
+      if (!node) return;
+      for (const inId of this._broadcastableInputs(node)) {
         if (inId != null && !isCompute(inId)) visit(inId);
       }
     });
@@ -661,6 +700,66 @@ export class TauriSecondMonitorViewer {
     const tm = (typeof window !== 'undefined') ? window.textureManager : null;
     if (!tm || !tm.textures || typeof tm.textures.forEach !== 'function') return;
     tm.textures.forEach((info, nodeId) => { this._broadcastTexture(nodeId, info); });
+  }
+
+  /**
+   * Broadcast the CURRENT state of every feedback sim (its next-read ping-pong
+   * texture, read back once) so the receiver's replica starts from the editor's
+   * state instead of t=0. With the per-step COMPUTE_UNIFORMS lockstep, the two
+   * sims then evolve identically. Fire-and-forget: capture is async (GPU→CPU
+   * readback) and must never block the state tap; sequential per node so the
+   * readbacks don't pile up. Coalesced — a call while one is running is dropped
+   * (every call site re-sends the full current state anyway).
+   */
+  _broadcastFeedbackStates() {
+    if (this._feedbackStateInFlight) return;
+    const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
+    const managers = exec && exec.computeManagers;
+    if (!managers || typeof managers.forEach !== 'function') return;
+    const jobs = [];
+    managers.forEach((m, id) => {
+      if (m && m.supportsFeedback && typeof m.captureFeedbackState === 'function') jobs.push([id, m]);
+    });
+    if (!jobs.length) return;
+    this._feedbackStateInFlight = true;
+    (async () => {
+      try {
+        for (const [nodeId, mgr] of jobs) {
+          if (!this._active || !this._channel) break;
+          // Read the step counter in the same sync block that encodes/submits the
+          // readback, so the state is stamped with the last step it contains and the
+          // receiver can drop queued steps the seed already includes.
+          const atStep = this._stepSeq;
+          let state = null;
+          try { state = await mgr.captureFeedbackState(); } catch (_) { /* skip node */ }
+          if (!state || !this._active || !this._channel) continue;
+          try {
+            this._channel.postMessage({
+              type: MSG.FEEDBACK_STATE,
+              nodeId,
+              width: state.width,
+              height: state.height,
+              data: state.data,
+              step: atStep,
+            });
+          } catch (_) { /* channel closed mid-flight */ }
+        }
+      } finally {
+        this._feedbackStateInFlight = false;
+      }
+    })();
+  }
+
+  /**
+   * Called by the editor when a Feedback node's sim was reset (the panel's
+   * "Reset Feedback" button or a rising edge on its Reset pin — both funnel
+   * through ComputeExecutor.resetNodeFeedback). The receiver replicates feedback
+   * sims independently, so it must clear its own copy too. No-op unless a
+   * native-compute mirror is open.
+   */
+  onFeedbackReset(nodeId) {
+    if (!this._active || this._mode !== 'native-compute') return;
+    try { this._channel?.postMessage({ type: MSG.FEEDBACK_RESET, nodeId }); } catch (_) { /* ignore */ }
   }
 
   /**

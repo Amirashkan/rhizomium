@@ -1393,9 +1393,11 @@ function setupUIEventHandlers() {
       }
     });
 
-    // Compute-resolution control for the second viewer. "Match editor" (0) follows
-    // the floating-preview size; a fixed long-edge decouples the viewer and renders
-    // compute at that detail (up to 2048), so it can reach Full HD independently.
+    // Compute-resolution control for the second viewer. The viewer is independent
+    // of the floating preview: Auto (0, default) renders at the viewer display's
+    // own resolution, a fixed long-edge at that detail (up to 2048). "Match
+    // editor" (-1) is the explicit opt-in that follows the editor's
+    // preview-derived size for exact feedback-sim matching.
     const secondMonitorResRow = document.getElementById("row-second-monitor-res");
     const secondMonitorResSel = removeExistingHandlers("second-monitor-res");
     if (secondMonitorResRow && secondMonitorResSel
