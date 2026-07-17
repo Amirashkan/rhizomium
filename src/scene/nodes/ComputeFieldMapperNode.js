@@ -501,9 +501,11 @@ export class ComputeFieldMapperNode extends Node {
                 } else {
                     this.geometry = await this.visualizer.generateMeshFromTexture3D(fieldTexture, this.device);
                 }
+            } else if (this.device) {
+                // 2D texture - build a heightmap surface mesh where the field
+                // value drives vertex height within the field bounds
+                this.geometry = await this.visualizer.generateHeightmapMesh(fieldTexture, this.device);
             } else {
-                // 2D texture - generate mesh from heightmap-style data
-                // Read 2D texture and use marching cubes on extruded data
                 this.geometry = await this.visualizer.generatePointCloud(fieldTexture);
             }
         }

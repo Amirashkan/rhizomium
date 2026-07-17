@@ -89,10 +89,12 @@ export function createTestCube(device, name = 'Test Cube') {
   meshNode.geometry = geometry;
 
   // Set initial transform
-  // Camera is looking at origin from distance 5, so place cube at origin
-  meshNode.transform.position = { x: 0, y: 0, z: 0 };
-  meshNode.transform.rotation = { x: 0.3, y: 0.3, z: 0 }; // Slight rotation for visibility
-  meshNode.transform.scale = { x: 1, y: 1, z: 1 };
+  // Camera is looking at origin from distance 5, so place cube at origin.
+  // Use the Transform API - assigning plain objects would clobber the
+  // Vec3/Quaternion instances and corrupt the world matrix.
+  meshNode.transform.setPosition(0, 0, 0);
+  meshNode.transform.setRotationFromEuler(0.3, 0.3, 0); // Slight rotation for visibility
+  meshNode.transform.setScale(1, 1, 1);
 
   return meshNode;
 }

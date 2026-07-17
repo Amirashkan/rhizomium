@@ -329,6 +329,22 @@ export class ViewportPanel {
     this.isVisible = true;
     this.panelElement.style.display = 'flex';
     this.panelElement.classList.remove('hidden');
+
+    // The canvas had no layout while hidden; sync its backing size (and the
+    // camera aspect) to the now-measurable container
+    setTimeout(() => {
+      if (this.viewport3D && this.viewport3D.canvas && this.canvasContainer) {
+        const containerWidth = this.canvasContainer.clientWidth;
+        const containerHeight = this.canvasContainer.clientHeight;
+        if (containerWidth > 0 && containerHeight > 0) {
+          this.viewport3D.canvas.width = containerWidth;
+          this.viewport3D.canvas.height = containerHeight;
+          if (this.viewport3D.handleResize) {
+            this.viewport3D.handleResize(containerWidth, containerHeight);
+          }
+        }
+      }
+    }, 0);
   }
 
   /**

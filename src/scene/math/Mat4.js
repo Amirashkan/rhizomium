@@ -394,9 +394,14 @@ export class Mat4 {
             .copy(z)
             .cross(x);
 
-        e[0] = x.x; e[4] = y.x; e[8] = z.x;
-        e[1] = x.y; e[5] = y.y; e[9] = z.y;
-        e[2] = x.z; e[6] = y.z; e[10] = z.z;
+        // View matrix: rotation rows are the camera basis vectors (the
+        // transpose of the camera's world rotation). In column-major storage
+        // that means basis components go across columns, not down them —
+        // writing them as columns instead produces a matrix that faces the
+        // camera away from the target once decomposed.
+        e[0] = x.x; e[4] = x.y; e[8] = x.z;
+        e[1] = y.x; e[5] = y.y; e[9] = y.z;
+        e[2] = z.x; e[6] = z.y; e[10] = z.z;
 
         e[12] = -x.dot(eye);
         e[13] = -y.dot(eye);

@@ -116,6 +116,10 @@ async function reinitializeWebGPUAfterLoad() {
 
 const adapter = await navigator.gpu.requestAdapter();
 const device = await adapter.requestDevice();
+// Retain the adapter: if it gets garbage-collected, Chromium drops the Dawn
+// instance behind it and later buffer.mapAsync calls fail with "A valid
+// external Instance reference no longer exists" (breaks 3D field readback)
+window.gpuAdapter = adapter;
 window.gpuRenderer = new GPURenderer(device, canvas);
 
     if (device) {
@@ -236,6 +240,10 @@ async function initialize() {
       isWindows ? undefined : { powerPreference: "high-performance" }
     );
     const device = await adapter.requestDevice();
+    // Retain the adapter: if it gets garbage-collected, Chromium drops the
+    // Dawn instance behind it and later buffer.mapAsync calls fail with "A
+    // valid external Instance reference no longer exists" (breaks 3D readback)
+    window.gpuAdapter = adapter;
     window.gpuRenderer = new GPURenderer(device, canvas);
 
     // Set up window resize handler to prevent tearing from mid-render resizing
@@ -3314,6 +3322,18 @@ async function ensureDisconnectedComputePreviews() {
   }
 }
 
+// ComputeFieldMapper nodes render into the 3D viewport, not the main shader, so they must be
+// (re)processed on every graph edit - including when the graph has no wired OutputFinal, which
+// is this node's recommended setup (compute chain -> field mapper, nothing to the output).
+async function processFieldMapperNodes() {
+  if (!fieldMapperIntegration || !graph || !graph.nodes) return;
+  try {
+    await fieldMapperIntegration.processFieldMappers(graph.nodes, graph.connections || []);
+  } catch (error) {
+    console.error("[main] Error processing field mappers:", error);
+  }
+}
+
 async function updateShaderFromGraph() {
   try {
     // Every graph edit funnels through here - flag it so the 30s
@@ -3336,6 +3356,7 @@ async function updateShaderFromGraph() {
       // No output to render the main canvas, but compute nodes on the canvas still need their
       // per-node previews dispatched (otherwise they sit as placeholders until an output exists).
       await ensureDisconnectedComputePreviews();
+      await processFieldMapperNodes();
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();
         window.gpuRenderer.presentFallbackColor();
@@ -3353,6 +3374,7 @@ async function updateShaderFromGraph() {
       // compute node should still preview its own output rather than a placeholder. Register and
       // dispatch the disconnected compute nodes so the render loop produces their thumbnails.
       await ensureDisconnectedComputePreviews();
+      await processFieldMapperNodes();
       if (window.gpuRenderer) {
         window.gpuRenderer.clear();
         window.gpuRenderer.presentFallbackColor();
@@ -3377,13 +3399,7 @@ async function updateShaderFromGraph() {
     }
 
     // Process ComputeFieldMapper nodes for 3D visualization
-    if (fieldMapperIntegration && graph && graph.nodes) {
-      try {
-        await fieldMapperIntegration.processFieldMappers(graph.nodes, graph.connections || []);
-      } catch (error) {
-        console.error('[main] Error processing field mappers:', error);
-      }
-    }
+    await processFieldMapperNodes();
 
     const rawWGSL = typeof result.wgsl === "string" ? result.wgsl : String(result.wgsl ?? "");
 
@@ -3590,6 +3606,12 @@ function handleRenderFrame(frameState) {
 
   // 3D Viewport rendering
   if (sceneRenderer3D && viewportPanel && viewportPanel.isVisible) {
+    // Regenerate field-mapper geometry from the live compute textures so
+    // animated fields keep moving. Async and self-guarded: if the previous
+    // GPU readback is still in flight this is a no-op for the frame.
+    if (fieldMapperIntegration) {
+      fieldMapperIntegration.updateFrame();
+    }
     sceneRenderer3D.render(frameState.simTime);
   }
 

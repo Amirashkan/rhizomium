@@ -71,6 +71,12 @@ export class Viewport3D {
      * @param {number} height
      */
     handleResize(width, height) {
+        // A hidden panel reports 0x0; a 0/0 aspect poisons the projection
+        // matrix with NaN, so ignore resizes until the canvas has real size
+        if (!(width > 0) || !(height > 0)) {
+            return;
+        }
+
         this.width = width;
         this.height = height;
 

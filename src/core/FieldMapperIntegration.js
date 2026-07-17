@@ -26,6 +26,18 @@ export class FieldMapperIntegration {
          * @type {Set<string>}
          */
         this.nodesInScene = new Set();
+
+        /**
+         * Latest known graph nodes, kept for per-frame updates
+         * @type {Array}
+         */
+        this._graphNodes = [];
+
+        /**
+         * Guard so overlapping async GPU readbacks don't pile up
+         * @type {boolean}
+         */
+        this._updating = false;
     }
 
     /**
@@ -38,6 +50,8 @@ export class FieldMapperIntegration {
         if (!nodes || !this.device || !this.scene) {
             return;
         }
+
+        this._graphNodes = nodes;
 
         // Find all ComputeFieldMapper nodes
         const fieldMapperNodes = nodes.filter(n => n.kind === 'ComputeFieldMapper');
@@ -58,13 +72,13 @@ export class FieldMapperIntegration {
 
             try {
                 await this.processFieldMapperNode(node, connections);
-            } catch (error) {
-
+            } catch {
+                // Non-fatal: a single bad mapper shouldn't stop the others
             }
         }
 
         // Remove field mappers that are no longer in the graph
-        for (const [nodeId, fieldMapper] of this.fieldMappers.entries()) {
+        for (const nodeId of this.fieldMappers.keys()) {
             if (!activeNodeIds.has(nodeId)) {
                 this.removeFieldMapper(nodeId);
             }
@@ -84,23 +98,8 @@ export class FieldMapperIntegration {
     async processFieldMapperNode(node, connections) {
         const nodeId = node.id;
 
-        // Find input - try connections array first, then fall back to node.inputs
-        let sourceNodeId = null;
-
-        if (connections && connections.length > 0) {
-            // Try modern connection structure (toNode/fromNode)
-            const inputConnection = connections.find(c => c.toNode === nodeId);
-            if (inputConnection) {
-                sourceNodeId = inputConnection.fromNode;
-            }
-        }
-
-        // Fall back to node.inputs array (older connection model)
-        if (!sourceNodeId && node.inputs && node.inputs[0]) {
-            sourceNodeId = node.inputs[0];
-        }
-
-        if (!sourceNodeId) {
+        const sourceNodeId = this.findSourceNodeId(node, connections);
+        if (sourceNodeId === null || sourceNodeId === undefined) {
             return;
         }
 
@@ -122,6 +121,10 @@ export class FieldMapperIntegration {
             this.scene.addNode(fieldMapper);
             this.nodesInScene.add(nodeId);
 
+            // A 3D node just became active - surface the viewport so the
+            // result is actually visible without hunting for the shortcut
+            this.showViewport();
+
         } else {
             // Update parameters if they changed
             this.updateFieldMapperParams(fieldMapper, node);
@@ -130,12 +133,8 @@ export class FieldMapperIntegration {
         // Generate visualization from compute texture
         try {
             await fieldMapper.generateVisualization(computeTexture);
-
-            const geometry = fieldMapper.getGeometry();
-            if (geometry && geometry.vertexCount > 0) {
-            }
-        } catch (error) {
-
+        } catch {
+            // Non-fatal: the per-frame update will retry with fresh data
         }
     }
 
@@ -252,6 +251,32 @@ export class FieldMapperIntegration {
     }
 
     /**
+     * Resolve the graph node feeding this field mapper's input pin.
+     * node.inputs holds source node ids; the connections array holds node
+     * OBJECTS in fromNode/toNode, so compare against their ids.
+     * @param {Object} node - Field mapper graph node
+     * @param {Array} connections - Graph connections (optional)
+     * @returns {string|number|null} Source node id
+     */
+    findSourceNodeId(node, connections) {
+        if (node.inputs && node.inputs[0] !== null && node.inputs[0] !== undefined) {
+            return node.inputs[0];
+        }
+
+        if (Array.isArray(connections)) {
+            const inputConnection = connections.find(c => {
+                const toId = c?.toNode?.id ?? c?.toNode;
+                return toId === node.id;
+            });
+            if (inputConnection) {
+                return inputConnection.fromNode?.id ?? inputConnection.fromNode;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Get compute texture from a node
      * @param {string} nodeId
      * @returns {GPUTexture|null}
@@ -261,20 +286,70 @@ export class FieldMapperIntegration {
             return null;
         }
 
-        // Try to get from compute executor
-        const computeManager = this.computeExecutor.computeManagers.get(nodeId);
+        // Dispatched outputs are keyed by raw graph id; skip the executor's
+        // 1x1 fallback texture - reading it back would just produce black
+        if (typeof this.computeExecutor.getNodeOutput === 'function') {
+            const output = this.computeExecutor.getNodeOutput(nodeId);
+            if (output && output !== this.computeExecutor.fallbackTexture) {
+                return output;
+            }
+        }
+
+        // Fall back to the manager's live output texture. Managers are keyed
+        // by a sanitized registry id, so try both spellings.
+        const sanitizedId = String(nodeId).replace(/[^a-zA-Z0-9_]/g, '_');
+        const computeManager = this.computeExecutor.computeManagers?.get(nodeId)
+            || this.computeExecutor.computeManagers?.get(sanitizedId);
         if (computeManager) {
-            // Check if it has getOutputTexture method
             if (typeof computeManager.getOutputTexture === 'function') {
                 return computeManager.getOutputTexture();
             }
-            // Or outputTexture property
             if (computeManager.outputTexture) {
                 return computeManager.outputTexture;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Per-frame update: regenerate visualizations from the live compute
+     * textures so animated fields stay in motion in the 3D viewport.
+     * Safe to call every frame - overlapping GPU readbacks are skipped, and
+     * each mapper honors its updateFrequency (0 = every opportunity).
+     */
+    async updateFrame() {
+        if (this._updating || this.fieldMappers.size === 0) {
+            return;
+        }
+
+        this._updating = true;
+        try {
+            for (const [nodeId, fieldMapper] of this.fieldMappers.entries()) {
+                if (!fieldMapper.shouldUpdate()) {
+                    continue;
+                }
+
+                const graphNode = this._graphNodes.find(n => n && n.id === nodeId);
+                const sourceNodeId = graphNode ? this.findSourceNodeId(graphNode, null) : null;
+                if (sourceNodeId === null || sourceNodeId === undefined) {
+                    continue;
+                }
+
+                const computeTexture = this.getComputeTexture(sourceNodeId);
+                if (!computeTexture) {
+                    continue;
+                }
+
+                try {
+                    await fieldMapper.generateVisualization(computeTexture, true);
+                } catch {
+                    // Skip this frame's update; the next one will retry
+                }
+            }
+        } finally {
+            this._updating = false;
+        }
     }
 
     /**

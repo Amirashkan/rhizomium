@@ -1,171 +1,84 @@
-# 3D Visualization Setup Guide
+# 3D Visualization Guide (ComputeFieldMapper)
 
-## ✅ Integration Complete!
+The **3D Field Visualizer** node (`ComputeFieldMapper`, category *Utility*) turns a
+compute shader's output field into live 3D geometry rendered in the floating
+3D viewport.
 
-The ComputeFieldMapper node is now fully integrated! Here's how to use it:
+## Quick start
 
-### Quick Start
+1. Create a compute node (e.g. **ComputeNoise**, **ComputeFeedback**).
+2. Create a **3D Field Visualizer** node.
+3. Connect: compute node → **Field Input**.
+4. The 3D viewport opens automatically the moment the node becomes active
+   (toggle it any time with **Ctrl/Cmd+3**).
 
-1. **Create a compute shader node** (e.g., ComputeNoise, ComputeFeedback, etc.)
-2. **Create a ComputeFieldMapper node**
-3. **Connect**: ComputeNoise → ComputeFieldMapper
-4. **Do NOT connect ComputeFieldMapper to OutputFinal** (it outputs 3D geometry, not 2D shader)
-5. **Show 3D viewport**: Press `Ctrl+3` or run `viewportPanel.show()` in console
-6. **See the magic!** Your compute field will be visualized as 3D points or meshes
+Do **not** wire the visualizer into OutputFinal — it produces 3D geometry for
+the viewport, not 2D shader output. It works fine in a graph that has no
+OutputFinal at all.
 
-### Why the Preview Was Black Before
+The visualization updates continuously while the viewport is open: each frame
+the node reads the compute texture back, regenerates geometry, and re-renders.
+Readbacks are self-throttling — a new one only starts when the previous one
+finished — and `updateFrequency` adds an extra per-node throttle (0 = every
+opportunity).
 
-The ComputeFieldMapper node was showing:
-- **Black preview**: Because it outputs 3D geometry, not 2D shader data
-- **Empty 3D viewport**: Because integration wasn't complete
+## Mapping modes
 
-## Quick Fix
+- **points** — one camera-facing round point per field cell whose value exceeds
+  `threshold`. Points are colored by `colorMode` and can be displaced along
+  `displacementAxis` by `displacementScale * value`.
+- **surface** / **volume** with a 2D field — a heightmap mesh: the field value
+  drives vertex height across the Y range of the field bounds, with per-vertex
+  normals, lighting, and gradient colors.
+- **surface** / **volume** with a 3D texture — marching-cubes isosurface at
+  `isoThreshold` (requires a `dimension: '3d'` texture source).
 
-### Option 1: Manual Setup (Console Commands)
+## Parameters
 
-1. **Show the 3D viewport**:
-```javascript
-viewportPanel.show()
-```
+- `width` / `height` / `depth` — the sampling grid. The compute texture is
+  nearest-sampled onto this grid (the texture's own resolution can differ).
+- `boundsMin*` / `boundsMax*` — world-space box the field maps into.
+- `threshold`, `isoThreshold`, `pointSize`, `sampleRate`
+- `colorMode` (`solid` / `gradient` / `field`), `colorA*`, `colorB*`,
+  `solidColor*`, `colorScaleMin/Max`
+- `displacementScale`, `displacementAxis*`
+- `updateFrequency` — regenerate every N frames (0 = every frame)
 
-2. **Add a test cube to verify 3D rendering works**:
-```javascript
-// Add test cube
-const testCube = addTestCubeToScene(systemIntegration.scene);
-console.log('Test cube added');
+## Viewport controls
 
-// Render the scene
-sceneRenderer3D.render();
-```
+- **Ctrl/Cmd+3** — toggle the 3D viewport panel
+- Left-drag — orbit · Shift+drag / middle-drag — pan · wheel / right-drag — zoom
+- Panel buttons: Reset Camera, Perspective/Orthographic, Frame All
+- The panel is draggable by its header and resizable from the corner.
 
-3. **If you see a rotating cube, the 3D system works!**
-
-### Option 2: Proper Integration (Recommended)
-
-The ComputeFieldMapper node needs integration with the graph processor. Here's what needs to happen:
-
-#### Step 1: Remove Connection to Output
-The ComputeFieldMapper should NOT connect to OutputFinal. It's a 3D visualization node.
-
-#### Step 2: Create the Workflow
-
-```javascript
-// 1. Create a compute shader node (e.g., ComputeNoise)
-//    This generates the field data
-
-// 2. Create ComputeFieldMapper node
-//    This converts field data to 3D geometry
-
-// 3. Connect: ComputeNoise → ComputeFieldMapper
-//    (NOT connected to OutputFinal)
-
-// 4. The FieldVisualizerManager should automatically:
-//    - Detect the ComputeFieldMapper node
-//    - Get texture from compute shader
-//    - Generate 3D geometry
-//    - Add to scene
-//    - Render in viewport
-```
-
-## Integration Code Needed
-
-The following integration is needed in the graph processor to handle ComputeFieldMapper nodes:
+## Console helpers
 
 ```javascript
-// In graph processing, after compute nodes are executed:
-
-// Find all ComputeFieldMapper nodes
-const fieldMapperNodes = nodes.filter(n => n.kind === 'ComputeFieldMapper');
-
-for (const node of fieldMapperNodes) {
-  // Get input compute texture
-  const inputNode = findInputNode(node);
-  if (!inputNode || !inputNode.computeTexture) continue;
-
-  // Get or create field mapper instance
-  let fieldMapper = node.fieldMapperInstance;
-  if (!fieldMapper) {
-    fieldMapper = new ComputeFieldMapperNode(node.id, {
-      dimensions: [node.params.width, node.params.height, node.params.depth],
-      mappingMode: node.params.mappingMode,
-      fieldBounds: {
-        min: [node.params.boundsMinX, node.params.boundsMinY, node.params.boundsMinZ],
-        max: [node.params.boundsMaxX, node.params.boundsMaxY, node.params.boundsMaxZ]
-      },
-      isoThreshold: node.params.isoThreshold
-    });
-
-    await fieldMapper.initializeVisualizer(device);
-    node.fieldMapperInstance = fieldMapper;
-
-    // Add to scene
-    systemIntegration.scene.addNode(fieldMapper);
-
-    // Register with manager
-    fieldVisualizerManager.registerFieldMapper(node.id, fieldMapper);
-  }
-
-  // Update parameters from node
-  updateFieldMapperParams(fieldMapper, node.params);
-
-  // Generate visualization
-  await fieldMapper.generateVisualization(inputNode.computeTexture);
-
-  // Render in 3D viewport
-  sceneRenderer3D.render();
-}
+window.addTestCube();          // sanity-check the 3D raster path with a lit cube
+window.viewportPanel.toggle(); // show/hide the viewport
+window.fieldMapperIntegration; // inspect live field mappers
 ```
 
-## Testing 3D Features Work
+## Architecture
 
-Run this in the console to verify everything is initialized:
-
-```javascript
-// Check initialization
-console.log('Device:', device ? '✓' : '✗');
-console.log('Scene:', systemIntegration?.scene ? '✓' : '✗');
-console.log('Viewport3D:', viewport3D ? '✓' : '✗');
-console.log('ViewportPanel:', viewportPanel ? '✓' : '✗');
-console.log('SceneRenderer3D:', sceneRenderer3D ? '✓' : '✗');
-console.log('FieldVisualizerManager:', fieldVisualizerManager ? '✓' : '✗');
-
-// Show viewport
-viewportPanel.show();
-
-// Add test cube
-const cube = await addTestCubeToScene(systemIntegration.scene);
-sceneRenderer3D.render();
-
-// If you see a cube, 3D rendering works!
-// The mesh generation we implemented (marching cubes, texture readback) is ready
-// It just needs to be connected to the graph execution pipeline
+```
+graph edit ──► updateShaderFromGraph ──► FieldMapperIntegration.processFieldMappers
+                                          (create/update/remove mappers, auto-show viewport)
+render loop (viewport visible) ──► FieldMapperIntegration.updateFrame
+                                     └► PointCloudGenerator.readFieldSlice   (GPU→CPU readback)
+                                     └► FieldVisualizer (points / heightmap / marching cubes)
+                              ──► SceneRenderer3D.render
+                                     └► MeshRenderer (indexed geometry, lit vertex colors)
+                                     └► PointCloudRenderer (instanced billboard quads)
 ```
 
-## What Was Completed
+Key implementation notes:
 
-### Phase 1: 3D Visualization Core (Completed)
-- ✅ 3D texture readback from GPU
-- ✅ Point cloud generation from 3D fields
-- ✅ Marching cubes mesh generation
-- ✅ Complete triangle lookup table (256 configurations)
-- ✅ FieldVisualizer with mesh/point cloud modes
-- ✅ ComputeFieldMapperNode implementation
-- ✅ Tested: Generated sphere with 2,904 vertices, 968 triangles
-
-### Phase 2: Graph Integration (NOW COMPLETE!)
-- ✅ **NodeCompiler**: Skip ComputeFieldMapper in shader generation
-- ✅ **FieldMapperIntegration**: New module to handle 3D nodes
-- ✅ **Graph Processor**: Detects and processes ComputeFieldMapper nodes
-- ✅ **Compute Executor**: Passes output textures to field mappers
-- ✅ **Render Loop**: Automatically updates 3D scene
-- ✅ **Main.js**: Integration hooked into updateShaderFromGraph
-
-## Next Steps
-
-1. Disconnect ComputeFieldMapper from OutputFinal
-2. Connect a compute shader to it instead
-3. Add integration code to handle these nodes specially
-4. Show the 3D viewport with `viewportPanel.show()`
-5. Verify with test cube first
-
-The 3D mesh generation works (tested with sphere generation), it just needs to be plugged into the execution pipeline!
+- Compute textures are **rgba8unorm**; readback honors the 256-byte
+  `bytesPerRow` alignment and decodes the red channel (bgra and float formats
+  are also supported).
+- `MeshRenderer` / `PointCloudRenderer` are instantiated **per field-mapper
+  node** (they own their GPU buffers; `queue.writeBuffer` ordering makes shared
+  instances draw only the last-written geometry).
+- WGSL has no point-size builtin, so points are drawn as 4-vertex
+  triangle-strip quads expanded in view space, instanced per point.
