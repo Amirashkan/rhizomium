@@ -72,6 +72,21 @@ Audio envelope value (0.0 to 1.0) - requires audio input enabled
 =audioEnvelope * 0.5 + 0.5        // Center around 0.5
 ```
 
+#### Frequency bands
+
+Per-band envelope values (0.0 to 1.0) are also available:
+
+- `audioEnvelopeBass` - Low frequencies (kick drums, bass)
+- `audioEnvelopeMids` - Middle frequencies (vocals, guitars)
+- `audioEnvelopeHighs` - High frequencies (hi-hats, cymbals)
+- `audioEnvelopeFull` - Total energy
+
+**Examples:**
+```
+=audioEnvelopeBass * 0.4          // Bass-driven size
+=lerp(0.2, 1.0, audioEnvelopeHighs)  // Highs mapped into a range
+```
+
 **Note:** Requires audio server running or browser audio enabled. See [Audio Reactivity](audio-web.md).
 
 ### Input Variables

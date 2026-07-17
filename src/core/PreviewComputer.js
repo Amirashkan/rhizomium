@@ -1844,46 +1844,6 @@ _renderOutputThumbnail(ctx, size, color, node) {
     ctx.fillText("SAT", size / 2, size / 2 + 2);
   }
 
-_renderOutputThumbnail(ctx, size, color) {
-  // Check if we have a connected input node with a thumbnail
-  const node = Array.from(window.editor?.graph?.nodes || []).find(n => n.kind === 'OutputFinal');
-  if (node && node.inputs && node.inputs[0]) {
-    const inputNodeId = node.inputs[0];
-    const inputNode = window.editor?.graph?.nodes?.find(n => n.id === inputNodeId);
-    
-    // If the input node has a thumbnail, copy it
-    if (inputNode && inputNode.__thumb) {
-      if (inputNode.__thumb instanceof HTMLCanvasElement) {
-        ctx.drawImage(inputNode.__thumb, 0, 0, size, size);
-      } else if (inputNode.__thumb instanceof ImageData) {
-        // ARCHITECTURAL FIX: Convert ImageData to Canvas immediately and replace on node
-        // This ensures thumbnails are always Canvas, eliminating blocking putImageData during rendering
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = inputNode.__thumb.width;
-        tempCanvas.height = inputNode.__thumb.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.putImageData(inputNode.__thumb, 0, 0);
-        // Replace ImageData with Canvas on the node - future renders will use Canvas
-        inputNode.__thumb = tempCanvas;
-        ctx.drawImage(tempCanvas, 0, 0, size, size);
-      }
-      
-      // Add a subtle border to indicate this is an output
-      ctx.strokeStyle = "rgba(76, 175, 80, 0.5)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(1, 1, size - 2, size - 2);
-      return;
-    }
-  }
-  
-  // Fallback: render as color if we couldn't get the input thumbnail
-  this._renderColorThumbnail(ctx, size, color);
-  
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(2, 2, size - 4, size - 4);
-}
-
   _renderDefaultThumbnail(ctx, size, value) {
     const isVector = Array.isArray(value) && value.length >= 3;
 

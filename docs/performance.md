@@ -87,7 +87,7 @@ These nodes have moderate impact:
 - Fine to use multiple instances
 - Prefer built-in functions over custom expressions
 
-#### Field Nodes
+#### Generator Nodes
 - **Gradients** - Linear calculations, efficient
 - **Circles** - Distance field, reasonable
 - **Shapes** - SDF operations, moderate cost
@@ -307,7 +307,7 @@ Good news: **Audio processing is very efficient!**
 - **GPU**: No additional load
 - **Latency**: <10ms response time
 
-Audio nodes are just inputs - they don't slow down your graph.
+Audio expressions are just per-frame uniform inputs - they don't slow down your graph.
 
 ### Optimization
 

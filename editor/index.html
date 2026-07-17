@@ -312,17 +312,20 @@
                only in the Vite/desktop build (see main.js / isViteBuild.js). -->
           <div class="menu-separator" id="sep-second-monitor" style="display:none"></div>
           <button id="btn-second-monitor" style="display:none">Second Monitor Viewer</button>
-          <!-- Compute resolution for the second viewer. "Match editor" follows the
-               floating-preview size; a fixed value decouples the viewer and renders
-               it at that detail (toward Full HD). Revealed with the button. -->
+          <!-- Compute resolution for the second viewer. The viewer is independent
+               of the floating preview: Auto renders at the viewer display's own
+               resolution, fixed values at that long edge. "Match editor" is the
+               explicit opt-in that follows the editor's preview-derived size for
+               exact feedback-sim matching. Revealed with the button. -->
           <label class="snap-size" id="row-second-monitor-res" style="display:none">
             <span>Viewer Res:</span>
             <select id="second-monitor-res">
-              <option value="0">Match editor</option>
+              <option value="0">Auto (display)</option>
               <option value="720">720p</option>
               <option value="1080">1080p</option>
               <option value="1440">1440p</option>
               <option value="2048">Max (2048)</option>
+              <option value="-1">Match editor</option>
             </select>
           </label>
         </div>

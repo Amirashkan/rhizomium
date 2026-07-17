@@ -37,9 +37,12 @@ The editor picks a tier per shader and advertises it via the `CAPS` message:
 ## Protocol (`SecondMonitorMessage`)
 
 Editor → viewer: `SHADER`, `UNIFORMS` (per-frame), `CAPS`, `COMPUTE_GRAPH` (on
-structure change), `COMPUTE_UNIFORMS` (per-frame), `FRAGMENT_GRAPH` (fragment-fed
-compute; on structure/expression change), `FRAGMENT_UNIFORMS` (per-frame), `TEXTURE`,
-`FRAME` (fallback only), `RENDER_RES`, `CLOSE`.
+structure change), `COMPUTE_UNIFORMS` (per-frame; **one message = one sim step**, see
+"Step-locked feedback"), `FRAGMENT_GRAPH` (fragment-fed compute; on
+structure/expression change), `FRAGMENT_UNIFORMS` (per-frame), `TEXTURE`,
+`FEEDBACK_STATE` (a feedback sim's current state; seeds the viewer on connect/graph
+change), `FEEDBACK_RESET` (a Feedback node was reset), `FRAME` (fallback only),
+`RENDER_RES`, `CLOSE`.
 Viewer → editor: `READY`, `RESIZE`, `NEED_FALLBACK`, `CLOSED`.
 
 On `READY` the editor re-sends shader/compute-graph/fragment-graph/textures/caps/
@@ -62,31 +65,44 @@ the last frame instead of spinning.
 
 ## Resolution control (`RENDER_RES { maxDim }`)
 
-"Viewer Res" decouples the viewer's **compute** resolution from the editor's
-floating-preview size (the soft look came from the preview defaulting to 512px, then
-upscaling):
+**The viewer is independent of the editor's floating preview.** Nothing done to the
+preview — resizing it, changing its resolution setting, hiding it — reshapes,
+rescales, or rebuilds the second-monitor output. Modes:
 
-- `0` = **Match editor** (use the broadcast/preview size).
-- A fixed long-edge (720/1080/1440/2048, capped at `MAX_COMPUTE_RES` = 2048) scales
-  every compute node (preserving aspect) so the viewer renders at that detail
-  regardless of the editor's preview. The packed resolution uniform (floats 0,1) is
-  overridden to match so UV/texel math (edge kernels, blur radii) is correct.
+- `0` = **Auto (display)** — the default. Every compute node renders display-shaped
+  at the viewer display's own resolution (long edge capped at `MAX_COMPUTE_RES` =
+  2048) and the output fills the display edge-to-edge. The broadcast
+  (preview-derived) sizes are ignored entirely, so an editor preview-resolution
+  change never rebuilds the receiver (which would reset feedback sims).
+- A fixed long-edge (720/1080/1440/2048) — same as Auto but at the chosen detail
+  (display aspect).
+- `-1` = **Match editor** — the explicit opt-in that adopts the editor's
+  preview-derived compute sizes and letterboxes to the editor's framing. This is the
+  mode for **exact feedback-sim matching** (state seeding requires equal dims), and
+  the only mode in which the preview affects the viewer — by design, since it *is*
+  "follow the editor".
 
-The output fragment always renders at the display backing res (a cheap blit); detail
-is the compute res, not output scale. Controls: editor "Viewer Res" dropdown + viewer
-`[` / `]` hotkeys.
+In every mode the packed resolution uniform (floats 0,1) is overridden to the
+receiver's actual texture size whenever it differs from the editor's, so UV/texel
+math (edge kernels, blur radii) stays correct. The output fragment always renders at
+the display backing res (a cheap blit); detail is the compute res, not output scale.
+Controls: editor "Viewer Res" dropdown + viewer `[` / `]` hotkeys (hotkeys step
+Auto/fixed presets; Match editor is dropdown-only).
 
 > **Important:** compute effects are **resolution-dependent**. Reaction-diffusion,
-> blur radius, edge thickness etc. change with the compute resolution. So a fixed
-> Viewer Res that differs from the editor makes feedback/compute look different from
-> the editor. Use **Match editor** to keep the look identical in scale.
+> blur radius, edge thickness etc. change with the compute resolution. A viewer
+> resolution that differs from the editor's makes feedback/compute look different in
+> scale — use **Match editor** to keep the look (and the sims, via state seeding)
+> identical.
 
 ## Aspect ratio
 
-The viewer letterboxes the native output to the **editor's** aspect ratio (black bars
-from the body background), matching the editor's framing instead of stretching to the
-display. Derived from the broadcast resolution; falls back to filling the display
-until the editor aspect is known.
+By default the viewer **fills its own display**: Auto/fixed compute textures are
+display-shaped by construction and fragments are resolution-independent, so there is
+nothing to letterbox and the editor's preview shape is irrelevant. Only **Match
+editor** letterboxes (black bars from the body background) — to the compute output
+texture's aspect for compute graphs, else to the editor's broadcast aspect — so the
+framing matches the editor.
 
 ## Performance notes
 
@@ -102,6 +118,19 @@ until the editor aspect is known.
 (node ids, kinds, **input wiring**, sizes) changes — not just on a WGSL change — so
 rewiring a compute node's input (e.g. connecting a node into ComputeEdgeDetect)
 updates the viewer live. The viewer's rebuild-dedup key includes `inputs`.
+
+**Control pins are excluded.** The Feedback nodes' Reset pin is a CPU-only control
+pin: its wiring is masked (to `null`, preserving pin indices) in the broadcast
+`inputs` and in the structure signature, and its scalar source (a Trigger, say) is
+never collected into `FRAGMENT_GRAPH`. Otherwise merely wiring a Trigger into a
+Reset pin rebuilt the receiver's compute graph — which cleared its feedback sims.
+
+**Feedback resets are mirrored.** The viewer replicates feedback sims independently,
+so resetting one in the editor (the panel's "Reset Feedback" button or a rising edge
+on the Reset pin — both funnel through `ComputeExecutor.resetNodeFeedback`)
+broadcasts `FEEDBACK_RESET { nodeId }` and the receiver clears its own copy of that
+sim. Textures restored by a project load also re-broadcast (`SaveLoadManager` calls
+the same `onTextureChanged` hook a fresh upload does).
 
 ## In-viewer controls
 
@@ -136,23 +165,38 @@ A compute node whose input is a GLSL/fragment node (e.g. a fragment pattern →
   **audio envelopes** are mirrored onto the viewer window so `=audioEnvelope`
   expressions evaluate the same.
 
-## Deferred / future work
+## Step-locked feedback (exact matching, fully native)
 
-- **Exact feedback matching.** Native feedback (reaction-diffusion, feedback trails,
-  fluid) runs as an **independent** simulation on the viewer. Two reasons it can look
-  different from the editor:
-  1. **Resolution** (primary, and controllable): a different Viewer Res changes the
-     pattern scale — use **Match editor** to avoid this.
-  2. **Chaotic divergence** (secondary): even with an identical deterministic seed and
-     the same resolution, the editor and viewer step the sim at slightly different
-     counts (independent pacing), and chaotic sims amplify any difference over time.
-  A deterministic seed (already in `ComputeShaderManager.initializeReactionDiffusion`)
-  makes t=0 identical but can't hold chaotic sims in sync. Options if exact matching
-  is wanted later:
-  - **Mirror pixels** — route feedback graphs to the pixel fallback (exact, but a
-    per-frame GPU→CPU canvas copy on the editor).
-  - **Mirror the feedback texture** — broadcast just that node's output each frame;
-    the viewer binds it and renders the rest natively (exact for feedback, lighter
-    than full-canvas mirror, more plumbing).
-  - **Step-lock** — drive the viewer's sim to dispatch 1:1 with the editor's frames so
-    the deterministic sims stay in lockstep (fully native, no copy, but complex).
+Feedback sims (reaction-diffusion, feedback trails, feedback fields) used to run as
+**independent** simulations on the viewer — free-running on its own clock, so a fast
+display over-advanced them, a slow editor under-fed them, and chaotic sims drifted
+visibly from the editor within seconds. They are now **step-locked and state-seeded**,
+which was the step-lock option previously listed under deferred work:
+
+- **One `COMPUTE_UNIFORMS` message = one sim step.** The editor's executor steps its
+  feedback sims once per rendered editor frame, and the state tap emits one snapshot
+  per render — so each message *is* one step. The viewer queues them and runs exactly
+  one executor pass per message, with **that step's exact uniform bytes**. On a frame
+  where no step arrived, `ComputeExecutor.holdDispatch` freezes every dispatch and the
+  blit re-presents the last result (a high-refresh display can no longer over-drive
+  the sim). A backlog (rAF jitter, slow display) is replayed up to 3 steps per frame,
+  each with its own uniforms, so the dispatch counts stay 1:1 with the editor; beyond
+  a 4-step queue the oldest steps drop (a persistently slower display trails rather
+  than the queue growing forever).
+- **State seeding on connect.** Opening the viewer mid-session (or any compute-graph
+  change, which rebuilds the receiver) broadcasts each feedback node's current sim
+  state — a one-shot readback of its next-read ping-pong texture (`FEEDBACK_STATE`) —
+  and the receiver uploads it into the same slot, so both sims evolve from the same
+  state, in the same steps, from that moment on. Each `COMPUTE_UNIFORMS` message
+  carries a step counter and the seed is stamped with the counter at capture, so the
+  receiver drops queued steps the seed already contains instead of replaying them on
+  top. Resets stay mirrored via `FEEDBACK_RESET`.
+
+Caveats: in the default Auto (and fixed) resolution modes the viewer renders sims at
+its own display resolution, so the pattern scale differs from the editor and the
+state seed is skipped (dimension mismatch) — sims are still step-locked (same rate,
+same resets) but evolve their own copy. Select **Viewer Res → Match editor** for
+byte-exact sim matching. ComputeWarp/ComputeMix allocate ping-pong but carry no
+cross-frame state, so they are excluded from seeding. Sims with state outside the
+ping-pong textures (e.g. particle storage buffers) seed approximately but remain
+step-locked.

@@ -239,6 +239,13 @@ describe('TauriSecondMonitorViewer', () => {
     channel.emit({ type: MSG.READY, webgpu: true });
     expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(1080);
 
+    // "Match editor" (-1) is a valid mode and survives a reconnect too.
+    viewer.setComputeResolution(-1);
+    expect(viewer.computeMaxDim).toBe(-1);
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(-1);
+
     await viewer.close();
   });
 
@@ -314,6 +321,11 @@ describe('TauriSecondMonitorViewer', () => {
     const cu = channel.posted.find((m) => m.type === MSG.COMPUTE_UNIFORMS);
     expect(cu?.nodes).toHaveLength(1);
     expect(Array.from(cu.nodes[0].packed)).toEqual([1, 2, 3]);
+    // One message = one sim step; the counter lets the receiver align state seeds.
+    expect(cu.step).toBe(1);
+    renderer.emitState(computeSnap('WGSL_C'));
+    const steps = channel.posted.filter((m) => m.type === MSG.COMPUTE_UNIFORMS).map((m) => m.step);
+    expect(steps).toEqual([1, 2]);
 
     await viewer.close();
   });
@@ -447,6 +459,131 @@ describe('TauriSecondMonitorViewer', () => {
 
     expect(channel.posted.some((m) => m.type === MSG.TEXTURE && m.nodeId === '3')).toBe(true);
     await viewer.close();
+  });
+
+  it('onFeedbackReset broadcasts FEEDBACK_RESET when active in native-compute', async () => {
+    stubComputeGlobals({ nodes: [{ id: '1', kind: 'ComputeFeedback', wgsl: 'F', width: 8, height: 8, supportsFeedback: true }] });
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+    renderer.emitState(computeSnap('W')); // enter native-compute
+    await flush();
+    channel.posted.length = 0;
+
+    viewer.onFeedbackReset('1');
+
+    expect(channel.posted.find((m) => m.type === MSG.FEEDBACK_RESET)?.nodeId).toBe('1');
+    await viewer.close();
+  });
+
+  it('broadcasts FEEDBACK_STATE for feedback sims (on graph broadcast and on READY)', async () => {
+    stubComputeGlobals({ nodes: [{ id: '1', kind: 'ComputeFeedback', wgsl: 'F', width: 8, height: 8, supportsFeedback: true }] });
+    const state = { width: 8, height: 8, data: new Uint8Array(8 * 8 * 4).fill(3) };
+    const mgr = window.computeExecutor.computeManagers.get('1');
+    mgr.supportsFeedback = true;
+    mgr.captureFeedbackState = vi.fn(async () => state);
+
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('W'));
+    await flush();
+    await flush();
+
+    // The sim's current state (next-read ping-pong texture) seeds the receiver,
+    // stamped with the step counter at capture time (before this frame's step
+    // message posts) so the receiver can drop steps the seed already contains.
+    const fs = channel.posted.find((m) => m.type === MSG.FEEDBACK_STATE);
+    expect(fs).toMatchObject({ nodeId: '1', width: 8, height: 8, step: 0 });
+    expect(fs.data).toBe(state.data);
+
+    // A late/reconnecting receiver (READY) gets the current state again.
+    channel.posted.length = 0;
+    channel.emit({ type: MSG.READY, webgpu: true });
+    await flush();
+    await flush();
+    expect(channel.posted.some((m) => m.type === MSG.FEEDBACK_STATE)).toBe(true);
+
+    await viewer.close();
+  });
+
+  it('onFeedbackReset is a no-op outside native-compute (receiver has no sim to clear)', async () => {
+    const renderer = makeFakeRenderer({ eligible: true });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+    renderer.emitState(snap('A')); // plain native tier
+    channel.posted.length = 0;
+
+    viewer.onFeedbackReset('1');
+
+    expect(channel.posted.some((m) => m.type === MSG.FEEDBACK_RESET)).toBe(false);
+    await viewer.close();
+  });
+
+  describe('control pins (Feedback Reset)', () => {
+    // A Feedback node: fragment node '9' on its Input pin, Trigger '5' on its
+    // Reset control pin (ComputeFeedback pinsIn[1] is control:true in NodeDefs).
+    const stubFeedbackWithTrigger = () => {
+      stubComputeGlobals({ nodes: [
+        { id: '2', kind: 'ComputeFeedback', wgsl: 'FB', width: 8, height: 8, supportsFeedback: true, inputs: ['9', '5'] },
+      ] });
+      global.window.graph = {
+        getNode: (id) => ({
+          9: { id: '9', kind: 'SimplexNoise', params: { scale: 5 }, inputs: [] },
+          5: { id: '5', kind: 'Trigger', params: { threshold: 0.5 }, inputs: [] },
+        })[String(id)] || null,
+      };
+    };
+
+    it('masks control-pin inputs in COMPUTE_GRAPH and never broadcasts their sources as fragment feeders', async () => {
+      stubFeedbackWithTrigger();
+      const renderer = makeFakeRenderer({ tier: 'native-compute' });
+      const viewer = new TauriSecondMonitorViewer(source, { renderer });
+      await viewer.open();
+      const channel = FakeBroadcastChannel.instances[0];
+
+      renderer.emitState(computeSnap('W'));
+      await flush();
+
+      // Reset pin masked to null — pin indices preserved for the receiver's executor.
+      const cg = channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH);
+      expect(cg?.nodes[0].inputs).toEqual(['9', null]);
+      // Only the real fragment feeder rides FRAGMENT_GRAPH; the Trigger is CPU-only.
+      const fg = channel.posted.find((m) => m.type === MSG.FRAGMENT_GRAPH);
+      expect(fg?.nodes.map((n) => n.id)).toEqual(['9']);
+
+      await viewer.close();
+    });
+
+    it('does not rebuild the receiver graph when the Reset pin is rewired (would clear its sims)', async () => {
+      stubFeedbackWithTrigger();
+      const renderer = makeFakeRenderer({ tier: 'native-compute' });
+      const viewer = new TauriSecondMonitorViewer(source, { renderer });
+      await viewer.open();
+      const channel = FakeBroadcastChannel.instances[0];
+      renderer.emitState(computeSnap('W'));
+      await flush();
+      channel.posted.length = 0;
+
+      // A different Trigger wired into the Reset pin — CPU-only, not a structure change.
+      window.computeNodeRegistry.get('2').node.inputs = ['9', '6'];
+      renderer.emitState(computeSnap('W'));
+
+      expect(channel.posted.some((m) => m.type === MSG.COMPUTE_GRAPH)).toBe(false);
+      expect(channel.posted.some((m) => m.type === MSG.FRAGMENT_GRAPH)).toBe(false);
+
+      // The texture input rewired — a real structure change the receiver must see.
+      window.computeNodeRegistry.get('2').node.inputs = ['3', '6'];
+      renderer.emitState(computeSnap('W'));
+      const cg = channel.posted.find((m) => m.type === MSG.COMPUTE_GRAPH);
+      expect(cg?.nodes[0].inputs).toEqual(['3', null]);
+
+      await viewer.close();
+    });
   });
 
   it('falls back to the pixel frame tap for a non-native graph', async () => {

@@ -2,44 +2,6 @@ import { MessagePriority } from './AsyncQueueManager.js';
 import { BackupStore } from './BackupStore.js';
 import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
 
-async function reinitializeWebGPUAfterLoad() {
-  try {
-    // Clean up any duplicate canvases
-    const allCanvases = document.querySelectorAll("#gpu-canvas");
-
-    if (allCanvases.length > 1) {
-      // Remove all but the first one
-      for (let i = 1; i < allCanvases.length; i++) {
-        allCanvases[i].remove();
-      }
-    }
-
-    // Get the remaining canvas
-    const canvas = document.getElementById("gpu-canvas");
-    if (!canvas) {
-      throw new Error("No GPU canvas found after cleanup");
-    }
-
-    // Force WebGPU reinitialization
-    const device = await initWebGPU(canvas);
-
-    if (device) {
-      // Force a shader update to test
-      updateShaderFromGraph();
-
-      return true;
-    } else {
-      throw new Error("Failed to reinitialize WebGPU");
-    }
-  } catch (error) {
-    window.errorHandler?.handleError(error, { 
-      component: 'webgpu-reinitialization',
-      context: 'after-file-load'
-    });
-    return false;
-  }
-}
-
 export class SaveLoadManager {
   constructor(editor, graph, updateCallback) {
     this.editor = editor;
@@ -264,6 +226,11 @@ async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
 
           // Invalidate bind group since we have new textures
           this.textureManager.bindGroup = null;
+
+          // An open second-monitor viewer keeps its own texture copies — re-broadcast
+          // the restored texture so a project load shows up there too (same hook
+          // FileInputHandler uses for a fresh upload).
+          window.secondMonitorViewer?.onTextureChanged?.(nodeId);
         }
 
         resolve();

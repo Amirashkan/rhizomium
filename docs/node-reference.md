@@ -1,22 +1,32 @@
 # Node Reference
 
-This document provides a comprehensive reference for all available nodes in the GLSL Node Editor. Nodes are organized by category and include detailed information about their inputs, outputs, parameters, and functionality.
+This document provides a comprehensive reference for all available nodes in Rhizomium. Nodes are organized by the same categories you see in the editor's add-node menu, and include detailed information about their inputs, outputs, parameters, and functionality.
+
+Two kinds of nodes exist side by side:
+
+- **Fragment nodes** compile directly into the fragment shader (Input, Output, Math, Vector, Transform, Blend, Texture, and the fragment members of Generators/Modifiers/Utility).
+- **Compute nodes** (names starting with "Compute", plus Voronoi, Gradient, Pattern, Kaleidoscope, and the Simulation nodes) run as separate GPU compute passes before the fragment shader and output a **texture**. They are marked "(Compute)" below. See the [Compute Nodes guide](compute-nodes.md) for how they fit into a graph.
 
 ## Table of Contents
 
 - [Input Nodes](#input-nodes)
 - [Output Nodes](#output-nodes)
-- [Field Nodes](#field-nodes)
 - [Math Nodes](#math-nodes)
+- [Vector Nodes](#vector-nodes)
+- [Generator Nodes](#generator-nodes)
+- [Transform Nodes](#transform-nodes)
+- [Modifier Nodes](#modifier-nodes)
+- [Effect Nodes](#effect-nodes)
+- [Simulation Nodes](#simulation-nodes)
 - [Utility Nodes](#utility-nodes)
 - [Blend Nodes](#blend-nodes)
-- [Transform Nodes](#transform-nodes)
+- [Texture Nodes](#texture-nodes)
 
 ---
 
 ## Input Nodes
 
-Input nodes provide constant values, runtime data sources, and texture sampling capabilities.
+Input nodes provide constant values and runtime data sources.
 
 ### Constant Values
 
@@ -111,8 +121,9 @@ Provides information about the current viewport resolution.
   - `width` (f32) - Viewport width in pixels
   - `height` (f32) - Viewport height in pixels
   - `aspect` (f32) - Aspect ratio (width/height)
-- **Parameters**: None
-- **Description**: Outputs various resolution metrics useful for aspect-correct scaling and responsive effects.
+- **Parameters**:
+  - `Mode` (select: Preview/Display, default: Preview) - Which resolution to report
+- **Description**: Outputs various resolution metrics useful for aspect-correct scaling and responsive effects. In **Preview** mode the values track the live render canvas size; in **Display** mode they are the monitor's actual native resolution, baked in at compile time (useful when driving an external/second-monitor viewer).
 
 #### Pi
 Provides the mathematical constant Pi.
@@ -134,7 +145,7 @@ Converts a continuous value into a pulse trigger.
   - `pulse` (f32) - Trigger pulse output (0 or 1)
 - **Parameters**:
   - `Threshold` (float, default: 0.5) - Activation threshold
-- **Description**: Outputs a pulse when the input crosses the threshold, useful for creating discrete events from continuous signals.
+- **Description**: Outputs a pulse when the input crosses the threshold, useful for creating discrete events from continuous signals. Pairs naturally with Hold, Count, and the Reset pin on the Feedback nodes.
 
 #### Hold
 Samples and holds an input value when triggered.
@@ -146,45 +157,36 @@ Samples and holds an input value when triggered.
 - **Outputs**:
   - `out` (f32) - Held value
 - **Parameters**:
+  - `Update` (select: Continuous/Once per trigger, default: Continuous) - When to sample
   - `Threshold` (float, default: 0.5) - Trigger threshold
-- **Description**: Captures and holds the input value when the pulse signal crosses the threshold.
+- **Description**: Sample-and-hold. Latches the `value` input while `pulse` crosses the threshold and keeps holding it after the pulse falls back to 0. **Continuous** re-samples every frame the pulse is high; **Once per trigger** samples a single time on the rising edge of each pulse and holds until the next one. The running value lives on the CPU and is streamed into the shader as a per-frame uniform.
 
-### Texture Sampling
-
-#### Texture 2D
-Samples a 2D texture image.
+#### Count
+A counter that advances on each trigger pulse.
 
 - **Category**: Input
 - **Inputs**:
-  - `UV` - Texture coordinates
+  - `pulse` (f32) - Trigger signal
 - **Outputs**:
-  - `RGBA` (vec4) - Full color with alpha
-  - `RGB` (vec3) - Color channels only
-  - `R` (f32) - Red channel
-  - `G` (f32) - Green channel
-  - `B` (f32) - Blue channel
-  - `A` (f32) - Alpha channel
+  - `count` (f32) - Current counter value
 - **Parameters**:
-  - `Image` (file) - Image file to load
-  - `Wrap U` (select: repeat/clamp/mirror, default: repeat) - Horizontal wrapping mode
-  - `Wrap V` (select: repeat/clamp/mirror, default: repeat) - Vertical wrapping mode
-  - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode
-- **Description**: Loads and samples a 2D texture image at the given UV coordinates, with configurable wrapping and filtering.
+  - `Step` (float, default: 1.0) - Amount added per pulse
+  - `Threshold` (float, default: 0.5) - Pulse detection threshold
+  - `Loop` (bool, default: false) - Wrap around the [Min, Max] range
+  - `Min` (float, default: 0.0) - Range minimum (used when Loop is on)
+  - `Max` (float, default: 10.0) - Range maximum (used when Loop is on)
+- **Description**: Advances by `Step` on each rising edge of the pulse input (when it crosses `Threshold`). With **Loop** enabled the count wraps around the [Min, Max] range instead of growing without bound. Like Hold, the running count is maintained on the CPU and streamed in as a per-frame uniform.
 
-#### Texture Cube
-Samples a cubemap texture.
+#### Random Value
+A clock-driven random number source.
 
 - **Category**: Input
-- **Inputs**:
-  - `Dir` - Direction vector for sampling
+- **Inputs**: None
 - **Outputs**:
-  - `RGBA` (vec4) - Full color with alpha
-  - `RGB` (vec3) - Color channels only
-  - `A` (f32) - Alpha channel
+  - `value` (f32) - Pseudo-random value in [0, 1]
 - **Parameters**:
-  - `Cubemap` (file) - Cubemap image file
-  - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode
-- **Description**: Samples a cubemap texture using a 3D direction vector, commonly used for environment mapping.
+  - `Speed` (float, default: 1.0) - How fast the value churns
+- **Description**: Outputs a time-driven pseudo-random value in the 0–1 range. Higher `Speed` produces a new-looking value more often. Distinct from the **Random** generator node, which produces a spatial random field over UV coordinates.
 
 ---
 
@@ -201,357 +203,6 @@ The final output node for the shader.
 - **Outputs**: None
 - **Parameters**: None
 - **Description**: Defines the final pixel color that will be rendered to the screen. Every shader graph must have exactly one Output node.
-
----
-
-## Field Nodes
-
-Field nodes generate procedural patterns, gradients, shapes, and noise functions.
-
-### Gradients
-
-#### Linear Gradient
-Generates a linear gradient pattern.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `Value` - Gradient value (0-1)
-- **Parameters**:
-  - `angle` (float, default: 0.0) - Gradient rotation angle
-  - `offset` (float, default: 0.0) - Gradient offset
-  - `scale` (float, default: 1.0) - Gradient scale
-  - `repeat` (boolean, default: false) - Enable gradient repetition
-- **Description**: Creates a linear gradient that can be rotated, scaled, and optionally repeated across the surface.
-
-#### Radial Gradient
-Generates a radial gradient pattern.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `Value` - Gradient value (0-1)
-- **Parameters**:
-  - `centerX` (float, default: 0.5) - Center X position
-  - `centerY` (float, default: 0.5) - Center Y position
-  - `radius` (float, default: 0.5) - Gradient radius
-  - `falloff` (float, default: 1.0) - Falloff exponent
-  - `invert` (boolean, default: false) - Invert gradient direction
-- **Description**: Creates a circular gradient emanating from a center point with controllable falloff.
-
-#### Angular Gradient
-Generates an angular (circular sweep) gradient.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `Value` - Gradient value (0-1)
-- **Parameters**:
-  - `centerX` (float, default: 0.5) - Center X position
-  - `centerY` (float, default: 0.5) - Center Y position
-  - `rotation` (float, default: 0.0) - Rotation offset
-  - `repeat` (float, default: 1.0) - Number of repetitions
-- **Description**: Creates a gradient that sweeps around a center point in a circular motion.
-
-#### Conic Gradient
-Generates a conic gradient with angular range control.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `Value` - Gradient value (0-1)
-- **Parameters**:
-  - `centerX` (float, default: 0.5) - Center X position
-  - `centerY` (float, default: 0.5) - Center Y position
-  - `startAngle` (float, default: 0.0) - Starting angle in degrees
-  - `endAngle` (float, default: 360) - Ending angle in degrees
-  - `smoothness` (float, default: 0.0) - Edge smoothing amount
-- **Description**: Creates a gradient that sweeps between specified start and end angles with smooth transitions.
-
-#### Color Ramp
-Maps values to colors using a gradient with control points.
-
-- **Category**: Field
-- **Inputs**:
-  - `Value` - Input value to map (0-1)
-- **Outputs**:
-  - `Color` - Resulting color
-- **Parameters**:
-  - `stops` (colorstops) - Color gradient stops with positions
-  - `mode` (select: Linear/Step/Smooth, default: Linear) - Interpolation mode
-- **Description**: Converts scalar values into colors by interpolating through a user-defined color gradient with multiple control points.
-
-### Pattern Generators
-
-#### Checker
-Generates a checkerboard pattern.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Pattern value (0 or 1)
-- **Parameters**:
-  - `Scale X` (float, default: 8.0) - Horizontal tile count
-  - `Scale Y` (float, default: 8.0) - Vertical tile count
-  - `Smoothness` (float, default: 0.0) - Edge antialiasing amount
-- **Description**: Creates an alternating checkerboard pattern with adjustable grid size and optional smoothing.
-
-#### Stripe
-Generates parallel stripe patterns.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Pattern value (0-1)
-- **Parameters**:
-  - `Frequency` (float, default: 5.0) - Number of stripes
-  - `Angle` (float, default: 0.0) - Stripe rotation angle
-  - `Thickness` (float, default: 0.5) - Stripe width ratio
-  - `Smoothness` (float, default: 0.0) - Edge antialiasing
-- **Description**: Creates parallel stripes that can be rotated, with adjustable frequency and thickness.
-
-### Shape Generators
-
-#### Circle
-Generates a circular shape or distance field.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Shape value (0 inside, 1 outside)
-- **Parameters**:
-  - `Center X` (float, default: 0.5) - Circle center X
-  - `Center Y` (float, default: 0.5) - Circle center Y
-  - `Radius` (float, default: 0.25) - Circle radius
-  - `Smoothness` (float, default: 0.01) - Edge softness
-  - `Invert` (bool, default: false) - Invert inside/outside
-- **Description**: Creates a circular shape with smooth edges, can be used as a mask or distance field.
-
-#### Rectangle
-Generates a rectangular shape.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Shape value (0 inside, 1 outside)
-- **Parameters**:
-  - `Center X` (float, default: 0.5) - Rectangle center X
-  - `Center Y` (float, default: 0.5) - Rectangle center Y
-  - `Width` (float, default: 0.5) - Rectangle width
-  - `Height` (float, default: 0.5) - Rectangle height
-  - `Roundness` (float, default: 0.0) - Corner rounding amount
-  - `Smoothness` (float, default: 0.01) - Edge softness
-  - `Invert` (bool, default: false) - Invert inside/outside
-- **Description**: Creates a rectangular shape with optional rounded corners and smooth edges.
-
-#### Polygon
-Generates a regular polygon shape.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Shape value (0 inside, 1 outside)
-- **Parameters**:
-  - `Center X` (float, default: 0.5) - Polygon center X
-  - `Center Y` (float, default: 0.5) - Polygon center Y
-  - `Sides` (int, default: 6) - Number of sides
-  - `Radius` (float, default: 0.25) - Polygon radius
-  - `Rotation` (float, default: 0.0) - Rotation angle
-  - `Smoothness` (float, default: 0.01) - Edge softness
-  - `Invert` (bool, default: false) - Invert inside/outside
-- **Description**: Creates regular polygons (triangle, hexagon, etc.) with adjustable sides, rotation, and smooth edges.
-
-### Noise Functions
-
-#### Random
-Generates pseudo-random values.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Random value
-- **Parameters**:
-  - `Seed` (float, default: 1.0) - Random seed value
-  - `Scale` (float, default: 1.0) - Scale of randomness
-- **Description**: Generates pseudo-random values based on UV coordinates, useful for adding randomness to patterns.
-
-#### Value Noise
-Generates smooth value noise.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Noise value
-- **Parameters**:
-  - `Scale` (float, default: 5.0) - Noise frequency
-  - `Amplitude` (float, default: 1.0) - Noise intensity
-  - `Offset` (float, default: 0.0) - Value offset
-  - `Power` (float, default: 1.0) - Power curve adjustment
-- **Description**: Simple interpolated noise between random values at grid points.
-
-#### Perlin Noise
-Generates classic Perlin gradient noise.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Noise value
-- **Parameters**:
-  - `Scale` (float, default: 5.0) - Noise frequency
-  - `Amplitude` (float, default: 1.0) - Noise intensity
-  - `Offset` (float, default: 0.0) - Value offset
-- **Description**: Classic Perlin noise algorithm producing smooth, natural-looking noise patterns.
-
-#### Simplex Noise
-Generates Simplex noise with optional variations.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Noise value
-- **Parameters**:
-  - `Scale` (float, default: 4.0) - Noise frequency
-  - `Amplitude` (float, default: 1.0) - Noise intensity
-  - `Offset` (float, default: 0.0) - Value offset
-  - `Ridge Mode` (bool, default: false) - Enable ridge noise
-  - `Turbulence` (bool, default: false) - Enable turbulence mode
-- **Description**: Modern Simplex noise with better performance than Perlin, includes ridge and turbulence variations.
-
-#### FBM Noise
-Generates Fractional Brownian Motion noise.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Noise value
-- **Parameters**:
-  - `Scale` (float, default: 3.0) - Base frequency
-  - `Octaves` (int, default: 4) - Number of noise layers
-  - `Persistence` (float, default: 0.5) - Amplitude decay per octave
-  - `Lacunarity` (float, default: 2.0) - Frequency increase per octave
-  - `Amplitude` (float, default: 1.0) - Overall intensity
-  - `Offset` (float, default: 0.0) - Value offset
-  - `Gain` (float, default: 0.5) - Octave gain factor
-  - `Warp` (float, default: 0.0) - Domain warping amount
-- **Description**: Layered noise with multiple octaves creating complex, natural-looking patterns like clouds or terrain.
-
-#### Voronoi Noise
-Generates cellular Voronoi patterns.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `F1` (f32) - Distance to closest cell
-  - `F2` (f32) - Distance to second closest cell
-  - `cells` (vec2) - Cell center coordinates
-- **Parameters**:
-  - `Scale` (float, default: 8.0) - Cell density
-  - `Randomness` (float, default: 1.0) - Cell point randomization
-  - `Distance Type` (float, default: 2.0) - Minkowski distance parameter
-  - `Smoothness` (float, default: 0.0) - Cell edge smoothing
-  - `Cell Type` (int, default: 0) - Cell pattern variation
-  - `Output Type` (int, default: 0) - Output mode selection
-- **Description**: Creates cellular patterns based on distances to randomly distributed points, useful for tiles, cells, and stone textures.
-
-#### Ridged Noise
-Generates ridged multi-fractal noise.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Noise value
-- **Parameters**:
-  - `Scale` (float, default: 4.0) - Base frequency
-  - `Octaves` (int, default: 6) - Number of layers
-  - `Lacunarity` (float, default: 2.0) - Frequency multiplier
-  - `Gain` (float, default: 0.5) - Amplitude multiplier
-  - `Amplitude` (float, default: 1.0) - Overall intensity
-  - `Offset` (float, default: 1.0) - Ridge offset
-  - `Threshold` (float, default: 0.0) - Ridge threshold
-- **Description**: Specialized noise creating sharp ridges and valleys, ideal for mountainous terrain.
-
-#### Warp Noise
-Generates domain-warped noise.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Warped noise value
-- **Parameters**:
-  - `Scale` (float, default: 3.0) - Base noise frequency
-  - `Warp Scale` (float, default: 2.0) - Warp noise frequency
-  - `Warp Strength` (float, default: 0.1) - Warping intensity
-  - `Octaves` (int, default: 3) - Number of noise layers
-  - `Amplitude` (float, default: 1.0) - Overall intensity
-- **Description**: Applies domain warping to create swirling, organic noise patterns.
-
-### Cell-Based Patterns
-
-#### Worley Noise
-Generates Worley (cellular) noise.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `F1` (f32) - Distance to nearest point
-  - `F2` (f32) - Distance to second nearest point
-  - `Combined` (f32) - Combined distance metric
-- **Parameters**:
-  - `Scale` (float, default: 8.0) - Point density
-  - `Jitter` (float, default: 1.0) - Point randomization
-  - `Distance Metric` (select: euclidean/manhattan/chebyshev/minkowski, default: euclidean) - Distance calculation method
-  - `Minkowski P` (float, default: 2.0) - Minkowski distance parameter
-- **Description**: Creates cellular patterns based on distances to random points using various distance metrics.
-
-#### Cell Noise
-Generates simple cell-based patterns.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Texture coordinates
-- **Outputs**:
-  - `out` (f32) - Cell pattern value
-  - `cellID` (vec2) - Cell identifier coordinates
-- **Parameters**:
-  - `Scale` (float, default: 8.0) - Cell density
-  - `Randomness` (float, default: 1.0) - Cell value variation
-  - `Smooth` (bool, default: false) - Enable smooth interpolation
-- **Description**: Simple cellular pattern generator with optional smoothing and cell identification output.
-
-### Field Utilities
-
-#### Displacement
-Displaces UV coordinates based on an offset field.
-
-- **Category**: Field
-- **Inputs**:
-  - `UV` - Base texture coordinates
-  - `Offset` - Displacement amount/direction
-- **Outputs**:
-  - `out` (vec2) - Displaced UV coordinates
-- **Parameters**:
-  - `Strength` (float, default: 0.2) - Displacement intensity
-  - `Center Input` (boolean, default: true) - Center the offset range (-0.5 to 0.5)
-  - `Wrap UV` (boolean, default: false) - Wrap coordinates at boundaries
-- **Description**: Distorts UV coordinates based on an input field, useful for creating refraction, ripples, or warping effects.
 
 ---
 
@@ -1044,9 +695,921 @@ Refracts a vector through a surface.
 
 ---
 
+## Vector Nodes
+
+Vector nodes construct and deconstruct vectors, and rearrange their components.
+
+#### Split Vec2
+Splits a 2D vector into its components.
+
+- **Category**: Vector
+- **Inputs**:
+  - `Vec` - Input vector (vec2)
+- **Outputs**:
+  - `x` (f32) - X component
+  - `y` (f32) - Y component
+- **Description**: Extracts the individual components of a vec2. Commonly used to work with UV coordinates separately.
+
+#### Split Vec3
+Splits a 3D vector into its components.
+
+- **Category**: Vector
+- **Inputs**:
+  - `Vec` - Input vector (vec3)
+- **Outputs**:
+  - `x` (f32) - X component
+  - `y` (f32) - Y component
+  - `z` (f32) - Z component
+- **Description**: Extracts the individual components of a vec3, e.g. the R/G/B channels of a color.
+
+#### Split Vec4
+Splits a 4D vector into its components.
+
+- **Category**: Vector
+- **Inputs**:
+  - `Vec` - Input vector (vec4)
+- **Outputs**:
+  - `x` (f32) - X component
+  - `y` (f32) - Y component
+  - `z` (f32) - Z component
+  - `w` (f32) - W component
+- **Description**: Extracts the individual components of a vec4. Use it after a Texture 2D node to access individual R/G/B/A channels.
+
+#### Combine Vec2
+Builds a 2D vector from scalars.
+
+- **Category**: Vector
+- **Inputs**:
+  - `x` (f32) - X component
+  - `y` (f32) - Y component
+- **Outputs**:
+  - `out` (vec2) - Combined vector
+- **Description**: Assembles two scalar values into a vec2.
+
+#### Combine Vec3
+Builds a 3D vector from scalars.
+
+- **Category**: Vector
+- **Inputs**:
+  - `x` (f32) - X component
+  - `y` (f32) - Y component
+  - `z` (f32) - Z component
+- **Outputs**:
+  - `out` (vec3) - Combined vector
+- **Description**: Assembles three scalar values into a vec3, e.g. to build an RGB color from separate channels.
+
+#### Combine Vec4
+Builds a 4D vector from scalars.
+
+- **Category**: Vector
+- **Inputs**:
+  - `x` (f32) - X component
+  - `y` (f32) - Y component
+  - `z` (f32) - Z component
+  - `w` (f32) - W component
+- **Outputs**:
+  - `out` (vec4) - Combined vector
+- **Description**: Assembles four scalar values into a vec4 (e.g. RGBA).
+
+#### Swizzle
+Rearranges vector components.
+
+- **Category**: Vector
+- **Inputs**:
+  - `Vec` - Input vector
+- **Outputs**:
+  - `out` (vec3) - Swizzled vector
+- **Parameters**:
+  - `Pattern` (select: xyz/xzy/yxz/yzx/zxy/zyx/xxx/yyy/zzz, default: xyz) - Component ordering
+- **Description**: Reorders (or duplicates) the components of a vector according to the selected pattern.
+
+---
+
+## Generator Nodes
+
+Generator nodes create procedural content: gradients, shapes, and noise. The category contains both fragment nodes and compute nodes.
+
+> Basic patterns (checkerboard, stripes) and the common gradients (linear, radial, angular) are provided by the **Pattern** and **Gradient** compute nodes below.
+
+### Gradients & Ramps
+
+#### Conic Gradient
+Generates a conic gradient with angular range control.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `Value` - Gradient value (0-1)
+- **Parameters**:
+  - `centerX` (float, default: 0.5) - Center X position
+  - `centerY` (float, default: 0.5) - Center Y position
+  - `startAngle` (float, default: 0.0) - Starting angle in radians
+  - `endAngle` (float, default: 6.283) - Ending angle in radians (2π = full circle)
+  - `smoothness` (float, default: 0.0) - Edge smoothing amount
+- **Description**: Creates a gradient that sweeps between specified start and end angles with smooth transitions.
+
+#### Color Ramp
+Maps values to colors using a gradient with control points.
+
+- **Category**: Generators
+- **Inputs**:
+  - `Value` - Input value to map (0-1)
+- **Outputs**:
+  - `Color` - Resulting color
+- **Parameters**:
+  - `stops` (colorstops) - Color gradient stops with positions
+  - `mode` (select: Linear/Step/Smooth, default: Linear) - Interpolation mode
+- **Description**: Converts scalar values into colors by interpolating through a user-defined color gradient with multiple control points.
+
+#### Gradient (Compute)
+Generates linear, radial, angular, and diamond gradients as a texture.
+
+- **Category**: Generators
+- **Inputs**: None
+- **Outputs**:
+  - `Texture` - Gradient texture
+- **Parameters**:
+  - `type` (select: Linear/Radial/Angular/Diamond, default: Linear) - Gradient shape
+  - `angle` (float, default: 0.0, range: 0-360) - Gradient rotation (Linear)
+  - `centerX` / `centerY` (float, default: 0.5) - Center position
+  - `radius` (float, default: 0.5, range: 0-2) - Radius (Radial)
+  - `repeat` (int, default: 1, range: 1-20) - Number of repetitions
+  - `reverse` (boolean, default: false) - Reverse gradient direction
+  - `colorMode` (select: Grayscale/Rainbow/Gradient, default: Grayscale) - Coloring mode
+  - `saturation` (float, default: 0.8) / `brightness` (float, default: 1.0) - Rainbow mode controls
+  - `colorStops` (colorstops) - Custom color stops (Gradient mode)
+  - `interpolation` (select: Linear/Step/Smooth, default: Linear) - Stop interpolation
+- **Description**: The one-stop gradient generator. Replaces the former Linear/Radial/Angular Gradient fragment nodes, with a visual color-stop editor.
+
+### Shape Generators
+
+#### Circle
+Generates a circular shape or distance field.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (f32) - Shape value (0 inside, 1 outside)
+- **Parameters**:
+  - `Center X` (float, default: 0.5) - Circle center X
+  - `Center Y` (float, default: 0.5) - Circle center Y
+  - `Radius` (float, default: 0.25) - Circle radius
+  - `Smoothness` (float, default: 0.01) - Edge softness
+  - `Invert` (bool, default: false) - Invert inside/outside
+- **Description**: Creates a circular shape with smooth edges, can be used as a mask or distance field.
+
+#### Rectangle
+Generates a rectangular shape.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (f32) - Shape value (0 inside, 1 outside)
+- **Parameters**:
+  - `Center X` (float, default: 0.5) - Rectangle center X
+  - `Center Y` (float, default: 0.5) - Rectangle center Y
+  - `Width` (float, default: 0.5) - Rectangle width
+  - `Height` (float, default: 0.5) - Rectangle height
+  - `Roundness` (float, default: 0.0) - Corner rounding amount
+  - `Smoothness` (float, default: 0.01) - Edge softness
+  - `Invert` (bool, default: false) - Invert inside/outside
+- **Description**: Creates a rectangular shape with optional rounded corners and smooth edges.
+
+#### Polygon
+Generates a regular polygon shape.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (f32) - Shape value (0 inside, 1 outside)
+- **Parameters**:
+  - `Center X` (float, default: 0.5) - Polygon center X
+  - `Center Y` (float, default: 0.5) - Polygon center Y
+  - `Sides` (int, default: 6) - Number of sides
+  - `Radius` (float, default: 0.25) - Polygon radius
+  - `Rotation` (float, default: 0.0) - Rotation angle
+  - `Smoothness` (float, default: 0.01) - Edge softness
+  - `Invert` (bool, default: false) - Invert inside/outside
+- **Description**: Creates regular polygons (triangle, hexagon, etc.) with adjustable sides, rotation, and smooth edges.
+
+#### Pattern (Compute)
+Generates tiled procedural patterns as a texture.
+
+- **Category**: Generators
+- **Inputs**: None
+- **Outputs**:
+  - `Texture` - Pattern texture
+- **Parameters**:
+  - `type` (select: Checkerboard/Stripes/Dots/Grid/Hexagon/Brick, default: Checkerboard) - Pattern type
+  - `scaleX` / `scaleY` (float, default: 8.0, range: 0.1-100) - Tile counts
+  - `rotation` (float, default: 0.0, range: 0-360) - Pattern rotation
+  - `thickness` (float, default: 0.5, range: 0-1) - Element thickness/ratio
+  - `smoothness` (float, default: 0.01, range: 0-0.5) - Edge antialiasing
+- **Description**: The one-stop tiling pattern generator. Replaces the former Checker and Stripe fragment nodes and adds dots, grid, hexagon, and brick layouts.
+
+### Noise Functions
+
+#### Random
+Generates pseudo-random values.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (vec3) - Random value
+- **Parameters**:
+  - `Seed` (float, default: 1.0) - Random seed value
+  - `Scale` (float, default: 1.0) - Scale of randomness
+- **Description**: Generates a spatial pseudo-random field based on UV coordinates, useful for adding randomness to patterns. For a time-driven random number, use the **Random Value** input node instead.
+
+#### Value Noise
+Generates smooth value noise.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (vec3) - Noise value
+- **Parameters**:
+  - `Scale` (float, default: 5.0) - Noise frequency
+  - `Amplitude` (float, default: 1.0) - Noise intensity
+  - `Offset` (float, default: 0.0) - Value offset
+  - `Power` (float, default: 1.0) - Power curve adjustment
+- **Description**: Simple interpolated noise between random values at grid points.
+
+#### Perlin Noise
+Generates classic Perlin gradient noise.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (vec3) - Noise value
+- **Parameters**:
+  - `Scale` (float, default: 5.0) - Noise frequency
+  - `Amplitude` (float, default: 1.0) - Noise intensity
+  - `Offset` (float, default: 0.0) - Value offset
+- **Description**: Classic Perlin noise algorithm producing smooth, natural-looking noise patterns.
+
+#### Simplex Noise
+Generates Simplex noise with optional variations.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (vec3) - Noise value
+- **Parameters**:
+  - `Scale` (float, default: 4.0) - Noise frequency
+  - `Amplitude` (float, default: 1.0) - Noise intensity
+  - `Offset` (float, default: 0.0) - Value offset
+  - `Ridge Mode` (bool, default: false) - Enable ridge noise
+  - `Turbulence` (bool, default: false) - Enable turbulence mode
+- **Description**: Modern Simplex noise with better performance than Perlin, includes ridge and turbulence variations.
+
+#### FBM Noise
+Generates Fractional Brownian Motion noise.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (vec3) - Noise value
+- **Parameters**:
+  - `Scale` (float, default: 3.0) - Base frequency
+  - `Octaves` (int, default: 4) - Number of noise layers
+  - `Persistence` (float, default: 0.5) - Amplitude decay per octave
+  - `Lacunarity` (float, default: 2.0) - Frequency increase per octave
+  - `Amplitude` (float, default: 1.0) - Overall intensity
+  - `Offset` (float, default: 0.0) - Value offset
+  - `Gain` (float, default: 0.5) - Octave gain factor
+  - `Warp` (float, default: 0.0) - Domain warping amount
+- **Description**: Layered noise with multiple octaves creating complex, natural-looking patterns like clouds or terrain.
+
+#### Voronoi Noise
+Generates cellular Voronoi patterns.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `F1` (f32) - Distance to closest cell
+  - `F2` (f32) - Distance to second closest cell
+  - `cells` (vec2) - Cell center coordinates
+- **Parameters**:
+  - `Scale` (float, default: 8.0) - Cell density
+  - `Randomness` (float, default: 1.0) - Cell point randomization
+  - `Distance Type` (float, default: 2.0) - Minkowski distance parameter
+  - `Smoothness` (float, default: 0.0) - Cell edge smoothing
+  - `Cell Type` (int, default: 0) - Cell pattern variation
+  - `Output Type` (int, default: 0) - Output mode selection
+- **Description**: Creates cellular patterns based on distances to randomly distributed points, useful for tiles, cells, and stone textures.
+
+#### Ridged Noise
+Generates ridged multi-fractal noise.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (vec3) - Noise value
+- **Parameters**:
+  - `Scale` (float, default: 4.0) - Base frequency
+  - `Octaves` (int, default: 6) - Number of layers
+  - `Lacunarity` (float, default: 2.0) - Frequency multiplier
+  - `Gain` (float, default: 0.5) - Amplitude multiplier
+  - `Amplitude` (float, default: 1.0) - Overall intensity
+  - `Offset` (float, default: 1.0) - Ridge offset
+  - `Threshold` (float, default: 0.0) - Ridge threshold
+- **Description**: Specialized noise creating sharp ridges and valleys, ideal for mountainous terrain.
+
+#### Warp Noise
+Generates domain-warped noise.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (vec3) - Warped noise value
+- **Parameters**:
+  - `Scale` (float, default: 3.0) - Base noise frequency
+  - `Warp Scale` (float, default: 2.0) - Warp noise frequency
+  - `Warp Strength` (float, default: 0.1) - Warping intensity
+  - `Octaves` (int, default: 3) - Number of noise layers
+  - `Amplitude` (float, default: 1.0) - Overall intensity
+- **Description**: Applies domain warping to create swirling, organic noise patterns.
+
+#### Worley Noise
+Generates Worley (cellular) noise.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `F1` (f32) - Distance to nearest point
+  - `F2` (f32) - Distance to second nearest point
+  - `Combined` (f32) - Combined distance metric
+- **Parameters**:
+  - `Scale` (float, default: 8.0) - Point density
+  - `Jitter` (float, default: 1.0) - Point randomization
+  - `Distance Metric` (select: euclidean/manhattan/chebyshev/minkowski, default: euclidean) - Distance calculation method
+  - `Minkowski P` (float, default: 2.0) - Minkowski distance parameter
+- **Description**: Creates cellular patterns based on distances to random points using various distance metrics.
+
+#### Cell Noise
+Generates simple cell-based patterns.
+
+- **Category**: Generators
+- **Inputs**:
+  - `UV` - Texture coordinates
+- **Outputs**:
+  - `out` (f32) - Cell pattern value
+  - `cellID` (vec2) - Cell identifier coordinates
+- **Parameters**:
+  - `Scale` (float, default: 8.0) - Cell density
+  - `Randomness` (float, default: 1.0) - Cell value variation
+  - `Smooth` (bool, default: false) - Enable smooth interpolation
+- **Description**: Simple cellular pattern generator with optional smoothing and cell identification output.
+
+#### Compute Noise (Compute)
+Generates animated procedural noise as a texture.
+
+- **Category**: Generators
+- **Inputs**: None
+- **Outputs**:
+  - `Texture` - Noise texture
+- **Parameters**:
+  - `scale` (float, default: 8.0, range: 0.1-50) - Noise frequency
+  - `octaves` (int, default: 5, range: 1-8) - Detail layers
+  - `speed` (float, default: 0.1, range: 0-2) - Animation speed
+  - `colorize` (boolean, default: true) - Color output
+  - `resolution` (select: 256/512/1024, default: 512) - Output texture size
+- **Description**: Fractal Brownian Motion noise computed in a compute pass, ideal for animated backgrounds and organic textures.
+
+#### Voronoi (Compute)
+Generates Voronoi diagrams and Worley noise as a texture.
+
+- **Category**: Generators
+- **Inputs**: None
+- **Outputs**:
+  - `Texture` - Voronoi texture
+- **Parameters**:
+  - `mode` (select: Cells/Distance/Borders/Worley, default: Cells) - Output mode
+  - `scale` (float, default: 8.0, range: 0.1-50) - Cell density
+  - `pointCount` (int, default: 16, range: 4-64) - Number of feature points
+  - `distanceMetric` (select: Euclidean/Manhattan/Chebyshev/Minkowski, default: Euclidean) - Distance calculation
+  - `seed` (float, default: 0.0) - Randomization seed
+  - `animate` (boolean, default: true) - Animate the points
+  - `speed` (float, default: 0.1, range: 0-2) - Animation speed
+- **Description**: GPU-computed cellular patterns with animated feature points.
+
+---
+
+## Transform Nodes
+
+Transform nodes manipulate UV coordinates for texture mapping, distortion, and coordinate space conversions.
+
+**Context-aware texture pin**: Most transform nodes have two input pins — `UV (opt.)` and `Texture`. When the `Texture` pin is connected to a compute node or Texture 2D node, the transform is applied to the sampling UV and the node outputs a vec4 color directly. When no texture is connected, the node behaves as a pure UV modifier (vec2 output) that feeds into downstream texture samplers. Use the **Transform** compute node instead when you need to transform a compute texture without any downstream texture sampler.
+
+> Kaleidoscope is now a compute node — see [Effect Nodes](#effect-nodes).
+
+### Basic Transforms
+
+#### Transform 2D
+Applies combined transformation to UV coordinates.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input coordinates
+  - `Texture` - Optional texture to sample with the transformed UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Transformed coordinates or sampled color
+- **Parameters**:
+  - `Translate X` (float, default: 0.0) - Horizontal offset
+  - `Translate Y` (float, default: 0.0) - Vertical offset
+  - `Scale X` (float, default: 1.0) - Horizontal scale
+  - `Scale Y` (float, default: 1.0) - Vertical scale
+  - `Rotation` (float, default: 0.0) - Rotation angle in degrees
+  - `Center X` (float, default: 0.5) - Transform center X
+  - `Center Y` (float, default: 0.5) - Transform center Y
+- **Description**: Combines translation, rotation, and scaling transformations around a specified center point.
+
+#### Scale 2D
+Scales UV coordinates.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input coordinates
+  - `Texture` - Optional texture to sample with the transformed UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Scaled coordinates or sampled color
+- **Parameters**:
+  - `Scale X` (float, default: 1.0) - Horizontal scale factor
+  - `Scale Y` (float, default: 1.0) - Vertical scale factor
+  - `Center X` (float, default: 0.5) - Scale center X
+  - `Center Y` (float, default: 0.5) - Scale center Y
+- **Description**: Scales UV coordinates around a center point. Values > 1 zoom in, values < 1 zoom out.
+
+#### Rotate 2D
+Rotates UV coordinates.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input coordinates
+  - `Texture` - Optional texture to sample with the transformed UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Rotated coordinates or sampled color
+- **Parameters**:
+  - `Rotation` (float, default: 0.0) - Rotation angle in degrees
+  - `Center X` (float, default: 0.5) - Rotation center X
+  - `Center Y` (float, default: 0.5) - Rotation center Y
+- **Description**: Rotates UV coordinates around a center point.
+
+#### Tile and Offset
+Applies tiling and offset to UV coordinates.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input coordinates
+  - `Texture` - Optional texture to sample with the transformed UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Tiled and offset coordinates or sampled color
+- **Parameters**:
+  - `Tiling X` (float, default: 1.0) - Horizontal repeat count
+  - `Tiling Y` (float, default: 1.0) - Vertical repeat count
+  - `Offset X` (float, default: 0.0) - Horizontal offset
+  - `Offset Y` (float, default: 0.0) - Vertical offset
+- **Description**: Classic UV tiling and offset operation. Tiling creates repeating patterns, offset shifts them.
+
+#### Flip 2D
+Flips UV coordinates horizontally and/or vertically.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input coordinates
+  - `Texture` - Optional texture to sample with the transformed UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Flipped coordinates or sampled color
+- **Parameters**:
+  - `Flip X` (bool, default: false) - Flip horizontally
+  - `Flip Y` (bool, default: false) - Flip vertically
+- **Description**: Mirrors UV coordinates along horizontal and/or vertical axes.
+
+### Coordinate Conversion
+
+#### UV to Color
+Converts UV coordinates to a color for visualization.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV` - Input coordinates
+- **Outputs**:
+  - `out` (vec3) - Color representation of UV
+- **Description**: Visualizes UV coordinates as colors (U=Red, V=Green). Useful for debugging UV layouts.
+
+#### Polar Coordinates
+Converts Cartesian coordinates to polar coordinates.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input Cartesian coordinates
+  - `Texture` - Optional texture to sample with the converted UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Polar coordinates (angle, radius) or sampled color
+- **Parameters**:
+  - `Center X` (float, default: 0.5) - Polar center X
+  - `Center Y` (float, default: 0.5) - Polar center Y
+  - `Radial Scale` (float, default: 1.0) - Radius scaling
+  - `Angular Scale` (float, default: 1.0) - Angle scaling
+- **Description**: Converts to polar coordinate system. Creates radial patterns and circular warping effects.
+
+### Distortion Effects
+
+#### Spherize
+Applies spherical distortion to UV coordinates.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input coordinates
+  - `Texture` - Optional texture to sample with the distorted UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Spherized coordinates or sampled color
+- **Parameters**:
+  - `Center X` (float, default: 0.5) - Effect center X
+  - `Center Y` (float, default: 0.5) - Effect center Y
+  - `Strength` (float, default: 0.5) - Distortion strength
+  - `Radius` (float, default: 0.5) - Effect radius
+- **Description**: Creates a spherical bulge or pinch distortion effect.
+
+#### Twirl
+Applies twisting/swirling distortion to UV coordinates.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV (opt.)` - Input coordinates
+  - `Texture` - Optional texture to sample with the distorted UV
+- **Outputs**:
+  - `out` (vec2, or vec4 when a texture is connected) - Twirled coordinates or sampled color
+- **Parameters**:
+  - `Center X` (float, default: 0.5) - Twirl center X
+  - `Center Y` (float, default: 0.5) - Twirl center Y
+  - `Strength` (float, default: 1.0) - Rotation intensity
+  - `Radius` (float, default: 0.5) - Effect radius
+- **Description**: Creates a spiral/vortex distortion effect, rotating UVs around a center point.
+
+#### Displacement
+Displaces UV coordinates based on an offset field.
+
+- **Category**: Transform
+- **Inputs**:
+  - `UV` - Base texture coordinates
+  - `Offset` - Displacement amount/direction
+- **Outputs**:
+  - `out` (vec2) - Displaced UV coordinates
+- **Parameters**:
+  - `Strength` (float, default: 0.2) - Displacement intensity
+  - `Center Input` (boolean, default: true) - Center the offset range (-0.5 to 0.5)
+  - `Wrap UV` (boolean, default: false) - Wrap coordinates at boundaries
+- **Description**: Distorts UV coordinates based on an input field, useful for creating refraction, ripples, or warping effects.
+
+---
+
+## Modifier Nodes
+
+Modifier nodes adjust and process existing colors and textures. The category contains fragment color nodes and compute image-processing nodes.
+
+> Simple brightness/contrast/saturation adjustments and HSV conversions are provided by the **Color Adjust** and **HSV** compute nodes.
+
+### Fragment Color Nodes
+
+#### To Grayscale
+Converts a color to grayscale.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Color` - Input color (vec3)
+- **Outputs**:
+  - `out` (f32) - Grayscale value
+- **Parameters**:
+  - `Method` (select: luminance/average/lightness, default: luminance) - Conversion method
+- **Description**: Converts RGB color to a single grayscale value using various methods. Luminance uses perceptual weighting (0.299R + 0.587G + 0.114B).
+
+#### Invert Color
+Inverts a color.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Color` - Input color (vec3)
+- **Outputs**:
+  - `out` (vec3) - Inverted color
+- **Description**: Inverts each color channel by computing (1 - color). Creates a negative image effect.
+
+#### Color Mix
+Blends two colors using various blend modes.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Base` - Base color
+  - `Blend` - Blend color
+  - `Factor` - Blend factor (0-1)
+- **Outputs**:
+  - `out` (vec3) - Mixed color
+- **Parameters**:
+  - `Mode` (select, default: mix) - Blend mode: mix, multiply, screen, overlay, add, subtract, divide, difference, darken, lighten
+- **Description**: Combines two colors using various blend modes similar to image editing software.
+
+### Compute Image Processing
+
+#### Compute Blur (Compute)
+Applies Gaussian blur to an input texture.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to blur
+- **Outputs**:
+  - `Texture` - Blurred texture
+- **Parameters**:
+  - `radius` (float, default: 5.0, range: 0-20) - Blur radius
+  - `quality` (select: Low/Medium/High, default: Medium) - Sample quality
+  - `direction` (select: Both/Horizontal/Vertical, default: Both) - Blur direction
+- **Description**: Fast Gaussian blur for glow, depth-of-field, and softening effects.
+
+#### Compute Convolution (Compute)
+Applies a convolution kernel to an input texture.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to filter
+- **Outputs**:
+  - `Texture` - Filtered texture
+- **Parameters**:
+  - `kernel` (select: Sharpen/Edge Detect/Emboss/Custom, default: Sharpen) - Kernel preset
+  - `strength` (float, default: 1.0, range: 0-2) - Effect strength
+- **Description**: Classic image convolution filtering (sharpen, edge detect, emboss).
+
+#### Threshold (Compute)
+Thresholds an input texture.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to threshold
+- **Outputs**:
+  - `Texture` - Thresholded texture
+- **Parameters**:
+  - `mode` (select: Binary/Range/Adaptive, default: Binary) - Threshold mode
+  - `threshold` (float, default: 0.5) - Binary threshold
+  - `thresholdMin` / `thresholdMax` (float, defaults: 0.3 / 0.7) - Range mode bounds
+  - `outputLow` / `outputHigh` (float, defaults: 0.0 / 1.0) - Output values
+- **Description**: Binary, range, and adaptive thresholding operations.
+
+#### Color Adjust (Compute)
+Full color grading for a texture.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to adjust
+- **Outputs**:
+  - `Texture` - Adjusted texture
+- **Parameters**:
+  - `brightness` (float, default: 0.0, range: -1 to 1)
+  - `contrast` (float, default: 1.0, range: 0-3)
+  - `saturation` (float, default: 1.0, range: 0-3)
+  - `hue` (float, default: 0.0, range: -180 to 180) - Hue shift in degrees
+  - `gamma` (float, default: 1.0, range: 0.1-3)
+  - `exposure` (float, default: 0.0, range: -3 to 3)
+- **Description**: One node for brightness, contrast, saturation, hue, gamma, and exposure. Replaces the former Brightness/Contrast/Saturate Color fragment nodes.
+
+#### Edge Detect (Compute)
+Detects edges in an input texture.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to analyze
+- **Outputs**:
+  - `Texture` - Edge texture
+- **Parameters**:
+  - `method` (select: Sobel/Scharr/Prewitt/Roberts, default: Sobel) - Gradient operator
+  - `threshold` (float, default: 0.1) - Edge threshold
+  - `strength` (float, default: 1.0, range: 0-5) - Edge intensity
+  - `invertEdges` (boolean, default: false) - Invert output
+- **Description**: Edge detection using various gradient operators.
+
+#### Morphology (Compute)
+Morphological operations on a texture.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to process
+- **Outputs**:
+  - `Texture` - Processed texture
+- **Parameters**:
+  - `operation` (select: Dilate/Erode/Open/Close, default: Dilate) - Operation
+  - `kernelSize` (select: 3x3/5x5/7x7, default: 3x3) - Kernel size
+  - `iterations` (int, default: 1, range: 1-10) - Number of passes
+  - `strength` (float, default: 1.0, range: 0-1) - Blend with original
+- **Description**: Dilate, erode, open, and close operations for growing/shrinking bright regions.
+
+#### Histogram (Compute)
+Histogram-based analysis and equalization.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to analyze
+- **Outputs**:
+  - `Texture` - Processed texture
+- **Parameters**:
+  - `operation` (select: Equalize/Normalize/Stretch/Visualize, default: Equalize) - Operation
+  - `channel` (select: RGB/R/G/B/Luminance, default: Luminance) - Channel to analyze
+  - `bins` (int, default: 16, range: 8-32) - Histogram bins
+  - `strength` (float, default: 1.0, range: 0-1) - Effect strength
+- **Description**: Histogram equalization, normalization, contrast stretching, and visualization.
+
+#### Luminance (Compute)
+Luminance extraction and operations.
+
+- **Category**: Modifiers
+- **Inputs**:
+  - `Input` - Texture to process
+- **Outputs**:
+  - `Texture` - Processed texture
+- **Parameters**:
+  - `method` (select: Rec709/Rec601/Average/Max/Min, default: Rec709) - Luminance formula
+  - `outputMode` (select: Grayscale/Preserve Color/Isoluminant, default: Grayscale) - Output mode
+  - `threshold` (float, default: 0.5) - Threshold for applicable modes
+- **Description**: Extracts luminance using standard formulas with several output modes.
+
+---
+
+## Effect Nodes
+
+Effect nodes are compute nodes that create visual effects — warps, mirrors, glitches, and feedback trails.
+
+#### Compute Feedback (Compute)
+Creates feedback loops for trails and recursive patterns.
+
+- **Category**: Effects
+- **Inputs**:
+  - `Input` - Texture to feed back
+  - `Reset` (f32, control pin) - A rising edge (e.g. from a Trigger node) clears the accumulated trail
+- **Outputs**:
+  - `Texture` - Feedback texture
+- **Parameters**:
+  - `decay` (float, default: 0.95, range: 0-1) - Trail persistence
+  - `scale` (float, default: 1.01, range: 0.9-1.1) - Zoom per frame
+  - `rotation` (float, default: 0.0, range: -180 to 180) - Rotation per frame
+  - `offsetX` / `offsetY` (float, default: 0.0, range: -0.1 to 0.1) - Drift per frame
+  - `Reset Feedback` (button) - Manually clear the accumulated trail
+- **Description**: Blends the previous frame back into the current one with a transformation, creating motion trails, tunnels, and recursive patterns. Uses ping-pong buffers. The **Reset** pin performs the same clear as the button, driven by a signal — wire a Trigger to reset on a beat or event.
+
+#### Warp (Compute)
+UV distortion and displacement effects.
+
+- **Category**: Effects
+- **Inputs**:
+  - `Input` - Texture to warp
+  - `Warp Field` - Optional texture that drives the displacement
+- **Outputs**:
+  - `Texture` - Warped texture
+- **Parameters**:
+  - `mode` (select: Displace/Twist/Bulge/Pinch/Wave, default: Displace) - Warp type
+  - `strength` (float, default: 0.5, range: 0-5) - Effect strength
+  - `centerX` / `centerY` (float, default: 0.5) - Effect center
+  - `radius` (float, default: 0.5, range: 0-2) - Effect radius
+  - `frequency` (float, default: 4.0, range: 0.1-20) - Wave frequency
+  - `phase` (float, default: 0.0, range: 0-360) - Wave phase
+- **Description**: Distorts a texture with several warp modes; the Warp Field input allows another texture (e.g. noise) to drive the displacement.
+
+#### Kaleidoscope (Compute)
+Creates kaleidoscope mirror effects.
+
+- **Category**: Effects
+- **Inputs**:
+  - `Input` - Texture to mirror
+- **Outputs**:
+  - `Texture` - Kaleidoscope texture
+- **Parameters**:
+  - `segments` (int, default: 6, range: 2-24) - Number of mirror segments
+  - `rotation` (float, default: 0.0, range: 0-360) - Rotation offset
+  - `centerX` / `centerY` (float, default: 0.5) - Mirror center
+  - `scale` (float, default: 1.0, range: 0.1-5) - Zoom level
+  - `animate` (boolean, default: false) - Auto-rotate
+  - `speed` (float, default: 0.5, range: 0-5) - Rotation speed when animated
+- **Description**: Creates repeating mirror symmetry patterns like a kaleidoscope. Replaces the former fragment Kaleidoscope transform node, adding animation support.
+
+#### Glitch (Compute)
+Digital glitch and artifact effects.
+
+- **Category**: Effects
+- **Inputs**:
+  - `Input` - Texture to glitch
+- **Outputs**:
+  - `Texture` - Glitched texture
+- **Parameters**:
+  - `type` (select: RGB Shift/Block/Scanline/Pixelate/Corrupt, default: RGB Shift) - Glitch style
+  - `intensity` (float, default: 0.5, range: 0-1) - Effect intensity
+  - `frequency` (float, default: 0.5, range: 0-1) - How often glitches occur
+  - `blockSize` (float, default: 0.05, range: 0.01-0.5) - Block/pixel size
+  - `seed` (float, default: 0.0) - Randomization seed
+- **Description**: Simulates digital corruption: channel shifts, block displacement, scanlines, pixelation.
+
+---
+
+## Simulation Nodes
+
+Simulation nodes are compute nodes that run stateful, physics-based systems on the GPU.
+
+#### Compute Particles (Compute)
+GPU particle system with physics.
+
+- **Category**: Simulation
+- **Inputs**:
+  - `Force Field` - Optional texture providing forces
+  - `Velocity Field` - Optional texture providing velocities
+- **Outputs**:
+  - `Texture` - Rendered particles
+- **Parameters**:
+  - `particleCount` (int, default: 10000, range: 1000-100000) - Number of particles
+  - `speed` (float, default: 1.0, range: 0-5) - Simulation speed
+  - `size` (float, default: 2.0, range: 0.5-10) - Particle size
+  - `lifetime` (float, default: 5.0, range: 1-20) - Particle lifetime in seconds
+  - `color` (color, default: white) - Particle color
+- **Description**: Simulates and renders thousands of particles in real time; force and velocity fields can be driven by other textures.
+
+#### Reaction Diffusion (Compute)
+Gray-Scott reaction-diffusion simulation.
+
+- **Category**: Simulation
+- **Inputs**: None
+- **Outputs**:
+  - `Texture` - Simulation state
+- **Parameters**:
+  - `pattern` (select: Coral/Spots/Stripes/Waves/Mitosis/Worms/Spirals, default: Coral) - Parameter preset
+  - `feedRate` (float, default: 0.0545, range: 0-0.1) - Feed rate
+  - `killRate` (float, default: 0.062, range: 0-0.1) - Kill rate
+  - `diffusionA` (float, default: 1.0, range: 0.5-2) - Diffusion rate A
+  - `diffusionB` (float, default: 0.5, range: 0.1-1) - Diffusion rate B
+  - `timestep` (float, default: 1.0, range: 0.01-5) - Simulation speed
+  - `resolution` (select: 256/512/1024, default: 512) - Simulation resolution
+- **Description**: Organic Turing patterns that continuously evolve. Pattern presets configure the feed/kill rates for classic morphologies.
+
+#### Fluid Simulation (Compute)
+Navier-Stokes fluid dynamics.
+
+- **Category**: Simulation
+- **Inputs**:
+  - `Velocity Input` - Optional texture injecting velocity
+- **Outputs**:
+  - `Texture` - Fluid state
+- **Parameters**:
+  - `viscosity` (float, default: 0.0001, range: 0-0.01) - Fluid viscosity
+  - `diffusion` (float, default: 0.0, range: 0-0.1) - Dye diffusion
+  - `timestep` (float, default: 0.1, range: 0.01-1) - Simulation speed
+  - `iterations` (int, default: 20, range: 1-50) - Pressure solver iterations
+  - `colorMode` (select: Velocity/Vorticity/Pressure, default: Velocity) - Visualization mode
+- **Description**: Real-time smoke/ink-style fluid simulation.
+
+#### Cellular Automata (Compute)
+Cellular automata simulation (Game of Life, etc.).
+
+- **Category**: Simulation
+- **Inputs**: None
+- **Outputs**:
+  - `Texture` - Automata state
+- **Parameters**:
+  - `rule` (select: Conway Life/Seeds/Brian's Brain/Day & Night, default: Conway Life) - Rule set
+  - `speed` (float, default: 10.0, range: 1-60) - Generations per second
+  - `density` (float, default: 0.3, range: 0-1) - Initial random density
+  - `reset` (boolean) - Re-seed the grid
+- **Description**: Classic cellular automata with several rule presets.
+
+#### Feedback Field (Compute)
+Persistent feedback field for flow and accumulation simulations.
+
+- **Category**: Simulation
+- **Inputs**:
+  - `Input` - Texture feeding the field
+  - `Reset` (f32, control pin) - A rising edge (e.g. from a Trigger node) clears the accumulated field
+- **Outputs**:
+  - `Texture` - Field state
+- **Parameters**:
+  - `mode` (select: Flow/Reaction-Diffusion/Accumulate/Swirl, default: Flow) - Field behavior
+  - `decay` (float, default: 0.98, range: 0-1) - Field persistence
+  - `diffusion` (float, default: 0.1, range: 0-1) - Spatial spreading
+  - `feedback` (float, default: 0.5, range: 0-1) - Input contribution
+  - `speed` (float, default: 1.0, range: 0-5) - Simulation speed
+  - `resolution` (select: 256/512/1024, default: 512) - Field resolution
+  - `Reset Field` (button) - Manually clear the accumulated field
+- **Description**: A persistent 2D field that accumulates and transforms its input over time. Like Compute Feedback, the **Reset** pin clears the field on a rising edge — wire a Trigger for signal-driven resets.
+
+---
+
 ## Utility Nodes
 
-Utility nodes provide data manipulation, conversion, and color adjustment capabilities.
+Utility nodes provide data manipulation, logic, custom code, and texture compositing. The category contains both fragment nodes and compute nodes.
 
 ### Data Manipulation
 
@@ -1091,103 +1654,6 @@ Reduces the number of distinct values.
   - `Steps` (float, default: 8.0) - Number of discrete steps
 - **Description**: Quantizes input values into discrete steps, creating a posterization effect.
 
-### Color Manipulation
-
-#### To Grayscale
-Converts a color to grayscale.
-
-- **Category**: Utility
-- **Inputs**:
-  - `Color` - Input color (vec3)
-- **Outputs**:
-  - `out` (f32) - Grayscale value
-- **Parameters**:
-  - `Method` (select: luminance/average/lightness, default: luminance) - Conversion method
-- **Description**: Converts RGB color to a single grayscale value using various methods. Luminance uses perceptual weighting (0.299R + 0.587G + 0.114B).
-
-#### Invert Color
-Inverts a color.
-
-- **Category**: Utility
-- **Inputs**:
-  - `Color` - Input color (vec3)
-- **Outputs**:
-  - `out` (vec3) - Inverted color
-- **Description**: Inverts each color channel by computing (1 - color). Creates a negative image effect.
-
-#### Saturate Color
-Adjusts color saturation.
-
-- **Category**: Utility
-- **Inputs**:
-  - `Color` - Input color (vec3)
-- **Outputs**:
-  - `out` (vec3) - Saturated color
-- **Parameters**:
-  - `Saturation` (float, default: 1.0) - Saturation amount (0 = grayscale, 1 = normal, >1 = oversaturated)
-- **Description**: Adjusts the color saturation. Values below 1 reduce saturation (approaching grayscale), values above 1 increase saturation.
-
-#### Contrast
-Adjusts color contrast.
-
-- **Category**: Utility
-- **Inputs**:
-  - `Color` - Input color (vec3)
-- **Outputs**:
-  - `out` (vec3) - Adjusted color
-- **Parameters**:
-  - `Contrast` (float, default: 1.0) - Contrast amount (1 = normal)
-  - `Pivot` (float, default: 0.5) - Contrast pivot point
-- **Description**: Adjusts contrast by scaling values around a pivot point. Values below 1 reduce contrast, values above 1 increase contrast.
-
-#### Brightness
-Adjusts color brightness.
-
-- **Category**: Utility
-- **Inputs**:
-  - `Color` - Input color (vec3)
-- **Outputs**:
-  - `out` (vec3) - Brightened color
-- **Parameters**:
-  - `Brightness` (float, default: 0.0) - Brightness adjustment (negative = darker, positive = brighter)
-- **Description**: Adds a constant value to all color channels, making the color brighter or darker.
-
-#### Color Mix
-Blends two colors using various blend modes.
-
-- **Category**: Utility
-- **Inputs**:
-  - `Base` - Base color
-  - `Blend` - Blend color
-  - `Factor` - Blend factor (0-1)
-- **Outputs**:
-  - `out` (vec3) - Mixed color
-- **Parameters**:
-  - `Mode` (select, default: mix) - Blend mode: mix, multiply, screen, overlay, add, subtract, divide, difference, darken, lighten
-- **Description**: Combines two colors using various blend modes similar to image editing software.
-
-### Color Space Conversion
-
-#### HSV to RGB
-Converts HSV color to RGB.
-
-- **Category**: Utility
-- **Inputs**:
-  - `HSV` - Input color in HSV space (vec3)
-- **Outputs**:
-  - `out` (vec3) - RGB color
-- **Description**: Converts from HSV (Hue, Saturation, Value) color space to RGB color space.
-
-#### RGB to HSV
-Converts RGB color to HSV.
-
-- **Category**: Utility
-- **Inputs**:
-  - `RGB` - Input color in RGB space (vec3)
-- **Outputs**:
-  - `out` (vec3) - HSV color
-- **Description**: Converts from RGB color space to HSV (Hue, Saturation, Value) color space. Useful for hue-based color adjustments.
-
 ### Logic and Selection
 
 #### Select
@@ -1217,6 +1683,116 @@ Compares two values using various operators.
   - `Operator` (select: equal/notEqual/greater/greaterEqual/less/lessEqual, default: greater) - Comparison operator
   - `Epsilon` (float, default: 0.001) - Tolerance for equality comparisons
 - **Description**: Compares two values using the selected operator. Returns 1.0 if true, 0.0 if false.
+
+#### Switch
+Routes one of four inputs to the output.
+
+- **Category**: Utility
+- **Inputs**:
+  - `A` - Input 0
+  - `B` - Input 1
+  - `C` - Input 2
+  - `D` - Input 3
+- **Outputs**:
+  - `out` - Selected input (type set by Output Type)
+- **Parameters**:
+  - `Select` (int, default: 0, range: 0-3) - Which input to pass through
+  - `Output Type` (select: f32/vec2/vec3/vec4, default: f32) - Output data type
+- **Description**: A 4-way selector — passes the chosen input through unchanged. Animate the `Select` parameter (e.g. with a Count node or an expression) to switch between sub-graphs.
+
+#### Custom GLSL
+Runs custom shader code.
+
+- **Category**: Utility
+- **Inputs**:
+  - `Input 0` - Available as `input0` in the code
+  - `Input 1` - Available as `input1` in the code
+  - `Input 2` - Available as `input2` in the code
+  - `Input 3` - Available as `input3` in the code
+- **Outputs**:
+  - `out` - Code result (type set by Output Type)
+- **Parameters**:
+  - `Code` (glsl) - Custom GLSL/WGSL expression or statements
+  - `Output Type` (select: f32/vec2/vec3/vec4, default: f32) - Output data type
+- **Description**: Escape hatch for writing shader code directly. Reference the four input pins as `input0`–`input3`, e.g. `sin(input0) * 2.0`.
+
+### Compute Utility
+
+#### Mix (Compute)
+Blends and composites two textures.
+
+- **Category**: Utility
+- **Inputs**:
+  - `Input A` - First texture
+  - `Input B` - Second texture
+- **Outputs**:
+  - `Texture` - Blended texture
+- **Parameters**:
+  - `mode` (select: Mix/Add/Multiply/Screen/Overlay/Difference/Exclusion/Lighten/Darken, default: Mix) - Blend mode
+  - `amount` (float, default: 0.5, range: 0-1) - Blend amount
+  - `opacity` (float, default: 1.0, range: 0-1) - Overall opacity
+- **Description**: Compositing node for combining two compute textures with standard blend modes.
+
+#### Transform (Compute)
+Translates, rotates, and scales a texture.
+
+- **Category**: Utility
+- **Inputs**:
+  - `Input` - Texture to transform
+- **Outputs**:
+  - `Texture` - Transformed texture
+- **Parameters**:
+  - `translateX` / `translateY` (float, default: 0.0, range: -1 to 1) - Offset
+  - `rotation` (float, default: 0.0, range: -180 to 180) - Rotation in degrees
+  - `scaleX` / `scaleY` (float, default: 1.0, range: 0.1-5) - Scale
+  - `pivotX` / `pivotY` (float, default: 0.5) - Transform pivot
+  - `wrapMode` (select: Repeat/Clamp/Mirror, default: Repeat) - Edge behavior
+- **Description**: Applies geometric transforms directly to a compute texture — use this when there is no downstream fragment texture sampler to receive transformed UVs.
+
+#### Channels (Compute)
+Channel operations on a texture.
+
+- **Category**: Utility
+- **Inputs**:
+  - `Input` - Texture to process
+- **Outputs**:
+  - `Texture` - Processed texture
+- **Parameters**:
+  - `operation` (select: Swap/Extract/Combine/Remap, default: Swap) - Operation
+  - `redSource` / `greenSource` / `blueSource` / `alphaSource` (select: R/G/B/A/0/1) - Per-channel source
+- **Description**: Rearranges, extracts, or remaps the color channels of a texture.
+
+#### HSV (Compute)
+HSV color space operations on a texture.
+
+- **Category**: Utility
+- **Inputs**:
+  - `Input` - Texture to process
+- **Outputs**:
+  - `Texture` - Processed texture
+- **Parameters**:
+  - `operation` (select: RGB to HSV/HSV to RGB/Adjust HSV, default: Adjust HSV) - Operation
+  - `hueShift` (float, default: 0.0, range: -180 to 180) - Hue rotation
+  - `saturationMult` (float, default: 1.0, range: 0-3) - Saturation multiplier
+  - `valueMult` (float, default: 1.0, range: 0-3) - Value multiplier
+- **Description**: Converts between RGB and HSV or adjusts hue/saturation/value directly. Replaces the former HSV to RGB / RGB to HSV fragment nodes.
+
+#### 3D Field Visualizer (Compute)
+Visualizes compute field data as 3D geometry.
+
+- **Category**: Utility
+- **Inputs**:
+  - `Field Input` - Texture/field to visualize
+- **Outputs**:
+  - `3D Geometry` - Geometry for the 3D viewport
+- **Parameters** (grouped):
+  - Field dimensions: `width` / `height` / `depth` (int, default: 64, range: 8-256)
+  - Mode: `mappingMode` (select: points/surface/volume, default: points), `updateFrequency` (int, default: 0 = every frame)
+  - World bounds: `boundsMinX/Y/Z`, `boundsMaxX/Y/Z` (float, defaults: -1 to 1)
+  - Visualization: `threshold` (default: 0.5), `isoThreshold` (default: 0.5), `pointSize` (default: 0.02), `sampleRate` (default: 1)
+  - Color: `colorMode` (select: solid/gradient/field, default: gradient), gradient/solid RGBA components, `colorScaleMin`/`colorScaleMax`
+  - Displacement: `displacementScale` (default: 0.0), `displacementAxisX/Y/Z`
+- **Description**: Maps a 2D/3D field produced by compute nodes onto 3D points, isosurfaces, or volumes rendered in the 3D viewport. See the [3D Field Visualization guide](field-visualization.md).
 
 ---
 
@@ -1313,172 +1889,37 @@ Creates a smooth subtraction of two SDFs.
 
 ---
 
-## Transform Nodes
+## Texture Nodes
 
-Transform nodes manipulate UV coordinates for texture mapping, distortion, and coordinate space conversions.
+Texture nodes sample image files.
 
-### Basic Transforms
+#### Texture 2D
+Samples a 2D texture image.
 
-#### Transform 2D
-Applies combined transformation to UV coordinates.
-
-- **Category**: Transform
+- **Category**: Texture
 - **Inputs**:
-  - `UV` - Input coordinates
+  - `UV` - Texture coordinates
 - **Outputs**:
-  - `out` (vec2) - Transformed coordinates
+  - `Color` (vec4) - Sampled color with alpha
 - **Parameters**:
-  - `Translate X` (float, default: 0.0) - Horizontal offset
-  - `Translate Y` (float, default: 0.0) - Vertical offset
-  - `Scale X` (float, default: 1.0) - Horizontal scale
-  - `Scale Y` (float, default: 1.0) - Vertical scale
-  - `Rotation` (float, default: 0.0) - Rotation angle in degrees
-  - `Center X` (float, default: 0.5) - Transform center X
-  - `Center Y` (float, default: 0.5) - Transform center Y
-- **Description**: Combines translation, rotation, and scaling transformations around a specified center point.
+  - `Image` (file) - Image file to load
+  - `Wrap U` (select: repeat/clamp/mirror, default: repeat) - Horizontal wrapping mode
+  - `Wrap V` (select: repeat/clamp/mirror, default: repeat) - Vertical wrapping mode
+  - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode
+- **Description**: Loads and samples a 2D texture image at the given UV coordinates, with configurable wrapping and filtering. Use a **Split Vec4** node to extract individual R/G/B/A channels.
 
-#### Scale 2D
-Scales UV coordinates.
+#### Texture Cube
+Samples a cubemap texture.
 
-- **Category**: Transform
+- **Category**: Texture
 - **Inputs**:
-  - `UV` - Input coordinates
+  - `Dir` - Direction vector for sampling
 - **Outputs**:
-  - `out` (vec2) - Scaled coordinates
+  - `Color` (vec4) - Sampled color with alpha
 - **Parameters**:
-  - `Scale X` (float, default: 1.0) - Horizontal scale factor
-  - `Scale Y` (float, default: 1.0) - Vertical scale factor
-  - `Center X` (float, default: 0.5) - Scale center X
-  - `Center Y` (float, default: 0.5) - Scale center Y
-- **Description**: Scales UV coordinates around a center point. Values > 1 zoom in, values < 1 zoom out.
-
-#### Rotate 2D
-Rotates UV coordinates.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `out` (vec2) - Rotated coordinates
-- **Parameters**:
-  - `Rotation` (float, default: 0.0) - Rotation angle in degrees
-  - `Center X` (float, default: 0.5) - Rotation center X
-  - `Center Y` (float, default: 0.5) - Rotation center Y
-- **Description**: Rotates UV coordinates around a center point.
-
-#### Translate 2D
-Translates (offsets) UV coordinates.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `out` (vec2) - Translated coordinates
-- **Parameters**:
-  - `Translate X` (float, default: 0.0) - Horizontal offset
-  - `Translate Y` (float, default: 0.0) - Vertical offset
-- **Description**: Shifts UV coordinates by a fixed amount. Useful for panning textures and patterns.
-
-#### Tile and Offset
-Applies tiling and offset to UV coordinates.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `out` (vec2) - Tiled and offset coordinates
-- **Parameters**:
-  - `Tiling X` (float, default: 1.0) - Horizontal repeat count
-  - `Tiling Y` (float, default: 1.0) - Vertical repeat count
-  - `Offset X` (float, default: 0.0) - Horizontal offset
-  - `Offset Y` (float, default: 0.0) - Vertical offset
-- **Description**: Classic UV tiling and offset operation. Tiling creates repeating patterns, offset shifts them.
-
-#### Flip 2D
-Flips UV coordinates horizontally and/or vertically.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `out` (vec2) - Flipped coordinates
-- **Parameters**:
-  - `Flip X` (bool, default: false) - Flip horizontally
-  - `Flip Y` (bool, default: false) - Flip vertically
-- **Description**: Mirrors UV coordinates along horizontal and/or vertical axes.
-
-### Coordinate Conversion
-
-#### UV to Color
-Converts UV coordinates to a color for visualization.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `out` (vec3) - Color representation of UV
-- **Description**: Visualizes UV coordinates as colors (U=Red, V=Green). Useful for debugging UV layouts.
-
-#### Polar Coordinates
-Converts Cartesian coordinates to polar coordinates.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input Cartesian coordinates
-- **Outputs**:
-  - `out` (vec2) - Polar coordinates (angle, radius)
-- **Parameters**:
-  - `Center X` (float, default: 0.5) - Polar center X
-  - `Center Y` (float, default: 0.5) - Polar center Y
-  - `Radial Scale` (float, default: 1.0) - Radius scaling
-  - `Angular Scale` (float, default: 1.0) - Angle scaling
-- **Description**: Converts to polar coordinate system. Creates radial patterns and circular warping effects.
-
-### Distortion Effects
-
-#### Spherize
-Applies spherical distortion to UV coordinates.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `out` (vec2) - Spherized coordinates
-- **Parameters**:
-  - `Center X` (float, default: 0.5) - Effect center X
-  - `Center Y` (float, default: 0.5) - Effect center Y
-  - `Strength` (float, default: 0.5) - Distortion strength
-  - `Radius` (float, default: 0.5) - Effect radius
-- **Description**: Creates a spherical bulge or pinch distortion effect.
-
-#### Twirl
-Applies twisting/swirling distortion to UV coordinates.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `out` (vec2) - Twirled coordinates
-- **Parameters**:
-  - `Center X` (float, default: 0.5) - Twirl center X
-  - `Center Y` (float, default: 0.5) - Twirl center Y
-  - `Strength` (float, default: 1.0) - Rotation intensity
-  - `Radius` (float, default: 0.5) - Effect radius
-- **Description**: Creates a spiral/vortex distortion effect, rotating UVs around a center point.
-
-#### Kaleidoscope
-Creates kaleidoscope mirror effects.
-
-- **Category**: Transform
-- **Inputs**:
-  - `UV` - Input coordinates
-- **Outputs**:
-  - `UV` - Kaleidoscope coordinates
-- **Parameters**:
-  - `Segments` (int, default: 6, range: 1-24) - Number of mirror segments
-  - `Angle` (float, default: 0.0) - Rotation offset
-  - `Scale` (float, default: 1.0, range: 0.01-5.0) - Zoom level
-- **Description**: Creates repeating mirror symmetry patterns like a kaleidoscope. Segments parameter controls the number of mirror repetitions.
+  - `Cubemap` (file) - Cubemap image file
+  - `Filter` (select: linear/nearest, default: linear) - Texture filtering mode
+- **Description**: Samples a cubemap texture using a 3D direction vector, commonly used for environment mapping. Use a **Split Vec4** node to extract individual channels.
 
 ---
 
@@ -1486,13 +1927,15 @@ Creates kaleidoscope mirror effects.
 
 ### Data Types
 
-The GLSL Node Editor uses the following data types for node connections:
+Rhizomium uses the following data types for node connections:
 
 - **f32**: Single floating-point value (scalar)
 - **vec2**: 2D vector (x, y)
 - **vec3**: 3D vector (x, y, z) - typically used for RGB colors
 - **vec4**: 4D vector (x, y, z, w) - typically used for RGBA colors
 - **dynamic**: Type adapts to match input connections
+- **Texture**: Compute node output — an image resource sampled by downstream nodes rather than a per-pixel value
+- **control pin (f32)**: CPU-only scalar signal (e.g. the Reset pin on the Feedback nodes) — carries a trigger, not shader data
 
 ### Parameter Types
 
@@ -1504,8 +1947,13 @@ Nodes can have various parameter types:
 - **select**: Dropdown menu with predefined options
 - **file**: File upload (for textures)
 - **expression**: Text input for mathematical expressions
+- **glsl**: Multi-line shader code editor (Custom GLSL node)
 - **colorstops**: Color gradient editor
+- **color**: RGBA color picker
 - **slider**: Ranged value slider
+- **button**: One-shot action (e.g. Reset Feedback)
+
+Numeric parameters also accept [parameter expressions](parameter-expressions.md) — type `=` followed by an expression (e.g. `=sin(time)*0.5+0.5`) to animate them.
 
 ### Tips for Using Nodes
 
@@ -1513,12 +1961,16 @@ Nodes can have various parameter types:
 
 2. **UV Workflow**: Typical workflow starts with a UV node, applies transforms or generates patterns, then samples textures or creates procedural effects.
 
-3. **Noise Layering**: Combine multiple noise nodes with different scales and amplitudes to create complex, natural-looking patterns.
+3. **Fragment vs. Compute**: Fragment nodes compile into a single shader and evaluate per pixel; compute nodes run in their own GPU pass and hand a texture downstream. Prefer compute nodes for stateful effects (feedback, simulations) and heavy image processing.
 
-4. **SDF Workflow**: Use Field nodes to generate basic shapes, then combine them with Blend nodes to create complex geometry through constructive solid geometry operations.
+4. **Noise Layering**: Combine multiple noise nodes with different scales and amplitudes to create complex, natural-looking patterns.
 
-5. **Color Grading**: Use Utility nodes like Contrast, Brightness, and Saturate Color in sequence to achieve sophisticated color grading effects.
+5. **SDF Workflow**: Use shape generators to create basic shapes, then combine them with Blend nodes to create complex geometry through constructive solid geometry operations.
 
-6. **Performance**: Nodes with many octaves (like FBM Noise) or complex calculations can impact performance. Start with lower values and increase as needed.
+6. **Signal Workflow**: Trigger → Hold / Count / Reset pins form a small event system: Trigger converts continuous signals (audio, time, mouse) into pulses; Hold latches values, Count steps through values, and the Feedback nodes' Reset pins clear their state.
 
-7. **Debugging**: Use the UV to Color node to visualize coordinate spaces and transformations.
+7. **Color Grading**: Use the Color Adjust compute node for brightness/contrast/saturation/hue/gamma/exposure in a single pass.
+
+8. **Performance**: Nodes with many octaves (like FBM Noise) or high-resolution compute nodes can impact performance. Start with lower values and increase as needed.
+
+9. **Debugging**: Use the UV to Color node to visualize coordinate spaces and transformations, and per-node preview thumbnails (the eye button) to inspect intermediate results.

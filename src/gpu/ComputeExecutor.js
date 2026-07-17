@@ -401,6 +401,13 @@ export class ComputeExecutor {
     const manager = this.computeManagers.get(key) || this.computeManagers.get(nodeId);
     if (manager && typeof manager.clearFeedback === 'function') {
       manager.clearFeedback();
+      // The second-monitor viewer replicates feedback sims independently, so a
+      // reset here must reach it too or its trail keeps accumulating. On the
+      // receiver window (whose reset is driven BY that broadcast) the global is
+      // absent, so this cannot loop.
+      if (typeof window !== 'undefined') {
+        try { window.secondMonitorViewer?.onFeedbackReset?.(nodeId); } catch (_) { /* ignore */ }
+      }
       return true;
     }
     return false;
@@ -759,6 +766,16 @@ export class ComputeExecutor {
     // If execute() is called while already executing (e.g., from auto-bridging side effects),
     // skip this call to break the infinite loop
     if (this._isExecuting) {
+      return;
+    }
+
+    // Step-lock hold: the second-monitor receiver replicates feedback sims 1:1 with
+    // the editor's frames, so on a frame where no editor sim step arrived it sets
+    // this flag to keep the sims (and every other dispatch) frozen at their last
+    // state — otherwise a faster display would over-advance the simulation. The
+    // output textures persist, so the fragment blit keeps presenting the last
+    // result. The editor never sets this.
+    if (this.holdDispatch) {
       return;
     }
 
