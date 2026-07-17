@@ -103,15 +103,13 @@ async function reinitializeWebGPUAfterLoad() {
   }
 
   const canvas = document.getElementById("gpu-canvas");
-  
-const dpr = window.devicePixelRatio || 1;
-canvas.width  = Math.max(1, Math.floor((canvas.clientWidth || window.innerWidth)  * dpr));
-canvas.height = Math.max(1, Math.floor((canvas.clientHeight || window.innerHeight) * dpr));
-  canvas.width  = canvas.clientWidth  || window.innerWidth;
-canvas.height = canvas.clientHeight || window.innerHeight;if (!canvas) {
+  if (!canvas) {
     console.error("No GPU canvas found after cleanup");
     return false;
   }
+
+  canvas.width = canvas.clientWidth || window.innerWidth;
+  canvas.height = canvas.clientHeight || window.innerHeight;
 
   try {
     __deviceReady = false;

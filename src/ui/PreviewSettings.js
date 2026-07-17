@@ -62,6 +62,7 @@ export class PreviewSettings {
     const height = Math.max(1, Math.floor(resolution.height || canvas.height || 1));
 
     const progress = modalManager.showProgress('Publishing Image', 'Capturing frame...');
+    let blob = null;
 
     try {
       progress.update(20, 'Capturing frame from GPU...', `${width}x${height}`);
@@ -94,7 +95,7 @@ for (let y = 0; y < height; y++) {
       ctx.putImageData(imageData, 0, 0);
 
       progress.update(60, 'Creating image file...', 'Encoding WebP...');
-      const blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
+      blob = await new Promise((resolve) => exportCanvas.toBlob(resolve, 'image/webp', 0.95));
       if (!blob) {
         progress.close();
         await modalManager.alert('Failed to create image blob', 'Error');
@@ -172,7 +173,7 @@ for (let y = 0; y < height; y++) {
           window.open('https://art.tenderworld.org', '_blank');
         }
       } else if (err.message.includes('413') || err.message.includes('too large') || err.message.includes('File too large')) {
-        const fileSizeMB = blob.size / 1024 / 1024;
+        const fileSizeMB = (blob?.size || 0) / 1024 / 1024;
         await modalManager.alert(
           `Upload failed: File is too large (${fileSizeMB.toFixed(2)} MB).\n\n` +
           `To reduce file size, try:\n` +

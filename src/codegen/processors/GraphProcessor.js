@@ -55,45 +55,6 @@ validateForCompilation(graph) {
   }
 }
 
-// Also modify processGraph to return validation info:
-processGraph(graph) {
-  try {
-    if (!graph) {
-      throw new Error('Graph is required for processing');
-    }
-
-    if (!graph.nodes || !Array.isArray(graph.nodes)) {
-      throw new Error('Graph must have a nodes array');
-    }
-
-    let orderedNodes = this.topologicalSort(graph);
-    
-    this.logDebugInfo(graph, orderedNodes);
-    
-    const outputNode = this.findActiveOutput(graph);
-    
-    if (outputNode) {
-      orderedNodes = this.filterUpstreamNodes(orderedNodes, outputNode, graph);
-    }
-
-    return { 
-      orderedNodes, 
-      outputNode,
-      hasValidOutput: outputNode !== null // NEW
-    };
-  } catch (error) {
-    window.errorHandler?.handleError(error, { 
-      component: 'graph-processing',
-      nodeCount: graph?.nodes?.length || 0
-    });
-    
-    return { 
-      orderedNodes: graph?.nodes || [], 
-      outputNode: null,
-      hasValidOutput: false // NEW
-    };
-  }
-}
   constructor() {
     this.functionDefinitions = []; // Collect all function definitions
     this.helperFunctions = new Set(); // Collect all helper functions needed
@@ -124,16 +85,21 @@ processGraph(graph) {
         orderedNodes = this.filterUpstreamNodes(orderedNodes, outputNode, graph);
       }
 
-      return { orderedNodes, outputNode };
+      return {
+        orderedNodes,
+        outputNode,
+        hasValidOutput: outputNode !== null
+      };
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'graph-processing',
         nodeCount: graph?.nodes?.length || 0
       });
-      
-      return { 
-        orderedNodes: graph?.nodes || [], 
-        outputNode: null 
+
+      return {
+        orderedNodes: graph?.nodes || [],
+        outputNode: null,
+        hasValidOutput: false
       };
     }
   }

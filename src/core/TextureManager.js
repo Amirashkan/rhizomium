@@ -142,12 +142,6 @@ async injectExternalTexture(nodeId, bitmap) {
   this.bindGroup = null; // force the renderer to rebind on the next frame
 }
 
-/**
- * Get texture info for a node
- */
-getTexture(nodeId) {
-  return this.textures.get(nodeId);
-}
   async initialize(device) {
     try {
       if (!device) {

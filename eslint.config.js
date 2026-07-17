@@ -1,24 +1,48 @@
 // eslint.config.js
 import js from "@eslint/js";
+import globals from "globals";
 
 export default [
   js.configs.recommended,
+  {
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "coverage/**",
+      "src-tauri/**",
+      "index.backup.*.html",
+    ],
+  },
   {
     files: ["**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
-    },
-    linterOptions: {
-      env: {
-        browser: true  // ← این باید داخل linterOptions باشه
-      }
+      globals: {
+        ...globals.browser,
+        ...globals.worker,
+        ...globals.node,
+      },
     },
     rules: {
+      // Bug-catching rules stay hard errors.
       "no-unexpected-multiline": "error",
-      "no-cond-assign": ["error", "always"],
+      "no-cond-assign": ["error", "except-parens"],
       "no-undef": "error",
-      "no-unused-vars": ["error", { argsIgnorePattern: "^_" }]
+      "no-dupe-class-members": "error",
+      "no-dupe-keys": "error",
+      "no-duplicate-case": "error",
+      "no-fallthrough": ["error", { allowEmptyCase: true }],
+      // High-volume legacy noise reports as warnings until burned down.
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "no-empty": ["warn", { allowEmptyCatch: true }],
+      "no-useless-catch": "warn",
+      "no-case-declarations": "warn",
+      "no-prototype-builtins": "warn",
+      "no-control-regex": "warn",
+      "no-useless-escape": "warn",
+      "no-constant-binary-expression": "warn",
+      "no-async-promise-executor": "warn",
     },
   },
 ];

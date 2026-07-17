@@ -54,8 +54,6 @@ export class TextureRenderers {
         // Use the same logic as circle
         registry.renderers.get('circle')(ctx, node);
       },
-      'rectangle': (ctx, node) => this.renderRectangle(ctx, node),
-      'rectfield': (ctx, node) => this.renderRectangle(ctx, node),
       'gradient': (ctx, node) => this.renderGradient(ctx, node),
       'checkerboard': (ctx, node) => this.renderCheckerboard(ctx, node)
     });

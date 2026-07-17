@@ -1,5 +1,5 @@
 // tests/RenderCache.test.js
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RenderCache } from '../src/gpu/RenderCache.js';
 
 // Mock WebGPU device
