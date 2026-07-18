@@ -105,7 +105,14 @@ export class SceneRenderer3D {
       this.depthTexture.destroy();
     }
     if (this.sceneTexture) {
-      this.sceneTexture.destroy();
+      // RETIRE the old scene texture instead of destroying it: the main
+      // renderer's cached bind groups (gpu-render-encoder) still reference it
+      // until the invalidation below takes effect, and submitting with a
+      // destroyed texture blanks the whole output ("Destroyed texture used
+      // in a submit"). Retired textures are destroyed a couple of seconds
+      // later in render().
+      this._retiredSceneTextures = this._retiredSceneTextures || [];
+      this._retiredSceneTextures.push({ texture: this.sceneTexture, age: 0 });
     }
 
     const [width, height] = this._getRenderResolution();
@@ -127,6 +134,13 @@ export class SceneRenderer3D {
       format: this.preferredFormat || navigator.gpu.getPreferredCanvasFormat(),
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
     });
+
+    // Ask the main renderer to re-resolve external texture bindings on its
+    // next frame - it will pick the new scene texture up from the published
+    // computeTextures entry and rebuild its bind groups
+    if (typeof window !== 'undefined' && window.textureManager) {
+      window.textureManager.bindGroup = null;
+    }
   }
 
   /**
@@ -339,6 +353,21 @@ export class SceneRenderer3D {
     const [targetWidth, targetHeight] = this._getRenderResolution();
     if (targetWidth !== this._targetWidth || targetHeight !== this._targetHeight) {
       this.createDepthTexture();
+    }
+
+    // Destroy retired scene textures once every consumer has had ample time
+    // (~2s) to rebuild its bind groups against the replacement
+    if (this._retiredSceneTextures && this._retiredSceneTextures.length > 0) {
+      const keep = [];
+      for (const retired of this._retiredSceneTextures) {
+        retired.age += 1;
+        if (retired.age > 120) {
+          retired.texture.destroy();
+        } else {
+          keep.push(retired);
+        }
+      }
+      this._retiredSceneTextures = keep;
     }
 
     // Update viewport, then pin the camera aspect to the OUTPUT resolution -
@@ -680,6 +709,13 @@ export class SceneRenderer3D {
       this._blitUniforms.destroy();
       this._blitUniforms = null;
       this._blitPipeline = null;
+    }
+
+    if (this._retiredSceneTextures) {
+      for (const retired of this._retiredSceneTextures) {
+        retired.texture.destroy();
+      }
+      this._retiredSceneTextures = [];
     }
 
     if (this.uniformBuffer) {

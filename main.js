@@ -2208,6 +2208,23 @@ function setupRhizomiumMenu() {
     });
   }
 
+  // Toggle 3D Viewport (same window as Ctrl/Cmd+3)
+  const toggle3DViewportBtn = document.getElementById("btn-toggle-3d-viewport");
+  if (toggle3DViewportBtn) {
+    toggle3DViewportBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (viewportPanel) {
+        viewportPanel.toggle();
+        if (typeof updateStatus === "function") {
+          updateStatus(viewportPanel.isVisible ? "3D Viewport opened" : "3D Viewport closed");
+        }
+      } else if (typeof updateStatus === "function") {
+        updateStatus("3D Viewport not available", "warning");
+      }
+    });
+  }
+
   // Toggle Preview Panel
   const togglePreviewPanelBtn = document.getElementById("btn-toggle-preview-panel");
   if (togglePreviewPanelBtn && window.floatingPreview) {

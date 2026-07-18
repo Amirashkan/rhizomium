@@ -64,7 +64,8 @@ grid and threshold carried over; `surface`/`volume` map to the plane surface.
 - **Reset Camera**, **Perspective/Orthographic**
 - Left-drag orbit · Shift+drag / middle-drag pan · wheel / right-drag zoom
 - A real floating window: draggable header, resizable corner, maximize/restore
-  (▢) and close buttons. **Ctrl/Cmd+3** toggles it.
+  (▢) and close buttons. Toggle with **Ctrl/Cmd+3** or
+  **View → Panels → Toggle 3D Viewport**.
 
 ## Render resolution
 
@@ -79,8 +80,10 @@ setting retargets the render automatically.
 Node parameters (`shape`, `scale`, `displacementScale`, `textureAmount`, …)
 are re-read from the node every frame, so dragging them updates the 3D view
 immediately — no graph rebuild involved. Numeric parameters accept
-`=expressions` (including `time` / `audioEnvelope`), evaluated per frame —
-`=sin(time)*0.3+1.5` on `scale` breathes the shape live.
+`=expressions` (including `time` / `audioEnvelope` and `node_<id>`
+references), evaluated per frame with uncached, live node values —
+`=sin(time)*0.3+1.5` on `scale` breathes the shape, and a referenced float
+tracks its source smoothly even while you drag another parameter.
 
 The scene background is pure black, so the node's output composites cleanly
 into the 2D chain.

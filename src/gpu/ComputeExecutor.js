@@ -969,9 +969,19 @@ export class ComputeExecutor {
             return this.dispatchedThisFrame.has(inputId);
           });
 
+        // A 3D Field Visualizer input re-renders every frame (and its texture
+        // identity changes when the render resolution switches), so consumers
+        // must keep dispatching - the input hash can't see either change
+        const hasFieldMapperInput = node?.inputs && Array.isArray(node.inputs) &&
+          node.inputs.some(inputId => {
+            if (inputId === null || inputId === undefined) return false;
+            const inputNode = window.graph?.getNode?.(inputId);
+            return !!inputNode && inputNode.kind === 'ComputeFieldMapper';
+          });
+
         // PERFORMANCE: Only dispatch if node actually needs to update
         // This prevents unnecessary GPU work and maintains 60 FPS
-        const needsDispatch = shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasUpdatedComputeInput;
+        const needsDispatch = shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasUpdatedComputeInput || hasFieldMapperInput;
         
         if (needsDispatch) {
           // OPTIMIZATION: Only set input textures when we're actually dispatching

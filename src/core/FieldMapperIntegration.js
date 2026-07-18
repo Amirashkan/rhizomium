@@ -202,10 +202,22 @@ export class FieldMapperIntegration {
                     value = expressionSystem.getEffectiveParameterValue(node.id, name, value);
                 }
                 if (expressionSystem.isExpression(value)) {
+                    this._freshenReferencedValues(value);
                     const time = (typeof window !== 'undefined' && typeof window.renderLoop?._simTime === 'number')
                         ? window.renderLoop._simTime
                         : performance.now() / 1000;
-                    value = expressionSystem.evaluateExpression(value, { time }, node);
+                    // Evaluate UNCACHED: evaluateExpression caches results for
+                    // expressions whose text isn't time-dependent, which would
+                    // pin node references to a stale value no matter how fresh
+                    // the underlying data is
+                    const clean = String(value).trim().slice(1).trim();
+                    if (clean && typeof expressionSystem.buildEvaluationContext === 'function'
+                        && typeof expressionSystem.safeEvaluate === 'function') {
+                        const evalContext = expressionSystem.buildEvaluationContext({ time }, node);
+                        value = expressionSystem.safeEvaluate(clean, evalContext);
+                    } else {
+                        value = expressionSystem.evaluateExpression(value, { time }, node);
+                    }
                 }
             } catch {
                 return fallback;
@@ -214,6 +226,49 @@ export class FieldMapperIntegration {
 
         const num = typeof value === 'number' ? value : parseFloat(value);
         return Number.isFinite(num) ? num : fallback;
+    }
+
+    /**
+     * Recompute the CPU value of every node referenced by an expression
+     * (node_<id> identifiers) into the expression system's value source.
+     * The cached values in PreviewComputer refresh on a throttled schedule
+     * and PAUSE during parameter drags, which made referenced floats look
+     * quantized in the 3D output and freeze mid-drag. Evaluating them
+     * synchronously per frame keeps references perfectly live.
+     * @param {string} expression - Raw `=...` expression string
+     * @private
+     */
+    _freshenReferencedValues(expression) {
+        const editor = typeof window !== 'undefined' ? window.editor : null;
+        const computer = editor?.nodeValueComputer
+            || editor?.previewSystem?.nodeValueComputer
+            || editor?.previewComputer?.nodeValueComputer;
+        const valueCache = editor?.previewComputer?.lastComputedValues;
+        if (!computer || !valueCache || typeof computer.computeNodeValue !== 'function') {
+            return;
+        }
+
+        // node_12 / node_12_x style identifiers ([A-Za-z0-9]+ stops at '_')
+        const seen = new Set();
+        for (const match of String(expression).matchAll(/node_([A-Za-z0-9]+)/g)) {
+            const refId = match[1];
+            if (seen.has(refId)) continue;
+            seen.add(refId);
+
+            const refNode = editor.graph?.nodes?.find(
+                (n) => n && String(n.id) === refId
+            );
+            if (!refNode) continue;
+
+            try {
+                const live = computer.computeNodeValue(refNode);
+                if (live !== undefined && live !== null) {
+                    valueCache.set(refNode.id, live);
+                }
+            } catch {
+                // Keep the cached value for this reference
+            }
+        }
     }
 
     updateFieldMapperParams(fieldMapper, node) {
