@@ -5,9 +5,8 @@
  * Integrates with Viewport3D for camera/view management
  */
 
-import { MeshRenderer } from './renderers/MeshRenderer.js';
-import { PointCloudRenderer } from './renderers/PointCloudRenderer.js';
 import { ShapeRenderer } from './renderers/ShapeRenderer.js';
+import { InstanceRenderer } from './renderers/InstanceRenderer.js';
 import { ShapeGeometry } from './generators/ShapeGeometry.js';
 
 export class SceneRenderer3D {
@@ -527,44 +526,40 @@ export class SceneRenderer3D {
     const modelMatrix = fieldNode.getWorldMatrix();
 
     const shapeParams = fieldNode.shapeParams || {};
-    const shape = shapeParams.shape || 'plane';
 
-    if (shape !== 'points') {
-      // GPU shape path: sample the live compute texture directly - color in
-      // the fragment stage, displacement in the vertex stage. Zero readback.
-      const geometry = ShapeGeometry.get(shape, shapeParams.resolution ?? 96);
-
-      let texture = null;
-      if (this.computeExecutor && fieldNode.sourceNodeId !== null && fieldNode.sourceNodeId !== undefined) {
-        const output = this.computeExecutor.getNodeOutput(fieldNode.sourceNodeId);
-        if (output && output !== this.computeExecutor.fallbackTexture) {
-          texture = output;
-        }
+    // The live compute texture; both modes sample it directly on the GPU
+    let texture = null;
+    if (this.computeExecutor && fieldNode.sourceNodeId !== null && fieldNode.sourceNodeId !== undefined) {
+      const output = this.computeExecutor.getNodeOutput(fieldNode.sourceNodeId);
+      if (output && output !== this.computeExecutor.fallbackTexture) {
+        texture = output;
       }
+    }
 
-      renderers.shape.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, {
+    if (shapeParams.mode === 'instances') {
+      // Instanced field: one small mesh per field cell, positioned / sized /
+      // colored per instance in the vertex shader
+      const mesh = ShapeGeometry.getInstanceMesh(shapeParams.instanceShape || 'cube');
+      renderers.instances.render(passEncoder, mesh, viewMatrix, projectionMatrix, modelMatrix, {
         texture,
-        displacementScale: shapeParams.displacementScale ?? 0.4,
-        textureAmount: shapeParams.textureAmount ?? 1.0
+        gridCount: shapeParams.instanceCount ?? 48,
+        instanceSize: shapeParams.instanceSize ?? 0.03,
+        sizeByField: shapeParams.sizeByField ?? 0.6,
+        threshold: shapeParams.instanceThreshold ?? 0.15,
+        heightScale: shapeParams.displacementScale ?? 0.4,
+        textureAmount: shapeParams.textureAmount ?? 1.0,
+        billboard: (shapeParams.instanceShape || 'cube') === 'quad'
       });
       return;
     }
 
-    // Points path: CPU-generated cloud from the readback pipeline
-    const geometry = typeof fieldNode.getGeometry === 'function'
-      ? fieldNode.getGeometry()
-      : fieldNode.geometry;
-
-    if (!geometry || !geometry.positions || !geometry.vertexCount) {
-      return;
-    }
-
-    if (geometry.indices && geometry.indexCount > 0) {
-      renderers.mesh.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix);
-    } else {
-      const pointSize = fieldNode.visualizationParams?.pointSize ?? 0.02;
-      renderers.points.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, pointSize);
-    }
+    // Surface: color in the fragment stage, displacement in the vertex stage
+    const geometry = ShapeGeometry.get(shapeParams.shape || 'plane', shapeParams.resolution ?? 96);
+    renderers.shape.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, {
+      texture,
+      displacementScale: shapeParams.displacementScale ?? 0.4,
+      textureAmount: shapeParams.textureAmount ?? 1.0
+    });
   }
 
   /**
@@ -575,15 +570,13 @@ export class SceneRenderer3D {
     if (!renderers) {
       const format = this.preferredFormat || navigator.gpu.getPreferredCanvasFormat();
       renderers = {
-        mesh: new MeshRenderer(this.device),
-        points: new PointCloudRenderer(this.device),
-        shape: new ShapeRenderer(this.device)
+        shape: new ShapeRenderer(this.device),
+        instances: new InstanceRenderer(this.device)
       };
       // initialize() completes synchronously (no awaits inside), so the
       // renderers are usable as soon as these calls return
-      renderers.mesh.initialize(format);
-      renderers.points.initialize(format);
       renderers.shape.initialize(format);
+      renderers.instances.initialize(format);
       this.fieldRenderers.set(fieldNode, renderers);
     }
     return renderers;
@@ -596,9 +589,8 @@ export class SceneRenderer3D {
     const active = new Set(activeNodes || []);
     for (const [node, renderers] of this.fieldRenderers.entries()) {
       if (!active.has(node)) {
-        renderers.mesh.destroy();
-        renderers.points.destroy();
         renderers.shape.destroy();
+        renderers.instances.destroy();
         this.fieldRenderers.delete(node);
       }
     }
@@ -669,9 +661,8 @@ export class SceneRenderer3D {
    */
   dispose() {
     for (const renderers of this.fieldRenderers.values()) {
-      renderers.mesh.destroy();
-      renderers.points.destroy();
       renderers.shape.destroy();
+      renderers.instances.destroy();
     }
     this.fieldRenderers.clear();
 

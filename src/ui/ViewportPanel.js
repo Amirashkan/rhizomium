@@ -203,7 +203,7 @@ export class ViewportPanel {
 
     this.shapeSelect = document.createElement('select');
     this.shapeSelect.style.cssText = selectStyle;
-    for (const shape of ['plane', 'sphere', 'box', 'torus', 'points']) {
+    for (const shape of ['plane', 'sphere', 'box', 'torus', 'instances']) {
       const option = document.createElement('option');
       option.value = shape;
       option.textContent = shape[0].toUpperCase() + shape.slice(1);
@@ -212,11 +212,17 @@ export class ViewportPanel {
     this.shapeSelect.onchange = () => {
       const graph = window.editor?.graph;
       if (!graph?.nodes) return;
+      const value = this.shapeSelect.value;
       let changed = false;
       for (const node of graph.nodes) {
         if (node && node.kind === 'ComputeFieldMapper') {
           node.params = node.params || {};
-          node.params.shape = this.shapeSelect.value;
+          if (value === 'instances') {
+            node.params.mode = 'instances';
+          } else {
+            node.params.mode = 'surface';
+            node.params.shape = value;
+          }
           changed = true;
         }
       }
@@ -275,10 +281,13 @@ export class ViewportPanel {
     const graph = window.editor?.graph;
     const mapper = graph?.nodes?.find?.((n) => n && n.kind === 'ComputeFieldMapper');
     if (mapper) {
-      const shape = mapper.params?.shape
-        || (mapper.params?.mappingMode === 'points' ? 'points' : 'plane');
-      if (this.shapeSelect.value !== shape) {
-        this.shapeSelect.value = shape;
+      const params = mapper.params || {};
+      const legacyPoints = params.shape === 'points' || (!params.shape && params.mappingMode === 'points');
+      const value = (params.mode === 'instances' || (!params.mode && legacyPoints))
+        ? 'instances'
+        : ((params.shape && params.shape !== 'points') ? params.shape : 'plane');
+      if (this.shapeSelect.value !== value) {
+        this.shapeSelect.value = value;
       }
     }
   }

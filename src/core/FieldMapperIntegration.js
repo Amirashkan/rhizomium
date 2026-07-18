@@ -131,43 +131,29 @@ export class FieldMapperIntegration {
             this.updateFieldMapperParams(fieldMapper, node);
         }
 
-        // The renderer pulls the live compute texture by source id each frame
+        // The renderer pulls the live compute texture by source id each frame;
+        // both render modes (surface and instances) are fully GPU-driven, so
+        // no CPU-side geometry generation happens here
         fieldMapper.sourceNodeId = sourceNodeId;
-
-        // Only the points shape needs CPU-side geometry generation; the other
-        // shapes sample the compute texture directly on the GPU
-        if (fieldMapper.shapeParams?.shape !== 'points') {
-            return;
-        }
-
-        const computeTexture = (sourceNodeId !== null && sourceNodeId !== undefined)
-            ? this.getComputeTexture(sourceNodeId)
-            : null;
-        if (!computeTexture) {
-            return;
-        }
-
-        try {
-            await fieldMapper.generateVisualization(computeTexture);
-        } catch {
-            // Non-fatal: the per-frame update will retry with fresh data
-        }
     }
 
     /**
-     * Resolve the shape for a graph node, mapping legacy saves that used
-     * mappingMode (points/surface/volume) onto the new shape parameter.
+     * Resolve the render setup for a graph node, mapping legacy saves onto
+     * the current parameters:
+     * - shape 'points' (previous version) and mappingMode 'points' (original
+     *   version) become instanced quads sized from the old point params
+     * - mappingMode 'surface'/'volume' become the plane surface
      * @param {Object} params - Graph node params
-     * @returns {string}
+     * @returns {{mode: string, shape: string, instanceShape: string}}
      */
-    resolveShape(params = {}) {
-        if (params.shape) {
-            return params.shape;
-        }
-        if (params.mappingMode === 'points') {
-            return 'points';
-        }
-        return 'plane';
+    resolveRenderSetup(params = {}) {
+        const legacyPoints = params.shape === 'points' || (!params.shape && params.mappingMode === 'points');
+        const mode = params.mode === 'instances' || (!params.mode && legacyPoints)
+            ? 'instances'
+            : 'surface';
+        const shape = (params.shape && params.shape !== 'points') ? params.shape : 'plane';
+        const instanceShape = params.instanceShape || (legacyPoints ? 'quad' : 'cube');
+        return { mode, shape, instanceShape };
     }
 
     /**
@@ -196,43 +182,27 @@ export class FieldMapperIntegration {
      */
     updateFieldMapperParams(fieldMapper, node) {
         const params = node.params || {};
-        const shape = this.resolveShape(params);
+        const setup = this.resolveRenderSetup(params);
         const scale = params.scale ?? 1.5;
 
-        // GPU shape path parameters, consumed by SceneRenderer3D each frame
+        // GPU render parameters, consumed by SceneRenderer3D each frame.
+        // Legacy point params (pointSize/gridSize/threshold) feed the
+        // equivalent instance parameters so old saves keep their look.
         fieldMapper.shapeParams = {
-            shape,
+            mode: setup.mode,
+            shape: setup.shape,
             resolution: params.resolution ?? 96,
             displacementScale: params.displacementScale ?? 0.4,
-            textureAmount: params.textureAmount ?? 1.0
+            textureAmount: params.textureAmount ?? 1.0,
+            instanceShape: setup.instanceShape,
+            instanceCount: params.instanceCount ?? params.gridSize ?? 48,
+            instanceSize: params.instanceSize ?? params.pointSize ?? 0.03,
+            sizeByField: params.sizeByField ?? 0.6,
+            instanceThreshold: params.instanceThreshold ?? params.threshold ?? 0.15
         };
         fieldMapper.transform.setScale(scale, scale, scale);
-
-        // Points path (CPU-sampled cloud). Size comes from the transform
-        // scale, so the field itself always maps into the unit box.
-        const grid = params.gridSize ?? params.width ?? 64;
-        fieldMapper.dimensions = [grid, grid, 1];
+        fieldMapper.mappingMode = 'surface';
         fieldMapper.fieldBounds = { min: [-1, -1, -1], max: [1, 1, 1] };
-        fieldMapper.mappingMode = shape === 'points' ? 'points' : 'surface';
-        fieldMapper.updateFrequency = params.updateFrequency ?? 0;
-
-        fieldMapper.setVisualizationParam('threshold', params.threshold ?? 0.35);
-        fieldMapper.setVisualizationParam('pointSize', params.pointSize ?? 0.035);
-        fieldMapper.setVisualizationParam('sampleRate', params.sampleRate ?? 1);
-        fieldMapper.setVisualizationParam('colorMode', params.colorMode === 'solid' ? 'solid' : 'gradient');
-
-        const colorA = [params.colorAR ?? 0.2, params.colorAG ?? 0.4, params.colorAB ?? 1.0, 1.0];
-        const colorB = [params.colorBR ?? 1.0, params.colorBG ?? 0.4, params.colorBB ?? 0.2, 1.0];
-        fieldMapper.setVisualizationParam('colorA', colorA);
-        fieldMapper.setVisualizationParam('colorB', colorB);
-        // Solid mode reuses the gradient-start color as the flat color
-        fieldMapper.setVisualizationParam('solidColor', colorA);
-        fieldMapper.setVisualizationParam('colorScale', [0.0, 1.0]);
-
-        // Points displace upward with the field value, using the same scale
-        // as the GPU shapes
-        fieldMapper.setVisualizationParam('displacementScale', params.displacementScale ?? 0.4);
-        fieldMapper.setVisualizationParam('displacementAxis', [0, 1, 0]);
     }
 
     /**
@@ -298,63 +268,22 @@ export class FieldMapperIntegration {
     }
 
     /**
-     * Per-frame update: regenerate visualizations from the live compute
-     * textures so animated fields stay in motion in the 3D viewport.
-     * Safe to call every frame - overlapping GPU readbacks are skipped, and
-     * each mapper honors its updateFrequency (0 = every opportunity).
+     * Per-frame update. Both render modes are GPU-driven (the render pass
+     * samples the live compute texture), so the only per-frame work is
+     * re-syncing parameters from the graph nodes - which is what makes
+     * parameter drags apply in REAL TIME (drags mutate node.params without a
+     * graph rebuild, and this is the only place that reads them per frame).
      */
-    async updateFrame() {
+    updateFrame() {
         if (this.fieldMappers.size === 0) {
             return;
         }
 
-        // Re-sync parameters from the graph nodes every frame so edits apply
-        // in REAL TIME - parameter drags update node.params without a full
-        // graph rebuild, and this is the only place that reads them per frame.
-        // (A handful of property writes; negligible per-frame cost.)
         for (const [nodeId, fieldMapper] of this.fieldMappers.entries()) {
             const graphNode = this._graphNodes.find(n => n && n.id === nodeId);
             if (graphNode) {
                 this.updateFieldMapperParams(fieldMapper, graphNode);
             }
-        }
-
-        if (this._updating) {
-            return;
-        }
-
-        this._updating = true;
-        try {
-            for (const [nodeId, fieldMapper] of this.fieldMappers.entries()) {
-                // GPU shapes sample the live compute texture directly in the
-                // render pass - no per-frame CPU work needed
-                if (fieldMapper.shapeParams?.shape !== 'points') {
-                    continue;
-                }
-
-                if (!fieldMapper.shouldUpdate()) {
-                    continue;
-                }
-
-                const graphNode = this._graphNodes.find(n => n && n.id === nodeId);
-                const sourceNodeId = graphNode ? this.findSourceNodeId(graphNode, null) : null;
-                if (sourceNodeId === null || sourceNodeId === undefined) {
-                    continue;
-                }
-
-                const computeTexture = this.getComputeTexture(sourceNodeId);
-                if (!computeTexture) {
-                    continue;
-                }
-
-                try {
-                    await fieldMapper.generateVisualization(computeTexture, true);
-                } catch {
-                    // Skip this frame's update; the next one will retry
-                }
-            }
-        } finally {
-            this._updating = false;
         }
     }
 

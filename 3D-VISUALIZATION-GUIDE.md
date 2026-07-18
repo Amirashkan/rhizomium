@@ -20,31 +20,40 @@ wire it into OutputFinal (or any downstream node) to bring the 3D render back
 into the 2D chain. Its thumbnail and downstream previews stay live even while
 the viewport window is closed.
 
-## Shapes
+## Render modes
 
-Pick a shape on the node (`shape` parameter) or with the **Shape** dropdown in
-the viewport panel:
+`mode` picks between two fully GPU-driven renderings (both sample the live
+field texture in their shaders - zero CPU readback):
 
-- **plane / sphere / box / torus** — GPU-direct: the fragment shader colors the
-  surface from the compute texture and the vertex shader displaces vertices
-  along their normals by the field's luminance. Zero CPU readback, so these
-  update at full compute speed every frame.
-- **points** — CPU-sampled point cloud: one camera-facing round point per grid
-  cell above `threshold`, gradient- or solid-colored, displaced upward by the
-  field value. (Uses async GPU→CPU readback; self-throttling.)
+- **surface** — a single tessellated shape (`shape`: plane / sphere / box /
+  torus). The fragment shader colors the surface from the field and the vertex
+  shader displaces vertices along their normals by the field's luminance.
+- **instances** — a grid of small meshes, one per field cell. Each instance
+  derives its cell from its instance index, samples the field there, and uses
+  the value for its height, its size, its color, and threshold culling.
 
 ## Node parameters
 
-- `shape` — plane / sphere / box / torus / points
-- `resolution` — shape tessellation (segments)
-- `scale` — shape size in the viewport
-- `displacementScale` — how far the field pushes the surface
-- `textureAmount` — blend between a neutral lit surface (0) and field colors (1)
-- Points only: `threshold`, `pointSize`, `gridSize`, `colorMode`,
-  `colorA*`/`colorB*`, `updateFrequency`
+Shared:
+- `mode` — surface / instances
+- `scale` — overall size in the viewport
+- `displacementScale` — surface displacement / instance height
+- `textureAmount` — blend between a neutral lit look (0) and field colors (1)
 
-Legacy projects that used `mappingMode` load fine: `points` stays points,
-`surface`/`volume` map to the plane shape.
+Surface:
+- `shape` — plane / sphere / box / torus
+- `resolution` — tessellation (segments)
+
+Instances (separate parameters):
+- `instanceShape` — cube / sphere / quad (quad = camera-facing round points)
+- `instanceCount` — grid per axis (count x count cells)
+- `instanceSize` — base size in world units
+- `sizeByField` — how much the field value scales each instance
+- `instanceThreshold` — hide cells below this field value
+
+Legacy projects load fine: old `points` saves (either `shape: points` or the
+original `mappingMode: points`) become quad instances with their point size,
+grid and threshold carried over; `surface`/`volume` map to the plane surface.
 
 ## Viewport window
 
@@ -90,11 +99,10 @@ graph edit ──► updateShaderFromGraph ──► FieldMapperIntegration.proc
                                           (create/update/remove mappers, auto-show viewport)
 render loop (whenever a visualizer node exists)
   ├► ComputeExecutor._renderFragmentInputs     (auto-wraps fragment/mixed sources)
-  ├► FieldMapperIntegration.updateFrame        (points mode only: GPU→CPU readback)
-  ├► SceneRenderer3D.render ──► offscreen sceneTexture ──► blit to canvas
-  │     ├► ShapeRenderer        (plane/sphere/box/torus: texture sampled in-shader)
-  │     ├► PointCloudRenderer   (instanced billboard quads)
-  │     └► MeshRenderer         (indexed CPU geometry, e.g. marching cubes)
+  ├► FieldMapperIntegration.updateFrame        (per-frame param re-sync -> real-time edits)
+  ├► SceneRenderer3D.render ──► offscreen sceneTexture ──► aspect-fit blit to canvas
+  │     ├► ShapeRenderer        (surface mode: texture sampled in-shader)
+  │     └► InstanceRenderer     (instanced mode: per-instance field sampling via instance_index)
   ├► FieldMapperIntegration.publishOutputs     (sceneTexture -> nodeOutputs/computeTextures)
   └► ShaderPreviewManager.updateNodeThumbnailFromTexture(sceneTexture)  (~4 Hz)
 ```
@@ -108,16 +116,16 @@ render loop (whenever a visualizer node exists)
 
 Key implementation notes:
 
-- Compute textures are **rgba8unorm**; the points-mode readback honors the
-  256-byte `bytesPerRow` alignment and decodes the red channel.
 - Shape geometry (`ShapeGeometry`) is built once per (shape, resolution) and
-  cached; the shape pipeline samples the field with `textureSampleLevel` in the
-  vertex stage for displacement.
+  cached; both pipelines sample the field with `textureSampleLevel` in the
+  vertex stage.
+- The instanced pipeline needs **no per-instance buffers**: the vertex shader
+  derives the cell from `@builtin(instance_index)`, so instance data always
+  reflects the current frame's field. Quad instances are billboarded in view
+  space with a circular fragment mask (WGSL has no point-size builtin).
 - Renderers are instantiated **per field-mapper node** (they own their GPU
   buffers; `queue.writeBuffer` ordering makes shared instances draw only the
   last-written geometry).
-- WGSL has no point-size builtin, so points are 4-vertex triangle-strip quads
-  expanded in view space, instanced per point.
 - Node thumbnails go through `ShaderPreviewManager`'s serialized queue — the
   readback buffer is pooled, so external callers must enqueue, never readback
   directly.

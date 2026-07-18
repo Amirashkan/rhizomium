@@ -187,17 +187,20 @@ export class ComputeFieldMapperNode extends Node {
                 this.setMappingMode(value);
                 break;
 
+            case 'mode':
             case 'shape':
             case 'resolution':
             case 'scale':
             case 'displacementScale':
             case 'textureAmount':
-                // GPU shape parameters are re-synced by FieldMapperIntegration
-                // on the next graph update; just flag the change
+            case 'instanceShape':
+            case 'instanceCount':
+            case 'instanceSize':
+            case 'sizeByField':
+            case 'instanceThreshold':
+                // GPU render parameters are re-synced by FieldMapperIntegration
+                // every frame; just flag the change
                 this.markNeedsUpdate();
-                break;
-            case 'gridSize':
-                this.setDimensions(value, value, 1);
                 break;
             case 'updateFrequency':
                 this.updateFrequency = value;

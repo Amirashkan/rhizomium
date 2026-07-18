@@ -175,27 +175,26 @@ export const ComputeNodes = {
     pinsIn: ["Field Input"],
     pinsOut: ["3D Geometry"],
     params: [
-      // What to map the field onto (GPU-rendered, always live)
-      { name: 'shape', type: 'select', options: ['plane', 'sphere', 'box', 'torus', 'points'], default: 'plane', description: 'Shape the field is mapped onto' },
-      { name: 'resolution', type: 'int', default: 96, min: 8, max: 256, description: 'Shape tessellation (segments)' },
-      { name: 'scale', type: 'float', default: 1.5, min: 0.1, max: 5.0, description: 'Shape size in the viewport' },
-      { name: 'displacementScale', type: 'float', default: 0.4, min: 0.0, max: 2.0, description: 'Field-driven surface displacement' },
-      { name: 'textureAmount', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'How strongly the field colors the shape' },
+      // What to render (GPU-driven, always live)
+      { name: 'mode', type: 'select', options: ['surface', 'instances'], default: 'surface', description: 'Surface shape or instanced field' },
 
-      // Points mode (CPU-sampled cloud)
-      { name: 'threshold', type: 'float', default: 0.35, min: 0.0, max: 1.0, description: 'Points: field value cutoff' },
-      { name: 'pointSize', type: 'float', default: 0.035, min: 0.001, max: 0.5, description: 'Points: size in world units' },
-      { name: 'gridSize', type: 'int', default: 64, min: 8, max: 256, description: 'Points: sampling grid per axis' },
-      { name: 'colorMode', type: 'select', options: ['gradient', 'solid'], default: 'gradient', description: 'Points: coloring' },
-      { name: 'colorAR', type: 'float', default: 0.2, min: 0.0, max: 1.0, description: 'Gradient start R' },
-      { name: 'colorAG', type: 'float', default: 0.4, min: 0.0, max: 1.0, description: 'Gradient start G' },
-      { name: 'colorAB', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Gradient start B' },
-      { name: 'colorBR', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'Gradient end R' },
-      { name: 'colorBG', type: 'float', default: 0.4, min: 0.0, max: 1.0, description: 'Gradient end G' },
-      { name: 'colorBB', type: 'float', default: 0.2, min: 0.0, max: 1.0, description: 'Gradient end B' },
-      { name: 'updateFrequency', type: 'int', default: 0, min: 0, max: 60, description: 'Points: update every N frames (0 = every frame)' }
+      // Surface mode
+      { name: 'shape', type: 'select', options: ['plane', 'sphere', 'box', 'torus'], default: 'plane', description: 'Surface: shape the field is mapped onto' },
+      { name: 'resolution', type: 'int', default: 96, min: 8, max: 256, description: 'Surface: tessellation (segments)' },
+
+      // Shared
+      { name: 'scale', type: 'float', default: 1.5, min: 0.1, max: 5.0, description: 'Size in the viewport' },
+      { name: 'displacementScale', type: 'float', default: 0.4, min: 0.0, max: 2.0, description: 'Field-driven displacement / instance height' },
+      { name: 'textureAmount', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'How strongly the field colors the result' },
+
+      // Instanced mode
+      { name: 'instanceShape', type: 'select', options: ['cube', 'sphere', 'quad'], default: 'cube', description: 'Instances: mesh drawn per field cell' },
+      { name: 'instanceCount', type: 'int', default: 48, min: 4, max: 160, description: 'Instances: grid per axis (count x count cells)' },
+      { name: 'instanceSize', type: 'float', default: 0.03, min: 0.002, max: 0.2, description: 'Instances: base size in world units' },
+      { name: 'sizeByField', type: 'float', default: 0.6, min: 0.0, max: 1.0, description: 'Instances: how much the field scales each instance' },
+      { name: 'instanceThreshold', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Instances: hide cells below this field value' }
     ],
-    description: "Map compute field data onto a live 3D shape (plane, sphere, box, torus, or point cloud)",
+    description: "Map field data onto a live 3D surface (plane, sphere, box, torus) or an instanced grid (cubes, spheres, points)",
     workgroupSize: [8, 8, 1]
   },
 

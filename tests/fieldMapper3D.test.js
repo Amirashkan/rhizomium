@@ -201,6 +201,38 @@ describe('FieldVisualizer.buildHeightmapMesh', () => {
     });
 });
 
+describe('FieldMapperIntegration render setup resolution', () => {
+    const integration = new FieldMapperIntegration(null, null, null, null, null);
+
+    it('defaults to the plane surface', () => {
+        expect(integration.resolveRenderSetup({})).toEqual({
+            mode: 'surface', shape: 'plane', instanceShape: 'cube'
+        });
+    });
+
+    it('separates surface shape from instanced mode', () => {
+        expect(integration.resolveRenderSetup({ mode: 'instances', instanceShape: 'sphere' }))
+            .toEqual({ mode: 'instances', shape: 'plane', instanceShape: 'sphere' });
+        expect(integration.resolveRenderSetup({ mode: 'surface', shape: 'torus' }).mode).toBe('surface');
+    });
+
+    it("maps legacy shape 'points' saves to quad instances", () => {
+        expect(integration.resolveRenderSetup({ shape: 'points' })).toEqual({
+            mode: 'instances', shape: 'plane', instanceShape: 'quad'
+        });
+    });
+
+    it("maps original mappingMode 'points' saves to quad instances", () => {
+        expect(integration.resolveRenderSetup({ mappingMode: 'points' })).toEqual({
+            mode: 'instances', shape: 'plane', instanceShape: 'quad'
+        });
+    });
+
+    it("maps legacy mappingMode 'surface' saves to the plane surface", () => {
+        expect(integration.resolveRenderSetup({ mappingMode: 'surface' }).mode).toBe('surface');
+    });
+});
+
 describe('FieldMapperIntegration source resolution', () => {
     const integration = new FieldMapperIntegration(null, null, null, null, null);
 

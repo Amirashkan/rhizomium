@@ -84,4 +84,23 @@ describe('ShapeGeometry', () => {
         const plane = ShapeGeometry.get('plane', 8);
         expect(unknown.vertexCount).toBe(plane.vertexCount);
     });
+
+    it.each(['cube', 'sphere', 'quad'])('builds a well-formed %s instance mesh', (shape) => {
+        checkWellFormed(ShapeGeometry.getInstanceMesh(shape));
+    });
+
+    it('caches instance meshes and falls back to cube', () => {
+        const cube = ShapeGeometry.getInstanceMesh('cube');
+        expect(ShapeGeometry.getInstanceMesh('cube')).toBe(cube);
+        expect(ShapeGeometry.getInstanceMesh('mystery').vertexCount).toBe(cube.vertexCount);
+    });
+
+    it('quad instance mesh is a flat two-triangle unit quad', () => {
+        const quad = ShapeGeometry.quad();
+        expect(quad.vertexCount).toBe(4);
+        expect(quad.indexCount).toBe(6);
+        for (let i = 0; i < 4; i++) {
+            expect(quad.positions[i * 3 + 2]).toBe(0);
+        }
+    });
 });

@@ -10,6 +10,8 @@
 export class ShapeGeometry {
     static SHAPES = ['plane', 'sphere', 'box', 'torus'];
 
+    static INSTANCE_SHAPES = ['cube', 'sphere', 'quad'];
+
     static _cache = new Map();
 
     /**
@@ -33,6 +35,56 @@ export class ShapeGeometry {
             this._cache.set(key, geometry);
         }
         return geometry;
+    }
+
+    /**
+     * Get (build + cache) the low-poly mesh drawn once per instance in the
+     * instanced field mode.
+     * @param {string} shape - 'cube' | 'sphere' | 'quad'
+     * @returns {Object} { positions, normals, uvs, indices, vertexCount, indexCount }
+     */
+    static getInstanceMesh(shape) {
+        const key = `instance:${shape}`;
+        let geometry = this._cache.get(key);
+        if (!geometry) {
+            switch (shape) {
+                case 'sphere': geometry = this.sphere(10); break;
+                case 'quad': geometry = this.quad(); break;
+                case 'cube':
+                default: geometry = this.box(1); break;
+            }
+            this._cache.set(key, geometry);
+        }
+        return geometry;
+    }
+
+    /**
+     * Unit quad in the XY plane (billboarded by the instance renderer).
+     */
+    static quad() {
+        return {
+            positions: new Float32Array([
+                -1, -1, 0,
+                1, -1, 0,
+                -1, 1, 0,
+                1, 1, 0
+            ]),
+            normals: new Float32Array([
+                0, 0, 1,
+                0, 0, 1,
+                0, 0, 1,
+                0, 0, 1
+            ]),
+            uvs: new Float32Array([
+                0, 0,
+                1, 0,
+                0, 1,
+                1, 1
+            ]),
+            indices: new Uint32Array([0, 1, 2, 2, 1, 3]),
+            vertexCount: 4,
+            indexCount: 6
+        };
     }
 
     /**
