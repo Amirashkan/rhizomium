@@ -171,18 +171,8 @@ export class ComputeFieldMapperNode extends Node {
      * @private
      */
     _handleParameterChange(paramName, value) {
-        // Map UI parameters to internal structure
         switch (paramName) {
-            case 'width':
-                this.setDimensions(value, this.dimensions[1], this.dimensions[2]);
-                break;
-            case 'height':
-                this.setDimensions(this.dimensions[0], value, this.dimensions[2]);
-                break;
-            case 'depth':
-                this.setDimensions(this.dimensions[0], this.dimensions[1], value);
-                break;
-
+            // Legacy saves may still emit mappingMode
             case 'mappingMode':
                 this.setMappingMode(value);
                 break;
@@ -202,130 +192,6 @@ export class ComputeFieldMapperNode extends Node {
                 // every frame; just flag the change
                 this.markNeedsUpdate();
                 break;
-            case 'updateFrequency':
-                this.updateFrequency = value;
-                break;
-
-            case 'boundsMinX':
-                this.fieldBounds.min[0] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'boundsMinY':
-                this.fieldBounds.min[1] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'boundsMinZ':
-                this.fieldBounds.min[2] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'boundsMaxX':
-                this.fieldBounds.max[0] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'boundsMaxY':
-                this.fieldBounds.max[1] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'boundsMaxZ':
-                this.fieldBounds.max[2] = value;
-                this.markNeedsUpdate();
-                break;
-
-            case 'threshold':
-                this.visualizationParams.threshold = value;
-                this.markNeedsUpdate();
-                break;
-            case 'isoThreshold':
-                this.isoThreshold = value;
-                this.markNeedsUpdate();
-                break;
-            case 'pointSize':
-                this.visualizationParams.pointSize = value;
-                this.markNeedsUpdate();
-                break;
-            case 'sampleRate':
-                this.visualizationParams.sampleRate = value;
-                this.markNeedsUpdate();
-                break;
-
-            case 'colorMode':
-                this.visualizationParams.colorMode = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorAR':
-                this.visualizationParams.colorA[0] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorAG':
-                this.visualizationParams.colorA[1] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorAB':
-                this.visualizationParams.colorA[2] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorAA':
-                this.visualizationParams.colorA[3] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorBR':
-                this.visualizationParams.colorB[0] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorBG':
-                this.visualizationParams.colorB[1] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorBB':
-                this.visualizationParams.colorB[2] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorBA':
-                this.visualizationParams.colorB[3] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'solidColorR':
-                this.visualizationParams.solidColor[0] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'solidColorG':
-                this.visualizationParams.solidColor[1] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'solidColorB':
-                this.visualizationParams.solidColor[2] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'solidColorA':
-                this.visualizationParams.solidColor[3] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorScaleMin':
-                this.visualizationParams.colorScale[0] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'colorScaleMax':
-                this.visualizationParams.colorScale[1] = value;
-                this.markNeedsUpdate();
-                break;
-
-            case 'displacementScale':
-                this.visualizationParams.displacementScale = value;
-                this.markNeedsUpdate();
-                break;
-            case 'displacementAxisX':
-                this.visualizationParams.displacementAxis[0] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'displacementAxisY':
-                this.visualizationParams.displacementAxis[1] = value;
-                this.markNeedsUpdate();
-                break;
-            case 'displacementAxisZ':
-                this.visualizationParams.displacementAxis[2] = value;
-                this.markNeedsUpdate();
-                break;
-
         }
     }
 
