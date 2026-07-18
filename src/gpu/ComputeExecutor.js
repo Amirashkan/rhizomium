@@ -649,6 +649,9 @@ export class ComputeExecutor {
       if (this.computeManagers.has(sourceId)) continue; // real compute source
       const sanitized = String(sourceId).replace(/[^a-zA-Z0-9_]/g, '_');
       if (this.computeManagers.has(sanitized)) continue;
+      // Another field mapper publishes its own output - never bridge it
+      const sourceNode = window.graph?.getNode?.(sourceId);
+      if (sourceNode && sourceNode.kind === 'ComputeFieldMapper') continue;
       consumers.push({ node, sourceId });
     }
     return consumers;
@@ -723,6 +726,14 @@ export class ComputeExecutor {
         // Check if the node exists in the graph
         const inputNode = window.graph.getNode(inputNodeId);
         if (!inputNode) {
+          continue;
+        }
+
+        // A 3D Field Visualizer already publishes its rendered view into
+        // nodeOutputs every frame - bridging it through an isolated fragment
+        // render would overwrite that texture with a degraded copy (this is
+        // what washed the colors out of mapper -> ComputeMix chains)
+        if (inputNode.kind === 'ComputeFieldMapper') {
           continue;
         }
 

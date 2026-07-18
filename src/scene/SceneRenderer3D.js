@@ -160,7 +160,7 @@ export class SceneRenderer3D {
         @fragment fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
           let cuv = (uv - 0.5) * params.uvScale + 0.5;
           if (cuv.x < 0.0 || cuv.x > 1.0 || cuv.y < 0.0 || cuv.y > 1.0) {
-            return vec4<f32>(0.04, 0.04, 0.06, 1.0); // letterbox bars
+            return vec4<f32>(0.0, 0.0, 0.0, 1.0); // letterbox bars
           }
           return textureSampleLevel(srcTex, srcSampler, cuv, 0.0);
         }
@@ -360,7 +360,7 @@ export class SceneRenderer3D {
     const renderPassDescriptor = {
       colorAttachments: [{
         view: this.sceneTexture.createView(),
-        clearValue: { r: 0.1, g: 0.1, b: 0.15, a: 1.0 },
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
         loadOp: 'clear',
         storeOp: 'store'
       }],
@@ -427,7 +427,7 @@ export class SceneRenderer3D {
       const blitPass = commandEncoder.beginRenderPass({
         colorAttachments: [{
           view: currentTexture.createView(),
-          clearValue: { r: 0.04, g: 0.04, b: 0.06, a: 1 },
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
           loadOp: 'clear',
           storeOp: 'store'
         }]

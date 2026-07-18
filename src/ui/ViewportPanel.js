@@ -251,7 +251,7 @@ export class ViewportPanel {
       }
     };
 
-    // Auto-rotate toggle
+    // Auto-rotate toggle + speed
     const spinLabel = document.createElement('label');
     spinLabel.style.cssText = labelStyle + 'display: flex; gap: 4px; align-items: center; cursor: pointer;';
     const spinCheckbox = document.createElement('input');
@@ -264,11 +264,31 @@ export class ViewportPanel {
     spinLabel.appendChild(spinCheckbox);
     spinLabel.appendChild(document.createTextNode('Spin'));
 
+    const spinSpeedSlider = document.createElement('input');
+    spinSpeedSlider.type = 'range';
+    spinSpeedSlider.min = '0.05';
+    spinSpeedSlider.max = '2';
+    spinSpeedSlider.step = '0.05';
+    spinSpeedSlider.value = String(this.viewport3D?.autoRotateSpeed ?? 0.25);
+    spinSpeedSlider.title = 'Spin speed';
+    spinSpeedSlider.style.cssText = 'width: 60px; align-self: center;';
+    spinSpeedSlider.oninput = () => {
+      if (this.viewport3D) {
+        this.viewport3D.autoRotateSpeed = Number(spinSpeedSlider.value);
+        // Nudging the speed while stopped is a clear "I want it spinning"
+        if (!this.viewport3D.autoRotate) {
+          this.viewport3D.autoRotate = true;
+          spinCheckbox.checked = true;
+        }
+      }
+    };
+
     this.controlsContainer.appendChild(shapeLabel);
     this.controlsContainer.appendChild(this.shapeSelect);
     this.controlsContainer.appendChild(fovLabel);
     this.controlsContainer.appendChild(fovSlider);
     this.controlsContainer.appendChild(spinLabel);
+    this.controlsContainer.appendChild(spinSpeedSlider);
     this.controlsContainer.appendChild(resetBtn);
     this.controlsContainer.appendChild(cameraTypeBtn);
   }

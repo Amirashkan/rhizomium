@@ -59,7 +59,8 @@ grid and threshold carried over; `surface`/`volume` map to the plane surface.
 
 - **Shape** dropdown — applies to every 3D Field Visualizer node
 - **FOV** slider — perspective field of view
-- **Spin** — slow turntable auto-rotation (pauses while you orbit)
+- **Spin** + speed slider — turntable auto-rotation in radians/second
+  (pauses while you orbit; moving the slider turns the spin on)
 - **Reset Camera**, **Perspective/Orthographic**
 - Left-drag orbit · Shift+drag / middle-drag pan · wheel / right-drag zoom
 - A real floating window: draggable header, resizable corner, maximize/restore
@@ -77,7 +78,12 @@ setting retargets the render automatically.
 
 Node parameters (`shape`, `scale`, `displacementScale`, `textureAmount`, …)
 are re-read from the node every frame, so dragging them updates the 3D view
-immediately — no graph rebuild involved.
+immediately — no graph rebuild involved. Numeric parameters accept
+`=expressions` (including `time` / `audioEnvelope`), evaluated per frame —
+`=sin(time)*0.3+1.5` on `scale` breathes the shape live.
+
+The scene background is pure black, so the node's output composites cleanly
+into the 2D chain.
 
 ## Live thumbnail
 

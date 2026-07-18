@@ -180,10 +180,47 @@ export class FieldMapperIntegration {
      * @param {ComputeFieldMapperNode} fieldMapper
      * @param {Object} node - Graph node
      */
+    /**
+     * Resolve a numeric parameter to a finite number: timeline overrides and
+     * `=expression` strings are evaluated through the editor's expression
+     * system (with the sim clock, so time/audio expressions animate). A raw
+     * expression string fed into a GPU uniform would become NaN and blank
+     * the whole render.
+     * @param {Object} node - Graph node (expression context)
+     * @param {Object} params - node.params
+     * @param {string} name - Parameter name
+     * @param {number} fallback - Value when missing/unresolvable
+     * @returns {number}
+     */
+    resolveNumericParam(node, params, name, fallback) {
+        let value = params[name];
+
+        const expressionSystem = typeof window !== 'undefined' ? window.expressionSystem : null;
+        if (expressionSystem) {
+            try {
+                if (typeof expressionSystem.getEffectiveParameterValue === 'function') {
+                    value = expressionSystem.getEffectiveParameterValue(node.id, name, value);
+                }
+                if (expressionSystem.isExpression(value)) {
+                    const time = (typeof window !== 'undefined' && typeof window.renderLoop?._simTime === 'number')
+                        ? window.renderLoop._simTime
+                        : performance.now() / 1000;
+                    value = expressionSystem.evaluateExpression(value, { time }, node);
+                }
+            } catch {
+                return fallback;
+            }
+        }
+
+        const num = typeof value === 'number' ? value : parseFloat(value);
+        return Number.isFinite(num) ? num : fallback;
+    }
+
     updateFieldMapperParams(fieldMapper, node) {
         const params = node.params || {};
         const setup = this.resolveRenderSetup(params);
-        const scale = params.scale ?? 1.5;
+        const num = (name, fallback) => this.resolveNumericParam(node, params, name, fallback);
+        const scale = num('scale', 1.5);
 
         // GPU render parameters, consumed by SceneRenderer3D each frame.
         // Legacy point params (pointSize/gridSize/threshold) feed the
@@ -191,14 +228,14 @@ export class FieldMapperIntegration {
         fieldMapper.shapeParams = {
             mode: setup.mode,
             shape: setup.shape,
-            resolution: params.resolution ?? 96,
-            displacementScale: params.displacementScale ?? 0.4,
-            textureAmount: params.textureAmount ?? 1.0,
+            resolution: num('resolution', 96),
+            displacementScale: num('displacementScale', 0.4),
+            textureAmount: num('textureAmount', 1.0),
             instanceShape: setup.instanceShape,
-            instanceCount: params.instanceCount ?? params.gridSize ?? 48,
-            instanceSize: params.instanceSize ?? params.pointSize ?? 0.03,
-            sizeByField: params.sizeByField ?? 0.6,
-            instanceThreshold: params.instanceThreshold ?? params.threshold ?? 0.15
+            instanceCount: num('instanceCount', num('gridSize', 48)),
+            instanceSize: num('instanceSize', num('pointSize', 0.03)),
+            sizeByField: num('sizeByField', 0.6),
+            instanceThreshold: num('instanceThreshold', num('threshold', 0.15))
         };
         fieldMapper.transform.setScale(scale, scale, scale);
         fieldMapper.mappingMode = 'surface';

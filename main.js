@@ -3632,11 +3632,13 @@ function handleRenderFrame(frameState) {
     if (now - (window.__fieldMapperThumbAt || 0) > 250) {
       window.__fieldMapperThumbAt = now;
       const previewManager = window.editor?.shaderPreviewManager;
-      const sceneTexture = sceneRenderer3D.getSceneTexture?.();
-      if (previewManager && sceneTexture && graph?.nodes) {
+      if (previewManager && graph?.nodes) {
+        // Pass a getter so the queue always downscales the CURRENT scene
+        // texture, not one destroyed by a resolution change while queued
+        const getSceneTexture = () => sceneRenderer3D?.getSceneTexture?.() ?? null;
         for (const node of graph.nodes) {
           if (node && node.kind === 'ComputeFieldMapper') {
-            previewManager.updateNodeThumbnailFromTexture(node, sceneTexture);
+            previewManager.updateNodeThumbnailFromTexture(node, getSceneTexture);
           }
         }
       }

@@ -56,8 +56,9 @@ export class Viewport3D {
             }
         }
 
-        // Slow turntable spin while enabled (paused during manual orbit)
+        // Turntable spin while enabled (paused during manual orbit)
         this.autoRotate = false;
+        this.autoRotateSpeed = 0.25; // radians per second
 
         // Resize observer
         this.resizeObserver = new ResizeObserver(entries => {
@@ -335,7 +336,11 @@ export class Viewport3D {
     update() {
         if (this.autoRotate && this.cameraController && !this.cameraController.isOrbiting) {
             const angles = this.cameraController.getAngles();
-            this.cameraController.setAngles(angles.azimuth + 0.004, angles.elevation);
+            // Frame-time based so the speed setting means radians/second
+            const now = performance.now();
+            const dt = Math.min(0.1, (now - (this._lastSpinAt || now)) / 1000);
+            this._lastSpinAt = now;
+            this.cameraController.setAngles(angles.azimuth + this.autoRotateSpeed * dt, angles.elevation);
         }
         this.cameraController.update();
     }

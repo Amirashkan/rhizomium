@@ -279,8 +279,11 @@ export class ShaderPreviewManager {
         try {
           if (item.type === 'external') {
             // Externally rendered texture (e.g. the 3D viewport mirror);
-            // no fallback - the previous thumbnail simply stays
-            if (item.texture) await this._textureToThumbnail(item.texture, item.node);
+            // resolved at drain time - the source may have been recreated
+            // (e.g. resolution change) since this item was queued. No
+            // fallback: the previous thumbnail simply stays.
+            const texture = typeof item.texture === 'function' ? item.texture() : item.texture;
+            if (texture) await this._textureToThumbnail(texture, item.node);
           } else if (item.type === 'compute') {
             await this._doComputePreview(item.node);
           } else {
@@ -475,7 +478,18 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
       { buffer, bytesPerRow },
       { width: size, height: size, depthOrArrayLayers: 1 }
     );
+    // The source texture is queue-shared state that can be destroyed between
+    // enqueue and drain (fragment-bridge textures recycle per frame, the 3D
+    // scene target recreates on resolution changes). Capture the validation
+    // error instead of letting it spew "Destroyed texture used in a submit"
+    // on the console; the caller keeps the previous thumbnail.
+    device.pushErrorScope('validation');
     device.queue.submit([encoder.finish()]);
+    device.popErrorScope().then((error) => {
+      if (error) {
+        this._lastThumbError = error.message;
+      }
+    }).catch(() => {});
 
     // mapAsync already waits for the submitted copy, so no separate onSubmittedWorkDone sync.
     await buffer.mapAsync(GPUMapMode.READ);

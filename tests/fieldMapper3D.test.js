@@ -17,7 +17,7 @@
  *   ids and never matched.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { PointCloudGenerator } from '../src/scene/generators/PointCloudGenerator.js';
 import { FieldVisualizer } from '../src/scene/FieldVisualizer.js';
 import { FieldMapperIntegration } from '../src/core/FieldMapperIntegration.js';
@@ -230,6 +230,46 @@ describe('FieldMapperIntegration render setup resolution', () => {
 
     it("maps legacy mappingMode 'surface' saves to the plane surface", () => {
         expect(integration.resolveRenderSetup({ mappingMode: 'surface' }).mode).toBe('surface');
+    });
+});
+
+describe('FieldMapperIntegration.resolveNumericParam', () => {
+    const integration = new FieldMapperIntegration(null, null, null, null, null);
+    const node = { id: 'mapper-x' };
+
+    afterEach(() => {
+        delete window.expressionSystem;
+    });
+
+    it('passes plain numbers through and parses numeric strings', () => {
+        expect(integration.resolveNumericParam(node, { scale: 2.5 }, 'scale', 1)).toBe(2.5);
+        expect(integration.resolveNumericParam(node, { scale: '3.5' }, 'scale', 1)).toBe(3.5);
+    });
+
+    it('falls back for missing or unparseable values', () => {
+        expect(integration.resolveNumericParam(node, {}, 'scale', 1.5)).toBe(1.5);
+        expect(integration.resolveNumericParam(node, { scale: 'abc' }, 'scale', 1.5)).toBe(1.5);
+    });
+
+    it('never passes a raw expression string through (would NaN the uniforms)', () => {
+        // No expression system available: the string must resolve to the fallback
+        expect(integration.resolveNumericParam(node, { scale: '=sin(time)' }, 'scale', 1.5)).toBe(1.5);
+    });
+
+    it('evaluates expressions through the editor expression system', () => {
+        window.expressionSystem = {
+            isExpression: (v) => typeof v === 'string' && v.trim().startsWith('='),
+            evaluateExpression: () => 0.75
+        };
+        expect(integration.resolveNumericParam(node, { displacementScale: '=0.5+0.25' }, 'displacementScale', 0.4)).toBe(0.75);
+    });
+
+    it('falls back when the expression system returns a non-finite result', () => {
+        window.expressionSystem = {
+            isExpression: (v) => typeof v === 'string' && v.trim().startsWith('='),
+            evaluateExpression: () => NaN
+        };
+        expect(integration.resolveNumericParam(node, { scale: '=broken' }, 'scale', 1.5)).toBe(1.5);
     });
 });
 
