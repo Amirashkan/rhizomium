@@ -3555,8 +3555,18 @@ function handleRenderFrame(frameState) {
   // GPU rendering - Always render every frame, even during interactions
   // PERFORMANCE: GPU renderer is async and non-blocking, so throttling is unnecessary
   // Frame skipping was causing compute profiler to show artificially low FPS
+  // Reusing the last GPU frame during heavy interaction keeps dragging smooth,
+  // but it skips gpuRenderer.render() — and with it computeExecutor.execute()
+  // and the fragment auto-bridge — so an animated graph (audio/time-driven,
+  // feedback sims, reference params) or a live 3D Field Visualizer visibly
+  // freezes while you drag. Never reuse for those; they exist to keep moving.
+  const graphIsAnimated =
+    (window.computeExecutor?.isGraphAnimated?.() || false) ||
+    (fieldMapperIntegration?.fieldMappers?.size > 0) ||
+    !!window.audioCapture?.getIsPlaying?.();
   const gpuBudgetExceeded =
     isCanvasInteracting &&
+    !graphIsAnimated &&
     (previewPerfMonitor?.getMetric("gpuMs") || 0) > GPU_INTERACTION_REUSE_THRESHOLD;
   previewPerfMonitor?.recordValue("gpuReuseActive", gpuBudgetExceeded ? 1 : 0);
   // Only skip GPU rendering if budget is exceeded (reuse last frame), otherwise render every frame

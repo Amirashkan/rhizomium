@@ -88,6 +88,11 @@ tracks its source smoothly even while you drag another parameter.
 The scene background is pure black, so the node's output composites cleanly
 into the 2D chain.
 
+Animated graphs (audio/time-driven, feedback sims, reference params) and any
+live 3D Field Visualizer keep rendering **during interaction** — dragging a
+node or a slider no longer reuses a stale GPU frame that would freeze the
+animation.
+
 ## Live thumbnail
 
 While the viewport is open, the node's thumbnail on the editor canvas mirrors
