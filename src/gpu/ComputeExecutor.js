@@ -196,7 +196,22 @@ export class ComputeExecutor {
       this.fallbackTexture = null;
       this.computeManagers.clear();
       this.computeNodes.clear();
-      this.computeTextures.clear();
+      // Preserve entries owned by an external producer (the 3D Field
+      // Visualizer publishes its rendered scene texture here). These aren't
+      // managed compute nodes, so a blanket clear would drop the mapper's
+      // output binding until FieldMapperIntegration re-publishes on the next
+      // frame — and a render firing in that gap samples nothing, blacking out
+      // any downstream (e.g. mapper -> OutputFinal). Reference params trigger
+      // frequent rebuilds, so that gap was hit constantly.
+      if (this.externalOutputNodeIds && this.externalOutputNodeIds.size > 0) {
+        for (const id of this.computeTextures.keys()) {
+          if (!this.externalOutputNodeIds.has(id)) {
+            this.computeTextures.delete(id);
+          }
+        }
+      } else {
+        this.computeTextures.clear();
+      }
       this.inputHashes.clear();
       // nodeOutputs is intentionally NOT cleared here. Old entries keep the
       // previous output textures alive so _lookupTextureBinding continues
@@ -523,7 +538,7 @@ export class ComputeExecutor {
    * @param {Object} audioContext - Audio context
    * @private
    */
-  async _renderFragmentNodeWithDependencies(fragmentNodeId, width, height, commandEncoder, time, audioContext) {
+  async _renderFragmentNodeWithDependencies(fragmentNodeId, width, height, commandEncoder, time, audioContext, force = false) {
     // Get the fragment node
     const fragmentNode = window.graph?.getNode(fragmentNodeId);
     if (!fragmentNode) return null;
@@ -547,7 +562,8 @@ export class ComputeExecutor {
       height,
       time,
       audioContext,
-      commandEncoder
+      commandEncoder,
+      force
     );
 
     return texture;
@@ -803,13 +819,21 @@ export class ComputeExecutor {
         width = Math.min(width, MAX_COMPUTE_RES);
         height = Math.min(height, MAX_COMPUTE_RES);
 
+        // FORCE the render every frame. A field mapper wants a live view, and
+        // its source may be animated only transitively - e.g. a Circle whose
+        // radius references an audioEnvelope-driven float. The fragment
+        // renderer's own change detection only sees literal time/audioEnvelope
+        // in the node's OWN params, so it would cache the source and freeze
+        // the animation. mark it changed so downstream compute consumers
+        // re-dispatch too.
         const texture = await this._renderFragmentNodeWithDependencies(
           sourceId,
           width,
           height,
           commandEncoder,
           time,
-          audioContext
+          audioContext,
+          true
         );
 
         if (texture) {

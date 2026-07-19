@@ -390,6 +390,7 @@ export class FieldMapperIntegration {
         if (this.computeExecutor) {
             this.computeExecutor.nodeOutputs?.delete(nodeId);
             this.computeExecutor.computeTextures?.delete(nodeId);
+            this.computeExecutor.externalOutputNodeIds?.delete(nodeId);
         }
 
         const fieldMapper = this.fieldMappers.get(nodeId);
@@ -441,7 +442,16 @@ export class FieldMapperIntegration {
             });
         }
 
+        // Mark these ids as externally owned so computeExecutor.initialize()
+        // preserves their computeTextures entries across its clear - otherwise
+        // a graph rebuild drops the binding for a frame and blacks out
+        // downstream consumers (mapper -> OutputFinal / mix / effect).
+        if (!this.computeExecutor.externalOutputNodeIds) {
+            this.computeExecutor.externalOutputNodeIds = new Set();
+        }
+
         for (const nodeId of this.fieldMappers.keys()) {
+            this.computeExecutor.externalOutputNodeIds.add(nodeId);
             this.computeExecutor.nodeOutputs.set(nodeId, sceneTexture);
             const existing = this.computeExecutor.computeTextures.get(nodeId);
             if (existing) {

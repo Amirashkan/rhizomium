@@ -118,7 +118,16 @@ render loop (whenever a visualizer node exists)
 
 - The node compiles like a compute node downstream: fragment chains sample
   `compute_node_<id>`, which resolves to the published scene texture — so the
-  3D view can feed OutputFinal or any effect chain.
+  3D view can feed OutputFinal or any effect chain. The published entry is
+  flagged external so `ComputeExecutor.initialize()` preserves it across the
+  clear a graph rebuild triggers — otherwise the binding vanishes for a frame
+  and blacks out downstream consumers (worst with reference params, which
+  rebuild often).
+- A fragment source feeding the node is force-re-rendered every frame, so a
+  source that's animated only transitively — e.g. a Circle whose radius
+  references an `=audioEnvelope` float — still drives the 3D view (the fragment
+  renderer's own change detection only sees literal `time`/`audioEnvelope` in a
+  node's own params).
 - The global editor stylesheet's `canvas { position: fixed; left: 0 }` rule
   must be overridden inline on the viewport canvas, or it escapes the window
   and stretches across the full display.
