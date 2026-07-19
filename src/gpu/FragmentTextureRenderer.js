@@ -153,6 +153,15 @@ export class FragmentTextureRenderer {
         return this._createFallbackTexture(width, height);
       }
 
+      // Refresh the CPU values of any node this fragment references via an
+      // `=node_<id>` expression BEFORE compiling uniforms and building the
+      // change-detection hash. Reference resolution reads PreviewComputer's
+      // cache, which isn't refreshed every frame for time-dependent scalars —
+      // so a Circle whose radius is `=node_<x>` (x driven by time/audio) would
+      // otherwise resolve to a stale value: rendered once, then frozen for
+      // every downstream compute consumer.
+      this._freshenReferencedValues(node);
+
       const nodeDef = NodeDefs[node.kind];
       if (!nodeDef) {
 
@@ -362,6 +371,42 @@ export class FragmentTextureRenderer {
   }
 
   /**
+   * Recompute the CPU value of every node this fragment references via an
+   * `=node_<id>` expression into PreviewComputer's value cache, so the
+   * reference resolves to its LIVE value when the uniform snapshot and the
+   * change-detection hash are built. Time/audio-driven scalars aren't
+   * refreshed in that cache every frame, which is why a referenced radius
+   * looked frozen downstream.
+   * @private
+   */
+  _freshenReferencedValues(node) {
+    const refIds = this._extractParamNodeReferences(node);
+    if (refIds.length === 0) return;
+
+    const editor = typeof window !== 'undefined' ? window.editor : null;
+    const computer = editor?.nodeValueComputer
+      || editor?.previewSystem?.nodeValueComputer
+      || editor?.previewComputer?.nodeValueComputer;
+    const valueCache = editor?.previewComputer?.lastComputedValues;
+    if (!computer || !valueCache || typeof computer.computeNodeValue !== 'function') {
+      return;
+    }
+
+    for (const refId of refIds) {
+      const refNode = editor.graph?.nodes?.find(n => n && String(n.id) === refId);
+      if (!refNode) continue;
+      try {
+        const live = computer.computeNodeValue(refNode);
+        if (live !== undefined && live !== null) {
+          valueCache.set(refNode.id, live);
+        }
+      } catch {
+        // keep the cached value for this reference
+      }
+    }
+  }
+
+  /**
    * Build WebGPU pipeline for rendering
    * @private
    */
@@ -534,6 +579,43 @@ export class FragmentTextureRenderer {
         || window.editor?.graph?.nodes?.find(n => String(n.id) === refId);
       if (refNode?.kind?.toLowerCase() === 'hold' && typeof refNode.__holdValue === 'number') {
         hash += `${refId}.hold:${refNode.__holdValue};`;
+      }
+    }
+
+    // Fold in the EVALUATED value of every `=expression` parameter. The raw
+    // `=...` string is constant, so a parameter that references an animated
+    // value — e.g. a Circle whose radius is `=node_<x>` where <x> is driven by
+    // time/audioEnvelope, or a chain through Remap — never changes the hash and
+    // the bridged texture freezes for EVERY compute consumer (ComputeMix, the
+    // 3D Field Visualizer, ...). _hasTimeDependentParameters only catches
+    // literal time/audioEnvelope in this node's own params; this catches the
+    // transitive case by hashing the resolved number, so the render re-fires
+    // exactly when the value moves. The value fed to the shader is still
+    // evaluated fresh at render time (this only decides IF we render).
+    const exprSystem = typeof window !== 'undefined' ? window.expressionSystem : null;
+    if (exprSystem && node.params && typeof exprSystem.isExpression === 'function') {
+      const t = (typeof window.renderLoop?._simTime === 'number') ? window.renderLoop._simTime : time;
+      for (const key in node.params) {
+        if (!node.params.hasOwnProperty(key)) continue;
+        const value = node.params[key];
+        if (typeof value !== 'string' || !exprSystem.isExpression(value)) continue;
+        let evaluated;
+        try {
+          const clean = value.trim().slice(1).trim();
+          if (clean && typeof exprSystem.buildEvaluationContext === 'function'
+              && typeof exprSystem.safeEvaluate === 'function') {
+            evaluated = exprSystem.safeEvaluate(clean, exprSystem.buildEvaluationContext({ time: t }, node));
+          } else {
+            evaluated = exprSystem.evaluateExpression(value, { time: t }, node);
+          }
+        } catch {
+          evaluated = undefined;
+        }
+        if (typeof evaluated === 'number' && Number.isFinite(evaluated)) {
+          hash += `${key}#${evaluated.toFixed(5)};`;
+        } else if (Array.isArray(evaluated)) {
+          hash += `${key}#[${evaluated.map(v => (typeof v === 'number' ? v.toFixed(5) : v)).join(',')}];`;
+        }
       }
     }
 

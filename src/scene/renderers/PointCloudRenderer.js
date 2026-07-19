@@ -1,7 +1,12 @@
 /**
  * PointCloudRenderer
  *
- * Renders point cloud geometry using WebGPU
+ * Renders point cloud geometry using WebGPU.
+ *
+ * WGSL has no point size control (point-list primitives are always one pixel),
+ * so points are drawn as camera-facing quads: one 4-vertex triangle-strip
+ * expanded in view space, instanced per point with position/color pulled from
+ * per-instance vertex buffers.
  */
 
 export class PointCloudRenderer {
@@ -74,8 +79,9 @@ export class PointCloudRenderer {
                 entryPoint: 'main',
                 buffers: [
                     {
-                        // Position buffer
+                        // Per-instance point position
                         arrayStride: 12, // 3 floats
+                        stepMode: 'instance',
                         attributes: [
                             {
                                 shaderLocation: 0,
@@ -85,8 +91,9 @@ export class PointCloudRenderer {
                         ]
                     },
                     {
-                        // Color buffer
+                        // Per-instance point color
                         arrayStride: 16, // 4 floats
+                        stepMode: 'instance',
                         attributes: [
                             {
                                 shaderLocation: 1,
@@ -119,7 +126,7 @@ export class PointCloudRenderer {
                 ]
             },
             primitive: {
-                topology: 'point-list',
+                topology: 'triangle-strip',
                 cullMode: 'none'
             },
             depthStencil: {
@@ -146,8 +153,9 @@ export class PointCloudRenderer {
      * @param {Mat4} viewMatrix - Camera view matrix
      * @param {Mat4} projectionMatrix - Camera projection matrix
      * @param {Mat4} modelMatrix - Model transform matrix
+     * @param {number} pointSize - Point radius in world units
      */
-    render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix) {
+    render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, pointSize = 0.02) {
         if (!this.initialized) {
 
             return;
@@ -181,11 +189,12 @@ export class PointCloudRenderer {
         }
         this.device.queue.writeBuffer(this.colorBuffer, 0, geometry.colors);
 
-        // Update uniforms (matrices)
-        const uniformData = new Float32Array(64); // 4 matrices of 16 floats
+        // Update uniforms (matrices + point size)
+        const uniformData = new Float32Array(52); // 3 matrices + pointSize + padding
         uniformData.set(modelMatrix.elements, 0);
         uniformData.set(viewMatrix.elements, 16);
         uniformData.set(projectionMatrix.elements, 32);
+        uniformData[48] = pointSize;
         this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
 
         // Create bind group
@@ -199,12 +208,12 @@ export class PointCloudRenderer {
             ]
         });
 
-        // Render
+        // Render: 4-vertex quad strip, one instance per point
         passEncoder.setPipeline(this.pipeline);
         passEncoder.setBindGroup(0, bindGroup);
         passEncoder.setVertexBuffer(0, this.vertexBuffer);
         passEncoder.setVertexBuffer(1, this.colorBuffer);
-        passEncoder.draw(geometry.vertexCount, 1, 0, 0);
+        passEncoder.draw(4, geometry.vertexCount, 0, 0);
     }
 
     /**
@@ -217,9 +226,11 @@ export class PointCloudRenderer {
                 modelMatrix: mat4x4<f32>,
                 viewMatrix: mat4x4<f32>,
                 projectionMatrix: mat4x4<f32>,
+                pointSize: f32,
             }
 
             struct VertexInput {
+                @builtin(vertex_index) vertexIndex: u32,
                 @location(0) position: vec3<f32>,
                 @location(1) color: vec4<f32>,
             }
@@ -227,7 +238,7 @@ export class PointCloudRenderer {
             struct VertexOutput {
                 @builtin(position) position: vec4<f32>,
                 @location(0) color: vec4<f32>,
-                @builtin(point_size) pointSize: f32,
+                @location(1) corner: vec2<f32>,
             }
 
             @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -236,15 +247,23 @@ export class PointCloudRenderer {
             fn main(input: VertexInput) -> VertexOutput {
                 var output: VertexOutput;
 
+                // Quad corners for a 4-vertex triangle strip
+                var corners = array<vec2<f32>, 4>(
+                    vec2<f32>(-1.0, -1.0),
+                    vec2<f32>( 1.0, -1.0),
+                    vec2<f32>(-1.0,  1.0),
+                    vec2<f32>( 1.0,  1.0)
+                );
+                let corner = corners[input.vertexIndex];
+
+                // Expand the quad in view space so it always faces the camera
                 let worldPos = uniforms.modelMatrix * vec4<f32>(input.position, 1.0);
-                let viewPos = uniforms.viewMatrix * worldPos;
+                var viewPos = uniforms.viewMatrix * worldPos;
+                viewPos = vec4<f32>(viewPos.xy + corner * uniforms.pointSize, viewPos.z, viewPos.w);
                 output.position = uniforms.projectionMatrix * viewPos;
 
                 output.color = input.color;
-
-                // Point size based on distance
-                let distance = length(viewPos.xyz);
-                output.pointSize = 5.0 / distance;
+                output.corner = corner;
 
                 return output;
             }
@@ -259,20 +278,19 @@ export class PointCloudRenderer {
         return `
             struct FragmentInput {
                 @location(0) color: vec4<f32>,
+                @location(1) corner: vec2<f32>,
             }
 
             @fragment
             fn main(input: FragmentInput) -> @location(0) vec4<f32> {
-                // Circular point shape
-                let coord = vec2<f32>(0.5, 0.5) - gl_PointCoord;
-                let dist = length(coord);
+                // Circular point shape with soft edges
+                let dist = length(input.corner);
 
-                if (dist > 0.5) {
+                if (dist > 1.0) {
                     discard;
                 }
 
-                // Soft edges
-                let alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+                let alpha = 1.0 - smoothstep(0.6, 1.0, dist);
 
                 return vec4<f32>(input.color.rgb, input.color.a * alpha);
             }

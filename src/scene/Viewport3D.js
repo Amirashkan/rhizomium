@@ -56,6 +56,10 @@ export class Viewport3D {
             }
         }
 
+        // Turntable spin while enabled (paused during manual orbit)
+        this.autoRotate = false;
+        this.autoRotateSpeed = 0.25; // radians per second
+
         // Resize observer
         this.resizeObserver = new ResizeObserver(entries => {
             for (const entry of entries) {
@@ -71,6 +75,12 @@ export class Viewport3D {
      * @param {number} height
      */
     handleResize(width, height) {
+        // A hidden panel reports 0x0; a 0/0 aspect poisons the projection
+        // matrix with NaN, so ignore resizes until the canvas has real size
+        if (!(width > 0) || !(height > 0)) {
+            return;
+        }
+
         this.width = width;
         this.height = height;
 
@@ -324,6 +334,14 @@ export class Viewport3D {
      * Update (call each frame)
      */
     update() {
+        if (this.autoRotate && this.cameraController && !this.cameraController.isOrbiting) {
+            const angles = this.cameraController.getAngles();
+            // Frame-time based so the speed setting means radians/second
+            const now = performance.now();
+            const dt = Math.min(0.1, (now - (this._lastSpinAt || now)) / 1000);
+            this._lastSpinAt = now;
+            this.cameraController.setAngles(angles.azimuth + this.autoRotateSpeed * dt, angles.elevation);
+        }
         this.cameraController.update();
     }
 

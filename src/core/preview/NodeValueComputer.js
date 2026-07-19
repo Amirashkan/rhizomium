@@ -22,15 +22,31 @@ export class NodeValueComputer {
   // recompute every call.
   _isTimeDependentKind(node) {
     const kind = node?.kind?.toLowerCase();
-    return kind === 'time' ||
-           kind === 'mouse' ||
-           kind === 'resolution' ||
-           kind === 'randomvalue' ||
-           kind === 'count' ||
-           kind === 'stripe' ||
-           kind === 'stripefield' ||
-           kind === 'checker' ||
-           kind === 'checkerfield';
+    if (kind === 'time' ||
+        kind === 'mouse' ||
+        kind === 'resolution' ||
+        kind === 'randomvalue' ||
+        kind === 'count' ||
+        kind === 'stripe' ||
+        kind === 'stripefield' ||
+        kind === 'checker' ||
+        kind === 'checkerfield') {
+      return true;
+    }
+
+    // A node of ANY kind whose parameter is a time/audio expression evolves
+    // every frame (e.g. a ConstFloat with value `=sin(time)`), so it must skip
+    // the value cache too — otherwise it computes once and freezes, and every
+    // node referencing it (a Circle radius, a 3D param, ...) freezes with it.
+    if (node?.params) {
+      for (const value of Object.values(node.params)) {
+        if (typeof value === 'string' && /=.*\b(time|audioEnvelope|frame)\b/i.test(value)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   computeNodeValue(node, visited = new Set()) {
@@ -337,7 +353,26 @@ case "rectanglefield": {
 
 _getParameter(node, name) {
   try {
-    return node.params?.[name] || node[name] || node.props?.[name] || 0;
+    const raw = node.params?.[name] ?? node[name] ?? node.props?.[name] ?? 0;
+
+    // Evaluate `=expression` values (e.g. a ConstFloat whose value is
+    // `=sin(time)`). Without this the raw expression string is returned and
+    // downstream arithmetic yields NaN — and any node referencing this one
+    // reads a frozen/garbage value. Uses the sim clock so time/audio
+    // expressions advance every call.
+    if (typeof raw === 'string' && raw.trim().startsWith('=')) {
+      const es = (typeof window !== 'undefined' && window.expressionSystem) || this.editor?.expressionSystem;
+      if (es && typeof es.evaluateExpression === 'function') {
+        const t = (typeof window !== 'undefined' && typeof window.renderLoop?._simTime === 'number')
+          ? window.renderLoop._simTime
+          : Date.now() / 1000;
+        const evaluated = es.evaluateExpression(raw, { time: t }, node);
+        return typeof evaluated === 'number' && Number.isFinite(evaluated) ? evaluated : 0;
+      }
+      return 0;
+    }
+
+    return raw;
   } catch (error) {
     return 0;
   }

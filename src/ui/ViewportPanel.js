@@ -28,10 +28,14 @@ export class ViewportPanel {
     this.panelElement.className = 'viewport3d-panel hidden';
     this.panelElement.style.cssText = `
       position: fixed;
-      top: 50px;
-      right: 10px;
-      width: 400px;
-      height: 400px;
+      top: 60px;
+      right: 16px;
+      width: 560px;
+      height: 460px;
+      min-width: 320px;
+      min-height: 260px;
+      max-width: 92vw;
+      max-height: 88vh;
       background: rgba(20, 20, 25, 0.95);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 8px;
@@ -64,28 +68,46 @@ export class ViewportPanel {
       font-weight: 500;
     `;
 
-    // Create close button
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = '×';
-    closeBtn.className = 'viewport3d-close';
-    closeBtn.style.cssText = `
+    const headerBtnStyle = `
       background: none;
       border: none;
       color: #999;
-      font-size: 20px;
+      font-size: 16px;
       cursor: pointer;
       padding: 0;
-      width: 20px;
+      width: 22px;
       height: 20px;
       line-height: 20px;
       text-align: center;
     `;
+    const makeHeaderBtn = (text, titleText) => {
+      const btn = document.createElement('button');
+      btn.textContent = text;
+      btn.title = titleText;
+      btn.style.cssText = headerBtnStyle;
+      btn.onmouseenter = () => btn.style.color = '#fff';
+      btn.onmouseleave = () => btn.style.color = '#999';
+      return btn;
+    };
+
+    // Maximize / restore
+    const maxBtn = makeHeaderBtn('▢', 'Maximize');
+    maxBtn.onclick = () => this.toggleMaximize();
+    this._maxBtn = maxBtn;
+
+    // Close
+    const closeBtn = makeHeaderBtn('×', 'Close (Ctrl+3)');
+    closeBtn.className = 'viewport3d-close';
+    closeBtn.style.fontSize = '20px';
     closeBtn.onclick = () => this.hide();
-    closeBtn.onmouseenter = () => closeBtn.style.color = '#fff';
-    closeBtn.onmouseleave = () => closeBtn.style.color = '#999';
+
+    const buttons = document.createElement('div');
+    buttons.style.cssText = 'display: flex; gap: 2px; align-items: center;';
+    buttons.appendChild(maxBtn);
+    buttons.appendChild(closeBtn);
 
     header.appendChild(title);
-    header.appendChild(closeBtn);
+    header.appendChild(buttons);
 
     // Create canvas container
     this.canvasContainer = document.createElement('div');
@@ -158,22 +180,136 @@ export class ViewportPanel {
       }
     };
 
-    // Frame scene button
-    const frameBtn = this.createButton('Frame All', buttonStyle);
-    frameBtn.onclick = () => {
-      if (this.viewport3D && this.scene) {
-        // Calculate scene bounds
-        const meshNodes = this.scene.getMeshNodes();
-        if (meshNodes.length > 0) {
-          // Simple framing - could be improved
-          this.viewport3D.resetCamera();
+    const labelStyle = `
+      color: #aaa;
+      font-size: 11px;
+      align-self: center;
+      user-select: none;
+    `;
+    const selectStyle = `
+      padding: 3px 6px;
+      background: rgba(60, 60, 70, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      color: #fff;
+      font-size: 11px;
+      cursor: pointer;
+    `;
+
+    // Shape selector - applies to every 3D Field Visualizer node in the graph
+    const shapeLabel = document.createElement('span');
+    shapeLabel.textContent = 'Shape';
+    shapeLabel.style.cssText = labelStyle;
+
+    this.shapeSelect = document.createElement('select');
+    this.shapeSelect.style.cssText = selectStyle;
+    for (const shape of ['plane', 'sphere', 'box', 'torus', 'instances']) {
+      const option = document.createElement('option');
+      option.value = shape;
+      option.textContent = shape[0].toUpperCase() + shape.slice(1);
+      this.shapeSelect.appendChild(option);
+    }
+    this.shapeSelect.onchange = () => {
+      const graph = window.editor?.graph;
+      if (!graph?.nodes) return;
+      const value = this.shapeSelect.value;
+      let changed = false;
+      for (const node of graph.nodes) {
+        if (node && node.kind === 'ComputeFieldMapper') {
+          node.params = node.params || {};
+          if (value === 'instances') {
+            node.params.mode = 'instances';
+          } else {
+            node.params.mode = 'surface';
+            node.params.shape = value;
+          }
+          changed = true;
+        }
+      }
+      if (changed && typeof window.updateShaderFromGraph === 'function') {
+        window.updateShaderFromGraph();
+      } else if (changed && typeof window.rebuild === 'function') {
+        window.rebuild();
+      }
+    };
+
+    // FOV slider (perspective camera)
+    const fovLabel = document.createElement('span');
+    fovLabel.textContent = 'FOV';
+    fovLabel.style.cssText = labelStyle;
+
+    const fovSlider = document.createElement('input');
+    fovSlider.type = 'range';
+    fovSlider.min = '25';
+    fovSlider.max = '110';
+    fovSlider.value = String(this.viewport3D?.getCamera?.()?.fov ?? 60);
+    fovSlider.style.cssText = 'width: 70px; align-self: center;';
+    fovSlider.oninput = () => {
+      const camera = this.viewport3D?.getCamera?.();
+      if (camera && typeof camera.setPerspective === 'function') {
+        camera.setPerspective(Number(fovSlider.value), camera.aspect, camera.near, camera.far);
+      }
+    };
+
+    // Auto-rotate toggle + speed
+    const spinLabel = document.createElement('label');
+    spinLabel.style.cssText = labelStyle + 'display: flex; gap: 4px; align-items: center; cursor: pointer;';
+    const spinCheckbox = document.createElement('input');
+    spinCheckbox.type = 'checkbox';
+    spinCheckbox.onchange = () => {
+      if (this.viewport3D) {
+        this.viewport3D.autoRotate = spinCheckbox.checked;
+      }
+    };
+    spinLabel.appendChild(spinCheckbox);
+    spinLabel.appendChild(document.createTextNode('Spin'));
+
+    const spinSpeedSlider = document.createElement('input');
+    spinSpeedSlider.type = 'range';
+    spinSpeedSlider.min = '0.05';
+    spinSpeedSlider.max = '2';
+    spinSpeedSlider.step = '0.05';
+    spinSpeedSlider.value = String(this.viewport3D?.autoRotateSpeed ?? 0.25);
+    spinSpeedSlider.title = 'Spin speed';
+    spinSpeedSlider.style.cssText = 'width: 60px; align-self: center;';
+    spinSpeedSlider.oninput = () => {
+      if (this.viewport3D) {
+        this.viewport3D.autoRotateSpeed = Number(spinSpeedSlider.value);
+        // Nudging the speed while stopped is a clear "I want it spinning"
+        if (!this.viewport3D.autoRotate) {
+          this.viewport3D.autoRotate = true;
+          spinCheckbox.checked = true;
         }
       }
     };
 
+    this.controlsContainer.appendChild(shapeLabel);
+    this.controlsContainer.appendChild(this.shapeSelect);
+    this.controlsContainer.appendChild(fovLabel);
+    this.controlsContainer.appendChild(fovSlider);
+    this.controlsContainer.appendChild(spinLabel);
+    this.controlsContainer.appendChild(spinSpeedSlider);
     this.controlsContainer.appendChild(resetBtn);
     this.controlsContainer.appendChild(cameraTypeBtn);
-    this.controlsContainer.appendChild(frameBtn);
+  }
+
+  /**
+   * Reflect the current graph's field-mapper shape in the selector
+   */
+  syncShapeSelect() {
+    if (!this.shapeSelect) return;
+    const graph = window.editor?.graph;
+    const mapper = graph?.nodes?.find?.((n) => n && n.kind === 'ComputeFieldMapper');
+    if (mapper) {
+      const params = mapper.params || {};
+      const legacyPoints = params.shape === 'points' || (!params.shape && params.mappingMode === 'points');
+      const value = (params.mode === 'instances' || (!params.mode && legacyPoints))
+        ? 'instances'
+        : ((params.shape && params.shape !== 'points') ? params.shape : 'plane');
+      if (this.shapeSelect.value !== value) {
+        this.shapeSelect.value = value;
+      }
+    }
   }
 
   /**
@@ -250,8 +386,8 @@ export class ViewportPanel {
 
     document.addEventListener('mousemove', (e) => {
       if (!isResizing) return;
-      const width = Math.max(300, startWidth + (e.clientX - startX));
-      const height = Math.max(200, startHeight + (e.clientY - startY));
+      const width = Math.max(320, startWidth + (e.clientX - startX));
+      const height = Math.max(260, startHeight + (e.clientY - startY));
       this.panelElement.style.width = width + 'px';
       this.panelElement.style.height = height + 'px';
 
@@ -297,11 +433,18 @@ export class ViewportPanel {
     // Clear existing canvas
     this.canvasContainer.innerHTML = '';
 
-    // Add canvas to container
+    // Add canvas to container. position/inset MUST be set inline: the editor
+    // stylesheet has a global `canvas { position: fixed; left: 0; }` rule that
+    // would otherwise rip the canvas out of the panel and stretch it across
+    // the full display width (percent widths on fixed elements resolve
+    // against the viewport).
     canvas.style.cssText = `
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
       display: block;
+      z-index: 0;
     `;
     this.canvasContainer.appendChild(canvas);
 
@@ -329,6 +472,11 @@ export class ViewportPanel {
     this.isVisible = true;
     this.panelElement.style.display = 'flex';
     this.panelElement.classList.remove('hidden');
+    this.syncShapeSelect();
+
+    // The canvas had no layout while hidden; sync its backing size (and the
+    // camera aspect) to the now-measurable container
+    this._syncCanvasSize();
   }
 
   /**
@@ -338,6 +486,57 @@ export class ViewportPanel {
     this.isVisible = false;
     this.panelElement.style.display = 'none';
     this.panelElement.classList.add('hidden');
+  }
+
+  /**
+   * Maximize the window to (nearly) the full display, or restore its
+   * previous size and position.
+   */
+  toggleMaximize() {
+    const el = this.panelElement;
+    if (!this._maximized) {
+      this._restoreRect = {
+        top: el.style.top, left: el.style.left, right: el.style.right,
+        width: el.style.width, height: el.style.height
+      };
+      el.style.top = '48px';
+      el.style.left = '16px';
+      el.style.right = 'auto';
+      el.style.width = 'calc(100vw - 32px)';
+      el.style.height = 'calc(100vh - 64px)';
+      this._maximized = true;
+      if (this._maxBtn) this._maxBtn.title = 'Restore';
+    } else {
+      const r = this._restoreRect || {};
+      el.style.top = r.top || '60px';
+      el.style.left = r.left || 'auto';
+      el.style.right = r.right || '16px';
+      el.style.width = r.width || '560px';
+      el.style.height = r.height || '460px';
+      this._maximized = false;
+      if (this._maxBtn) this._maxBtn.title = 'Maximize';
+    }
+    this._syncCanvasSize();
+  }
+
+  /**
+   * Match the canvas backing store (and camera aspect) to the container
+   * @private
+   */
+  _syncCanvasSize() {
+    setTimeout(() => {
+      if (this.viewport3D && this.viewport3D.canvas && this.canvasContainer) {
+        const containerWidth = this.canvasContainer.clientWidth;
+        const containerHeight = this.canvasContainer.clientHeight;
+        if (containerWidth > 0 && containerHeight > 0) {
+          this.viewport3D.canvas.width = containerWidth;
+          this.viewport3D.canvas.height = containerHeight;
+          if (this.viewport3D.handleResize) {
+            this.viewport3D.handleResize(containerWidth, containerHeight);
+          }
+        }
+      }
+    }, 0);
   }
 
   /**
@@ -355,27 +554,15 @@ export class ViewportPanel {
    * Reset viewport to default size and position
    */
   reset() {
-    this.panelElement.style.width = '400px';
-    this.panelElement.style.height = '400px';
-    this.panelElement.style.top = '50px';
-    this.panelElement.style.right = '10px';
+    this.panelElement.style.width = '560px';
+    this.panelElement.style.height = '460px';
+    this.panelElement.style.top = '60px';
+    this.panelElement.style.right = '16px';
     this.panelElement.style.left = 'auto';
     this.panelElement.style.bottom = 'auto';
+    this._maximized = false;
 
-    // Resize canvas to match container
-    setTimeout(() => {
-      if (this.viewport3D && this.viewport3D.canvas && this.canvasContainer) {
-        const containerWidth = this.canvasContainer.clientWidth;
-        const containerHeight = this.canvasContainer.clientHeight;
-
-        this.viewport3D.canvas.width = containerWidth;
-        this.viewport3D.canvas.height = containerHeight;
-
-        if (this.viewport3D.handleResize) {
-          this.viewport3D.handleResize(containerWidth, containerHeight);
-        }
-      }
-    }, 0);
+    this._syncCanvasSize();
   }
 
   /**

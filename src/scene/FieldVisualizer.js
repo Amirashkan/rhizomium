@@ -326,6 +326,127 @@ export class FieldVisualizer {
     }
 
     /**
+     * Generate a heightmap surface mesh from a 2D field texture.
+     * The field value drives vertex height along Y within the field bounds.
+     * @param {GPUTexture} texture - Input 2D texture
+     * @param {GPUDevice} device - WebGPU device
+     * @returns {Promise<Object|null>} Geometry data
+     */
+    async generateHeightmapMesh(texture, device) {
+        if (!this.initialized) {
+            await this.initialize();
+        }
+
+        const [w, h] = this.params.dimensions;
+
+        const fieldData = await PointCloudGenerator.readFieldSlice(texture, device, w, h);
+        if (!fieldData) {
+            return null;
+        }
+
+        const mesh = FieldVisualizer.buildHeightmapMesh(
+            fieldData,
+            w,
+            h,
+            this.params.fieldBounds,
+            (value) => this.calculateColor(value)
+        );
+
+        this.geometry = mesh;
+        return this.geometry;
+    }
+
+    /**
+     * Build a heightmap grid mesh from CPU field data.
+     * @param {Float32Array} fieldData - gridW * gridH field values in [0,1]
+     * @param {number} gridW - Grid width (>= 2)
+     * @param {number} gridH - Grid height (>= 2)
+     * @param {Object} bounds - {min: [x,y,z], max: [x,y,z]} world bounds
+     * @param {Function} colorFn - Maps a field value to an RGBA array
+     * @returns {Object} Geometry data
+     */
+    static buildHeightmapMesh(fieldData, gridW, gridH, bounds, colorFn = () => [1, 1, 1, 1]) {
+        const { min, max } = bounds;
+        const vertexCount = gridW * gridH;
+
+        const positions = new Float32Array(vertexCount * 3);
+        const normals = new Float32Array(vertexCount * 3);
+        const colors = new Float32Array(vertexCount * 4);
+        const uvs = new Float32Array(vertexCount * 2);
+
+        const sizeX = max[0] - min[0];
+        const sizeY = max[1] - min[1];
+        const sizeZ = max[2] - min[2];
+        const cellX = gridW > 1 ? sizeX / (gridW - 1) : 1;
+        const cellZ = gridH > 1 ? sizeZ / (gridH - 1) : 1;
+
+        const heightAt = (x, y) => {
+            const cx = Math.max(0, Math.min(gridW - 1, x));
+            const cy = Math.max(0, Math.min(gridH - 1, y));
+            const v = Math.max(0, Math.min(1, fieldData[cy * gridW + cx]));
+            return v * sizeY;
+        };
+
+        for (let gy = 0; gy < gridH; gy++) {
+            for (let gx = 0; gx < gridW; gx++) {
+                const i = gy * gridW + gx;
+                const tx = gridW > 1 ? gx / (gridW - 1) : 0;
+                const tz = gridH > 1 ? gy / (gridH - 1) : 0;
+                const value = Math.max(0, Math.min(1, fieldData[i]));
+
+                positions[i * 3 + 0] = min[0] + tx * sizeX;
+                positions[i * 3 + 1] = min[1] + value * sizeY;
+                positions[i * 3 + 2] = min[2] + tz * sizeZ;
+
+                // Normal from central height differences
+                const dx = (heightAt(gx + 1, gy) - heightAt(gx - 1, gy)) / (2 * cellX);
+                const dz = (heightAt(gx, gy + 1) - heightAt(gx, gy - 1)) / (2 * cellZ);
+                const len = Math.sqrt(dx * dx + 1 + dz * dz);
+                normals[i * 3 + 0] = -dx / len;
+                normals[i * 3 + 1] = 1 / len;
+                normals[i * 3 + 2] = -dz / len;
+
+                const color = colorFn(value);
+                colors[i * 4 + 0] = color[0];
+                colors[i * 4 + 1] = color[1];
+                colors[i * 4 + 2] = color[2];
+                colors[i * 4 + 3] = color[3];
+
+                uvs[i * 2 + 0] = tx;
+                uvs[i * 2 + 1] = tz;
+            }
+        }
+
+        // Two CCW-from-above triangles per grid cell
+        const indices = new Uint32Array((gridW - 1) * (gridH - 1) * 6);
+        let idx = 0;
+        for (let gy = 0; gy < gridH - 1; gy++) {
+            for (let gx = 0; gx < gridW - 1; gx++) {
+                const a = gy * gridW + gx;
+                const b = a + 1;
+                const c = a + gridW;
+                const d = c + 1;
+                indices[idx++] = a;
+                indices[idx++] = c;
+                indices[idx++] = b;
+                indices[idx++] = b;
+                indices[idx++] = c;
+                indices[idx++] = d;
+            }
+        }
+
+        return {
+            positions,
+            normals,
+            colors,
+            uvs,
+            indices,
+            vertexCount,
+            indexCount: indices.length
+        };
+    }
+
+    /**
      * Calculate color based on field value
      * @param {number} value - Field value
      * @returns {number[]} RGBA color

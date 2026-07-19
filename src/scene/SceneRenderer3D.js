@@ -5,6 +5,10 @@
  * Integrates with Viewport3D for camera/view management
  */
 
+import { ShapeRenderer } from './renderers/ShapeRenderer.js';
+import { InstanceRenderer } from './renderers/InstanceRenderer.js';
+import { ShapeGeometry } from './generators/ShapeGeometry.js';
+
 export class SceneRenderer3D {
   constructor(device, canvas, scene, viewport3D, computeExecutor = null) {
     this.device = device;
@@ -18,6 +22,12 @@ export class SceneRenderer3D {
     this.depthTexture = null;
     this.uniformBuffer = null;
     this.bindGroup = null;
+    this.preferredFormat = null;
+
+    // Per-field-mapper-node renderers. Each node needs its own instances
+    // because the renderers own their vertex/uniform buffers and all
+    // queue.writeBuffer calls land before the render pass executes.
+    this.fieldRenderers = new Map();
 
     this.initialized = false;
   }
@@ -35,12 +45,15 @@ export class SceneRenderer3D {
         throw new Error('Failed to get WebGPU context');
       }
 
-      // Configure context
+      // Configure context. COPY_DST lets us blit the offscreen scene texture
+      // (which doubles as the live node-thumbnail source) onto the canvas.
       const preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+      this.preferredFormat = preferredFormat;
       this.context.configure({
         device: this.device,
         format: preferredFormat,
-        alphaMode: 'premultiplied'
+        alphaMode: 'premultiplied',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST
       });
 
       // Create depth texture
@@ -60,22 +73,134 @@ export class SceneRenderer3D {
   }
 
   /**
-   * Create depth texture for 3D rendering
+   * The resolution the 3D view renders at. Follows the final render
+   * resolution (the preview/export setting the compute pipeline also uses),
+   * so the node's output texture matches the rest of the graph. Falls back
+   * to the viewport canvas size, then 512.
+   * @returns {[number, number]}
+   */
+  _getRenderResolution() {
+    const MAX_RES = 2048;
+    const res = typeof window !== 'undefined'
+      ? window.floatingPreview?.settings?.settings?.resolution
+      : null;
+    let width = res?.width;
+    let height = res?.height;
+    if (!(width > 0) || !(height > 0)) {
+      width = this.canvas?.width;
+      height = this.canvas?.height;
+    }
+    if (!(width > 0) || !(height > 0)) {
+      width = 512;
+      height = 512;
+    }
+    return [Math.min(Math.round(width), MAX_RES), Math.min(Math.round(height), MAX_RES)];
+  }
+
+  /**
+   * Create the offscreen render targets at the current render resolution
    */
   createDepthTexture() {
     if (this.depthTexture) {
       this.depthTexture.destroy();
     }
+    if (this.sceneTexture) {
+      // RETIRE the old scene texture instead of destroying it: the main
+      // renderer's cached bind groups (gpu-render-encoder) still reference it
+      // until the invalidation below takes effect, and submitting with a
+      // destroyed texture blanks the whole output ("Destroyed texture used
+      // in a submit"). Retired textures are destroyed a couple of seconds
+      // later in render().
+      this._retiredSceneTextures = this._retiredSceneTextures || [];
+      this._retiredSceneTextures.push({ texture: this.sceneTexture, age: 0 });
+    }
+
+    const [width, height] = this._getRenderResolution();
+    this._targetWidth = width;
+    this._targetHeight = height;
+    const size = { width, height, depthOrArrayLayers: 1 };
 
     this.depthTexture = this.device.createTexture({
-      size: {
-        width: this.canvas.width,
-        height: this.canvas.height,
-        depthOrArrayLayers: 1
-      },
+      size,
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
+
+    // Offscreen color target: the scene renders here at output resolution,
+    // gets aspect-fit blitted to the viewport canvas, and stays sampleable
+    // for the node's graph output and live thumbnail
+    this.sceneTexture = this.device.createTexture({
+      size,
+      format: this.preferredFormat || navigator.gpu.getPreferredCanvasFormat(),
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    });
+
+    // Ask the main renderer to re-resolve external texture bindings on its
+    // next frame - it will pick the new scene texture up from the published
+    // computeTextures entry and rebuild its bind groups
+    if (typeof window !== 'undefined' && window.textureManager) {
+      window.textureManager.bindGroup = null;
+    }
+  }
+
+  /**
+   * Lazily build the aspect-fit blit pipeline that presents the offscreen
+   * frame on the viewport canvas (letterboxing when aspects differ - the
+   * render resolution is independent of the window size).
+   * @private
+   */
+  _ensureBlitPipeline() {
+    if (this._blitPipeline) return;
+
+    const format = this.preferredFormat || navigator.gpu.getPreferredCanvasFormat();
+    const module = this.device.createShaderModule({
+      label: 'viewport-blit',
+      code: `
+        struct BlitParams { uvScale: vec2<f32>, _pad: vec2<f32> }
+        @group(0) @binding(0) var srcTex: texture_2d<f32>;
+        @group(0) @binding(1) var srcSampler: sampler;
+        @group(0) @binding(2) var<uniform> params: BlitParams;
+
+        struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> }
+
+        @vertex fn vs(@builtin(vertex_index) vid: u32) -> VsOut {
+          var p = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+          var o: VsOut;
+          o.pos = vec4<f32>(p[vid], 0.0, 1.0);
+          o.uv = vec2<f32>((p[vid].x + 1.0) * 0.5, (1.0 - p[vid].y) * 0.5);
+          return o;
+        }
+
+        @fragment fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+          let cuv = (uv - 0.5) * params.uvScale + 0.5;
+          if (cuv.x < 0.0 || cuv.x > 1.0 || cuv.y < 0.0 || cuv.y > 1.0) {
+            return vec4<f32>(0.0, 0.0, 0.0, 1.0); // letterbox bars
+          }
+          return textureSampleLevel(srcTex, srcSampler, cuv, 0.0);
+        }
+      `
+    });
+
+    this._blitPipeline = this.device.createRenderPipeline({
+      label: 'viewport-blit',
+      layout: 'auto',
+      vertex: { module, entryPoint: 'vs' },
+      fragment: { module, entryPoint: 'fs', targets: [{ format }] },
+      primitive: { topology: 'triangle-list' }
+    });
+    this._blitSampler = this.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    this._blitUniforms = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+  }
+
+  /**
+   * The sampleable offscreen texture holding the latest rendered frame
+   * @returns {GPUTexture|null}
+   */
+  getSceneTexture() {
+    return this.sceneTexture;
   }
 
   /**
@@ -224,28 +349,47 @@ export class SceneRenderer3D {
   render(time = 0) {
     if (!this.initialized) return;
 
-    // Check if canvas size changed and recreate depth texture if needed
-    if (this.depthTexture.width !== this.canvas.width ||
-        this.depthTexture.height !== this.canvas.height) {
+    // Recreate targets when the final render resolution setting changes
+    const [targetWidth, targetHeight] = this._getRenderResolution();
+    if (targetWidth !== this._targetWidth || targetHeight !== this._targetHeight) {
       this.createDepthTexture();
     }
 
-    // Update viewport
+    // Destroy retired scene textures once every consumer has had ample time
+    // (~2s) to rebuild its bind groups against the replacement
+    if (this._retiredSceneTextures && this._retiredSceneTextures.length > 0) {
+      const keep = [];
+      for (const retired of this._retiredSceneTextures) {
+        retired.age += 1;
+        if (retired.age > 120) {
+          retired.texture.destroy();
+        } else {
+          keep.push(retired);
+        }
+      }
+      this._retiredSceneTextures = keep;
+    }
+
+    // Update viewport, then pin the camera aspect to the OUTPUT resolution -
+    // the graph consumes this frame, so it must not distort when the panel
+    // window is resized (the blit letterboxes instead)
     if (this.viewport3D) {
       this.viewport3D.update();
+      const camera = this.viewport3D.getCamera?.();
+      const aspect = this._targetWidth / this._targetHeight;
+      if (camera && Math.abs((camera.aspect ?? 0) - aspect) > 1e-4) {
+        camera.setAspect(aspect);
+      }
     }
 
     // Create command encoder
     const commandEncoder = this.device.createCommandEncoder();
 
-    // Get current texture
-    const currentTexture = this.context.getCurrentTexture();
-
-    // Create render pass
+    // Render into the offscreen scene texture (blitted to the canvas below)
     const renderPassDescriptor = {
       colorAttachments: [{
-        view: currentTexture.createView(),
-        clearValue: { r: 0.1, g: 0.1, b: 0.15, a: 1.0 },
+        view: this.sceneTexture.createView(),
+        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
         loadOp: 'clear',
         storeOp: 'store'
       }],
@@ -275,6 +419,7 @@ export class SceneRenderer3D {
     // Render compute field mapper nodes (if any)
     try {
       const fieldMapperNodes = this.scene.getComputeFieldMapperNodes();
+      this.pruneFieldRenderers(fieldMapperNodes);
       if (fieldMapperNodes && fieldMapperNodes.length > 0) {
         for (const fieldNode of fieldMapperNodes) {
           this.renderFieldMapperNode(passEncoder, fieldNode, time);
@@ -285,6 +430,45 @@ export class SceneRenderer3D {
     }
 
     passEncoder.end();
+
+    // Aspect-fit blit of the finished frame onto the viewport canvas
+    try {
+      const currentTexture = this.context.getCurrentTexture();
+      this._ensureBlitPipeline();
+
+      const canvasAspect = Math.max(1, this.canvas.width) / Math.max(1, this.canvas.height);
+      const texAspect = this._targetWidth / this._targetHeight;
+      // Fit the frame inside the canvas: expand the sampled UV range on the
+      // axis where the canvas is proportionally larger (bars fill the rest)
+      const uvScaleX = canvasAspect > texAspect ? canvasAspect / texAspect : 1;
+      const uvScaleY = canvasAspect > texAspect ? 1 : texAspect / canvasAspect;
+      this.device.queue.writeBuffer(this._blitUniforms, 0, new Float32Array([uvScaleX, uvScaleY, 0, 0]));
+
+      const blitBindGroup = this.device.createBindGroup({
+        layout: this._blitPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.sceneTexture.createView() },
+          { binding: 1, resource: this._blitSampler },
+          { binding: 2, resource: { buffer: this._blitUniforms } }
+        ]
+      });
+
+      const blitPass = commandEncoder.beginRenderPass({
+        colorAttachments: [{
+          view: currentTexture.createView(),
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          loadOp: 'clear',
+          storeOp: 'store'
+        }]
+      });
+      blitPass.setPipeline(this._blitPipeline);
+      blitPass.setBindGroup(0, blitBindGroup);
+      blitPass.draw(3, 1, 0, 0);
+      blitPass.end();
+    } catch {
+      // Canvas texture unavailable (e.g. zero-sized while hidden) - the
+      // offscreen render still completed for graph-output consumers
+    }
 
     // Submit commands
     this.device.queue.submit([commandEncoder.finish()]);
@@ -356,11 +540,89 @@ export class SceneRenderer3D {
   }
 
   /**
-   * Render a compute field mapper node
+   * Render a compute field mapper node.
+   *
+   * Field mappers carry CPU-side geometry (positions/normals/colors/uvs and
+   * optional indices as typed arrays) generated by FieldVisualizer, not the
+   * interleaved GPU vertex buffer the mesh-node path expects. Indexed
+   * geometry is drawn as a lit vertex-colored mesh; unindexed geometry is
+   * drawn as a point cloud of camera-facing quads.
    */
   renderFieldMapperNode(passEncoder, fieldNode, time) {
-    // Similar to renderMeshNode but specifically for field visualization
-    this.renderMeshNode(passEncoder, fieldNode, time);
+    const renderers = this.getFieldRenderers(fieldNode);
+    const viewMatrix = this.viewport3D.getViewMatrix();
+    const projectionMatrix = this.viewport3D.getProjectionMatrix();
+    const modelMatrix = fieldNode.getWorldMatrix();
+
+    const shapeParams = fieldNode.shapeParams || {};
+
+    // The live compute texture; both modes sample it directly on the GPU
+    let texture = null;
+    if (this.computeExecutor && fieldNode.sourceNodeId !== null && fieldNode.sourceNodeId !== undefined) {
+      const output = this.computeExecutor.getNodeOutput(fieldNode.sourceNodeId);
+      if (output && output !== this.computeExecutor.fallbackTexture) {
+        texture = output;
+      }
+    }
+
+    if (shapeParams.mode === 'instances') {
+      // Instanced field: one small mesh per field cell, positioned / sized /
+      // colored per instance in the vertex shader
+      const mesh = ShapeGeometry.getInstanceMesh(shapeParams.instanceShape || 'cube');
+      renderers.instances.render(passEncoder, mesh, viewMatrix, projectionMatrix, modelMatrix, {
+        texture,
+        gridCount: shapeParams.instanceCount ?? 48,
+        instanceSize: shapeParams.instanceSize ?? 0.03,
+        sizeByField: shapeParams.sizeByField ?? 0.6,
+        threshold: shapeParams.instanceThreshold ?? 0.15,
+        heightScale: shapeParams.displacementScale ?? 0.4,
+        textureAmount: shapeParams.textureAmount ?? 1.0,
+        billboard: (shapeParams.instanceShape || 'cube') === 'quad'
+      });
+      return;
+    }
+
+    // Surface: color in the fragment stage, displacement in the vertex stage
+    const geometry = ShapeGeometry.get(shapeParams.shape || 'plane', shapeParams.resolution ?? 96);
+    renderers.shape.render(passEncoder, geometry, viewMatrix, projectionMatrix, modelMatrix, {
+      texture,
+      displacementScale: shapeParams.displacementScale ?? 0.4,
+      textureAmount: shapeParams.textureAmount ?? 1.0
+    });
+  }
+
+  /**
+   * Get (or lazily create) the dedicated renderers for a field mapper node
+   */
+  getFieldRenderers(fieldNode) {
+    let renderers = this.fieldRenderers.get(fieldNode);
+    if (!renderers) {
+      const format = this.preferredFormat || navigator.gpu.getPreferredCanvasFormat();
+      renderers = {
+        shape: new ShapeRenderer(this.device),
+        instances: new InstanceRenderer(this.device)
+      };
+      // initialize() completes synchronously (no awaits inside), so the
+      // renderers are usable as soon as these calls return
+      renderers.shape.initialize(format);
+      renderers.instances.initialize(format);
+      this.fieldRenderers.set(fieldNode, renderers);
+    }
+    return renderers;
+  }
+
+  /**
+   * Drop renderers for field mapper nodes no longer in the scene
+   */
+  pruneFieldRenderers(activeNodes) {
+    const active = new Set(activeNodes || []);
+    for (const [node, renderers] of this.fieldRenderers.entries()) {
+      if (!active.has(node)) {
+        renderers.shape.destroy();
+        renderers.instances.destroy();
+        this.fieldRenderers.delete(node);
+      }
+    }
   }
 
   /**
@@ -427,9 +689,33 @@ export class SceneRenderer3D {
    * Cleanup
    */
   dispose() {
+    for (const renderers of this.fieldRenderers.values()) {
+      renderers.shape.destroy();
+      renderers.instances.destroy();
+    }
+    this.fieldRenderers.clear();
+
     if (this.depthTexture) {
       this.depthTexture.destroy();
       this.depthTexture = null;
+    }
+
+    if (this.sceneTexture) {
+      this.sceneTexture.destroy();
+      this.sceneTexture = null;
+    }
+
+    if (this._blitUniforms) {
+      this._blitUniforms.destroy();
+      this._blitUniforms = null;
+      this._blitPipeline = null;
+    }
+
+    if (this._retiredSceneTextures) {
+      for (const retired of this._retiredSceneTextures) {
+        retired.texture.destroy();
+      }
+      this._retiredSceneTextures = [];
     }
 
     if (this.uniformBuffer) {

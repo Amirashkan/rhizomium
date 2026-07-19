@@ -117,101 +117,158 @@ export class PointCloudGenerator {
     }
 
     /**
+     * Describe how to read the red channel out of a texture format.
+     * @param {string} format - GPUTextureFormat
+     * @returns {{bytesPerTexel: number, kind: 'uint8'|'float32', redOffset: number}|null}
+     */
+    static getFormatInfo(format) {
+        switch (format) {
+            case 'rgba8unorm':
+            case 'rgba8unorm-srgb':
+                return { bytesPerTexel: 4, kind: 'uint8', redOffset: 0 };
+            case 'bgra8unorm':
+            case 'bgra8unorm-srgb':
+                return { bytesPerTexel: 4, kind: 'uint8', redOffset: 2 };
+            case 'r32float':
+                return { bytesPerTexel: 4, kind: 'float32', redOffset: 0 };
+            case 'rg32float':
+                return { bytesPerTexel: 8, kind: 'float32', redOffset: 0 };
+            case 'rgba32float':
+                return { bytesPerTexel: 16, kind: 'float32', redOffset: 0 };
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Extract a normalized [0,1] field grid from raw texture readback bytes.
+     * Handles the 256-byte bytesPerRow alignment padding and nearest-samples
+     * the texture down (or up) to the requested grid size.
+     *
+     * @param {ArrayBuffer|Uint8Array} rawBytes - Mapped readback bytes
+     * @param {number} texWidth - Actual texture width in texels
+     * @param {number} texHeight - Actual texture height in texels
+     * @param {number} bytesPerRow - Row stride used for the copy (256-aligned)
+     * @param {Object} formatInfo - Result of getFormatInfo()
+     * @param {number} gridW - Output grid width
+     * @param {number} gridH - Output grid height
+     * @returns {Float32Array} gridW * gridH field values in [0,1]
+     */
+    static extractFieldFromBytes(rawBytes, texWidth, texHeight, bytesPerRow, formatInfo, gridW, gridH) {
+        const buffer = rawBytes instanceof Uint8Array
+            ? rawBytes.buffer.slice(rawBytes.byteOffset, rawBytes.byteOffset + rawBytes.byteLength)
+            : rawBytes;
+        const bytes = new Uint8Array(buffer);
+        const view = new DataView(buffer);
+        const { bytesPerTexel, kind, redOffset } = formatInfo;
+
+        const fieldData = new Float32Array(gridW * gridH);
+
+        for (let gy = 0; gy < gridH; gy++) {
+            // Nearest sampling from the texture grid onto the requested grid
+            const ty = Math.min(texHeight - 1, Math.floor(((gy + 0.5) * texHeight) / gridH));
+            const rowOffset = ty * bytesPerRow;
+
+            for (let gx = 0; gx < gridW; gx++) {
+                const tx = Math.min(texWidth - 1, Math.floor(((gx + 0.5) * texWidth) / gridW));
+                const byteOffset = rowOffset + tx * bytesPerTexel + redOffset;
+
+                let value;
+                if (kind === 'uint8') {
+                    value = bytes[byteOffset] / 255.0;
+                } else {
+                    value = view.getFloat32(byteOffset, true);
+                }
+
+                fieldData[gy * gridW + gx] = value;
+            }
+        }
+
+        return fieldData;
+    }
+
+    /**
+     * Read one 2D texture (or one slice of a 3D texture) back to the CPU and
+     * extract its red channel as a normalized field grid.
+     *
+     * @param {GPUTexture} texture - Source texture
+     * @param {GPUDevice} device - WebGPU device
+     * @param {number} gridW - Output grid width
+     * @param {number} gridH - Output grid height
+     * @param {number} sliceZ - Depth slice to read (for 3D textures)
+     * @returns {Promise<Float32Array|null>} Field data, or null for unsupported formats
+     */
+    static async readFieldSlice(texture, device, gridW, gridH, sliceZ = 0) {
+        const formatInfo = this.getFormatInfo(texture.format);
+        if (!formatInfo) {
+            return null;
+        }
+
+        const texW = texture.width;
+        const texH = texture.height;
+        const bytesPerRow = Math.ceil((texW * formatInfo.bytesPerTexel) / 256) * 256;
+
+        const buffer = device.createBuffer({
+            size: bytesPerRow * texH,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        });
+
+        try {
+            const encoder = device.createCommandEncoder();
+            encoder.copyTextureToBuffer(
+                { texture, origin: { x: 0, y: 0, z: sliceZ } },
+                { buffer, bytesPerRow },
+                { width: texW, height: texH, depthOrArrayLayers: 1 }
+            );
+            device.queue.submit([encoder.finish()]);
+
+            await buffer.mapAsync(GPUMapMode.READ);
+            const mapped = new Uint8Array(buffer.getMappedRange());
+            const fieldData = this.extractFieldFromBytes(
+                mapped, texW, texH, bytesPerRow, formatInfo, gridW, gridH
+            );
+            buffer.unmap();
+            return fieldData;
+        } finally {
+            buffer.destroy();
+        }
+    }
+
+    /**
      * Generate point cloud from texture (requires GPU texture readback)
      * @param {GPUTexture} texture - Input texture
      * @param {GPUDevice} device - WebGPU device
-     * @param {number[]} dimensions - [width, height]
+     * @param {number[]} dimensions - [width, height] sampling grid
      * @param {Object} options - Generation options
      * @returns {Promise<Object>} Point cloud geometry
      */
     static async generateFromTexture(texture, device, dimensions, options = {}) {
         const [w, h] = dimensions;
 
-        // Create readback buffer
-        const bytesPerRow = Math.ceil(w * 4 * 4 / 256) * 256; // RGBA32Float, aligned to 256
-        const buffer = device.createBuffer({
-            size: bytesPerRow * h,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-        });
-
-        // Copy texture to buffer
-        const encoder = device.createCommandEncoder();
-        encoder.copyTextureToBuffer(
-            { texture },
-            { buffer, bytesPerRow },
-            { width: w, height: h }
-        );
-        device.queue.submit([encoder.finish()]);
-
-        // Read data
-        await buffer.mapAsync(GPUMapMode.READ);
-        const data = new Float32Array(buffer.getMappedRange());
-
-        // Extract channel data (use red channel)
-        const fieldData = new Float32Array(w * h);
-        for (let i = 0; i < w * h; i++) {
-            fieldData[i] = data[i * 4]; // Red channel
+        const fieldData = await this.readFieldSlice(texture, device, w, h);
+        if (!fieldData) {
+            return { positions: new Float32Array(0), colors: new Float32Array(0), vertexCount: 0 };
         }
 
-        buffer.unmap();
-        buffer.destroy();
-
         // Generate point cloud from field data
-        return this.generate(fieldData, [w, h, 1], options);
+        return this.generate(fieldData, [w, h, 1], { ...options, is3D: false });
     }
 
     /**
      * Generate point cloud from 3D texture (requires GPU texture readback)
      * @param {GPUTexture} texture - Input 3D texture
      * @param {GPUDevice} device - WebGPU device
-     * @param {number[]} dimensions - [width, height, depth]
+     * @param {number[]} dimensions - [width, height, depth] sampling grid
      * @param {Object} options - Generation options
      * @returns {Promise<Object>} Point cloud geometry
      */
     static async generateFromTexture3D(texture, device, dimensions, options = {}) {
         const [w, h, d] = dimensions;
 
-        // For 3D textures, we need to copy each depth slice separately
-        const fieldData = new Float32Array(w * h * d);
-
-        // Create readback buffer for a single slice
-        const bytesPerRow = Math.ceil(w * 4 * 4 / 256) * 256; // RGBA32Float, aligned to 256
-        const buffer = device.createBuffer({
-            size: bytesPerRow * h,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-        });
-
-        // Read each depth slice
-        for (let z = 0; z < d; z++) {
-            // Copy this depth slice to buffer
-            const encoder = device.createCommandEncoder();
-            encoder.copyTextureToBuffer(
-                {
-                    texture,
-                    origin: { x: 0, y: 0, z }
-                },
-                { buffer, bytesPerRow },
-                { width: w, height: h, depthOrArrayLayers: 1 }
-            );
-            device.queue.submit([encoder.finish()]);
-
-            // Read data
-            await buffer.mapAsync(GPUMapMode.READ);
-            const sliceData = new Float32Array(buffer.getMappedRange());
-
-            // Extract channel data (use red channel) and place in 3D array
-            for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                    const srcIdx = (x + y * w) * 4; // RGBA format
-                    const dstIdx = x + y * w + z * w * h; // 3D layout
-                    fieldData[dstIdx] = sliceData[srcIdx]; // Red channel
-                }
-            }
-
-            buffer.unmap();
+        const fieldData = await this.readTextureData3D(texture, device, [w, h, d]);
+        if (!fieldData) {
+            return { positions: new Float32Array(0), colors: new Float32Array(0), vertexCount: 0 };
         }
-
-        buffer.destroy();
 
         // Generate point cloud from 3D field data
         return this.generate(fieldData, [w, h, d], { ...options, is3D: true });
@@ -221,51 +278,24 @@ export class PointCloudGenerator {
      * Read field data from 3D texture into a Float32Array
      * @param {GPUTexture} texture - Input 3D texture
      * @param {GPUDevice} device - WebGPU device
-     * @param {number[]} dimensions - [width, height, depth]
-     * @returns {Promise<Float32Array>} Field data
+     * @param {number[]} dimensions - [width, height, depth] sampling grid
+     * @returns {Promise<Float32Array|null>} Field data, or null for unsupported formats
      */
     static async readTextureData3D(texture, device, dimensions) {
         const [w, h, d] = dimensions;
+        const texDepth = texture.depthOrArrayLayers || 1;
+
         const fieldData = new Float32Array(w * h * d);
 
-        // Create readback buffer for a single slice
-        const bytesPerRow = Math.ceil(w * 4 * 4 / 256) * 256; // RGBA32Float, aligned to 256
-        const buffer = device.createBuffer({
-            size: bytesPerRow * h,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-        });
-
-        // Read each depth slice
         for (let z = 0; z < d; z++) {
-            // Copy this depth slice to buffer
-            const encoder = device.createCommandEncoder();
-            encoder.copyTextureToBuffer(
-                {
-                    texture,
-                    origin: { x: 0, y: 0, z }
-                },
-                { buffer, bytesPerRow },
-                { width: w, height: h, depthOrArrayLayers: 1 }
-            );
-            device.queue.submit([encoder.finish()]);
-
-            // Read data
-            await buffer.mapAsync(GPUMapMode.READ);
-            const sliceData = new Float32Array(buffer.getMappedRange());
-
-            // Extract channel data (use red channel) and place in 3D array
-            for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                    const srcIdx = (x + y * w) * 4; // RGBA format
-                    const dstIdx = x + y * w + z * w * h; // 3D layout
-                    fieldData[dstIdx] = sliceData[srcIdx]; // Red channel
-                }
+            const sliceZ = Math.min(texDepth - 1, Math.floor(((z + 0.5) * texDepth) / d));
+            const slice = await this.readFieldSlice(texture, device, w, h, sliceZ);
+            if (!slice) {
+                return null;
             }
-
-            buffer.unmap();
+            fieldData.set(slice, z * w * h);
         }
 
-        buffer.destroy();
         return fieldData;
     }
 }

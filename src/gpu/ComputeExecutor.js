@@ -196,7 +196,22 @@ export class ComputeExecutor {
       this.fallbackTexture = null;
       this.computeManagers.clear();
       this.computeNodes.clear();
-      this.computeTextures.clear();
+      // Preserve entries owned by an external producer (the 3D Field
+      // Visualizer publishes its rendered scene texture here). These aren't
+      // managed compute nodes, so a blanket clear would drop the mapper's
+      // output binding until FieldMapperIntegration re-publishes on the next
+      // frame — and a render firing in that gap samples nothing, blacking out
+      // any downstream (e.g. mapper -> OutputFinal). Reference params trigger
+      // frequent rebuilds, so that gap was hit constantly.
+      if (this.externalOutputNodeIds && this.externalOutputNodeIds.size > 0) {
+        for (const id of this.computeTextures.keys()) {
+          if (!this.externalOutputNodeIds.has(id)) {
+            this.computeTextures.delete(id);
+          }
+        }
+      } else {
+        this.computeTextures.clear();
+      }
       this.inputHashes.clear();
       // nodeOutputs is intentionally NOT cleared here. Old entries keep the
       // previous output textures alive so _lookupTextureBinding continues
@@ -523,7 +538,7 @@ export class ComputeExecutor {
    * @param {Object} audioContext - Audio context
    * @private
    */
-  async _renderFragmentNodeWithDependencies(fragmentNodeId, width, height, commandEncoder, time, audioContext) {
+  async _renderFragmentNodeWithDependencies(fragmentNodeId, width, height, commandEncoder, time, audioContext, force = false) {
     // Get the fragment node
     const fragmentNode = window.graph?.getNode(fragmentNodeId);
     if (!fragmentNode) return null;
@@ -547,7 +562,8 @@ export class ComputeExecutor {
       height,
       time,
       audioContext,
-      commandEncoder
+      commandEncoder,
+      force
     );
 
     return texture;
@@ -633,14 +649,40 @@ export class ComputeExecutor {
    * @param {number} time - Current time in seconds
    * @param {Object} audioContext - Audio envelope values
    */
+  /**
+   * 3D Field Visualizer nodes whose source is a fragment (or mixed) subgraph
+   * rather than a registered compute node. These sources are auto-wrapped:
+   * rendered to a texture each frame exactly like fragment-fed compute inputs.
+   * @returns {Array<{node: Object, sourceId: string|number}>}
+   */
+  _fieldMapperFragmentSources() {
+    const consumers = [];
+    const nodes = (typeof window !== 'undefined' && window.graph?.nodes) || [];
+    for (const node of nodes) {
+      if (!node || node.kind !== 'ComputeFieldMapper') continue;
+      const sourceId = Array.isArray(node.inputs) ? node.inputs[0] : null;
+      if (sourceId === null || sourceId === undefined) continue;
+      if (this.computeManagers.has(sourceId)) continue; // real compute source
+      const sanitized = String(sourceId).replace(/[^a-zA-Z0-9_]/g, '_');
+      if (this.computeManagers.has(sanitized)) continue;
+      // Another field mapper publishes its own output - never bridge it
+      const sourceNode = window.graph?.getNode?.(sourceId);
+      if (sourceNode && sourceNode.kind === 'ComputeFieldMapper') continue;
+      consumers.push({ node, sourceId });
+    }
+    return consumers;
+  }
+
   async _renderFragmentInputs(commandEncoder, time, audioContext) {
     if (!window.graph || !window.graph.nodes) {
       return;
     }
 
+    const mapperConsumers = this._fieldMapperFragmentSources();
+
     // PERFORMANCE: Early exit if no fragment inputs need rendering
     // This avoids expensive iteration when there are no fragment→compute connections
-    let hasFragmentInputs = false;
+    let hasFragmentInputs = mapperConsumers.length > 0;
     for (const nodeId of this.executionOrder) {
       const nodeData = window.computeNodeRegistry?.get(nodeId);
       const node = nodeData?.node;
@@ -703,6 +745,14 @@ export class ComputeExecutor {
           continue;
         }
 
+        // A 3D Field Visualizer already publishes its rendered view into
+        // nodeOutputs every frame - bridging it through an isolated fragment
+        // render would overwrite that texture with a degraded copy (this is
+        // what washed the colors out of mapper -> ComputeMix chains)
+        if (inputNode.kind === 'ComputeFieldMapper') {
+          continue;
+        }
+
         // This is a fragment node being used as compute input!
         try {
           // Use the same resolution as the compute node (follows preview settings)
@@ -748,6 +798,54 @@ export class ComputeExecutor {
       }
     }
 
+    // Auto-wrap fragment (or mixed) subgraphs feeding 3D Field Visualizer
+    // nodes: render them to a texture exactly like fragment-fed compute
+    // inputs, so the mapper can consume ANY graph output
+    for (const { sourceId } of mapperConsumers) {
+      if (this.renderedFragmentNodes.has(sourceId)) continue;
+
+      const inputNode = window.graph.getNode(sourceId);
+      if (!inputNode) continue;
+
+      try {
+        let width = 512;
+        let height = 512;
+        if (window.floatingPreview?.settings?.settings?.resolution) {
+          const previewRes = window.floatingPreview.settings.settings.resolution;
+          width = previewRes.width || width;
+          height = previewRes.height || height;
+        }
+        const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
+        width = Math.min(width, MAX_COMPUTE_RES);
+        height = Math.min(height, MAX_COMPUTE_RES);
+
+        // FORCE the render every frame. A field mapper wants a live view, and
+        // its source may be animated only transitively - e.g. a Circle whose
+        // radius references an audioEnvelope-driven float. The fragment
+        // renderer's own change detection only sees literal time/audioEnvelope
+        // in the node's OWN params, so it would cache the source and freeze
+        // the animation. mark it changed so downstream compute consumers
+        // re-dispatch too.
+        const texture = await this._renderFragmentNodeWithDependencies(
+          sourceId,
+          width,
+          height,
+          commandEncoder,
+          time,
+          audioContext,
+          true
+        );
+
+        if (texture) {
+          this.nodeOutputs.set(sourceId, texture);
+          this.renderedFragmentNodes.add(sourceId);
+          this.fragmentNodesRenderedThisFrame.add(sourceId);
+        }
+      } catch {
+        // Non-fatal: the mapper renders its bare shape until the source works
+      }
+    }
+
     // Invalidate input hashes for compute nodes that had fragment inputs re-rendered
     for (const nodeId of computeNodesToClearHash) {
       this.inputHashes.delete(nodeId);
@@ -779,7 +877,11 @@ export class ComputeExecutor {
       return;
     }
 
-    if (!this.initialized || this.computeManagers.size === 0) {
+    // Field mappers with a fragment-node source need the auto-bridge below
+    // even when there isn't a single registered compute node in the graph
+    const mapperFragmentSources = this._fieldMapperFragmentSources();
+
+    if ((!this.initialized || this.computeManagers.size === 0) && mapperFragmentSources.length === 0) {
       return;
     }
 
@@ -891,9 +993,19 @@ export class ComputeExecutor {
             return this.dispatchedThisFrame.has(inputId);
           });
 
+        // A 3D Field Visualizer input re-renders every frame (and its texture
+        // identity changes when the render resolution switches), so consumers
+        // must keep dispatching - the input hash can't see either change
+        const hasFieldMapperInput = node?.inputs && Array.isArray(node.inputs) &&
+          node.inputs.some(inputId => {
+            if (inputId === null || inputId === undefined) return false;
+            const inputNode = window.graph?.getNode?.(inputId);
+            return !!inputNode && inputNode.kind === 'ComputeFieldMapper';
+          });
+
         // PERFORMANCE: Only dispatch if node actually needs to update
         // This prevents unnecessary GPU work and maintains 60 FPS
-        const needsDispatch = shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasUpdatedComputeInput;
+        const needsDispatch = shouldUpdate || isTimeDependentNode || hasTimeDependentParams || hasNodeRefParams || hasUpdatedComputeInput || hasFieldMapperInput;
         
         if (needsDispatch) {
           // OPTIMIZATION: Only set input textures when we're actually dispatching
