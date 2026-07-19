@@ -39,6 +39,10 @@ Shared:
 - `scale` — overall size in the viewport
 - `displacementScale` — surface displacement / instance height
 - `textureAmount` — blend between a neutral lit look (0) and field colors (1)
+- `translateX` / `translateY` / `translateZ` — move the 3D object in the scene
+- `rotateX` / `rotateY` / `rotateZ` — rotate the object (degrees). Like every
+  numeric param these accept `=expressions`, so `rotateY: =time*30` turntables
+  the object itself (independent of the viewport's camera spin).
 
 Surface:
 - `shape` — plane / sphere / box / torus
@@ -91,7 +95,19 @@ into the 2D chain.
 Animated graphs (audio/time-driven, feedback sims, reference params) and any
 live 3D Field Visualizer keep rendering **during interaction** — dragging a
 node or a slider no longer reuses a stale GPU frame that would freeze the
-animation.
+animation. This holds for the whole chain: a Circle whose radius is a
+reference into a Remap fed by `=audioEnvelope` keeps moving while you drag any
+parameter, because the per-frame preview-value pass (the only thing that
+recomputes a transitive reference chain) is kept alive for animated graphs
+instead of being paused for the duration of the drag.
+
+## Saved state
+
+Saving a project stores the 3D viewport alongside the graph (a `viewport3D`
+block): its visibility, window position/size, camera (orbit angles, distance,
+target, perspective/orthographic, FOV) and the turntable spin toggle + speed.
+Reopening the project restores that exact 3D view. It's applied after the graph
+rebuild so your saved camera wins over the auto-show default.
 
 ## Live thumbnail
 

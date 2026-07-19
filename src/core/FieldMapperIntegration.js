@@ -293,6 +293,22 @@ export class FieldMapperIntegration {
             instanceThreshold: num('instanceThreshold', num('threshold', 0.15))
         };
         fieldMapper.transform.setScale(scale, scale, scale);
+
+        // Object transform: translate + rotate in the 3D scene. Rotation is
+        // authored in degrees for a friendly UI; the transform expects radians.
+        // Resolved through resolveNumericParam so =expressions animate here too.
+        fieldMapper.transform.setPosition(
+            num('translateX', 0),
+            num('translateY', 0),
+            num('translateZ', 0)
+        );
+        const DEG2RAD = Math.PI / 180;
+        fieldMapper.transform.setRotationFromEuler(
+            num('rotateX', 0) * DEG2RAD,
+            num('rotateY', 0) * DEG2RAD,
+            num('rotateZ', 0) * DEG2RAD
+        );
+
         fieldMapper.mappingMode = 'surface';
         fieldMapper.fieldBounds = { min: [-1, -1, -1], max: [1, 1, 1] };
     }

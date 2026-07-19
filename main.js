@@ -3709,7 +3709,18 @@ function handleRenderFrame(frameState) {
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
   if (!frameState.manual) {
-    if (!isDragging) {
+    // The preview pass is normally skipped while a parameter is being dragged
+    // (keeps the drag smooth). But this pass is the ONLY thing that recomputes
+    // node VALUES for a live reference chain — e.g. a Circle radius `=node_X`
+    // where X is a Remap fed by a ConstFloat `=audioEnvelope`. `_freshenReferencedValues`
+    // in the fragment bridge only refreshes the directly-referenced node, and
+    // computeNodeValue can't evaluate a transitive chain (Remap isn't in its
+    // switch, so it reads the frozen preview cache). So for an animated graph,
+    // skipping this pass during a drag freezes the whole reference chain — and
+    // with it the source fragment node (the Circle) and everything downstream.
+    // Keep it alive when the graph is animated; it's throttled to 10 FPS and
+    // runs in reduced-work interaction mode, so the drag stays responsive.
+    if (!isDragging || graphIsAnimated) {
       const now = performance.now();
       if (now - lastPreviewUpdate >= PREVIEW_UPDATE_INTERVAL) {
         lastPreviewUpdate = now;

@@ -284,6 +284,7 @@ exportProject(options = {}) {
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
+        viewport3D: this.exportViewport3D(),
       }),
 
       // Metadata
@@ -733,10 +734,17 @@ async importProject(projectData, options = {}) {
     this.hasUnsavedChanges = false;
     this.updateStatus("Project loaded successfully");
 
+    // Restore the 3D viewport last: the graph rebuild above creates/auto-shows
+    // field mappers, so applying the saved camera/window/visibility here lets
+    // the user's saved 3D view win over the auto-show default.
+    if (restoreViewport && projectData.viewport3D) {
+      this.importViewport3D(projectData.viewport3D);
+    }
+
     return true;
-    
+
   } catch (error) {
-    window.errorHandler?.handleError(error, { 
+    window.errorHandler?.handleError(error, {
       component: 'project-import',
       options,
       nodeCount: projectData?.nodes?.length || 0
@@ -1950,6 +1958,20 @@ async reinitializeWebGPU() {
     }
   }
 
+  // Capture the 3D viewport panel state (window geometry, camera, spin) so a
+  // saved project reopens with the same 3D view. Returns null when the panel
+  // isn't present (e.g. a project with no 3D Field Visualizer).
+  exportViewport3D() {
+    try {
+      const panel = (typeof window !== 'undefined' && window.viewportPanel) || null;
+      if (!panel || typeof panel.serializeState !== 'function') return null;
+      return panel.serializeState();
+    } catch (error) {
+      window.errorHandler?.handleError(error, { component: 'viewport3d-export' });
+      return null;
+    }
+  }
+
   exportMetadata() {
     try {
       return {
@@ -2169,6 +2191,18 @@ importConnections(connectionData) {
     } catch (error) {
       window.errorHandler?.handleError(error, { 
         component: 'viewport-import'
+      });
+    }
+  }
+
+  importViewport3D(viewport3DData) {
+    try {
+      const panel = (typeof window !== 'undefined' && window.viewportPanel) || null;
+      if (!panel || typeof panel.restoreState !== 'function') return;
+      panel.restoreState(viewport3DData);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'viewport3d-import'
       });
     }
   }
