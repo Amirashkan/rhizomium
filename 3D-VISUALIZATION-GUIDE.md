@@ -123,11 +123,17 @@ render loop (whenever a visualizer node exists)
   clear a graph rebuild triggers — otherwise the binding vanishes for a frame
   and blacks out downstream consumers (worst with reference params, which
   rebuild often).
-- A fragment source feeding the node is force-re-rendered every frame, so a
-  source that's animated only transitively — e.g. a Circle whose radius
-  references an `=audioEnvelope` float — still drives the 3D view (the fragment
-  renderer's own change detection only sees literal `time`/`audioEnvelope` in a
-  node's own params).
+- A fragment source feeding the node is force-re-rendered every frame, and
+  stays live even when it's animated only *transitively* — e.g. a Circle whose
+  radius is `=node_<x>` where `<x>` is a ConstFloat holding `=sin(time)` or an
+  audio value. Three things make that work: (1) `NodeValueComputer` treats a
+  node whose param is a time/audio expression as time-dependent (skips its
+  value cache) and `_getParameter` evaluates `=expression` values, so the
+  ConstFloat computes live; (2) the fragment renderer freshens referenced node
+  values before compiling uniforms; (3) it folds the evaluated value of each
+  `=expression` param into its re-render hash, so the bridged texture
+  re-renders exactly when the referenced value moves. This applies to any
+  compute consumer (ComputeMix, the 3D node, …), not just the 3D node.
 - The global editor stylesheet's `canvas { position: fixed; left: 0 }` rule
   must be overridden inline on the viewport canvas, or it escapes the window
   and stretches across the full display.
