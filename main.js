@@ -2626,6 +2626,13 @@ function setupKeyboardShortcuts() {
     // Handle copy/paste EARLY to prevent browser default behavior
     if (cmdKey && !e.shiftKey && !e.altKey) {
       if (e.key.toLowerCase() === "c") {
+        // If the user has selected text (e.g. a parameter value, a computed
+        // result readout, or a label in the parameter panel), let the browser
+        // copy that text instead of hijacking Ctrl/Cmd+C to copy the node(s).
+        const textSelection = window.getSelection?.();
+        if (textSelection && textSelection.toString().trim().length > 0) {
+          return;
+        }
         // Only prevent default if we actually have something to copy
         if (copySelection()) {
           e.preventDefault();
