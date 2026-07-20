@@ -66,6 +66,14 @@ export function resolveScalarRef(name, graph, typeConverter) {
     return `g.mouse.${channel}`;
   }
 
+  // 2a. Multi-output node (Audio Analysis, Resolution, Split, ...): a numeric suffix is an OUTPUT
+  //     PIN index, not a vector component. Resolve it to that pin's expression, scalar-coerced.
+  const pins = typeConverter?.outputPins?.get(id);
+  if (pins && pins.length > 1 && suffix != null && /^\d+$/.test(suffix)) {
+    const pin = pins[Number(suffix)] || pins[0];
+    return toScalar(pin.expression, pin.type);
+  }
+
   // 2. Regular node already compiled in this pass.
   if (typeConverter?.expressions?.has(id)) {
     const expr = typeConverter.expressions.get(id);

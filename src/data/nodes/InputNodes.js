@@ -170,26 +170,43 @@ export const InputNodes = {
     cat: "Input",
     inputs: 0,
     pinsIn: [],
-    // A precise kick/onset detector on the live audio input. A kick drum is a low-frequency
-    // transient, so detection watches the chosen frequency band (Bass by default), compares the
-    // instantaneous energy against BOTH an absolute floor (`threshold`) and an adaptive running
-    // baseline (`sensitivity`) so a sustained bassline doesn't keep re-triggering, and applies a
-    // refractory debounce so one hit produces exactly one detection. It has no fragment-shader
-    // memory, so the detection runs on the CPU in AudioAnalysisProcessor and streams three uniforms:
-    //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over `release` ms
+    // Live audio analysis + kick/onset detection. The node configures the shared audio-envelope
+    // engine (the Band + Follower + ADSR + Shaping controls that used to live in the Audio panel)
+    // and reads back the resulting envelope; on top of that it runs a precise kick detector
+    // (absolute floor + adaptive baseline + refractory debounce). It has no fragment-shader memory,
+    // so all of this runs on the CPU in AudioAnalysisProcessor, which streams three uniforms:
+    //   level - the live shaped envelope in [0,1] (a continuous value that moves while audio plays)
+    //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over Kick Release ms
     //   trig  - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold cleanly)
-    //   level - the raw band energy the detector is watching (for monitoring / further processing)
+    // Pin 0 is `level` on purpose, so `=node_<id>` (or `=node_<id>_0`) gives the live analysis value.
+    // Reference the others with `=node_<id>_1` (kick) and `=node_<id>_2` (trig).
     pinsOut: [
+      { label: "level", type: "f32" },
       { label: "kick", type: "f32" },
       { label: "trig", type: "f32" },
-      { label: "level", type: "f32" },
     ],
     params: [
-      { name: "band", type: "select", options: ["Bass", "Mids", "Highs", "Full"], default: "Bass", label: "Band" },
-      { name: "threshold", type: "float", default: 0.15, label: "Threshold" },
+      // — Source band (drives the envelope engine's frequency selection) —
+      { name: "band", type: "select", options: ["Bass", "Mids", "Highs", "Full", "Custom"], default: "Bass", label: "Band" },
+      { name: "customMin", type: "float", default: 60.0, label: "Custom Min (Hz)" },
+      { name: "customMax", type: "float", default: 250.0, label: "Custom Max (Hz)" },
+      // — Follower (envelope attack/release + noise gate) —
+      { name: "attack", type: "float", default: 50.0, label: "Attack (ms)" },
+      { name: "envRelease", type: "float", default: 200.0, label: "Release (ms)" },
+      { name: "gate", type: "float", default: 0.1, label: "Gate" },
+      // — ADSR —
+      { name: "adsrAttack", type: "float", default: 120.0, label: "ADSR Attack (ms)" },
+      { name: "adsrDecay", type: "float", default: 180.0, label: "ADSR Decay (ms)" },
+      { name: "sustain", type: "float", default: 0.7, label: "ADSR Sustain" },
+      { name: "adsrRelease", type: "float", default: 600.0, label: "ADSR Release (ms)" },
+      // — Shaping —
+      { name: "curve", type: "select", options: ["Linear", "Exponential", "Sigmoid"], default: "Exponential", label: "Curve" },
+      { name: "normalize", type: "bool", default: true, label: "Auto-normalize" },
+      // — Kick detection (runs on top of the shaped envelope) —
+      { name: "threshold", type: "float", default: 0.15, label: "Kick Threshold" },
       { name: "sensitivity", type: "float", default: 1.6, label: "Sensitivity" },
-      { name: "release", type: "float", default: 140.0, label: "Release (ms)" },
       { name: "refractory", type: "float", default: 90.0, label: "Min Gap (ms)" },
+      { name: "kickRelease", type: "float", default: 140.0, label: "Kick Release (ms)" },
     ],
   },
 

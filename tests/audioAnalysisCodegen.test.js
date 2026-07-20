@@ -15,17 +15,18 @@ describe('AudioAnalysis node codegen', () => {
     expect(compiler.handles('AudioAnalysis')).toBe(true);
   });
 
-  it('reads the kick/trig/level uniforms that getParam registers as three output pins', () => {
+  it('exposes level/kick/trig uniforms as three pins, with level as the default (pin 0)', () => {
     const node = { id: '7', kind: 'AudioAnalysis', params: { band: 'Bass', threshold: 0.15 } };
     const getParam = (name) => `u_params._7_${name}`;
     const result = compiler.compile(node, () => '0.0', getParam);
 
-    expect(result.line).toBe('let node_7 = u_params._7_kick;');
+    // Pin 0 is the continuous level, so `=node_7` gives a live value.
+    expect(result.line).toBe('let node_7 = u_params._7_level;');
     expect(result.outputType).toBe('f32');
     expect(result.outputPins).toEqual([
+      { expression: 'u_params._7_level', type: 'f32' },
       { expression: 'u_params._7_kick', type: 'f32' },
       { expression: 'u_params._7_trig', type: 'f32' },
-      { expression: 'u_params._7_level', type: 'f32' },
     ]);
   });
 

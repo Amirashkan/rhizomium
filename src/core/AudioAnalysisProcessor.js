@@ -1,34 +1,93 @@
 // src/core/AudioAnalysisProcessor.js
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
+import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 
 /**
- * Drives the Audio Analysis node — a precise kick / onset detector on the live audio input.
+ * Drives the Audio Analysis node — live envelope analysis + precise kick/onset detection.
  *
- * A kick drum is a low-frequency transient. A fragment shader has no memory between frames, so an
- * onset detector (which is inherently stateful) can't be expressed in GLSL/WGSL alone — the same
- * reason Hold and Count need CPU helpers. The detection lives here on the CPU: every frame this
- * reads the chosen band's energy (the same window._audioEnvelope* globals the GPU `g` uniform is
- * fed from) and decides whether a kick just happened, then writes three uniforms the node compiled
- * down to (see compilers/InputNodes.js) which the GPU renderer streams to the shader each frame:
- *   <id>.kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over `release` ms
+ * A fragment shader has no memory between frames, so neither the envelope follower/ADSR nor an
+ * onset detector (both inherently stateful) can be expressed in GLSL/WGSL alone — the same reason
+ * Hold and Count need CPU helpers. This runs on the CPU every frame and does two things:
+ *
+ *   1. Pushes the node's Band / Follower / ADSR / Shaping params into the shared audio-envelope
+ *      engine (BrowserAudioCapture.updateConfig — the same controls that used to live in the Audio
+ *      settings panel), then reads back the resulting shaped envelope (window._audioEnvelopeValue).
+ *   2. Runs kick detection on that envelope: an absolute floor (`threshold`) rejects noise, an
+ *      adaptive baseline (`sensitivity`) fires on transients rather than steady loudness, a
+ *      rising-edge gate catches the attack, and a refractory debounce (`refractory` ms) keeps one
+ *      hit from producing a burst.
+ *
+ * It streams three uniforms the node compiled down to (see compilers/InputNodes.js) which the GPU
+ * renderer sends to the shader each frame:
+ *   <id>.level - the live shaped envelope in [0,1] (moves continuously while audio plays)
+ *   <id>.kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over `kickRelease` ms
  *   <id>.trig  - a single-frame 1.0 pulse on the detection frame
- *   <id>.level - the raw band energy being watched
- *
- * Why this is "precise" rather than a bare threshold:
- *   - Adaptive baseline: the energy is compared against a slow-moving running average, so it fires
- *     on a *transient* (energy jumping well above its recent level) instead of on "bass is loud".
- *     A sustained bassline sits near its own baseline and won't keep re-triggering.
- *   - Absolute floor (`threshold`): the editable minimum energy a hit must clear, so background
- *     noise / near-silence can't trip the adaptive test. This is the primary user-facing control.
- *   - Rising-edge gate: a hit is only registered while the energy is still climbing, catching the
- *     attack of the transient rather than its tail.
- *   - Refractory debounce (`refractory` ms): after a hit, further detection is suppressed for a
- *     short window so a single kick yields exactly one detection instead of a burst.
  */
 export class AudioAnalysisProcessor {
   constructor() {
     // nodeId -> { baseline, env, prevEnergy, lastTime, lastKickTime }
     this._state = new Map();
+    // Last config JSON pushed to the audio engine, so we only call updateConfig when it changes
+    // (the engine is a shared singleton; there's no point re-pushing an identical config per frame).
+    this._lastConfigJson = null;
+    // Cached audio-engine handle (lazily resolved; may be null in non-browser/test contexts).
+    this._audioClient = undefined;
+  }
+
+  _client() {
+    if (this._audioClient === undefined) {
+      try {
+        this._audioClient = getBrowserAudioCapture();
+      } catch (e) {
+        this._audioClient = null;
+      }
+    }
+    return this._audioClient;
+  }
+
+  /**
+   * Build the envelope-engine config from a node's params and push it to the shared audio engine,
+   * but only when it actually changed. These are exactly the controls the Audio settings panel used
+   * to expose (Follower / ADSR / Shaping / Frequency band).
+   */
+  _applyEngineConfig(node, ctx) {
+    const bandMap = { bass: 'bass', mids: 'mids', highs: 'highs', full: 'fullband', custom: 'custom' };
+    const curveMap = { linear: 'linear', exponential: 'exp', exp: 'exp', sigmoid: 'sigmoid' };
+    const bandRaw = (typeof node.params?.band === 'string' ? node.params.band : 'Bass').toLowerCase();
+    const curveRaw = (typeof node.params?.curve === 'string' ? node.params.curve : 'Exponential').toLowerCase();
+
+    const config = {
+      follower: {
+        attack_ms: this._numericParam(node, 'attack', 50.0, ctx),
+        release_ms: this._numericParam(node, 'envRelease', 200.0, ctx),
+        threshold: this._numericParam(node, 'gate', 0.1, ctx),
+      },
+      adsr: {
+        attack_ms: this._numericParam(node, 'adsrAttack', 120.0, ctx),
+        decay_ms: this._numericParam(node, 'adsrDecay', 180.0, ctx),
+        sustain: this._numericParam(node, 'sustain', 0.7, ctx),
+        release_ms: this._numericParam(node, 'adsrRelease', 600.0, ctx),
+      },
+      shaping: {
+        curve: curveMap[curveRaw] || 'exp',
+        normalize: node.params?.normalize !== false && node.params?.normalize !== 'false',
+      },
+      frequency: {
+        mode: bandMap[bandRaw] || 'bass',
+        customMin: this._numericParam(node, 'customMin', 60.0, ctx),
+        customMax: this._numericParam(node, 'customMax', 250.0, ctx),
+      },
+    };
+
+    const json = JSON.stringify(config);
+    if (json === this._lastConfigJson) return;
+    this._lastConfigJson = json;
+    const client = this._client();
+    try {
+      client?.updateConfig?.(config);
+    } catch (e) {
+      // Never let a config push break the render loop.
+    }
   }
 
   /**
@@ -52,11 +111,15 @@ export class AudioAnalysisProcessor {
     for (const node of kickNodes) {
       live.add(node.id);
 
-      const band = this._bandName(node);
-      const energy = this._bandEnergy(band, ctx);
+      // 1. Push this node's Band/Follower/ADSR/Shaping settings into the shared envelope engine,
+      //    then read back the shaped envelope it produces as the analysis signal.
+      this._applyEngineConfig(node, ctx);
+      const energy = ctx.audioEnvelope; // window._audioEnvelopeValue — the shaped envelope
+
+      // 2. Kick-detection controls.
       const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.15, ctx));
       const sensitivity = Math.max(1.0, this._numericParam(node, 'sensitivity', 1.6, ctx));
-      const releaseMs = Math.max(1, this._numericParam(node, 'release', 140.0, ctx));
+      const releaseMs = Math.max(1, this._numericParam(node, 'kickRelease', 140.0, ctx));
       const refractoryMs = Math.max(0, this._numericParam(node, 'refractory', 90.0, ctx));
 
       let st = this._state.get(node.id);
@@ -118,27 +181,6 @@ export class AudioAnalysisProcessor {
   _writeUniform(uniformManager, key, value) {
     if (uniformManager?.uniformValues?.has(key)) {
       uniformManager.uniformValues.set(key, value);
-    }
-  }
-
-  /** The selected frequency band, normalised to one of the known names (defaults to Bass). */
-  _bandName(node) {
-    const raw = node.params?.band;
-    const name = typeof raw === 'string' ? raw.trim().toLowerCase() : 'bass';
-    if (name === 'mids' || name === 'mid') return 'mids';
-    if (name === 'highs' || name === 'high' || name === 'treble') return 'highs';
-    if (name === 'full' || name === 'fullband' || name === 'all') return 'full';
-    return 'bass';
-  }
-
-  /** Read the live energy for a band from the same audio globals the shader `g` uniform uses. */
-  _bandEnergy(band, ctx) {
-    switch (band) {
-      case 'mids': return ctx.audioEnvelopeMids;
-      case 'highs': return ctx.audioEnvelopeHighs;
-      case 'full': return ctx.audioEnvelopeFull || ctx.audioEnvelope;
-      case 'bass':
-      default: return ctx.audioEnvelopeBass;
     }
   }
 

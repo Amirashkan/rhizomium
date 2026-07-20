@@ -226,22 +226,22 @@ export class InputNodes {
       }
 
       case 'AudioAnalysis': {
-        // Precise kick/onset detection needs memory across frames (an adaptive baseline + a
-        // refractory debounce) that a fragment shader has none of, so it runs on the CPU in
-        // AudioAnalysisProcessor and streams three per-frame uniforms that getParam registers here
-        // (node.id + ".kick"/".trig"/".level"); the shader just reads them. The default output
-        // (pin 0) is the decaying `kick` envelope, the most useful signal for driving visuals.
-        const kickRef = getParam ? getParam('kick', 0.0) : null;
-        if (kickRef) {
+        // Live audio analysis needs memory across frames (the envelope follower / ADSR and the kick
+        // detector's adaptive baseline + refractory debounce) that a fragment shader has none of, so
+        // it all runs on the CPU in AudioAnalysisProcessor and streams three per-frame uniforms that
+        // getParam registers here (node.id + ".level"/".kick"/".trig"); the shader just reads them.
+        // Pin 0 is `level` — the continuous shaped envelope — so `=node_<id>` gives a live value.
+        const levelRef = getParam ? getParam('level', 0.0) : null;
+        if (levelRef) {
+          const kickRef = getParam('kick', 0.0);
           const trigRef = getParam('trig', 0.0);
-          const levelRef = getParam('level', 0.0);
           return {
-            line: `let node_${nodeId} = ${kickRef};`,
+            line: `let node_${nodeId} = ${levelRef};`,
             outputType: "f32",
             outputPins: [
-              { expression: kickRef, type: "f32" },   // kick  (decaying envelope)
+              { expression: levelRef, type: "f32" },  // level (continuous shaped envelope)
+              { expression: kickRef, type: "f32" },   // kick  (decaying detection envelope)
               { expression: trigRef, type: "f32" },   // trig  (single-frame pulse)
-              { expression: levelRef, type: "f32" },  // level (raw band energy)
             ],
           };
         }
