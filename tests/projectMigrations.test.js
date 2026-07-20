@@ -87,6 +87,76 @@ describe('migrateProjectData', () => {
     expect(result.connections[3].to).toEqual({ nodeId: 'out', pin: 0 });
   });
 
+  it('strips obsolete ComputeFieldMapper parameters (v4 -> v5)', () => {
+    const project = {
+      ...baseProject(),
+      version: 4,
+      nodes: [
+        {
+          id: 'fm',
+          kind: 'ComputeFieldMapper',
+          params: {
+            // Obsolete params removed in v5.
+            width: 64,
+            height: 64,
+            depth: 64,
+            boundsMinX: -1,
+            boundsMaxZ: 1,
+            colorMode: 'gradient',
+            colorAR: 0.2,
+            solidColorR: 1,
+            colorScaleMax: 1,
+            displacementAxisY: 1,
+            pointSize: 0.02,
+            // Params the node still honors -> kept.
+            mappingMode: 'points',
+            displacementScale: 0.4,
+            resolution: 96,
+            mode: 'surface',
+          },
+        },
+        // A different compute node must not be touched even if it shares
+        // generically-named params.
+        { id: 'noise', kind: 'ComputeNoise', params: { width: 128, threshold: 0.5 } },
+      ],
+    };
+
+    const result = migrateProjectData(project);
+
+    expect(result.version).toBe(SAVE_FORMAT_VERSION);
+
+    const fm = result.nodes.find((n) => n.id === 'fm');
+    // Obsolete keys gone.
+    for (const key of [
+      'width', 'height', 'depth', 'boundsMinX', 'boundsMaxZ', 'colorMode',
+      'colorAR', 'solidColorR', 'colorScaleMax', 'displacementAxisY', 'pointSize',
+    ]) {
+      expect(fm.params).not.toHaveProperty(key);
+    }
+    // Honored/current params preserved with their values.
+    expect(fm.params.mappingMode).toBe('points');
+    expect(fm.params.displacementScale).toBe(0.4);
+    expect(fm.params.resolution).toBe(96);
+    expect(fm.params.mode).toBe('surface');
+
+    // Non-FieldMapper node left untouched.
+    const noise = result.nodes.find((n) => n.id === 'noise');
+    expect(noise.params).toEqual({ width: 128, threshold: 0.5 });
+  });
+
+  it('does not mutate a ComputeFieldMapper node with no obsolete params', () => {
+    const clean = {
+      id: 'fm',
+      kind: 'ComputeFieldMapper',
+      params: { mode: 'surface', shape: 'sphere', displacementScale: 0.4 },
+    };
+    const project = { ...baseProject(), version: 4, nodes: [clean] };
+
+    const result = migrateProjectData(project);
+
+    expect(result.nodes[0].params).toEqual(clean.params);
+  });
+
   it('rejects non-object data', () => {
     expect(() => migrateProjectData(null)).toThrow(/Invalid project data/);
     expect(() => migrateProjectData('{}')).toThrow(/Invalid project data/);
