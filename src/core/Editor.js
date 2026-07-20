@@ -2198,6 +2198,9 @@ connectGPURenderer(renderFunction) {
   defaultNodePreviewEnabled(node) {
     try {
       if (!node) return false;
+      // Audio Analysis is a data-source node whose output is a single scalar; a thumbnail adds noise
+      // and just shows a number, so default it off (the user can still enable it from the node menu).
+      if (node.kind === 'AudioAnalysis') return false;
       const spm = window.shaderPreviewManager;
       if (!spm) return true;
       return !!(spm.isComputeNode(node) || spm.isVisualNode(node));

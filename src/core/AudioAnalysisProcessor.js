@@ -70,7 +70,7 @@ export class AudioAnalysisProcessor {
       },
       shaping: {
         curve: curveMap[curveRaw] || 'exp',
-        normalize: node.params?.normalize !== false && node.params?.normalize !== 'false',
+        normalize: node.params?.normalize === true || node.params?.normalize === 'true',
       },
       frequency: {
         mode: bandMap[bandRaw] || 'bass',
@@ -104,6 +104,12 @@ export class AudioAnalysisProcessor {
       if (this._state.size) this._state.clear();
       return;
     }
+
+    // Drive the envelope engine one frame BEFORE reading it. This runs every frame (the main render
+    // loop is continuous) and is de-duped against the engine's own RAF handler, so the envelope
+    // stays live even when that handler never registered (a timing race with window.renderLoop) —
+    // which otherwise leaves window._audioEnvelopeValue frozen at a stale value.
+    try { this._client()?.tick?.(); } catch (e) { /* never break the render loop */ }
 
     const ctx = this._buildContext(time);
     const live = new Set();

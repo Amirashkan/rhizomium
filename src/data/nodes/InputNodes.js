@@ -201,7 +201,9 @@ export const InputNodes = {
       { name: "adsrRelease", type: "float", default: 600.0, label: "ADSR Release (ms)" },
       // — Shaping —
       { name: "curve", type: "select", options: ["Linear", "Exponential", "Sigmoid"], default: "Exponential", label: "Curve" },
-      { name: "normalize", type: "bool", default: true, label: "Auto-normalize" },
+      // Off by default: auto-normalize divides by a running peak, which pins a steady track near 1.0
+      // and makes the value look "stuck". Off gives a dynamic level that visibly reacts to the audio.
+      { name: "normalize", type: "bool", default: false, label: "Auto-normalize" },
       // — Kick detection (runs on top of the shaped envelope) —
       { name: "threshold", type: "float", default: 0.15, label: "Kick Threshold" },
       { name: "sensitivity", type: "float", default: 1.6, label: "Sensitivity" },

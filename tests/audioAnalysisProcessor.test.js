@@ -30,10 +30,11 @@ function kickNode(params = {}) {
 // The processor reads the shaped envelope (window._audioEnvelopeValue) as its analysis signal.
 function setEnv(v) { window._audioEnvelopeValue = v; }
 
-// Stub the audio engine so tests never touch the real singleton; capture pushed configs.
+// Stub the audio engine so tests never touch the real singleton; capture pushed configs + ticks.
 function stubClient() {
   const configs = [];
-  return { configs, updateConfig(c) { configs.push(c); } };
+  let ticks = 0;
+  return { configs, get ticks() { return ticks; }, tick() { ticks++; }, updateConfig(c) { configs.push(c); } };
 }
 
 describe('AudioAnalysisProcessor', () => {
@@ -178,6 +179,15 @@ describe('AudioAnalysisProcessor', () => {
     proc.update(graph, { time: 0.032, uniformManager: um });
     expect(proc._audioClient.configs.length).toBe(2);
     expect(proc._audioClient.configs[1].frequency.mode).toBe('highs');
+  });
+
+  it('drives the audio engine once per update so the envelope never freezes', () => {
+    const node = kickNode();
+    const graph = makeGraph([node]);
+    const um = makeUniformManager(['k']);
+    proc.update(graph, { time: 0.0, uniformManager: um });
+    proc.update(graph, { time: 0.016, uniformManager: um });
+    expect(proc._audioClient.ticks).toBe(2);
   });
 
   it('prunes state for deleted nodes', () => {
