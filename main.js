@@ -3765,8 +3765,13 @@ function handleRenderFrame(frameState) {
           }
 
           const explicitPreviewRequest = !!editor._needsPreviewUpdate;
+          // Audio-reactive nodes change on the audio clock, not the sim clock, so `timeChanged`
+          // (which tracks sim time) can be false every frame while the audio value is still moving —
+          // leaving node value previews and =node_<id> readouts frozen even though the GPU output
+          // reacts. When audio is playing, recompute the preview each frame so those stay live.
+          const audioLive = !!(typeof window !== 'undefined' && window.audioCapture?.getIsPlaying?.());
           const needsPreviewCompute =
-            (hadTimeAnimatedNodes && timeChanged) ||
+            (hadTimeAnimatedNodes && (timeChanged || audioLive)) ||
             parameterValuesChanged ||
             structureChanged ||
             explicitPreviewRequest;

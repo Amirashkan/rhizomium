@@ -182,6 +182,12 @@ export class NodeCompiler {
         const pin = pins[Number(idxStr)] || pins[0];
         return pin.expression;
       }
+      // Single scalar-output node (Remap, Add, ...): pin 0 is just the node's value, so
+      // `node_<id>_0` behaves like `node_<id>`. Lets users apply the same `_0` pin syntax they use
+      // for multi-output nodes to any node instead of getting a broken (0) reference.
+      if (this.typeConverter.expressions.has(baseId) && this.typeConverter.types.get(baseId) === 'f32') {
+        return this.typeConverter.expressions.get(baseId);
+      }
     }
 
     // Component access: node_5_x → node_5.x

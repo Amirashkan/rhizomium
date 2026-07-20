@@ -1919,6 +1919,20 @@ _renderOutputThumbnail(ctx, size, color, node) {
         // Invalidate NodeValueComputer cache for this node and dependents
         this._invalidateNodeValueComputerCacheForNode(node.id);
       }
+
+      // Audio Analysis nodes change every frame from the live audio signal — not from params or
+      // wired inputs — so the param-hash/input checks above never flag them and the early-return
+      // above would serve a stale cached value, freezing the numeric preview and any =node_<id>
+      // readout while the GPU output keeps reacting. Force the node (and its dependents, e.g. a
+      // downstream Remap) dirty whenever its live output (__kickLevel, advanced every frame by
+      // AudioAnalysisProcessor) differs from what we last computed.
+      if (node.kind === 'AudioAnalysis') {
+        const live = typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
+        if (this.lastComputedValues.get(node.id) !== live) {
+          this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
+          this._invalidateNodeValueComputerCacheForNode(node.id);
+        }
+      }
     }
 
     if (structureChanged) {
