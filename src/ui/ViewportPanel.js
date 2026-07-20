@@ -171,9 +171,9 @@ export class ViewportPanel {
 
     // Camera type toggle
     const cameraTypeBtn = this.createButton('Perspective', buttonStyle);
-    let isPerspective = true;
+    this._cameraTypeBtn = cameraTypeBtn;
     cameraTypeBtn.onclick = () => {
-      isPerspective = !isPerspective;
+      const isPerspective = this.viewport3D?.getCameraType?.() !== 'perspective';
       if (this.viewport3D) {
         this.viewport3D.setCameraType(isPerspective ? 'perspective' : 'orthographic');
         cameraTypeBtn.textContent = isPerspective ? 'Perspective' : 'Orthographic';
@@ -239,6 +239,7 @@ export class ViewportPanel {
     fovLabel.style.cssText = labelStyle;
 
     const fovSlider = document.createElement('input');
+    this._fovSlider = fovSlider;
     fovSlider.type = 'range';
     fovSlider.min = '25';
     fovSlider.max = '110';
@@ -255,6 +256,7 @@ export class ViewportPanel {
     const spinLabel = document.createElement('label');
     spinLabel.style.cssText = labelStyle + 'display: flex; gap: 4px; align-items: center; cursor: pointer;';
     const spinCheckbox = document.createElement('input');
+    this._spinCheckbox = spinCheckbox;
     spinCheckbox.type = 'checkbox';
     spinCheckbox.onchange = () => {
       if (this.viewport3D) {
@@ -265,6 +267,7 @@ export class ViewportPanel {
     spinLabel.appendChild(document.createTextNode('Spin'));
 
     const spinSpeedSlider = document.createElement('input');
+    this._spinSpeedSlider = spinSpeedSlider;
     spinSpeedSlider.type = 'range';
     spinSpeedSlider.min = '0.05';
     spinSpeedSlider.max = '2';
@@ -571,6 +574,107 @@ export class ViewportPanel {
   update() {
     if (this.isVisible && this.viewport3D) {
       this.viewport3D.update();
+    }
+  }
+
+  /**
+   * Capture the full viewport state (window geometry, camera, spin) so it can
+   * be saved with the project and restored on load. Returns null if the 3D
+   * subsystem isn't available.
+   */
+  serializeState() {
+    try {
+      const vp = this.viewport3D;
+      const cam = vp?.getCamera?.();
+      const cc = vp?.cameraController;
+      const el = this.panelElement;
+      const state = {
+        visible: !!this.isVisible,
+        maximized: !!this._maximized,
+      };
+      if (el) {
+        // Persist the *restored* rect when maximized, so reload doesn't lock the
+        // window to a maximized frame with no way back to its prior size.
+        const rect = (this._maximized && this._restoreRect) ? this._restoreRect : {
+          left: el.style.left, top: el.style.top, right: el.style.right,
+          width: el.style.width, height: el.style.height,
+        };
+        state.window = rect;
+      }
+      if (cc) {
+        const angles = cc.getAngles?.() || { azimuth: cc.azimuth, elevation: cc.elevation };
+        const target = cc.getTarget?.() || cc.target || { x: 0, y: 0, z: 0 };
+        state.camera = {
+          azimuth: angles.azimuth,
+          elevation: angles.elevation,
+          distance: cc.getDistance?.() ?? cc.distance,
+          target: [target.x || 0, target.y || 0, target.z || 0],
+          type: vp.getCameraType?.() || 'perspective',
+          fov: cam?.fov ?? 60,
+        };
+      }
+      state.autoRotate = !!vp?.autoRotate;
+      state.autoRotateSpeed = vp?.autoRotateSpeed ?? 0.25;
+      return state;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Restore a state previously captured by serializeState().
+   */
+  restoreState(state) {
+    if (!state || typeof state !== 'object') return;
+    try {
+      const el = this.panelElement;
+      if (el && state.window) {
+        const w = state.window;
+        if (w.left != null) el.style.left = w.left;
+        if (w.top != null) el.style.top = w.top;
+        if (w.right != null) el.style.right = w.right;
+        if (w.width) el.style.width = w.width;
+        if (w.height) el.style.height = w.height;
+      }
+      this._maximized = false;
+
+      const vp = this.viewport3D;
+      const cc = vp?.cameraController;
+      const cam = state.camera;
+      if (vp && cc && cam) {
+        if (cam.type === 'orthographic' || cam.type === 'perspective') {
+          vp.setCameraType(cam.type);
+          if (this._cameraTypeBtn) {
+            this._cameraTypeBtn.textContent = cam.type === 'perspective' ? 'Perspective' : 'Orthographic';
+          }
+        }
+        if (Number.isFinite(cam.fov) && cam.type !== 'orthographic') {
+          const c = vp.getCamera?.();
+          if (c?.setPerspective) c.setPerspective(cam.fov, c.aspect, c.near, c.far);
+          if (this._fovSlider) this._fovSlider.value = String(cam.fov);
+        }
+        if (Array.isArray(cam.target)) cc.setTarget?.(cam.target[0], cam.target[1], cam.target[2]);
+        if (Number.isFinite(cam.distance)) cc.setDistance?.(cam.distance);
+        if (Number.isFinite(cam.azimuth) && Number.isFinite(cam.elevation)) {
+          cc.setAngles?.(cam.azimuth, cam.elevation);
+        }
+      }
+      if (vp) {
+        if (typeof state.autoRotate === 'boolean') vp.autoRotate = state.autoRotate;
+        if (Number.isFinite(state.autoRotateSpeed)) vp.autoRotateSpeed = state.autoRotateSpeed;
+        if (this._spinCheckbox) this._spinCheckbox.checked = !!vp.autoRotate;
+        if (this._spinSpeedSlider) this._spinSpeedSlider.value = String(vp.autoRotateSpeed);
+      }
+
+      // Apply visibility last so show()'s canvas-size sync runs against the
+      // restored window geometry.
+      if (state.visible) {
+        this.show();
+      } else {
+        this.hide();
+      }
+    } catch {
+      // A malformed viewport block must never break project loading.
     }
   }
 

@@ -3555,8 +3555,18 @@ function handleRenderFrame(frameState) {
   // GPU rendering - Always render every frame, even during interactions
   // PERFORMANCE: GPU renderer is async and non-blocking, so throttling is unnecessary
   // Frame skipping was causing compute profiler to show artificially low FPS
+  // Reusing the last GPU frame during heavy interaction keeps dragging smooth,
+  // but it skips gpuRenderer.render() — and with it computeExecutor.execute()
+  // and the fragment auto-bridge — so an animated graph (audio/time-driven,
+  // feedback sims, reference params) or a live 3D Field Visualizer visibly
+  // freezes while you drag. Never reuse for those; they exist to keep moving.
+  const graphIsAnimated =
+    (window.computeExecutor?.isGraphAnimated?.() || false) ||
+    (fieldMapperIntegration?.fieldMappers?.size > 0) ||
+    !!window.audioCapture?.getIsPlaying?.();
   const gpuBudgetExceeded =
     isCanvasInteracting &&
+    !graphIsAnimated &&
     (previewPerfMonitor?.getMetric("gpuMs") || 0) > GPU_INTERACTION_REUSE_THRESHOLD;
   previewPerfMonitor?.recordValue("gpuReuseActive", gpuBudgetExceeded ? 1 : 0);
   // Only skip GPU rendering if budget is exceeded (reuse last frame), otherwise render every frame
@@ -3699,7 +3709,18 @@ function handleRenderFrame(frameState) {
   // Update preview values and canvas for time/audio-based expressions
   // Only when actually animating (not manual updates)
   if (!frameState.manual) {
-    if (!isDragging) {
+    // The preview pass is normally skipped while a parameter is being dragged
+    // (keeps the drag smooth). But this pass is the ONLY thing that recomputes
+    // node VALUES for a live reference chain — e.g. a Circle radius `=node_X`
+    // where X is a Remap fed by a ConstFloat `=audioEnvelope`. `_freshenReferencedValues`
+    // in the fragment bridge only refreshes the directly-referenced node, and
+    // computeNodeValue can't evaluate a transitive chain (Remap isn't in its
+    // switch, so it reads the frozen preview cache). So for an animated graph,
+    // skipping this pass during a drag freezes the whole reference chain — and
+    // with it the source fragment node (the Circle) and everything downstream.
+    // Keep it alive when the graph is animated; it's throttled to 10 FPS and
+    // runs in reduced-work interaction mode, so the drag stays responsive.
+    if (!isDragging || graphIsAnimated) {
       const now = performance.now();
       if (now - lastPreviewUpdate >= PREVIEW_UPDATE_INTERVAL) {
         lastPreviewUpdate = now;

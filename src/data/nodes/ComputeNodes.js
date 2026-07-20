@@ -187,6 +187,14 @@ export const ComputeNodes = {
       { name: 'displacementScale', type: 'float', default: 0.4, min: 0.0, max: 2.0, description: 'Field-driven displacement / instance height' },
       { name: 'textureAmount', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'How strongly the field colors the result' },
 
+      // Transform: position and rotation of the 3D object in the scene
+      { name: 'translateX', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along X' },
+      { name: 'translateY', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along Y' },
+      { name: 'translateZ', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along Z' },
+      { name: 'rotateX', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around X (degrees)' },
+      { name: 'rotateY', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around Y (degrees)' },
+      { name: 'rotateZ', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around Z (degrees)' },
+
       // Instanced mode
       { name: 'instanceShape', type: 'select', options: ['cube', 'sphere', 'quad'], default: 'cube', description: 'Instances: mesh drawn per field cell' },
       { name: 'instanceCount', type: 'int', default: 48, min: 4, max: 160, description: 'Instances: grid per axis (count x count cells)' },

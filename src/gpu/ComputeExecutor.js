@@ -102,6 +102,13 @@ export class ComputeExecutor {
   // Quality is maintained - optimizations come from smarter caching and dispatch logic
   static MAX_COMPUTE_RES = 2048; // High enough to support full HD and beyond
 
+  // Compute kinds that evolve on their own every frame (time-based or
+  // stateful feedback), used by isGraphAnimated()
+  static SELF_ANIMATED_KINDS = new Set([
+    'ComputeNoise', 'ComputeReactionDiffusion', 'ComputeFeedback',
+    'ComputeFeedbackField', 'ComputeFluidSim', 'ComputeParticles'
+  ]);
+
   /**
    * Clear fragment render cache
    * Call this when graph structure changes (nodes added/removed, connections changed)
@@ -1135,6 +1142,33 @@ export class ComputeExecutor {
       }
     }
 
+    return false;
+  }
+
+  /**
+   * Whether the current graph produces motion on its own (time/audio driven,
+   * feedback sims, or a reference param that may animate). Used by the render
+   * loop to keep such graphs rendering during interaction instead of reusing
+   * a stale GPU frame — otherwise an audio-reactive chain visibly freezes
+   * while you drag a node or a slider. Cheap: scans the registered compute
+   * node params, memoized until the graph rebuilds (initialize() clears it).
+   * @returns {boolean}
+   */
+  isGraphAnimated() {
+    const graphNodes = (typeof window !== 'undefined' &&
+      ((window.editor?.graph?.nodes) || (window.graph?.nodes))) || [];
+
+    // Recomputed each call (a handful of regex tests over node params — cheap;
+    // memoizing was the wrong call because the render loop polls this every
+    // frame and a stale flag pinned it to false before the graph settled).
+    const SELF_ANIMATED = ComputeExecutor.SELF_ANIMATED_KINDS;
+    for (const node of graphNodes) {
+      if (!node) continue;
+      if (SELF_ANIMATED.has(node.kind)) return true;
+      if (this.hasTimeDependentParameters(node) || this.hasNodeReferenceParameters(node)) {
+        return true;
+      }
+    }
     return false;
   }
 

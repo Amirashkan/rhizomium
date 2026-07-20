@@ -21,6 +21,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { PointCloudGenerator } from '../src/scene/generators/PointCloudGenerator.js';
 import { FieldVisualizer } from '../src/scene/FieldVisualizer.js';
 import { FieldMapperIntegration } from '../src/core/FieldMapperIntegration.js';
+import { Transform } from '../src/scene/Transform.js';
 
 describe('PointCloudGenerator.getFormatInfo', () => {
     it('describes the compute pipeline output format (rgba8unorm)', () => {
@@ -270,6 +271,42 @@ describe('FieldMapperIntegration.resolveNumericParam', () => {
             evaluateExpression: () => NaN
         };
         expect(integration.resolveNumericParam(node, { scale: '=broken' }, 'scale', 1.5)).toBe(1.5);
+    });
+});
+
+describe('FieldMapperIntegration.updateFieldMapperParams transform', () => {
+    const integration = new FieldMapperIntegration(null, null, null, null, null);
+
+    const stubMapper = () => ({ transform: new Transform() });
+
+    it('applies translate params to the object position', () => {
+        const fm = stubMapper();
+        integration.updateFieldMapperParams(fm, {
+            id: 'm1', params: { translateX: 1.25, translateY: -0.5, translateZ: 2 }
+        });
+        expect(fm.transform.position.x).toBeCloseTo(1.25);
+        expect(fm.transform.position.y).toBeCloseTo(-0.5);
+        expect(fm.transform.position.z).toBeCloseTo(2);
+    });
+
+    it('defaults translate/rotate to the identity transform', () => {
+        const fm = stubMapper();
+        integration.updateFieldMapperParams(fm, { id: 'm2', params: {} });
+        expect(fm.transform.position.x).toBeCloseTo(0);
+        expect(fm.transform.position.y).toBeCloseTo(0);
+        expect(fm.transform.position.z).toBeCloseTo(0);
+        // Identity rotation quaternion
+        expect(fm.transform.rotation.w).toBeCloseTo(1);
+    });
+
+    it('converts rotate params (degrees) into the world matrix', () => {
+        const fm = stubMapper();
+        // 90 deg about Y, scale defaults to 1.5: expect m[0]≈0, m[2]≈-1.5, m[8]≈1.5
+        integration.updateFieldMapperParams(fm, { id: 'm3', params: { rotateY: 90 } });
+        const e = fm.transform.getWorldMatrix().elements;
+        expect(e[0]).toBeCloseTo(0, 4);
+        expect(e[2]).toBeCloseTo(-1.5, 4);
+        expect(e[8]).toBeCloseTo(1.5, 4);
     });
 });
 
