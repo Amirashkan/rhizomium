@@ -616,6 +616,10 @@ export function getBrowserAudioCapture() {
     if (!instance) {
         try {
             instance = new BrowserAudioCapture();
+            // Expose the singleton so the render loop's graphIsAnimated check
+            // (window.audioCapture?.getIsPlaying?.()) can see playback and avoid reusing a stale
+            // GPU frame during canvas interaction while audio-reactive nodes should keep moving.
+            if (typeof window !== 'undefined') window.audioCapture = instance;
         } catch (error) {
 
             throw error;
