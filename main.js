@@ -3982,69 +3982,54 @@ function setupPageVisibilityHandler() {
   });
 }
 
-// Initialize when DOM is ready
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => {
-    // Check if device check failed
-    if (window.__deviceCheckFailed) {
-      console.warn('App initialization skipped due to unsupported device');
-      return;
-    }
-    // Wait a bit for device check to complete if it's still running
-    if (typeof window.__deviceCheckPassed === 'undefined') {
-      const checkInterval = setInterval(() => {
-        if (window.__deviceCheckFailed) {
-          clearInterval(checkInterval);
-          console.warn('App initialization skipped due to unsupported device');
-          return;
-        }
-        if (window.__deviceCheckPassed) {
-          clearInterval(checkInterval);
-          initialize();
-          setupPageVisibilityHandler();
-        }
-      }, 100);
-      // Timeout after 2 seconds - proceed anyway if check is taking too long
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        if (!window.__deviceCheckFailed) {
-          initialize();
-          setupPageVisibilityHandler();
-        }
-      }, 2000);
-    } else {
-      initialize();
-      setupPageVisibilityHandler();
-    }
-  });
-} else {
+// Initialize when DOM is ready.
+//
+// Start the app exactly once. The device-check may resolve either before the
+// poll interval below or only when the 2s fallback timeout fires; guarding
+// here means whichever path wins, the app is never initialized twice (which
+// previously spawned a second WelcomeWindow overlay on top of the first).
+let appStarted = false;
+function startAppOnce() {
+  if (appStarted) return;
+  appStarted = true;
+  initialize();
+  setupPageVisibilityHandler();
+}
+
+function startWhenDeviceCheckReady() {
   // Check if device check failed
   if (window.__deviceCheckFailed) {
     console.warn('App initialization skipped due to unsupported device');
-  } else {
-    // Wait a bit for device check to complete if it's still running
-    if (typeof window.__deviceCheckPassed === 'undefined') {
-      const checkInterval = setInterval(() => {
-        if (window.__deviceCheckFailed) {
-          clearInterval(checkInterval);
-          console.warn('App initialization skipped due to unsupported device');
-        } else if (window.__deviceCheckPassed) {
-          clearInterval(checkInterval);
-          initialize();
-          setupPageVisibilityHandler();
-        }
-      }, 100);
-      // Timeout after 2 seconds - proceed anyway if check is taking too long
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        if (!window.__deviceCheckFailed) {
-          initialize();
-          setupPageVisibilityHandler();
-        }
-      }, 2000);
-    } else {
-      initialize();
-      setupPageVisibilityHandler();
-    }
+    return;
   }
+  // Wait a bit for device check to complete if it's still running
+  if (typeof window.__deviceCheckPassed === 'undefined') {
+    let fallbackTimeout = null;
+    const checkInterval = setInterval(() => {
+      if (window.__deviceCheckFailed) {
+        clearInterval(checkInterval);
+        clearTimeout(fallbackTimeout);
+        console.warn('App initialization skipped due to unsupported device');
+      } else if (window.__deviceCheckPassed) {
+        clearInterval(checkInterval);
+        clearTimeout(fallbackTimeout);
+        startAppOnce();
+      }
+    }, 100);
+    // Timeout after 2 seconds - proceed anyway if check is taking too long
+    fallbackTimeout = setTimeout(() => {
+      clearInterval(checkInterval);
+      if (!window.__deviceCheckFailed) {
+        startAppOnce();
+      }
+    }, 2000);
+  } else {
+    startAppOnce();
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", startWhenDeviceCheckReady);
+} else {
+  startWhenDeviceCheckReady();
 }
