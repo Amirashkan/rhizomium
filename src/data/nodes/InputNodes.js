@@ -165,6 +165,53 @@ export const InputNodes = {
     ],
   },
 
+  AudioAnalysis: {
+    label: "Audio Analysis",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    // Live audio analysis + kick/onset detection. The node configures the shared audio-envelope
+    // engine (the Band + Follower + ADSR + Shaping controls that used to live in the Audio panel)
+    // and reads back the resulting envelope; on top of that it runs a precise kick detector
+    // (absolute floor + adaptive baseline + refractory debounce). It has no fragment-shader memory,
+    // so all of this runs on the CPU in AudioAnalysisProcessor, which streams three uniforms:
+    //   level - the live shaped envelope in [0,1] (a continuous value that moves while audio plays)
+    //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over Kick Release ms
+    //   trig  - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold cleanly)
+    // Pin 0 is `level` on purpose, so `=node_<id>` (or `=node_<id>_0`) gives the live analysis value.
+    // Reference the others with `=node_<id>_1` (kick) and `=node_<id>_2` (trig).
+    pinsOut: [
+      { label: "level", type: "f32" },
+      { label: "kick", type: "f32" },
+      { label: "trig", type: "f32" },
+    ],
+    params: [
+      // — Source band (drives the envelope engine's frequency selection) —
+      { name: "band", type: "select", options: ["Bass", "Mids", "Highs", "Full", "Custom"], default: "Bass", label: "Band" },
+      { name: "customMin", type: "float", default: 60.0, label: "Custom Min (Hz)" },
+      { name: "customMax", type: "float", default: 250.0, label: "Custom Max (Hz)" },
+      // — Follower (envelope attack/release + noise gate) —
+      { name: "attack", type: "float", default: 50.0, label: "Attack (ms)" },
+      { name: "envRelease", type: "float", default: 200.0, label: "Release (ms)" },
+      { name: "gate", type: "float", default: 0.1, label: "Gate" },
+      // — ADSR —
+      { name: "adsrAttack", type: "float", default: 120.0, label: "ADSR Attack (ms)" },
+      { name: "adsrDecay", type: "float", default: 180.0, label: "ADSR Decay (ms)" },
+      { name: "sustain", type: "float", default: 0.7, label: "ADSR Sustain" },
+      { name: "adsrRelease", type: "float", default: 600.0, label: "ADSR Release (ms)" },
+      // — Shaping —
+      { name: "curve", type: "select", options: ["Linear", "Exponential", "Sigmoid"], default: "Exponential", label: "Curve" },
+      // Off by default: auto-normalize divides by a running peak, which pins a steady track near 1.0
+      // and makes the value look "stuck". Off gives a dynamic level that visibly reacts to the audio.
+      { name: "normalize", type: "bool", default: false, label: "Auto-normalize" },
+      // — Kick detection (runs on top of the shaped envelope) —
+      { name: "threshold", type: "float", default: 0.15, label: "Kick Threshold" },
+      { name: "sensitivity", type: "float", default: 1.6, label: "Sensitivity" },
+      { name: "refractory", type: "float", default: 90.0, label: "Min Gap (ms)" },
+      { name: "kickRelease", type: "float", default: 140.0, label: "Kick Release (ms)" },
+    ],
+  },
+
   RandomValue: {
     label: "Random Value",
     cat: "Input",

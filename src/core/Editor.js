@@ -1120,7 +1120,12 @@ connectGPURenderer(renderFunction) {
       // no input), so it must keep the loop alive too. Count is deliberately excluded — like Hold
       // it only changes when its pulse source does, and that source (a Time/Trigger/expression) is
       // what keeps the scene animated; Count's preview is refreshed via PreviewIntegration.
-      return kind === 'time' || kind === 'randomvalue';
+      //
+      // Audio Analysis is driven by the live audio signal (its level/kick change every frame on
+      // their own), so without counting it here the loop stops redrawing when the graph is otherwise
+      // static and the node's value only refreshes when something else forces a redraw (e.g. editing
+      // a parameter) — exactly the "only updates when I change a parameter" freeze.
+      return kind === 'time' || kind === 'randomvalue' || kind === 'audioanalysis';
     });
   }
 
@@ -2198,6 +2203,9 @@ connectGPURenderer(renderFunction) {
   defaultNodePreviewEnabled(node) {
     try {
       if (!node) return false;
+      // Audio Analysis is a data-source node whose output is a single scalar; a thumbnail adds noise
+      // and just shows a number, so default it off (the user can still enable it from the node menu).
+      if (node.kind === 'AudioAnalysis') return false;
       const spm = window.shaderPreviewManager;
       if (!spm) return true;
       return !!(spm.isComputeNode(node) || spm.isVisualNode(node));

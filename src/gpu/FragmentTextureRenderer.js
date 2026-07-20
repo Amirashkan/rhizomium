@@ -580,6 +580,12 @@ export class FragmentTextureRenderer {
       if (refNode?.kind?.toLowerCase() === 'hold' && typeof refNode.__holdValue === 'number') {
         hash += `${refId}.hold:${refNode.__holdValue};`;
       }
+      // Same story for an Audio Analysis node: its kick envelope is advanced on the CPU each frame
+      // and isn't visible in this node's own params or as a time/audioEnvelope keyword, so fold it
+      // in too or a compute-bridged texture driven by `=node_<kick>` freezes on a stale frame.
+      if (refNode?.kind === 'AudioAnalysis' && typeof refNode.__kickValue === 'number') {
+        hash += `${refId}.kick:${refNode.__kickValue};`;
+      }
     }
 
     // Fold in the EVALUATED value of every `=expression` parameter. The raw

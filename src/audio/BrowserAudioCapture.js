@@ -150,7 +150,10 @@ export class BrowserAudioCapture {
         try {
             await this.audioElement.play();
             this.isPlaying = true;
-            // Enable RAF handler when playing starts
+            // Ensure the per-frame handler is registered (the constructor's attempt is a no-op if the
+            // singleton was created before window.renderLoop existed — e.g. by the preview system),
+            // then enable it. Without this the envelope never advances and the value freezes.
+            this._registerRAFHandler();
             this._enableRAFHandler();
             this._emit('started');
         } catch (error) {
@@ -510,15 +513,30 @@ export class BrowserAudioCapture {
      * Register handler with UnifiedRAFManager
      * Uses LOW priority since audio processing is less critical than rendering
      */
+    /**
+     * Advance the envelope one frame. Safe to call from any per-frame driver — both the unified RAF
+     * handler and the AudioAnalysisProcessor call it — because it de-dupes: two calls in the same
+     * frame process only once (whichever runs first wins; the second is a no-op). This lets the node
+     * processor keep the envelope live even when the RAF handler failed to register.
+     */
+    tick() {
+        const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        if (now - (this._lastTickAt || 0) < 4) return;
+        this._lastTickAt = now;
+        this._processAudio();
+    }
+
     _registerRAFHandler() {
         // Register handler with UnifiedRAFManager to use unified RAF loop
-        // This consolidates all RAF-based updates into a single loop for better performance
+        // This consolidates all RAF-based updates into a single loop for better performance.
+        // Idempotent: only registers once, and only once window.renderLoop exists.
+        if (this._rafRegistered) return;
         if (window.renderLoop?.rafManager) {
             window.renderLoop.rafManager.registerHandler(
                 this._handlerName,
                 (frameInfo) => {
                     // Process audio - this will handle both playing and non-playing states
-                    this._processAudio();
+                    this.tick();
                 },
                 PRIORITY.LOW,
                 {
@@ -529,6 +547,7 @@ export class BrowserAudioCapture {
                     enabled: false, // Start disabled, will be enabled when playing starts
                 }
             );
+            this._rafRegistered = true;
         }
     }
 
@@ -597,6 +616,10 @@ export function getBrowserAudioCapture() {
     if (!instance) {
         try {
             instance = new BrowserAudioCapture();
+            // Expose the singleton so the render loop's graphIsAnimated check
+            // (window.audioCapture?.getIsPlaying?.()) can see playback and avoid reusing a stale
+            // GPU frame during canvas interaction while audio-reactive nodes should keep moving.
+            if (typeof window !== 'undefined') window.audioCapture = instance;
         } catch (error) {
 
             throw error;

@@ -27,7 +27,8 @@ export class InputNodes {
   handles(kind) {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
-      'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue'
+      'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue',
+      'AudioAnalysis'
     ].includes(kind);
   }
 
@@ -222,6 +223,30 @@ export class InputNodes {
           line: `let node_${nodeId} = select(0.0, 1.0, ${pulse} >= ${threshold});`,
           outputType: "f32"
         };
+      }
+
+      case 'AudioAnalysis': {
+        // Live audio analysis needs memory across frames (the envelope follower / ADSR and the kick
+        // detector's adaptive baseline + refractory debounce) that a fragment shader has none of, so
+        // it all runs on the CPU in AudioAnalysisProcessor and streams three per-frame uniforms that
+        // getParam registers here (node.id + ".level"/".kick"/".trig"); the shader just reads them.
+        // Pin 0 is `level` — the continuous shaped envelope — so `=node_<id>` gives a live value.
+        const levelRef = getParam ? getParam('level', 0.0) : null;
+        if (levelRef) {
+          const kickRef = getParam('kick', 0.0);
+          const trigRef = getParam('trig', 0.0);
+          return {
+            line: `let node_${nodeId} = ${levelRef};`,
+            outputType: "f32",
+            outputPins: [
+              { expression: levelRef, type: "f32" },  // level (continuous shaped envelope)
+              { expression: kickRef, type: "f32" },   // kick  (decaying detection envelope)
+              { expression: trigRef, type: "f32" },   // trig  (single-frame pulse)
+            ],
+          };
+        }
+        // Fallback (uniform registration unavailable): emit 0 so the node still compiles.
+        return { line: `let node_${nodeId} = 0.0;`, outputType: "f32" };
       }
 
       case 'RandomValue': {

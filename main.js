@@ -49,6 +49,7 @@ import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
+import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -70,6 +71,8 @@ const holdNodeProcessor = new HoldNodeProcessor();
 const countNodeProcessor = new CountNodeProcessor();
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
+// Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
+const audioKickProcessor = new AudioAnalysisProcessor();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3593,6 +3596,12 @@ function handleRenderFrame(frameState) {
         time: frameState.simTime,
         computeExecutor: window.computeExecutor,
       });
+      // Run kick/onset detection on the same unthrottled per-frame cadence so brief transients
+      // and the rising edge of a kick aren't missed before the GPU frame is dispatched.
+      audioKickProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
+      });
     } catch (err) {
       // Never let the hold/count latch break the render loop.
     }
@@ -3756,8 +3765,13 @@ function handleRenderFrame(frameState) {
           }
 
           const explicitPreviewRequest = !!editor._needsPreviewUpdate;
+          // Audio-reactive nodes change on the audio clock, not the sim clock, so `timeChanged`
+          // (which tracks sim time) can be false every frame while the audio value is still moving —
+          // leaving node value previews and =node_<id> readouts frozen even though the GPU output
+          // reacts. When audio is playing, recompute the preview each frame so those stay live.
+          const audioLive = !!(typeof window !== 'undefined' && window.audioCapture?.getIsPlaying?.());
           const needsPreviewCompute =
-            (hadTimeAnimatedNodes && timeChanged) ||
+            (hadTimeAnimatedNodes && (timeChanged || audioLive)) ||
             parameterValuesChanged ||
             structureChanged ||
             explicitPreviewRequest;

@@ -237,8 +237,10 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       if (!this.isExpression(expression)) {
         return this.parseValue(expression);
       }
-  if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame')) && node) {
-    // Mark this node as needing continuous updates
+  if ((expression.includes('time') || expression.includes('audioEnvelope') || expression.includes('frame') || /\bnode_\d/.test(expression)) && node) {
+    // Mark this node as needing continuous updates. A node reference (=node_X...) is included
+    // because the referenced node can be live (an Audio Analysis level, a time-driven upstream, ...)
+    // so the readout must keep re-evaluating rather than settle on the first value.
     if (!this.timeAnimatedNodes) {
       this.timeAnimatedNodes = new Set();
     }
@@ -249,8 +251,11 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
         return 0; // Empty expression defaults to 0
       }
 
-      // Skip caching for time-dependent expressions (they change every frame)
-      const isTimeDep = cleanExpression.includes('time') || cleanExpression.includes('audioEnvelope') || cleanExpression.includes('frame');
+      // Skip caching for expressions that change every frame: time/audio, AND any node reference —
+      // the referenced node's value (e.g. an Audio Analysis level) isn't captured by the cache key,
+      // so caching a =node_X reference would freeze the readout at its first value.
+      const isTimeDep = cleanExpression.includes('time') || cleanExpression.includes('audioEnvelope')
+        || cleanExpression.includes('frame') || /\bnode_\d/.test(cleanExpression);
 
       // Check cache first (only for non-time-dependent expressions)
       if (!isTimeDep) {
@@ -486,7 +491,19 @@ buildEvaluationContext(context, node) {
    */
   _liveInputNodeValue(node) {
     const kind = node?.kind?.toLowerCase();
-    if (kind !== 'time' && kind !== 'mouse') return undefined;
+    if (kind !== 'time' && kind !== 'mouse' && kind !== 'audioanalysis') return undefined;
+
+    // Audio Analysis is driven by the live audio signal, not graph computation, and its three
+    // outputs (level / kick / trig) are advanced every frame on the CPU by AudioAnalysisProcessor.
+    // Expose them as a [pin0, pin1, pin2] array so `=node_<id>_0/1/2` resolves to the live value in
+    // the parameter readout — a plain scalar preview only exposes `node_<id>` and leaves the pin
+    // references undefined (reading as 0).
+    if (kind === 'audioanalysis') {
+      const level = typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
+      const kick = typeof node.__kickValue === 'number' ? node.__kickValue : 0;
+      const trig = typeof node.__kickTrig === 'number' ? node.__kickTrig : 0;
+      return [level, kick, trig];
+    }
 
     const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
     const time = Number.isFinite(simTime) ? simTime : (Date.now() / 1000);
@@ -556,6 +573,10 @@ buildEvaluationContext(context, node) {
       // If it's a number or array, add it directly
       if (typeof nodeValue === 'number') {
         evalContext[nodeVarName] = nodeValue;
+        // A single-output scalar node's pin 0 is just its value, so expose node_X_0 too — this lets
+        // `=node_<id>_0` (the pin syntax users learn from multi-output nodes) resolve on a plain
+        // scalar node (Remap, Add, ...) instead of reading as 0.
+        evalContext[`${nodeVarName}_0`] = nodeValue;
       } else if (Array.isArray(nodeValue)) {
         // Add the full array
         evalContext[nodeVarName] = nodeValue;

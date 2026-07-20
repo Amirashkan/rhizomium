@@ -484,6 +484,16 @@ case "ConicGradient": {
               break;
             }
 
+            case "AudioAnalysis": {
+              // Show the live band ENERGY (a continuous 0..1 value that moves whenever audio is
+              // playing) as the node's on-canvas readout, rather than the kick envelope — which sits
+              // at 0 between hits and would make the node look dead. The kick/trig outputs are still
+              // driven by the threshold; this only picks what the thumbnail displays. Both are
+              // advanced every frame on the CPU by AudioAnalysisProcessor.
+              result = typeof node.__kickLevel === 'number' ? node.__kickLevel : 0.0;
+              break;
+            }
+
             case "RandomValue": {
               // Clock-driven pseudo-random noise in [0, 1]; mirror the shader's fract(sin(...)) hash.
               const speed = this._evaluateParam(node.params?.speed, values, 1.0);
@@ -1908,6 +1918,20 @@ _renderOutputThumbnail(ctx, size, color, node) {
         this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
         // Invalidate NodeValueComputer cache for this node and dependents
         this._invalidateNodeValueComputerCacheForNode(node.id);
+      }
+
+      // Audio Analysis nodes change every frame from the live audio signal — not from params or
+      // wired inputs — so the param-hash/input checks above never flag them and the early-return
+      // above would serve a stale cached value, freezing the numeric preview and any =node_<id>
+      // readout while the GPU output keeps reacting. Force the node (and its dependents, e.g. a
+      // downstream Remap) dirty whenever its live output (__kickLevel, advanced every frame by
+      // AudioAnalysisProcessor) differs from what we last computed.
+      if (node.kind === 'AudioAnalysis') {
+        const live = typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
+        if (this.lastComputedValues.get(node.id) !== live) {
+          this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
+          this._invalidateNodeValueComputerCacheForNode(node.id);
+        }
       }
     }
 

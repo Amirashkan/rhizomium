@@ -170,6 +170,26 @@ export class NodeCompiler {
       return this.typeConverter.expressions.get(refText);
     }
 
+    // Output-pin access for a multi-output node: node_5_0, node_5_1, ... → that pin's expression.
+    // A numeric suffix on a node that actually has multiple output pins (Audio Analysis, Resolution,
+    // Split, ...) is a pin index, distinct from the x/y/z/w component access below. Checked before
+    // the component match so `node_5_2` on a 3-output node isn't mistaken for a (missing) component.
+    const pinMatch = refText.match(/^(\w+?)_(\d+)$/);
+    if (pinMatch) {
+      const [, baseId, idxStr] = pinMatch;
+      const pins = this.typeConverter.outputPins?.get(baseId);
+      if (pins && pins.length > 1) {
+        const pin = pins[Number(idxStr)] || pins[0];
+        return pin.expression;
+      }
+      // Single scalar-output node (Remap, Add, ...): pin 0 is just the node's value, so
+      // `node_<id>_0` behaves like `node_<id>`. Lets users apply the same `_0` pin syntax they use
+      // for multi-output nodes to any node instead of getting a broken (0) reference.
+      if (this.typeConverter.expressions.has(baseId) && this.typeConverter.types.get(baseId) === 'f32') {
+        return this.typeConverter.expressions.get(baseId);
+      }
+    }
+
     // Component access: node_5_x → node_5.x
     const compMatch = refText.match(/^(\w+)_(x|y|z|w)$/);
     if (compMatch) {
