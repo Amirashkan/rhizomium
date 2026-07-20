@@ -51,7 +51,7 @@ Click on the compute node to open its parameters panel. Adjust settings like:
 For full pin and parameter listings, see the [Node Reference](node-reference.md). The current set:
 
 **Generators**
-- **Compute Noise** - Animated FBM noise (scale, octaves, speed, colorize, resolution)
+- **Compute Noise** - Animated FBM noise (scale, octaves, speed, seed, colorize, resolution)
 - **Voronoi** - Voronoi diagrams and Worley noise (Cells/Distance/Borders/Worley modes, animated points)
 - **Gradient** - Linear, radial, angular, and diamond gradients with a visual color-stop editor
 - **Pattern** - Checkerboard, stripes, dots, grid, hexagon, and brick patterns
