@@ -27,7 +27,8 @@ export class InputNodes {
   handles(kind) {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
-      'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue'
+      'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue',
+      'AudioKick'
     ].includes(kind);
   }
 
@@ -222,6 +223,30 @@ export class InputNodes {
           line: `let node_${nodeId} = select(0.0, 1.0, ${pulse} >= ${threshold});`,
           outputType: "f32"
         };
+      }
+
+      case 'AudioKick': {
+        // Precise kick/onset detection needs memory across frames (an adaptive baseline + a
+        // refractory debounce) that a fragment shader has none of, so it runs on the CPU in
+        // AudioKickProcessor and streams three per-frame uniforms that getParam registers here
+        // (node.id + ".kick"/".trig"/".level"); the shader just reads them. The default output
+        // (pin 0) is the decaying `kick` envelope, the most useful signal for driving visuals.
+        const kickRef = getParam ? getParam('kick', 0.0) : null;
+        if (kickRef) {
+          const trigRef = getParam('trig', 0.0);
+          const levelRef = getParam('level', 0.0);
+          return {
+            line: `let node_${nodeId} = ${kickRef};`,
+            outputType: "f32",
+            outputPins: [
+              { expression: kickRef, type: "f32" },   // kick  (decaying envelope)
+              { expression: trigRef, type: "f32" },   // trig  (single-frame pulse)
+              { expression: levelRef, type: "f32" },  // level (raw band energy)
+            ],
+          };
+        }
+        // Fallback (uniform registration unavailable): emit 0 so the node still compiles.
+        return { line: `let node_${nodeId} = 0.0;`, outputType: "f32" };
       }
 
       case 'RandomValue': {

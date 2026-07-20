@@ -49,6 +49,7 @@ import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
+import { AudioKickProcessor } from "./src/core/AudioKickProcessor.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -70,6 +71,8 @@ const holdNodeProcessor = new HoldNodeProcessor();
 const countNodeProcessor = new CountNodeProcessor();
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
+// Runs precise audio kick/onset detection each frame for Audio Kick nodes. See AudioKickProcessor.
+const audioKickProcessor = new AudioKickProcessor();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3592,6 +3595,12 @@ function handleRenderFrame(frameState) {
       feedbackResetProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         computeExecutor: window.computeExecutor,
+      });
+      // Run kick/onset detection on the same unthrottled per-frame cadence so brief transients
+      // and the rising edge of a kick aren't missed before the GPU frame is dispatched.
+      audioKickProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
       });
     } catch (err) {
       // Never let the hold/count latch break the render loop.

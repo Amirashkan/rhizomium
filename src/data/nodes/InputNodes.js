@@ -165,6 +165,34 @@ export const InputNodes = {
     ],
   },
 
+  AudioKick: {
+    label: "Audio Kick",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    // A precise kick/onset detector on the live audio input. A kick drum is a low-frequency
+    // transient, so detection watches the chosen frequency band (Bass by default), compares the
+    // instantaneous energy against BOTH an absolute floor (`threshold`) and an adaptive running
+    // baseline (`sensitivity`) so a sustained bassline doesn't keep re-triggering, and applies a
+    // refractory debounce so one hit produces exactly one detection. It has no fragment-shader
+    // memory, so the detection runs on the CPU in AudioKickProcessor and streams three uniforms:
+    //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over `release` ms
+    //   trig  - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold cleanly)
+    //   level - the raw band energy the detector is watching (for monitoring / further processing)
+    pinsOut: [
+      { label: "kick", type: "f32" },
+      { label: "trig", type: "f32" },
+      { label: "level", type: "f32" },
+    ],
+    params: [
+      { name: "band", type: "select", options: ["Bass", "Mids", "Highs", "Full"], default: "Bass", label: "Band" },
+      { name: "threshold", type: "float", default: 0.15, label: "Threshold" },
+      { name: "sensitivity", type: "float", default: 1.6, label: "Sensitivity" },
+      { name: "release", type: "float", default: 140.0, label: "Release (ms)" },
+      { name: "refractory", type: "float", default: 90.0, label: "Min Gap (ms)" },
+    ],
+  },
+
   RandomValue: {
     label: "Random Value",
     cat: "Input",

@@ -484,6 +484,14 @@ case "ConicGradient": {
               break;
             }
 
+            case "AudioKick": {
+              // The kick envelope lives on the CPU in AudioKickProcessor (advanced every frame so
+              // brief transients aren't missed). Mirror its current value here so the node
+              // thumbnail matches the shader's default (kick) output.
+              result = typeof node.__kickValue === 'number' ? node.__kickValue : 0.0;
+              break;
+            }
+
             case "RandomValue": {
               // Clock-driven pseudo-random noise in [0, 1]; mirror the shader's fract(sin(...)) hash.
               const speed = this._evaluateParam(node.params?.speed, values, 1.0);
