@@ -335,7 +335,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   // Offset the sampling position by a seed-derived vector so each seed produces a
   // distinct noise field. The seed is floored to an integer first so the pattern
   // only changes on whole-number steps (0, 1, 2, ...): a continuous seed
-  // expression such as `=time` snaps between discrete fields instead of drifting.
+  // expression such as =time snaps between discrete fields instead of drifting.
   // The primes spread successive integer seeds far apart in the hash lattice,
   // giving visibly different patterns for each step.
   let seedStep = floor(uniforms.seed);
