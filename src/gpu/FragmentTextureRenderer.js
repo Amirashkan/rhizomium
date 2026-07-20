@@ -220,6 +220,13 @@ export class FragmentTextureRenderer {
       // renders a frozen value even though its CPU readout tracks the latch.
       this._syncHoldUniforms(uniformManager);
 
+      // Same for Audio Analysis: its level/kick/trig outputs are advanced on the CPU every frame by
+      // AudioAnalysisProcessor and written into the MAIN renderer's uniform manager. This preview
+      // builds its OWN manager, so without this its `<id>.level/.kick/.trig` uniforms stay at their
+      // compile-time default (0) and a node driven by a pin — e.g. a Circle whose radius is
+      // `=node_<id>_0` — renders a frozen thumbnail even while the main output reacts to the audio.
+      this._syncAudioUniforms(uniformManager);
+
       // Store node reference for parameter updates
       cached.node = node;
 
@@ -580,11 +587,15 @@ export class FragmentTextureRenderer {
       if (refNode?.kind?.toLowerCase() === 'hold' && typeof refNode.__holdValue === 'number') {
         hash += `${refId}.hold:${refNode.__holdValue};`;
       }
-      // Same story for an Audio Analysis node: its kick envelope is advanced on the CPU each frame
-      // and isn't visible in this node's own params or as a time/audioEnvelope keyword, so fold it
-      // in too or a compute-bridged texture driven by `=node_<kick>` freezes on a stale frame.
-      if (refNode?.kind === 'AudioAnalysis' && typeof refNode.__kickValue === 'number') {
-        hash += `${refId}.kick:${refNode.__kickValue};`;
+      // Same story for an Audio Analysis node: its level/kick/trig outputs are advanced on the CPU
+      // each frame and aren't visible in this node's own params or as a time/audioEnvelope keyword,
+      // so fold ALL THREE in — a radius driven by `=node_<id>_0` (level) must change the hash when the
+      // level moves, not only when the kick envelope does — or a non-forced render path (e.g. a
+      // compute-bridged texture) freezes on a stale frame.
+      if (refNode?.kind === 'AudioAnalysis') {
+        if (typeof refNode.__kickLevel === 'number') hash += `${refId}.level:${refNode.__kickLevel};`;
+        if (typeof refNode.__kickValue === 'number') hash += `${refId}.kick:${refNode.__kickValue};`;
+        if (typeof refNode.__kickTrig === 'number') hash += `${refId}.trig:${refNode.__kickTrig};`;
       }
     }
 
@@ -1064,6 +1075,34 @@ export class FragmentTextureRenderer {
       const held = node?.__holdValue;
       if (typeof held === 'number' && isFinite(held)) {
         values.set(key, held);
+      }
+    }
+  }
+
+  /**
+   * Overwrite each Audio Analysis `<id>.level` / `.kick` / `.trig` entry in a (detached) uniform
+   * snapshot with the live value from its node (__kickLevel / __kickValue / __kickTrig, advanced every
+   * frame by AudioAnalysisProcessor and written into the MAIN uniform manager). This preview builds
+   * its OWN manager, so those uniforms would otherwise stay at their compile-time default and any node
+   * driven by a pin renders a frozen thumbnail. Map.set on an existing key preserves insertion order,
+   * so the Float32Array _updateUniforms builds still matches the compiled ParamUniforms layout.
+   * @private
+   */
+  _syncAudioUniforms(uniformManager) {
+    const values = uniformManager?.uniformValues;
+    if (!values || values.size === 0) return;
+    const suffixProp = [['.level', '__kickLevel'], ['.kick', '__kickValue'], ['.trig', '__kickTrig']];
+    for (const key of values.keys()) {
+      const match = suffixProp.find(([sfx]) => key.endsWith(sfx));
+      if (!match) continue;
+      const [sfx, prop] = match;
+      const nodeId = key.slice(0, -sfx.length);
+      const node = window.graph?.getNode?.(nodeId)
+        || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
+      if (node?.kind !== 'AudioAnalysis') continue;
+      const v = node[prop];
+      if (typeof v === 'number' && isFinite(v)) {
+        values.set(key, v);
       }
     }
   }
