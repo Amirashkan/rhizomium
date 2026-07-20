@@ -22,6 +22,7 @@ export const ComputeNodes = {
       { name: 'scale', type: 'float', default: 8.0, min: 0.1, max: 50.0 },
       { name: 'octaves', type: 'int', default: 5, min: 1, max: 8 },
       { name: 'speed', type: 'float', default: 0.1, min: 0.0, max: 2.0 },
+      { name: 'seed', type: 'float', default: 0.0, min: 0.0, max: 100.0 },
       { name: 'colorize', type: 'boolean', default: true },
       { name: 'resolution', type: 'select', options: ['256', '512', '1024'], default: '512' }
     ],

@@ -1086,6 +1086,7 @@ Generates animated procedural noise as a texture.
   - `scale` (float, default: 8.0, range: 0.1-50) - Noise frequency
   - `octaves` (int, default: 5, range: 1-8) - Detail layers
   - `speed` (float, default: 0.1, range: 0-2) - Animation speed
+  - `seed` (float, default: 0.0, range: 0-100) - Offsets the noise field so each value yields a different pattern
   - `colorize` (boolean, default: true) - Color output
   - `resolution` (select: 256/512/1024, default: 512) - Output texture size
 - **Description**: Fractal Brownian Motion noise computed in a compute pass, ideal for animated backgrounds and organic textures.

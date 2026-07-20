@@ -56,6 +56,7 @@ export function packComputeUniforms(kind, params, ctx) {
       u[4] = ev(p.octaves, 5);
       u[5] = ev(p.speed, 0.1);
       u[6] = p.colorize ? 1.0 : 0.0;
+      u[7] = ev(p.seed, 0.0);
       break;
 
     case 'ComputeReactionDiffusion':
