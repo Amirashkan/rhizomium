@@ -333,9 +333,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   var noisePos = uv_corrected * uniforms.scale;
   noisePos += vec2<f32>(time * 0.1, time * 0.15);
   // Offset the sampling position by a seed-derived vector so each seed produces a
-  // distinct noise field. The primes spread successive integer seeds far apart in
-  // the hash lattice, giving visibly different patterns for seed = 0, 1, 2, ...
-  noisePos += vec2<f32>(uniforms.seed * 137.31, uniforms.seed * 71.53);
+  // distinct noise field. The seed is floored to an integer first so the pattern
+  // only changes on whole-number steps (0, 1, 2, ...): a continuous seed
+  // expression such as `=time` snaps between discrete fields instead of drifting.
+  // The primes spread successive integer seeds far apart in the hash lattice,
+  // giving visibly different patterns for each step.
+  let seedStep = floor(uniforms.seed);
+  noisePos += vec2<f32>(seedStep * 137.31, seedStep * 71.53);
 
   let noiseValue = fbm(noisePos, i32(uniforms.octaves));
 
