@@ -119,6 +119,8 @@ export class ParameterPanel {
       flex-direction: column;
       box-sizing: border-box;
       overflow: hidden;
+      user-select: text;
+      -webkit-user-select: text;
     `;
     this.panel.style.display = 'none';
 
