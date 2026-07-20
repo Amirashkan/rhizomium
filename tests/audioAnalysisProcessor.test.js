@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { AudioKickProcessor } from '../src/core/AudioKickProcessor.js';
+import { AudioAnalysisProcessor } from '../src/core/AudioAnalysisProcessor.js';
 
 // Minimal stand-in for the editor graph: nodes + getNode by id.
 function makeGraph(nodes) {
@@ -21,7 +21,7 @@ function makeUniformManager(kickNodeIds = []) {
 
 function kickNode(params = {}) {
   return {
-    id: 'k', kind: 'AudioKick',
+    id: 'k', kind: 'AudioAnalysis',
     params: { band: 'Bass', threshold: 0.15, sensitivity: 1.6, release: 140, refractory: 90, ...params },
     inputs: [],
   };
@@ -30,11 +30,11 @@ function kickNode(params = {}) {
 // Drive the live bass energy the processor reads from window.
 function setBass(v) { window._audioEnvelopeBass = v; }
 
-describe('AudioKickProcessor', () => {
+describe('AudioAnalysisProcessor', () => {
   let proc;
 
   beforeEach(() => {
-    proc = new AudioKickProcessor();
+    proc = new AudioAnalysisProcessor();
     window._audioEnvelopeBass = 0;
     window._audioEnvelopeMids = 0;
     window._audioEnvelopeHighs = 0;

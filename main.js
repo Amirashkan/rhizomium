@@ -49,7 +49,7 @@ import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
-import { AudioKickProcessor } from "./src/core/AudioKickProcessor.js";
+import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -71,8 +71,8 @@ const holdNodeProcessor = new HoldNodeProcessor();
 const countNodeProcessor = new CountNodeProcessor();
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
-// Runs precise audio kick/onset detection each frame for Audio Kick nodes. See AudioKickProcessor.
-const audioKickProcessor = new AudioKickProcessor();
+// Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
+const audioKickProcessor = new AudioAnalysisProcessor();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {

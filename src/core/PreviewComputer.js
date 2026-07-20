@@ -484,11 +484,13 @@ case "ConicGradient": {
               break;
             }
 
-            case "AudioKick": {
-              // The kick envelope lives on the CPU in AudioKickProcessor (advanced every frame so
-              // brief transients aren't missed). Mirror its current value here so the node
-              // thumbnail matches the shader's default (kick) output.
-              result = typeof node.__kickValue === 'number' ? node.__kickValue : 0.0;
+            case "AudioAnalysis": {
+              // Show the live band ENERGY (a continuous 0..1 value that moves whenever audio is
+              // playing) as the node's on-canvas readout, rather than the kick envelope — which sits
+              // at 0 between hits and would make the node look dead. The kick/trig outputs are still
+              // driven by the threshold; this only picks what the thumbnail displays. Both are
+              // advanced every frame on the CPU by AudioAnalysisProcessor.
+              result = typeof node.__kickLevel === 'number' ? node.__kickLevel : 0.0;
               break;
             }
 

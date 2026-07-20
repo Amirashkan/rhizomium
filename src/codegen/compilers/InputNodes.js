@@ -28,7 +28,7 @@ export class InputNodes {
     return [
       'UV', 'Time', 'ConstFloat', 'ConstVec2', 'ConstVec3', 'ConstVec4',
       'Mouse', 'Resolution', 'Pi', 'Trigger', 'Hold', 'Count', 'RandomValue',
-      'AudioKick'
+      'AudioAnalysis'
     ].includes(kind);
   }
 
@@ -225,10 +225,10 @@ export class InputNodes {
         };
       }
 
-      case 'AudioKick': {
+      case 'AudioAnalysis': {
         // Precise kick/onset detection needs memory across frames (an adaptive baseline + a
         // refractory debounce) that a fragment shader has none of, so it runs on the CPU in
-        // AudioKickProcessor and streams three per-frame uniforms that getParam registers here
+        // AudioAnalysisProcessor and streams three per-frame uniforms that getParam registers here
         // (node.id + ".kick"/".trig"/".level"); the shader just reads them. The default output
         // (pin 0) is the decaying `kick` envelope, the most useful signal for driving visuals.
         const kickRef = getParam ? getParam('kick', 0.0) : null;

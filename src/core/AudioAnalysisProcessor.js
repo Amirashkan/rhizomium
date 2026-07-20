@@ -1,8 +1,8 @@
-// src/core/AudioKickProcessor.js
+// src/core/AudioAnalysisProcessor.js
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 
 /**
- * Drives the Audio Kick node — a precise kick / onset detector on the live audio input.
+ * Drives the Audio Analysis node — a precise kick / onset detector on the live audio input.
  *
  * A kick drum is a low-frequency transient. A fragment shader has no memory between frames, so an
  * onset detector (which is inherently stateful) can't be expressed in GLSL/WGSL alone — the same
@@ -25,7 +25,7 @@ import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
  *   - Refractory debounce (`refractory` ms): after a hit, further detection is suppressed for a
  *     short window so a single kick yields exactly one detection instead of a burst.
  */
-export class AudioKickProcessor {
+export class AudioAnalysisProcessor {
   constructor() {
     // nodeId -> { baseline, env, prevEnergy, lastTime, lastKickTime }
     this._state = new Map();
@@ -40,7 +40,7 @@ export class AudioKickProcessor {
   update(graph, { time = 0, uniformManager } = {}) {
     if (!graph?.nodes?.length) return;
 
-    const kickNodes = graph.nodes.filter((n) => n?.kind === 'AudioKick');
+    const kickNodes = graph.nodes.filter((n) => n?.kind === 'AudioAnalysis');
     if (kickNodes.length === 0) {
       if (this._state.size) this._state.clear();
       return;
@@ -107,7 +107,7 @@ export class AudioKickProcessor {
       this._writeUniform(uniformManager, `${node.id}.level`, energy);
     }
 
-    // Drop state for Audio Kick nodes that were deleted so it doesn't leak across edits.
+    // Drop state for Audio Analysis nodes that were deleted so it doesn't leak across edits.
     if (this._state.size > live.size) {
       for (const id of this._state.keys()) {
         if (!live.has(id)) this._state.delete(id);

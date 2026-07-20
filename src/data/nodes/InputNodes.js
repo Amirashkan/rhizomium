@@ -165,8 +165,8 @@ export const InputNodes = {
     ],
   },
 
-  AudioKick: {
-    label: "Audio Kick",
+  AudioAnalysis: {
+    label: "Audio Analysis",
     cat: "Input",
     inputs: 0,
     pinsIn: [],
@@ -175,7 +175,7 @@ export const InputNodes = {
     // instantaneous energy against BOTH an absolute floor (`threshold`) and an adaptive running
     // baseline (`sensitivity`) so a sustained bassline doesn't keep re-triggering, and applies a
     // refractory debounce so one hit produces exactly one detection. It has no fragment-shader
-    // memory, so the detection runs on the CPU in AudioKickProcessor and streams three uniforms:
+    // memory, so the detection runs on the CPU in AudioAnalysisProcessor and streams three uniforms:
     //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over `release` ms
     //   trig  - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold cleanly)
     //   level - the raw band energy the detector is watching (for monitoring / further processing)
