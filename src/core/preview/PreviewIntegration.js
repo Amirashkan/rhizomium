@@ -150,8 +150,11 @@ updateTimeNodes() {
       // Count carries the same kind of CPU-side state as Hold (advanced every frame by
       // CountNodeProcessor via node.__countValue), and Random Value is clock-driven, so both need
       // to be refreshed here alongside Time/Hold so their thumbnails and downstream consumers don't
-      // freeze at a stale value.
-      return kind === 'time' || kind === 'hold' || kind === 'count' || kind === 'randomvalue';
+      // freeze at a stale value. Audio Analysis is driven by the live audio signal (its level/kick/
+      // trig outputs are advanced every frame by AudioAnalysisProcessor), so it belongs here too —
+      // otherwise a downstream numeric thumbnail/label fed by one of its pins freezes.
+      return kind === 'time' || kind === 'hold' || kind === 'count' || kind === 'randomvalue'
+        || kind === 'audioanalysis';
     })
     .map(node => node.id);
 
@@ -460,6 +463,35 @@ updateTimeNodes() {
       if (node?.kind?.toLowerCase() !== 'randomvalue') continue;
       const refs = exprDeps.get(String(node.id));
       if (refs) refs.forEach(depId => this._collectWithDownstream(depId, toUpdate, visited, exprDeps));
+    }
+
+    // Audio Analysis nodes are driven by the live audio signal, advanced on the CPU every frame by
+    // AudioAnalysisProcessor (level moves continuously while audio plays; kick/trig fire on hits). A
+    // fragment/visual node downstream — WIRED from a pin, or referencing one via `=node_<id>_N` — has
+    // a live GPU thumbnail that no param/input edit triggers, so without this it freezes while the
+    // main output keeps reacting. Like Hold, refresh downstream only when an output actually CHANGED
+    // this frame, so a silent/paused track (values steady) costs no GPU readback. Unlike Random Value,
+    // wired consumers ARE followed: audio-reactive visuals are the node's whole purpose, so their
+    // thumbnails should track the audio the same way the main render does.
+    if (!this._lastAudioValues) this._lastAudioValues = new Map();
+    const seenAudio = new Set();
+    for (const node of this.editor.graph.nodes) {
+      if (node?.kind?.toLowerCase() !== 'audioanalysis') continue;
+      seenAudio.add(node.id);
+      const level = node.__kickLevel || 0;
+      const kick = node.__kickValue || 0;
+      const trig = node.__kickTrig || 0;
+      const prev = this._lastAudioValues.get(node.id);
+      if (!prev || prev.level !== level || prev.kick !== kick || prev.trig !== trig) {
+        this._lastAudioValues.set(node.id, { level, kick, trig });
+        this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
+      }
+    }
+    // Drop tracking for Audio Analysis nodes that were deleted so the map doesn't leak across edits.
+    if (this._lastAudioValues.size > seenAudio.size) {
+      for (const id of this._lastAudioValues.keys()) {
+        if (!seenAudio.has(id)) this._lastAudioValues.delete(id);
+      }
     }
 
     // Refresh the collected downstream visual nodes. Compute nodes were already refreshed above via
