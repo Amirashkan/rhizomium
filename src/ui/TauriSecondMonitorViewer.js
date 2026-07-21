@@ -426,10 +426,16 @@ export class TauriSecondMonitorViewer {
   _onState(snap) {
     if (!this._active || !this._channel || !snap) return;
     const wgsl = snap.wgsl || null;
-    const native = this._mode === 'native' || this._mode === 'native-compute';
-    if (wgsl !== this._lastWgsl) {
+    // Re-evaluate the tier every frame, not only on a WGSL change: the 3D scene
+    // condition (_hasExternalSceneOutput) can flip WITHOUT the shader changing — a
+    // Field Visualizer publishes its output the frame after it's wired, and is
+    // removed on node delete. The check is cheap (a small resource scan + a set
+    // size), and _applyTier no-ops when the mode is unchanged.
+    const desiredTier = this._decideTier();
+    const tierChanged = desiredTier !== this._modeTier();
+    if (wgsl !== this._lastWgsl || tierChanged) {
       this._lastWgsl = wgsl;
-      this._applyTier(this._decideTier());
+      this._applyTier(desiredTier);
       if (this._mode === 'native' || this._mode === 'native-compute') {
         try { this._channel.postMessage({ type: MSG.SHADER, wgsl }); } catch (_) { /* ignore */ }
         if (this._mode === 'native-compute') {
@@ -533,6 +539,14 @@ export class TauriSecondMonitorViewer {
   /** Decide the mirror tier for the current shader (native / native-compute / fallback). */
   _decideTier() {
     if (this._forceFallback) return TIER.FALLBACK;
+    // 3D Field Visualizer (and any externally-owned scene) output is a live
+    // GPUTexture the editor injects into the compute-texture table — a rendered 3D
+    // scene with no WGSL and no ping-pong sim, so the receiver has no way to
+    // reproduce it from the broadcast state. classifyMirrorTier() only sees a
+    // texture binding and would pick native-compute, leaving the receiver to render
+    // black where the 3D view should be. Route these graphs to the pixel-mirror
+    // fallback instead so the second monitor shows the composited scene.
+    if (this._hasExternalSceneOutput()) return TIER.FALLBACK;
     const renderer = this._resolveRenderer();
     if (renderer && typeof renderer.classifyMirrorTier === 'function') {
       return renderer.classifyMirrorTier();
@@ -541,6 +555,28 @@ export class TauriSecondMonitorViewer {
     if (renderer && typeof renderer.isNativeMirrorEligible === 'function' && renderer.isNativeMirrorEligible()) {
       return TIER.NATIVE;
     }
+    return TIER.FALLBACK;
+  }
+
+  /**
+   * True when the editor has any externally-owned scene output — currently the 3D
+   * Field Visualizer, which renders its scene to an offscreen GPUTexture and
+   * publishes it into the compute-executor's texture table (tracked in
+   * `externalOutputNodeIds`, which FieldMapperIntegration keeps in step with the
+   * live field-mapper nodes: added on publish, removed on node delete). These
+   * textures are rendered pixels, not reproducible from the broadcast WGSL/uniform
+   * state, so any graph consuming one must mirror pixels rather than re-render.
+   */
+  _hasExternalSceneOutput() {
+    const exec = (typeof window !== 'undefined') ? window.computeExecutor : null;
+    const ids = exec && exec.externalOutputNodeIds;
+    return !!(ids && typeof ids.size === 'number' && ids.size > 0);
+  }
+
+  /** The TIER constant matching the current mirror mode (FALLBACK when none set). */
+  _modeTier() {
+    if (this._mode === 'native-compute') return TIER.NATIVE_COMPUTE;
+    if (this._mode === 'native') return TIER.NATIVE;
     return TIER.FALLBACK;
   }
 
