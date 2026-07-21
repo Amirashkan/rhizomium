@@ -611,6 +611,35 @@ describe('TauriSecondMonitorViewer', () => {
     await viewer.close();
   });
 
+  it('forces the pixel fallback when a 3D scene output is present (native-compute would render black)', async () => {
+    // A 3D Field Visualizer publishes its rendered scene into the executor's
+    // texture table (tracked in externalOutputNodeIds). classifyMirrorTier() only
+    // sees a texture binding and reports native-compute, but the receiver can't
+    // reproduce a 3D scene from broadcast state — so the viewer must mirror pixels.
+    const renderer = makeFakeRenderer({ tier: 'native-compute' });
+    const viewer = new TauriSecondMonitorViewer(source, { renderer });
+    global.window.computeExecutor = { externalOutputNodeIds: new Set(['42']) };
+    await viewer.open();
+    const channel = FakeBroadcastChannel.instances[0];
+
+    renderer.emitState(computeSnap('WGSL_3D'));
+
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.FALLBACK);
+    expect(renderer.setFrameTap).toHaveBeenCalledWith(expect.any(Function));
+    expect(channel.posted.some((m) => m.type === MSG.SHADER)).toBe(false);
+    expect(channel.posted.some((m) => m.type === MSG.COMPUTE_GRAPH)).toBe(false);
+
+    // Removing the 3D node (set emptied) lets the next frame return to native-compute.
+    global.window.computeExecutor.externalOutputNodeIds.clear();
+    channel.posted.length = 0;
+    renderer.emitState(computeSnap('WGSL_3D'));
+
+    expect(channel.posted.find((m) => m.type === MSG.CAPS)?.tier).toBe(TIER.NATIVE_COMPUTE);
+    expect(channel.posted.find((m) => m.type === MSG.SHADER)?.wgsl).toBe('WGSL_3D');
+
+    await viewer.close();
+  });
+
   it('re-sends the current SHADER + CAPS when the receiver reports READY', async () => {
     const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });

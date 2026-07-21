@@ -31,8 +31,19 @@ The editor picks a tier per shader and advertises it via the `CAPS` message:
   compute it also rebuilds the fragment subgraph from `FRAGMENT_GRAPH` and re-renders
   it with its own `FragmentTextureRenderer`, fed per-frame `FRAGMENT_UNIFORMS`.
 - **`fallback`** — pixel mirror (the editor's `FRAME` bitmaps, letterboxed). Used
-  only for a fragment **storage buffer** (only the 3D `SceneRenderer3D` path uses
-  these; the 2D node graph doesn't, so this is effectively unreachable).
+  for graphs the receiver can't reconstruct from broadcast state:
+  - A fragment **storage buffer** (only the 3D `SceneRenderer3D` path uses these).
+  - **3D Field Visualizer output.** The 3D node renders its scene to an offscreen
+    `GPUTexture` and publishes it into the compute-executor's texture table (tracked
+    in `ComputeExecutor.externalOutputNodeIds`). A downstream fragment then samples it
+    as a plain texture binding, so `classifyMirrorTier` alone would pick
+    `native-compute` — but a rendered 3D scene has no WGSL/uniform state to re-derive
+    it from, so the viewer would show black. `TauriSecondMonitorViewer._decideTier`
+    checks `externalOutputNodeIds` (via `_hasExternalSceneOutput`) and forces
+    `fallback` whenever a scene output is live, so the second monitor mirrors the
+    composited pixels instead. The tier is re-evaluated every frame (not only on a
+    WGSL change) because a Field Visualizer publishes its output the frame *after*
+    it's wired and clears it on delete.
 
 ## Protocol (`SecondMonitorMessage`)
 
