@@ -972,8 +972,20 @@ export class EventHandler {
         pos.y <= controlY - 8 + buttonHeight
       ) {
 
-        // Toggle THIS node's thumbnail (per-node, not a global flag).
-        this.editor.toggleNodePreview(node.id);
+        // If this node is one of several selected, the eye button acts on the WHOLE selection:
+        // hide/show every selected node's thumbnail together, following the clicked node's NEW
+        // state so the group flips as one. Clicking the eye of a node that isn't part of a
+        // multi-selection just toggles that single node, as before.
+        const selection = this.editor.graph?.selection;
+        if (
+          selection && selection.size > 1 && selection.has(node.id) &&
+          this.editor.setSelectedNodesPreview
+        ) {
+          const target = !this.editor.isNodePreviewEnabled(node);
+          this.editor.setSelectedNodesPreview(target, selection);
+        } else {
+          this.editor.toggleNodePreview(node.id);
+        }
         this._requestDraw('toggle-preview');
         return true;
       }
