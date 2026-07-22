@@ -45,10 +45,12 @@ export class HoldNodeProcessor {
       const valueSrc = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
       const pulseSrc = node.inputs?.[1] ? graph.getNode?.(node.inputs[1]) : null;
 
+      const valuePin = this._sourcePin(graph, node.id, 0);
+      const pulsePin = this._sourcePin(graph, node.id, 1);
       const value = valueSrc
-        ? this._evalSignal(valueSrc, graph, ctx, 0)
+        ? this._evalSignal(valueSrc, graph, ctx, 0, valuePin)
         : this._numericParam(node, 'value', 0, ctx);
-      const pulse = pulseSrc ? this._evalSignal(pulseSrc, graph, ctx, 0) : 0;
+      const pulse = pulseSrc ? this._evalSignal(pulseSrc, graph, ctx, 0, pulsePin) : 0;
       const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
       const risingEdgeOnly = (node.params?.mode || 'Continuous') === 'Once per trigger';
 
@@ -100,11 +102,25 @@ export class HoldNodeProcessor {
   }
 
   /**
-   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a Hold
-   * (constants, time, triggers, nested holds); anything else falls back to the node's last
-   * preview value so the latch still does something sensible.
+   * Find which OUTPUT pin of the upstream node feeds `toNodeId`'s input pin `toPin`.
+   * `node.inputs[pin]` only records the source node id, not which of its outputs was wired, so a
+   * multi-output source (e.g. Audio Analysis: level/kick/trig) needs the pin from graph.connections.
+   * Defaults to 0 when there's no explicit connection record (matches single-output behaviour).
    */
-  _evalSignal(node, graph, ctx, depth) {
+  _sourcePin(graph, toNodeId, toPin) {
+    const conns = graph?.connections;
+    if (!Array.isArray(conns)) return 0;
+    const conn = conns.find((c) => c?.to?.nodeId === toNodeId && c?.to?.pin === toPin);
+    return typeof conn?.from?.pin === 'number' ? conn.from.pin : 0;
+  }
+
+  /**
+   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a Hold
+   * (constants, time, triggers, nested holds, audio analysis); anything else falls back to the
+   * node's last preview value so the latch still does something sensible.
+   * `outPin` selects which output of a multi-output source is being read (see _sourcePin).
+   */
+  _evalSignal(node, graph, ctx, depth, outPin = 0) {
     if (!node || depth > 32) return 0;
 
     switch (node.kind) {
@@ -114,6 +130,7 @@ export class HoldNodeProcessor {
       case 'Time':
         return ctx.time;
 
+      case 'RandomValue':
       case 'RandomTime': {
         const speed = this._numericParam(node, 'speed', 1.0, ctx);
         const s = Math.sin(ctx.time * speed * 12.9898) * 43758.5453;
@@ -125,7 +142,8 @@ export class HoldNodeProcessor {
 
       case 'Trigger': {
         const src = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
-        const input = src ? this._evalSignal(src, graph, ctx, depth + 1) : 0;
+        const inPin = this._sourcePin(graph, node.id, 0);
+        const input = src ? this._evalSignal(src, graph, ctx, depth + 1, inPin) : 0;
         const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
         return input >= threshold ? 1.0 : 0.0;
       }
@@ -134,6 +152,19 @@ export class HoldNodeProcessor {
         // Nested hold: reuse the already-latched value computed earlier this frame.
         return typeof node.__holdValue === 'number' ? node.__holdValue : 0;
       }
+
+      case 'Count':
+        return typeof node.__countValue === 'number' ? node.__countValue : 0;
+
+      case 'AudioAnalysis':
+        // Live CPU-computed outputs streamed by AudioAnalysisProcessor. Pin 0 = level (continuous
+        // envelope), 1 = kick (envelope that snaps to 1 on a hit), 2 = trig (single-frame pulse).
+        switch (outPin) {
+          case 2: return typeof node.__kickTrig === 'number' ? node.__kickTrig : 0;
+          case 1: return typeof node.__kickValue === 'number' ? node.__kickValue : 0;
+          case 0:
+          default: return typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
+        }
 
       default:
         return this._toScalar(node.__preview);
