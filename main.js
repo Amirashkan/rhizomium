@@ -69,6 +69,8 @@ installPerfBench();
 const holdNodeProcessor = new HoldNodeProcessor();
 // Drives the Count node's CPU-side counter each frame. See CountNodeProcessor.
 const countNodeProcessor = new CountNodeProcessor();
+// Exposed so the Count node's "Reset Count" button (ParameterPanel.runParameterAction) can queue a reset.
+window.countNodeProcessor = countNodeProcessor;
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
 // Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.

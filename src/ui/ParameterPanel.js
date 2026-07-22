@@ -1304,6 +1304,12 @@ case 'flip2d':
           window.computeExecutor.resetNodeFeedback(node.id);
         }
         break;
+      case 'resetCount':
+        // Queue a reset of the CPU-side counter; CountNodeProcessor applies it on the next frame.
+        window.countNodeProcessor?.requestReset?.(node.id);
+        // Nudge a redraw so the node's numeric preview reflects the reset promptly.
+        window.editor?.markDirty?.('count-reset');
+        break;
       default:
         console.warn(`[ParameterPanel] Unknown parameter action: ${action}`);
     }

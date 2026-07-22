@@ -174,6 +174,63 @@ describe('CountNodeProcessor', () => {
     expect(um.uniformValues.get('c.count')).toBeCloseTo(1);
   });
 
+  it('resets the counter to 0 on requestReset (non-looping)', () => {
+    const pulse = constFloat('p', 0.0);
+    const count = countNode();
+    const graph = makeGraph([pulse, count]);
+    const um = makeUniformManager(['c']);
+
+    // Advance to 2.
+    const pulseOnce = (t) => {
+      pulse.params.value = 1.0;
+      proc.update(graph, { time: t, uniformManager: um });
+      pulse.params.value = 0.0;
+      proc.update(graph, { time: t + 0.008, uniformManager: um });
+    };
+    pulseOnce(0.1);
+    pulseOnce(0.2);
+    expect(um.uniformValues.get('c.count')).toBeCloseTo(2);
+
+    // Reset takes effect on the next update.
+    proc.requestReset('c');
+    proc.update(graph, { time: 0.3, uniformManager: um });
+    expect(um.uniformValues.get('c.count')).toBeCloseTo(0);
+    expect(count.__countValue).toBeCloseTo(0);
+  });
+
+  it('resets to min when looping is enabled', () => {
+    const pulse = constFloat('p', 0.0);
+    const count = countNode({ loop: true, min: 5, max: 10, step: 1 });
+    const graph = makeGraph([pulse, count]);
+    const um = makeUniformManager(['c']);
+
+    proc.update(graph, { time: 0, uniformManager: um });
+    pulse.params.value = 1.0;
+    proc.update(graph, { time: 0.1, uniformManager: um }); // -> 6
+    expect(um.uniformValues.get('c.count')).toBeCloseTo(6);
+
+    proc.requestReset('c');
+    proc.update(graph, { time: 0.2, uniformManager: um });
+    expect(um.uniformValues.get('c.count')).toBeCloseTo(5);
+  });
+
+  it('does not immediately re-increment after a reset while the pulse is held high', () => {
+    const pulse = constFloat('p', 1.0); // held high the whole time
+    const count = countNode();
+    const graph = makeGraph([pulse, count]);
+    const um = makeUniformManager(['c']);
+
+    proc.update(graph, { time: 0, uniformManager: um }); // rising edge from initial low -> 1
+    expect(um.uniformValues.get('c.count')).toBeCloseTo(1);
+
+    // Reset with the pulse still high: should land on 0 and stay (no phantom rising edge).
+    proc.requestReset('c');
+    proc.update(graph, { time: 0.016, uniformManager: um });
+    expect(um.uniformValues.get('c.count')).toBeCloseTo(0);
+    proc.update(graph, { time: 0.032, uniformManager: um });
+    expect(um.uniformValues.get('c.count')).toBeCloseTo(0);
+  });
+
   it('prunes state for deleted count nodes', () => {
     const pulse = constFloat('p', 1.0);
     const count = countNode();

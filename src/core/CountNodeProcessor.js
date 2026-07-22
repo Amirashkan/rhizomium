@@ -20,6 +20,19 @@ export class CountNodeProcessor {
   constructor() {
     // nodeId -> { count, prevHigh }
     this._state = new Map();
+    // nodeIds asked to reset (via the node's "Reset Count" button). Applied on the next update()
+    // so the reset reuses the same loop/min resolution as the normal path (see update()).
+    this._resetRequests = new Set();
+  }
+
+  /**
+   * Queue a reset for a Count node. The running counter is set back to its initial value on the
+   * next update() (loop -> min, otherwise 0). Deferred rather than applied here so it goes through
+   * the same param resolution and uniform write as a normal frame, and so it's safe to call from UI
+   * code with no access to the graph/uniform manager.
+   */
+  requestReset(nodeId) {
+    if (nodeId != null) this._resetRequests.add(nodeId);
   }
 
   /**
@@ -34,6 +47,7 @@ export class CountNodeProcessor {
     const countNodes = graph.nodes.filter((n) => n?.kind === 'Count');
     if (countNodes.length === 0) {
       if (this._state.size) this._state.clear();
+      if (this._resetRequests.size) this._resetRequests.clear();
       return;
     }
 
@@ -59,6 +73,15 @@ export class CountNodeProcessor {
         this._state.set(node.id, st);
       }
 
+      // Apply a queued reset (from the node's "Reset Count" button) before edge detection. Adopt
+      // the current pulse level as prevHigh so a pulse that's already high doesn't instantly
+      // re-increment the freshly-reset count on this same frame.
+      if (this._resetRequests.has(node.id)) {
+        st.count = loop ? min : 0;
+        st.prevHigh = high;
+        this._resetRequests.delete(node.id);
+      }
+
       if (high && !st.prevHigh) {
         st.count += step; // advance once per rising edge
       }
@@ -81,6 +104,10 @@ export class CountNodeProcessor {
       for (const id of this._state.keys()) {
         if (!live.has(id)) this._state.delete(id);
       }
+    }
+    // Discard reset requests targeting nodes that no longer exist (e.g. deleted before update ran).
+    for (const id of this._resetRequests) {
+      if (!live.has(id)) this._resetRequests.delete(id);
     }
   }
 
