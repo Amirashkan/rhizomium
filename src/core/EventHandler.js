@@ -874,6 +874,24 @@ export class EventHandler {
         this._requestDraw('delete-selected');
         e.preventDefault();
       }
+
+      // H: hide/show the thumbnails of every selected node at once (no modifiers, so it never
+      // collides with browser shortcuts like Ctrl/Cmd+H). Smart toggle — if any selected node's
+      // preview is visible the whole selection hides, otherwise it all comes back. Unlike the
+      // Delete shortcut we don't require focus to be on <body> (clicking a toolbar button leaves it
+      // focused, which would swallow the key) — we only bail when the user is typing in a field.
+      if (
+        (e.key === "h" || e.key === "H") &&
+        !e.ctrlKey && !e.metaKey && !e.altKey &&
+        !this._isEditableTarget(document.activeElement)
+      ) {
+        const ids = this.editor?.graph?.selection;
+        if (ids && ids.size > 0 && this.editor?.toggleSelectedNodesPreview) {
+          this.editor.toggleSelectedNodesPreview();
+          this._requestDraw('toggle-selected-previews');
+          e.preventDefault();
+        }
+      }
     });
   }
 
@@ -982,6 +1000,22 @@ export class EventHandler {
   }
 
   // Helper methods
+
+  // Whether an element is a text-entry target that should keep single-key shortcuts (e.g. H) from
+  // firing while the user types. Covers inputs (except non-text ones like buttons/checkboxes),
+  // textareas, selects and contenteditable regions.
+  _isEditableTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (tag === 'INPUT') {
+      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      const nonText = ['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'color', 'file'];
+      return !nonText.includes(type);
+    }
+    return el.isContentEditable === true;
+  }
+
   _getCanvasPosition(e) {
     const rect = this.canvas.getBoundingClientRect();
     const px =
