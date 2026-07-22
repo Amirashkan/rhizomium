@@ -164,6 +164,33 @@ export class MenuManager {
         nodeType,
       ),
     );
+
+    // Bulk thumbnail visibility for the whole selection (the node under the cursor is already part
+    // of it — see the selection guard above). Label reflects the dominant current state: if any
+    // selected node's preview is visible, offer to hide them all; otherwise offer to show them.
+    const editor = window.editor;
+    if (editor?.setSelectedNodesPreview) {
+      const ids = this.graph.selection;
+      const count = ids?.size || 0;
+      let anyVisible = false;
+      if (ids) {
+        for (const id of ids) {
+          const n = this.graph.nodes.find((x) => x.id === id);
+          if (n && editor.isNodePreviewEnabled(n)) { anyVisible = true; break; }
+        }
+      }
+      const suffix = count > 1 ? ` (${count})` : "";
+      el.appendChild(
+        this._createMenuItem(
+          (anyVisible ? "Hide Previews" : "Show Previews") + suffix,
+          () => {
+            editor.setSelectedNodesPreview(!anyVisible);
+            this.hide();
+          },
+          nodeType,
+        ),
+      );
+    }
   }
 
   _createMenuRoot(clientX, clientY) {

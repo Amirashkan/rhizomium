@@ -335,6 +335,12 @@ export class ShaderPreviewManager {
    */
   updateNodeThumbnailFromTexture(node, texture) {
     if (!this.enableGPUPreview || !node?.id || !texture) return;
+    // Respect the per-node preview toggle (and the per-kind default). This path bypasses the
+    // PreviewSystem.generateNodePreview funnel — it's driven straight from the render loop (e.g. the
+    // 3D Field Visualizer mirroring its scene ~4x/sec) — so without this guard a hidden node's
+    // thumbnail would be rewritten on the very next frame and could never be turned off.
+    const ed = this.editor || window.editor;
+    if (ed?.isNodePreviewEnabled && !ed.isNodePreviewEnabled(node)) return;
     this._syncDevice();
     // Serialize through the shared thumbnail queue - the readback buffer is
     // pooled, so concurrent direct calls would collide with pending maps

@@ -2077,10 +2077,67 @@ connectGPURenderer(renderFunction) {
       }
 
       this.safeDraw();
-      
+
     } catch (error) {
       window.errorHandler?.handleError(error, 'Toggle Node Preview', 'warning');
     }
+  }
+
+  // Bulk-set thumbnail visibility for every currently selected node to one explicit target state.
+  // Mirrors toggleNodePreview's per-node bookkeeping (seed the nodePreviews entry, clear __thumb
+  // when hiding, regenerate the preview when showing) but applies a single target to the whole
+  // selection so a mixed selection resolves uniformly instead of each node just flipping. Returns
+  // the number of nodes whose state actually changed. `ids` defaults to the live selection but can
+  // be passed explicitly (e.g. from a menu acting on a specific set).
+  setSelectedNodesPreview(enabled, ids = this.graph?.selection) {
+    try {
+      if (!ids || typeof ids[Symbol.iterator] !== 'function') return 0;
+      let changed = 0;
+      for (const nodeId of ids) {
+        const node = this.graph.nodes.find((n) => n.id === nodeId);
+        if (!node) continue;
+        // Skip nodes already in the target state so we don't clear/regenerate needlessly.
+        if (this.isNodePreviewEnabled(node) === enabled) continue;
+
+        if (!this.nodePreviews.has(nodeId)) {
+          this.nodePreviews.set(nodeId, { enabled: true, size: 'large', showVisualInfo: true });
+        }
+        this.nodePreviews.get(nodeId).enabled = enabled;
+
+        if (enabled) {
+          if (this.previewIntegration) {
+            try {
+              this.previewIntegration.generateNodePreview(node);
+            } catch (previewError) {
+              window.errorHandler?.handleError(previewError, 'Generate Node Preview', 'warning');
+            }
+          }
+        } else {
+          node.__thumb = null;
+        }
+        changed++;
+      }
+
+      if (changed > 0) this.safeDraw();
+      return changed;
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Set Selected Nodes Preview', 'warning');
+      return 0;
+    }
+  }
+
+  // Smart toggle for the whole selection: if ANY selected node's preview is currently visible, hide
+  // the entire selection; otherwise show it. Lets a single gesture (the H shortcut) both hide a set
+  // of nodes and bring them all back, and keeps a mixed selection collapsing to one predictable
+  // state on the first press.
+  toggleSelectedNodesPreview(ids = this.graph?.selection) {
+    if (!ids || typeof ids[Symbol.iterator] !== 'function') return 0;
+    let anyVisible = false;
+    for (const nodeId of ids) {
+      const node = this.graph.nodes.find((n) => n.id === nodeId);
+      if (node && this.isNodePreviewEnabled(node)) { anyVisible = true; break; }
+    }
+    return this.setSelectedNodesPreview(!anyVisible, ids);
   }
 
   cyclePreviewSize(nodeId) {
