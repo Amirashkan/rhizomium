@@ -27,8 +27,13 @@ function kickNode(params = {}) {
   };
 }
 
-// The processor reads the shaped envelope (window._audioEnvelopeValue) as its analysis signal.
-function setEnv(v) { window._audioEnvelopeValue = v; }
+// The `level` output is the shaped envelope (window._audioEnvelopeValue); onset detection runs on
+// the responsive per-band energy (window._audioEnvelopeBass etc.). Default band is Bass, so drive
+// both so `k.level` reflects the shaped value and the detector sees the same transient on the band.
+function setEnv(v) {
+  window._audioEnvelopeValue = v;
+  window._audioEnvelopeBass = v;
+}
 
 // Stub the audio engine so tests never touch the real singleton; capture pushed configs + ticks.
 function stubClient() {
@@ -44,10 +49,18 @@ describe('AudioAnalysisProcessor', () => {
     proc = new AudioAnalysisProcessor();
     proc._audioClient = stubClient(); // isolate from the real BrowserAudioCapture singleton
     window._audioEnvelopeValue = 0;
+    window._audioEnvelopeBass = 0;
+    window._audioEnvelopeMids = 0;
+    window._audioEnvelopeHighs = 0;
+    window._audioEnvelopeFull = 0;
   });
 
   afterEach(() => {
     delete window._audioEnvelopeValue;
+    delete window._audioEnvelopeBass;
+    delete window._audioEnvelopeMids;
+    delete window._audioEnvelopeHighs;
+    delete window._audioEnvelopeFull;
   });
 
   it('fires a single-frame trig and a full kick envelope on a transient above threshold', () => {
@@ -144,6 +157,32 @@ describe('AudioAnalysisProcessor', () => {
       prev = env;
     }
     expect(prev).toBeLessThan(0.2);
+  });
+
+  it('detects on the responsive per-band energy, not the shaped level', () => {
+    // Regression: onset detection used to read the shaped envelope (_audioEnvelopeValue), whose
+    // follower/ADSR smoothing and plateau meant kick/trig fired at most once and then read 0. It now
+    // reads the raw per-band energy for the node's Band. A transient on the band must fire even while
+    // the shaped level sits flat, and the shaped level must never drive detection on its own.
+    const node = kickNode({ band: 'Mids' });
+    const graph = makeGraph([node]);
+    const um = makeUniformManager(['k']);
+
+    // Shaped level plateaus high; band is quiet -> no hit (proves the shaped level can't trigger).
+    window._audioEnvelopeValue = 0.9;
+    window._audioEnvelopeMids = 0.0;
+    proc.update(graph, { time: 0.0, uniformManager: um });
+    window._audioEnvelopeValue = 0.9; // level still flat/high
+    window._audioEnvelopeMids = 0.0;
+    proc.update(graph, { time: 0.016, uniformManager: um });
+    expect(um.uniformValues.get('k.trig')).toBe(0);
+
+    // A transient on the Mids band -> a hit, and `level` still reports the shaped value.
+    window._audioEnvelopeMids = 0.6;
+    proc.update(graph, { time: 0.032, uniformManager: um });
+    expect(um.uniformValues.get('k.trig')).toBe(1);
+    expect(um.uniformValues.get('k.kick')).toBeCloseTo(1.0);
+    expect(um.uniformValues.get('k.level')).toBeCloseTo(0.9);
   });
 
   it('mirrors the live level onto node.__kickLevel for the CPU preview', () => {

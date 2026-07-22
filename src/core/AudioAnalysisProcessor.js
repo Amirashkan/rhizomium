@@ -118,9 +118,18 @@ export class AudioAnalysisProcessor {
       live.add(node.id);
 
       // 1. Push this node's Band/Follower/ADSR/Shaping settings into the shared envelope engine,
-      //    then read back the shaped envelope it produces as the analysis signal.
+      //    then read back the shaped envelope it produces as the continuous `level` output.
       this._applyEngineConfig(node, ctx);
-      const energy = ctx.audioEnvelope; // window._audioEnvelopeValue — the shaped envelope
+      const level = ctx.audioEnvelope; // window._audioEnvelopeValue — the shaped envelope
+
+      // The onset detector needs a RESPONSIVE signal, not the shaped level. `level` is
+      // shaped(adsr * follower): the Follower (attack/release) and ADSR (attack/decay/sustain/release)
+      // deliberately smooth and plateau it — great for a continuous modulation value, but it flattens
+      // exactly the transients onset detection keys on, and its plateau lets the adaptive baseline
+      // catch up so nothing ever again clears baseline*sensitivity. Detect on the raw per-band energy
+      // instead (shaped(rms*3), no follower/ADSR), so `kick`/`trig` actually fire on every hit rather
+      // than reading 0 after the first onset.
+      const energy = this._detectionSignal(node, ctx);
 
       // 2. Kick-detection controls.
       const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.15, ctx));
@@ -168,12 +177,14 @@ export class AudioAnalysisProcessor {
       st.prevEnergy = energy;
 
       // Expose to the CPU preview (PreviewComputer reads this for the thumbnail) and to the GPU.
+      // `level` reports the shaped envelope (the Follower/ADSR/Shaping output); `kick`/`trig` come
+      // from the onset detector running on the responsive per-band energy above.
       node.__kickValue = st.env;
       node.__kickTrig = trig;
-      node.__kickLevel = energy;
+      node.__kickLevel = level;
       this._writeUniform(uniformManager, `${node.id}.kick`, st.env);
       this._writeUniform(uniformManager, `${node.id}.trig`, trig);
-      this._writeUniform(uniformManager, `${node.id}.level`, energy);
+      this._writeUniform(uniformManager, `${node.id}.level`, level);
     }
 
     // Drop state for Audio Analysis nodes that were deleted so it doesn't leak across edits.
@@ -181,6 +192,25 @@ export class AudioAnalysisProcessor {
       for (const id of this._state.keys()) {
         if (!live.has(id)) this._state.delete(id);
       }
+    }
+  }
+
+  /**
+   * The signal the onset/kick detector analyses: the raw, unsmoothed per-band envelope for the
+   * node's selected Band (BrowserAudioCapture's _envelopeBass/Mids/Highs/Full — shaped(rms*3), with
+   * no follower/ADSR). This is intentionally NOT the shaped `level`, whose smoothing/plateau would
+   * hide the transients detection depends on. Custom has no dedicated raw band global, so it falls
+   * back to the full-band energy, which still carries the transients.
+   */
+  _detectionSignal(node, ctx) {
+    const band = (typeof node.params?.band === 'string' ? node.params.band : 'Bass').toLowerCase();
+    switch (band) {
+      case 'mids': return ctx.audioEnvelopeMids;
+      case 'highs': return ctx.audioEnvelopeHighs;
+      case 'full': return ctx.audioEnvelopeFull;
+      case 'custom': return ctx.audioEnvelopeFull;
+      case 'bass':
+      default: return ctx.audioEnvelopeBass;
     }
   }
 
