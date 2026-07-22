@@ -20,6 +20,19 @@ export class CountNodeProcessor {
   constructor() {
     // nodeId -> { count, prevHigh }
     this._state = new Map();
+    // nodeIds asked to reset (via the node's "Reset Count" button). Applied on the next update()
+    // so the reset reuses the same loop/min resolution as the normal path (see update()).
+    this._resetRequests = new Set();
+  }
+
+  /**
+   * Queue a reset for a Count node. The running counter is set back to its initial value on the
+   * next update() (loop -> min, otherwise 0). Deferred rather than applied here so it goes through
+   * the same param resolution and uniform write as a normal frame, and so it's safe to call from UI
+   * code with no access to the graph/uniform manager.
+   */
+  requestReset(nodeId) {
+    if (nodeId != null) this._resetRequests.add(nodeId);
   }
 
   /**
@@ -34,6 +47,7 @@ export class CountNodeProcessor {
     const countNodes = graph.nodes.filter((n) => n?.kind === 'Count');
     if (countNodes.length === 0) {
       if (this._state.size) this._state.clear();
+      if (this._resetRequests.size) this._resetRequests.clear();
       return;
     }
 
@@ -44,7 +58,8 @@ export class CountNodeProcessor {
       live.add(node.id);
 
       const pulseSrc = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
-      const pulse = pulseSrc ? this._evalSignal(pulseSrc, graph, ctx, 0) : 0;
+      const pulsePin = this._sourcePin(graph, node.id, 0);
+      const pulse = pulseSrc ? this._evalSignal(pulseSrc, graph, ctx, 0, pulsePin) : 0;
       const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
       const step = this._numericParam(node, 'step', 1.0, ctx);
       const loop = node.params?.loop === true || node.params?.loop === 'true';
@@ -56,6 +71,15 @@ export class CountNodeProcessor {
       if (!st) {
         st = { count: loop ? min : 0, prevHigh: false };
         this._state.set(node.id, st);
+      }
+
+      // Apply a queued reset (from the node's "Reset Count" button) before edge detection. Adopt
+      // the current pulse level as prevHigh so a pulse that's already high doesn't instantly
+      // re-increment the freshly-reset count on this same frame.
+      if (this._resetRequests.has(node.id)) {
+        st.count = loop ? min : 0;
+        st.prevHigh = high;
+        this._resetRequests.delete(node.id);
       }
 
       if (high && !st.prevHigh) {
@@ -80,6 +104,10 @@ export class CountNodeProcessor {
       for (const id of this._state.keys()) {
         if (!live.has(id)) this._state.delete(id);
       }
+    }
+    // Discard reset requests targeting nodes that no longer exist (e.g. deleted before update ran).
+    for (const id of this._resetRequests) {
+      if (!live.has(id)) this._resetRequests.delete(id);
     }
   }
 
@@ -112,11 +140,25 @@ export class CountNodeProcessor {
   }
 
   /**
-   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a Count's
-   * pulse (constants, time, random, triggers, holds, other counts); anything else falls back to
-   * the node's last preview value so the edge detection still does something sensible.
+   * Find which OUTPUT pin of the upstream node feeds `toNodeId`'s input pin `toPin`.
+   * `node.inputs[pin]` only records the source node id, not which of its outputs was wired, so a
+   * multi-output source (e.g. Audio Analysis: level/kick/trig) needs the pin from graph.connections.
+   * Defaults to 0 when there's no explicit connection record (matches single-output behaviour).
    */
-  _evalSignal(node, graph, ctx, depth) {
+  _sourcePin(graph, toNodeId, toPin) {
+    const conns = graph?.connections;
+    if (!Array.isArray(conns)) return 0;
+    const conn = conns.find((c) => c?.to?.nodeId === toNodeId && c?.to?.pin === toPin);
+    return typeof conn?.from?.pin === 'number' ? conn.from.pin : 0;
+  }
+
+  /**
+   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a Count's
+   * pulse (constants, time, random, triggers, holds, other counts, audio analysis); anything else
+   * falls back to the node's last preview value so the edge detection still does something sensible.
+   * `outPin` selects which output of a multi-output source is being read (see _sourcePin).
+   */
+  _evalSignal(node, graph, ctx, depth, outPin = 0) {
     if (!node || depth > 32) return 0;
 
     switch (node.kind) {
@@ -138,7 +180,8 @@ export class CountNodeProcessor {
 
       case 'Trigger': {
         const src = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
-        const input = src ? this._evalSignal(src, graph, ctx, depth + 1) : 0;
+        const inPin = this._sourcePin(graph, node.id, 0);
+        const input = src ? this._evalSignal(src, graph, ctx, depth + 1, inPin) : 0;
         const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
         return input >= threshold ? 1.0 : 0.0;
       }
@@ -149,6 +192,17 @@ export class CountNodeProcessor {
       case 'Count':
         // Another Count upstream: reuse its already-advanced value from this frame.
         return typeof node.__countValue === 'number' ? node.__countValue : 0;
+
+      case 'AudioAnalysis':
+        // Live CPU-computed outputs streamed by AudioAnalysisProcessor. Pin 0 = level (continuous
+        // envelope), 1 = kick (envelope that snaps to 1 on a hit), 2 = trig (single-frame pulse).
+        // The `trig` output is purpose-built to feed a Count's pulse cleanly.
+        switch (outPin) {
+          case 2: return typeof node.__kickTrig === 'number' ? node.__kickTrig : 0;
+          case 1: return typeof node.__kickValue === 'number' ? node.__kickValue : 0;
+          case 0:
+          default: return typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
+        }
 
       default:
         return this._toScalar(node.__preview);

@@ -161,7 +161,10 @@ export const InputNodes = {
       { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
       { name: "loop", type: "bool", default: false, label: "Loop" },
       { name: "min", type: "float", default: 0.0, label: "Min" },
-      { name: "max", type: "float", default: 10.0, label: "Max" }
+      { name: "max", type: "float", default: 10.0, label: "Max" },
+      // Momentary action: resets the running counter to its initial value (Min when Loop is on,
+      // otherwise 0). Handled by CountNodeProcessor via ParameterPanel.runParameterAction.
+      { name: "reset", type: "button", displayName: "Reset Count", action: "resetCount", description: "Reset the counter to its start value" }
     ],
   },
 

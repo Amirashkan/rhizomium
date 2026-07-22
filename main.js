@@ -69,6 +69,8 @@ installPerfBench();
 const holdNodeProcessor = new HoldNodeProcessor();
 // Drives the Count node's CPU-side counter each frame. See CountNodeProcessor.
 const countNodeProcessor = new CountNodeProcessor();
+// Exposed so the Count node's "Reset Count" button (ParameterPanel.runParameterAction) can queue a reset.
+window.countNodeProcessor = countNodeProcessor;
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
 // Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
@@ -3587,6 +3589,14 @@ function handleRenderFrame(frameState) {
   // preview pass) so brief trigger pulses and rising edges aren't missed.
   if (window.editor?.graph && window.nodeCompiler?.uniformManager) {
     try {
+      // Run kick/onset detection FIRST, on an unthrottled per-frame cadence so brief transients and
+      // the rising edge of a kick aren't missed. Ordering matters: the Audio Analysis outputs
+      // (level/kick/trig) feed the Hold/Count/Feedback processors below, so refreshing them here
+      // means those consumers read this frame's values rather than the previous frame's.
+      audioKickProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
+      });
       holdNodeProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         uniformManager: window.nodeCompiler.uniformManager,
@@ -3602,12 +3612,6 @@ function handleRenderFrame(frameState) {
       feedbackResetProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         computeExecutor: window.computeExecutor,
-      });
-      // Run kick/onset detection on the same unthrottled per-frame cadence so brief transients
-      // and the rising edge of a kick aren't missed before the GPU frame is dispatched.
-      audioKickProcessor.update(window.editor.graph, {
-        time: frameState.simTime,
-        uniformManager: window.nodeCompiler.uniformManager,
       });
     } catch (err) {
       // Never let the hold/count latch break the render loop.

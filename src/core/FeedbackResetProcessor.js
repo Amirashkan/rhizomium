@@ -52,7 +52,10 @@ export class FeedbackResetProcessor {
       for (const pin of controlPins) {
         const srcId = node.inputs?.[pin];
         const src = srcId != null ? graph.getNode?.(srcId) : null;
-        if (src) signal = Math.max(signal, this._evalSignal(src, graph, ctx, 0));
+        if (src) {
+          const outPin = this._sourcePin(graph, node.id, pin);
+          signal = Math.max(signal, this._evalSignal(src, graph, ctx, 0, outPin));
+        }
       }
 
       const high = signal >= THRESHOLD;
@@ -94,11 +97,25 @@ export class FeedbackResetProcessor {
   }
 
   /**
-   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a reset pin
-   * (constants, time, random, triggers, holds, counts); anything else falls back to the node's last
-   * preview value so the edge detection still does something sensible. Mirrors CountNodeProcessor.
+   * Find which OUTPUT pin of the upstream node feeds `toNodeId`'s input pin `toPin`.
+   * `node.inputs[pin]` only records the source node id, not which of its outputs was wired, so a
+   * multi-output source (e.g. Audio Analysis: level/kick/trig) needs the pin from graph.connections.
+   * Defaults to 0 when there's no explicit connection record (matches single-output behaviour).
    */
-  _evalSignal(node, graph, ctx, depth) {
+  _sourcePin(graph, toNodeId, toPin) {
+    const conns = graph?.connections;
+    if (!Array.isArray(conns)) return 0;
+    const conn = conns.find((c) => c?.to?.nodeId === toNodeId && c?.to?.pin === toPin);
+    return typeof conn?.from?.pin === 'number' ? conn.from.pin : 0;
+  }
+
+  /**
+   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a reset pin
+   * (constants, time, random, triggers, holds, counts, audio analysis); anything else falls back to
+   * the node's last preview value so the edge detection still does something sensible. Mirrors
+   * CountNodeProcessor. `outPin` selects which output of a multi-output source is read (see _sourcePin).
+   */
+  _evalSignal(node, graph, ctx, depth, outPin = 0) {
     if (!node || depth > 32) return 0;
 
     switch (node.kind) {
@@ -120,7 +137,8 @@ export class FeedbackResetProcessor {
 
       case 'Trigger': {
         const src = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
-        const input = src ? this._evalSignal(src, graph, ctx, depth + 1) : 0;
+        const inPin = this._sourcePin(graph, node.id, 0);
+        const input = src ? this._evalSignal(src, graph, ctx, depth + 1, inPin) : 0;
         const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
         return input >= threshold ? 1.0 : 0.0;
       }
@@ -130,6 +148,17 @@ export class FeedbackResetProcessor {
 
       case 'Count':
         return typeof node.__countValue === 'number' ? node.__countValue : 0;
+
+      case 'AudioAnalysis':
+        // Live CPU-computed outputs streamed by AudioAnalysisProcessor. Pin 0 = level (continuous
+        // envelope), 1 = kick (envelope that snaps to 1 on a hit), 2 = trig (single-frame pulse).
+        // The `trig` output is purpose-built to feed a Feedback reset pin cleanly.
+        switch (outPin) {
+          case 2: return typeof node.__kickTrig === 'number' ? node.__kickTrig : 0;
+          case 1: return typeof node.__kickValue === 'number' ? node.__kickValue : 0;
+          case 0:
+          default: return typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
+        }
 
       default:
         return this._toScalar(node.__preview);
