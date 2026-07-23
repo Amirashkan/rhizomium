@@ -1043,17 +1043,36 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateCellularShader(node, getInput) {
     return `
-// Cellular Automata (Conway's Game of Life)
+// Cellular Automata — four selectable rule sets.
+//
+// The previous frame's grid arrives via the ping-pong feedback texture
+// (stateTexture); the JS side (ComputeShaderManager.initializeCellularTextures)
+// seeds it with a density-controlled random field, so this shader only needs to
+// apply one generation of rules per dispatch. Generation cadence is throttled
+// on the CPU (dispatch() reads the speed param) so a 60 fps render loop doesn't
+// blur the simulation.
+//
+// Cell state is stored in the red channel:
+//   1.0 = alive (ON), 0.5 = dying (Brian's Brain only), 0.0 = dead.
+// The rule index is delivered via uniforms.rule (see computeUniformLayout.js):
+//   0 = Conway Life (B3/S23), 1 = Seeds (B2/S), 2 = Brian's Brain,
+//   3 = Day & Night (B3678/S34678).
 struct Uniforms {
   resolution: vec2<f32>,
   time: f32,
-  speed: f32
+  speed: f32,
+  rule: f32,
+  density: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var stateTexture: texture_2d<f32>;
 @group(0) @binding(3) var texSampler: sampler;
+
+// A cell is "ON" (a live neighbour for counting) only when fully alive. Dying
+// cells (Brian's Brain) read ~0.5 and must NOT count as live.
+fn isOn(v: f32) -> bool { return v > 0.75; }
 
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -1065,38 +1084,78 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   let current = textureLoad(stateTexture, texCoord, 0).r;
-  let alive = current > 0.5;
+  let alive = isOn(current);
+  let dying = current > 0.25 && current <= 0.75;
+  let rule = i32(uniforms.rule + 0.5);
 
-  // Count live neighbors
+  // Count live (ON) neighbours with wrap-around (toroidal) boundaries so
+  // gliders and patterns don't die against the edges.
   var neighbors = 0;
   for (var dy = -1; dy <= 1; dy++) {
     for (var dx = -1; dx <= 1; dx++) {
       if (dx == 0 && dy == 0) { continue; }
 
-      let samplePos = texCoord + vec2<i32>(dx, dy);
-      if (samplePos.x >= 0 && samplePos.x < i32(texSize.x) &&
-          samplePos.y >= 0 && samplePos.y < i32(texSize.y)) {
-        let sample = textureLoad(stateTexture, samplePos, 0).r;
-        if (sample > 0.5) {
-          neighbors++;
-        }
+      var samplePos = texCoord + vec2<i32>(dx, dy);
+      samplePos.x = (samplePos.x + i32(texSize.x)) % i32(texSize.x);
+      samplePos.y = (samplePos.y + i32(texSize.y)) % i32(texSize.y);
+      if (isOn(textureLoad(stateTexture, samplePos, 0).r)) {
+        neighbors++;
       }
     }
   }
 
-  // Conway's Game of Life rules
+  // newState: 1.0 alive, 0.5 dying, 0.0 dead.
   var newState = 0.0;
-  if (alive) {
-    if (neighbors == 2 || neighbors == 3) {
+
+  if (rule == 2) {
+    // Brian's Brain: dead -> alive on exactly 2 ON neighbours; alive -> dying;
+    // dying -> dead. A three-state automaton that produces moving spark trails.
+    if (dying) {
+      newState = 0.0;
+    } else if (alive) {
+      newState = 0.5;
+    } else if (neighbors == 2) {
       newState = 1.0;
     }
+  } else if (rule == 1) {
+    // Seeds (B2/S): a dead cell is born on exactly 2 neighbours; every live
+    // cell dies. Explosive, ever-changing growth.
+    if (!alive && neighbors == 2) {
+      newState = 1.0;
+    }
+  } else if (rule == 3) {
+    // Day & Night (B3678/S34678): symmetric rule with stable blobs.
+    if (alive) {
+      if (neighbors == 3 || neighbors == 4 || neighbors == 6 ||
+          neighbors == 7 || neighbors == 8) {
+        newState = 1.0;
+      }
+    } else {
+      if (neighbors == 3 || neighbors == 6 || neighbors == 7 || neighbors == 8) {
+        newState = 1.0;
+      }
+    }
   } else {
-    if (neighbors == 3) {
+    // Conway's Life (B3/S23) — the default.
+    if (alive) {
+      if (neighbors == 2 || neighbors == 3) {
+        newState = 1.0;
+      }
+    } else if (neighbors == 3) {
       newState = 1.0;
     }
   }
 
-  let color = vec3<f32>(newState);
+  // Colourise. IMPORTANT: this texture is also the feedback state read next
+  // frame, and state is decoded from the RED channel — so the dying colour must
+  // keep red in the dying band (0.25, 0.75]. alive = white (r=1), dying = an
+  // electric lavender (r=0.5), dead = black (r=0).
+  var color = vec3<f32>(0.0);
+  if (newState >= 0.75) {
+    color = vec3<f32>(1.0);
+  } else if (newState >= 0.25) {
+    color = vec3<f32>(0.5, 0.25, 0.9);
+  }
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(color, 1.0));
 }`;
   }

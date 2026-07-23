@@ -234,6 +234,12 @@ export class ComputeShaderManager {
         this.initializeReactionDiffusionTextures(width, height);
       }
 
+      // Cellular automata needs a live starting grid — an all-zero (dead) field
+      // is a fixed point for every rule and would just render black forever.
+      if (this.node?.kind === 'ComputeCellular') {
+        this.initializeCellularTextures(width, height);
+      }
+
       // Legacy support
       this.storageTexture = this.storageTextureA;
 
@@ -339,6 +345,51 @@ export class ComputeShaderManager {
   resetReactionDiffusion() {
     if (this.node?.kind === 'ComputeReactionDiffusion' && this.supportsFeedback) {
       this.initializeReactionDiffusionTextures(this.textureWidth, this.textureHeight);
+    }
+  }
+
+  /**
+   * Seed the cellular-automata grid with a random live/dead field.
+   *
+   * `density` (0..1) sets the fraction of live cells. Like reaction-diffusion,
+   * the randomness is a DETERMINISTIC per-pixel hash (not Math.random): the
+   * second-monitor viewer re-runs this exact seeding in its own renderer, so a
+   * fixed hash keeps both windows identical at t=0. Live cells are written as
+   * red=255 (alive); the shader decodes state from the red channel.
+   */
+  initializeCellularTextures(width, height) {
+    if (!width || !height) return;
+
+    // Read density straight from params (plain 0..1 float; not an expression in
+    // practice). Clamp so out-of-range saved values still seed sensibly.
+    let density = Number(this.node?.params?.density);
+    if (!Number.isFinite(density)) density = 0.3;
+    density = Math.min(1, Math.max(0, density));
+
+    const pixelData = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        // Same hash the RD seeder uses — cheap, deterministic, window-stable.
+        let hsh = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        hsh = (hsh ^ (hsh >>> 13)) >>> 0;
+        const r = (hsh % 256) / 256; // 0..1
+        const alive = r < density ? 255 : 0;
+        pixelData[idx + 0] = alive; // state lives in the red channel
+        pixelData[idx + 1] = alive;
+        pixelData[idx + 2] = alive;
+        pixelData[idx + 3] = 255;
+      }
+    }
+
+    for (const tex of [this.storageTextureA, this.storageTextureB]) {
+      if (!tex) continue;
+      this.device.queue.writeTexture(
+        { texture: tex },
+        pixelData,
+        { bytesPerRow: width * 4, rowsPerImage: height },
+        { width, height, depthOrArrayLayers: 1 }
+      );
     }
   }
 
@@ -699,6 +750,14 @@ export class ComputeShaderManager {
       return;
     }
 
+    // Cellular automata reseeds to a fresh live grid (a blank field is dead
+    // forever); this is what the node's "Reset / Reseed" button triggers.
+    if (this.node?.kind === 'ComputeCellular') {
+      this.initializeCellularTextures(this.textureWidth, this.textureHeight);
+      this._cellularStepIndex = -1; // force the next dispatch to advance a generation
+      return;
+    }
+
     const w = this.textureWidth;
     const h = this.textureHeight;
     if (!w || !h) return;
@@ -841,6 +900,23 @@ export class ComputeShaderManager {
   dispatch(commandEncoder, time, profiler = null, audioContext = {}) {
     if (!this.computePipeline || !this.bindGroup) {
       return;
+    }
+
+    // Cellular automata runs one generation per dispatch, but the render loop
+    // dispatches ~60x/sec — far too fast to watch. Gate stepping on the `speed`
+    // param (generations/second). The gate is a pure function of (time, speed)
+    // so the second-monitor mirror, fed the same clock, steps in lock-step.
+    // Skipping returns early WITHOUT advancing/swapping the ping-pong buffers,
+    // so the last generation stays on screen until the next step is due.
+    if (this.node?.kind === 'ComputeCellular') {
+      let speed = Number(this.node?.params?.speed);
+      if (!Number.isFinite(speed)) speed = 10;
+      speed = Math.min(60, Math.max(0.1, speed));
+      const stepIndex = Math.floor(time * speed);
+      if (stepIndex === this._cellularStepIndex) {
+        return;
+      }
+      this._cellularStepIndex = stepIndex;
     }
 
     // Update uniforms (includes audio envelope values for expression evaluation)

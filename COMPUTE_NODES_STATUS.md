@@ -5,13 +5,12 @@
 
 ## Executive Summary
 
-This document provides a comprehensive analysis of all compute nodes in the GLSL Node Editor codebase. Out of 10 defined compute nodes, **7 are fully implemented (70%)** and **3 require shader implementation (30%)**. The infrastructure is production-ready with excellent documentation.
+This document provides a comprehensive analysis of the compute nodes tracked here in the GLSL Node Editor codebase. Of the 10 nodes covered, **9 are fully implemented (90%)** and **1 (`ComputeFluidSim`) still requires a shader implementation**. The infrastructure is production-ready with excellent documentation.
 
 ### Statistics
-- **Total Compute Nodes Defined:** 10
-- **Fully Implemented:** 7 (70%)
-- **Defined but Missing Shader Implementation:** 3 (30%)
-- **Partially Complete:** 1 (additional rule sets needed)
+- **Total Compute Nodes Covered:** 10
+- **Fully Implemented:** 9 (90%) — includes ComputeConvolution, ComputeParticles, and ComputeCellular (all four rule sets)
+- **Defined but Missing Shader Implementation:** 1 (ComputeFluidSim)
 - **Documentation Quality:** Excellent
 - **Test Coverage:** Good
 
@@ -125,28 +124,30 @@ This document provides a comprehensive analysis of all compute nodes in the GLSL
 ### 5. ComputeCellular
 **Location:** `src/data/nodes/ComputeNodes.js:124-138`
 **Shader Compiler:** `src/codegen/compilers/ComputeNodes.js:490-548`
-**Status:** ✅ COMPLETE (with limitations)
+**Status:** ✅ COMPLETE
 
 **Features:**
-- Conway's Game of Life implementation
-- 8-neighbor counting algorithm
-- Ping-pong state buffers
-- Designed for 4 rule sets (only 1 currently implemented)
+- Four rule sets: Conway's Life (B3/S23), Seeds (B2/S), Brian's Brain
+  (three-state), Day & Night (B3678/S34678), selected via a `rule` uniform
+- 8-neighbor counting with toroidal (wrap-around) boundaries
+- Ping-pong state buffers, seeded with a deterministic density-controlled
+  random field (`ComputeShaderManager.initializeCellularTextures`) so the grid
+  starts alive instead of black — and stays identical on the second-monitor mirror
+- Generation cadence throttled on the CPU from the `speed` param
+  (generations/second) so a 60 fps render loop doesn't blur the simulation
 
 **Parameters:**
-- `rule`: Automata rule selection
-- `speed`: Simulation speed
-- `density`: Initial density
-- `reset`: Reset trigger
+- `rule`: Automata rule selection (Conway Life / Seeds / Brian's Brain / Day & Night)
+- `speed`: Generations per second (1–60)
+- `density`: Fraction of live cells when (re)seeded
+- `reset`: "Reset / Reseed" button — reseeds the grid at the current density
+  (reuses the shared `resetFeedback` action → `ComputeExecutor.resetNodeFeedback`)
 
 **Outputs:** Texture, RGB
 
-**⚠️ Note:** Only Conway's Life rules are implemented. Three other rule sets are defined in the UI but use Conway's logic:
-- Seeds
-- Brian's Brain
-- Day & Night
-
-**Recommendation:** Implement the missing cellular automata rules.
+**Note:** State is encoded in the red channel (1.0 alive, 0.5 dying, 0.0 dead);
+Brian's Brain's dying cells render as electric lavender, all other rules are
+black/white.
 
 ---
 
@@ -216,7 +217,9 @@ This document provides a comprehensive analysis of all compute nodes in the GLSL
 
 ## Nodes Missing Shader Implementation ❌
 
-These nodes have complete UI definitions and will appear in the node menu, but they currently fall back to a simple UV gradient shader instead of their intended functionality.
+**Only `ComputeFluidSim` remains unimplemented.** `ComputeParticles` and
+`ComputeConvolution` are now fully implemented (see their entries below); the
+`ComputeFluidSim` node still falls back to the UV gradient shader.
 
 ### 1. ComputeParticles
 **Location:** `src/data/nodes/ComputeNodes.js:40-55`
@@ -312,7 +315,7 @@ No shader generator implementation. Falls back to `generateFallbackShader()`.
 
 ### 3. ComputeConvolution
 **Location:** `src/data/nodes/ComputeNodes.js:110-122`
-**Status:** ⚠️ DEFINED BUT NO SHADER IMPLEMENTATION
+**Status:** ✅ IMPLEMENTED (3x3 kernel convolution; see `generateConvolutionShader` in `src/codegen/compilers/ComputeNodes.js`. Sharpen / Edge Detect / Emboss / Custom kernels, blended with the original by the `strength` param. The notes below are kept for reference.)
 
 **What's Defined:**
 - Node definition with kernel types
@@ -467,39 +470,26 @@ Each preset includes:
 
 ## Implementation Roadmap
 
-### Priority 1: Complete Missing Node Implementations
+### Priority 1: Complete the Last Missing Node Implementation
 
-Implement shader generators for the three incomplete nodes to match their UI definitions.
+`ComputeConvolution` and `ComputeParticles` are done. Only one shader generator
+is still missing:
 
-**Recommended Order:**
-
-1. **ComputeConvolution** (Easiest - 1-2 hours)
-   - Simple 3x3 kernel convolution
-   - Well-defined algorithms
-   - No complex state management
-   - Good first implementation to validate pattern
-
-2. **ComputeParticles** (Medium - 4-6 hours)
-   - Requires particle buffer management
-   - Multi-pass shader (update + render)
-   - Force field integration
-   - Moderate complexity
-
-3. **ComputeFluidSim** (Complex - 8-12 hours)
+1. **ComputeFluidSim** (Complex - 8-12 hours)
    - Multi-pass Navier-Stokes solver
    - Multiple texture pairs
    - Iterative pressure solver
    - Most complex implementation
 
-### Priority 2: Enhance ComputeCellular
+### Priority 2: Enhance ComputeCellular — ✅ DONE
 
-Add the three missing cellular automata rule sets that are already defined in the UI:
+All four rule sets are implemented (`generateCellularShader`), selected via the
+`rule` uniform:
 
-1. **Seeds** - Birth on 2 neighbors, no survival
-2. **Brian's Brain** - Three-state automaton
-3. **Day & Night** - Birth on 3,6,7,8 neighbors, survive on 3,4,6,7,8
-
-**Estimated Time:** 2-3 hours
+1. **Conway Life** - B3/S23
+2. **Seeds** - Birth on 2 neighbors, no survival (B2/S)
+3. **Brian's Brain** - Three-state automaton
+4. **Day & Night** - Birth on 3,6,7,8 neighbors, survive on 3,4,6,7,8
 
 ### Priority 3: Optional Enhancements
 
@@ -616,17 +606,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 ### Gaps ⚠️
 
-1. **3 Compute Nodes Incomplete** (30%)
-   - ComputeParticles - No shader implementation
-   - ComputeFluidSim - No shader implementation
-   - ComputeConvolution - No shader implementation
-   - All fall back to placeholder gradient shader
+1. **1 Compute Node Incomplete**
+   - ComputeFluidSim - No shader implementation; falls back to the placeholder
+     gradient shader
+   - (ComputeParticles and ComputeConvolution are now implemented;
+     ComputeCellular now ships all four rule sets)
 
-2. **1 Node Partially Complete**
-   - ComputeCellular - Only implements Conway's Life
-   - UI shows 3 other rules that aren't implemented
-
-3. **No TODO Comments**
+2. **No TODO Comments**
    - Actually a positive - clean, production-ready codebase
    - But means incomplete features aren't marked in code
 
@@ -647,20 +633,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 ## Conclusion
 
-The GLSL Node Editor has a **robust and well-architected compute shader system** with 70% completion. The infrastructure is production-ready, documentation is excellent, and the implemented nodes demonstrate sophisticated GPU programming.
+The GLSL Node Editor has a **robust and well-architected compute shader system**. The infrastructure is production-ready, documentation is excellent, and the implemented nodes demonstrate sophisticated GPU programming.
 
-**The remaining 30% consists of:**
-- 3 shader implementations (convolution, particles, fluid simulation)
-- 3 additional cellular automata rules
+**The only remaining shader gap:**
+- `ComputeFluidSim` — multi-pass Navier-Stokes solver (see the entry above)
 
-All infrastructure needed to complete these nodes exists and works well. The incomplete nodes are well-specified with clear requirements and can be implemented by following established patterns in the existing codebase.
+ComputeConvolution and ComputeParticles are implemented, and ComputeCellular now
+ships all four rule sets (Conway Life, Seeds, Brian's Brain, Day & Night). All
+infrastructure needed to finish ComputeFluidSim exists and works well, and it can
+be implemented by following the established patterns in the existing codebase.
 
 **Recommended Next Steps:**
-1. Implement ComputeConvolution (simplest, validates implementation pattern)
-2. Implement ComputeParticles (moderate complexity)
-3. Implement ComputeFluidSim (most complex)
-4. Add remaining cellular automata rules
-5. Consider additional compute nodes for expanded functionality
+1. Implement ComputeFluidSim (multi-pass Navier-Stokes; the last unimplemented node)
+2. Consider additional compute nodes for expanded functionality
 
 ---
 

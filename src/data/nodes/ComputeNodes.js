@@ -149,11 +149,11 @@ export const ComputeNodes = {
     pinsOut: ["Texture"],
     params: [
       { name: 'rule', type: 'select', options: ['Conway Life', 'Seeds', 'Brian\'s Brain', 'Day & Night'], default: 'Conway Life' },
-      { name: 'speed', type: 'float', default: 10.0, min: 1.0, max: 60.0 },
-      { name: 'density', type: 'float', default: 0.3, min: 0.0, max: 1.0 },
-      { name: 'reset', type: 'boolean', default: false }
+      { name: 'speed', type: 'float', default: 10.0, min: 1.0, max: 60.0, description: 'Generations per second' },
+      { name: 'density', type: 'float', default: 0.3, min: 0.0, max: 1.0, description: 'Fraction of live cells when (re)seeded — click Reset after changing' },
+      { name: 'reset', type: 'button', displayName: 'Reset / Reseed', action: 'resetFeedback', description: 'Reseed the grid with a fresh random field at the current density' }
     ],
-    description: "Cellular automata simulation (Game of Life, etc.)",
+    description: "Cellular automata simulation: Conway's Life, Seeds, Brian's Brain, Day & Night",
     workgroupSize: [8, 8, 1]
   },
 

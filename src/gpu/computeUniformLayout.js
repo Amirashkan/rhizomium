@@ -214,9 +214,16 @@ export function packComputeUniforms(kind, params, ctx) {
       break;
     }
 
-    case 'ComputeCellular':
-      u[3] = ev(p.speed, 1.0);
+    case 'ComputeCellular': {
+      // Struct order: speed, rule, density. `speed` is consumed on the CPU
+      // (generation throttling in ComputeShaderManager.dispatch), not in WGSL,
+      // but stays in the layout so `rule`/`density` land at the right offsets.
+      u[3] = ev(p.speed, 10.0);
+      const rules = { 'Conway Life': 0, 'Seeds': 1, "Brian's Brain": 2, 'Day & Night': 3 };
+      u[4] = rules[p.rule] ?? 0;
+      u[5] = ev(p.density, 0.3);
       break;
+    }
 
     case 'ComputeWarp':
       u[3] = ev(p.strength, 0.5);

@@ -106,7 +106,8 @@ export class ComputeExecutor {
   // stateful feedback), used by isGraphAnimated()
   static SELF_ANIMATED_KINDS = new Set([
     'ComputeNoise', 'ComputeReactionDiffusion', 'ComputeFeedback',
-    'ComputeFeedbackField', 'ComputeFluidSim', 'ComputeParticles'
+    'ComputeFeedbackField', 'ComputeFluidSim', 'ComputeParticles',
+    'ComputeCellular'
   ]);
 
   /**
@@ -1008,7 +1009,8 @@ export class ComputeExecutor {
           'ComputeFeedback',           // Needs every-frame feedback
           'ComputeFeedbackField',      // Needs every-frame feedback
           'ComputeFluidSim',           // Time-based physics
-          'ComputeParticles'           // Time-based animation
+          'ComputeParticles',          // Time-based animation
+          'ComputeCellular'            // Stateful generations (throttled in dispatch)
         ];
         const isTimeDependentNode = node?.kind && TIME_DEPENDENT_NODES.includes(node.kind);
 

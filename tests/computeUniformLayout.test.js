@@ -110,3 +110,41 @@ describe('packComputeUniforms - ComputeHistogram', () => {
     expect(u[6]).toBe(1.0); // strength must default to 1, not 0
   });
 });
+
+describe('packComputeUniforms - ComputeCellular', () => {
+  it('packs speed, rule index and density in WGSL struct order', () => {
+    const u = packComputeUniforms(
+      'ComputeCellular',
+      { rule: "Brian's Brain", speed: 20, density: 0.42 },
+      ctx
+    );
+    expect(u[0]).toBe(512);
+    expect(u[1]).toBe(512);
+    expect(u[2]).toBe(1.5);
+    expect(u[3]).toBe(20); // speed (consumed CPU-side; kept in layout for offsets)
+    // rule: Conway Life=0, Seeds=1, Brian's Brain=2, Day & Night=3
+    expect(u[4]).toBe(2);
+    expect(u[5]).toBeCloseTo(0.42); // density
+  });
+
+  it('maps every rule name to its index', () => {
+    const idx = (rule) => packComputeUniforms('ComputeCellular', { rule }, ctx)[4];
+    expect(idx('Conway Life')).toBe(0);
+    expect(idx('Seeds')).toBe(1);
+    expect(idx("Brian's Brain")).toBe(2);
+    expect(idx('Day & Night')).toBe(3);
+  });
+
+  it('defaults to Conway with a visible density and watchable speed', () => {
+    // Regression: ComputeCellular used to pack only speed, leaving rule/density
+    // at 0. An unknown/absent rule must fall back to Conway (index 0), and the
+    // grid must seed with enough live cells to be visible.
+    const u = packComputeUniforms('ComputeCellular', {}, ctx);
+    expect(u[3]).toBe(10.0); // speed default (generations/second)
+    expect(u[4]).toBe(0); // Conway Life
+    expect(u[5]).toBeCloseTo(0.3); // density default
+
+    const unknown = packComputeUniforms('ComputeCellular', { rule: 'Nonexistent' }, ctx);
+    expect(unknown[4]).toBe(0); // unknown rule -> Conway, never NaN/undefined
+  });
+});
