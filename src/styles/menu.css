@@ -142,6 +142,13 @@
   transform: translateX(1px);
 }
 
+/* Thin divider used to set apart destructive actions (e.g. Delete) in the node menu */
+.ctx-separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 /* Category-specific item colors */
 .ctx-item[data-category="Input"]:hover {
   border-left: 2px solid #10b981;

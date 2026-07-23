@@ -132,15 +132,38 @@ export class MenuManager {
     const el = this._createMenuRoot(clientX, clientY);
     el.innerHTML = "";
 
-    // Ensure node is selected
+    // Ensure node is selected. If the right-clicked node isn't part of the current selection,
+    // select just it; a right-click inside an existing multi-selection leaves that selection intact
+    // so bulk actions (Duplicate / previews / Delete) operate on the whole group.
     if (!this.graph.selection.has(node.id)) {
       this.graph.selection = new Set([node.id]);
     }
 
+    const editor = window.editor;
     const nodeType = NodeDefs[node.kind]?.cat || "Misc";
-    const header = this._createMenuHeader("Node Actions");
+    const nodeLabel = NodeDefs[node.kind]?.label || node.kind;
+    const header = this._createMenuHeader(nodeLabel);
     header.setAttribute("data-category", nodeType);
     el.appendChild(header);
+
+    // Edit Parameters — open the parameter panel for the clicked node (same target as double-click).
+    const paramPanel = editor?.paramPanel;
+    if (paramPanel && (paramPanel.showNodeParameters || paramPanel.show)) {
+      el.appendChild(
+        this._createMenuItem(
+          "Edit Parameters…",
+          () => {
+            if (paramPanel.showNodeParameters) {
+              paramPanel.showNodeParameters(node);
+            } else {
+              paramPanel.show(node, clientX, clientY);
+            }
+            this.hide();
+          },
+          nodeType,
+        ),
+      );
+    }
 
     el.appendChild(
       this._createMenuItem(
@@ -153,22 +176,24 @@ export class MenuManager {
       ),
     );
 
-    el.appendChild(
-      this._createMenuItem(
-        "Delete",
-        () => {
-          this.graph.selection = new Set([node.id]);
-          this._deleteSelected();
-          this.hide();
-        },
-        nodeType,
-      ),
-    );
+    // Bypass — pass the clicked node's first input straight through, skipping its processing.
+    // OutputFinal is the graph sink and can't be bypassed (editor.toggleNodeBypass guards it too).
+    if (editor?.toggleNodeBypass && node.kind !== "OutputFinal") {
+      el.appendChild(
+        this._createMenuItem(
+          node.bypassed ? "Enable (Un-bypass)" : "Bypass",
+          () => {
+            editor.toggleNodeBypass(node.id);
+            this.hide();
+          },
+          nodeType,
+        ),
+      );
+    }
 
     // Bulk thumbnail visibility for the whole selection (the node under the cursor is already part
     // of it — see the selection guard above). Label reflects the dominant current state: if any
     // selected node's preview is visible, offer to hide them all; otherwise offer to show them.
-    const editor = window.editor;
     if (editor?.setSelectedNodesPreview) {
       const ids = this.graph.selection;
       const count = ids?.size || 0;
@@ -191,6 +216,20 @@ export class MenuManager {
         ),
       );
     }
+
+    // Separate the destructive action so it isn't fired by accident right after a benign one.
+    el.appendChild(this._createMenuSeparator());
+
+    el.appendChild(
+      this._createMenuItem(
+        "Delete",
+        () => {
+          this._deleteSelected();
+          this.hide();
+        },
+        nodeType,
+      ),
+    );
   }
 
   _createMenuRoot(clientX, clientY) {
@@ -270,6 +309,12 @@ export class MenuManager {
     });
 
     return item;
+  }
+
+  _createMenuSeparator() {
+    const sep = document.createElement("div");
+    sep.className = "ctx-separator";
+    return sep;
   }
 
   _renderCreateList(el) {

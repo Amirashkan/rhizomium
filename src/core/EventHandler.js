@@ -24,7 +24,9 @@ export class EventHandler {
     // Track canvas pan and box-select gestures
     this._panCandidate = null;
     this._boxSelectCandidate = null;
-    this._pendingContextMenu = null;
+    // Tracks an in-progress right-button press (start position + whether it moved) so the context
+    // menu can be opened on mouseup for a plain right-click but skipped for a right-drag box-select.
+    this._rightPress = null;
     // Track last cursor position for paste/duplicate
     this.lastCanvasPos = { x: 0, y: 0 };
     // Performance optimization: throttle pan updates to max 60fps
@@ -494,20 +496,103 @@ export class EventHandler {
       }
     };
 
-    const suppressDefaultContext = (e) => {
+    // Right-clicks that land on real UI chrome (panels, menus, inputs, the floating preview's
+    // title bar/buttons) must keep their own behavior — only right-clicks on the editor surface
+    // open the node / radial menu.
+    const isEditorUiTarget = (target) =>
+      !!(
+        target &&
+        typeof target.closest === "function" &&
+        target.closest(
+          ".ctx-menu, .radial-menu, .panel, #param-panel, .param-panel, " +
+            ".timeline-panel, .preview-header, .preview-controls, " +
+            "input, textarea, select, button, a",
+        )
+      );
+
+    const isInsideCanvas = (e) => {
       const rect = this.canvas.getBoundingClientRect();
-      if (
+      return (
         e.clientX >= rect.left &&
         e.clientX <= rect.right &&
         e.clientY >= rect.top &&
         e.clientY <= rect.bottom
-      ) {
-        e.preventDefault();
-      }
+      );
     };
 
-    this.canvas.addEventListener("contextmenu", suppressDefaultContext, true);
-    document.addEventListener("contextmenu", suppressDefaultContext, true);
+    // Suppress the native browser menu anywhere over the editor surface.
+    document.addEventListener(
+      "contextmenu",
+      (e) => {
+        if (isInsideCanvas(e)) {
+          e.preventDefault();
+        }
+      },
+      true,
+    );
+
+    // The node / radial menu opens on right-button *mouseup*, not on `contextmenu` or the
+    // #ui-canvas mousedown, for two reasons:
+    //   1. Box-select coexistence — a right-drag is a box-select and must NOT pop a menu. Some
+    //      browsers (Linux) fire `contextmenu` on mousedown, before the drag is detectable, so
+    //      the menu has to be decided at mouseup where we know whether the press moved.
+    //   2. Overlay robustness — tracking the press at the document level (capture) means the menu
+    //      still opens when another layer (the floating GPU preview relocates #gpu-canvas above
+    //      #ui-canvas, the 3D viewport, etc.) sits over #ui-canvas and swallows its mousedown.
+    const RIGHT_PRESS_MOVE_TOLERANCE = 3; // px, client space — matches a "click" vs a drag
+
+    document.addEventListener(
+      "mousedown",
+      (e) => {
+        if (e.button !== 2) {
+          return;
+        }
+        // Only right-presses that start on the editor surface (and not on UI chrome) are
+        // candidates for the menu.
+        if (!isInsideCanvas(e) || isEditorUiTarget(e.target)) {
+          this._rightPress = null;
+          return;
+        }
+        this._rightPress = {
+          startClient: { x: e.clientX, y: e.clientY },
+          moved: false,
+        };
+      },
+      true,
+    );
+
+    document.addEventListener(
+      "mousemove",
+      (e) => {
+        if (!this._rightPress) {
+          return;
+        }
+        const dx = Math.abs(e.clientX - this._rightPress.startClient.x);
+        const dy = Math.abs(e.clientY - this._rightPress.startClient.y);
+        if (dx > RIGHT_PRESS_MOVE_TOLERANCE || dy > RIGHT_PRESS_MOVE_TOLERANCE) {
+          this._rightPress.moved = true;
+        }
+      },
+      true,
+    );
+
+    document.addEventListener(
+      "mouseup",
+      (e) => {
+        if (e.button !== 2) {
+          return;
+        }
+        const press = this._rightPress;
+        this._rightPress = null;
+        // A moved press is a box-select drag (handled on #ui-canvas), not a menu request.
+        if (!press || press.moved || this.selection.getBoxSelect()) {
+          return;
+        }
+        const pos = this._getCanvasPosition(e);
+        showContextMenuAt(pos.x, pos.y, e.clientX, e.clientY);
+      },
+      true,
+    );
 
     this.canvas.addEventListener("mousedown", (e) => {
       // Warm up GPU/canvas IMMEDIATELY on mousedown - don't wait for movement
@@ -533,12 +618,6 @@ export class EventHandler {
           startCanvas: { x: pos.x, y: pos.y },
           startClient: { x: e.clientX, y: e.clientY },
           started: false,
-        };
-        this._pendingContextMenu = {
-          canvasX: pos.x,
-          canvasY: pos.y,
-          clientX: e.clientX,
-          clientY: e.clientY,
         };
         return;
       }
@@ -711,7 +790,6 @@ export class EventHandler {
           const { x, y } = this._boxSelectCandidate.startCanvas;
           this.selection.startBoxSelect(x, y);
           this._boxSelectCandidate.started = true;
-          this._pendingContextMenu = null;
           this._requestDraw('box-select-start');
         }
       }
@@ -809,18 +887,12 @@ export class EventHandler {
         this._requestDraw('wire-drag-end');
       }
 
-      // End box selection
+      // End box selection. The node/radial menu itself is opened from the document-level
+      // `contextmenu` handler (see _setupMouseEvents), which fires reliably even when another
+      // layer sits above the interaction canvas.
       if (this.selection.getBoxSelect()) {
         this.selection.endBoxSelect();
         this._requestDraw('box-select-end');
-      } else if (
-        this._boxSelectCandidate &&
-        !this._boxSelectCandidate.started &&
-        e.button === 2 &&
-        this._pendingContextMenu
-      ) {
-        const ctx = this._pendingContextMenu;
-        showContextMenuAt(ctx.canvasX, ctx.canvasY, ctx.clientX, ctx.clientY);
       }
 
       // End node dragging
@@ -832,7 +904,6 @@ export class EventHandler {
       }
 
       this._boxSelectCandidate = null;
-      this._pendingContextMenu = null;
     });
   }
 
