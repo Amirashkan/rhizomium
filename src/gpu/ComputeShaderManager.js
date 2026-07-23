@@ -646,8 +646,8 @@ export class ComputeShaderManager {
 
     // Binding 4 (or 2 if no input): Feedback texture OR warp field (for ComputeWarp) OR second input (for ComputeMix)
     if (this.supportsFeedback) {
-      // Special case: ComputeWarp and ComputeMix use binding 4 for second input texture, not feedback
-      if (this.node?.kind === 'ComputeWarp' || this.node?.kind === 'ComputeMix') {
+      // Special case: ComputeWarp, ComputeMix and ComputeParticles use binding 4 for second input texture, not feedback
+      if (this.node?.kind === 'ComputeWarp' || this.node?.kind === 'ComputeMix' || this.node?.kind === 'ComputeParticles') {
         const secondInputTexture = this.warpFieldTexture || this.fallbackInputTexture;
         entries.push({ binding: 4, resource: secondInputTexture.createView() });
       } else {
@@ -727,13 +727,14 @@ export class ComputeShaderManager {
 
   /**
    * Whether this manager carries real cross-frame sim state in its ping-pong
-   * textures. ComputeWarp/ComputeMix allocate ping-pong (supportsFeedback) but
-   * bind the second slot to their second INPUT, not the previous frame — each
-   * dispatch fully rewrites the output, so there is no state to capture/seed.
+   * textures. ComputeWarp/ComputeMix/ComputeParticles allocate ping-pong
+   * (supportsFeedback) but bind the second slot to their second INPUT, not the
+   * previous frame — each dispatch fully rewrites the output, so there is no
+   * state to capture/seed.
    */
   _hasFeedbackState() {
     const kind = this.node?.kind;
-    return !!this.supportsFeedback && kind !== 'ComputeWarp' && kind !== 'ComputeMix';
+    return !!this.supportsFeedback && kind !== 'ComputeWarp' && kind !== 'ComputeMix' && kind !== 'ComputeParticles';
   }
 
   /**

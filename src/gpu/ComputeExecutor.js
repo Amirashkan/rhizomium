@@ -619,8 +619,8 @@ export class ComputeExecutor {
         }
       }
 
-      // Handle second input for ComputeWarp and ComputeMix
-      if ((node.kind === 'ComputeWarp' || node.kind === 'ComputeMix') && node.inputs.length > 1) {
+      // Handle second input for ComputeWarp, ComputeMix and ComputeParticles
+      if ((node.kind === 'ComputeWarp' || node.kind === 'ComputeMix' || node.kind === 'ComputeParticles') && node.inputs.length > 1) {
         const secondInputId = node.inputs[1];
         if (secondInputId !== null && secondInputId !== undefined) {
           const secondTexture = this.nodeOutputs.get(secondInputId);
@@ -1051,6 +1051,18 @@ export class ComputeExecutor {
                 if (inputBTexture && manager.setWarpFieldTexture) {
                   // Reuse setWarpFieldTexture for the second input (binding 4)
                   manager.setWarpFieldTexture(inputBTexture);
+                }
+              }
+            }
+
+            // Special case: ComputeParticles has a second input (Velocity Field)
+            if (node.kind === 'ComputeParticles' && node.inputs.length > 1) {
+              const velocityFieldNodeId = node.inputs[1];
+              if (velocityFieldNodeId !== null && velocityFieldNodeId !== undefined) {
+                const velocityFieldTexture = this.nodeOutputs.get(velocityFieldNodeId);
+                if (velocityFieldTexture && manager.setWarpFieldTexture) {
+                  // Reuse setWarpFieldTexture for the second input (binding 4)
+                  manager.setWarpFieldTexture(velocityFieldTexture);
                 }
               }
             }

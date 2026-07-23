@@ -59,6 +59,21 @@ export function packComputeUniforms(kind, params, ctx) {
       u[7] = ev(p.seed, 0.0);
       break;
 
+    case 'ComputeParticles': {
+      u[3] = ev(p.particleCount, 10000);
+      u[4] = ev(p.speed, 1.0);
+      u[5] = ev(p.size, 2.0);
+      u[6] = ev(p.lifetime, 5.0);
+      // color is an [r,g,b,a] array; the WGSL struct takes it as four scalar
+      // fields (colorR..colorA) to avoid vec4 16-byte alignment padding.
+      const color = Array.isArray(p.color) ? p.color : [1.0, 1.0, 1.0, 1.0];
+      u[7] = color[0] ?? 1.0;
+      u[8] = color[1] ?? 1.0;
+      u[9] = color[2] ?? 1.0;
+      u[10] = color[3] ?? 1.0;
+      break;
+    }
+
     case 'ComputeReactionDiffusion':
       u[3] = ev(p.feedRate, 0.055);
       u[4] = ev(p.killRate, 0.062);
@@ -266,7 +281,7 @@ export function packComputeUniforms(kind, params, ctx) {
     }
 
     default:
-      // Unknown / unimplemented node type (e.g. ComputeParticles, ComputeFluidSim):
+      // Unknown / unimplemented node type (e.g. ComputeFluidSim):
       // resolution + time only, all params left at 0. This matches the editor's
       // default case.
       break;
