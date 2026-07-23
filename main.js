@@ -2108,49 +2108,33 @@ function setupRhizomiumMenu() {
 
   // ========== EDIT MENU ==========
   
-  // Cut (uses existing selection manager)
+  // Cut — routed through the shared helper so it uses the system clipboard and repaints the canvas.
   const cutBtn = document.getElementById("btn-cut");
   if (cutBtn && editor?.selection) {
     cutBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (editor.selection.copySelected && editor.selection.deleteSelected) {
-        editor.selection.copySelected();
-        editor.selection.deleteSelected();
-        if (typeof updateStatus === "function") {
-          updateStatus("Cut selected nodes");
-        }
-      }
+      cutSelection();
     });
   }
 
-  // Copy (uses existing selection manager)
+  // Copy — routed through the shared helper (system clipboard + status).
   const copyBtn = document.getElementById("btn-copy");
   if (copyBtn && editor?.selection) {
     copyBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (editor.selection.copySelected) {
-        editor.selection.copySelected();
-        if (typeof updateStatus === "function") {
-          updateStatus("Copied selected nodes");
-        }
-      }
+      copySelection();
     });
   }
 
-  // Paste (uses existing selection manager)
+  // Paste — routed through the shared helper (reads the system clipboard, then repaints).
   const pasteBtn = document.getElementById("btn-paste");
   if (pasteBtn && editor?.selection) {
     pasteBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (editor.selection.pasteFromClipboard) {
-        editor.selection.pasteFromClipboard();
-        if (typeof updateStatus === "function") {
-          updateStatus("Pasted nodes");
-        }
-      }
+      pasteSelection();
     });
   }
 
@@ -2162,6 +2146,8 @@ function setupRhizomiumMenu() {
       e.stopPropagation();
       if (editor.selection.deleteSelected) {
         editor.selection.deleteSelected();
+        editor?.markDirty?.('menu-delete-button');
+        editor?.draw?.();
         if (typeof updateStatus === "function") {
           updateStatus("Deleted selected nodes");
         }
@@ -2360,19 +2346,13 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // Duplicate Node
+  // Duplicate Node — routed through the shared helper so it repaints the canvas.
   const duplicateNodeBtn = document.getElementById("btn-duplicate-node");
   if (duplicateNodeBtn && editor?.selection) {
     duplicateNodeBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (editor.selection.copySelected && editor.selection.pasteFromClipboard) {
-        editor.selection.copySelected();
-        editor.selection.pasteFromClipboard();
-        if (typeof updateStatus === "function") {
-          updateStatus("Duplicated selected node(s)");
-        }
-      }
+      duplicateSelection();
     });
   }
 
@@ -2645,15 +2625,35 @@ function setupKeyboardShortcuts() {
         }
         return;
       }
-      if (e.key.toLowerCase() === "v") {
-        // Only prevent default if we actually have something to paste
-        if (pasteSelection()) {
+      if (e.key.toLowerCase() === "x") {
+        // If the user has selected text, let the browser cut that text instead of hijacking
+        // Ctrl/Cmd+X to cut the node(s).
+        const textSelection = window.getSelection?.();
+        if (textSelection && textSelection.toString().trim().length > 0) {
+          return;
+        }
+        // Only prevent default if we actually cut something
+        if (cutSelection()) {
           e.preventDefault();
           e.stopImmediatePropagation();
         } else {
-          // Nothing in clipboard, let browser handle it
-          updateStatus("Nothing to paste", "warning");
+          // No nodes selected, let browser handle it
+          updateStatus("Select nodes to cut", "warning");
         }
+        return;
+      }
+      if (e.key.toLowerCase() === "v") {
+        // Paste is async (it may read the system clipboard for cross-window support), so we can't
+        // decide synchronously whether there's anything to paste. Take over Ctrl/Cmd+V on the
+        // editor surface — text fields are already excluded by shouldIgnoreShortcutTarget above —
+        // and report afterwards if the clipboard held nothing pasteable.
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        pasteSelection().then((ok) => {
+          if (!ok) {
+            updateStatus("Nothing to paste", "warning");
+          }
+        });
         return;
       }
     }
@@ -2898,6 +2898,76 @@ function duplicateSelection() {
   return true;
 }
 
+// ---- System clipboard bridge ----------------------------------------------------------------
+// Copy/cut also write the selected nodes to the OS clipboard as JSON, and paste reads it back, so
+// nodes can be moved between separate editor windows/tabs. The in-app clipboard
+// (selection.clipboard) stays the synchronous fallback for same-window paste and for when the
+// browser denies clipboard access.
+const NODE_CLIPBOARD_MARKER = "__glslNodeEditorClipboard";
+
+function serializeNodeClipboard(clip) {
+  if (!clip || !Array.isArray(clip.nodes) || clip.nodes.length === 0) {
+    return null;
+  }
+  return JSON.stringify({
+    [NODE_CLIPBOARD_MARKER]: 1,
+    version: 1,
+    nodes: clip.nodes,
+    connections: Array.isArray(clip.connections) ? clip.connections : [],
+  });
+}
+
+function parseNodeClipboard(text) {
+  if (!text || typeof text !== "string") {
+    return null;
+  }
+  try {
+    const data = JSON.parse(text);
+    if (!data || data[NODE_CLIPBOARD_MARKER] !== 1) {
+      return null;
+    }
+    if (!Array.isArray(data.nodes) || data.nodes.length === 0) {
+      return null;
+    }
+    return {
+      nodes: data.nodes,
+      connections: Array.isArray(data.connections) ? data.connections : [],
+    };
+  } catch {
+    return null; // Not our payload (or not JSON) — ignore.
+  }
+}
+
+// Best-effort, fire-and-forget write. Clipboard access can be blocked (no permission, insecure
+// context, unfocused document); the in-app clipboard already holds the same data, so failure here
+// only means cross-window paste is unavailable this time.
+async function writeNodesToSystemClipboard(clip) {
+  const text = serializeNodeClipboard(clip);
+  if (!text) {
+    return false;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* ignore — fall back to the in-app clipboard */
+  }
+  return false;
+}
+
+async function readNodesFromSystemClipboard() {
+  try {
+    if (navigator.clipboard?.readText) {
+      return parseNodeClipboard(await navigator.clipboard.readText());
+    }
+  } catch {
+    /* read blocked by permissions/context — fall back to the in-app clipboard */
+  }
+  return null;
+}
+
 function copySelection() {
   const selection = editor?.selection;
   const selected = selection?.getSelected?.();
@@ -2912,15 +2982,55 @@ function copySelection() {
 
   const success = selection.copySelected();
   if (success) {
+    writeNodesToSystemClipboard(selection.clipboard);
     updateStatus(`Copied ${selected.size} node${selected.size > 1 ? 's' : ''}`);
   }
   return success;
 }
 
-function pasteSelection() {
+function cutSelection() {
+  const selection = editor?.selection;
+  const selected = selection?.getSelected?.();
+  if (!selection || !selected || selected.size === 0) {
+    return false;
+  }
+
+  // Clear any browser text selection to prevent interference
+  if (window.getSelection) {
+    window.getSelection().removeAllRanges();
+  }
+
+  const count = selected.size;
+
+  // Regular cut = copy the selection to the clipboard, then remove it. Bail if the copy fails so
+  // we never delete nodes the user can't paste back. deleteSelected() is the undo-aware path
+  // (records undo, reconnects wires) shared with Delete/Backspace.
+  if (!selection.copySelected()) {
+    return false;
+  }
+  writeNodesToSystemClipboard(selection.clipboard);
+  selection.deleteSelected();
+  // deleteSelected() removes the nodes but doesn't mark the canvas dirty, and editor.draw() is a
+  // no-op while the canvas is clean — so without this the cut nodes lingered on screen until the
+  // next interaction (the "needs one more click" symptom). markDirty first, then draw.
+  editor?.markDirty?.('cut-selection');
+  editor?.draw?.();
+  updateStatus(`Cut ${count} node${count > 1 ? 's' : ''}`);
+  return true;
+}
+
+async function pasteSelection() {
   const selection = editor?.selection;
   if (!selection) {
     return false;
+  }
+
+  // Prefer the system clipboard so paste works across separate editor windows/tabs. When it holds
+  // our node payload, adopt it as the in-app clipboard; otherwise keep whatever was copied in this
+  // window (system read may be denied, or the clipboard may hold unrelated text).
+  const external = await readNodesFromSystemClipboard();
+  if (external) {
+    selection.clipboard = external;
   }
 
   const success = selection.pasteFromClipboard();

@@ -1,5 +1,9 @@
 /* Enhanced Context Menu Styles */
 .ctx-menu {
+  /* Must sit above #ui-canvas (z-index 10), the toolbar (100) and the floating GPU preview
+     (up to 1000). Without an explicit z-index the fixed-positioned menu paints behind the
+     interaction canvas and is invisible — the right-click "does nothing" symptom. */
+  z-index: 10000;
   background: rgba(28, 28, 30, 0.95);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -140,6 +144,13 @@
 .ctx-item:active {
   background: rgba(255, 255, 255, 0.12);
   transform: translateX(1px);
+}
+
+/* Thin divider used to set apart destructive actions (e.g. Delete) in the node menu */
+.ctx-separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Category-specific item colors */
