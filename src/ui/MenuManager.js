@@ -245,6 +245,10 @@ export class MenuManager {
     el.style.left = "-9999px";
     el.style.top = "-9999px";
     el.style.visibility = "hidden";
+    // Guarantee the menu stacks above #ui-canvas (z-index 10), the toolbar and the floating GPU
+    // preview even if menu.css fails to load — without this the fixed menu paints behind the
+    // canvas and is invisible, which reads as "right-click does nothing".
+    el.style.zIndex = "10000";
 
     // Force layout
     el.offsetHeight;

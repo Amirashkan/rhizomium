@@ -1,5 +1,9 @@
 /* Enhanced Context Menu Styles */
 .ctx-menu {
+  /* Must sit above #ui-canvas (z-index 10), the toolbar (100) and the floating GPU preview
+     (up to 1000). Without an explicit z-index the fixed-positioned menu paints behind the
+     interaction canvas and is invisible — the right-click "does nothing" symptom. */
+  z-index: 10000;
   background: rgba(28, 28, 30, 0.95);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.1);
