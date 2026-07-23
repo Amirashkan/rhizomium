@@ -26,7 +26,31 @@ export function channelSourceIndex(source) {
 }
 
 /**
- * Pack a compute node's uniform values into a Float32Array(16).
+ * ComputeParticles: coerce a color parameter to an [r,g,b,a] array.
+ * Accepts the canonical array form, a '#rrggbb' hex string (from a color input
+ * or a legacy text edit), or a comma-separated list like '1,0,0.5,1'.
+ */
+export function colorParamToArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    const hex = /^#?([0-9a-fA-F]{6})$/.exec(value.trim());
+    if (hex) {
+      const n = parseInt(hex[1], 16);
+      return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1.0];
+    }
+    const parts = value.split(',').map((s) => parseFloat(s));
+    if (parts.length >= 3 && parts.every((n) => Number.isFinite(n))) {
+      return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1.0];
+    }
+  }
+  return [1.0, 1.0, 1.0, 1.0];
+}
+
+/**
+ * Pack a compute node's uniform values into a Float32Array(32).
+ * (Was 16; expanded for parameter-rich nodes like ComputeParticles. The GPU
+ * buffer in ComputeShaderManager is sized to match — WGSL structs smaller than
+ * the buffer are fine.)
  *
  * @param {string|undefined} kind - node.kind, e.g. 'ComputeNoise'
  * @param {Object|undefined} params - node parameters. Either node.params, or the
@@ -39,10 +63,10 @@ export function channelSourceIndex(source) {
  * @param {(value:*, defaultValue:number)=>number} ctx.evaluate - resolves a
  *   numeric / boolean / expression parameter to a float. Injected by the caller
  *   so each side keeps its own clock, audio envelope and expression engine.
- * @returns {Float32Array} 16 floats laid out to match the node's WGSL Uniforms.
+ * @returns {Float32Array} 32 floats laid out to match the node's WGSL Uniforms.
  */
 export function packComputeUniforms(kind, params, ctx) {
-  const u = new Float32Array(16);
+  const u = new Float32Array(32);
   const p = params || {};
   const ev = ctx.evaluate;
 
@@ -64,13 +88,22 @@ export function packComputeUniforms(kind, params, ctx) {
       u[4] = ev(p.speed, 1.0);
       u[5] = ev(p.size, 2.0);
       u[6] = ev(p.lifetime, 5.0);
-      // color is an [r,g,b,a] array; the WGSL struct takes it as four scalar
-      // fields (colorR..colorA) to avoid vec4 16-byte alignment padding.
-      const color = Array.isArray(p.color) ? p.color : [1.0, 1.0, 1.0, 1.0];
+      // color is an [r,g,b,a] array (or a hex/CSV string from older saves); the
+      // WGSL struct takes it as four scalar fields (colorR..colorA) to avoid
+      // vec4 16-byte alignment padding.
+      const color = colorParamToArray(p.color);
       u[7] = color[0] ?? 1.0;
       u[8] = color[1] ?? 1.0;
       u[9] = color[2] ?? 1.0;
       u[10] = color[3] ?? 1.0;
+      u[11] = ev(p.depth, 0.0);
+      u[12] = ev(p.driftAngle, 0.0);
+      u[13] = ev(p.driftStrength, 0.0);
+      u[14] = ev(p.scatter, 0.5);
+      u[15] = ev(p.turbulence, 0.0);
+      u[16] = ev(p.glow, 0.15);
+      u[17] = ev(p.twinkle, 0.0);
+      u[18] = ev(p.sizeVariation, 0.3);
       break;
     }
 

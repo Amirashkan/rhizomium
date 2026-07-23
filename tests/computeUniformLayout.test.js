@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { packComputeUniforms } from '../src/gpu/computeUniformLayout.js';
+import { packComputeUniforms, colorParamToArray } from '../src/gpu/computeUniformLayout.js';
 
 // Mirror the editor/viewer call: evaluate() resolves numbers/booleans/enums to
 // floats. Here we just coerce numbers and pass through the default otherwise,
@@ -8,10 +8,15 @@ const ev = (value, def) => (typeof value === 'number' ? value : def);
 const ctx = { width: 512, height: 512, time: 1.5, evaluate: ev };
 
 describe('packComputeUniforms - ComputeParticles', () => {
-  it('packs particleCount, speed, size, lifetime and color in WGSL struct order', () => {
+  it('packs all parameters in WGSL struct order', () => {
     const u = packComputeUniforms(
       'ComputeParticles',
-      { particleCount: 20000, speed: 2.0, size: 3.5, lifetime: 8.0, color: [0.2, 0.4, 0.6, 0.8] },
+      {
+        particleCount: 20000, speed: 2.0, size: 3.5, lifetime: 8.0,
+        color: [0.2, 0.4, 0.6, 0.8],
+        depth: 0.7, driftAngle: 90, driftStrength: 1.2, scatter: 0.9,
+        turbulence: 0.4, glow: 0.6, twinkle: 0.5, sizeVariation: 0.8
+      },
       ctx
     );
     expect(u[0]).toBe(512);
@@ -26,6 +31,14 @@ describe('packComputeUniforms - ComputeParticles', () => {
     expect(u[8]).toBeCloseTo(0.4);
     expect(u[9]).toBeCloseTo(0.6);
     expect(u[10]).toBeCloseTo(0.8);
+    expect(u[11]).toBeCloseTo(0.7); // depth
+    expect(u[12]).toBe(90); // driftAngle
+    expect(u[13]).toBeCloseTo(1.2); // driftStrength
+    expect(u[14]).toBeCloseTo(0.9); // scatter
+    expect(u[15]).toBeCloseTo(0.4); // turbulence
+    expect(u[16]).toBeCloseTo(0.6); // glow
+    expect(u[17]).toBeCloseTo(0.5); // twinkle
+    expect(u[18]).toBeCloseTo(0.8); // sizeVariation
   });
 
   it('defaults to visible white particles when params are unset', () => {
@@ -40,6 +53,32 @@ describe('packComputeUniforms - ComputeParticles', () => {
     expect(u[8]).toBe(1.0); // colorG
     expect(u[9]).toBe(1.0); // colorB
     expect(u[10]).toBe(1.0); // colorA
+    expect(u[14]).toBeCloseTo(0.5); // scatter keeps the default wander
+    expect(u[16]).toBeCloseTo(0.15); // glow defaults on, not 0
+  });
+
+  it('accepts hex and comma-string color values from legacy saves', () => {
+    // Regression: the old fallback text input stored color as a string, which
+    // the packer silently replaced with white.
+    const hex = packComputeUniforms('ComputeParticles', { color: '#ff0080' }, ctx);
+    expect(hex[7]).toBeCloseTo(1.0);
+    expect(hex[8]).toBeCloseTo(0.0);
+    expect(hex[9]).toBeCloseTo(128 / 255);
+    expect(hex[10]).toBe(1.0);
+
+    const csv = packComputeUniforms('ComputeParticles', { color: '0.1,0.2,0.3,0.4' }, ctx);
+    expect(csv[7]).toBeCloseTo(0.1);
+    expect(csv[8]).toBeCloseTo(0.2);
+    expect(csv[9]).toBeCloseTo(0.3);
+    expect(csv[10]).toBeCloseTo(0.4);
+  });
+});
+
+describe('colorParamToArray', () => {
+  it('passes arrays through and falls back to white on junk', () => {
+    expect(colorParamToArray([0.1, 0.2, 0.3, 0.4])).toEqual([0.1, 0.2, 0.3, 0.4]);
+    expect(colorParamToArray('not a color')).toEqual([1, 1, 1, 1]);
+    expect(colorParamToArray(undefined)).toEqual([1, 1, 1, 1]);
   });
 });
 

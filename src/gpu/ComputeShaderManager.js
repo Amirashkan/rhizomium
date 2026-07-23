@@ -41,7 +41,7 @@ export class ComputeShaderManager {
 
     // Uniform buffers
     this.uniformBuffer = null;
-    this.uniformData = new Float32Array(16); // Expanded to support more parameters [resolution.x, resolution.y, time, param1-12, pad0]
+    this.uniformData = new Float32Array(32); // [resolution.x, resolution.y, time, node params...] — matches packComputeUniforms
 
     // Storage buffers
     this.colorStopsBuffer = null; // For gradient color stops
@@ -53,7 +53,7 @@ export class ComputeShaderManager {
     // already-packed uniform/color-stop bytes so this manager renders identical
     // output without re-evaluating expressions/audio (which differ per window).
     this.externalUniformMode = false;
-    this._externalPacked = null;      // Float32Array(16) injected each frame
+    this._externalPacked = null;      // Float32Array(32) injected each frame
     this._externalColorStops = null;  // Float32Array(64) for ComputeGradient
 
     // Workgroup configuration
@@ -348,10 +348,10 @@ export class ComputeShaderManager {
   createUniformBuffer() {
     this.uniformBuffer = this.device.createBuffer({
       label: 'Compute Uniform Buffer',
-      size: 64, // 16 floats * 4 bytes = 64 bytes (expanded for more parameters)
+      size: 128, // 32 floats * 4 bytes (expanded for parameter-rich nodes like ComputeParticles)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    this.resourceTracker?.trackBuffer(this.uniformBuffer, 64);
+    this.resourceTracker?.trackBuffer(this.uniformBuffer, 128);
 
   }
 
@@ -552,7 +552,7 @@ export class ComputeShaderManager {
 
   /**
    * Inject externally-packed uniform bytes (from the editor) for the mirror
-   * window, then upload them. `packed` is a Float32Array(16); `colorStops` is an
+   * window, then upload them. `packed` is a Float32Array(32); `colorStops` is an
    * optional Float32Array(64) for ComputeGradient. Requires externalUniformMode.
    */
   writeRawComputeUniforms(packed, colorStops) {

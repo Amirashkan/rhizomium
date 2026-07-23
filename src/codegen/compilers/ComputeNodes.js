@@ -668,7 +668,15 @@ struct Uniforms {
   colorR: f32,
   colorG: f32,
   colorB: f32,
-  colorA: f32
+  colorA: f32,
+  depth: f32,
+  driftAngle: f32,
+  driftStrength: f32,
+  scatter: f32,
+  turbulence: f32,
+  glow: f32,
+  twinkle: f32,
+  sizeVariation: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -727,7 +735,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let baseCell = floor(gp);
 
   let lifetime = max(uniforms.lifetime, 0.01);
-  let radius = max(uniforms.size, 0.1);
+  let baseRadius = max(uniforms.size, 0.1);
+
+  // Global directional drift, shared by all particles (screen-space, y down).
+  let driftRad = uniforms.driftAngle * 0.0174532925;
+  let globalDrift = vec2<f32>(cos(driftRad), sin(driftRad)) * uniforms.driftStrength;
 
   var total = 0.0;
 
@@ -751,15 +763,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       let spawn = cell + hash22(seed);
       let spawnUV = spawn / grid;
 
-      // Motion: hashed base drift + Velocity Field as initial velocity,
-      // Force Field as constant acceleration (t^2 term). All in cell units per
-      // normalized lifetime, capped so the 5x5 search stays sufficient.
+      // Per-particle depth in [0 (near) .. 1 (far)] for the pseudo-3D look:
+      // near particles are bigger, brighter and move faster (parallax). depth=0
+      // keeps the field flat (depthFactor 1 for every particle).
+      let z = hash21(seed + 5.3);
+      let depthFactor = mix(1.0, mix(1.5, 0.35, z), clamp(uniforms.depth, 0.0, 1.0));
+
+      // Motion: hashed random drift (scatter) + shared directional drift +
+      // Velocity Field as initial velocity — all scaled by depthFactor for
+      // parallax — plus a time-varying turbulence wobble and the Force Field as
+      // constant acceleration (t^2 term). Cell units per normalized lifetime,
+      // capped so the 5x5 search stays sufficient.
       let angle = hash21(seed + 3.7) * 6.2831853;
-      let drift = vec2<f32>(cos(angle), sin(angle));
+      let randomDrift = vec2<f32>(cos(angle), sin(angle)) * uniforms.scatter;
       let velocity = fieldVec2(velocityField, spawnUV);
       let force = fieldVec2(forceField, spawnUV);
+      let wobblePhase = hash22(seed + 11.3) * 6.2831853;
+      let wobble = vec2<f32>(
+        sin(uniforms.time * (1.1 + z) + wobblePhase.x),
+        cos(uniforms.time * (1.4 + z * 0.7) + wobblePhase.y)
+      ) * uniforms.turbulence * 0.4;
 
-      var disp = (drift * 0.5 + velocity * 1.5) * ageT + force * 1.5 * ageT * ageT;
+      var disp = ((randomDrift + globalDrift + velocity * 1.5) * depthFactor + wobble) * ageT
+               + force * 1.5 * ageT * ageT;
       let dispLen = length(disp);
       if (dispLen > 2.0) {
         disp *= 2.0 / dispLen;
@@ -768,24 +794,35 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       let particlePos = spawn + disp;
       let distPx = length(gp - particlePos) * cellPx;
 
-      // Soft round sprite with a dim outer glow; size is the core radius in px.
+      // Per-particle radius: depth scaling plus random size variation.
+      let sizeHash = hash21(seed + 7.9);
+      let radius = baseRadius * depthFactor * (1.0 - uniforms.sizeVariation * sizeHash);
+
+      // Soft round sprite with an outer glow; size is the core radius in px.
       let core = 1.0 - smoothstep(0.0, radius, distPx);
-      let glow = 0.15 * (1.0 - smoothstep(radius, radius * 3.0, distPx));
+      let glowAmt = uniforms.glow * (1.0 - smoothstep(radius, radius * 3.0, distPx));
 
       // Fade in quickly after spawn, fade out toward end of life.
       let fade = smoothstep(0.0, 0.15, ageT) * (1.0 - smoothstep(0.7, 1.0, ageT));
 
-      // Per-particle brightness variation so the field doesn't look uniform.
-      let brightness = 0.6 + 0.4 * hash21(seed + 9.1);
+      // Per-particle brightness variation, depth attenuation, and twinkle
+      // (per-particle flicker; rate scales with the twinkle parameter).
+      let brightHash = hash21(seed + 9.1);
+      var brightness = (0.6 + 0.4 * brightHash) * depthFactor;
+      let twinkleWave = 0.5 + 0.5 * sin(uniforms.time * (2.0 + brightHash * 4.0) * max(uniforms.twinkle, 0.001) * 3.0 + brightHash * 6.2831853);
+      brightness *= mix(1.0, 0.3 + 0.7 * twinkleWave, clamp(uniforms.twinkle, 0.0, 1.0));
 
-      total += (core + glow) * fade * brightness;
+      total += (core + glowAmt) * fade * brightness;
     }
   }
 
+  // Opaque output over black, like the other compute generators. Alpha stays
+  // 1.0 so the premultiplied main preview and the ImageData-based node
+  // thumbnails composite identically; the color's alpha acts as an overall
+  // intensity control instead.
   let tint = vec3<f32>(uniforms.colorR, uniforms.colorG, uniforms.colorB);
-  let rgb = clamp(tint * total, vec3<f32>(0.0), vec3<f32>(1.0));
-  let alpha = clamp(total, 0.0, 1.0) * uniforms.colorA;
-  textureStore(outputTexture, texCoord, vec4<f32>(rgb, alpha));
+  let rgb = clamp(tint * total * uniforms.colorA, vec3<f32>(0.0), vec3<f32>(1.0));
+  textureStore(outputTexture, texCoord, vec4<f32>(rgb, 1.0));
 }`;
   }
 

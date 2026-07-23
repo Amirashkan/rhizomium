@@ -606,30 +606,12 @@ export class ComputeExecutor {
       }
     }
 
-    // Set input textures if needed
-    if (node.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
-      const inputNodeId = node.inputs[0];
-      if (inputNodeId !== null && inputNodeId !== undefined) {
-        const inputTexture = this.nodeOutputs.get(inputNodeId);
-        if (inputTexture && manager.setInputTexture) {
-          manager.setInputTexture(inputTexture);
-          if (manager.recreateBindGroup) {
-            manager.recreateBindGroup();
-          }
-        }
-      }
-
-      // Handle second input for ComputeWarp, ComputeMix and ComputeParticles
-      if ((node.kind === 'ComputeWarp' || node.kind === 'ComputeMix' || node.kind === 'ComputeParticles') && node.inputs.length > 1) {
-        const secondInputId = node.inputs[1];
-        if (secondInputId !== null && secondInputId !== undefined) {
-          const secondTexture = this.nodeOutputs.get(secondInputId);
-          if (secondTexture && manager.setWarpFieldTexture) {
-            manager.setWarpFieldTexture(secondTexture);
-          }
-        }
-      }
-    }
+    // Set input textures if needed. Runs even when a pin is empty: a
+    // just-disconnected pin must CLEAR the manager's stale texture reference,
+    // otherwise the bind group keeps pointing at the upstream (possibly
+    // destroyed fragment-bridge) texture and the next submit fails with
+    // "Destroyed texture used in a submit".
+    this._wireInputTextures(node, manager);
 
     // Dispatch the compute node
     try {
@@ -646,6 +628,58 @@ export class ComputeExecutor {
       this.dispatchedThisFrame.add(nodeId);
     } catch (error) {
       // Silently handle errors
+    }
+  }
+
+  // Compute node kinds whose second input pin binds at @binding(4) via
+  // setWarpFieldTexture (ComputeWarp's warp field, ComputeMix's Input B,
+  // ComputeParticles' Velocity Field).
+  static SECOND_INPUT_KINDS = new Set(['ComputeWarp', 'ComputeMix', 'ComputeParticles']);
+
+  /**
+   * Point a manager's input texture bindings at the current upstream outputs.
+   * Crucially this also handles the DISCONNECT case: when a pin is empty (or its
+   * upstream output isn't available) but the manager still holds a texture from a
+   * previous frame, that reference is cleared and the bind group recreated so it
+   * falls back to the manager's 1x1 fallback texture. Without this, a node that
+   * keeps dispatching after its input is unplugged (e.g. the self-animated
+   * ComputeParticles) submits a bind group referencing the upstream fragment
+   * bridge's texture after FragmentTextureRenderer has destroyed it -->
+   * "Destroyed texture used in a submit".
+   * @param {Object} node - Graph node being dispatched
+   * @param {Object} manager - Its ComputeShaderManager
+   */
+  _wireInputTextures(node, manager) {
+    if (!node || !manager) return;
+    const inputs = Array.isArray(node.inputs) ? node.inputs : [];
+
+    if (manager.setInputTexture) {
+      const pin0 = inputs.length > 0 ? inputs[0] : null;
+      const inputTexture = (pin0 !== null && pin0 !== undefined) ? this.nodeOutputs.get(pin0) : null;
+      if (inputTexture) {
+        manager.setInputTexture(inputTexture);
+        if (manager.recreateBindGroup) {
+          manager.recreateBindGroup();
+        }
+      } else if (manager.inputTexture) {
+        manager.setInputTexture(null);
+        if (manager.recreateBindGroup) {
+          manager.recreateBindGroup();
+        }
+      }
+    }
+
+    if (ComputeExecutor.SECOND_INPUT_KINDS.has(node.kind) && manager.setWarpFieldTexture) {
+      const pin1 = inputs.length > 1 ? inputs[1] : null;
+      const secondTexture = (pin1 !== null && pin1 !== undefined) ? this.nodeOutputs.get(pin1) : null;
+      if (secondTexture) {
+        manager.setWarpFieldTexture(secondTexture);
+      } else if (manager.warpFieldTexture) {
+        manager.setWarpFieldTexture(null);
+        if (manager.recreateBindGroup) {
+          manager.recreateBindGroup();
+        }
+      }
     }
   }
 
@@ -1016,57 +1050,10 @@ export class ComputeExecutor {
         
         if (needsDispatch) {
           // OPTIMIZATION: Only set input textures when we're actually dispatching
-          // This avoids unnecessary setInputTexture() and recreateBindGroup() calls
-          if (node?.inputs && Array.isArray(node.inputs) && node.inputs.length > 0) {
-            const inputNodeId = node.inputs[0];
-            if (inputNodeId !== null && inputNodeId !== undefined) {
-              const inputTexture = this.nodeOutputs.get(inputNodeId);
-              if (inputTexture) {
-                if (manager.setInputTexture) {
-                  manager.setInputTexture(inputTexture);
-                  // Recreate bind group with new input texture
-                  if (manager.recreateBindGroup) {
-                    manager.recreateBindGroup();
-                  }
-                }
-              }
-            }
-
-            // Special case: ComputeWarp has a second input (warp field)
-            if (node.kind === 'ComputeWarp' && node.inputs.length > 1) {
-              const warpFieldNodeId = node.inputs[1];
-              if (warpFieldNodeId !== null && warpFieldNodeId !== undefined) {
-                const warpFieldTexture = this.nodeOutputs.get(warpFieldNodeId);
-                if (warpFieldTexture && manager.setWarpFieldTexture) {
-                  manager.setWarpFieldTexture(warpFieldTexture);
-                }
-              }
-            }
-
-            // Special case: ComputeMix has a second input (Input B for blending)
-            if (node.kind === 'ComputeMix' && node.inputs.length > 1) {
-              const inputBNodeId = node.inputs[1];
-              if (inputBNodeId !== null && inputBNodeId !== undefined) {
-                const inputBTexture = this.nodeOutputs.get(inputBNodeId);
-                if (inputBTexture && manager.setWarpFieldTexture) {
-                  // Reuse setWarpFieldTexture for the second input (binding 4)
-                  manager.setWarpFieldTexture(inputBTexture);
-                }
-              }
-            }
-
-            // Special case: ComputeParticles has a second input (Velocity Field)
-            if (node.kind === 'ComputeParticles' && node.inputs.length > 1) {
-              const velocityFieldNodeId = node.inputs[1];
-              if (velocityFieldNodeId !== null && velocityFieldNodeId !== undefined) {
-                const velocityFieldTexture = this.nodeOutputs.get(velocityFieldNodeId);
-                if (velocityFieldTexture && manager.setWarpFieldTexture) {
-                  // Reuse setWarpFieldTexture for the second input (binding 4)
-                  manager.setWarpFieldTexture(velocityFieldTexture);
-                }
-              }
-            }
-          }
+          // This avoids unnecessary setInputTexture() and recreateBindGroup() calls.
+          // Also clears stale references for just-disconnected pins (see
+          // _wireInputTextures).
+          this._wireInputTextures(node, manager);
 
           // Check if this is a ComputeNodeBase instance or legacy ComputeShaderManager
           if (manager instanceof ComputeNodeBase) {

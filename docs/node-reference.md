@@ -1535,10 +1535,18 @@ GPU particle system with physics.
 - **Parameters**:
   - `particleCount` (int, default: 10000, range: 1000-100000) - Number of particles
   - `speed` (float, default: 1.0, range: 0-5) - Simulation speed
-  - `size` (float, default: 2.0, range: 0.5-10) - Particle size
-  - `lifetime` (float, default: 5.0, range: 1-20) - Particle lifetime in seconds
-  - `color` (color, default: white) - Particle color
-- **Description**: Simulates and renders thousands of particles in real time; force and velocity fields can be driven by other textures.
+  - `size` (float, default: 2.0, range: 0.5-10) - Particle core radius in pixels
+  - `sizeVariation` (float, default: 0.3, range: 0-1) - Random per-particle size spread
+  - `lifetime` (float, default: 5.0, range: 1-20) - Particle lifetime in seconds (particles fade in/out and respawn)
+  - `color` (color, default: white) - Particle tint; the alpha channel scales overall intensity
+  - `depth` (float, default: 0, range: 0-1) - Pseudo-3D look: near particles are bigger, brighter and move faster (parallax)
+  - `driftAngle` (float, default: 0, range: -180-180) - Direction of the shared drift, in degrees
+  - `driftStrength` (float, default: 0, range: 0-2) - How strongly all particles drift in that direction
+  - `scatter` (float, default: 0.5, range: 0-1) - Random per-particle wander amount
+  - `turbulence` (float, default: 0, range: 0-2) - Time-varying wobble along each particle's path
+  - `glow` (float, default: 0.15, range: 0-1) - Soft halo around each particle
+  - `twinkle` (float, default: 0, range: 0-1) - Per-particle brightness flicker
+- **Description**: Simulates and renders thousands of particles in real time; force and velocity fields can be driven by other textures. The Force Field input accelerates particles, the Velocity Field sets their initial velocity — both decode the texture's red/green channels as a vector field (mid-gray = zero). Output is opaque over black; wire it into Compute Feedback for motion trails.
 
 #### Reaction Diffusion (Compute)
 Gray-Scott reaction-diffusion simulation.
