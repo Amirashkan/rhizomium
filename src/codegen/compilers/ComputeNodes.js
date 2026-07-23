@@ -132,7 +132,7 @@ export class ComputeNodes {
 
     // Determine if this node needs feedback (previous frame texture) or multiple inputs
     // ComputeWarp, ComputeMix and ComputeParticles use this for their second input texture
-    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField', 'ComputeWarp', 'ComputeMix', 'ComputeParticles'];
+    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField', 'ComputeFluidSim', 'ComputeWarp', 'ComputeMix', 'ComputeParticles'];
     const supportsFeedback = feedbackNodes.includes(node.kind);
 
     // Store compute node info for later execution
@@ -215,6 +215,8 @@ export class ComputeNodes {
         return this.generateCellularShader(node, getInput);
       case 'ComputeFeedbackField':
         return this.generateFeedbackFieldShader(node, getInput);
+      case 'ComputeFluidSim':
+        return this.generateFluidSimShader(node, getInput);
       case 'ComputeConvolution':
         return this.generateConvolutionShader(node, getInput);
       case 'ComputeThreshold':
@@ -1328,6 +1330,231 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   textureStore(outputTexture, vec2<u32>(texCoord), result);
+}`;
+  }
+
+  /**
+   * Generate fluid simulation shader (single-pass stable fluids)
+   *
+   * The engine's compute path gives each node ONE per-pixel pass over an
+   * rgba8unorm ping-pong pair, so the textbook multi-pass Navier-Stokes solver
+   * (separate advect / diffuse / Jacobi-pressure passes over float textures)
+   * doesn't fit. Instead this runs the well-known single-pass formulation:
+   * every frame each pixel does semi-Lagrangian advection of velocity and dye,
+   * a one-step viscosity blend, ONE relaxation step of the pressure projection
+   * (subtracting the gradient of the local divergence — over successive frames
+   * this iterates toward an incompressible field), and vorticity confinement to
+   * keep small swirls alive despite the 8-bit state.
+   *
+   * State encoding (the output texture doubles as the feedback state, like
+   * ComputeCellular): RG = velocity, each axis mapped [-1,1] -> [0,1] with an
+   * exact zero at 128/255; B = dye density; A = 1. The raw state is NOT what
+   * the user sees — ComputeShaderManager runs a second tiny visualization pass
+   * (src/gpu/fluidSimViz.js, selected by the colorMode uniform) that turns the
+   * state into the displayed image, so the encoding stays stable across
+   * colorMode switches and the sim never resets on a display change.
+   *
+   * Forcing: when the Velocity Input pin is connected (binding 2), its RG
+   * channels are decoded as a [-1,1] stir force and its magnitude injects dye.
+   * Unconnected pins bind the executor's 1x1 fallback texture — detected by
+   * size — and three built-in orbiting emitters stir the fluid instead so the
+   * node produces motion out of the box, mirroring how ReactionDiffusion and
+   * Cellular seed themselves.
+   *
+   * 8-bit quantization: multiplicative decay stalls once a step rounds back to
+   * the same 1/255 bucket, freezing residual velocity/dye forever. Velocity
+   * gets a symmetric per-pixel temporal dither (+-half a quantum) so decay
+   * crosses buckets stochastically; dye gets a subtractive-only dither so the
+   * black background never flickers up from zero.
+   *
+   * All tunables arrive as uniforms (see computeUniformLayout.js), never baked
+   * into the WGSL: a WGSL change would change the manager reuse signature and
+   * wipe the accumulated fluid state mid-tweak.
+   */
+  generateFluidSimShader(node, getInput) {
+    return `
+// Fluid Simulation Shader (single-pass stable fluids)
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  viscosity: f32,
+  diffusion: f32,
+  timestep: f32,
+  iterations: f32,
+  colorMode: f32,
+  curl: f32,
+  forceStrength: f32,
+  dyeAmount: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var inputTexture: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+@group(0) @binding(4) var prevFrame: texture_2d<f32>;
+
+// Velocity is stored per axis as [-1,1] -> [0,1] with an EXACT rest point:
+// 128/255 decodes to precisely 0 (a plain v*0.5+0.5 encoding has no exact
+// zero in 8 bits, giving the whole fluid a constant drift bias at rest).
+fn decodeVel(rg: vec2<f32>) -> vec2<f32> {
+  return (rg * 255.0 - 128.0) / 127.0;
+}
+
+fn encodeVel(v: vec2<f32>) -> vec2<f32> {
+  return (clamp(v, vec2<f32>(-1.0), vec2<f32>(1.0)) * 127.0 + 128.0) / 255.0;
+}
+
+fn hash21(p: vec2<f32>) -> f32 {
+  var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+// Clamped state load (velocity decoded). Clamp = solid-wall-ish boundaries.
+fn velAt(c: vec2<i32>, size: vec2<i32>) -> vec2<f32> {
+  let cc = clamp(c, vec2<i32>(0), size - 1);
+  return decodeVel(textureLoad(prevFrame, cc, 0).rg);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<i32>(global_id.xy);
+  let size = vec2<i32>(i32(uniforms.resolution.x), i32(uniforms.resolution.y));
+
+  if (texCoord.x >= size.x || texCoord.y >= size.y) {
+    return;
+  }
+
+  let res = uniforms.resolution;
+  let px = vec2<f32>(texCoord) + 0.5;
+  let uv = px / res;
+  let dt = uniforms.timestep;
+
+  // --- Velocity neighborhood (13-sample cross pattern) -------------------
+  // divergence/curl are needed at the four orthogonal neighbors too (for
+  // their gradients), which needs velocities out to a 2-ring cross.
+  let vC = velAt(texCoord, size);
+  let vL = velAt(texCoord + vec2<i32>(-1, 0), size);
+  let vR = velAt(texCoord + vec2<i32>(1, 0), size);
+  let vU = velAt(texCoord + vec2<i32>(0, -1), size);
+  let vD = velAt(texCoord + vec2<i32>(0, 1), size);
+  let vLU = velAt(texCoord + vec2<i32>(-1, -1), size);
+  let vRU = velAt(texCoord + vec2<i32>(1, -1), size);
+  let vLD = velAt(texCoord + vec2<i32>(-1, 1), size);
+  let vRD = velAt(texCoord + vec2<i32>(1, 1), size);
+  let vLL = velAt(texCoord + vec2<i32>(-2, 0), size);
+  let vRR = velAt(texCoord + vec2<i32>(2, 0), size);
+  let vUU = velAt(texCoord + vec2<i32>(0, -2), size);
+  let vDD = velAt(texCoord + vec2<i32>(0, 2), size);
+
+  // --- 1. Advection (semi-Lagrangian, unconditionally stable) ------------
+  // Backtrace along the local velocity; bilinear sampling via the manager's
+  // clamp-to-edge sampler smooths the 8-bit state as a bonus.
+  let backPos = px - vC * dt * 60.0;
+  let advected = textureSampleLevel(prevFrame, texSampler, backPos / res, 0.0);
+  var v = decodeVel(advected.rg);
+  var dye = advected.b;
+
+  // --- 2. Viscosity (one-step velocity diffusion) ------------------------
+  // The 0.05 floor is numerical, not physical: the collocated one-step
+  // pressure projection below amplifies checkerboard (Nyquist) modes seeded by
+  // 8-bit quantization, and a small unconditional neighbor blend damps exactly
+  // those modes (~10%/frame) while barely diffusing large-scale flow.
+  let avgV = (vL + vR + vU + vD) * 0.25;
+  v = mix(v, avgV, max(clamp(uniforms.viscosity * 100.0, 0.0, 1.0), 0.05));
+
+  // --- 3. Pressure projection (one relaxation step per frame) ------------
+  // p ~ -div as a local pressure proxy; subtracting grad(div) each frame
+  // relaxes the field toward div-free over successive frames. \`iterations\`
+  // scales the step (the single-pass stand-in for Jacobi iteration count).
+  let divR = (vRR.x - vC.x + vRD.y - vRU.y) * 0.5;
+  let divL = (vC.x - vLL.x + vLD.y - vLU.y) * 0.5;
+  let divD = (vRD.x - vLD.x + vDD.y - vC.y) * 0.5;
+  let divU = (vRU.x - vLU.x + vC.y - vUU.y) * 0.5;
+  let gradDiv = vec2<f32>(divR - divL, divD - divU) * 0.5;
+  v -= gradDiv * clamp(uniforms.iterations, 1.0, 50.0) * 0.02;
+
+  // --- 4. Vorticity confinement ------------------------------------------
+  // F = curl * (normalized grad|w| rotated 90deg) * w: pushes velocity around
+  // vorticity maxima, restoring the small swirls that 8-bit storage and the
+  // bilinear advection smear out.
+  let w = (vR.y - vL.y - vD.x + vU.x) * 0.5;
+  let wR = abs((vRR.y - vC.y - vRD.x + vRU.x) * 0.5);
+  let wL = abs((vC.y - vLL.y - vLD.x + vLU.x) * 0.5);
+  let wD = abs((vRD.y - vLD.y - vDD.x + vC.x) * 0.5);
+  let wU = abs((vRU.y - vLU.y - vC.x + vUU.x) * 0.5);
+  let gradW = vec2<f32>(wR - wL, wD - wU) * 0.5;
+  let gradWLen = max(length(gradW), 1e-5);
+  let n = gradW / gradWLen;
+  // Gate by local flow speed: confinement is positive feedback, and ungated it
+  // pumps 8-bit quantization noise into a permanent ambient shimmer. Real
+  // vortices sit in moving fluid; near-rest cells get no reinforcement.
+  let confGate = smoothstep(0.02, 0.06, length(vC));
+  v += vec2<f32>(n.y, -n.x) * w * uniforms.curl * dt * 0.03 * confGate;
+
+  // --- 5. Forcing ----------------------------------------------------------
+  // Connected Velocity Input: RG decodes to a [-1,1] stir force (mid-gray =
+  // none), magnitude injects dye. The executor binds a 1x1 fallback when the
+  // pin is unconnected; detect it by size (same trick as ComputeParticles)
+  // and run three built-in orbiting emitters instead.
+  let inSize = textureDimensions(inputTexture);
+  if (inSize.x > 1u || inSize.y > 1u) {
+    let s = textureSampleLevel(inputTexture, texSampler, uv, 0.0);
+    let f = (s.rg - 0.5) * 2.0;
+    v += f * uniforms.forceStrength * dt * 2.0;
+    // Dye RISES TOWARD the field magnitude instead of accumulating: an input
+    // is typically a dense full-frame field (noise, gradients), and additive
+    // injection at every pixel would saturate the whole frame to solid white
+    // within a few frames. Rate-limited tracking keeps the input's structure
+    // visible while the flow advects it around.
+    let dyeTarget = clamp(length(f) * uniforms.dyeAmount, 0.0, 1.0);
+    dye = mix(dye, max(dye, dyeTarget), clamp(dt * 1.5, 0.0, 1.0));
+  } else {
+    let minDim = min(res.x, res.y);
+    let sigma = minDim * 0.04;
+    for (var i = 0; i < 3; i++) {
+      let fi = f32(i);
+      // Per-emitter Lissajous orbit: distinct rates/phases so the three
+      // plumes collide instead of circling in formation.
+      let rate = 0.5 + fi * 0.23;
+      let a = uniforms.time * rate + fi * 2.0944; // 2*pi/3 apart
+      let ecc = 0.7 + fi * 0.3;
+      let home = vec2<f32>(0.5) + 0.22 * vec2<f32>(cos(fi * 2.0944), sin(fi * 2.0944));
+      let pos = res * home + minDim * 0.16 * vec2<f32>(cos(a), sin(a * ecc));
+      // Push along the orbit's direction of travel (path derivative).
+      let dir = normalize(vec2<f32>(-sin(a), ecc * cos(a * ecc)) + vec2<f32>(1e-4, 0.0));
+      let d = px - pos;
+      let g = exp(-dot(d, d) / (2.0 * sigma * sigma));
+      v += dir * g * uniforms.forceStrength * dt * 4.0;
+      dye += g * uniforms.dyeAmount * dt * 3.0;
+    }
+  }
+
+  // --- 6. Dye diffusion + dissipation -------------------------------------
+  let dyeL = textureLoad(prevFrame, clamp(texCoord + vec2<i32>(-1, 0), vec2<i32>(0), size - 1), 0).b;
+  let dyeR = textureLoad(prevFrame, clamp(texCoord + vec2<i32>(1, 0), vec2<i32>(0), size - 1), 0).b;
+  let dyeU = textureLoad(prevFrame, clamp(texCoord + vec2<i32>(0, -1), vec2<i32>(0), size - 1), 0).b;
+  let dyeD = textureLoad(prevFrame, clamp(texCoord + vec2<i32>(0, 1), vec2<i32>(0), size - 1), 0).b;
+  let avgDye = (dyeL + dyeR + dyeU + dyeD) * 0.25;
+  dye = mix(dye, avgDye, clamp(uniforms.diffusion * 10.0, 0.0, 1.0));
+  dye = dye * (1.0 - dt * (0.05 + uniforms.diffusion * 2.0));
+  v = v * (1.0 - dt * 0.05);
+
+  // --- 7. Anti-quantization dither ----------------------------------------
+  // Multiplicative decay stalls in 8 bits: a sub-quantum step rounds back to
+  // the same bucket, freezing residual velocity/dye forever. A dither that
+  // only ever pulls TOWARD zero (never past it, never away) lets decay cross
+  // buckets stochastically while injecting nothing at rest — a symmetric
+  // dither would seed a random walk that shows as permanent background
+  // speckle in the Velocity/Vorticity/Pressure views.
+  let q = 1.0 / 127.0;
+  let t = fract(uniforms.time);
+  let ditherV = vec2<f32>(hash21(px + t * 17.0), hash21(px.yx + t * 29.0)) * 0.6 * q;
+  v -= sign(v) * min(abs(v), ditherV);
+  dye -= hash21(px + t * 43.0) * 0.6 / 255.0;
+
+  textureStore(outputTexture, vec2<u32>(texCoord),
+               vec4<f32>(encodeVel(v), clamp(dye, 0.0, 1.0), 1.0));
 }`;
   }
 

@@ -1566,20 +1566,24 @@ Gray-Scott reaction-diffusion simulation.
 - **Description**: Organic Turing patterns that continuously evolve. Pattern presets configure the feed/kill rates for classic morphologies.
 
 #### Fluid Simulation (Compute)
-Navier-Stokes fluid dynamics.
+Navier-Stokes fluid dynamics (single-pass stable fluids with dye advection).
 
 - **Category**: Simulation
 - **Inputs**:
-  - `Velocity Input` - Optional texture injecting velocity
+  - `Velocity Input` - Optional texture stirring the fluid (RG channels decode to a [-1,1] force field, mid-gray = no force; its magnitude also injects dye). Leave unconnected to use three built-in orbiting emitters.
 - **Outputs**:
-  - `Texture` - Fluid state
+  - `Texture` - The visualized fluid (see `colorMode`)
 - **Parameters**:
-  - `viscosity` (float, default: 0.0001, range: 0-0.01) - Fluid viscosity
-  - `diffusion` (float, default: 0.0, range: 0-0.1) - Dye diffusion
+  - `viscosity` (float, default: 0.0001, range: 0-0.01) - Velocity diffusion; higher = thicker, syrupy motion
+  - `diffusion` (float, default: 0.0, range: 0-0.1) - How quickly the dye spreads and fades
   - `timestep` (float, default: 0.1, range: 0.01-1) - Simulation speed
-  - `iterations` (int, default: 20, range: 1-50) - Pressure solver iterations
-  - `colorMode` (select: Velocity/Vorticity/Pressure, default: Velocity) - Visualization mode
-- **Description**: Real-time smoke/ink-style fluid simulation.
+  - `iterations` (int, default: 20, range: 1-50) - Pressure-solve strength; higher = stiffer, more incompressible flow
+  - `curl` (float, default: 15, range: 0-50) - Vorticity confinement; accentuates small swirls
+  - `forceStrength` (float, default: 1, range: 0-5) - How strongly the input (or emitters) stirs the fluid
+  - `dyeAmount` (float, default: 1, range: 0-5) - How much dye the injectors emit
+  - `colorMode` (select: Dye/Velocity/Vorticity/Pressure, default: Dye) - Visualization mode; a pure display switch that never resets the simulation
+  - `reset` (button) - Return the fluid to rest and clear all dye
+- **Description**: Real-time smoke/ink-style fluid simulation. Dye mode renders neutral white smoke on black (composable downstream); Velocity maps flow direction to hue; Vorticity and Pressure are diagnostic views of the solver state.
 
 #### Cellular Automata (Compute)
 Cellular automata simulation (Game of Life, etc.).

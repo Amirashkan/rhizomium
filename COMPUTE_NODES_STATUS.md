@@ -5,12 +5,12 @@
 
 ## Executive Summary
 
-This document provides a comprehensive analysis of the compute nodes tracked here in the GLSL Node Editor codebase. Of the 10 nodes covered, **9 are fully implemented (90%)** and **1 (`ComputeFluidSim`) still requires a shader implementation**. The infrastructure is production-ready with excellent documentation.
+This document provides a comprehensive analysis of the compute nodes tracked here in the GLSL Node Editor codebase. All **10 nodes covered are fully implemented (100%)** — `ComputeFluidSim`, the last holdout, now has a single-pass stable-fluids shader. The infrastructure is production-ready with excellent documentation.
 
 ### Statistics
 - **Total Compute Nodes Covered:** 10
-- **Fully Implemented:** 9 (90%) — includes ComputeConvolution, ComputeParticles, and ComputeCellular (all four rule sets)
-- **Defined but Missing Shader Implementation:** 1 (ComputeFluidSim)
+- **Fully Implemented:** 10 (100%) — includes ComputeConvolution, ComputeParticles, ComputeCellular (all four rule sets), and ComputeFluidSim (single-pass stable fluids)
+- **Defined but Missing Shader Implementation:** 0
 - **Documentation Quality:** Excellent
 - **Test Coverage:** Good
 
@@ -215,11 +215,11 @@ black/white.
 
 ---
 
-## Nodes Missing Shader Implementation ❌
+## Formerly Missing Shader Implementations ✅
 
-**Only `ComputeFluidSim` remains unimplemented.** `ComputeParticles` and
-`ComputeConvolution` are now fully implemented (see their entries below); the
-`ComputeFluidSim` node still falls back to the UV gradient shader.
+**No nodes remain unimplemented.** `ComputeParticles`, `ComputeConvolution`
+and `ComputeFluidSim` are all fully implemented (see their entries below;
+the original implementation plans are kept for reference).
 
 ### 1. ComputeParticles
 **Location:** `src/data/nodes/ComputeNodes.js:40-55`
@@ -266,33 +266,40 @@ The shader generator in `ComputeNodes.js` does not have a case for this node typ
 ---
 
 ### 2. ComputeFluidSim
-**Location:** `src/data/nodes/ComputeNodes.js:93-108`
-**Status:** ⚠️ DEFINED BUT NO SHADER IMPLEMENTATION
-
-**What's Defined:**
-- Node definition with fluid simulation parameters
-- Multiple output types
-- Input for external velocity injection
+**Location:** `src/data/nodes/ComputeNodes.js`
+**Status:** ✅ IMPLEMENTED (single-pass stable fluids; see `generateFluidSimShader`
+in `src/codegen/compilers/ComputeNodes.js`. The engine's compute path gives each
+node one per-pixel pass over an rgba8unorm ping-pong pair, so instead of the
+multi-pass float-texture solver sketched below, the node runs the single-pass
+formulation: semi-Lagrangian advection of velocity + dye, one-step viscosity,
+one pressure-relaxation step per frame — `iterations` scales the step — and
+flow-gated vorticity confinement (`curl`). State encoding: RG = velocity
+(exact rest at 128/255), B = dye. A second visualization pass
+(`src/gpu/fluidSimViz.js`, run by ComputeShaderManager instead of the plain
+state→output copy) renders the Dye/Velocity/Vorticity/Pressure views from the
+raw state, so `colorMode` is a pure uniform switch that never resets the sim.
+A connected Velocity Input drives the flow; unconnected, three built-in
+orbiting emitters stir it. The original multi-pass plan below is kept for
+reference.)
 
 **Parameters:**
 - `viscosity`: Fluid viscosity
-- `diffusion`: Diffusion rate
-- `timestep`: Simulation timestep
-- `iterations`: Solver iterations
-- `colorMode`: Visualization mode
+- `diffusion`: Dye diffusion/fade rate
+- `timestep`: Simulation speed
+- `iterations`: Pressure-solve strength
+- `curl`: Vorticity confinement
+- `forceStrength`: Input/emitter stirring strength
+- `dyeAmount`: Dye injection amount
+- `colorMode`: Visualization mode (Dye/Velocity/Vorticity/Pressure)
+- `reset`: Reset Fluid button (shared `resetFeedback` action)
 
 **Inputs:**
-- Velocity Input
+- Velocity Input (RG decoded as a [-1,1] force field; optional)
 
 **Outputs:**
 - Texture
-- Velocity
-- Pressure
 
-**What's Missing:**
-No shader generator implementation. Falls back to `generateFallbackShader()`.
-
-**Implementation Requirements:**
+**Original multi-pass plan (superseded, kept for reference):**
 1. Multiple texture pairs for state storage:
    - Velocity field (vec2 or vec3)
    - Pressure field (scalar)
@@ -306,8 +313,6 @@ No shader generator implementation. Falls back to `generateFallbackShader()`.
 3. Boundary condition handling (solid walls)
 4. Optional vorticity confinement for visual enhancement
 5. Multiple output texture bindings
-
-**Estimated Complexity:** High (most complex of the three)
 
 **Reference Implementation:** Jos Stam's "Stable Fluids" paper
 
@@ -470,16 +475,12 @@ Each preset includes:
 
 ## Implementation Roadmap
 
-### Priority 1: Complete the Last Missing Node Implementation
+### Priority 1: Complete the Last Missing Node Implementation — ✅ DONE
 
-`ComputeConvolution` and `ComputeParticles` are done. Only one shader generator
-is still missing:
-
-1. **ComputeFluidSim** (Complex - 8-12 hours)
-   - Multi-pass Navier-Stokes solver
-   - Multiple texture pairs
-   - Iterative pressure solver
-   - Most complex implementation
+`ComputeConvolution`, `ComputeParticles` and `ComputeFluidSim` are all done.
+`ComputeFluidSim` landed as a single-pass stable-fluids solver plus a separate
+visualization pass (see its entry above) rather than the multi-pass float
+pipeline originally estimated.
 
 ### Priority 2: Enhance ComputeCellular — ✅ DONE
 

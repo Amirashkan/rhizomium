@@ -225,6 +225,24 @@ export function packComputeUniforms(kind, params, ctx) {
       break;
     }
 
+    case 'ComputeFluidSim': {
+      // Struct order shared by BOTH the sim shader (generateFluidSimShader)
+      // and the visualization pass (fluidSimViz.js) — they read the same
+      // uniform buffer, so keep all three in sync.
+      u[3] = ev(p.viscosity, 0.0001);
+      u[4] = ev(p.diffusion, 0.0);
+      u[5] = ev(p.timestep, 0.1);
+      u[6] = ev(p.iterations, 20);
+      // 0=Dye, 1=Velocity, 2=Vorticity, 3=Pressure. Unset (nodes saved before
+      // the node was implemented) falls back to the Dye default.
+      const modes = { Dye: 0, Velocity: 1, Vorticity: 2, Pressure: 3 };
+      u[7] = modes[p.colorMode] ?? 0;
+      u[8] = ev(p.curl, 15.0);
+      u[9] = ev(p.forceStrength, 1.0);
+      u[10] = ev(p.dyeAmount, 1.0);
+      break;
+    }
+
     case 'ComputeWarp':
       u[3] = ev(p.strength, 0.5);
       u[4] = ev(p.centerX, 0.5);
@@ -321,9 +339,8 @@ export function packComputeUniforms(kind, params, ctx) {
     }
 
     default:
-      // Unknown / unimplemented node type (e.g. ComputeFluidSim):
-      // resolution + time only, all params left at 0. This matches the editor's
-      // default case.
+      // Unknown node type: resolution + time only, all params left at 0.
+      // This matches the editor's default case.
       break;
   }
 
