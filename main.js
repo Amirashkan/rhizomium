@@ -2645,6 +2645,23 @@ function setupKeyboardShortcuts() {
         }
         return;
       }
+      if (e.key.toLowerCase() === "x") {
+        // If the user has selected text, let the browser cut that text instead of hijacking
+        // Ctrl/Cmd+X to cut the node(s).
+        const textSelection = window.getSelection?.();
+        if (textSelection && textSelection.toString().trim().length > 0) {
+          return;
+        }
+        // Only prevent default if we actually cut something
+        if (cutSelection()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        } else {
+          // No nodes selected, let browser handle it
+          updateStatus("Select nodes to cut", "warning");
+        }
+        return;
+      }
       if (e.key.toLowerCase() === "v") {
         // Only prevent default if we actually have something to paste
         if (pasteSelection()) {
@@ -2915,6 +2932,32 @@ function copySelection() {
     updateStatus(`Copied ${selected.size} node${selected.size > 1 ? 's' : ''}`);
   }
   return success;
+}
+
+function cutSelection() {
+  const selection = editor?.selection;
+  const selected = selection?.getSelected?.();
+  if (!selection || !selected || selected.size === 0) {
+    return false;
+  }
+
+  // Clear any browser text selection to prevent interference
+  if (window.getSelection) {
+    window.getSelection().removeAllRanges();
+  }
+
+  const count = selected.size;
+
+  // Regular cut = copy the selection to the clipboard, then remove it. Bail if the copy fails so
+  // we never delete nodes the user can't paste back. deleteSelected() is the undo-aware path
+  // (records undo, reconnects wires) shared with Delete/Backspace.
+  if (!selection.copySelected()) {
+    return false;
+  }
+  selection.deleteSelected();
+  editor?.draw?.();
+  updateStatus(`Cut ${count} node${count > 1 ? 's' : ''}`);
+  return true;
 }
 
 function pasteSelection() {

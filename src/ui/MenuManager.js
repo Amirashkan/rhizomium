@@ -579,5 +579,11 @@ _deleteSelected() {
   this.graph.selection.clear();
 
   if (this.onChange) this.onChange();
+
+  // onChange only rebuilds the shader; it doesn't repaint the node canvas. Without this the
+  // deleted node lingers on screen until the next interaction happens to mark the canvas dirty
+  // (the "needs one more click to disappear" symptom). Mirror the keyboard-delete path, which
+  // requests a redraw right after removing the nodes.
+  window.editor?.markDirty?.('menu-node-delete');
 }
 }
