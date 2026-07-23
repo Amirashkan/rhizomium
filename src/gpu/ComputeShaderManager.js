@@ -3,6 +3,7 @@ import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { packComputeUniforms } from './computeUniformLayout.js';
+import { FLUID_SIM_VIZ_WGSL } from './fluidSimViz.js';
 
 /**
  * ComputeShaderManager
@@ -240,6 +241,13 @@ export class ComputeShaderManager {
         this.initializeCellularTextures(width, height);
       }
 
+      // Fluid sim state must start AT REST: velocity 0 encodes to 128, so an
+      // all-zero texture would decode to velocity (-1,-1) everywhere and the
+      // sim would explode into garbage on the first frame.
+      if (this.node?.kind === 'ComputeFluidSim') {
+        this.initializeFluidSimTextures(width, height);
+      }
+
       // Legacy support
       this.storageTexture = this.storageTextureA;
 
@@ -257,10 +265,15 @@ export class ComputeShaderManager {
 
     // Output texture (for rendering to fragment shader).
     // COPY_SRC lets the per-node preview system read it back for a thumbnail.
+    // The fluid sim's visualization pass writes this texture directly (instead
+    // of the plain state->output copy every other node uses), so it needs
+    // STORAGE_BINDING there.
+    const outputUsage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+      | (this.node?.kind === 'ComputeFluidSim' ? GPUTextureUsage.STORAGE_BINDING : 0);
     this.outputTexture = this.device.createTexture({
       size: [width, height, 1],
       format: 'rgba8unorm',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      usage: outputUsage,
       label: 'Output Texture'
     });
     this.resourceTracker?.trackTexture(this.outputTexture, { width, height, format: 'rgba8unorm', type: 'output' });
@@ -380,6 +393,35 @@ export class ComputeShaderManager {
         pixelData[idx + 2] = alive;
         pixelData[idx + 3] = 255;
       }
+    }
+
+    for (const tex of [this.storageTextureA, this.storageTextureB]) {
+      if (!tex) continue;
+      this.device.queue.writeTexture(
+        { texture: tex },
+        pixelData,
+        { bytesPerRow: width * 4, rowsPerImage: height },
+        { width, height, depthOrArrayLayers: 1 }
+      );
+    }
+  }
+
+  /**
+   * Seed the fluid-sim state textures with the rest state: velocity zero
+   * (encoded as 128 per axis — the exact rest point of the shader's encoding),
+   * no dye, alpha opaque. Used at init and by the node's Reset Fluid button.
+   * Deterministic and identical on every window, so the second-monitor mirror
+   * starts from the same state as the editor.
+   */
+  initializeFluidSimTextures(width, height) {
+    if (!width || !height) return;
+
+    const pixelData = new Uint8Array(width * height * 4);
+    for (let i = 0; i < pixelData.length; i += 4) {
+      pixelData[i + 0] = 128; // velocity.x = 0
+      pixelData[i + 1] = 128; // velocity.y = 0
+      pixelData[i + 2] = 0;   // dye = 0
+      pixelData[i + 3] = 255;
     }
 
     for (const tex of [this.storageTextureA, this.storageTextureB]) {
@@ -524,12 +566,59 @@ export class ComputeShaderManager {
         this.updateColorStopsBuffer(this.node.params?.colorStops || defaultColorStops);
       }
 
+      // Fluid sim: build the second (visualization) pipeline that renders the
+      // raw sim state into the output texture — see fluidSimViz.js.
+      if (this.node?.kind === 'ComputeFluidSim') {
+        this.createFluidVizPipeline();
+      }
+
       // Create initial bind group (will be recreated each frame for feedback)
       this.recreateBindGroup();
 
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Create the fluid sim's visualization pipeline. It shares the node's
+   * uniform buffer (identical struct layout) and turns the raw state texture
+   * (RG velocity / B dye) into the displayed image, colored by the colorMode
+   * uniform. Its bind group is (re)built in recreateBindGroup, since the state
+   * texture it reads alternates with the ping-pong swap.
+   */
+  createFluidVizPipeline() {
+    const wgslHash = hashWGSL(FLUID_SIM_VIZ_WGSL, false);
+    let shaderModule = this.shaderModuleCache.get(this.device, wgslHash);
+    if (!shaderModule) {
+      shaderModule = this.device.createShaderModule({
+        code: FLUID_SIM_VIZ_WGSL,
+        label: 'Fluid Sim Viz Module'
+      });
+      this.shaderModuleCache.set(this.device, wgslHash, shaderModule);
+    }
+
+    this.fluidVizBindGroupLayout = this.device.createBindGroupLayout({
+      label: 'Fluid Sim Viz Bind Group Layout',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: 'write-only', format: 'rgba8unorm', viewDimension: '2d' }
+        },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'float', viewDimension: '2d' } }
+      ]
+    });
+
+    this.fluidVizPipeline = this.device.createComputePipeline({
+      label: 'Fluid Sim Viz Pipeline',
+      layout: this.device.createPipelineLayout({
+        label: 'Fluid Sim Viz Pipeline Layout',
+        bindGroupLayouts: [this.fluidVizBindGroupLayout]
+      }),
+      compute: { module: shaderModule, entryPoint: 'main' }
+    });
   }
 
   /**
@@ -716,6 +805,23 @@ export class ComputeShaderManager {
       layout: this.bindGroupLayout,
       entries
     });
+
+    // Fluid sim: the viz pass reads the state written THIS dispatch (the
+    // current write texture), so its bind group swaps along with the main one.
+    if (this.fluidVizPipeline && this.outputTexture) {
+      const stateTexture = this.supportsFeedback
+        ? (this.currentWriteTexture === 'A' ? this.storageTextureA : this.storageTextureB)
+        : this.storageTexture;
+      this.fluidVizBindGroup = this.device.createBindGroup({
+        label: 'Fluid Sim Viz Bind Group',
+        layout: this.fluidVizBindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer } },
+          { binding: 1, resource: this.outputTexture.createView() },
+          { binding: 2, resource: stateTexture.createView() }
+        ]
+      });
+    }
   }
 
   /**
@@ -755,6 +861,13 @@ export class ComputeShaderManager {
     if (this.node?.kind === 'ComputeCellular') {
       this.initializeCellularTextures(this.textureWidth, this.textureHeight);
       this._cellularStepIndex = -1; // force the next dispatch to advance a generation
+      return;
+    }
+
+    // Fluid sim resets to its rest state (velocity zero = 128, not raw zeros —
+    // an all-zero texture decodes to velocity (-1,-1) everywhere).
+    if (this.node?.kind === 'ComputeFluidSim') {
+      this.initializeFluidSimTextures(this.textureWidth, this.textureHeight);
       return;
     }
 
@@ -966,12 +1079,23 @@ export class ComputeShaderManager {
       profiler.endDispatch(commandEncoder, dispatchId);
     }
 
-    // Copy storage texture to output texture
-    commandEncoder.copyTextureToTexture(
-      { texture: this.storageTexture },
-      { texture: this.outputTexture },
-      [this.textureWidth, this.textureHeight, 1]
-    );
+    // Publish the result to the output texture. The fluid sim's raw state is
+    // not displayable (mid-gray velocity encoding), so it runs the viz pass
+    // into the output texture instead of the plain copy every other node uses.
+    if (this.fluidVizPipeline && this.fluidVizBindGroup) {
+      const vizPass = commandEncoder.beginComputePass({ label: 'Fluid Sim Viz Pass' });
+      vizPass.setPipeline(this.fluidVizPipeline);
+      vizPass.setBindGroup(0, this.fluidVizBindGroup);
+      vizPass.dispatchWorkgroups(this.dispatchSize.x, this.dispatchSize.y, this.dispatchSize.z);
+      vizPass.end();
+    } else {
+      // Copy storage texture to output texture
+      commandEncoder.copyTextureToTexture(
+        { texture: this.storageTexture },
+        { texture: this.outputTexture },
+        [this.textureWidth, this.textureHeight, 1]
+      );
+    }
 
     // Swap buffers for next frame
     if (this.supportsFeedback) {

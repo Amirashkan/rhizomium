@@ -148,3 +148,54 @@ describe('packComputeUniforms - ComputeCellular', () => {
     expect(unknown[4]).toBe(0); // unknown rule -> Conway, never NaN/undefined
   });
 });
+
+describe('packComputeUniforms - ComputeFluidSim', () => {
+  it('packs all parameters in WGSL struct order', () => {
+    const u = packComputeUniforms(
+      'ComputeFluidSim',
+      {
+        viscosity: 0.005, diffusion: 0.02, timestep: 0.5, iterations: 40,
+        colorMode: 'Vorticity', curl: 30, forceStrength: 2.5, dyeAmount: 3.0
+      },
+      ctx
+    );
+    expect(u[0]).toBe(512);
+    expect(u[1]).toBe(512);
+    expect(u[2]).toBe(1.5);
+    expect(u[3]).toBeCloseTo(0.005); // viscosity
+    expect(u[4]).toBeCloseTo(0.02); // diffusion
+    expect(u[5]).toBeCloseTo(0.5); // timestep
+    expect(u[6]).toBe(40); // iterations
+    expect(u[7]).toBe(2); // Vorticity
+    expect(u[8]).toBe(30); // curl
+    expect(u[9]).toBeCloseTo(2.5); // forceStrength
+    expect(u[10]).toBeCloseTo(3.0); // dyeAmount
+  });
+
+  it('maps every color mode to its index', () => {
+    const idx = (colorMode) => packComputeUniforms('ComputeFluidSim', { colorMode }, ctx)[7];
+    expect(idx('Dye')).toBe(0);
+    expect(idx('Velocity')).toBe(1);
+    expect(idx('Vorticity')).toBe(2);
+    expect(idx('Pressure')).toBe(3);
+  });
+
+  it('defaults to a moving, visible simulation when params are unset', () => {
+    // Regression guard: ComputeFluidSim used to fall through to the default
+    // case (it had no shader at all). All-zero defaults would mean a frozen
+    // sim: timestep 0, no forcing, no dye.
+    const u = packComputeUniforms('ComputeFluidSim', {}, ctx);
+    expect(u[3]).toBeCloseTo(0.0001); // viscosity
+    expect(u[4]).toBe(0.0); // diffusion
+    expect(u[5]).toBeCloseTo(0.1); // timestep must not default to 0
+    expect(u[6]).toBe(20); // iterations
+    expect(u[7]).toBe(0); // colorMode: unset -> Dye (also covers pre-implementation saves)
+    expect(u[8]).toBe(15.0); // curl
+    expect(u[9]).toBe(1.0); // forceStrength must not default to 0
+    expect(u[10]).toBe(1.0); // dyeAmount must not default to 0
+
+    // A save from before 'Dye' existed defaulted to 'Velocity'.
+    const legacy = packComputeUniforms('ComputeFluidSim', { colorMode: 'Velocity' }, ctx);
+    expect(legacy[7]).toBe(1);
+  });
+});

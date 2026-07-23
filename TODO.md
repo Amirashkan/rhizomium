@@ -56,7 +56,7 @@ From `COMPUTE_NODES_STATUS.md` (infrastructure is complete; follow the pattern i
 
 - [x] `ComputeConvolution` — implemented as a 3x3 kernel convolution (`generateConvolutionShader`): Sharpen / Edge Detect / Emboss / Custom, blended by `strength`.
 - [x] `ComputeParticles` — implemented as a stateless grid-based particle shader (single-pass, per-pixel; no particle buffers needed). Force Field (pin 0) and Velocity Field (pin 1, via the Warp/Mix second-input binding) both work.
-- [ ] `ComputeFluidSim` (est. 8–12 h, multi-pass Navier-Stokes) — the last unimplemented node.
+- [x] `ComputeFluidSim` — implemented as a single-pass stable-fluids solver (`generateFluidSimShader`): semi-Lagrangian advection, per-frame pressure relaxation, flow-gated vorticity confinement, dye advection, built-in emitters when the Velocity Input pin is unconnected, plus a separate visualization pass (`src/gpu/fluidSimViz.js`) for the Dye/Velocity/Vorticity/Pressure views.
 - [x] `ComputeCellular` — all four rule sets implemented (Conway Life, Seeds, Brian's Brain, Day & Night), density-seeded live grid, `speed` generation throttle, and a Reset/Reseed button.
 - [ ] Optional new nodes: ComputeWarp, ComputeVoronoi, ComputeFFT, ComputeHistogram
 

@@ -117,13 +117,17 @@ export const ComputeNodes = {
     pinsIn: ["Velocity Input"],
     pinsOut: ["Texture"],
     params: [
-      { name: 'viscosity', type: 'float', default: 0.0001, min: 0.0, max: 0.01 },
-      { name: 'diffusion', type: 'float', default: 0.0, min: 0.0, max: 0.1 },
-      { name: 'timestep', type: 'float', default: 0.1, min: 0.01, max: 1.0 },
-      { name: 'iterations', type: 'int', default: 20, min: 1, max: 50 },
-      { name: 'colorMode', type: 'select', options: ['Velocity', 'Vorticity', 'Pressure'], default: 'Velocity' }
+      { name: 'viscosity', type: 'float', default: 0.0001, min: 0.0, max: 0.01, description: 'Velocity diffusion — higher = thicker, syrupy motion' },
+      { name: 'diffusion', type: 'float', default: 0.0, min: 0.0, max: 0.1, description: 'How quickly the dye spreads and fades' },
+      { name: 'timestep', type: 'float', default: 0.1, min: 0.01, max: 1.0, description: 'Simulation speed' },
+      { name: 'iterations', type: 'int', default: 20, min: 1, max: 50, description: 'Pressure-solve strength — higher = stiffer, more incompressible flow' },
+      { name: 'curl', type: 'float', default: 15.0, min: 0.0, max: 50.0, description: 'Vorticity confinement — accentuates small swirls and turbulence' },
+      { name: 'forceStrength', type: 'float', default: 1.0, min: 0.0, max: 5.0, description: 'How strongly the Velocity Input (or the built-in emitters) stirs the fluid' },
+      { name: 'dyeAmount', type: 'float', default: 1.0, min: 0.0, max: 5.0, description: 'How much dye the injectors emit' },
+      { name: 'colorMode', type: 'select', options: ['Dye', 'Velocity', 'Vorticity', 'Pressure'], default: 'Dye' },
+      { name: 'reset', type: 'button', displayName: 'Reset Fluid', action: 'resetFeedback', description: 'Return the fluid to rest and clear all dye' }
     ],
-    description: "Navier-Stokes fluid dynamics",
+    description: "Navier-Stokes fluid dynamics: dye advected through a self-stirring (or input-driven) velocity field",
     workgroupSize: [8, 8, 1]
   },
 
