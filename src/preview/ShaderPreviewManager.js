@@ -276,6 +276,18 @@ export class ShaderPreviewManager {
         if (!stillInGraph) {
           continue;
         }
+        // Preview was turned off (eye button) AFTER this item was enqueued. generateNodePreview
+        // gates on isNodePreviewEnabled at enqueue time, but the queue drains later — the hide can
+        // land in between. Skip so we don't spend GPU time (or compile a fragment shader for the
+        // node's subgraph) on a preview that will never show, and — crucially — don't rewrite the
+        // thumbnail we just cleared, which is what made these nodes need a second hide click.
+        const ed = this.editor || window.editor;
+        if (ed?.isNodePreviewEnabled) {
+          const qnode = item.node || this.editor?.graph?.nodes?.find((n) => n && n.id === id);
+          if (qnode && !ed.isNodePreviewEnabled(qnode)) {
+            continue;
+          }
+        }
         try {
           if (item.type === 'external') {
             // Externally rendered texture (e.g. the 3D viewport mirror);
@@ -367,6 +379,12 @@ export class ShaderPreviewManager {
     const thumbSize = this.previewThumbSize || 128;
     const pixels = await this._renderThumbnailReadback(texture, thumbSize);
     const imageData = this.gpuRenderer.pixelsToImageData(pixels, thumbSize);
+
+    // The render + readback above is async and slow; the eye toggle can land WHILE it's in flight
+    // (after the drain-time gate passed). Re-check right before the write so a node hidden mid-render
+    // doesn't get its thumbnail rewritten — the hide has to stick on the first click.
+    const ed = window.editor;
+    if (ed?.isNodePreviewEnabled && !ed.isNodePreviewEnabled(node)) return;
 
     const canvas = document.createElement('canvas');
     canvas.width = thumbSize;
