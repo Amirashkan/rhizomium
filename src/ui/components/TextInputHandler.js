@@ -31,6 +31,44 @@ _isValidExpression(value) {
     return false;
   }
 }
+  /**
+   * True when a numeric (float/int) field currently holds an incomplete or
+   * unparseable value that must NOT be committed to the shader yet — e.g. the
+   * user has typed ".", "-", "1." or "1e" on the way to a real number. Emitting
+   * any of these into the generated WGSL produces an unparseable module, so we
+   * hold the update until the field becomes a valid number (or is reverted).
+   */
+  _isIncompleteNumericValue(value, param) {
+    if (param.type !== 'float' && param.type !== 'int') return false;
+
+    const t = String(value).trim();
+
+    // Expressions (=..., time, audioEnvelope...) are validated elsewhere.
+    if (this.expressionSystem.isExpression(t)) return false;
+
+    if (t === '') return true;              // empty field
+    if (/^[+-]?$/.test(t)) return true;     // lone sign: "+", "-"
+    if (/^[+-]?\.$/.test(t)) return true;   // lone dot: ".", "-."
+    if (/[.eE][+-]?$/.test(t)) return true; // trailing dot / exponent: "1.", "1e", "1e-"
+
+    return !Number.isFinite(Number(t));     // anything else that won't parse
+  }
+
+  /**
+   * Give the field a red border while it holds an incomplete numeric value so
+   * the user can see why the preview isn't updating.
+   */
+  _updateNumericValidation(input, param, isInvalid) {
+    if (param.type !== 'float' && param.type !== 'int') return;
+
+    if (isInvalid) {
+      input.style.borderColor = '#f44336';
+      input.title = 'Incomplete number — finish typing a valid value';
+    } else if (!input.classList.contains('has-expression')) {
+      input.style.borderColor = '#555';
+    }
+  }
+
   create(param, node, div, label, valueManager, onChange) {
     const input = this._createInputElement(param, node, valueManager);
     this._setupEventHandlers(input, param, node, valueManager, onChange);
@@ -179,7 +217,12 @@ input.addEventListener("input", (e) => {
   const isIncompleteExpression = newValue.trim().startsWith('=') &&
     (newValue.trim().length <= 1 || newValue.includes('+') && !this._isValidExpression(newValue));
 
-  if (!isIncompleteExpression) {
+  // Don't push an incomplete/invalid number (".", "-", "1.", ...) into the
+  // shader — that generates unparseable WGSL. Hold the update and flag the field.
+  const isIncompleteNumeric = this._isIncompleteNumericValue(newValue, param);
+  this._updateNumericValidation(input, param, isIncompleteNumeric);
+
+  if (!isIncompleteExpression && !isIncompleteNumeric) {
     // Update parameter immediately for non-expressions or complete expressions
     valueManager.updateNodeParameter(node, param.name, newValue, onChange);
   }
@@ -187,8 +230,11 @@ input.addEventListener("input", (e) => {
   // Debounce for final update (increased delay for expressions)
   const delay = newValue.trim().startsWith('=') ? 1000 : 500;
   inputTimer = setTimeout(() => {
-    // Final update after user stops typing
-    valueManager.updateNodeParameter(node, param.name, input.value.trim(), onChange);
+    // Final update after user stops typing — but only once the value is valid,
+    // so a half-typed number never reaches the shader.
+    if (!this._isIncompleteNumericValue(input.value, param)) {
+      valueManager.updateNodeParameter(node, param.name, input.value.trim(), onChange);
+    }
     inputTimer = null;
   }, delay);
 });
@@ -200,6 +246,25 @@ input.addEventListener("input", (e) => {
         inputTimer = null;
       }
       
+      // If the field was left in an incomplete/invalid numeric state, don't push
+      // garbage into the shader. Salvage a real number if one can be parsed
+      // (e.g. "1." -> "1"); otherwise revert to the last committed value.
+      if (this._isIncompleteNumericValue(input.value, param)) {
+        const parsed = parseFloat(input.value);
+        if (Number.isFinite(parsed)) {
+          const salvaged = param.type === 'int' ? String(Math.round(parsed)) : String(parsed);
+          input.value = salvaged;
+          this._updateNumericValidation(input, param, false);
+          if (salvaged !== lastValue) {
+            valueManager.updateNodeParameter(node, param.name, salvaged, onChange);
+          }
+        } else {
+          input.value = lastValue;
+          this._updateNumericValidation(input, param, false);
+        }
+        return;
+      }
+
       if (input.value !== lastValue) {
         valueManager.updateNodeParameter(node, param.name, input.value.trim(), onChange);
       }
