@@ -65,8 +65,12 @@ export class UtilityNodes {
       }
     }
 
-    // Return numeric value as string
-    return String(value);
+    // Return numeric value as string, falling back to the default for
+    // malformed/incomplete input (e.g. "." or "" while a field is being typed)
+    // so we never emit an unparseable literal into the generated WGSL.
+    if (typeof value === 'number') return value.toString();
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? defaultValue.toString() : parsed.toString();
   }
 
   /**
