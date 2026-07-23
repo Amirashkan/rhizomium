@@ -55,8 +55,16 @@ export const ComputeNodes = {
       { name: 'particleCount', type: 'int', default: 10000, min: 1000, max: 100000 },
       { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
       { name: 'size', type: 'float', default: 2.0, min: 0.5, max: 10.0 },
+      { name: 'sizeVariation', type: 'float', default: 0.3, min: 0.0, max: 1.0, description: 'Random per-particle size spread' },
       { name: 'lifetime', type: 'float', default: 5.0, min: 1.0, max: 20.0 },
-      { name: 'color', type: 'color', default: [1.0, 1.0, 1.0, 1.0] }
+      { name: 'color', type: 'color', default: [1.0, 1.0, 1.0, 1.0], description: 'Particle tint; alpha scales overall intensity' },
+      { name: 'depth', type: 'float', default: 0.0, min: 0.0, max: 1.0, displayName: '3D Depth', description: 'Pseudo-3D: near particles are bigger, brighter and faster (parallax)' },
+      { name: 'driftAngle', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Direction of the shared drift, in degrees' },
+      { name: 'driftStrength', type: 'float', default: 0.0, min: 0.0, max: 2.0, description: 'How strongly all particles drift in the drift direction' },
+      { name: 'scatter', type: 'float', default: 0.5, min: 0.0, max: 1.0, description: 'Random per-particle wander amount' },
+      { name: 'turbulence', type: 'float', default: 0.0, min: 0.0, max: 2.0, description: 'Time-varying wobble along the path' },
+      { name: 'glow', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Soft halo around each particle' },
+      { name: 'twinkle', type: 'float', default: 0.0, min: 0.0, max: 1.0, description: 'Per-particle brightness flicker' }
     ],
     description: "GPU particle system with physics",
     workgroupSize: [64, 1, 1]

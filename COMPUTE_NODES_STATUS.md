@@ -220,7 +220,7 @@ These nodes have complete UI definitions and will appear in the node menu, but t
 
 ### 1. ComputeParticles
 **Location:** `src/data/nodes/ComputeNodes.js:40-55`
-**Status:** ⚠️ DEFINED BUT NO SHADER IMPLEMENTATION
+**Status:** ✅ IMPLEMENTED (stateless grid-based particle shader; see `generateParticlesShader` in `src/codegen/compilers/ComputeNodes.js`. Single-pass per-pixel — no particle buffers. Force Field is pin 0 / binding 2; Velocity Field is pin 1 / binding 4 via the Warp/Mix second-input mechanism. The notes below describe the original multi-pass plan and are kept for reference.)
 
 **What's Defined:**
 - Node definition with complete parameter set

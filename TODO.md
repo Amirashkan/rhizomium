@@ -56,7 +56,7 @@ in the UI but have no shader implementation — follow the pattern in
 `src/codegen/compilers/ComputeNodes.js`):
 
 - [ ] `ComputeConvolution` (est. 1–2 h, easiest, validates the pattern)
-- [ ] `ComputeParticles` (est. 4–6 h, particle buffers + two-pass shader)
+- [x] `ComputeParticles` — implemented as a stateless grid-based particle shader (single-pass, per-pixel; no particle buffers needed). Force Field (pin 0) and Velocity Field (pin 1, via the Warp/Mix second-input binding) both work.
 - [ ] `ComputeFluidSim` (est. 8–12 h, multi-pass Navier-Stokes)
 - [ ] `ComputeCellular`: add the three rule sets already offered in the UI — Seeds, Brian's Brain, Day & Night (est. 2–3 h)
 - [ ] Optional new nodes: ComputeWarp, ComputeVoronoi, ComputeFFT, ComputeHistogram

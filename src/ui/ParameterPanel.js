@@ -5,6 +5,7 @@ import { SelectInputHandler } from './components/SelectInputHandler.js';
 import { FileInputHandler } from './components/FileInputHandler.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
+import { ColorInputHandler } from './components/ColorInputHandler.js';
 import { BooleanInputHandler } from './components/BooleanInputHandler.js';
 import { GLSLCodeInputHandler } from './components/GLSLCodeInputHandler.js';
 import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
@@ -14,6 +15,7 @@ import { NodeDefs } from '../data/NodeDefs.js';
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
     this.colorStopInputHandler = new ColorStopInputHandler(undoManager);
+    this.colorInputHandler = new ColorInputHandler(undoManager);
     this.booleanInputHandler = new BooleanInputHandler(undoManager);
     this.eventSystem = eventSystem;
     this.undoManager = undoManager;
@@ -82,6 +84,7 @@ export class ParameterPanel {
       select: this.selectInputHandler,
       file: this.fileInputHandler,
       colorstops: this.colorStopInputHandler,
+      color: this.colorInputHandler,
       boolean: this.booleanInputHandler
     };
     

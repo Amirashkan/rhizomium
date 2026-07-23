@@ -131,8 +131,8 @@ export class ComputeNodes {
     const registryKey = String(node.id).replace(/[^a-zA-Z0-9_]/g, "_");
 
     // Determine if this node needs feedback (previous frame texture) or multiple inputs
-    // ComputeWarp and ComputeMix use this for their second input texture
-    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField', 'ComputeWarp', 'ComputeMix'];
+    // ComputeWarp, ComputeMix and ComputeParticles use this for their second input texture
+    const feedbackNodes = ['ComputeReactionDiffusion', 'ComputeCellular', 'ComputeFeedback', 'ComputeFeedbackField', 'ComputeWarp', 'ComputeMix', 'ComputeParticles'];
     const supportsFeedback = feedbackNodes.includes(node.kind);
 
     // Store compute node info for later execution
@@ -205,6 +205,8 @@ export class ComputeNodes {
         return this.generateNoiseShader(node, getInput);
       case 'ComputeBlur':
         return this.generateBlurShader(node, getInput);
+      case 'ComputeParticles':
+        return this.generateParticlesShader(node, getInput);
       case 'ComputeFeedback':
         return this.generateFeedbackShader(node, getInput);
       case 'ComputeReactionDiffusion':
@@ -630,6 +632,198 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }`;
 
     return shader;
+  }
+
+  /**
+   * Generate particle system shader
+   *
+   * Stateless grid-based particle system. The engine's compute path is a single
+   * per-pixel pass over rgba8unorm textures (no storage buffers, no per-particle
+   * dispatch), so particle state cannot persist between frames. Instead each
+   * particle's position is a pure function of (cell id, respawn cycle, time):
+   * the domain is split into ~particleCount grid cells, each cell owns one
+   * particle that spawns at a hashed position inside the cell, drifts along a
+   * hashed direction plus the sampled Velocity Field, accelerates along the
+   * sampled Force Field, fades in/out over its lifetime and respawns elsewhere
+   * in its cell on the next cycle. Displacement is capped at 2 cells so the
+   * per-pixel 5x5 neighbouring-cell search always finds every particle that can
+   * overlap this pixel.
+   *
+   * Inputs: pin 0 (Force Field) at binding 2, pin 1 (Velocity Field) at
+   * binding 4 (the ComputeWarp/ComputeMix second-input mechanism). Both decode
+   * RG channels as a [-1,1] vector field; the executor's 1x1 fallback texture
+   * marks an unconnected pin, which fieldVec2() detects by size and treats as a
+   * zero field.
+   */
+  generateParticlesShader(node, getInput) {
+    return `
+// Compute Particles Shader (stateless grid particles)
+struct Uniforms {
+  resolution: vec2<f32>,
+  time: f32,
+  particleCount: f32,
+  speed: f32,
+  size: f32,
+  lifetime: f32,
+  colorR: f32,
+  colorG: f32,
+  colorB: f32,
+  colorA: f32,
+  depth: f32,
+  driftAngle: f32,
+  driftStrength: f32,
+  scatter: f32,
+  turbulence: f32,
+  glow: f32,
+  twinkle: f32,
+  sizeVariation: f32
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var forceField: texture_2d<f32>;
+@group(0) @binding(3) var texSampler: sampler;
+@group(0) @binding(4) var velocityField: texture_2d<f32>;
+
+fn hash21(p: vec2<f32>) -> f32 {
+  var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+fn hash22(p: vec2<f32>) -> vec2<f32> {
+  var p3 = fract(vec3<f32>(p.xyx) * vec3<f32>(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+// Decode a texture as a vector field: RG in [0,1] maps to [-1,1] per axis
+// (mid-gray = no force). The executor binds a 1x1 fallback texture when the
+// pin is unconnected; detect that by size and return a zero field so
+// unconnected pins don't push every particle toward (-1,-1).
+fn fieldVec2(tex: texture_2d<f32>, uv: vec2<f32>) -> vec2<f32> {
+  let size = textureDimensions(tex);
+  if (size.x <= 1u && size.y <= 1u) {
+    return vec2<f32>(0.0);
+  }
+  let sample = textureSampleLevel(tex, texSampler, uv, 0.0);
+  return (sample.rg - 0.5) * 2.0;
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let texCoord = vec2<u32>(global_id.xy);
+  let texSize = vec2<u32>(u32(uniforms.resolution.x), u32(uniforms.resolution.y));
+
+  if (texCoord.x >= texSize.x || texCoord.y >= texSize.y) {
+    return;
+  }
+
+  let res = uniforms.resolution;
+  let uv = (vec2<f32>(texCoord) + 0.5) / res;
+  let aspect = res.x / max(res.y, 1.0);
+
+  // Lay particleCount cells over the domain, matching the output aspect ratio
+  // so cells (and particle spacing) stay square.
+  let count = clamp(uniforms.particleCount, 1.0, 200000.0);
+  let cellsY = max(1.0, floor(sqrt(count / aspect)));
+  let cellsX = max(1.0, floor(cellsY * aspect + 0.5));
+  let grid = vec2<f32>(cellsX, cellsY);
+  let cellPx = res.y / cellsY; // pixels per cell (square cells)
+
+  let gp = uv * grid; // this pixel's position in cell units
+  let baseCell = floor(gp);
+
+  let lifetime = max(uniforms.lifetime, 0.01);
+  let baseRadius = max(uniforms.size, 0.1);
+
+  // Global directional drift, shared by all particles (screen-space, y down).
+  let driftRad = uniforms.driftAngle * 0.0174532925;
+  let globalDrift = vec2<f32>(cos(driftRad), sin(driftRad)) * uniforms.driftStrength;
+
+  var total = 0.0;
+
+  // Particles never travel more than 2 cells from their spawn cell, so a 5x5
+  // neighbourhood search covers every particle that can reach this pixel.
+  for (var dy = -2; dy <= 2; dy++) {
+    for (var dx = -2; dx <= 2; dx++) {
+      let cell = baseCell + vec2<f32>(f32(dx), f32(dy));
+      if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= grid.x || cell.y >= grid.y) {
+        continue;
+      }
+
+      // Stagger respawns: each cell's particle has its own phase in the cycle.
+      let phase = hash21(cell * 1.6180339 + 0.5);
+      let cycleRaw = uniforms.time * uniforms.speed / lifetime + phase;
+      let cycle = floor(cycleRaw);
+      let ageT = fract(cycleRaw); // normalized age, 0 (born) .. 1 (dies)
+
+      // Seed changes every cycle so the particle respawns at a new spot.
+      let seed = cell + vec2<f32>(cycle * 13.37, cycle * 71.17);
+      let spawn = cell + hash22(seed);
+      let spawnUV = spawn / grid;
+
+      // Per-particle depth in [0 (near) .. 1 (far)] for the pseudo-3D look:
+      // near particles are bigger, brighter and move faster (parallax). depth=0
+      // keeps the field flat (depthFactor 1 for every particle).
+      let z = hash21(seed + 5.3);
+      let depthFactor = mix(1.0, mix(1.5, 0.35, z), clamp(uniforms.depth, 0.0, 1.0));
+
+      // Motion: hashed random drift (scatter) + shared directional drift +
+      // Velocity Field as initial velocity — all scaled by depthFactor for
+      // parallax — plus a time-varying turbulence wobble and the Force Field as
+      // constant acceleration (t^2 term). Cell units per normalized lifetime,
+      // capped so the 5x5 search stays sufficient.
+      let angle = hash21(seed + 3.7) * 6.2831853;
+      let randomDrift = vec2<f32>(cos(angle), sin(angle)) * uniforms.scatter;
+      let velocity = fieldVec2(velocityField, spawnUV);
+      let force = fieldVec2(forceField, spawnUV);
+      let wobblePhase = hash22(seed + 11.3) * 6.2831853;
+      let wobble = vec2<f32>(
+        sin(uniforms.time * (1.1 + z) + wobblePhase.x),
+        cos(uniforms.time * (1.4 + z * 0.7) + wobblePhase.y)
+      ) * uniforms.turbulence * 0.4;
+
+      var disp = ((randomDrift + globalDrift + velocity * 1.5) * depthFactor + wobble) * ageT
+               + force * 1.5 * ageT * ageT;
+      let dispLen = length(disp);
+      if (dispLen > 2.0) {
+        disp *= 2.0 / dispLen;
+      }
+
+      let particlePos = spawn + disp;
+      let distPx = length(gp - particlePos) * cellPx;
+
+      // Per-particle radius: depth scaling plus random size variation.
+      let sizeHash = hash21(seed + 7.9);
+      let radius = baseRadius * depthFactor * (1.0 - uniforms.sizeVariation * sizeHash);
+
+      // Soft round sprite with an outer glow; size is the core radius in px.
+      let core = 1.0 - smoothstep(0.0, radius, distPx);
+      let glowAmt = uniforms.glow * (1.0 - smoothstep(radius, radius * 3.0, distPx));
+
+      // Fade in quickly after spawn, fade out toward end of life.
+      let fade = smoothstep(0.0, 0.15, ageT) * (1.0 - smoothstep(0.7, 1.0, ageT));
+
+      // Per-particle brightness variation, depth attenuation, and twinkle
+      // (per-particle flicker; rate scales with the twinkle parameter).
+      let brightHash = hash21(seed + 9.1);
+      var brightness = (0.6 + 0.4 * brightHash) * depthFactor;
+      let twinkleWave = 0.5 + 0.5 * sin(uniforms.time * (2.0 + brightHash * 4.0) * max(uniforms.twinkle, 0.001) * 3.0 + brightHash * 6.2831853);
+      brightness *= mix(1.0, 0.3 + 0.7 * twinkleWave, clamp(uniforms.twinkle, 0.0, 1.0));
+
+      total += (core + glowAmt) * fade * brightness;
+    }
+  }
+
+  // Opaque output over black, like the other compute generators. Alpha stays
+  // 1.0 so the premultiplied main preview and the ImageData-based node
+  // thumbnails composite identically; the color's alpha acts as an overall
+  // intensity control instead.
+  let tint = vec3<f32>(uniforms.colorR, uniforms.colorG, uniforms.colorB);
+  let rgb = clamp(tint * total * uniforms.colorA, vec3<f32>(0.0), vec3<f32>(1.0));
+  textureStore(outputTexture, texCoord, vec4<f32>(rgb, 1.0));
+}`;
   }
 
   /**
