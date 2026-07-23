@@ -2146,6 +2146,7 @@ function setupRhizomiumMenu() {
       e.stopPropagation();
       if (editor.selection.deleteSelected) {
         editor.selection.deleteSelected();
+        editor?.markDirty?.('menu-delete-button');
         editor?.draw?.();
         if (typeof updateStatus === "function") {
           updateStatus("Deleted selected nodes");
@@ -3009,6 +3010,10 @@ function cutSelection() {
   }
   writeNodesToSystemClipboard(selection.clipboard);
   selection.deleteSelected();
+  // deleteSelected() removes the nodes but doesn't mark the canvas dirty, and editor.draw() is a
+  // no-op while the canvas is clean — so without this the cut nodes lingered on screen until the
+  // next interaction (the "needs one more click" symptom). markDirty first, then draw.
+  editor?.markDirty?.('cut-selection');
   editor?.draw?.();
   updateStatus(`Cut ${count} node${count > 1 ? 's' : ''}`);
   return true;
