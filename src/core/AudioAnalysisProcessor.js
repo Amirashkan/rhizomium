@@ -12,12 +12,12 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
  *   1. Pushes the node's Band / Follower / ADSR / Shaping params into the shared audio-envelope
  *      engine (BrowserAudioCapture.updateConfig — the same controls that used to live in the Audio
  *      settings panel), then reads back the resulting shaped envelope (window._audioEnvelopeValue).
- *   2. Runs kick detection on the band's SPECTRAL FLUX (the per-frame positive change in the
- *      log-magnitude spectrum, from BrowserAudioCapture's unsmoothed onset analyser) — not on
- *      loudness. Flux is ~0 for a sustained bass note and spikes only when new energy arrives,
- *      which is what makes hits separable at all. For Band: Bass that flux is kick-shaped: taken
- *      over 30-120 Hz with broadband energy subtracted, so a snare or clap cancels out instead of
- *      having to be tuned away.
+ *   2. Runs kick detection on the band's ONSET SIGNAL (BrowserAudioCapture._computeSpectralFlux:
+ *      the per-frame rise in linear magnitude across the band, divided by that band's own slowly
+ *      averaged level) — not on loudness. It reads ~0 for a sustained bass note and spikes only
+ *      when new energy arrives, which is what makes hits separable at all. For Band: Bass it is
+ *      taken over 30-120 Hz, the kick's fundamental, so a snare's body around 200 Hz is out of
+ *      frame to begin with.
  *
  *      Detection is PEAK-PICKING, not threshold-crossing. A kick's attack spans several frames
  *      (the FFT window slides across it), so "first frame over the line" fires somewhere on the
@@ -28,17 +28,17 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
  *      Cost: ~16ms of latency, invisible for visuals.
  *
  *      A candidate peak must also clear an adaptive threshold (median + `sensitivity` * MAD over
- *      ~1.5s of past flux — robust statistics that hit-frames barely move), clear an absolute
- *      floor (`threshold`, in flux units, where 1.0 means every bin in the band jumped by the full
- *      30 dB cap at once), sit in a band that actually has energy, and fall outside the refractory
- *      window (`refractory` ms) of the last hit.
+ *      ~1.5s of past signal — robust statistics that hit-frames barely move), clear an absolute
+ *      floor (`threshold`; on real music a clear kick reads about 1-2.5 and the background about
+ *      0.07), sit in a band that actually has energy, and fall outside the refractory window
+ *      (`refractory` ms) of the last hit.
  *
- *      The floor is deliberately absolute rather than relative to a running peak. Dividing by a
- *      decaying peak-hold sounds appealing — "fire on anything near the strongest recent hit" —
- *      but it makes every new maximum read as exactly 1.0, so a band holding nothing but noise is
- *      amplified into a stream of flawless onsets that NO threshold can reject. Flux is built from
- *      dB differences and is therefore already volume-independent, so an absolute floor stays
- *      meaningful across tracks without that failure mode.
+ *      The floor is deliberately absolute rather than a fraction of the strongest recent hit.
+ *      Scaling it that way sounds appealing but makes every new maximum read as exactly 1.0, so a
+ *      band holding nothing but noise is amplified into a stream of flawless onsets that NO
+ *      threshold can reject. The onset signal is made volume-independent at the source instead, by
+ *      dividing by the band's own slow level, so an absolute floor stays meaningful across tracks
+ *      and playback volumes without that failure mode.
  *
  *      All detector timing runs on the WALL CLOCK, not the render loop's sim time: audio plays in
  *      real time and does not slow down with timeScale or stop when the sim clock pauses, so
@@ -55,7 +55,7 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 const FLUX_HISTORY = 90;
 // Floor for the MAD term so an unnaturally steady passage can't shrink the adaptive threshold into
 // a hair trigger. Absolute, in flux units, for the same reason `threshold` is (see below).
-const MIN_MAD = 0.01;
+const MIN_MAD = 0.05;
 // The selected band must carry at least this much energy (per-band envelope, 0..1) for a peak to
 // count as a hit. Flux is a RELATIVE measure — normalization would happily turn the noise floor of
 // a silent passage into a "strong onset" — so an absolute presence gate is what keeps the detector
@@ -272,10 +272,10 @@ export class AudioAnalysisProcessor {
       this._advanceCalibration(node, rawFlux, clock);
 
       // 2. Kick-detection controls.
-      const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.12, ctx));
+      const threshold = Math.max(0, this._numericParam(node, 'threshold', 1.0, ctx));
       const sensitivity = Math.max(0, this._numericParam(node, 'sensitivity', 2.5, ctx));
       const releaseMs = Math.max(1, this._numericParam(node, 'kickRelease', 140.0, ctx));
-      const refractoryMs = Math.max(0, this._numericParam(node, 'refractory', 200.0, ctx));
+      const refractoryMs = Math.max(0, this._numericParam(node, 'refractory', 250.0, ctx));
 
       let st = this._state.get(node.id);
       if (!st) {
@@ -327,10 +327,11 @@ export class AudioAnalysisProcessor {
       // (f1 >= f2 and f1 > flux) occurs exactly once per transient, so a multi-frame attack yields
       // one hit instead of firing on the way up and again on every later ripple over the line.
       const isPeak = st.f1 >= st.f2 && st.f1 > flux;
-      // Absolute floor, in flux units: 1.0 would mean every bin in the band jumped by the full
-      // 30 dB cap in a single frame, so raising this always fires less and 1.0 fires essentially
-      // never. Measured on real drums a kick's onset lands around 0.15-0.95 in the kick band while
-      // snares and hats sit near 0.03-0.04, so the default 0.12 clears kicks and refuses the rest.
+      // Absolute floor, in onset-signal units: how far the band's magnitude must jump in one frame
+      // relative to that band's own recent level. Raising it always fires less. Measured on real
+      // music a clear kick reads about 1-2.5 while the background sits near 0.07, so the default
+      // 1.0 clears kicks and refuses the rest. The `strength` output reports this same number, so
+      // the right value can be read off rather than guessed.
       const overFloor = st.f1 >= threshold;
       const overAdaptive = st.f1 >= adaptive + 1e-9;
       // The band must actually be sounding. Flux is relative, so without this the noise floor of a

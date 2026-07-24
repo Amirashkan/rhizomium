@@ -24,7 +24,7 @@ function kickNode(params = {}) {
     id: 'k', kind: 'AudioAnalysis',
     // Mirrors the node's shipped defaults (see data/nodes/InputNodes.js) so the tests exercise
     // what users actually get.
-    params: { band: 'Bass', threshold: 0.12, sensitivity: 2.5, kickRelease: 140, refractory: 200, ...params },
+    params: { band: 'Bass', threshold: 1.0, sensitivity: 2.5, kickRelease: 140, refractory: 250, ...params },
     inputs: [],
   };
 }
@@ -51,6 +51,12 @@ function stubClient() {
   let ticks = 0;
   return { configs, get ticks() { return ticks; }, tick() { ticks++; }, updateConfig(c) { configs.push(c); } };
 }
+
+// The onset signal's real scale, measured on commercial music: background sits near 0.07 and a
+// clear kick reads 1-2.5, which is why the shipped threshold is 1.0. Tests use these so they
+// exercise realistic magnitudes rather than arbitrary ones.
+const BACKGROUND = 0.03;
+const HIT = 2.5;
 
 /**
  * A test rig that drives the processor frame by frame on an explicit clock.
@@ -79,19 +85,19 @@ function makeRig(params = {}) {
   // Quiet frames, enough to establish a baseline for the median/MAD statistics.
   const silence = (frames = 20, opts) => {
     let fired = 0;
-    for (let i = 0; i < frames; i++) fired += step(0.004, opts);
+    for (let i = 0; i < frames; i++) fired += step(BACKGROUND, opts);
     return fired;
   };
   // One realistic transient: a multi-frame attack peaking at `strength`, then its decay. The whole
   // shape scales with `strength`, so a weak hit is weak throughout. Returns how many times it fired.
   const ATTACK_SHAPE = [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06];
-  const hit = (strength = 0.9, opts) => {
+  const hit = (strength = HIT, opts) => {
     let fired = 0;
     for (const f of ATTACK_SHAPE) fired += step(f * strength, opts);
     return fired;
   };
   // Same transient, but reports the kick envelope sampled on the frame that fired.
-  const hitPeakEnv = (strength = 0.9, opts) => {
+  const hitPeakEnv = (strength = HIT, opts) => {
     let env = 0;
     for (const f of ATTACK_SHAPE) {
       if (step(f * strength, opts) === 1) env = um.uniformValues.get('k.kick');
@@ -154,7 +160,7 @@ describe('AudioAnalysisProcessor', () => {
     const rig = makeRig();
     rig.silence();
     let fired = 0;
-    for (let i = 0; i < 40; i++) fired += rig.step(0.6);
+    for (let i = 0; i < 40; i++) fired += rig.step(1.5);
     // The rise into the plateau is at most one onset; the flat part must never re-fire.
     expect(fired).toBeLessThanOrEqual(1);
   });
@@ -164,12 +170,12 @@ describe('AudioAnalysisProcessor', () => {
     // noise floor of a silent passage normalizes into a "strong onset".
     const rig = makeRig();
     rig.silence(20, { energy: 0.0 });
-    expect(rig.hit(0.9, { energy: 0.0 })).toBe(0);
+    expect(rig.hit(HIT, { energy: 0.0 })).toBe(0);
     rig.silence(20, { energy: 0.01 });
-    expect(rig.hit(0.9, { energy: 0.01 })).toBe(0);
+    expect(rig.hit(HIT, { energy: 0.01 })).toBe(0);
     // ...and the same transient does fire once the band actually has energy.
     rig.silence(20, { energy: 0.5 });
-    expect(rig.hit(0.9, { energy: 0.5 })).toBe(1);
+    expect(rig.hit(HIT, { energy: 0.5 })).toBe(1);
   });
 
   it('requires prominence over a busy passage (adaptive median+MAD threshold)', () => {
@@ -177,44 +183,44 @@ describe('AudioAnalysisProcessor', () => {
     // hit. The statistics learned from recent frames reject it without manual retuning.
     const rig = makeRig();
     let fired = 0;
-    for (let i = 0; i < 60; i++) fired += rig.step(i % 2 ? 0.25 : 0.15);
+    for (let i = 0; i < 60; i++) fired += rig.step(i % 2 ? 1.4 : 0.85);
     // At most the initial onset into the churn; the ongoing ripple must not machine-gun.
     expect(fired).toBeLessThanOrEqual(1);
   });
 
   it('rejects a weak peak below the absolute floor', () => {
-    const rig = makeRig({ threshold: 0.5 });
+    const rig = makeRig({ threshold: 2.0 });
     rig.silence();
-    expect(rig.hit(0.9)).toBe(1);  // 0.9 clears the 0.5 floor
+    expect(rig.hit(2.5)).toBe(1);  // 2.5 clears the 2.0 floor
     rig.silence(30);
-    expect(rig.hit(0.3)).toBe(0);  // 0.3 does not, however prominent it is locally
+    expect(rig.hit(1.2)).toBe(0);  // 1.2 does not, however prominent it is locally
   });
 
-  it('raising the threshold only ever fires less, and 1.0 fires nothing', () => {
+  it('raising the threshold only ever fires less, and a high one fires nothing', () => {
     // Regression: the floor used to be a fraction of a decaying running peak, which made every new
     // maximum read as 1.0. A band carrying nothing but low-level wobble was normalized into a
     // stream of "perfect" onsets that no threshold could refuse — including 1.0.
     const weak = () => {
-      const rig = makeRig({ threshold: 1.0 });
+      const rig = makeRig(); // shipped threshold
       let fired = 0;
       for (let i = 0; i < 200; i++) {
         // Irregular wobble an order of magnitude below a real hit.
-        fired += rig.step(0.004 + 0.03 * Math.abs(Math.sin(i * 2.399)) * (i % 7 === 0 ? 1 : 0.2));
+        fired += rig.step(BACKGROUND + 0.25 * Math.abs(Math.sin(i * 2.399)) * (i % 7 === 0 ? 1 : 0.2));
       }
       return fired;
     };
     expect(weak()).toBe(0);
 
     // ...and the knob is monotonic on a signal that does contain real hits.
-    const counts = [0.05, 0.2, 0.5, 1.0].map((threshold) => {
+    const counts = [0.2, 1.0, 2.0, 50].map((threshold) => {
       const rig = makeRig({ threshold });
       let fired = 0;
-      for (let i = 0; i < 6; i++) { fired += rig.hit(0.4); fired += rig.silence(16); }
+      for (let i = 0; i < 6; i++) { fired += rig.hit(1.5); fired += rig.silence(20); }
       return fired;
     });
     for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
     expect(counts[0]).toBeGreaterThan(0); // a low floor does let the hits through
-    expect(counts[counts.length - 1]).toBe(0); // threshold 1.0 fires nothing
+    expect(counts[counts.length - 1]).toBe(0); // a floor above any real onset fires nothing
   });
 
   it('suppresses a second kick inside the refractory window, then allows one after it', () => {
@@ -245,9 +251,9 @@ describe('AudioAnalysisProcessor', () => {
       proc.update(graph, { time: 0, now: wall, uniformManager: um }); // sim time frozen at 0
       return um.uniformValues.get('k.trig');
     };
-    for (let i = 0; i < 20; i++) step(0.004);
+    for (let i = 0; i < 20; i++) step(BACKGROUND);
     let fired = 0;
-    for (const f of [0.05, 0.3, 0.7, 0.9, 0.6, 0.2, 0.05]) fired += step(f);
+    for (const f of [0.15, 0.8, 1.9, 2.5, 1.6, 0.5, 0.15]) fired += step(f);
     expect(fired).toBe(1);
   });
 
@@ -280,7 +286,7 @@ describe('AudioAnalysisProcessor', () => {
     window._audioFluxBass = 0.9;
     window._audioEnvelopeBass = 0.9;
     let fired = 0;
-    for (let i = 0; i < 7; i++) fired += rig.step(0.004);
+    for (let i = 0; i < 7; i++) fired += rig.step(BACKGROUND);
     expect(fired).toBe(0);
 
     // The same transient on Mids -> one hit, and `level` still reports the shaped value.
@@ -292,9 +298,9 @@ describe('AudioAnalysisProcessor', () => {
     const rig = makeRig({ band: 'Custom' });
     rig.silence();
     // Full-band flux must be ignored — Custom no longer falls back to it for detection.
-    window._audioFluxFull = 0.9;
+    window._audioFluxFull = HIT;
     let fired = 0;
-    for (let i = 0; i < 7; i++) fired += rig.step(0.004);
+    for (let i = 0; i < 7; i++) fired += rig.step(BACKGROUND);
     expect(fired).toBe(0);
     expect(rig.hit()).toBe(1);
   });
@@ -314,13 +320,13 @@ describe('AudioAnalysisProcessor', () => {
 
     const isolated = makeRig();
     isolated.silence();
-    expect(broadband(isolated, 0.9)).toBe(0);
+    expect(broadband(isolated, HIT)).toBe(0);
     // The same rig still fires on a low-only hit.
-    expect(isolated.hit(0.9)).toBe(1);
+    expect(isolated.hit(HIT)).toBe(1);
 
     const raw = makeRig({ isolate: false });
     raw.silence();
-    expect(broadband(raw, 0.9)).toBe(1);
+    expect(broadband(raw, HIT)).toBe(1);
   });
 
   it('applies Isolate to a Custom band too, not just Bass', () => {
@@ -330,40 +336,40 @@ describe('AudioAnalysisProcessor', () => {
     rig.silence();
     let fired = 0;
     for (const f of [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06]) {
-      window._audioFluxHighs = f * 0.9;
-      fired += rig.step(f * 0.9);
+      window._audioFluxHighs = f * HIT;
+      fired += rig.step(f * HIT);
     }
     window._audioFluxHighs = 0;
     expect(fired).toBe(0);
-    expect(rig.hit(0.9)).toBe(1);
+    expect(rig.hit(HIT)).toBe(1);
   });
 
   it('auto-calibrates a threshold from the audio it hears', () => {
     // The whole point: the user should not have to find this number by hand.
-    const rig = makeRig({ threshold: 0.9 }); // starts far too high to fire on anything
+    const rig = makeRig({ threshold: 40 }); // starts far too high to fire on anything
     rig.proc.requestCalibration('k');
     expect(rig.proc.isCalibrating('k')).toBe(true);
 
     // Play a groove past it for longer than the calibration window.
-    for (let i = 0; i < 60; i++) { rig.hit(0.5); rig.silence(10); }
+    for (let i = 0; i < 60; i++) { rig.hit(HIT); rig.silence(16); }
 
     expect(rig.proc.isCalibrating('k')).toBe(false);
     const chosen = rig.node.params.threshold;
     expect(chosen).toBeGreaterThan(0);
-    expect(chosen).toBeLessThan(0.5);  // below a hit, so hits register
+    expect(chosen).toBeLessThan(HIT);  // below a hit, so hits register
     expect(chosen).toBeGreaterThan(0.01); // above the background
 
     // ...and the chosen value actually detects the material it was calibrated on.
     let fired = 0;
-    for (let i = 0; i < 8; i++) { fired += rig.hit(0.5); rig.silence(10); }
+    for (let i = 0; i < 8; i++) { fired += rig.hit(HIT); rig.silence(16); }
     expect(fired).toBe(8);
   });
 
   it('leaves the threshold alone when calibration hears nothing usable', () => {
-    const rig = makeRig({ threshold: 0.4 });
+    const rig = makeRig({ threshold: 1.5 });
     rig.proc.requestCalibration('k');
     for (let i = 0; i < 500; i++) rig.step(0.0); // silence: no peaks to learn from
-    expect(rig.node.params.threshold).toBe(0.4);
+    expect(rig.node.params.threshold).toBe(1.5);
     expect(rig.node.__kickCalibrationResult).toBe('failed');
   });
 

@@ -175,11 +175,12 @@ export const InputNodes = {
     pinsIn: [],
     // Live audio analysis + kick/onset detection. The node configures the shared audio-envelope
     // engine (the Band + Follower + ADSR + Shaping controls that used to live in the Audio panel)
-    // and reads back the resulting envelope; on top of that it runs a precise kick detector on the
-    // band's spectral flux (frame-to-frame spectral change — ~0 for sustained sound, a spike on a
-    // hit), self-normalized and gated by an adaptive median+MAD threshold plus a refractory
-    // debounce, so the same settings work across tracks. It has no fragment-shader memory,
-    // so all of this runs on the CPU in AudioAnalysisProcessor, which streams three uniforms:
+    // and reads back the resulting envelope; on top of that it runs a kick detector on the band's
+    // onset signal — the per-frame rise in linear magnitude over the kick's frequency range,
+    // divided by that band's own slow level, so it reads ~0 for sustained sound and spikes on a
+    // hit regardless of playback volume. Peak picking plus an adaptive median+MAD threshold and a
+    // refractory debounce turn that into single, clean triggers. It has no fragment-shader memory,
+    // so all of this runs on the CPU in AudioAnalysisProcessor, which streams four uniforms:
     //   level - the live shaped envelope in [0,1] (a continuous value that moves while audio plays)
     //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over Kick Release ms
     //   trig  - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold cleanly)
@@ -211,12 +212,12 @@ export const InputNodes = {
       // so the value is measured instead of guessed. Play the main groove while it runs.
       { name: "calibrate", type: "button", displayName: "Auto-Calibrate", action: "calibrateKick",
         description: "Listen for ~6s and set Kick Threshold from the audio", group: "Kick Detection" },
-      // threshold: minimum onset strength, absolute (not relative to recent hits, which would let
-      //   a band of pure noise normalize itself into a stream of "strong" onsets). 1.0 means every
-      //   bin in the band jumps by the full 30 dB cap in one frame, so raising this always fires
-      //   less and 1.0 fires essentially never. Real kicks land around 0.15-0.95; hats and snare
-      //   bleed sit near 0.03. Watch the `strength` output to see where yours land.
-      { name: "threshold", type: "float", default: 0.12, label: "Kick Threshold", group: "Kick Detection" },
+      // threshold: minimum onset strength, absolute (not a fraction of recent hits, which would let
+      //   a band of pure noise normalize itself into a stream of "strong" onsets). Measured on real
+      //   music a clear kick reads about 1-2.5 and the background about 0.07, so raising this always
+      //   fires less. Wire the `strength` output to something visible to read off what YOUR track's
+      //   kicks measure, or just press Auto-Calibrate.
+      { name: "threshold", type: "float", default: 1.0, label: "Kick Threshold", group: "Kick Detection" },
       // sensitivity: how far above the recent-noise baseline (median + sensitivity*MAD) a peak must
       //   stand. Raise it if busy passages produce stray hits, lower it if kicks are missed in
       //   dense material.
@@ -225,11 +226,11 @@ export const InputNodes = {
       // the ones concentrated in the selected band. This is what separates a kick from a backbeat,
       // and it applies to Custom too. Turn it off when the broadband hits ARE the target.
       { name: "isolate", type: "bool", default: true, label: "Isolate (reject broadband)", group: "Kick Detection" },
-      // Min gap after a hit before another can fire. 200ms is deliberately longer than a kick's own
-      // decay tail (~250ms of audio, whose late ripples used to re-trigger at the old 90ms) and
-      // long enough to skip over an intervening hat or snare, while still clearing quarter-note
-      // kicks up to ~300 BPM. Lower it for 8th/16th-note kick patterns.
-      { name: "refractory", type: "float", default: 200.0, label: "Min Gap (ms)", group: "Kick Detection" },
+      // Min gap after a hit before another can fire. Longer than a kick's own decay tail, whose
+      // late ripples would otherwise re-trigger, and long enough to step over an intervening hat.
+      // Measured on real music, raising this from 200 to 250ms took beat-lock from 89% to 95%
+      // without costing coverage. Lower it for 8th/16th-note kick patterns.
+      { name: "refractory", type: "float", default: 250.0, label: "Min Gap (ms)", group: "Kick Detection" },
       // How long the `kick` envelope takes to fall back to 0 after a hit. Purely cosmetic — it
       // shapes the output, it does not affect what gets detected.
       { name: "kickRelease", type: "float", default: 140.0, label: "Kick Release (ms)", group: "Kick Detection" },
