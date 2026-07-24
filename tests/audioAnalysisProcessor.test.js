@@ -22,20 +22,22 @@ function makeUniformManager(kickNodeIds = []) {
 function kickNode(params = {}) {
   return {
     id: 'k', kind: 'AudioAnalysis',
-    params: { band: 'Bass', threshold: 0.15, sensitivity: 1.6, kickRelease: 140, refractory: 90, ...params },
+    // Mirrors the node's shipped defaults (see data/nodes/InputNodes.js) so the tests exercise
+    // what users actually get.
+    params: { band: 'Bass', threshold: 0.6, sensitivity: 2.5, kickRelease: 140, refractory: 90, ...params },
     inputs: [],
   };
 }
 
-// The `level` output is the shaped envelope (window._audioEnvelopeValue); onset detection runs on
-// the band-limited SPECTRAL FLUX (window._audioFluxBass etc.) — the per-frame positive spectral
-// change published by BrowserAudioCapture. Sustained loudness has ~0 flux; a hit spikes it.
-function setLevel(v) {
-  window._audioEnvelopeValue = v;
-}
-function setFlux(v) {
-  window._audioFluxBass = v;
-}
+// Which globals feed a given Band: [spectral flux (detection), band envelope (presence gate)].
+// Custom has no dedicated band envelope, so its presence gate falls back to full-band.
+const BAND_GLOBALS = {
+  Bass: ['_audioFluxBass', '_audioEnvelopeBass'],
+  Mids: ['_audioFluxMids', '_audioEnvelopeMids'],
+  Highs: ['_audioFluxHighs', '_audioEnvelopeHighs'],
+  Full: ['_audioFluxFull', '_audioEnvelopeFull'],
+  Custom: ['_audioFluxCustom', '_audioEnvelopeFull'],
+};
 
 const AUDIO_GLOBALS = [
   '_audioEnvelopeValue', '_audioEnvelopeBass', '_audioEnvelopeMids', '_audioEnvelopeHighs',
@@ -50,12 +52,58 @@ function stubClient() {
   return { configs, get ticks() { return ticks; }, tick() { ticks++; }, updateConfig(c) { configs.push(c); } };
 }
 
-describe('AudioAnalysisProcessor', () => {
-  let proc;
+/**
+ * A test rig that drives the processor frame by frame on an explicit clock.
+ *
+ * `step(flux)` publishes one frame of spectral flux for the node's band and advances 16ms.
+ * Detection is judged one frame LATE (peak picking needs to see the frame after the candidate),
+ * so a spike fires on the step AFTER the peak — `hit()` encodes that rise-then-fall shape.
+ */
+function makeRig(params = {}) {
+  const node = kickNode(params);
+  const band = params.band || 'Bass';
+  const [fluxKey, energyKey] = BAND_GLOBALS[band];
+  const graph = makeGraph([node]);
+  const um = makeUniformManager(['k']);
+  const proc = new AudioAnalysisProcessor();
+  proc._audioClient = stubClient();
 
+  let t = 0;
+  const step = (flux, { energy = 0.5, dtMs = 16 } = {}) => {
+    window[fluxKey] = flux;
+    window[energyKey] = energy;
+    t += dtMs / 1000;
+    proc.update(graph, { time: t, now: t, uniformManager: um });
+    return um.uniformValues.get('k.trig');
+  };
+  // Quiet frames, enough to establish a baseline for the median/MAD statistics.
+  const silence = (frames = 20, opts) => {
+    let fired = 0;
+    for (let i = 0; i < frames; i++) fired += step(0.004, opts);
+    return fired;
+  };
+  // One realistic transient: a multi-frame attack peaking at `strength`, then its decay. The whole
+  // shape scales with `strength`, so a weak hit is weak throughout. Returns how many times it fired.
+  const ATTACK_SHAPE = [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06];
+  const hit = (strength = 0.9, opts) => {
+    let fired = 0;
+    for (const f of ATTACK_SHAPE) fired += step(f * strength, opts);
+    return fired;
+  };
+  // Same transient, but reports the kick envelope sampled on the frame that fired.
+  const hitPeakEnv = (strength = 0.9, opts) => {
+    let env = 0;
+    for (const f of ATTACK_SHAPE) {
+      if (step(f * strength, opts) === 1) env = um.uniformValues.get('k.kick');
+    }
+    return env;
+  };
+
+  return { proc, node, graph, um, step, silence, hit, hitPeakEnv, get time() { return t; } };
+}
+
+describe('AudioAnalysisProcessor', () => {
   beforeEach(() => {
-    proc = new AudioAnalysisProcessor();
-    proc._audioClient = stubClient(); // isolate from the real BrowserAudioCapture singleton
     for (const g of AUDIO_GLOBALS) window[g] = 0;
   });
 
@@ -63,147 +111,132 @@ describe('AudioAnalysisProcessor', () => {
     for (const g of AUDIO_GLOBALS) delete window[g];
   });
 
-  it('fires a single-frame trig and a full kick envelope on a flux spike', () => {
-    const node = kickNode();
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
+  it('fires exactly once on a multi-frame attack', () => {
+    // The doubling regression. A kick's attack spans several frames as the FFT window slides over
+    // it, so a threshold-crossing detector fires on the way up and again on later ripples. Peak
+    // picking judges each frame once its successor is known and only accepts a local maximum,
+    // which a single transient has exactly one of.
+    const rig = makeRig();
+    rig.silence();
+    expect(rig.hit()).toBe(1);
+  });
 
-    // Quiet baseline frame — no flux, no hit.
-    setLevel(0.6);
-    setFlux(0.0);
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(0);
+  it('fires once per hit across a run of kicks, never twice', () => {
+    const rig = makeRig();
+    rig.silence();
+    for (let i = 0; i < 8; i++) {
+      expect(rig.hit()).toBe(1);   // the transient itself
+      expect(rig.silence(12)).toBe(0); // the gap between kicks stays quiet
+    }
+  });
 
-    // Sudden spectral change — a kick.
-    setFlux(0.3);
-    proc.update(graph, { time: 0.016, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(1);
-    expect(um.uniformValues.get('k.kick')).toBeCloseTo(1.0);
-    expect(um.uniformValues.get('k.level')).toBeCloseTo(0.6);
-
-    // Flux sustained at the same value — trig is a single-frame pulse, so it clears.
-    proc.update(graph, { time: 0.032, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(0);
-    // ...but level keeps reporting the live continuous value.
-    expect(um.uniformValues.get('k.level')).toBeCloseTo(0.6);
+  it('reports a full kick envelope and a single-frame trig, and passes the shaped level through', () => {
+    const rig = makeRig();
+    window._audioEnvelopeValue = 0.6; // the shaped envelope feeding `level`
+    rig.silence();
+    // The envelope snaps to a full 1.0 on the firing frame (it decays from there over kickRelease).
+    expect(rig.hitPeakEnv()).toBeCloseTo(1.0);
+    expect(rig.um.uniformValues.get('k.level')).toBeCloseTo(0.6);
+    // trig is a one-frame pulse: it has already cleared on the frames after the peak.
+    expect(rig.um.uniformValues.get('k.trig')).toBe(0);
   });
 
   it('never fires on sustained loudness — only spectral change counts', () => {
     // The point of the flux detector: a held bass note keeps the band's LEVEL high but its
     // spectrum static, so flux stays ~0 and no threshold tuning is needed to reject it.
-    const node = kickNode();
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-
-    window._audioEnvelopeBass = 0.9; // loud, saturated band level
-    setLevel(0.9);
-    setFlux(0.0); // ...but nothing NEW is happening
+    const rig = makeRig();
     let fired = 0;
-    for (let i = 0; i < 30; i++) {
-      proc.update(graph, { time: 0.016 * i, uniformManager: um });
-      fired += um.uniformValues.get('k.trig');
-    }
+    for (let i = 0; i < 60; i++) fired += rig.step(0.0, { energy: 0.9 });
     expect(fired).toBe(0);
   });
 
-  it('rejects a weak hit below the absolute floor (relative to the recent peak)', () => {
-    const node = kickNode({ threshold: 0.3 });
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-
-    // A strong kick sets the running flux peak...
-    setFlux(0.0);
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    setFlux(0.5);
-    proc.update(graph, { time: 0.016, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(1);
-
-    // ...quiet frames well past the refractory window...
-    setFlux(0.0);
-    for (let i = 2; i < 25; i++) proc.update(graph, { time: 0.016 * i, uniformManager: um });
-
-    // ...then a weak blip: ~0.1/0.5 = ~0.2 of the recent peak, below the 0.3 floor -> rejected.
-    setFlux(0.1);
-    proc.update(graph, { time: 0.016 * 25, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(0);
+  it('does not retrigger while flux sits on a plateau', () => {
+    const rig = makeRig();
+    rig.silence();
+    let fired = 0;
+    for (let i = 0; i < 40; i++) fired += rig.step(0.6);
+    // The rise into the plateau is at most one onset; the flat part must never re-fire.
+    expect(fired).toBeLessThanOrEqual(1);
   });
 
-  it('does not re-trigger while flux is sustained (rising-edge gate)', () => {
-    const node = kickNode();
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-
-    setFlux(0.0);
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    setFlux(0.6);
-    proc.update(graph, { time: 0.016, uniformManager: um }); // hit
-    expect(um.uniformValues.get('k.trig')).toBe(1);
-
-    let retriggers = 0;
-    for (let i = 2; i < 20; i++) {
-      proc.update(graph, { time: 0.016 * i, uniformManager: um });
-      retriggers += um.uniformValues.get('k.trig');
-    }
-    expect(retriggers).toBe(0);
-  });
-
-  it('suppresses a second kick inside the refractory window, then allows one after it', () => {
-    const node = kickNode({ refractory: 100 });
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-
-    const kick = (t) => {
-      setFlux(0.0);
-      proc.update(graph, { time: t, uniformManager: um });
-      setFlux(0.6);
-      proc.update(graph, { time: t + 0.008, uniformManager: um });
-      return um.uniformValues.get('k.trig');
-    };
-
-    expect(kick(0.0)).toBe(1);       // first kick at ~0.008s
-    expect(kick(0.03)).toBe(0);      // ~0.038s: within 100ms refractory -> suppressed
-    expect(kick(0.20)).toBe(1);      // ~0.208s: past the window -> allowed
+  it('stays silent while the band is not sounding, however the flux looks', () => {
+    // Phantom-hit regression: flux is a RELATIVE measure, so without an absolute presence gate the
+    // noise floor of a silent passage normalizes into a "strong onset".
+    const rig = makeRig();
+    rig.silence(20, { energy: 0.0 });
+    expect(rig.hit(0.9, { energy: 0.0 })).toBe(0);
+    rig.silence(20, { energy: 0.01 });
+    expect(rig.hit(0.9, { energy: 0.01 })).toBe(0);
+    // ...and the same transient does fire once the band actually has energy.
+    rig.silence(20, { energy: 0.5 });
+    expect(rig.hit(0.9, { energy: 0.5 })).toBe(1);
   });
 
   it('requires prominence over a busy passage (adaptive median+MAD threshold)', () => {
-    // When onset-level flux is landing nearly every frame, a spike no bigger than the ambient
-    // churn is not a distinct hit. The median+MAD threshold learned from the recent history
-    // rejects it without any manual retuning.
+    // When flux is churning every frame, a bump no bigger than the ambient churn is not a distinct
+    // hit. The statistics learned from recent frames reject it without manual retuning.
+    const rig = makeRig();
+    let fired = 0;
+    for (let i = 0; i < 60; i++) fired += rig.step(i % 2 ? 0.25 : 0.15);
+    // At most the initial onset into the churn; the ongoing ripple must not machine-gun.
+    expect(fired).toBeLessThanOrEqual(1);
+  });
+
+  it('rejects a weak peak below the absolute floor', () => {
+    const rig = makeRig({ threshold: 0.5 });
+    rig.silence();
+    rig.hit(0.9);           // establishes what a normal hit looks like
+    rig.silence(30);
+    // A transient at ~5% of the reference peak — well under the 0.5 floor.
+    expect(rig.hit(0.05)).toBe(0);
+  });
+
+  it('suppresses a second kick inside the refractory window, then allows one after it', () => {
+    const rig = makeRig({ refractory: 200 });
+    rig.silence();
+    expect(rig.hit()).toBe(1);
+    // Another transient immediately after — inside the 200ms window, so suppressed.
+    expect(rig.hit()).toBe(0);
+    // Wait out the window, then a transient is allowed again.
+    rig.silence(20);
+    expect(rig.hit()).toBe(1);
+  });
+
+  it('times the refractory on the wall clock, not the render loop\'s sim time', () => {
+    // Audio plays in real time: it does not slow with timeScale or stop when the sim clock pauses.
+    // With sim time frozen, detection timing must still advance.
     const node = kickNode();
     const graph = makeGraph([node]);
     const um = makeUniformManager(['k']);
+    const proc = new AudioAnalysisProcessor();
+    proc._audioClient = stubClient();
 
-    // Busy passage: strong, constantly varying flux.
+    let wall = 0;
+    const step = (flux) => {
+      window._audioFluxBass = flux;
+      window._audioEnvelopeBass = 0.5;
+      wall += 0.016;
+      proc.update(graph, { time: 0, now: wall, uniformManager: um }); // sim time frozen at 0
+      return um.uniformValues.get('k.trig');
+    };
+    for (let i = 0; i < 20; i++) step(0.004);
     let fired = 0;
-    for (let i = 0; i < 40; i++) {
-      setFlux(i % 2 ? 0.25 : 0.15);
-      proc.update(graph, { time: 0.016 * i, uniformManager: um });
-      fired += um.uniformValues.get('k.trig');
-    }
-    // A "spike" at the same magnitude as the ambient churn -> not prominent, no fire.
-    setFlux(0.25);
-    proc.update(graph, { time: 0.016 * 40, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(0);
-    expect(fired).toBeLessThanOrEqual(1); // at most the initial edge, then the stats clamp down
+    for (const f of [0.05, 0.3, 0.7, 0.9, 0.6, 0.2, 0.05]) fired += step(f);
+    expect(fired).toBe(1);
   });
 
   it('decays the kick envelope toward zero over the kick-release time', () => {
-    const node = kickNode({ kickRelease: 100 });
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-
-    setFlux(0.0);
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    setFlux(0.6);
-    proc.update(graph, { time: 0.016, uniformManager: um }); // kick env -> 1.0
-    expect(um.uniformValues.get('k.kick')).toBeCloseTo(1.0);
+    const rig = makeRig({ kickRelease: 100 });
+    rig.silence();
+    rig.hit();
+    const afterHit = rig.um.uniformValues.get('k.kick');
+    expect(afterHit).toBeGreaterThan(0);
 
     // Flux falls back to silence; the kick envelope should monotonically decay and approach 0.
-    setFlux(0.0);
-    let prev = 1.0;
-    for (let i = 2; i < 16; i++) {
-      proc.update(graph, { time: 0.016 * i, uniformManager: um });
-      const env = um.uniformValues.get('k.kick');
+    let prev = afterHit;
+    for (let i = 0; i < 14; i++) {
+      rig.step(0.0);
+      const env = rig.um.uniformValues.get('k.kick');
       expect(env).toBeLessThan(prev);
       prev = env;
     }
@@ -211,64 +244,48 @@ describe('AudioAnalysisProcessor', () => {
   });
 
   it('detects on the selected band\'s spectral flux, not the shaped level', () => {
-    // The shaped level (follower/ADSR output) plateaus and must never drive detection; the flux
-    // of the node's Band must. A Mids node ignores bass flux and fires on mids flux.
-    const node = kickNode({ band: 'Mids' });
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-
-    // Shaped level high, bass flux spiking — the Mids node stays silent.
+    // The shaped level (follower/ADSR output) plateaus and must never drive detection; the flux of
+    // the node's Band must. A Mids node ignores bass flux and fires on mids flux.
+    const rig = makeRig({ band: 'Mids' });
     window._audioEnvelopeValue = 0.9;
-    window._audioFluxBass = 0.6;
-    window._audioFluxMids = 0.0;
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    window._audioFluxBass = 0.0;
-    proc.update(graph, { time: 0.016, uniformManager: um });
-    window._audioFluxBass = 0.6;
-    proc.update(graph, { time: 0.032, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(0);
+    rig.silence();
 
-    // A flux spike on the Mids band -> a hit, and `level` still reports the shaped value.
-    window._audioFluxMids = 0.5;
-    proc.update(graph, { time: 0.048, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(1);
-    expect(um.uniformValues.get('k.kick')).toBeCloseTo(1.0);
-    expect(um.uniformValues.get('k.level')).toBeCloseTo(0.9);
+    // A big transient on the WRONG band -> nothing.
+    window._audioFluxBass = 0.9;
+    window._audioEnvelopeBass = 0.9;
+    let fired = 0;
+    for (let i = 0; i < 7; i++) fired += rig.step(0.004);
+    expect(fired).toBe(0);
+
+    // The same transient on Mids -> one hit, and `level` still reports the shaped value.
+    expect(rig.hit()).toBe(1);
+    expect(rig.um.uniformValues.get('k.level')).toBeCloseTo(0.9);
   });
 
   it('uses the dedicated custom-band flux for Band: Custom', () => {
-    const node = kickNode({ band: 'Custom' });
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-
-    window._audioFluxFull = 0.6; // must be ignored — Custom no longer falls back to Full
-    window._audioFluxCustom = 0.0;
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    proc.update(graph, { time: 0.016, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(0);
-
-    window._audioFluxCustom = 0.5;
-    proc.update(graph, { time: 0.032, uniformManager: um });
-    expect(um.uniformValues.get('k.trig')).toBe(1);
+    const rig = makeRig({ band: 'Custom' });
+    rig.silence();
+    // Full-band flux must be ignored — Custom no longer falls back to it for detection.
+    window._audioFluxFull = 0.9;
+    let fired = 0;
+    for (let i = 0; i < 7; i++) fired += rig.step(0.004);
+    expect(fired).toBe(0);
+    expect(rig.hit()).toBe(1);
   });
 
   it('mirrors the live level onto node.__kickLevel for the CPU preview', () => {
-    const node = kickNode();
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-    setLevel(0.42);
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    expect(node.__kickLevel).toBeCloseTo(0.42);
+    const rig = makeRig();
+    window._audioEnvelopeValue = 0.42;
+    rig.step(0.0);
+    expect(rig.node.__kickLevel).toBeCloseTo(0.42);
   });
 
   it('pushes the Band/Follower/ADSR/Shaping params to the audio engine, only when they change', () => {
-    const node = kickNode({ band: 'Mids', attack: 30, envRelease: 250, gate: 0.2, curve: 'Sigmoid', normalize: false });
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
+    const rig = makeRig({ band: 'Mids', attack: 30, envRelease: 250, gate: 0.2, curve: 'Sigmoid', normalize: false });
 
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    expect(proc._audioClient.configs.length).toBe(1);
-    const cfg = proc._audioClient.configs[0];
+    rig.step(0.0);
+    expect(rig.proc._audioClient.configs.length).toBe(1);
+    const cfg = rig.proc._audioClient.configs[0];
     expect(cfg.frequency.mode).toBe('mids');
     expect(cfg.follower.attack_ms).toBe(30);
     expect(cfg.follower.release_ms).toBe(250);
@@ -277,33 +294,32 @@ describe('AudioAnalysisProcessor', () => {
     expect(cfg.shaping.normalize).toBe(false);
 
     // Unchanged params -> no repeat push.
-    proc.update(graph, { time: 0.016, uniformManager: um });
-    expect(proc._audioClient.configs.length).toBe(1);
+    rig.step(0.0);
+    expect(rig.proc._audioClient.configs.length).toBe(1);
 
     // Change a param -> one more push.
-    node.params.band = 'Highs';
-    proc.update(graph, { time: 0.032, uniformManager: um });
-    expect(proc._audioClient.configs.length).toBe(2);
-    expect(proc._audioClient.configs[1].frequency.mode).toBe('highs');
+    rig.node.params.band = 'Highs';
+    rig.step(0.0);
+    expect(rig.proc._audioClient.configs.length).toBe(2);
+    expect(rig.proc._audioClient.configs[1].frequency.mode).toBe('highs');
   });
 
   it('drives the audio engine once per update so the envelope never freezes', () => {
-    const node = kickNode();
-    const graph = makeGraph([node]);
-    const um = makeUniformManager(['k']);
-    proc.update(graph, { time: 0.0, uniformManager: um });
-    proc.update(graph, { time: 0.016, uniformManager: um });
-    expect(proc._audioClient.ticks).toBe(2);
+    const rig = makeRig();
+    rig.step(0.0);
+    rig.step(0.0);
+    expect(rig.proc._audioClient.ticks).toBe(2);
   });
 
   it('prunes state for deleted nodes', () => {
+    const proc = new AudioAnalysisProcessor();
+    proc._audioClient = stubClient();
     const node = kickNode();
-    setFlux(0.6);
-    proc.update(makeGraph([node]), { time: 0.0, uniformManager: makeUniformManager(['k']) });
+    proc.update(makeGraph([node]), { time: 0, now: 0, uniformManager: makeUniformManager(['k']) });
     expect(proc._state.has('k')).toBe(true);
 
     const other = { id: 'x', kind: 'Time', params: {}, inputs: [] };
-    proc.update(makeGraph([other]), { time: 0.016, uniformManager: makeUniformManager([]) });
+    proc.update(makeGraph([other]), { time: 0.016, now: 0.016, uniformManager: makeUniformManager([]) });
     expect(proc._state.has('k')).toBe(false);
   });
 });

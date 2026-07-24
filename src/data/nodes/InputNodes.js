@@ -209,13 +209,16 @@ export const InputNodes = {
       // Off by default: auto-normalize divides by a running peak, which pins a steady track near 1.0
       // and makes the value look "stuck". Off gives a dynamic level that visibly reacts to the audio.
       { name: "normalize", type: "bool", default: false, label: "Auto-normalize" },
-      // — Kick detection (runs on the band's spectral flux, normalized to ~[0,1] where 1 is the
-      //   strongest recent onset) —
-      // threshold: absolute floor on the normalized onset strength — raises it to ignore weak hits.
-      // sensitivity: how far above the adaptive (median + sensitivity*MAD) baseline a spike must
-      //   climb to count; LOWER fires more easily, higher demands a more prominent hit.
-      { name: "threshold", type: "float", default: 0.15, label: "Kick Threshold" },
-      { name: "sensitivity", type: "float", default: 1.6, label: "Sensitivity" },
+      // — Kick detection (peak picking on the band's spectral flux) —
+      // threshold: how strong an onset must be relative to the strongest recent one, in [0,1].
+      //   This is the kick-vs-everything-else knob: a snare or clap bleeding into the band at half
+      //   a kick's strength reads ~0.5, so 0.6 keeps kicks and drops it. Lower it if soft kicks are
+      //   being missed, raise it if other percussion is sneaking through.
+      // sensitivity: how far above the recent-noise baseline (median + sensitivity*MAD) a peak must
+      //   stand. This is the rejects-the-churn knob: raise it if busy passages produce stray hits,
+      //   lower it if kicks are missed in dense material.
+      { name: "threshold", type: "float", default: 0.6, label: "Kick Threshold" },
+      { name: "sensitivity", type: "float", default: 2.5, label: "Sensitivity" },
       { name: "refractory", type: "float", default: 90.0, label: "Min Gap (ms)" },
       { name: "kickRelease", type: "float", default: 140.0, label: "Kick Release (ms)" },
     ],

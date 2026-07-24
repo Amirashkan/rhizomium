@@ -306,22 +306,32 @@ export class BrowserAudioCapture {
     }
 
     /**
-     * Per-band spectral flux: the sum of POSITIVE frame-to-frame changes in the (log-magnitude)
-     * spectrum, normalized per bin. This is the standard onset-detection signal — a sustained
-     * bass note contributes ~0 (its bins aren't changing) while a kick's attack lights up every
-     * bin in the low band at once. The byte spectrum is already dB-scaled, so this is log-domain
-     * flux, which emphasizes relative change and holds up across playback volumes.
+     * Per-band spectral flux: the sum of POSITIVE frame-to-frame changes in the log-magnitude
+     * (dB) spectrum, normalized per bin. This is the standard onset-detection signal — a
+     * sustained bass note contributes ~0 (its bins aren't changing) while a kick's attack lights
+     * up every bin in the low band at once.
      *
-     * Results land in this._flux{Bass,Mids,Highs,Full,Custom} in roughly [0,1].
+     * Uses getFloatFrequencyData, NOT the byte spectrum: byte values clamp at maxDecibels
+     * (default -30 dB), so on a loud, mastered track the bass bins sit pinned at 255 and
+     * contribute zero flux — the signal then comes only from noisy edge bins, which is exactly
+     * the kind of junk that reads as phantom kicks. Float dB values don't clamp. Each bin's
+     * positive change is capped at FLUX_CAP_DB so one wild bin can't impersonate a band-wide
+     * onset, and bins below FLUX_FLOOR_DB are treated as silence so near-noise wobble reads 0.
+     *
+     * Results land in this._flux{Bass,Mids,Highs,Full,Custom} in roughly [0,1]
+     * (1 = every bin in the band jumped by FLUX_CAP_DB or more at once).
      */
     _computeSpectralFlux() {
         this._fluxBass = 0; this._fluxMids = 0; this._fluxHighs = 0; this._fluxFull = 0; this._fluxCustom = 0;
         if (!this._fluxAnalyser) return;
 
+        const FLUX_FLOOR_DB = -70; // below this a bin is "silent" — its wobble is noise, not signal
+        const FLUX_CAP_DB = 30;    // a bin jumping this much counts as a full onset contribution
+
         const n = this._fluxAnalyser.frequencyBinCount;
         if (!this._fluxSpectrum || this._fluxSpectrum.length !== n) {
-            this._fluxSpectrum = new Uint8Array(n);
-            this._fluxPrevSpectrum = new Uint8Array(n);
+            this._fluxSpectrum = new Float32Array(n);
+            this._fluxPrevSpectrum = new Float32Array(n);
             this._fluxPrimed = false;
         }
 
@@ -329,7 +339,7 @@ export class BrowserAudioCapture {
         const swap = this._fluxPrevSpectrum;
         this._fluxPrevSpectrum = this._fluxSpectrum;
         this._fluxSpectrum = swap;
-        this._fluxAnalyser.getByteFrequencyData(this._fluxSpectrum);
+        this._fluxAnalyser.getFloatFrequencyData(this._fluxSpectrum);
 
         // First frame after (re)start has no valid previous spectrum — don't emit a bogus spike.
         if (!this._fluxPrimed) {
@@ -347,11 +357,13 @@ export class BrowserAudioCapture {
             const end = Math.min(n, Math.ceil(maxFreq / binWidth));
             let sum = 0, count = 0;
             for (let i = start; i < end; i++) {
-                const d = this._fluxSpectrum[i] - this._fluxPrevSpectrum[i];
-                if (d > 0) sum += d;
+                const cur = Math.max(FLUX_FLOOR_DB, this._fluxSpectrum[i]);
+                const prev = Math.max(FLUX_FLOOR_DB, this._fluxPrevSpectrum[i]);
+                const d = cur - prev;
+                if (d > 0) sum += Math.min(d, FLUX_CAP_DB);
                 count++;
             }
-            out[b] = count > 0 ? sum / (count * 255) : 0;
+            out[b] = count > 0 ? sum / (count * FLUX_CAP_DB) : 0;
         }
         this._fluxBass = out[0];
         this._fluxMids = out[1];
