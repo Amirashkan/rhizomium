@@ -2191,6 +2191,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate gradient shader
    */
   generateGradientShader(node, getInput) {
+    // A node wired to the "Value" input drives the gradient. The input texture
+    // binding is always present in the layout (ComputeGradient is registered as an
+    // input node), but we only sample it when something is actually connected.
+    const hasInput = Array.isArray(node.inputs) && node.inputs[0] != null;
     const type = this.getParam(node, 'type', 'Linear');
     const angle = this.getParam(node, 'angle', 0.0);
     const centerX = this.getParam(node, 'centerX', 0.5);
@@ -2243,12 +2247,14 @@ struct Uniforms {
   saturation: f32,
   brightness: f32,
   numStops: f32,
-  _padding1: f32
+  inputMix: f32
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var<storage, read> colorStops: array<ColorStop, 8>;
+@group(0) @binding(3) var inputTexture: texture_2d<f32>;
+@group(0) @binding(4) var texSampler: sampler;
 
 const PI = 3.14159265359;
 
@@ -2365,7 +2371,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   } else {
     gradient = gradientDiamond(uv_corrected, center_corrected, uniforms.radius);
   }
-
+${hasInput ? `
+  // Blend the connected input's luminance into the gradient position.
+  let inSample = textureSampleLevel(inputTexture, texSampler, uv, 0.0);
+  let inValue = dot(inSample.rgb, vec3<f32>(0.299, 0.587, 0.114));
+  gradient = mix(gradient, inValue, clamp(uniforms.inputMix, 0.0, 1.0));
+` : ''}
   // Apply repeat
   gradient = fract(gradient * uniforms.repeat);
 

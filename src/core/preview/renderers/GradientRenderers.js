@@ -10,8 +10,6 @@ export class GradientRenderers {
       'lineargradient': (ctx, node) => this.renderLinearGradient(ctx, node),
       'radialgradient': (ctx, node) => this.renderRadialGradient(ctx, node),
       'angulargradient': (ctx, node) => this.renderAngularGradient(ctx, node),
-      'conicgradient': (ctx, node) => this.renderConicGradient(ctx, node),
-      'colorramp': (ctx, node) => this.renderColorRamp(ctx, node),
     });
   }
 

@@ -16,7 +16,8 @@ export class GradientNodes {
   }
 
   handles(kind) {
-    return ['ConicGradient'].includes(kind);
+    // ConicGradient was removed in favour of the GPU Gradient node's Angular type.
+    return false;
   }
 
   /**

@@ -5,7 +5,7 @@
 // validation - so adding a new format version only requires bumping
 // SAVE_FORMAT_VERSION and adding a migration step here.
 
-export const SAVE_FORMAT_VERSION = 5;
+export const SAVE_FORMAT_VERSION = 6;
 
 // Kinds whose multiple channel output pins (RGBA/RGB/R/G/B/A) were collapsed
 // into a single Color output in v4. A node kind is considered collapsed when it
@@ -118,6 +118,67 @@ const migrations = {
       changed = true;
       if (nextParams !== node.params) nextNode.params = nextParams;
       return nextNode;
+    });
+
+    return changed ? { ...data, nodes: migratedNodes } : data;
+  },
+
+  // v5 -> v6: the fragment ColorRamp and ConicGradient nodes were removed and their
+  // roles folded into the GPU Gradient node (ComputeGradient). Rewrite saved instances
+  // so old projects keep loading (and stay functional) instead of becoming dead,
+  // uncompilable nodes. Node ids/positions/inputs are preserved, so existing
+  // connections stay valid (both old nodes had a single input pin and output pin,
+  // matching ComputeGradient).
+  //
+  // - ColorRamp (Value -> Color via stops) becomes a Gradient in "Gradient" colour
+  //   mode whose stops are driven by its input (inputMix = 1), matching the old
+  //   value-in / colour-out behaviour. Its interpolation mode maps 1:1
+  //   (Linear/Step/Smooth).
+  // - ConicGradient (an angular sweep) becomes a Gradient of type "Angular" in
+  //   grayscale (its output was a scalar 0..1 field), ignoring any input
+  //   (inputMix = 0) so it renders the built-in sweep the way it used to. Its former
+  //   UV input pin is meaningless to the new node but is left connected harmlessly.
+  5: (data) => {
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    let changed = false;
+
+    const migratedNodes = nodes.map((node) => {
+      if (!node) return node;
+      const p = (node.params && typeof node.params === "object") ? node.params : {};
+
+      if (node.kind === "ColorRamp") {
+        changed = true;
+        const params = {
+          type: "Linear",
+          colorMode: "Gradient",
+          interpolation: typeof p.mode === "string" ? p.mode : "Linear",
+          inputMix: 1.0,
+        };
+        if (Array.isArray(p.stops)) params.colorStops = p.stops;
+        return { ...node, kind: "ComputeGradient", params };
+      }
+
+      if (node.kind === "ConicGradient") {
+        changed = true;
+        // startAngle was stored in radians; ComputeGradient's angle is in degrees.
+        const angleDeg = Number.isFinite(p.startAngle)
+          ? (((p.startAngle * 180 / Math.PI) % 360) + 360) % 360
+          : 0;
+        return {
+          ...node,
+          kind: "ComputeGradient",
+          params: {
+            type: "Angular",
+            colorMode: "Grayscale",
+            centerX: Number.isFinite(p.centerX) ? p.centerX : 0.5,
+            centerY: Number.isFinite(p.centerY) ? p.centerY : 0.5,
+            angle: angleDeg,
+            inputMix: 0.0,
+          },
+        };
+      }
+
+      return node;
     });
 
     return changed ? { ...data, nodes: migratedNodes } : data;

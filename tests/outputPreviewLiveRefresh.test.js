@@ -3,7 +3,7 @@
 //
 // Bug: updateAnimatedFragmentPreviews re-read compute nodes and expression-animated nodes (+ their
 // downstream) every frame, but NOT the nodes downstream of compute nodes. So in a graph like
-// ComputeNoise -> ColorRamp -> OutputFinal, the compute node's thumbnail animated while ColorRamp's
+// ComputeNoise -> Remap -> OutputFinal, the compute node's thumbnail animated while Remap's
 // and OutputFinal's froze on the last frame they were edited — the OutputFinal thumbnail visibly
 // diverged from the floating preview (the live main render). The output node "wasn't showing its
 // input."
@@ -46,7 +46,7 @@ describe('updateAnimatedFragmentPreviews refreshes compute-downstream nodes', ()
     window.shaderPreviewManager = {
       enableGPUPreview: true,
       isComputeNode: isComputeKind,
-      isVisualNode: (n) => !isComputeKind(n), // OutputFinal / ColorRamp are visual; compute is not
+      isVisualNode: (n) => !isComputeKind(n), // OutputFinal / Remap are visual; compute is not
     };
     // No expression-animated nodes for these tests — isolate the compute-downstream behavior.
     window.editor = { paramPanel: null };
@@ -76,7 +76,7 @@ describe('updateAnimatedFragmentPreviews refreshes compute-downstream nodes', ()
     const graph = {
       nodes: [
         { id: 'c', kind: 'ComputeNoise', inputs: [] },
-        { id: 'r', kind: 'ColorRamp', inputs: ['c'] },
+        { id: 'r', kind: 'Remap', inputs: ['c'] },
         { id: 'o', kind: 'OutputFinal', inputs: ['r'] },
       ],
       connections: [
@@ -95,7 +95,7 @@ describe('updateAnimatedFragmentPreviews refreshes compute-downstream nodes', ()
   it('does not refresh anything when there are no compute or animated nodes', () => {
     const graph = {
       nodes: [
-        { id: 'r', kind: 'ColorRamp', inputs: [] },
+        { id: 'r', kind: 'Remap', inputs: [] },
         { id: 'o', kind: 'OutputFinal', inputs: ['r'] },
       ],
       connections: [{ from: { nodeId: 'r' }, to: { nodeId: 'o' } }],

@@ -184,7 +184,7 @@ export function packComputeUniforms(kind, params, ctx) {
       u[9] = ev(p.brightness, 1.0);
       const colorStops = gradientColorStops(p);
       u[10] = Math.min(colorStops.length, 8); // numStops
-      u[11] = 0.0; // padding
+      u[11] = ev(p.inputMix, 1.0); // blend amount for a connected Value input
       // NOTE: the color stops themselves live in a separate storage buffer the
       // caller must update (ComputeShaderManager.updateColorStopsBuffer).
       break;
