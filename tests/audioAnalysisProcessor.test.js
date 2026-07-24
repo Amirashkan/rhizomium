@@ -7,14 +7,12 @@ function makeGraph(nodes) {
   return { nodes, getNode: (id) => byId.get(id) };
 }
 
-// A uniform manager whose buffer already has the node's three keys registered (as the compiler's
+// A uniform manager whose buffer already has the node's keys registered (as the compiler's
 // getParam() would).
 function makeUniformManager(kickNodeIds = []) {
   const uniformValues = new Map();
   for (const id of kickNodeIds) {
-    uniformValues.set(`${id}.level`, 0);
-    uniformValues.set(`${id}.kick`, 0);
-    uniformValues.set(`${id}.trig`, 0);
+    for (const k of ['level', 'kick', 'trig', 'strength']) uniformValues.set(`${id}.${k}`, 0);
   }
   return { uniformValues };
 }
@@ -22,22 +20,11 @@ function makeUniformManager(kickNodeIds = []) {
 function kickNode(params = {}) {
   return {
     id: 'k', kind: 'AudioAnalysis',
-    // Mirrors the node's shipped defaults (see data/nodes/InputNodes.js) so the tests exercise
-    // what users actually get.
-    params: { band: 'Bass', threshold: 1.0, sensitivity: 2.5, kickRelease: 140, refractory: 250, ...params },
+    // The node's entire parameter set (see data/nodes/InputNodes.js): two knobs.
+    params: { threshold: 1.0, sense: 0.6, ...params },
     inputs: [],
   };
 }
-
-// Which globals feed a given Band: [spectral flux (detection), band envelope (presence gate)].
-// Custom has no dedicated band envelope, so its presence gate falls back to full-band.
-const BAND_GLOBALS = {
-  Bass: ['_audioFluxBass', '_audioEnvelopeBass'],
-  Mids: ['_audioFluxMids', '_audioEnvelopeMids'],
-  Highs: ['_audioFluxHighs', '_audioEnvelopeHighs'],
-  Full: ['_audioFluxFull', '_audioEnvelopeFull'],
-  Custom: ['_audioFluxCustom', '_audioEnvelopeFull'],
-};
 
 const AUDIO_GLOBALS = [
   '_audioEnvelopeValue', '_audioEnvelopeBass', '_audioEnvelopeMids', '_audioEnvelopeHighs',
@@ -53,22 +40,21 @@ function stubClient() {
 }
 
 // The onset signal's real scale, measured on commercial music: background sits near 0.07 and a
-// clear kick reads 1-2.5, which is why the shipped threshold is 1.0. Tests use these so they
-// exercise realistic magnitudes rather than arbitrary ones.
+// clear kick reads 1-2.5, which is why the shipped threshold is 1.0.
 const BACKGROUND = 0.03;
 const HIT = 2.5;
+// Fixed internals the node no longer exposes (see AudioAnalysisProcessor).
+const MIN_GAP_MS = 250;
 
 /**
  * A test rig that drives the processor frame by frame on an explicit clock.
  *
- * `step(flux)` publishes one frame of spectral flux for the node's band and advances 16ms.
+ * `step(strength)` publishes one frame of the kick band's onset signal and advances 16ms.
  * Detection is judged one frame LATE (peak picking needs to see the frame after the candidate),
  * so a spike fires on the step AFTER the peak — `hit()` encodes that rise-then-fall shape.
  */
 function makeRig(params = {}) {
   const node = kickNode(params);
-  const band = params.band || 'Bass';
-  const [fluxKey, energyKey] = BAND_GLOBALS[band];
   const graph = makeGraph([node]);
   const um = makeUniformManager(['k']);
   const proc = new AudioAnalysisProcessor();
@@ -76,8 +62,8 @@ function makeRig(params = {}) {
 
   let t = 0;
   const step = (flux, { energy = 0.5, dtMs = 16 } = {}) => {
-    window[fluxKey] = flux;
-    window[energyKey] = energy;
+    window._audioFluxBass = flux;
+    window._audioEnvelopeBass = energy;
     t += dtMs / 1000;
     proc.update(graph, { time: t, now: t, uniformManager: um });
     return um.uniformValues.get('k.trig');
@@ -89,7 +75,7 @@ function makeRig(params = {}) {
     return fired;
   };
   // One realistic transient: a multi-frame attack peaking at `strength`, then its decay. The whole
-  // shape scales with `strength`, so a weak hit is weak throughout. Returns how many times it fired.
+  // shape scales with `strength`, so a weak hit is weak throughout.
   const ATTACK_SHAPE = [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06];
   const hit = (strength = HIT, opts) => {
     let fired = 0;
@@ -118,10 +104,10 @@ describe('AudioAnalysisProcessor', () => {
   });
 
   it('fires exactly once on a multi-frame attack', () => {
-    // The doubling regression. A kick's attack spans several frames as the FFT window slides over
-    // it, so a threshold-crossing detector fires on the way up and again on later ripples. Peak
-    // picking judges each frame once its successor is known and only accepts a local maximum,
-    // which a single transient has exactly one of.
+    // A kick's attack spans several frames as the FFT window slides over it, so a
+    // threshold-crossing detector fires on the way up and again on later ripples. Peak picking
+    // judges each frame once its successor is known and only accepts a local maximum, which a
+    // single transient has exactly one of.
     const rig = makeRig();
     rig.silence();
     expect(rig.hit()).toBe(1);
@@ -131,43 +117,45 @@ describe('AudioAnalysisProcessor', () => {
     const rig = makeRig();
     rig.silence();
     for (let i = 0; i < 8; i++) {
-      expect(rig.hit()).toBe(1);   // the transient itself
+      expect(rig.hit()).toBe(1);       // the transient itself
       expect(rig.silence(12)).toBe(0); // the gap between kicks stays quiet
     }
   });
 
-  it('reports a full kick envelope and a single-frame trig, and passes the shaped level through', () => {
+  it('reports a full kick envelope, a single-frame trig, and the live level and strength', () => {
     const rig = makeRig();
-    window._audioEnvelopeValue = 0.6; // the shaped envelope feeding `level`
+    window._audioEnvelopeValue = 0.6; // the envelope feeding `level`
     rig.silence();
-    // The envelope snaps to a full 1.0 on the firing frame (it decays from there over kickRelease).
+    // The envelope snaps to a full 1.0 on the firing frame, then decays.
     expect(rig.hitPeakEnv()).toBeCloseTo(1.0);
     expect(rig.um.uniformValues.get('k.level')).toBeCloseTo(0.6);
     // trig is a one-frame pulse: it has already cleared on the frames after the peak.
     expect(rig.um.uniformValues.get('k.trig')).toBe(0);
+    // strength reports the onset signal Threshold is compared against.
+    rig.step(1.75);
+    expect(rig.um.uniformValues.get('k.strength')).toBeCloseTo(1.75);
   });
 
-  it('never fires on sustained loudness — only spectral change counts', () => {
-    // The point of the flux detector: a held bass note keeps the band's LEVEL high but its
-    // spectrum static, so flux stays ~0 and no threshold tuning is needed to reject it.
+  it('never fires on sustained loudness — only change counts', () => {
+    // A held bass note keeps the band's LEVEL high but produces no onset, so no tuning is needed
+    // to reject it.
     const rig = makeRig();
     let fired = 0;
     for (let i = 0; i < 60; i++) fired += rig.step(0.0, { energy: 0.9 });
     expect(fired).toBe(0);
   });
 
-  it('does not retrigger while flux sits on a plateau', () => {
+  it('does not retrigger while the signal sits on a plateau', () => {
     const rig = makeRig();
     rig.silence();
     let fired = 0;
     for (let i = 0; i < 40; i++) fired += rig.step(1.5);
-    // The rise into the plateau is at most one onset; the flat part must never re-fire.
     expect(fired).toBeLessThanOrEqual(1);
   });
 
-  it('stays silent while the band is not sounding, however the flux looks', () => {
-    // Phantom-hit regression: flux is a RELATIVE measure, so without an absolute presence gate the
-    // noise floor of a silent passage normalizes into a "strong onset".
+  it('stays silent while the band is not sounding, however the signal looks', () => {
+    // The onset signal is relative, so without an absolute presence gate a silent passage's noise
+    // could be shaped into something that looks like a hit.
     const rig = makeRig();
     rig.silence(20, { energy: 0.0 });
     expect(rig.hit(HIT, { energy: 0.0 })).toBe(0);
@@ -178,40 +166,11 @@ describe('AudioAnalysisProcessor', () => {
     expect(rig.hit(HIT, { energy: 0.5 })).toBe(1);
   });
 
-  it('requires prominence over a busy passage (adaptive median+MAD threshold)', () => {
-    // When flux is churning every frame, a bump no bigger than the ambient churn is not a distinct
-    // hit. The statistics learned from recent frames reject it without manual retuning.
-    const rig = makeRig();
-    let fired = 0;
-    for (let i = 0; i < 60; i++) fired += rig.step(i % 2 ? 1.4 : 0.85);
-    // At most the initial onset into the churn; the ongoing ripple must not machine-gun.
-    expect(fired).toBeLessThanOrEqual(1);
-  });
+  // --- the two knobs ---------------------------------------------------------------------------
 
-  it('rejects a weak peak below the absolute floor', () => {
-    const rig = makeRig({ threshold: 2.0 });
-    rig.silence();
-    expect(rig.hit(2.5)).toBe(1);  // 2.5 clears the 2.0 floor
-    rig.silence(30);
-    expect(rig.hit(1.2)).toBe(0);  // 1.2 does not, however prominent it is locally
-  });
-
-  it('raising the threshold only ever fires less, and a high one fires nothing', () => {
-    // Regression: the floor used to be a fraction of a decaying running peak, which made every new
-    // maximum read as 1.0. A band carrying nothing but low-level wobble was normalized into a
-    // stream of "perfect" onsets that no threshold could refuse — including 1.0.
-    const weak = () => {
-      const rig = makeRig(); // shipped threshold
-      let fired = 0;
-      for (let i = 0; i < 200; i++) {
-        // Irregular wobble an order of magnitude below a real hit.
-        fired += rig.step(BACKGROUND + 0.25 * Math.abs(Math.sin(i * 2.399)) * (i % 7 === 0 ? 1 : 0.2));
-      }
-      return fired;
-    };
-    expect(weak()).toBe(0);
-
-    // ...and the knob is monotonic on a signal that does contain real hits.
+  it('Threshold: raising it only ever fires less, and a high value fires nothing', () => {
+    // Regression: the floor was once a fraction of a decaying running peak, which made every new
+    // maximum read as 1.0 — a band of pure noise became a stream of onsets no value could refuse.
     const counts = [0.2, 1.0, 2.0, 50].map((threshold) => {
       const rig = makeRig({ threshold });
       let fired = 0;
@@ -219,24 +178,77 @@ describe('AudioAnalysisProcessor', () => {
       return fired;
     });
     for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
-    expect(counts[0]).toBeGreaterThan(0); // a low floor does let the hits through
-    expect(counts[counts.length - 1]).toBe(0); // a floor above any real onset fires nothing
+    expect(counts[0]).toBeGreaterThan(0);
+    expect(counts[counts.length - 1]).toBe(0);
   });
 
-  it('suppresses a second kick inside the refractory window, then allows one after it', () => {
-    const rig = makeRig({ refractory: 200 });
+  it('Threshold: a hit below it is refused however prominent it is locally', () => {
+    const rig = makeRig({ threshold: 2.0 });
+    rig.silence();
+    expect(rig.hit(2.5)).toBe(1);
+    rig.silence(30);
+    expect(rig.hit(1.2)).toBe(0);
+  });
+
+  it('Sense: raising it fires MORE, matching what the name says', () => {
+    // The knob it replaced was a strictness multiplier, so turning "sensitivity" up made the
+    // detector fire less. Sense is inverted internally so the control reads the way it is labelled.
+    const counts = [0.0, 0.4, 0.8, 1.0].map((sense) => {
+      const rig = makeRig({ threshold: 0.05, sense });
+      let fired = 0;
+      // Hits that only just stand out from a busy background, so the margin is what decides.
+      for (let i = 0; i < 10; i++) {
+        fired += rig.hit(0.35);
+        for (let j = 0; j < 18; j++) fired += rig.step(0.1 + 0.06 * (j % 3));
+      }
+      return fired;
+    });
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThanOrEqual(counts[i - 1]);
+    expect(counts[counts.length - 1]).toBeGreaterThan(counts[0]);
+  });
+
+  it('Sense keeps working past the first few hits', () => {
+    // Regression: the peak-picking delay line starts at Infinity, and those startup sentinels were
+    // being recorded as local maxima. Once enough had accumulated, Sense's reference became
+    // Infinity and the detector went permanently silent a couple of seconds in — the worst kind of
+    // failure, since it looks fine at first.
+    const rig = makeRig();
+    rig.silence();
+    for (let i = 0; i < 12; i++) {
+      expect(rig.hit()).toBe(1);
+      rig.silence(12);
+    }
+  });
+
+  it('Sense at 0 still lets an unmistakable hit through', () => {
+    const rig = makeRig({ sense: 0 });
+    rig.silence();
+    expect(rig.hit(HIT)).toBe(1);
+  });
+
+  it('clamps out-of-range knob values rather than misbehaving', () => {
+    for (const sense of [-5, 99]) {
+      const rig = makeRig({ sense });
+      rig.silence();
+      expect(() => rig.hit(HIT)).not.toThrow();
+    }
+  });
+
+  // --- fixed internals -------------------------------------------------------------------------
+
+  it('suppresses a second kick inside the fixed minimum gap, then allows one after it', () => {
+    const rig = makeRig();
     rig.silence();
     expect(rig.hit()).toBe(1);
-    // Another transient immediately after — inside the 200ms window, so suppressed.
+    // Another transient immediately after — inside the gap, so suppressed.
     expect(rig.hit()).toBe(0);
-    // Wait out the window, then a transient is allowed again.
-    rig.silence(20);
+    // Wait out the gap, then a transient is allowed again.
+    rig.silence(Math.ceil(MIN_GAP_MS / 16) + 4);
     expect(rig.hit()).toBe(1);
   });
 
-  it('times the refractory on the wall clock, not the render loop\'s sim time', () => {
+  it('times the gap on the wall clock, not the render loop\'s sim time', () => {
     // Audio plays in real time: it does not slow with timeScale or stop when the sim clock pauses.
-    // With sim time frozen, detection timing must still advance.
     const node = kickNode();
     const graph = makeGraph([node]);
     const um = makeUniformManager(['k']);
@@ -257,14 +269,13 @@ describe('AudioAnalysisProcessor', () => {
     expect(fired).toBe(1);
   });
 
-  it('decays the kick envelope toward zero over the kick-release time', () => {
-    const rig = makeRig({ kickRelease: 100 });
+  it('decays the kick envelope toward zero after a hit', () => {
+    const rig = makeRig();
     rig.silence();
     rig.hit();
     const afterHit = rig.um.uniformValues.get('k.kick');
     expect(afterHit).toBeGreaterThan(0);
 
-    // Flux falls back to silence; the kick envelope should monotonically decay and approach 0.
     let prev = afterHit;
     for (let i = 0; i < 14; i++) {
       rig.step(0.0);
@@ -275,133 +286,43 @@ describe('AudioAnalysisProcessor', () => {
     expect(prev).toBeLessThan(0.2);
   });
 
-  it('detects on the selected band\'s spectral flux, not the shaped level', () => {
-    // The shaped level (follower/ADSR output) plateaus and must never drive detection; the flux of
-    // the node's Band must. A Mids node ignores bass flux and fires on mids flux.
-    const rig = makeRig({ band: 'Mids' });
-    window._audioEnvelopeValue = 0.9;
-    rig.silence();
-
-    // A big transient on the WRONG band -> nothing.
-    window._audioFluxBass = 0.9;
-    window._audioEnvelopeBass = 0.9;
-    let fired = 0;
-    for (let i = 0; i < 7; i++) fired += rig.step(BACKGROUND);
-    expect(fired).toBe(0);
-
-    // The same transient on Mids -> one hit, and `level` still reports the shaped value.
-    expect(rig.hit()).toBe(1);
-    expect(rig.um.uniformValues.get('k.level')).toBeCloseTo(0.9);
-  });
-
-  it('uses the dedicated custom-band flux for Band: Custom', () => {
-    const rig = makeRig({ band: 'Custom' });
-    rig.silence();
-    // Full-band flux must be ignored — Custom no longer falls back to it for detection.
-    window._audioFluxFull = HIT;
-    let fired = 0;
-    for (let i = 0; i < 7; i++) fired += rig.step(BACKGROUND);
-    expect(fired).toBe(0);
-    expect(rig.hit()).toBe(1);
-  });
-
-  it('rejects a broadband onset with Isolate on, and accepts it with Isolate off', () => {
-    // A snare or clap fires across the whole spectrum at once. Isolate subtracts the high band, so
-    // it cancels while a kick — nearly all low energy — survives untouched.
-    const broadband = (rig, strength) => {
-      let fired = 0;
-      for (const f of [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06]) {
-        window._audioFluxHighs = f * strength;      // present across the spectrum
-        fired += rig.step(f * strength);            // ...including the bass band
-      }
-      window._audioFluxHighs = 0;
-      return fired;
-    };
-
-    const isolated = makeRig();
-    isolated.silence();
-    expect(broadband(isolated, HIT)).toBe(0);
-    // The same rig still fires on a low-only hit.
-    expect(isolated.hit(HIT)).toBe(1);
-
-    const raw = makeRig({ isolate: false });
-    raw.silence();
-    expect(broadband(raw, HIT)).toBe(1);
-  });
-
-  it('applies Isolate to a Custom band too, not just Bass', () => {
-    // Regression: broadband rejection used to be baked into the bass signal, so a hand-dialled
-    // Custom kick range behaved completely differently from the built-in Bass one.
-    const rig = makeRig({ band: 'Custom' });
+  it('detects on the kick band only', () => {
+    // The band is fixed: this is a kick detector. Activity in other bands must not trigger it.
+    const rig = makeRig();
     rig.silence();
     let fired = 0;
-    for (const f of [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06]) {
-      window._audioFluxHighs = f * HIT;
-      fired += rig.step(f * HIT);
+    for (let i = 0; i < 14; i++) {
+      window._audioFluxMids = HIT;
+      window._audioFluxHighs = HIT;
+      window._audioFluxFull = HIT;
+      fired += rig.step(BACKGROUND);
     }
-    window._audioFluxHighs = 0;
     expect(fired).toBe(0);
-    expect(rig.hit(HIT)).toBe(1);
+    expect(rig.hit()).toBe(1);
   });
 
-  it('auto-calibrates a threshold from the audio it hears', () => {
-    // The whole point: the user should not have to find this number by hand.
-    const rig = makeRig({ threshold: 40 }); // starts far too high to fire on anything
-    rig.proc.requestCalibration('k');
-    expect(rig.proc.isCalibrating('k')).toBe(true);
-
-    // Play a groove past it for longer than the calibration window.
-    for (let i = 0; i < 60; i++) { rig.hit(HIT); rig.silence(16); }
-
-    expect(rig.proc.isCalibrating('k')).toBe(false);
-    const chosen = rig.node.params.threshold;
-    expect(chosen).toBeGreaterThan(0);
-    expect(chosen).toBeLessThan(HIT);  // below a hit, so hits register
-    expect(chosen).toBeGreaterThan(0.01); // above the background
-
-    // ...and the chosen value actually detects the material it was calibrated on.
-    let fired = 0;
-    for (let i = 0; i < 8; i++) { fired += rig.hit(HIT); rig.silence(16); }
-    expect(fired).toBe(8);
-  });
-
-  it('leaves the threshold alone when calibration hears nothing usable', () => {
-    const rig = makeRig({ threshold: 1.5 });
-    rig.proc.requestCalibration('k');
-    for (let i = 0; i < 500; i++) rig.step(0.0); // silence: no peaks to learn from
-    expect(rig.node.params.threshold).toBe(1.5);
-    expect(rig.node.__kickCalibrationResult).toBe('failed');
-  });
-
-  it('mirrors the live level onto node.__kickLevel for the CPU preview', () => {
+  it('mirrors the live values onto the node for the CPU preview', () => {
     const rig = makeRig();
     window._audioEnvelopeValue = 0.42;
     rig.step(0.0);
     expect(rig.node.__kickLevel).toBeCloseTo(0.42);
+    expect(rig.node.__kickStrength).toBeCloseTo(0);
   });
 
-  it('pushes the Band/Follower/ADSR/Shaping params to the audio engine, only when they change', () => {
-    const rig = makeRig({ band: 'Mids', attack: 30, envRelease: 250, gate: 0.2, curve: 'Sigmoid', normalize: false });
-
+  it('pushes one fixed level-envelope config to the audio engine, and only once', () => {
+    // The ten follower/ADSR/shaping parameters are gone; `level` keeps the behaviour they always
+    // defaulted to, pushed once rather than re-derived from node params every frame.
+    const rig = makeRig();
     rig.step(0.0);
     expect(rig.proc._audioClient.configs.length).toBe(1);
     const cfg = rig.proc._audioClient.configs[0];
-    expect(cfg.frequency.mode).toBe('mids');
-    expect(cfg.follower.attack_ms).toBe(30);
-    expect(cfg.follower.release_ms).toBe(250);
-    expect(cfg.follower.threshold).toBe(0.2);
-    expect(cfg.shaping.curve).toBe('sigmoid');
-    expect(cfg.shaping.normalize).toBe(false);
+    expect(cfg.frequency.mode).toBe('bass');
+    expect(cfg.follower.attack_ms).toBe(50);
+    expect(cfg.adsr.sustain).toBe(0.7);
+    expect(cfg.shaping.curve).toBe('exp');
 
-    // Unchanged params -> no repeat push.
-    rig.step(0.0);
+    for (let i = 0; i < 10; i++) rig.step(0.0);
     expect(rig.proc._audioClient.configs.length).toBe(1);
-
-    // Change a param -> one more push.
-    rig.node.params.band = 'Highs';
-    rig.step(0.0);
-    expect(rig.proc._audioClient.configs.length).toBe(2);
-    expect(rig.proc._audioClient.configs[1].frequency.mode).toBe('highs');
   });
 
   it('drives the audio engine once per update so the envelope never freezes', () => {

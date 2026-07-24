@@ -3,165 +3,92 @@ import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 
 /**
- * Drives the Audio Analysis node — live envelope analysis + precise kick/onset detection.
+ * Drives the Audio Analysis node: a kick detector with two knobs, plus a continuous level output.
  *
- * A fragment shader has no memory between frames, so neither the envelope follower/ADSR nor an
- * onset detector (both inherently stateful) can be expressed in GLSL/WGSL alone — the same reason
- * Hold and Count need CPU helpers. This runs on the CPU every frame and does two things:
+ * A fragment shader has no memory between frames, so neither the level envelope nor an onset
+ * detector (both inherently stateful) can be expressed in GLSL/WGSL alone — the same reason Hold
+ * and Count need CPU helpers. This runs on the CPU every frame and streams four uniforms.
  *
- *   1. Pushes the node's Band / Follower / ADSR / Shaping params into the shared audio-envelope
- *      engine (BrowserAudioCapture.updateConfig — the same controls that used to live in the Audio
- *      settings panel), then reads back the resulting shaped envelope (window._audioEnvelopeValue).
- *   2. Runs kick detection on the band's ONSET SIGNAL (BrowserAudioCapture._computeSpectralFlux:
- *      the per-frame rise in linear magnitude across the band, divided by that band's own slowly
- *      averaged level) — not on loudness. It reads ~0 for a sustained bass note and spikes only
- *      when new energy arrives, which is what makes hits separable at all. For Band: Bass it is
- *      taken over 30-120 Hz, the kick's fundamental, so a snare's body around 200 Hz is out of
- *      frame to begin with.
+ * WHAT IT DETECTS ON
+ * The onset signal from BrowserAudioCapture._computeSpectralFlux: the per-frame rise in linear
+ * magnitude across 30-120 Hz (the kick's fundamental), divided by that band's own slowly averaged
+ * level. It reads ~0 for a sustained bass note and spikes only when new energy arrives, and the
+ * division makes it independent of playback volume. It is deliberately NOT loudness — a bassline
+ * holds the band's level high continuously, so loudness cannot separate a kick from the note under
+ * it. The `strength` output reports this number, so Threshold can be read off rather than guessed.
  *
- *      Detection is PEAK-PICKING, not threshold-crossing. A kick's attack spans several frames
- *      (the FFT window slides across it), so "first frame over the line" fires somewhere on the
- *      way up and then fires again on any later ripple that clears the line — the classic source
- *      of doubled hits, and one no threshold/sensitivity value can tune away. Instead each frame
- *      is judged one frame LATE, once its successor is known, and only a strict local maximum can
- *      trigger. A multi-frame attack has exactly one local max, so it produces exactly one hit.
- *      Cost: ~16ms of latency, invisible for visuals.
+ * HOW A HIT IS DECIDED
+ * Peak picking, not threshold-crossing. A kick's attack spans several frames as the FFT window
+ * slides across it, so "first frame over the line" fires on the way up and again on any later
+ * ripple — the classic doubled hit, and one no knob can tune away. Each frame is judged one frame
+ * LATE, once its successor is known, and only a strict local maximum can trigger; a multi-frame
+ * attack has exactly one. That costs ~16ms of latency, invisible for visuals.
  *
- *      A candidate peak must also clear an adaptive threshold (median + `sensitivity` * MAD over
- *      ~1.5s of past signal — robust statistics that hit-frames barely move), clear an absolute
- *      floor (`threshold`; on real music a clear kick reads about 1-2.5 and the background about
- *      0.07), sit in a band that actually has energy, and fall outside the refractory window
- *      (`refractory` ms) of the last hit.
+ * A candidate peak must then clear THRESHOLD (absolute, in the units `strength` reports), stand
+ * clear of the recent background by an amount SENSE controls, sit in a band that is actually
+ * sounding, and fall outside the minimum gap since the last hit.
  *
- *      The floor is deliberately absolute rather than a fraction of the strongest recent hit.
- *      Scaling it that way sounds appealing but makes every new maximum read as exactly 1.0, so a
- *      band holding nothing but noise is amplified into a stream of flawless onsets that NO
- *      threshold can reject. The onset signal is made volume-independent at the source instead, by
- *      dividing by the band's own slow level, so an absolute floor stays meaningful across tracks
- *      and playback volumes without that failure mode.
+ * The threshold is absolute rather than a fraction of the strongest recent hit. Scaling it that
+ * way makes every new maximum read as exactly 1.0, so a band holding nothing but noise is
+ * amplified into a stream of flawless onsets that NO threshold can reject. Volume independence is
+ * handled at the source instead (see above), which gets the same benefit without that failure.
  *
- *      All detector timing runs on the WALL CLOCK, not the render loop's sim time: audio plays in
- *      real time and does not slow down with timeScale or stop when the sim clock pauses, so
- *      `refractory` ms and `kickRelease` ms have to be real milliseconds to mean anything.
+ * Detector timing runs on the WALL CLOCK, not the render loop's sim time: audio plays in real time
+ * and does not slow with timeScale or stop when the sim clock pauses, so the gap between hits and
+ * the envelope decay have to be real milliseconds to mean anything.
  *
- * It streams three uniforms the node compiled down to (see compilers/InputNodes.js) which the GPU
- * renderer sends to the shader each frame:
- *   <id>.level - the live shaped envelope in [0,1] (moves continuously while audio plays)
- *   <id>.kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over `kickRelease` ms
- *   <id>.trig  - a single-frame 1.0 pulse on the detection frame
+ * Uniforms streamed each frame (see compilers/InputNodes.js):
+ *   <id>.level    - continuous 0..1 envelope of the audio
+ *   <id>.kick     - snaps to 1 on a detected hit, decays over KICK_RELEASE_MS
+ *   <id>.trig     - a single-frame 1.0 pulse on the detection frame
+ *   <id>.strength - the onset signal Threshold is compared against
  */
-// Onset-detector tuning (internal; the node's params scale on top of these).
-// How many recent flux frames feed the median/MAD statistics (~1.5s at 60fps).
-const FLUX_HISTORY = 90;
-// Floor for the MAD term so an unnaturally steady passage can't shrink the adaptive threshold into
-// a hair trigger. Absolute, in flux units, for the same reason `threshold` is (see below).
-const MIN_MAD = 0.05;
-// The selected band must carry at least this much energy (per-band envelope, 0..1) for a peak to
-// count as a hit. Flux is a RELATIVE measure — normalization would happily turn the noise floor of
-// a silent passage into a "strong onset" — so an absolute presence gate is what keeps the detector
-// quiet between tracks, during breakdowns, and while paused.
+// How far back the detector looks to judge "what a hit sounds like around here": the strong peaks
+// within this window define the local reference SENSE works against.
+const PEAK_WINDOW_S = 6;
+// Fewer recent peaks than this and there is nothing to generalise from, so SENSE stands down and
+// Threshold decides alone.
+const MIN_PEAKS_FOR_REFERENCE = 5;
+// Which recent peaks count as "hits" for that reference. Background wiggles vastly outnumber real
+// hits, so the reference is the top sliver, not the middle: taking the median of all peaks lands
+// among the noise and drags the reference far below any real hit.
+const PEAK_REFERENCE_PERCENTILE = 0.9;
+// The band must carry at least this much energy (band envelope, 0..1) for a peak to count. The
+// onset signal is relative, so without an absolute presence check a silent passage's noise could
+// still be shaped into something that looks like a hit.
 const MIN_BAND_ENERGY = 0.04;
 
-// How long Auto-Calibrate listens before choosing a threshold. Long enough to cover several bars
-// at any usual tempo, short enough that the user isn't left waiting.
-const CALIBRATION_SECONDS = 6;
-// A calibration needs at least this many candidate hits to be worth trusting.
-const CALIBRATION_MIN_PEAKS = 5;
-// Which peaks count as "hits" when sizing up the material. Local maxima in the background far
-// outnumber real hits — a few seconds holds a dozen kicks but a hundred or more wiggles — so the
-// hits are only the top sliver. Measured against real drum tracks, taking the top third put the
-// estimate down among the noise and calibration came back far too low; the top tenth lands on the
-// hits themselves.
-const CALIBRATION_PEAK_PERCENTILE = 0.9;
-// Where to put the threshold between the background and a typical hit. Below the hits so quiet
-// ones still register, comfortably above the noise. 0.45 leaves room for the weakest kick in a
-// phrase, which measures at roughly half the strongest.
-const CALIBRATION_HIT_FRACTION = 0.45;
+// --- fixed detector settings --------------------------------------------------------------------
+// These were parameters once. They are constants now because none of them was a real choice: each
+// has one value that measurement supports, and exposing them only multiplied the ways to be wrong.
+
+// Minimum time between hits. Longer than a kick's own decay tail, whose late ripples would
+// otherwise re-trigger, and long enough to step over an intervening hat. Measured on real music,
+// 250ms beat 200ms without costing detections. It still clears quarter-note kicks up to ~240 BPM.
+const MIN_GAP_MS = 250;
+// How long the `kick` envelope takes to fall back to 0. Cosmetic: it shapes the output, it has no
+// effect on what gets detected.
+const KICK_RELEASE_MS = 140;
+// SENSE (0..1) sets how much of a typical recent hit a peak must match to count:
+//   1.0 - no comparison at all, Threshold alone decides (most permissive)
+//   0.5 - must also reach half of what recent hits reach
+//   0.0 - must match recent hits outright (only the strongest survive)
+// It can only ever RAISE the bar above Threshold, never lower it. That ordering matters: a purely
+// relative test would rescale a band of pure noise into "hits" that no setting could refuse, which
+// is a failure this detector has already had once.
 
 export class AudioAnalysisProcessor {
   constructor() {
-    // nodeId -> { peak, history, env, prevFlux, lastTime, lastKickTime }
+    // nodeId -> { peaks, env, f1, f2, f1Energy, lastTime, lastKickTime }
     this._state = new Map();
     // Last config JSON pushed to the audio engine, so we only call updateConfig when it changes
     // (the engine is a shared singleton; there's no point re-pushing an identical config per frame).
     this._lastConfigJson = null;
     // Cached audio-engine handle (lazily resolved; may be null in non-browser/test contexts).
     this._audioClient = undefined;
-    // nodeId -> { samples, startedAt } while an Auto-Calibrate run is collecting.
-    this._calibrating = new Map();
   }
 
-  /**
-   * Start an Auto-Calibrate run for a node (the node's "Auto-Calibrate" button, routed through
-   * ParameterPanel.runParameterAction). The next few seconds of onset signal are recorded and the
-   * node's Kick Threshold is then set from what the audio actually contains, so the number comes
-   * from measurement rather than from guessing. Play the track's main groove while it listens.
-   */
-  requestCalibration(nodeId) {
-    this._calibrating.set(nodeId, { samples: [], startedAt: null });
-  }
-
-  /** True while a calibration run is collecting for this node (drives the UI hint). */
-  isCalibrating(nodeId) {
-    return this._calibrating.has(nodeId);
-  }
-
-  /**
-   * Choose a threshold from a recorded stretch of onset signal.
-   *
-   * The recording is a mix of background (most frames) and hits (a few tall, isolated peaks). Take
-   * the local maxima, treat the strongest group as "what a hit looks like here", and place the
-   * threshold a fixed fraction below that — but never so low that the background can reach it.
-   * Returns null when the recording holds too few peaks to be worth trusting.
-   */
-  _thresholdFromSamples(samples) {
-    if (!samples || samples.length < 30) return null;
-
-    const peaks = [];
-    for (let i = 1; i < samples.length - 1; i++) {
-      if (samples[i] >= samples[i - 1] && samples[i] > samples[i + 1]) peaks.push(samples[i]);
-    }
-    if (peaks.length < CALIBRATION_MIN_PEAKS) return null;
-
-    const sortedPeaks = [...peaks].sort((a, b) => a - b);
-    // "A typical hit": the median of the strongest peaks. The median keeps one freak transient from
-    // defining the scale, while the percentile keeps the many background wiggles out of it.
-    const strong = sortedPeaks.slice(Math.floor(sortedPeaks.length * CALIBRATION_PEAK_PERCENTILE));
-    const typicalHit = strong[strong.length >> 1];
-    if (!(typicalHit > 0)) return null;
-
-    // Background level, measured the same robust way the live detector measures it.
-    const median = this._median(samples);
-    const mad = this._median(samples.map((v) => Math.abs(v - median)));
-    const backgroundCeiling = median + 4 * Math.max(mad, MIN_MAD);
-
-    const threshold = Math.max(CALIBRATION_HIT_FRACTION * typicalHit, backgroundCeiling);
-    // If the background reaches what hits look like, this material has no separable onsets in this
-    // band — better to say so than to hand back a number that cannot work.
-    if (threshold >= typicalHit) return null;
-    return Math.min(0.95, Math.max(0.01, Math.round(threshold * 1000) / 1000));
-  }
-
-  /** Feed one frame into an in-flight calibration; finish and apply when the window elapses. */
-  _advanceCalibration(node, flux, clock) {
-    const run = this._calibrating.get(node.id);
-    if (!run) return;
-    if (run.startedAt === null) run.startedAt = clock;
-    run.samples.push(flux);
-    if (clock - run.startedAt < CALIBRATION_SECONDS) return;
-
-    this._calibrating.delete(node.id);
-    const threshold = this._thresholdFromSamples(run.samples);
-    if (threshold === null) {
-      node.__kickCalibrationResult = 'failed';
-      return;
-    }
-    node.params.threshold = threshold;
-    node.__kickCalibrationResult = threshold;
-    // Reset detector state so the new threshold takes effect against a clean baseline.
-    this._state.delete(node.id);
-  }
-
+  /** The shared audio engine, resolved lazily (may be null in non-browser/test contexts). */
   _client() {
     if (this._audioClient === undefined) {
       try {
@@ -174,37 +101,18 @@ export class AudioAnalysisProcessor {
   }
 
   /**
-   * Build the envelope-engine config from a node's params and push it to the shared audio engine,
-   * but only when it actually changed. These are exactly the controls the Audio settings panel used
-   * to expose (Follower / ADSR / Shaping / Frequency band).
+   * Push the level envelope's settings to the shared audio engine, once.
+   *
+   * These were once ten node parameters (follower attack/release/gate, four ADSR stages, curve,
+   * normalize, band). They are the values they always defaulted to, so `level` behaves exactly as
+   * a default node always did — without asking anyone to understand an ADSR to get a kick.
    */
-  _applyEngineConfig(node, ctx) {
-    const bandMap = { bass: 'bass', mids: 'mids', highs: 'highs', full: 'fullband', custom: 'custom' };
-    const curveMap = { linear: 'linear', exponential: 'exp', exp: 'exp', sigmoid: 'sigmoid' };
-    const bandRaw = (typeof node.params?.band === 'string' ? node.params.band : 'Bass').toLowerCase();
-    const curveRaw = (typeof node.params?.curve === 'string' ? node.params.curve : 'Exponential').toLowerCase();
-
+  _applyEngineConfig() {
     const config = {
-      follower: {
-        attack_ms: this._numericParam(node, 'attack', 50.0, ctx),
-        release_ms: this._numericParam(node, 'envRelease', 200.0, ctx),
-        threshold: this._numericParam(node, 'gate', 0.1, ctx),
-      },
-      adsr: {
-        attack_ms: this._numericParam(node, 'adsrAttack', 120.0, ctx),
-        decay_ms: this._numericParam(node, 'adsrDecay', 180.0, ctx),
-        sustain: this._numericParam(node, 'sustain', 0.7, ctx),
-        release_ms: this._numericParam(node, 'adsrRelease', 600.0, ctx),
-      },
-      shaping: {
-        curve: curveMap[curveRaw] || 'exp',
-        normalize: node.params?.normalize === true || node.params?.normalize === 'true',
-      },
-      frequency: {
-        mode: bandMap[bandRaw] || 'bass',
-        customMin: this._numericParam(node, 'customMin', 40.0, ctx),
-        customMax: this._numericParam(node, 'customMax', 120.0, ctx),
-      },
+      follower: { attack_ms: 50.0, release_ms: 200.0, threshold: 0.1 },
+      adsr: { attack_ms: 120.0, decay_ms: 180.0, sustain: 0.7, release_ms: 600.0 },
+      shaping: { curve: 'exp', normalize: false },
+      frequency: { mode: 'bass', customMin: 40.0, customMax: 120.0 },
     };
 
     const json = JSON.stringify(config);
@@ -255,32 +163,29 @@ export class AudioAnalysisProcessor {
 
       // 1. Push this node's Band/Follower/ADSR/Shaping settings into the shared envelope engine,
       //    then read back the shaped envelope it produces as the continuous `level` output.
-      this._applyEngineConfig(node, ctx);
+      this._applyEngineConfig();
       const level = ctx.audioEnvelope; // window._audioEnvelopeValue — the shaped envelope
 
-      // The onset detector runs on the band's SPECTRAL FLUX, not on any loudness envelope. The
-      // per-band energy (shaped(rms*3), dB-scaled, clamped to 1) that detection used to read sits
-      // near saturation on real music — a sustained bassline holds it at 0.7+ and a kick only nudges
-      // it, so no threshold/sensitivity pair can separate hits from steady loudness. Flux measures
-      // frame-to-frame spectral CHANGE: a held note contributes ~0, a kick's attack spikes, which is
-      // the property that makes precise detection possible at all.
-      const rawFlux = this._detectionSignal(node, ctx);
-      const bandEnergy = this._bandEnergy(node, ctx);
+      // Detection runs on the kick band's onset signal, never on loudness: a sustained bassline
+      // holds the band's level high continuously, so loudness cannot tell a kick from the note
+      // underneath it. The onset signal measures CHANGE — a held note contributes ~0, an attack
+      // spikes — which is the property that makes hits separable at all.
+      const rawFlux = this._detectionSignal(ctx);
+      const bandEnergy = this._bandEnergy(ctx);
 
-      // Auto-Calibrate listens to the same signal the detector thresholds, so the number it picks
-      // is measured against exactly what detection will see.
-      this._advanceCalibration(node, rawFlux, clock);
-
-      // 2. Kick-detection controls.
+      // 2. The two knobs. Everything else about detection is fixed above.
       const threshold = Math.max(0, this._numericParam(node, 'threshold', 1.0, ctx));
-      const sensitivity = Math.max(0, this._numericParam(node, 'sensitivity', 2.5, ctx));
-      const releaseMs = Math.max(1, this._numericParam(node, 'kickRelease', 140.0, ctx));
-      const refractoryMs = Math.max(0, this._numericParam(node, 'refractory', 250.0, ctx));
+      // Sense reads as sensitivity: 1 fires readily, 0 only on hits as strong as the recent best.
+      const sense = Math.min(1, Math.max(0, this._numericParam(node, 'sense', 0.6, ctx)));
+      const releaseMs = KICK_RELEASE_MS;
+      const refractoryMs = MIN_GAP_MS;
 
       let st = this._state.get(node.id);
       if (!st) {
         st = {
-          history: [],
+          // Recent local maxima, as [time, value] pairs, trimmed to PEAK_WINDOW_S. These are what
+          // Sense compares a candidate against.
+          peaks: [],
           env: 0,
           // One-frame delay line for peak picking: f1 is the frame being judged, f2 its
           // predecessor. Both start at Infinity so nothing can look like a peak until two real
@@ -299,23 +204,12 @@ export class AudioAnalysisProcessor {
       const dt = Math.min(0.1, Math.max(0, clock - st.lastTime));
       st.lastTime = clock;
 
-      // Detection runs on the flux exactly as measured — NOT rescaled against a running peak.
-      // Self-normalization was a trap: dividing by a decaying peak-hold makes every new maximum
-      // read as 1.0, so a band containing nothing but noise gets amplified into a stream of
-      // "perfect" onsets and no `threshold` value can refuse them. Raw flux is already an absolute,
-      // volume-independent quantity (it is built from dB differences, so turning the track up
-      // shifts every bin equally and changes nothing), which is exactly what a threshold needs.
+      // Used exactly as measured — NOT rescaled against a running peak. Self-normalization was a
+      // trap: dividing by a decaying peak-hold makes every new maximum read as 1.0, so a band
+      // containing nothing but noise gets amplified into a stream of "perfect" onsets that no
+      // threshold can refuse. The signal is already volume-independent, having been divided by the
+      // band's own slow level at the source, which is exactly what a fixed threshold needs.
       const flux = rawFlux;
-
-      // Adaptive threshold from robust statistics over the last ~1.5s of flux:
-      // median + sensitivity * MAD. Unlike a mean/EMA baseline, the median barely moves when a
-      // few hit-frames land in the window, so a busy passage doesn't drag the threshold up and
-      // a breakdown doesn't turn it into a hair trigger (MAD is floored for the same reason).
-      const median = this._median(st.history);
-      const mad = Math.max(MIN_MAD, this._median(st.history.map((v) => Math.abs(v - median))));
-      const adaptive = median + sensitivity * mad;
-      st.history.push(flux);
-      if (st.history.length > FLUX_HISTORY) st.history.shift();
 
       // Decay the previous envelope exponentially toward 0 over ~`release` ms (tau = release/1000 s)
       // BEFORE testing for a new hit, so a detection this frame lands at a clean, full 1.0.
@@ -327,20 +221,33 @@ export class AudioAnalysisProcessor {
       // (f1 >= f2 and f1 > flux) occurs exactly once per transient, so a multi-frame attack yields
       // one hit instead of firing on the way up and again on every later ripple over the line.
       const isPeak = st.f1 >= st.f2 && st.f1 > flux;
-      // Absolute floor, in onset-signal units: how far the band's magnitude must jump in one frame
-      // relative to that band's own recent level. Raising it always fires less. Measured on real
-      // music a clear kick reads about 1-2.5 while the background sits near 0.07, so the default
-      // 1.0 clears kicks and refuses the rest. The `strength` output reports this same number, so
-      // the right value can be read off rather than guessed.
-      const overFloor = st.f1 >= threshold;
-      const overAdaptive = st.f1 >= adaptive + 1e-9;
+
+      // Remember every local maximum, so the detector always knows the scale of what is going on
+      // around it, and drop anything older than the window. The finite check skips the delay
+      // line's startup sentinels, which would otherwise be recorded as an infinitely strong hit
+      // and hold the reference above everything real for as long as they stayed in the window.
+      if (isPeak && Number.isFinite(st.f1)) st.peaks.push([clock, st.f1]);
+      while (st.peaks.length && clock - st.peaks[0][0] > PEAK_WINDOW_S) st.peaks.shift();
+
+      // The bar a peak has to clear. THRESHOLD is the absolute part, in the units `strength`
+      // reports (on real music a clear kick reads about 1-2.5, the background about 0.07). SENSE
+      // adds a relative part: a share of what recent hits around here actually reach, which is
+      // what keeps a quiet passage from firing on things a loud one would ignore. Taking the max
+      // means Sense can only ever demand MORE, so it cannot rescale noise into hits.
+      let bar = threshold;
+      if (sense < 1 && st.peaks.length >= MIN_PEAKS_FOR_REFERENCE) {
+        const values = st.peaks.map((p) => p[1]).sort((a, b) => a - b);
+        const reference = values[Math.floor(values.length * PEAK_REFERENCE_PERCENTILE)];
+        bar = Math.max(bar, (1 - sense) * reference);
+      }
+      const overFloor = st.f1 >= bar;
       // The band must actually be sounding. Flux is relative, so without this the noise floor of a
       // silent passage normalizes into a "strong onset" — a large share of the phantom hits.
       const bandSounding = st.f1Energy >= MIN_BAND_ENERGY;
       const pastRefractory = (clock - st.lastKickTime) * 1000 >= refractoryMs;
 
       let trig = 0.0;
-      if (isPeak && overFloor && overAdaptive && bandSounding && pastRefractory) {
+      if (isPeak && overFloor && bandSounding && pastRefractory) {
         st.env = 1.0;
         st.lastKickTime = clock;
         trig = 1.0;
@@ -351,8 +258,7 @@ export class AudioAnalysisProcessor {
       st.f1Energy = bandEnergy;
 
       // Expose to the CPU preview (PreviewComputer reads this for the thumbnail) and to the GPU.
-      // `level` reports the shaped envelope (the Follower/ADSR/Shaping output); `kick`/`trig` come
-      // from the spectral-flux onset detector above.
+      // `level` is the continuous envelope; `kick`/`trig` come from the detector above.
       node.__kickValue = st.env;
       node.__kickTrig = trig;
       node.__kickLevel = level;
@@ -374,68 +280,24 @@ export class AudioAnalysisProcessor {
   }
 
   /**
-   * The signal the onset/kick detector analyses: the band-limited spectral flux for the node's
-   * selected Band (BrowserAudioCapture's _computeSpectralFlux, published as window._audioFlux*).
-   * This is intentionally NOT a loudness envelope — flux is ~0 for sustained sound and spikes
-   * only on new energy, so hits stay separable even when the band's level sits near saturation.
-   *
-   * With Isolate on (the default), the high-band flux is subtracted. A kick puts its energy almost
-   * entirely at the low end and survives; a snare or clap fires across the whole spectrum at once
-   * and cancels itself out. Measured on real audio this is what removes snare false-positives
-   * outright, and it applies to whichever band is selected — including Custom, so a hand-dialled
-   * kick range behaves like the built-in Bass one. Turn it off to detect broadband hits themselves
-   * (hats, claps), which is what Band: Highs is usually for.
+   * The signal the detector analyses: the kick band's onset signal, published by
+   * BrowserAudioCapture._computeSpectralFlux as window._audioFluxBass. Fixed to that band because
+   * this is a kick detector; the band ranges live in BrowserAudioCapture._onsetBandRange.
    */
-  _detectionSignal(node, ctx) {
-    const band = (typeof node.params?.band === 'string' ? node.params.band : 'Bass').toLowerCase();
-    let flux;
-    switch (band) {
-      case 'mids': flux = ctx.audioFluxMids; break;
-      case 'highs': flux = ctx.audioFluxHighs; break;
-      case 'full': flux = ctx.audioFluxFull; break;
-      case 'custom': flux = ctx.audioFluxCustom; break;
-      case 'bass':
-      default: flux = ctx.audioFluxBass; break;
-    }
-    if (this._isolateEnabled(node) && band !== 'highs' && band !== 'full') {
-      flux = Math.max(0, flux - ctx.audioFluxHighs);
-    }
-    return flux;
-  }
-
-  /** Isolate (broadband rejection) — on unless the node explicitly turns it off. */
-  _isolateEnabled(node) {
-    const raw = node.params?.isolate;
-    if (raw === undefined || raw === null) return true;
-    return raw === true || raw === 'true';
+  _detectionSignal(ctx) {
+    return ctx.audioFluxBass;
   }
 
   /**
-   * Absolute energy in the node's band (the per-band envelope, 0..1), used ONLY as a presence
-   * gate — "is this band sounding at all?". It's a poor discriminator between a kick and a
-   * sustained note (it saturates on real music, which is why detection moved to flux), but that
-   * saturation is harmless for a simple floor test. Custom has no dedicated band envelope, so it
-   * falls back to full-band presence.
+   * Absolute energy in the kick band (0..1), used ONLY as a presence gate — "is this band sounding
+   * at all?". It saturates on real music so it is useless for telling a kick from a bass note,
+   * which is why detection runs on the onset signal instead, but that saturation is harmless for a
+   * simple floor test.
    */
-  _bandEnergy(node, ctx) {
-    const band = (typeof node.params?.band === 'string' ? node.params.band : 'Bass').toLowerCase();
-    switch (band) {
-      case 'mids': return ctx.audioEnvelopeMids;
-      case 'highs': return ctx.audioEnvelopeHighs;
-      case 'full': return ctx.audioEnvelopeFull;
-      case 'custom': return ctx.audioEnvelopeFull;
-      case 'bass':
-      default: return ctx.audioEnvelopeBass;
-    }
+  _bandEnergy(ctx) {
+    return ctx.audioEnvelopeBass;
   }
 
-  /** Median of a non-empty array (returns 0 for an empty one). Copies before sorting. */
-  _median(values) {
-    if (!values.length) return 0;
-    const sorted = [...values].sort((a, b) => a - b);
-    const mid = sorted.length >> 1;
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  }
 
   _writeUniform(uniformManager, key, value) {
     if (uniformManager?.uniformValues?.has(key)) {

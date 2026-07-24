@@ -1317,17 +1317,6 @@ case 'flip2d':
         // Nudge a redraw so the node's numeric preview reflects the reset promptly.
         window.editor?.markDirty?.('count-reset');
         break;
-      case 'calibrateKick':
-        // Start an Auto-Calibrate run; AudioAnalysisProcessor listens for a few seconds and then
-        // writes the measured value into the node's Kick Threshold.
-        window.audioKickProcessor?.requestCalibration?.(node.id);
-        window.editor?.markDirty?.('kick-calibrate');
-        // Re-render the panel once the run should have finished, so the field shows the new value.
-        setTimeout(() => {
-          if (this.selectedNode?.id === node.id) this.showNodeParameters(node);
-          window.editor?.markDirty?.('kick-calibrated');
-        }, 6500);
-        break;
       default:
         console.warn(`[ParameterPanel] Unknown parameter action: ${action}`);
     }

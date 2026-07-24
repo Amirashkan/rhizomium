@@ -173,82 +173,36 @@ export const InputNodes = {
     cat: "Input",
     inputs: 0,
     pinsIn: [],
-    // Live audio analysis + kick/onset detection. The node configures the shared audio-envelope
-    // engine (the Band + Follower + ADSR + Shaping controls that used to live in the Audio panel)
-    // and reads back the resulting envelope; on top of that it runs a kick detector on the band's
-    // onset signal — the per-frame rise in linear magnitude over the kick's frequency range,
-    // divided by that band's own slow level, so it reads ~0 for sustained sound and spikes on a
-    // hit regardless of playback volume. Peak picking plus an adaptive median+MAD threshold and a
-    // refractory debounce turn that into single, clean triggers. It has no fragment-shader memory,
-    // so all of this runs on the CPU in AudioAnalysisProcessor, which streams four uniforms:
-    //   level - the live shaped envelope in [0,1] (a continuous value that moves while audio plays)
-    //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over Kick Release ms
-    //   trig  - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold cleanly)
-    // Pin 0 is `level` on purpose, so `=node_<id>` (or `=node_<id>_0`) gives the live analysis value.
-    // Reference the others with `=node_<id>_1` (kick) and `=node_<id>_2` (trig).
+    // Kick detection, and a continuous level to modulate with. Two knobs, nothing else.
+    //
+    // Everything the detector needs beyond those two is fixed, because none of it was a real
+    // choice: the frequency range is the kick's (30-120 Hz), the minimum gap between hits and the
+    // decay of the kick envelope are set to values measured on real music, and the level envelope
+    // uses the same settings it always defaulted to. Exposing those as knobs only ever produced
+    // more ways to be wrong.
+    //
+    // A fragment shader has no memory between frames, so this runs on the CPU in
+    // AudioAnalysisProcessor, which streams the four outputs in as per-frame uniforms.
+    //   level    - continuous 0..1 envelope, moves with the music (pin 0, so `=node_<id>` works)
+    //   kick     - snaps to 1 on a detected kick and decays back down
+    //   trig     - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold)
+    //   strength - what the detector measured this frame; Threshold is compared against THIS
+    // Reference the others with `=node_<id>_1` (kick), `=node_<id>_2` (trig), `=node_<id>_3`.
     pinsOut: [
       { label: "level", type: "f32" },
       { label: "kick", type: "f32" },
       { label: "trig", type: "f32" },
-      // The raw onset signal the detector compares against Kick Threshold. Wire it to something
-      // visible (a Number readout, a brightness) to see what a kick actually measures on your
-      // track — Kick Threshold needs to sit below that and above whatever the other hits read.
       { label: "strength", type: "f32" },
     ],
-    // Parameters are grouped by WHICH OUTPUT they affect, because that was the confusing part:
-    // the follower/ADSR/shaping controls shape the continuous `level` output and have no bearing
-    // on kick detection, while threshold/sensitivity/gap only affect `kick` and `trig`. The two
-    // sets sat side by side with nothing to say so. Detection comes first (the common use), and
-    // the level-shaping groups start collapsed.
     params: [
-      // ——— Source: which part of the spectrum everything below looks at ———
-      { name: "band", type: "select", options: ["Bass", "Mids", "Highs", "Full", "Custom"], default: "Bass", label: "Band", group: "Source" },
-      // Only used when Band is set to Custom. For a kick, roughly 30-120 Hz.
-      { name: "customMin", type: "float", default: 40.0, label: "Custom Min (Hz)", group: "Source" },
-      { name: "customMax", type: "float", default: 120.0, label: "Custom Max (Hz)", group: "Source" },
-
-      // ——— Kick detection: drives the `kick` and `trig` outputs ———
-      // Listens for a few seconds and sets Kick Threshold from what the audio actually contains,
-      // so the value is measured instead of guessed. Play the main groove while it runs.
-      { name: "calibrate", type: "button", displayName: "Auto-Calibrate", action: "calibrateKick",
-        description: "Listen for ~6s and set Kick Threshold from the audio", group: "Kick Detection" },
-      // threshold: minimum onset strength, absolute (not a fraction of recent hits, which would let
-      //   a band of pure noise normalize itself into a stream of "strong" onsets). Measured on real
-      //   music a clear kick reads about 1-2.5 and the background about 0.07, so raising this always
-      //   fires less. Wire the `strength` output to something visible to read off what YOUR track's
-      //   kicks measure, or just press Auto-Calibrate.
-      { name: "threshold", type: "float", default: 1.0, label: "Kick Threshold", group: "Kick Detection" },
-      // sensitivity: how far above the recent-noise baseline (median + sensitivity*MAD) a peak must
-      //   stand. Raise it if busy passages produce stray hits, lower it if kicks are missed in
-      //   dense material.
-      { name: "sensitivity", type: "float", default: 2.5, label: "Sensitivity", group: "Kick Detection" },
-      // Reject onsets that fire across the whole spectrum at once (snares, claps, hats), keeping
-      // the ones concentrated in the selected band. This is what separates a kick from a backbeat,
-      // and it applies to Custom too. Turn it off when the broadband hits ARE the target.
-      { name: "isolate", type: "bool", default: true, label: "Isolate (reject broadband)", group: "Kick Detection" },
-      // Min gap after a hit before another can fire. Longer than a kick's own decay tail, whose
-      // late ripples would otherwise re-trigger, and long enough to step over an intervening hat.
-      // Measured on real music, raising this from 200 to 250ms took beat-lock from 89% to 95%
-      // without costing coverage. Lower it for 8th/16th-note kick patterns.
-      { name: "refractory", type: "float", default: 250.0, label: "Min Gap (ms)", group: "Kick Detection" },
-      // How long the `kick` envelope takes to fall back to 0 after a hit. Purely cosmetic — it
-      // shapes the output, it does not affect what gets detected.
-      { name: "kickRelease", type: "float", default: 140.0, label: "Kick Release (ms)", group: "Kick Detection" },
-
-      // ——— Level shaping: drives the `level` output only, never detection ———
-      { name: "attack", type: "float", default: 50.0, label: "Attack (ms)", group: "Level: Follower", groupCollapsed: true },
-      { name: "envRelease", type: "float", default: 200.0, label: "Release (ms)", group: "Level: Follower" },
-      { name: "gate", type: "float", default: 0.1, label: "Gate", group: "Level: Follower" },
-
-      { name: "adsrAttack", type: "float", default: 120.0, label: "Attack (ms)", group: "Level: ADSR", groupCollapsed: true },
-      { name: "adsrDecay", type: "float", default: 180.0, label: "Decay (ms)", group: "Level: ADSR" },
-      { name: "sustain", type: "float", default: 0.7, label: "Sustain", group: "Level: ADSR" },
-      { name: "adsrRelease", type: "float", default: 600.0, label: "Release (ms)", group: "Level: ADSR" },
-
-      { name: "curve", type: "select", options: ["Linear", "Exponential", "Sigmoid"], default: "Exponential", label: "Curve", group: "Level: Shaping", groupCollapsed: true },
-      // Off by default: auto-normalize divides by a running peak, which pins a steady track near 1.0
-      // and makes the value look "stuck". Off gives a dynamic level that visibly reacts to the audio.
-      { name: "normalize", type: "bool", default: false, label: "Auto-normalize", group: "Level: Shaping" },
+      // How strong a hit has to be. Compare against the `strength` output: wire it to a number
+      // readout, watch what your track's kicks reach, and set this a bit under that. Raising it
+      // always fires less.
+      { name: "threshold", type: "float", default: 1.0, label: "Threshold" },
+      // How much a hit has to stand out from the last second or so of audio. Raising it fires
+      // MORE (it is sensitivity, not strictness): 1 reacts to almost anything that stands out at
+      // all, 0 only to hits that tower over everything around them.
+      { name: "sense", type: "float", default: 0.6, label: "Sense" },
     ],
   },
 
