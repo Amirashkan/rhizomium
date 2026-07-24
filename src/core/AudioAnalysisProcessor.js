@@ -29,10 +29,16 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
  *
  *      A candidate peak must also clear an adaptive threshold (median + `sensitivity` * MAD over
  *      ~1.5s of past flux — robust statistics that hit-frames barely move), clear an absolute
- *      floor (`threshold`, read as a fraction of a typical hit via a slowly-tracked reference
- *      peak, so the number travels across tracks and volumes), sit in a band that actually has
- *      energy (so silence can't be normalized up into phantom hits), and fall outside the
- *      refractory window (`refractory` ms) of the last hit.
+ *      floor (`threshold`, in flux units, where 1.0 means every bin in the band jumped by the full
+ *      30 dB cap at once), sit in a band that actually has energy, and fall outside the refractory
+ *      window (`refractory` ms) of the last hit.
+ *
+ *      The floor is deliberately absolute rather than relative to a running peak. Dividing by a
+ *      decaying peak-hold sounds appealing — "fire on anything near the strongest recent hit" —
+ *      but it makes every new maximum read as exactly 1.0, so a band holding nothing but noise is
+ *      amplified into a stream of flawless onsets that NO threshold can reject. Flux is built from
+ *      dB differences and is therefore already volume-independent, so an absolute floor stays
+ *      meaningful across tracks without that failure mode.
  *
  *      All detector timing runs on the WALL CLOCK, not the render loop's sim time: audio plays in
  *      real time and does not slow down with timeScale or stop when the sim clock pauses, so
@@ -45,21 +51,11 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
  *   <id>.trig  - a single-frame 1.0 pulse on the detection frame
  */
 // Onset-detector tuning (internal; the node's params scale on top of these).
-// The reference peak is a peak-HOLD: it jumps straight to any new maximum and then decays over a
-// couple of seconds. That makes `norm` (flux / peak) read "how strong is this compared with the
-// strongest recent onset", where a leading hit is 1.0 and a snare bleeding into the band at half
-// the strength is ~0.5 — which is what gives the `threshold` knob real discriminating power.
-// (Snapping to the max would ruin a detector that measured prominence on the normalized signal;
-// this one measures prominence on RAW flux, so the normalization is free to be exact.)
-const PEAK_TAU_S = 2.5;
-// Floor for the reference peak, so near-silence can't be normalized up into phantom kicks.
-const MIN_PEAK = 0.02;
 // How many recent flux frames feed the median/MAD statistics (~1.5s at 60fps).
 const FLUX_HISTORY = 90;
-// Floor for the MAD term, as a fraction of the reference peak, so an unnaturally steady passage
-// can't shrink the adaptive threshold into a hair trigger. Relative rather than absolute because
-// raw flux magnitudes differ by an order of magnitude between a sparse mix and a dense one.
-const MIN_MAD_FRACTION = 0.05;
+// Floor for the MAD term so an unnaturally steady passage can't shrink the adaptive threshold into
+// a hair trigger. Absolute, in flux units, for the same reason `threshold` is (see below).
+const MIN_MAD = 0.01;
 // The selected band must carry at least this much energy (per-band envelope, 0..1) for a peak to
 // count as a hit. Flux is a RELATIVE measure — normalization would happily turn the noise floor of
 // a silent passage into a "strong onset" — so an absolute presence gate is what keeps the detector
@@ -183,7 +179,7 @@ export class AudioAnalysisProcessor {
       const bandEnergy = this._bandEnergy(node, ctx);
 
       // 2. Kick-detection controls.
-      const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.35, ctx));
+      const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.12, ctx));
       const sensitivity = Math.max(0, this._numericParam(node, 'sensitivity', 2.5, ctx));
       const releaseMs = Math.max(1, this._numericParam(node, 'kickRelease', 140.0, ctx));
       const refractoryMs = Math.max(0, this._numericParam(node, 'refractory', 200.0, ctx));
@@ -191,16 +187,14 @@ export class AudioAnalysisProcessor {
       let st = this._state.get(node.id);
       if (!st) {
         st = {
-          peak: MIN_PEAK,
           history: [],
           env: 0,
           // One-frame delay line for peak picking: f1 is the frame being judged, f2 its
           // predecessor. Both start at Infinity so nothing can look like a peak until two real
-          // frames have gone through. f1Norm/f1Energy carry that frame's normalized flux and band
-          // energy, so the floor and presence tests judge the same frame the peak test does.
+          // frames have gone through. f1Energy carries that frame's band energy, so the presence
+          // test judges the same frame the peak test does.
           f1: Infinity,
           f2: Infinity,
-          f1Norm: 0,
           f1Energy: 0,
           lastTime: clock,
           lastKickTime: -Infinity,
@@ -212,25 +206,20 @@ export class AudioAnalysisProcessor {
       const dt = Math.min(0.1, Math.max(0, clock - st.lastTime));
       st.lastTime = clock;
 
-      // Reference peak: the strongest recent onset, held and decayed over PEAK_TAU_S.
-      st.peak = Math.max(rawFlux, st.peak * Math.exp(-dt / PEAK_TAU_S), MIN_PEAK);
-
-      // Detection runs on RAW flux, deliberately un-normalized: median and MAD already scale with
-      // the material, so the adaptive test is scale-free without distorting the attack's shape.
-      // The reference peak is used only for the absolute `threshold` floor — `norm` expresses this
-      // frame as a fraction of the strongest recent onset, in [0,1] by construction.
+      // Detection runs on the flux exactly as measured — NOT rescaled against a running peak.
+      // Self-normalization was a trap: dividing by a decaying peak-hold makes every new maximum
+      // read as 1.0, so a band containing nothing but noise gets amplified into a stream of
+      // "perfect" onsets and no `threshold` value can refuse them. Raw flux is already an absolute,
+      // volume-independent quantity (it is built from dB differences, so turning the track up
+      // shifts every bin equally and changes nothing), which is exactly what a threshold needs.
       const flux = rawFlux;
-      const norm = rawFlux / st.peak;
 
       // Adaptive threshold from robust statistics over the last ~1.5s of flux:
       // median + sensitivity * MAD. Unlike a mean/EMA baseline, the median barely moves when a
       // few hit-frames land in the window, so a busy passage doesn't drag the threshold up and
       // a breakdown doesn't turn it into a hair trigger (MAD is floored for the same reason).
       const median = this._median(st.history);
-      const mad = Math.max(
-        MIN_MAD_FRACTION * st.peak,
-        this._median(st.history.map((v) => Math.abs(v - median))),
-      );
+      const mad = Math.max(MIN_MAD, this._median(st.history.map((v) => Math.abs(v - median))));
       const adaptive = median + sensitivity * mad;
       st.history.push(flux);
       if (st.history.length > FLUX_HISTORY) st.history.shift();
@@ -245,13 +234,11 @@ export class AudioAnalysisProcessor {
       // (f1 >= f2 and f1 > flux) occurs exactly once per transient, so a multi-frame attack yields
       // one hit instead of firing on the way up and again on every later ripple over the line.
       const isPeak = st.f1 >= st.f2 && st.f1 > flux;
-      // The floor is a fraction of the strongest recent onset, so the default 0.35 means "ignore
-      // anything under a third of a normal kick" — and keeps meaning that across tracks and
-      // playback volumes. It has to stay well under 0.5: measured on real drums the weakest kick
-      // in a phrase is under half the strongest, so a high floor silently drops quiet kicks.
-      // Separating a kick from a snare is the SIGNAL's job (a kick-band flux with broadband energy
-      // subtracted, see BrowserAudioCapture._computeSpectralFlux), not this threshold's.
-      const overFloor = st.f1Norm >= threshold;
+      // Absolute floor, in flux units: 1.0 would mean every bin in the band jumped by the full
+      // 30 dB cap in a single frame, so raising this always fires less and 1.0 fires essentially
+      // never. Measured on real drums a kick's onset lands around 0.15-0.95 in the kick band while
+      // snares and hats sit near 0.03-0.04, so the default 0.12 clears kicks and refuses the rest.
+      const overFloor = st.f1 >= threshold;
       const overAdaptive = st.f1 >= adaptive + 1e-9;
       // The band must actually be sounding. Flux is relative, so without this the noise floor of a
       // silent passage normalizes into a "strong onset" — a large share of the phantom hits.
@@ -267,7 +254,6 @@ export class AudioAnalysisProcessor {
       // Advance the delay line.
       st.f2 = st.f1;
       st.f1 = flux;
-      st.f1Norm = norm;
       st.f1Energy = bandEnergy;
 
       // Expose to the CPU preview (PreviewComputer reads this for the thumbnail) and to the GPU.

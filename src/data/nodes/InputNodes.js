@@ -213,13 +213,15 @@ export const InputNodes = {
       // With Band: Bass the detector watches 30-120 Hz (the kick's fundamental) and subtracts
       // broadband energy, so snares and claps are rejected by the signal itself rather than by
       // tuning. These two knobs then only need to sort strong hits from weak ones.
-      // threshold: how strong an onset must be relative to the strongest recent one, in [0,1].
-      //   Kick velocity varies a lot in real playing — the weakest kick in a bar can be under half
-      //   the loudest — so keep this well below 0.5 unless you only want the accents.
+      // threshold: minimum onset strength, absolute (not relative to recent hits, which would let
+      //   a band of pure noise normalize itself into a stream of "strong" onsets). 1.0 means every
+      //   bin in the band jumps by the full 30 dB cap in one frame, so raising this always fires
+      //   less and 1.0 fires essentially never. Real kicks land around 0.15-0.95; hats and snare
+      //   bleed sit near 0.03.
       // sensitivity: how far above the recent-noise baseline (median + sensitivity*MAD) a peak must
       //   stand. Raise it if busy passages produce stray hits, lower it if kicks are missed in
       //   dense material.
-      { name: "threshold", type: "float", default: 0.35, label: "Kick Threshold" },
+      { name: "threshold", type: "float", default: 0.12, label: "Kick Threshold" },
       { name: "sensitivity", type: "float", default: 2.5, label: "Sensitivity" },
       // Min gap after a hit before another can fire. 200ms is deliberately longer than a kick's own
       // decay tail (~250ms of audio, whose late ripples used to re-trigger at the old 90ms) and

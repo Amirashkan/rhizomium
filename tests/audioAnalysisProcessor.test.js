@@ -24,7 +24,7 @@ function kickNode(params = {}) {
     id: 'k', kind: 'AudioAnalysis',
     // Mirrors the node's shipped defaults (see data/nodes/InputNodes.js) so the tests exercise
     // what users actually get.
-    params: { band: 'Bass', threshold: 0.35, sensitivity: 2.5, kickRelease: 140, refractory: 200, ...params },
+    params: { band: 'Bass', threshold: 0.12, sensitivity: 2.5, kickRelease: 140, refractory: 200, ...params },
     inputs: [],
   };
 }
@@ -185,10 +185,36 @@ describe('AudioAnalysisProcessor', () => {
   it('rejects a weak peak below the absolute floor', () => {
     const rig = makeRig({ threshold: 0.5 });
     rig.silence();
-    rig.hit(0.9);           // establishes what a normal hit looks like
+    expect(rig.hit(0.9)).toBe(1);  // 0.9 clears the 0.5 floor
     rig.silence(30);
-    // A transient at ~5% of the reference peak — well under the 0.5 floor.
-    expect(rig.hit(0.05)).toBe(0);
+    expect(rig.hit(0.3)).toBe(0);  // 0.3 does not, however prominent it is locally
+  });
+
+  it('raising the threshold only ever fires less, and 1.0 fires nothing', () => {
+    // Regression: the floor used to be a fraction of a decaying running peak, which made every new
+    // maximum read as 1.0. A band carrying nothing but low-level wobble was normalized into a
+    // stream of "perfect" onsets that no threshold could refuse — including 1.0.
+    const weak = () => {
+      const rig = makeRig({ threshold: 1.0 });
+      let fired = 0;
+      for (let i = 0; i < 200; i++) {
+        // Irregular wobble an order of magnitude below a real hit.
+        fired += rig.step(0.004 + 0.03 * Math.abs(Math.sin(i * 2.399)) * (i % 7 === 0 ? 1 : 0.2));
+      }
+      return fired;
+    };
+    expect(weak()).toBe(0);
+
+    // ...and the knob is monotonic on a signal that does contain real hits.
+    const counts = [0.05, 0.2, 0.5, 1.0].map((threshold) => {
+      const rig = makeRig({ threshold });
+      let fired = 0;
+      for (let i = 0; i < 6; i++) { fired += rig.hit(0.4); fired += rig.silence(16); }
+      return fired;
+    });
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
+    expect(counts[0]).toBeGreaterThan(0); // a low floor does let the hits through
+    expect(counts[counts.length - 1]).toBe(0); // threshold 1.0 fires nothing
   });
 
   it('suppresses a second kick inside the refractory window, then allows one after it', () => {

@@ -97,6 +97,30 @@ describe('BrowserAudioCapture spectral flux', () => {
     expect(runFlux([quiet, body]).bass).toBe(0);
   });
 
+  it('reports nothing for a custom range too narrow to contain a real bin', () => {
+    // A Custom band of 0-1 Hz spans no audio bin at all. It used to fall back on bin 0 — DC, which
+    // drifts with any offset in the signal — and the detector dutifully found "onsets" in that
+    // drift. An empty range must produce no signal instead.
+    const cap = makeCapture([spectrum(), spectrum([[0, 40, -5]])]);
+    cap.config.frequency = { mode: 'custom', customMin: 0, customMax: 1 };
+    cap._computeSpectralFlux();
+    cap._computeSpectralFlux();
+    expect(cap._fluxCustom).toBe(0);
+  });
+
+  it('excludes the DC bin from an otherwise valid custom range', () => {
+    // Bin 0 is not audio. A range starting at 0 Hz must still measure only real bins.
+    const binWidth = (SAMPLE_RATE / 2) / BINS;
+    const a = new Float32Array(BINS).fill(-100);
+    const b = new Float32Array(BINS).fill(-100);
+    b[0] = 0; // a huge jump, but in DC only
+    const cap = makeCapture([a, b]);
+    cap.config.frequency = { mode: 'custom', customMin: 0, customMax: binWidth * 4 };
+    cap._computeSpectralFlux();
+    cap._computeSpectralFlux();
+    expect(cap._fluxCustom).toBe(0);
+  });
+
   it('treats a falling spectrum as no onset (positive changes only)', () => {
     const loud = spectrum([[30, 120, -10]]);
     const quiet = spectrum();

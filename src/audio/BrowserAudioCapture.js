@@ -375,8 +375,14 @@ export class BrowserAudioCapture {
         const out = [0, 0, 0, 0, 0];
         for (let b = 0; b < bands.length; b++) {
             const [minFreq, maxFreq] = this._onsetBandRange(bands[b], nyquist);
-            const start = Math.max(0, Math.floor(minFreq / binWidth));
+            // Never include bin 0: it is DC, not audio. Its value drifts with any offset in the
+            // signal, so a band narrow enough to be mostly bin 0 (a Custom range of a few Hz)
+            // would otherwise report that drift as a stream of onsets.
+            const start = Math.max(1, Math.floor(minFreq / binWidth));
             const end = Math.min(n, Math.ceil(maxFreq / binWidth));
+            // A degenerate or empty range (min >= max, or a span narrower than one bin above DC)
+            // has nothing to measure — report no onset rather than whatever one stray bin does.
+            if (end <= start) { out[b] = 0; continue; }
             let sum = 0, count = 0;
             for (let i = start; i < end; i++) {
                 const cur = Math.max(FLUX_FLOOR_DB, this._fluxSpectrum[i]);
