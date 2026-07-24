@@ -71,22 +71,23 @@ describe('BrowserAudioCapture spectral flux', () => {
     expect(runFlux([loud, louder]).bass).toBeGreaterThan(0.2);
   });
 
-  it('rejects a broadband onset on the bass output while the highs output still sees it', () => {
-    // A snare/clap fires across the spectrum at once. The bass (kick) signal subtracts broadband
-    // energy so it cancels; the highs signal is meant to catch it.
+  it('publishes each band raw, so a broadband onset shows up on all of them', () => {
+    // Rejecting broadband onsets is the node's job (AudioAnalysisProcessor's Isolate switch), so
+    // that it can apply to whichever band the node selected. This layer reports each band as
+    // measured: a snare/clap fires across the spectrum and every band sees it.
     const quiet = spectrum();
     const snare = spectrum([[30, 120, -10], [250, 2000, -10], [2000, 16000, -10]]);
     const r = runFlux([quiet, snare]);
-    expect(r.bass).toBe(0);
+    expect(r.bass).toBeGreaterThan(0.3);
     expect(r.highs).toBeGreaterThan(0.3);
   });
 
-  it('keeps the kick signal intact when only the low band fires', () => {
+  it('reports a low-only onset on the bass band and nothing up top', () => {
     const quiet = spectrum();
     const kickOnly = spectrum([[30, 120, -10]]);
     const r = runFlux([quiet, kickOnly]);
     expect(r.bass).toBeGreaterThan(0.3);
-    expect(r.highs).toBe(0); // nothing up top, so nothing is subtracted
+    expect(r.highs).toBe(0);
   });
 
   it('ignores energy above the kick band that a 20-250 Hz window would have caught', () => {

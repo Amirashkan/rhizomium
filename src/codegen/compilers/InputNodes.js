@@ -235,13 +235,15 @@ export class InputNodes {
         if (levelRef) {
           const kickRef = getParam('kick', 0.0);
           const trigRef = getParam('trig', 0.0);
+          const strengthRef = getParam('strength', 0.0);
           return {
             line: `let node_${nodeId} = ${levelRef};`,
             outputType: "f32",
             outputPins: [
-              { expression: levelRef, type: "f32" },  // level (continuous shaped envelope)
-              { expression: kickRef, type: "f32" },   // kick  (decaying detection envelope)
-              { expression: trigRef, type: "f32" },   // trig  (single-frame pulse)
+              { expression: levelRef, type: "f32" },    // level    (continuous shaped envelope)
+              { expression: kickRef, type: "f32" },     // kick     (decaying detection envelope)
+              { expression: trigRef, type: "f32" },     // trig     (single-frame pulse)
+              { expression: strengthRef, type: "f32" }, // strength (raw onset signal, for tuning)
             ],
           };
         }

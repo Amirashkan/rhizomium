@@ -62,6 +62,22 @@ const MIN_MAD = 0.01;
 // quiet between tracks, during breakdowns, and while paused.
 const MIN_BAND_ENERGY = 0.04;
 
+// How long Auto-Calibrate listens before choosing a threshold. Long enough to cover several bars
+// at any usual tempo, short enough that the user isn't left waiting.
+const CALIBRATION_SECONDS = 6;
+// A calibration needs at least this many candidate hits to be worth trusting.
+const CALIBRATION_MIN_PEAKS = 5;
+// Which peaks count as "hits" when sizing up the material. Local maxima in the background far
+// outnumber real hits — a few seconds holds a dozen kicks but a hundred or more wiggles — so the
+// hits are only the top sliver. Measured against real drum tracks, taking the top third put the
+// estimate down among the noise and calibration came back far too low; the top tenth lands on the
+// hits themselves.
+const CALIBRATION_PEAK_PERCENTILE = 0.9;
+// Where to put the threshold between the background and a typical hit. Below the hits so quiet
+// ones still register, comfortably above the noise. 0.45 leaves room for the weakest kick in a
+// phrase, which measures at roughly half the strongest.
+const CALIBRATION_HIT_FRACTION = 0.45;
+
 export class AudioAnalysisProcessor {
   constructor() {
     // nodeId -> { peak, history, env, prevFlux, lastTime, lastKickTime }
@@ -71,6 +87,79 @@ export class AudioAnalysisProcessor {
     this._lastConfigJson = null;
     // Cached audio-engine handle (lazily resolved; may be null in non-browser/test contexts).
     this._audioClient = undefined;
+    // nodeId -> { samples, startedAt } while an Auto-Calibrate run is collecting.
+    this._calibrating = new Map();
+  }
+
+  /**
+   * Start an Auto-Calibrate run for a node (the node's "Auto-Calibrate" button, routed through
+   * ParameterPanel.runParameterAction). The next few seconds of onset signal are recorded and the
+   * node's Kick Threshold is then set from what the audio actually contains, so the number comes
+   * from measurement rather than from guessing. Play the track's main groove while it listens.
+   */
+  requestCalibration(nodeId) {
+    this._calibrating.set(nodeId, { samples: [], startedAt: null });
+  }
+
+  /** True while a calibration run is collecting for this node (drives the UI hint). */
+  isCalibrating(nodeId) {
+    return this._calibrating.has(nodeId);
+  }
+
+  /**
+   * Choose a threshold from a recorded stretch of onset signal.
+   *
+   * The recording is a mix of background (most frames) and hits (a few tall, isolated peaks). Take
+   * the local maxima, treat the strongest group as "what a hit looks like here", and place the
+   * threshold a fixed fraction below that — but never so low that the background can reach it.
+   * Returns null when the recording holds too few peaks to be worth trusting.
+   */
+  _thresholdFromSamples(samples) {
+    if (!samples || samples.length < 30) return null;
+
+    const peaks = [];
+    for (let i = 1; i < samples.length - 1; i++) {
+      if (samples[i] >= samples[i - 1] && samples[i] > samples[i + 1]) peaks.push(samples[i]);
+    }
+    if (peaks.length < CALIBRATION_MIN_PEAKS) return null;
+
+    const sortedPeaks = [...peaks].sort((a, b) => a - b);
+    // "A typical hit": the median of the strongest peaks. The median keeps one freak transient from
+    // defining the scale, while the percentile keeps the many background wiggles out of it.
+    const strong = sortedPeaks.slice(Math.floor(sortedPeaks.length * CALIBRATION_PEAK_PERCENTILE));
+    const typicalHit = strong[strong.length >> 1];
+    if (!(typicalHit > 0)) return null;
+
+    // Background level, measured the same robust way the live detector measures it.
+    const median = this._median(samples);
+    const mad = this._median(samples.map((v) => Math.abs(v - median)));
+    const backgroundCeiling = median + 4 * Math.max(mad, MIN_MAD);
+
+    const threshold = Math.max(CALIBRATION_HIT_FRACTION * typicalHit, backgroundCeiling);
+    // If the background reaches what hits look like, this material has no separable onsets in this
+    // band — better to say so than to hand back a number that cannot work.
+    if (threshold >= typicalHit) return null;
+    return Math.min(0.95, Math.max(0.01, Math.round(threshold * 1000) / 1000));
+  }
+
+  /** Feed one frame into an in-flight calibration; finish and apply when the window elapses. */
+  _advanceCalibration(node, flux, clock) {
+    const run = this._calibrating.get(node.id);
+    if (!run) return;
+    if (run.startedAt === null) run.startedAt = clock;
+    run.samples.push(flux);
+    if (clock - run.startedAt < CALIBRATION_SECONDS) return;
+
+    this._calibrating.delete(node.id);
+    const threshold = this._thresholdFromSamples(run.samples);
+    if (threshold === null) {
+      node.__kickCalibrationResult = 'failed';
+      return;
+    }
+    node.params.threshold = threshold;
+    node.__kickCalibrationResult = threshold;
+    // Reset detector state so the new threshold takes effect against a clean baseline.
+    this._state.delete(node.id);
   }
 
   _client() {
@@ -113,8 +202,8 @@ export class AudioAnalysisProcessor {
       },
       frequency: {
         mode: bandMap[bandRaw] || 'bass',
-        customMin: this._numericParam(node, 'customMin', 60.0, ctx),
-        customMax: this._numericParam(node, 'customMax', 250.0, ctx),
+        customMin: this._numericParam(node, 'customMin', 40.0, ctx),
+        customMax: this._numericParam(node, 'customMax', 120.0, ctx),
       },
     };
 
@@ -177,6 +266,10 @@ export class AudioAnalysisProcessor {
       // the property that makes precise detection possible at all.
       const rawFlux = this._detectionSignal(node, ctx);
       const bandEnergy = this._bandEnergy(node, ctx);
+
+      // Auto-Calibrate listens to the same signal the detector thresholds, so the number it picks
+      // is measured against exactly what detection will see.
+      this._advanceCalibration(node, rawFlux, clock);
 
       // 2. Kick-detection controls.
       const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.12, ctx));
@@ -262,9 +355,13 @@ export class AudioAnalysisProcessor {
       node.__kickValue = st.env;
       node.__kickTrig = trig;
       node.__kickLevel = level;
+      node.__kickStrength = flux;
       this._writeUniform(uniformManager, `${node.id}.kick`, st.env);
       this._writeUniform(uniformManager, `${node.id}.trig`, trig);
       this._writeUniform(uniformManager, `${node.id}.level`, level);
+      // The raw onset signal the threshold is compared against. Exposed so the value can be put on
+      // screen and read directly: whatever a kick reads here is what Kick Threshold must sit under.
+      this._writeUniform(uniformManager, `${node.id}.strength`, flux);
     }
 
     // Drop state for Audio Analysis nodes that were deleted so it doesn't leak across edits.
@@ -280,18 +377,36 @@ export class AudioAnalysisProcessor {
    * selected Band (BrowserAudioCapture's _computeSpectralFlux, published as window._audioFlux*).
    * This is intentionally NOT a loudness envelope — flux is ~0 for sustained sound and spikes
    * only on new energy, so hits stay separable even when the band's level sits near saturation.
-   * Custom gets its own flux computed over the node's custom Hz range.
+   *
+   * With Isolate on (the default), the high-band flux is subtracted. A kick puts its energy almost
+   * entirely at the low end and survives; a snare or clap fires across the whole spectrum at once
+   * and cancels itself out. Measured on real audio this is what removes snare false-positives
+   * outright, and it applies to whichever band is selected — including Custom, so a hand-dialled
+   * kick range behaves like the built-in Bass one. Turn it off to detect broadband hits themselves
+   * (hats, claps), which is what Band: Highs is usually for.
    */
   _detectionSignal(node, ctx) {
     const band = (typeof node.params?.band === 'string' ? node.params.band : 'Bass').toLowerCase();
+    let flux;
     switch (band) {
-      case 'mids': return ctx.audioFluxMids;
-      case 'highs': return ctx.audioFluxHighs;
-      case 'full': return ctx.audioFluxFull;
-      case 'custom': return ctx.audioFluxCustom;
+      case 'mids': flux = ctx.audioFluxMids; break;
+      case 'highs': flux = ctx.audioFluxHighs; break;
+      case 'full': flux = ctx.audioFluxFull; break;
+      case 'custom': flux = ctx.audioFluxCustom; break;
       case 'bass':
-      default: return ctx.audioFluxBass;
+      default: flux = ctx.audioFluxBass; break;
     }
+    if (this._isolateEnabled(node) && band !== 'highs' && band !== 'full') {
+      flux = Math.max(0, flux - ctx.audioFluxHighs);
+    }
+    return flux;
+  }
+
+  /** Isolate (broadband rejection) — on unless the node explicitly turns it off. */
+  _isolateEnabled(node) {
+    const raw = node.params?.isolate;
+    if (raw === undefined || raw === null) return true;
+    return raw === true || raw === 'true';
   }
 
   /**

@@ -393,12 +393,11 @@ export class BrowserAudioCapture {
             }
             out[b] = count > 0 ? sum / (count * FLUX_CAP_DB) : 0;
         }
-        // Bass is the KICK signal, so reject broadband onsets: subtract the high-band flux. A kick
-        // puts its energy almost entirely at the low end, while a snare or clap fires across the
-        // spectrum at once and cancels itself out here. Measured on real audio this removes snare
-        // false-positives outright (16/16 kicks, 0 snares) where the low band alone still caught 12
-        // of 16 snares. Mids/Highs stay raw — for those, broadband hits are the point.
-        this._fluxBass = Math.max(0, out[0] - out[2]);
+        // Published raw, one value per band. Rejecting broadband onsets (subtracting the high-band
+        // reference so a snare or clap cancels while a kick survives) happens per-node in
+        // AudioAnalysisProcessor, where the node's Isolate switch decides — it has to apply to
+        // whichever band that node selected, including Custom.
+        this._fluxBass = out[0];
         this._fluxMids = out[1];
         this._fluxHighs = out[2];
         this._fluxFull = out[3];

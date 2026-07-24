@@ -299,6 +299,74 @@ describe('AudioAnalysisProcessor', () => {
     expect(rig.hit()).toBe(1);
   });
 
+  it('rejects a broadband onset with Isolate on, and accepts it with Isolate off', () => {
+    // A snare or clap fires across the whole spectrum at once. Isolate subtracts the high band, so
+    // it cancels while a kick — nearly all low energy — survives untouched.
+    const broadband = (rig, strength) => {
+      let fired = 0;
+      for (const f of [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06]) {
+        window._audioFluxHighs = f * strength;      // present across the spectrum
+        fired += rig.step(f * strength);            // ...including the bass band
+      }
+      window._audioFluxHighs = 0;
+      return fired;
+    };
+
+    const isolated = makeRig();
+    isolated.silence();
+    expect(broadband(isolated, 0.9)).toBe(0);
+    // The same rig still fires on a low-only hit.
+    expect(isolated.hit(0.9)).toBe(1);
+
+    const raw = makeRig({ isolate: false });
+    raw.silence();
+    expect(broadband(raw, 0.9)).toBe(1);
+  });
+
+  it('applies Isolate to a Custom band too, not just Bass', () => {
+    // Regression: broadband rejection used to be baked into the bass signal, so a hand-dialled
+    // Custom kick range behaved completely differently from the built-in Bass one.
+    const rig = makeRig({ band: 'Custom' });
+    rig.silence();
+    let fired = 0;
+    for (const f of [0.06, 0.33, 0.78, 1.0, 0.65, 0.22, 0.06]) {
+      window._audioFluxHighs = f * 0.9;
+      fired += rig.step(f * 0.9);
+    }
+    window._audioFluxHighs = 0;
+    expect(fired).toBe(0);
+    expect(rig.hit(0.9)).toBe(1);
+  });
+
+  it('auto-calibrates a threshold from the audio it hears', () => {
+    // The whole point: the user should not have to find this number by hand.
+    const rig = makeRig({ threshold: 0.9 }); // starts far too high to fire on anything
+    rig.proc.requestCalibration('k');
+    expect(rig.proc.isCalibrating('k')).toBe(true);
+
+    // Play a groove past it for longer than the calibration window.
+    for (let i = 0; i < 60; i++) { rig.hit(0.5); rig.silence(10); }
+
+    expect(rig.proc.isCalibrating('k')).toBe(false);
+    const chosen = rig.node.params.threshold;
+    expect(chosen).toBeGreaterThan(0);
+    expect(chosen).toBeLessThan(0.5);  // below a hit, so hits register
+    expect(chosen).toBeGreaterThan(0.01); // above the background
+
+    // ...and the chosen value actually detects the material it was calibrated on.
+    let fired = 0;
+    for (let i = 0; i < 8; i++) { fired += rig.hit(0.5); rig.silence(10); }
+    expect(fired).toBe(8);
+  });
+
+  it('leaves the threshold alone when calibration hears nothing usable', () => {
+    const rig = makeRig({ threshold: 0.4 });
+    rig.proc.requestCalibration('k');
+    for (let i = 0; i < 500; i++) rig.step(0.0); // silence: no peaks to learn from
+    expect(rig.node.params.threshold).toBe(0.4);
+    expect(rig.node.__kickCalibrationResult).toBe('failed');
+  });
+
   it('mirrors the live level onto node.__kickLevel for the CPU preview', () => {
     const rig = makeRig();
     window._audioEnvelopeValue = 0.42;

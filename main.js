@@ -75,6 +75,9 @@ window.countNodeProcessor = countNodeProcessor;
 const feedbackResetProcessor = new FeedbackResetProcessor();
 // Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
 const audioKickProcessor = new AudioAnalysisProcessor();
+// Exposed so the Audio Analysis node's "Auto-Calibrate" button (ParameterPanel.runParameterAction)
+// can start a calibration run.
+window.audioKickProcessor = audioKickProcessor;
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
