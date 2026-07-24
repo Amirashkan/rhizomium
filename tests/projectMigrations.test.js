@@ -157,6 +157,78 @@ describe('migrateProjectData', () => {
     expect(result.nodes[0].params).toEqual(clean.params);
   });
 
+  it('converts removed ColorRamp/ConicGradient nodes into ComputeGradient (v5 -> v6)', () => {
+    const project = {
+      ...baseProject(),
+      version: 5,
+      nodes: [
+        { id: 'noise', kind: 'ComputeNoise', params: {} },
+        {
+          id: 'ramp',
+          kind: 'ColorRamp',
+          x: 100,
+          y: 200,
+          inputs: ['noise'],
+          params: {
+            mode: 'Smooth',
+            stops: [
+              { position: 0, color: [0, 0, 0, 1] },
+              { position: 1, color: [1, 0.5, 0, 1] },
+            ],
+          },
+        },
+        {
+          id: 'conic',
+          kind: 'ConicGradient',
+          inputs: ['uv'],
+          params: { centerX: 0.4, centerY: 0.6, startAngle: Math.PI, endAngle: 5.2, smoothness: 0.1 },
+        },
+        { id: 'noise2', kind: 'ComputeNoise', params: { scale: 3 } },
+      ],
+      connections: [{ from: { nodeId: 'ramp', pin: 0 }, to: { nodeId: 'out', pin: 0 } }],
+    };
+
+    const result = migrateProjectData(project);
+    expect(result.version).toBe(SAVE_FORMAT_VERSION);
+
+    // ColorRamp -> input-driven Gradient, stops + interpolation carried over.
+    const ramp = result.nodes.find((n) => n.id === 'ramp');
+    expect(ramp.kind).toBe('ComputeGradient');
+    expect(ramp.colorMode ?? ramp.params.colorMode).toBe('Gradient');
+    expect(ramp.params.inputMix).toBe(1.0);
+    expect(ramp.params.interpolation).toBe('Smooth');
+    expect(ramp.params.colorStops).toEqual([
+      { position: 0, color: [0, 0, 0, 1] },
+      { position: 1, color: [1, 0.5, 0, 1] },
+    ]);
+    // Identity + wiring preserved.
+    expect(ramp.x).toBe(100);
+    expect(ramp.inputs).toEqual(['noise']);
+    expect(result.connections[0].from.nodeId).toBe('ramp');
+
+    // ConicGradient -> Angular grayscale Gradient that ignores its input.
+    const conic = result.nodes.find((n) => n.id === 'conic');
+    expect(conic.kind).toBe('ComputeGradient');
+    expect(conic.params.type).toBe('Angular');
+    expect(conic.params.colorMode).toBe('Grayscale');
+    expect(conic.params.inputMix).toBe(0.0);
+    expect(conic.params.centerX).toBe(0.4);
+    expect(conic.params.angle).toBeCloseTo(180, 5); // startAngle PI rad -> 180 deg
+
+    // Real ComputeGradient/other nodes untouched.
+    expect(result.nodes.find((n) => n.id === 'noise2').params).toEqual({ scale: 3 });
+  });
+
+  it('leaves projects without ColorRamp/ConicGradient nodes unchanged (v5 -> v6)', () => {
+    const project = {
+      ...baseProject(),
+      version: 5,
+      nodes: [{ id: 'g', kind: 'ComputeGradient', params: { type: 'Radial' } }],
+    };
+    const result = migrateProjectData(project);
+    expect(result.nodes[0]).toEqual({ id: 'g', kind: 'ComputeGradient', params: { type: 'Radial' } });
+  });
+
   it('rejects non-object data', () => {
     expect(() => migrateProjectData(null)).toThrow(/Invalid project data/);
     expect(() => migrateProjectData('{}')).toThrow(/Invalid project data/);
