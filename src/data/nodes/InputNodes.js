@@ -175,8 +175,10 @@ export const InputNodes = {
     pinsIn: [],
     // Live audio analysis + kick/onset detection. The node configures the shared audio-envelope
     // engine (the Band + Follower + ADSR + Shaping controls that used to live in the Audio panel)
-    // and reads back the resulting envelope; on top of that it runs a precise kick detector
-    // (absolute floor + adaptive baseline + refractory debounce). It has no fragment-shader memory,
+    // and reads back the resulting envelope; on top of that it runs a precise kick detector on the
+    // band's spectral flux (frame-to-frame spectral change — ~0 for sustained sound, a spike on a
+    // hit), self-normalized and gated by an adaptive median+MAD threshold plus a refractory
+    // debounce, so the same settings work across tracks. It has no fragment-shader memory,
     // so all of this runs on the CPU in AudioAnalysisProcessor, which streams three uniforms:
     //   level - the live shaped envelope in [0,1] (a continuous value that moves while audio plays)
     //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over Kick Release ms
@@ -207,7 +209,11 @@ export const InputNodes = {
       // Off by default: auto-normalize divides by a running peak, which pins a steady track near 1.0
       // and makes the value look "stuck". Off gives a dynamic level that visibly reacts to the audio.
       { name: "normalize", type: "bool", default: false, label: "Auto-normalize" },
-      // — Kick detection (runs on top of the shaped envelope) —
+      // — Kick detection (runs on the band's spectral flux, normalized to ~[0,1] where 1 is the
+      //   strongest recent onset) —
+      // threshold: absolute floor on the normalized onset strength — raises it to ignore weak hits.
+      // sensitivity: how far above the adaptive (median + sensitivity*MAD) baseline a spike must
+      //   climb to count; LOWER fires more easily, higher demands a more prominent hit.
       { name: "threshold", type: "float", default: 0.15, label: "Kick Threshold" },
       { name: "sensitivity", type: "float", default: 1.6, label: "Sensitivity" },
       { name: "refractory", type: "float", default: 90.0, label: "Min Gap (ms)" },

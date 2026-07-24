@@ -120,6 +120,16 @@ export class BrowserAudioCapture {
                 this.analyser.smoothingTimeConstant = 0.3;
             }
 
+            // Second analyser dedicated to onset (kick) detection. Spectral flux measures the
+            // frame-to-frame CHANGE in the spectrum, so the main analyser's 0.3 smoothing — good
+            // for a stable envelope — would blur away exactly the transients flux keys on. This
+            // one runs unsmoothed; fftSize 2048 gives ~21 Hz bins, enough to resolve the kick band.
+            if (!this._fluxAnalyser) {
+                this._fluxAnalyser = this.audioContext.createAnalyser();
+                this._fluxAnalyser.fftSize = 2048;
+                this._fluxAnalyser.smoothingTimeConstant = 0;
+            }
+
             // Create source and connect.
             // createMediaElementSource() can only be called once per media element
             // for its entire lifetime, so reuse the existing source node on
@@ -127,6 +137,7 @@ export class BrowserAudioCapture {
             if (!this.source) {
                 this.source = this.audioContext.createMediaElementSource(this.audioElement);
                 this.source.connect(this.analyser);
+                this.source.connect(this._fluxAnalyser);
                 this.analyser.connect(this.audioContext.destination); // So we can hear it
             }
 
@@ -262,28 +273,7 @@ export class BrowserAudioCapture {
         const binWidth = nyquist / bufferLength;
 
         // Determine frequency range based on mode
-        let minFreq, maxFreq;
-        switch (bandMode) {
-            case 'bass':
-                minFreq = 20;
-                maxFreq = 250;
-                break;
-            case 'mids':
-                minFreq = 250;
-                maxFreq = 2000;
-                break;
-            case 'highs':
-                minFreq = 2000;
-                maxFreq = 20000;
-                break;
-            case 'custom':
-                minFreq = this.config.frequency.customMin;
-                maxFreq = this.config.frequency.customMax;
-                break;
-            default:
-                minFreq = 0;
-                maxFreq = nyquist;
-        }
+        const [minFreq, maxFreq] = this._bandRange(bandMode, nyquist);
 
         // Convert frequency range to bin indices
         const startBin = Math.floor(minFreq / binWidth);
@@ -299,6 +289,75 @@ export class BrowserAudioCapture {
         }
 
         return count > 0 ? Math.sqrt(sum / count) : 0;
+    }
+
+    /**
+     * Frequency range (Hz) for a band mode. Single source of truth shared by the RMS envelope
+     * and the spectral-flux onset signal so both agree on what e.g. "bass" means.
+     */
+    _bandRange(bandMode, nyquist) {
+        switch (bandMode) {
+            case 'bass': return [20, 250];
+            case 'mids': return [250, 2000];
+            case 'highs': return [2000, 20000];
+            case 'custom': return [this.config.frequency.customMin, this.config.frequency.customMax];
+            default: return [0, nyquist];
+        }
+    }
+
+    /**
+     * Per-band spectral flux: the sum of POSITIVE frame-to-frame changes in the (log-magnitude)
+     * spectrum, normalized per bin. This is the standard onset-detection signal — a sustained
+     * bass note contributes ~0 (its bins aren't changing) while a kick's attack lights up every
+     * bin in the low band at once. The byte spectrum is already dB-scaled, so this is log-domain
+     * flux, which emphasizes relative change and holds up across playback volumes.
+     *
+     * Results land in this._flux{Bass,Mids,Highs,Full,Custom} in roughly [0,1].
+     */
+    _computeSpectralFlux() {
+        this._fluxBass = 0; this._fluxMids = 0; this._fluxHighs = 0; this._fluxFull = 0; this._fluxCustom = 0;
+        if (!this._fluxAnalyser) return;
+
+        const n = this._fluxAnalyser.frequencyBinCount;
+        if (!this._fluxSpectrum || this._fluxSpectrum.length !== n) {
+            this._fluxSpectrum = new Uint8Array(n);
+            this._fluxPrevSpectrum = new Uint8Array(n);
+            this._fluxPrimed = false;
+        }
+
+        // Reuse the two buffers by swapping: last frame's spectrum becomes "prev".
+        const swap = this._fluxPrevSpectrum;
+        this._fluxPrevSpectrum = this._fluxSpectrum;
+        this._fluxSpectrum = swap;
+        this._fluxAnalyser.getByteFrequencyData(this._fluxSpectrum);
+
+        // First frame after (re)start has no valid previous spectrum — don't emit a bogus spike.
+        if (!this._fluxPrimed) {
+            this._fluxPrimed = true;
+            return;
+        }
+
+        const nyquist = this.audioContext.sampleRate / 2;
+        const binWidth = nyquist / n;
+        const bands = ['bass', 'mids', 'highs', 'fullband', 'custom'];
+        const out = [0, 0, 0, 0, 0];
+        for (let b = 0; b < bands.length; b++) {
+            const [minFreq, maxFreq] = this._bandRange(bands[b], nyquist);
+            const start = Math.max(0, Math.floor(minFreq / binWidth));
+            const end = Math.min(n, Math.ceil(maxFreq / binWidth));
+            let sum = 0, count = 0;
+            for (let i = start; i < end; i++) {
+                const d = this._fluxSpectrum[i] - this._fluxPrevSpectrum[i];
+                if (d > 0) sum += d;
+                count++;
+            }
+            out[b] = count > 0 ? sum / (count * 255) : 0;
+        }
+        this._fluxBass = out[0];
+        this._fluxMids = out[1];
+        this._fluxHighs = out[2];
+        this._fluxFull = out[3];
+        this._fluxCustom = out[4];
     }
 
     /**
@@ -324,6 +383,15 @@ export class BrowserAudioCapture {
 
             // Expose globally for GPU shader access
             window._audioEnvelopeValue = this._envelopeValue;
+
+            // No playback -> no onsets. Also drop priming so the first frame after resume
+            // doesn't diff against a stale spectrum and report a phantom kick.
+            this._fluxPrimed = false;
+            window._audioFluxBass = 0;
+            window._audioFluxMids = 0;
+            window._audioFluxHighs = 0;
+            window._audioFluxFull = 0;
+            window._audioFluxCustom = 0;
 
             return;
         }
@@ -380,12 +448,20 @@ export class BrowserAudioCapture {
         raw = this._applyShaping(raw);
         this._envelopeValue = Math.max(0, Math.min(1, raw));
 
+        // Band-limited spectral flux for onset/kick detection (see AudioAnalysisProcessor).
+        this._computeSpectralFlux();
+
         // Expose all globally for GPU shader access
         window._audioEnvelopeValue = this._envelopeValue;
         window._audioEnvelopeBass = this._envelopeBass;
         window._audioEnvelopeMids = this._envelopeMids;
         window._audioEnvelopeHighs = this._envelopeHighs;
         window._audioEnvelopeFull = this._envelopeFull;
+        window._audioFluxBass = this._fluxBass;
+        window._audioFluxMids = this._fluxMids;
+        window._audioFluxHighs = this._fluxHighs;
+        window._audioFluxFull = this._fluxFull;
+        window._audioFluxCustom = this._fluxCustom;
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {
