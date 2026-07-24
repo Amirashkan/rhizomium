@@ -209,17 +209,23 @@ export const InputNodes = {
       // Off by default: auto-normalize divides by a running peak, which pins a steady track near 1.0
       // and makes the value look "stuck". Off gives a dynamic level that visibly reacts to the audio.
       { name: "normalize", type: "bool", default: false, label: "Auto-normalize" },
-      // — Kick detection (peak picking on the band's spectral flux) —
+      // — Kick detection (peak picking on the band's onset flux; see AudioAnalysisProcessor) —
+      // With Band: Bass the detector watches 30-120 Hz (the kick's fundamental) and subtracts
+      // broadband energy, so snares and claps are rejected by the signal itself rather than by
+      // tuning. These two knobs then only need to sort strong hits from weak ones.
       // threshold: how strong an onset must be relative to the strongest recent one, in [0,1].
-      //   This is the kick-vs-everything-else knob: a snare or clap bleeding into the band at half
-      //   a kick's strength reads ~0.5, so 0.6 keeps kicks and drops it. Lower it if soft kicks are
-      //   being missed, raise it if other percussion is sneaking through.
+      //   Kick velocity varies a lot in real playing — the weakest kick in a bar can be under half
+      //   the loudest — so keep this well below 0.5 unless you only want the accents.
       // sensitivity: how far above the recent-noise baseline (median + sensitivity*MAD) a peak must
-      //   stand. This is the rejects-the-churn knob: raise it if busy passages produce stray hits,
-      //   lower it if kicks are missed in dense material.
-      { name: "threshold", type: "float", default: 0.6, label: "Kick Threshold" },
+      //   stand. Raise it if busy passages produce stray hits, lower it if kicks are missed in
+      //   dense material.
+      { name: "threshold", type: "float", default: 0.35, label: "Kick Threshold" },
       { name: "sensitivity", type: "float", default: 2.5, label: "Sensitivity" },
-      { name: "refractory", type: "float", default: 90.0, label: "Min Gap (ms)" },
+      // Min gap after a hit before another can fire. 200ms is deliberately longer than a kick's own
+      // decay tail (~250ms of audio, whose late ripples used to re-trigger at the old 90ms) and
+      // long enough to skip over an intervening hat or snare, while still clearing quarter-note
+      // kicks up to ~300 BPM. Lower it for 8th/16th-note kick patterns.
+      { name: "refractory", type: "float", default: 200.0, label: "Min Gap (ms)" },
       { name: "kickRelease", type: "float", default: 140.0, label: "Kick Release (ms)" },
     ],
   },

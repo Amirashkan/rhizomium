@@ -24,7 +24,7 @@ function kickNode(params = {}) {
     id: 'k', kind: 'AudioAnalysis',
     // Mirrors the node's shipped defaults (see data/nodes/InputNodes.js) so the tests exercise
     // what users actually get.
-    params: { band: 'Bass', threshold: 0.6, sensitivity: 2.5, kickRelease: 140, refractory: 90, ...params },
+    params: { band: 'Bass', threshold: 0.35, sensitivity: 2.5, kickRelease: 140, refractory: 200, ...params },
     inputs: [],
   };
 }

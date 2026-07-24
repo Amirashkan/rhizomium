@@ -15,7 +15,9 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
  *   2. Runs kick detection on the band's SPECTRAL FLUX (the per-frame positive change in the
  *      log-magnitude spectrum, from BrowserAudioCapture's unsmoothed onset analyser) — not on
  *      loudness. Flux is ~0 for a sustained bass note and spikes only when new energy arrives,
- *      which is what makes hits separable at all.
+ *      which is what makes hits separable at all. For Band: Bass that flux is kick-shaped: taken
+ *      over 30-120 Hz with broadband energy subtracted, so a snare or clap cancels out instead of
+ *      having to be tuned away.
  *
  *      Detection is PEAK-PICKING, not threshold-crossing. A kick's attack spans several frames
  *      (the FFT window slides across it), so "first frame over the line" fires somewhere on the
@@ -181,10 +183,10 @@ export class AudioAnalysisProcessor {
       const bandEnergy = this._bandEnergy(node, ctx);
 
       // 2. Kick-detection controls.
-      const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.6, ctx));
+      const threshold = Math.max(0, this._numericParam(node, 'threshold', 0.35, ctx));
       const sensitivity = Math.max(0, this._numericParam(node, 'sensitivity', 2.5, ctx));
       const releaseMs = Math.max(1, this._numericParam(node, 'kickRelease', 140.0, ctx));
-      const refractoryMs = Math.max(0, this._numericParam(node, 'refractory', 90.0, ctx));
+      const refractoryMs = Math.max(0, this._numericParam(node, 'refractory', 200.0, ctx));
 
       let st = this._state.get(node.id);
       if (!st) {
@@ -243,9 +245,12 @@ export class AudioAnalysisProcessor {
       // (f1 >= f2 and f1 > flux) occurs exactly once per transient, so a multi-frame attack yields
       // one hit instead of firing on the way up and again on every later ripple over the line.
       const isPeak = st.f1 >= st.f2 && st.f1 > flux;
-      // The floor is a fraction of the strongest recent onset, so the default 0.6 means "ignore
-      // anything under 60% of a normal kick" — and keeps meaning that across tracks and playback
-      // volumes. This is what separates a kick from a snare or clap bleeding into the same band.
+      // The floor is a fraction of the strongest recent onset, so the default 0.35 means "ignore
+      // anything under a third of a normal kick" — and keeps meaning that across tracks and
+      // playback volumes. It has to stay well under 0.5: measured on real drums the weakest kick
+      // in a phrase is under half the strongest, so a high floor silently drops quiet kicks.
+      // Separating a kick from a snare is the SIGNAL's job (a kick-band flux with broadband energy
+      // subtracted, see BrowserAudioCapture._computeSpectralFlux), not this threshold's.
       const overFloor = st.f1Norm >= threshold;
       const overAdaptive = st.f1 >= adaptive + 1e-9;
       // The band must actually be sounding. Flux is relative, so without this the noise floor of a

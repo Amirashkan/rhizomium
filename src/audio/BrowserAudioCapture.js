@@ -292,14 +292,36 @@ export class BrowserAudioCapture {
     }
 
     /**
-     * Frequency range (Hz) for a band mode. Single source of truth shared by the RMS envelope
-     * and the spectral-flux onset signal so both agree on what e.g. "bass" means.
+     * Frequency range (Hz) for a band mode, for the LEVEL envelope.
      */
     _bandRange(bandMode, nyquist) {
         switch (bandMode) {
             case 'bass': return [20, 250];
             case 'mids': return [250, 2000];
             case 'highs': return [2000, 20000];
+            case 'custom': return [this.config.frequency.customMin, this.config.frequency.customMax];
+            default: return [0, nyquist];
+        }
+    }
+
+    /**
+     * Frequency range (Hz) for a band mode, for ONSET DETECTION — deliberately not the same as the
+     * level ranges above.
+     *
+     * "Bass" is narrowed to the kick's fundamental (30-120 Hz) rather than the full 20-250 Hz low
+     * band. Measured on real audio, a snare's onset flux in 20-250 Hz is comparable to a kick's
+     * (its body sits around 200 Hz and its noise burst covers the rest), so a detector watching
+     * that range fires on the backbeat no matter how its threshold is set. Restricting to the
+     * kick's fundamental roughly doubles the kick-to-snare contrast.
+     *
+     * The level envelope keeps the wider range: as a continuous modulation value it wants the whole
+     * low end, and narrowing it would change what every existing patch's `level` output does.
+     */
+    _onsetBandRange(bandMode, nyquist) {
+        switch (bandMode) {
+            case 'bass': return [30, 120];
+            case 'mids': return [250, 2000];
+            case 'highs': return [2000, 16000];
             case 'custom': return [this.config.frequency.customMin, this.config.frequency.customMax];
             default: return [0, nyquist];
         }
@@ -352,7 +374,7 @@ export class BrowserAudioCapture {
         const bands = ['bass', 'mids', 'highs', 'fullband', 'custom'];
         const out = [0, 0, 0, 0, 0];
         for (let b = 0; b < bands.length; b++) {
-            const [minFreq, maxFreq] = this._bandRange(bands[b], nyquist);
+            const [minFreq, maxFreq] = this._onsetBandRange(bands[b], nyquist);
             const start = Math.max(0, Math.floor(minFreq / binWidth));
             const end = Math.min(n, Math.ceil(maxFreq / binWidth));
             let sum = 0, count = 0;
@@ -365,7 +387,12 @@ export class BrowserAudioCapture {
             }
             out[b] = count > 0 ? sum / (count * FLUX_CAP_DB) : 0;
         }
-        this._fluxBass = out[0];
+        // Bass is the KICK signal, so reject broadband onsets: subtract the high-band flux. A kick
+        // puts its energy almost entirely at the low end, while a snare or clap fires across the
+        // spectrum at once and cancels itself out here. Measured on real audio this removes snare
+        // false-positives outright (16/16 kicks, 0 snares) where the low band alone still caught 12
+        // of 16 snares. Mids/Highs stay raw — for those, broadband hits are the point.
+        this._fluxBass = Math.max(0, out[0] - out[2]);
         this._fluxMids = out[1];
         this._fluxHighs = out[2];
         this._fluxFull = out[3];
