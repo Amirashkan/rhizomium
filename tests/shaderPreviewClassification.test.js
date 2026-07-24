@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ShaderPreviewManager } from '../src/preview/ShaderPreviewManager.js';
+import { NodeDefs } from '../src/data/NodeDefs.js';
 
 // The constructor and the isComputeNode/isVisualNode helpers make no GPU calls, so stub
 // objects for the editor and device are sufficient to test the preview routing logic.
@@ -34,10 +35,17 @@ describe('ShaderPreviewManager node classification', () => {
       expect(spm.isVisualNode('Multiply')).toBe(true);     // dynamic
     });
 
-    it('routes string (per-pixel field/color) pins to the GPU preview path', () => {
-      // cat here is "Generators" (function-based), so pin shape — not category — must drive this.
-      expect(spm.isVisualNode('ColorRamp')).toBe(true);     // pinsOut: ["Color"]
-      expect(spm.isVisualNode('ConicGradient')).toBe(true); // pinsOut: ["Value"]
+    it('routes bare-string (per-pixel field/color) pins to the GPU preview path', () => {
+      // A non-compute fragment node whose pinsOut[0] is a bare string type ("Color"/"Value"/…)
+      // produces a per-pixel field, so pin shape — not the function-based category — must route it
+      // to the GPU preview. (The former product examples, ColorRamp/ConicGradient, were folded into
+      // the compute Gradient node; exercise the branch with a temporary def so it stays covered.)
+      NodeDefs.__TestFieldNode = { label: 'Test Field', cat: 'Generators', inputs: 1, pinsIn: ['Value'], pinsOut: ['Color'] };
+      try {
+        expect(spm.isVisualNode('__TestFieldNode')).toBe(true);
+      } finally {
+        delete NodeDefs.__TestFieldNode;
+      }
     });
 
     it('treats scalar field nodes (with inputs or multiple outputs) as visual', () => {

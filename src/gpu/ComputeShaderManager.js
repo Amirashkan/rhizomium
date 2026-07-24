@@ -500,16 +500,19 @@ export class ComputeShaderManager {
         });
       }
 
-      // Add input texture binding for nodes that take inputs from other compute nodes
+      // Add input texture binding for nodes that take inputs from other compute nodes.
+      // ComputeGradient already uses binding(2) for its color-stops buffer, so its
+      // input texture/sampler live at binding(3)/(4) instead of (2)/(3).
       if (this.needsInput) {
+        const inputTexBinding = this.node?.kind === 'ComputeGradient' ? 3 : 2;
         entries.push({
-          binding: 2,
+          binding: inputTexBinding,
           visibility: GPUShaderStage.COMPUTE,
           texture: { sampleType: 'float', viewDimension: '2d' }
         });
         // Add sampler for input texture
         entries.push({
-          binding: 3,
+          binding: inputTexBinding + 1,
           visibility: GPUShaderStage.COMPUTE,
           sampler: { type: 'filtering' }
         });
@@ -776,12 +779,13 @@ export class ComputeShaderManager {
       entries.push({ binding: 2, resource: { buffer: this.colorStopsBuffer } });
     }
 
-    // Binding 2: Input texture (if needed and not ComputeGradient)
+    // Input texture + sampler. ComputeGradient keeps binding(2) for its color-stops
+    // buffer, so its input texture/sampler sit at binding(3)/(4) instead of (2)/(3).
     if (this.needsInput) {
       const inputTexture = this.inputTexture || this.fallbackInputTexture;
-      entries.push({ binding: 2, resource: inputTexture.createView() });
-      // Binding 3: Input sampler
-      entries.push({ binding: 3, resource: this.textureSampler });
+      const inputTexBinding = this.node?.kind === 'ComputeGradient' ? 3 : 2;
+      entries.push({ binding: inputTexBinding, resource: inputTexture.createView() });
+      entries.push({ binding: inputTexBinding + 1, resource: this.textureSampler });
     }
 
     // Binding 4 (or 2 if no input): Feedback texture OR warp field (for ComputeWarp) OR second input (for ComputeMix)

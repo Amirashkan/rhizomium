@@ -111,8 +111,7 @@ export class FieldNodes {
 
   handles(kind) {
     return [
-      'ConicGradient',
-      'ColorRamp', 'Displacement', 'Circle', 'Rectangle', 'Polygon'
+      'Displacement', 'Circle', 'Rectangle', 'Polygon'
     ].includes(kind);
   }
 
@@ -130,10 +129,6 @@ export class FieldNodes {
     }
     
     switch (node.kind) {
-      case 'ConicGradient':
-        return this.compileConicGradient(node, getInput, nodeId);
-      case 'ColorRamp':
-        return this.compileColorRamp(node, getInput, nodeId);
       case 'Displacement':
         return this.compileDisplacement(node, getInput, nodeId);
 
@@ -389,89 +384,6 @@ getParam(node, paramName, defaultValue) {
 
   return result;
 }
-
-  compileConicGradient(node, getInput, nodeId) {
-    const uv = getInput(0, "vec2", "in.uv");
-    const centerX = this.getParam(node, 'centerX', 0.5);
-    const centerY = this.getParam(node, 'centerY', 0.5);
-    const rotationDeg = this.getParam(node, 'rotation', 0.0);
-    const rotation = this.convertDegToRad(rotationDeg);  // Convert degrees to radians
-    const repeat = this.getParam(node, 'repeat', 1.0);
-
-    const line = `
-  var uvAspect_${nodeId} = ${uv};
-  uvAspect_${nodeId}.x *= u.aspect;
-  let dir_${nodeId} = uvAspect_${nodeId} - vec2<f32>(${centerX} * u.aspect, ${centerY});
-  let angle_${nodeId} = atan2(dir_${nodeId}.y, dir_${nodeId}.x) + ${rotation};
-  let normalized_${nodeId} = (angle_${nodeId} + 3.14159265359) / 6.28318530718;
-  let node_${nodeId} = fract(normalized_${nodeId} * ${repeat});`;
-
-    return { line, outputType: "f32" };
-  }
-
-  compileColorRamp(node, getInput, nodeId) {
-    const input = getInput(0, "f32", "0.0");
-    
-    const stops = node.params?.stops || [
-      { position: 0, color: [0, 0, 0, 1] },
-      { position: 1, color: [1, 1, 1, 1] }
-    ];
-    
-    const sortedStops = [...stops]
-      .filter(s => s && s.color && Array.isArray(s.color) && typeof s.position === 'number')
-      .sort((a, b) => a.position - b.position);
-    
-    if (sortedStops.length === 0) {
-      return { line: `let node_${nodeId} = vec3<f32>(0.0);`, outputType: "vec3" };
-    }
-    
-    if (sortedStops.length === 1) {
-      const r = sortedStops[0].color[0].toFixed(6);
-      const g = sortedStops[0].color[1].toFixed(6);
-      const b = sortedStops[0].color[2].toFixed(6);
-      return { line: `let node_${nodeId} = vec3<f32>(${r}, ${g}, ${b});`, outputType: "vec3" };
-    }
-    
-    let line = `
-  var ramp_t_${nodeId} = clamp(${input}, 0.0, 1.0);
-  var node_${nodeId}: vec3<f32>;
-`;
-    
-    for (let i = 0; i < sortedStops.length - 1; i++) {
-      const s1 = sortedStops[i];
-      const s2 = sortedStops[i + 1];
-      
-      const r1 = s1.color[0].toFixed(6);
-      const g1 = s1.color[1].toFixed(6);
-      const b1 = s1.color[2].toFixed(6);
-      
-      const r2 = s2.color[0].toFixed(6);
-      const g2 = s2.color[1].toFixed(6);
-      const b2 = s2.color[2].toFixed(6);
-      
-      const pos1 = s1.position.toFixed(6);
-      const pos2 = s2.position.toFixed(6);
-      const range = Math.max(s2.position - s1.position, 0.000001);
-      
-      const cond = i === 0 ? 'if' : 'else if';
-      
-      line += `  ${cond} (ramp_t_${nodeId} <= ${pos2}) {
-    let t = (ramp_t_${nodeId} - ${pos1}) / ${range.toFixed(6)};
-    node_${nodeId} = mix(vec3<f32>(${r1}, ${g1}, ${b1}), vec3<f32>(${r2}, ${g2}, ${b2}), t);
-  }`;
-    }
-    
-    const last = sortedStops[sortedStops.length - 1];
-    const rL = last.color[0].toFixed(6);
-    const gL = last.color[1].toFixed(6);
-    const bL = last.color[2].toFixed(6);
-    
-    line += ` else {
-    node_${nodeId} = vec3<f32>(${rL}, ${gL}, ${bL});
-  }`;
-    
-    return { line, outputType: "vec3" };
-  }
 
   compileDisplacement(node, getInput, nodeId) {
     const uv = getInput(0, "vec2", "in.uv");

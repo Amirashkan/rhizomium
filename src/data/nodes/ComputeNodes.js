@@ -313,8 +313,8 @@ export const ComputeNodes = {
   ComputeGradient: {
     label: "Gradient",
     cat: "Generators",
-    inputs: 0,
-    pinsIn: [],
+    inputs: 1,
+    pinsIn: ["Value"],
     pinsOut: ["Texture"],
     params: [
       { name: 'type', type: 'select', options: ['Linear', 'Radial', 'Angular', 'Diamond'], default: 'Linear' },
@@ -335,9 +335,13 @@ export const ComputeNodes = {
           { position: 1.0, color: [1, 1, 1, 1] }
         ]
       },
-      { name: 'interpolation', type: 'select', options: ['Linear', 'Step', 'Smooth'], default: 'Linear' }
+      { name: 'interpolation', type: 'select', options: ['Linear', 'Step', 'Smooth'], default: 'Linear' },
+      // When a node is wired to the "Value" input, its luminance is blended into the
+      // gradient position by this amount: 0 = ignore the input (pure built-in gradient),
+      // 1 = the input fully drives the gradient (acts like the old Color Ramp).
+      { name: 'inputMix', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
     ],
-    description: "Generate linear, radial, angular, and diamond gradients with visual color picker",
+    description: "Generate linear, radial, angular, and diamond gradients with visual color picker. Wire a value/mask into the input to drive the gradient (replaces Color Ramp).",
     workgroupSize: [8, 8, 1]
   },
 

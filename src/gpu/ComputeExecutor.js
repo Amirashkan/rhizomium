@@ -353,7 +353,7 @@ export class ComputeExecutor {
       const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
                                      'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
                                      'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect',
-                                     'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels', 'ComputeHSV', 'ComputeHistogram', 'ComputeLuminance'].includes(node.kind);
+                                     'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels', 'ComputeHSV', 'ComputeHistogram', 'ComputeLuminance', 'ComputeGradient'].includes(node.kind);
       const needsInput = nodeDesignedForInput;
 
       // Reuse signature: a node can keep its existing manager (and its

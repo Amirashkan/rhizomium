@@ -9,44 +9,9 @@
  */
 export const PatternNodes = {
   // === GRADIENT PATTERNS ===
-  ConicGradient: {
-    label: "Conic Gradient",
-    cat: "Generators",
-    inputs: 1,
-    pinsIn: ["UV"],
-    pinsOut: ["Value"],
-    params: [
-      { name: 'centerX', type: 'float', default: 0.5 },
-      { name: 'centerY', type: 'float', default: 0.5 },
-      { name: 'startAngle', type: 'float', default: 0.0 },
-      { name: 'endAngle', type: 'float', default: 6.28318 },
-      { name: 'smoothness', type: 'float', default: 0.0 }
-    ]
-  },
-
-  ColorRamp: {
-    label: "Color Ramp",
-    cat: "Generators",
-    inputs: 1,
-    pinsIn: ["Value"],
-    pinsOut: ["Color"],
-    params: [
-      {
-        name: "stops",
-        type: "colorstops",
-        default: [
-          { position: 0.0, color: [0, 0, 0, 1] },
-          { position: 1.0, color: [1, 1, 1, 1] }
-        ]
-      },
-      {
-        name: "mode",
-        type: "select",
-        options: ["Linear", "Step", "Smooth"],
-        default: "Linear"
-      }
-    ]
-  },
+  // ConicGradient and ColorRamp were removed: the GPU "Gradient" node (ComputeGradient)
+  // covers both — its Angular type is a conic gradient, and wiring a value/mask into its
+  // "Value" input drives the color stops the way Color Ramp used to (and it updates live).
 
   // === SHAPE GENERATORS ===
   Circle: {
