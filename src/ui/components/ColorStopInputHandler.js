@@ -93,13 +93,14 @@ export class ColorStopInputHandler {
     
     stops.forEach((stop, index) => {
       const stopItem = this.createStopItem(
-        stop, 
-        index, 
-        node, 
-        param, 
-        valueManager, 
-        onUpdate, 
-        () => this.create(param, node, container, label, valueManager, onUpdate)
+        stop,
+        index,
+        node,
+        param,
+        valueManager,
+        onUpdate,
+        () => this.create(param, node, container, label, valueManager, onUpdate),
+        previewBar
       );
       stopList.appendChild(stopItem);
     });
@@ -261,7 +262,7 @@ export class ColorStopInputHandler {
     ];
   }
   
-  createStopItem(stop, index, node, param, valueManager, onUpdate, refreshCallback) {
+  createStopItem(stop, index, node, param, valueManager, onUpdate, refreshCallback, previewBar) {
     const item = document.createElement('div');
     item.className = 'color-stop-item';
     item.style.cssText = `
@@ -329,12 +330,29 @@ export class ColorStopInputHandler {
       background: transparent;
     `;
     
+    // Native <input type="color"> fires `input` continuously while the palette
+    // is open and `change` only once it closes. Listen to `input` so the shader
+    // and gradient preview update live as the user picks a colour — without
+    // calling refreshCallback(), which would rebuild this input and close the
+    // native palette mid-pick. `change` still runs the final commit + refresh.
+    const applyColorLive = (hex) => {
+      const currentStops = [...node.params[param.name]];
+      currentStops[index].color = [...this.hexToRgb(hex), 1];
+      valueManager.setValue(node, param.name, currentStops);
+      if (previewBar) {
+        previewBar.style.background = `linear-gradient(to right, ${this.generateGradientCSS(currentStops)})`;
+      }
+      onUpdate(`Update stop color`);
+    };
+
+    colorPicker.addEventListener('input', (e) => {
+      e.stopPropagation();
+      applyColorLive(e.target.value);
+    });
+
     colorPicker.addEventListener('change', (e) => {
       e.stopPropagation();
-      const currentStops = [...node.params[param.name]];
-      currentStops[index].color = [...this.hexToRgb(e.target.value), 1];
-      valueManager.setValue(node, param.name, currentStops);
-      onUpdate(`Update stop color`);
+      applyColorLive(e.target.value);
       refreshCallback();
     });
     
