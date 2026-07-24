@@ -101,7 +101,9 @@ export class Renderer {
     const preciseDirtyRegions = renderState.preciseDirtyRegions;
     const needsFullRedraw = renderState.needsFullRedraw;
     
-    if (needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0) {
+    const isPartialRedraw = !needsFullRedraw && Array.isArray(preciseDirtyRegions) && preciseDirtyRegions.length > 0;
+
+    if (!isPartialRedraw) {
       // Full canvas clear
       ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     } else {
@@ -119,8 +121,28 @@ export class Renderer {
     ctx.translate(this.viewport.offsetX, this.viewport.offsetY);
     ctx.scale(this.viewport.scale, this.viewport.scale);
     
-    // Render grid background in world space (moves with viewport)
-    this._renderBackgroundGrid();
+    // Render grid background in world space (moves with viewport).
+    // On a partial redraw only the dirty regions were cleared, so clip the grid to
+    // those regions before repainting it. Otherwise the semi-transparent grid lines
+    // (alpha 0.025 / 0.07) get re-added on top of the still-painted background every
+    // frame, and the grid visibly brightens during any burst of partial redraws —
+    // e.g. while dragging in the colour picker, which fires continuous partial redraws.
+    if (isPartialRedraw) {
+      ctx.save();
+      ctx.beginPath();
+      const pad = 2 / (this.viewport.scale || 1); // match _clearDirtyRegions' 2px screen padding
+      for (const region of preciseDirtyRegions) {
+        if (region && Number.isFinite(region.x) && Number.isFinite(region.y) &&
+            Number.isFinite(region.w) && Number.isFinite(region.h)) {
+          ctx.rect(region.x - pad, region.y - pad, region.w + pad * 2, region.h + pad * 2);
+        }
+      }
+      ctx.clip();
+      this._renderBackgroundGrid();
+      ctx.restore();
+    } else {
+      this._renderBackgroundGrid();
+    }
 
     // PERFORMANCE: Create node lookup map for O(1) access instead of O(n) linear search
     // This is critical for performance with many nodes
