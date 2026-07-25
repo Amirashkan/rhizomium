@@ -52,19 +52,30 @@ export const ComputeNodes = {
     pinsIn: ["Force Field", "Velocity Field"],
     pinsOut: ["Texture"],
     params: [
-      { name: 'particleCount', type: 'int', default: 10000, min: 1000, max: 100000 },
-      { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0 },
-      { name: 'size', type: 'float', default: 2.0, min: 0.5, max: 10.0 },
-      { name: 'sizeVariation', type: 'float', default: 0.3, min: 0.0, max: 1.0, description: 'Random per-particle size spread' },
-      { name: 'lifetime', type: 'float', default: 5.0, min: 1.0, max: 20.0 },
-      { name: 'color', type: 'color', default: [1.0, 1.0, 1.0, 1.0], description: 'Particle tint; alpha scales overall intensity' },
-      { name: 'depth', type: 'float', default: 0.0, min: 0.0, max: 1.0, displayName: '3D Depth', description: 'Pseudo-3D: near particles are bigger, brighter and faster (parallax)' },
-      { name: 'driftAngle', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Direction of the shared drift, in degrees' },
-      { name: 'driftStrength', type: 'float', default: 0.0, min: 0.0, max: 2.0, description: 'How strongly all particles drift in the drift direction' },
-      { name: 'scatter', type: 'float', default: 0.5, min: 0.0, max: 1.0, description: 'Random per-particle wander amount' },
-      { name: 'turbulence', type: 'float', default: 0.0, min: 0.0, max: 2.0, description: 'Time-varying wobble along the path' },
-      { name: 'glow', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Soft halo around each particle' },
-      { name: 'twinkle', type: 'float', default: 0.0, min: 0.0, max: 1.0, description: 'Per-particle brightness flicker' }
+      // Thirteen parameters covering three unrelated questions: what the particles are, what they
+      // look like, and where they go. Grouping them that way needed one change of order —
+      // `glow`/`twinkle` sat after the drift controls, away from the other appearance controls.
+      // Order here is display order only: uniforms are packed by name in computeUniformLayout.js
+      // and the WGSL struct is written out by hand, so neither depends on the position of a
+      // parameter in this list.
+      { name: 'particleCount', type: 'int', default: 10000, min: 1000, max: 100000, group: 'Basics' },
+      { name: 'speed', type: 'float', default: 1.0, min: 0.0, max: 5.0, group: 'Basics' },
+      { name: 'size', type: 'float', default: 2.0, min: 0.5, max: 10.0, group: 'Basics' },
+      { name: 'sizeVariation', type: 'float', default: 0.3, min: 0.0, max: 1.0, description: 'Random per-particle size spread', group: 'Basics' },
+      { name: 'lifetime', type: 'float', default: 5.0, min: 1.0, max: 20.0, group: 'Basics' },
+
+      { name: 'color', type: 'color', default: [1.0, 1.0, 1.0, 1.0], description: 'Particle tint; alpha scales overall intensity', group: 'Appearance' },
+      { name: 'depth', type: 'float', default: 0.0, min: 0.0, max: 1.0, displayName: '3D Depth', description: 'Pseudo-3D: near particles are bigger, brighter and faster (parallax)', group: 'Appearance' },
+      { name: 'glow', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Soft halo around each particle', group: 'Appearance' },
+      { name: 'twinkle', type: 'float', default: 0.0, min: 0.0, max: 1.0, description: 'Per-particle brightness flicker', group: 'Appearance' },
+
+      // Directed drift and wander, all off by default — the section has nothing to show until it
+      // is opened deliberately. Overall rate lives above as a basic, since it is reached for far
+      // more often than the drift shaping down here.
+      { name: 'driftAngle', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Direction of the shared drift, in degrees', group: 'Motion', groupCollapsed: true },
+      { name: 'driftStrength', type: 'float', default: 0.0, min: 0.0, max: 2.0, description: 'How strongly all particles drift in the drift direction', group: 'Motion' },
+      { name: 'scatter', type: 'float', default: 0.5, min: 0.0, max: 1.0, description: 'Random per-particle wander amount', group: 'Motion' },
+      { name: 'turbulence', type: 'float', default: 0.0, min: 0.0, max: 2.0, description: 'Time-varying wobble along the path', group: 'Motion' }
     ],
     description: "GPU particle system with physics",
     workgroupSize: [64, 1, 1]
@@ -117,13 +128,20 @@ export const ComputeNodes = {
     pinsIn: ["Velocity Input"],
     pinsOut: ["Texture"],
     params: [
-      { name: 'viscosity', type: 'float', default: 0.0001, min: 0.0, max: 0.01, description: 'Velocity diffusion — higher = thicker, syrupy motion' },
-      { name: 'diffusion', type: 'float', default: 0.0, min: 0.0, max: 0.1, description: 'How quickly the dye spreads and fades' },
-      { name: 'timestep', type: 'float', default: 0.1, min: 0.01, max: 1.0, description: 'Simulation speed' },
-      { name: 'iterations', type: 'int', default: 20, min: 1, max: 50, description: 'Pressure-solve strength — higher = stiffer, more incompressible flow' },
-      { name: 'curl', type: 'float', default: 15.0, min: 0.0, max: 50.0, description: 'Vorticity confinement — accentuates small swirls and turbulence' },
-      { name: 'forceStrength', type: 'float', default: 1.0, min: 0.0, max: 5.0, description: 'How strongly the Velocity Input (or the built-in emitters) stirs the fluid' },
-      { name: 'dyeAmount', type: 'float', default: 1.0, min: 0.0, max: 5.0, description: 'How much dye the injectors emit' },
+      // Five knobs tune the solver and two decide what gets pushed into it — a distinction worth
+      // drawing, since a fluid that looks wrong is usually being fed wrong rather than solved
+      // wrong. Both sections stay open: unlike the folded sections elsewhere, these defaults are
+      // starting points rather than "off". `colorMode` and the reset button are ungrouped and
+      // render below, as they belong to neither.
+      { name: 'viscosity', type: 'float', default: 0.0001, min: 0.0, max: 0.01, description: 'Velocity diffusion — higher = thicker, syrupy motion', group: 'Solver' },
+      { name: 'diffusion', type: 'float', default: 0.0, min: 0.0, max: 0.1, description: 'How quickly the dye spreads and fades', group: 'Solver' },
+      { name: 'timestep', type: 'float', default: 0.1, min: 0.01, max: 1.0, description: 'Simulation speed', group: 'Solver' },
+      { name: 'iterations', type: 'int', default: 20, min: 1, max: 50, description: 'Pressure-solve strength — higher = stiffer, more incompressible flow', group: 'Solver' },
+      { name: 'curl', type: 'float', default: 15.0, min: 0.0, max: 50.0, description: 'Vorticity confinement — accentuates small swirls and turbulence', group: 'Solver' },
+
+      { name: 'forceStrength', type: 'float', default: 1.0, min: 0.0, max: 5.0, description: 'How strongly the Velocity Input (or the built-in emitters) stirs the fluid', group: 'Injection' },
+      { name: 'dyeAmount', type: 'float', default: 1.0, min: 0.0, max: 5.0, description: 'How much dye the injectors emit', group: 'Injection' },
+
       { name: 'colorMode', type: 'select', options: ['Dye', 'Velocity', 'Vorticity', 'Pressure'], default: 'Dye' },
       { name: 'reset', type: 'button', displayName: 'Reset Fluid', action: 'resetFeedback', description: 'Return the fluid to rest and clear all dye' }
     ],
@@ -188,32 +206,38 @@ export const ComputeNodes = {
     pinsIn: ["Field Input"],
     pinsOut: ["3D Geometry"],
     params: [
-      // What to render (GPU-driven, always live)
+      // Seventeen parameters, of which at most twelve apply at once: the Surface and Instances
+      // sections are alternatives selected by `mode`, and the two that are always live sit at
+      // opposite ends of the list. The `group` fields below put each section under its own
+      // collapsible heading in the parameter panel, so the mode you are not in stays folded away.
+      // `mode` itself is deliberately ungrouped: it decides which section matters, so it renders
+      // at the top of the panel above every heading.
       { name: 'mode', type: 'select', options: ['surface', 'instances'], default: 'surface', description: 'Surface shape or instanced field' },
 
       // Surface mode
-      { name: 'shape', type: 'select', options: ['plane', 'sphere', 'box', 'torus'], default: 'plane', description: 'Surface: shape the field is mapped onto' },
-      { name: 'resolution', type: 'int', default: 96, min: 8, max: 256, description: 'Surface: tessellation (segments)' },
+      { name: 'shape', type: 'select', options: ['plane', 'sphere', 'box', 'torus'], default: 'plane', description: 'Surface: shape the field is mapped onto', group: 'Surface' },
+      { name: 'resolution', type: 'int', default: 96, min: 8, max: 256, description: 'Surface: tessellation (segments)', group: 'Surface' },
 
-      // Shared
-      { name: 'scale', type: 'float', default: 1.5, min: 0.1, max: 5.0, description: 'Size in the viewport' },
-      { name: 'displacementScale', type: 'float', default: 0.4, min: 0.0, max: 2.0, description: 'Field-driven displacement / instance height' },
-      { name: 'textureAmount', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'How strongly the field colors the result' },
+      // Shared between both modes: overall size, and how much of the field reaches the result.
+      { name: 'scale', type: 'float', default: 1.5, min: 0.1, max: 5.0, description: 'Size in the viewport', group: 'Size & Field' },
+      { name: 'displacementScale', type: 'float', default: 0.4, min: 0.0, max: 2.0, description: 'Field-driven displacement / instance height', group: 'Size & Field' },
+      { name: 'textureAmount', type: 'float', default: 1.0, min: 0.0, max: 1.0, description: 'How strongly the field colors the result', group: 'Size & Field' },
 
-      // Transform: position and rotation of the 3D object in the scene
-      { name: 'translateX', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along X' },
-      { name: 'translateY', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along Y' },
-      { name: 'translateZ', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along Z' },
-      { name: 'rotateX', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around X (degrees)' },
-      { name: 'rotateY', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around Y (degrees)' },
-      { name: 'rotateZ', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around Z (degrees)' },
+      // Transform: position and rotation of the 3D object in the scene. Six fields that default to
+      // a centred, unrotated object, so the section starts folded.
+      { name: 'translateX', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along X', group: 'Transform', groupCollapsed: true },
+      { name: 'translateY', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along Y', group: 'Transform' },
+      { name: 'translateZ', type: 'float', default: 0.0, min: -5.0, max: 5.0, description: 'Move the object along Z', group: 'Transform' },
+      { name: 'rotateX', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around X (degrees)', group: 'Transform' },
+      { name: 'rotateY', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around Y (degrees)', group: 'Transform' },
+      { name: 'rotateZ', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around Z (degrees)', group: 'Transform' },
 
-      // Instanced mode
-      { name: 'instanceShape', type: 'select', options: ['cube', 'sphere', 'quad'], default: 'cube', description: 'Instances: mesh drawn per field cell' },
-      { name: 'instanceCount', type: 'int', default: 48, min: 4, max: 160, description: 'Instances: grid per axis (count x count cells)' },
-      { name: 'instanceSize', type: 'float', default: 0.03, min: 0.002, max: 0.2, description: 'Instances: base size in world units' },
-      { name: 'sizeByField', type: 'float', default: 0.6, min: 0.0, max: 1.0, description: 'Instances: how much the field scales each instance' },
-      { name: 'instanceThreshold', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Instances: hide cells below this field value' }
+      // Instanced mode. Inert in the default surface mode, so it starts folded too.
+      { name: 'instanceShape', type: 'select', options: ['cube', 'sphere', 'quad'], default: 'cube', description: 'Instances: mesh drawn per field cell', group: 'Instances', groupCollapsed: true },
+      { name: 'instanceCount', type: 'int', default: 48, min: 4, max: 160, description: 'Instances: grid per axis (count x count cells)', group: 'Instances' },
+      { name: 'instanceSize', type: 'float', default: 0.03, min: 0.002, max: 0.2, description: 'Instances: base size in world units', group: 'Instances' },
+      { name: 'sizeByField', type: 'float', default: 0.6, min: 0.0, max: 1.0, description: 'Instances: how much the field scales each instance', group: 'Instances' },
+      { name: 'instanceThreshold', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Instances: hide cells below this field value', group: 'Instances' }
     ],
     description: "Map field data onto a live 3D surface (plane, sphere, box, torus) or an instanced grid (cubes, spheres, points)",
     workgroupSize: [8, 8, 1]
@@ -317,29 +341,38 @@ export const ComputeNodes = {
     pinsIn: ["Value"],
     pinsOut: ["Texture"],
     params: [
-      { name: 'type', type: 'select', options: ['Linear', 'Radial', 'Angular', 'Diamond'], default: 'Linear' },
-      { name: 'angle', type: 'float', default: 0.0, min: 0.0, max: 360.0 },
-      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
-      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
-      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0 },
-      { name: 'repeat', type: 'int', default: 1, min: 1, max: 20 },
-      { name: 'reverse', type: 'boolean', default: false },
-      { name: 'colorMode', type: 'select', options: ['Grayscale', 'Rainbow', 'Gradient'], default: 'Grayscale' },
-      { name: 'saturation', type: 'float', default: 0.8, min: 0.0, max: 1.0 },
-      { name: 'brightness', type: 'float', default: 1.0, min: 0.0, max: 2.0 },
+      // When a node is wired to the "Value" input, its luminance is blended into the
+      // gradient position by this amount: 0 = ignore the input (pure built-in gradient),
+      // 1 = the input fully drives the gradient (acts like the old Color Ramp).
+      //
+      // It leads the list, and is ungrouped so it renders above both headings: it decides whether
+      // the gradient's own geometry means anything at all, which makes it the first thing to check
+      // when a wired-up Gradient does not look like the shape below says it should.
+      { name: 'inputMix', type: 'float', default: 1.0, min: 0.0, max: 1.0 },
+
+      // The remaining twelve split cleanly in two: where the gradient runs, and what colors it
+      // takes. Both stay open — either is a normal thing to reach for.
+      { name: 'type', type: 'select', options: ['Linear', 'Radial', 'Angular', 'Diamond'], default: 'Linear', group: 'Shape' },
+      { name: 'angle', type: 'float', default: 0.0, min: 0.0, max: 360.0, group: 'Shape' },
+      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0, group: 'Shape' },
+      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0, group: 'Shape' },
+      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0, group: 'Shape' },
+      { name: 'repeat', type: 'int', default: 1, min: 1, max: 20, group: 'Shape' },
+      { name: 'reverse', type: 'boolean', default: false, group: 'Shape' },
+
+      { name: 'colorMode', type: 'select', options: ['Grayscale', 'Rainbow', 'Gradient'], default: 'Grayscale', group: 'Color' },
+      { name: 'saturation', type: 'float', default: 0.8, min: 0.0, max: 1.0, group: 'Color' },
+      { name: 'brightness', type: 'float', default: 1.0, min: 0.0, max: 2.0, group: 'Color' },
       {
         name: 'colorStops',
         type: 'colorstops',
+        group: 'Color',
         default: [
           { position: 0.0, color: [0, 0, 0, 1] },
           { position: 1.0, color: [1, 1, 1, 1] }
         ]
       },
-      { name: 'interpolation', type: 'select', options: ['Linear', 'Step', 'Smooth'], default: 'Linear' },
-      // When a node is wired to the "Value" input, its luminance is blended into the
-      // gradient position by this amount: 0 = ignore the input (pure built-in gradient),
-      // 1 = the input fully drives the gradient (acts like the old Color Ramp).
-      { name: 'inputMix', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
+      { name: 'interpolation', type: 'select', options: ['Linear', 'Step', 'Smooth'], default: 'Linear', group: 'Color' }
     ],
     description: "Generate linear, radial, angular, and diamond gradients with visual color picker. Wire a value/mask into the input to drive the gradient (replaces Color Ramp).",
     workgroupSize: [8, 8, 1]

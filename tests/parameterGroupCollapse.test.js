@@ -61,6 +61,41 @@ describe('parameter group definitions', () => {
   });
 });
 
+describe('group declarations across every node', () => {
+  // Sections are built from consecutive runs, so a group interrupted by another group renders as
+  // two separate headings with the same name. Nothing catches that at author time.
+  it('keeps each group contiguous within its node', () => {
+    for (const [kind, def] of Object.entries(NodeDefs)) {
+      const seen = [];
+      let previous = null;
+      for (const param of def.params || []) {
+        const group = param.group || null;
+        if (group !== previous) {
+          expect(seen, `${kind}: group "${group}" is split by other parameters`).not.toContain(group);
+          seen.push(group);
+          previous = group;
+        }
+      }
+    }
+  });
+
+  // Only the first parameter of a section is consulted for the initial state; setting it further
+  // down is a silent no-op that reads as if it works.
+  it('declares groupCollapsed only on the parameter that opens a group', () => {
+    for (const [kind, def] of Object.entries(NodeDefs)) {
+      let previous = null;
+      for (const param of def.params || []) {
+        const group = param.group || null;
+        const opensGroup = group !== null && group !== previous;
+        if (param.groupCollapsed !== undefined) {
+          expect(opensGroup, `${kind}.${param.name}: groupCollapsed has no effect here`).toBe(true);
+        }
+        previous = group;
+      }
+    }
+  });
+});
+
 describe('collapsible parameter groups', () => {
   let panel;
   let node;
@@ -116,6 +151,22 @@ describe('collapsible parameter groups', () => {
     const [triggers, meter] = groupHeaders(panel.panelContent).map((h) => h.nextSibling);
     expect(triggers.style.display).toBe('none');
     expect(meter.style.display).toBe('none');
+  });
+
+  it('renders a mode switch above the sections it selects between', () => {
+    // ComputeFieldMapper's `mode` chooses between the Surface and Instances sections, so it is
+    // left ungrouped and has to land above both headings rather than inside one.
+    panel.renderParameters({ kind: 'ComputeFieldMapper', id: 'n3', params: {} });
+
+    const children = Array.from(panel.panelContent.children);
+    const modeIndex = children.findIndex((el) => el.dataset?.name === 'mode');
+    const firstHeader = children.findIndex((el) => el.firstChild?.firstChild?.textContent === '▾' ||
+      el.firstChild?.firstChild?.textContent === '▸');
+    expect(modeIndex).toBeGreaterThanOrEqual(0);
+    expect(modeIndex).toBeLessThan(firstHeader);
+
+    const headers = groupHeaders(panel.panelContent).map((h) => h.textContent.replace(/[▸▾]/g, ''));
+    expect(headers).toEqual(['Surface', 'Size & Field', 'Transform', 'Instances']);
   });
 
   it('renders ungrouped parameters directly in the panel, with no heading', () => {
