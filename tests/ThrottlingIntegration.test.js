@@ -158,7 +158,6 @@ describe('Throttling Integration', () => {
   describe('Performance Characteristics', () => {
     it('should maintain frame rate targets during interactions', () => {
       const updateFn = vi.fn();
-      const startTime = performance.now();
       
       throttler.beginDrag(); // 50ms interval = 20fps
       

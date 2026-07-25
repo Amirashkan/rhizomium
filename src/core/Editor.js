@@ -10,7 +10,7 @@ import { PreviewSystem } from "./PreviewSystem.js";
 import { PreviewComputer } from "./PreviewComputer.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
-import { ParameterBindingMenu, BindingVisualizer } from '../ui/ParameterBindingMenu.js';
+import { ParameterBindingMenu } from '../ui/ParameterBindingMenu.js';
 import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
 import { logRedrawDirtyMark, logRedrawCommit } from '../utils/RedrawDiagnostics.js';
 import { InvalidationManager } from "./InvalidationManager.js";
@@ -1553,13 +1553,11 @@ connectGPURenderer(renderFunction) {
         }
       }
 
-      let connectionsRemoved = 0;
       this.graph.nodes.forEach(node => {
         if (node.inputs && Array.isArray(node.inputs)) {
           node.inputs.forEach((input, index) => {
             if (input === nodeToDelete.id || input == nodeToDelete.id) {
               node.inputs[index] = null;
-              connectionsRemoved++;
             }
           });
         }
@@ -1630,13 +1628,11 @@ connectGPURenderer(renderFunction) {
       
       const nodeIdsToDelete = new Set(validNodes.map(n => n.id));
       
-      let connectionsRemoved = 0;
       this.graph.nodes.forEach(node => {
         if (node.inputs && Array.isArray(node.inputs)) {
           node.inputs.forEach((input, index) => {
             if (input !== null && input !== undefined && nodeIdsToDelete.has(input)) {
               node.inputs[index] = null;
-              connectionsRemoved++;
             }
           });
         }
@@ -1862,11 +1858,11 @@ connectGPURenderer(renderFunction) {
             return true;
           }
           
-          let deletionSuccess = false;
+          // Both return a success flag that nothing here consulted; the deletion is the point.
           if (nodesToDelete.length > 1) {
-            deletionSuccess = this.deleteNodesAsGroup(nodesToDelete);
+            this.deleteNodesAsGroup(nodesToDelete);
           } else {
-            deletionSuccess = this.deleteNode(nodesToDelete[0]);
+            this.deleteNode(nodesToDelete[0]);
           }
           
           if (this.selection.clear) {

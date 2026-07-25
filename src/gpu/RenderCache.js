@@ -266,7 +266,7 @@ export class RenderCache {
    * Clear all cache entries
    */
   clear() {
-    for (const [key, entry] of this._cache) {
+    for (const [, entry] of this._cache) {
       this._destroyEntry(entry);
     }
     this._cache.clear();

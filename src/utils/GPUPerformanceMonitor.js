@@ -158,7 +158,7 @@ export class GPUPerformanceMonitor {
     const results = await this.testRunner.runAllTests();
 
     // Generate and save report
-    const report = this.testRunner.generateReport();
+    this.testRunner.generateReport();
 
     return results;
   }

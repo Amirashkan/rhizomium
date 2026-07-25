@@ -1,7 +1,7 @@
 // scripts/redraw_trigger_detection.js
 // Integration script to set up and run redraw trigger detection
 
-import { startRedrawTriggerDetection, getRedrawTriggerDetector } from '../src/utils/RedrawTriggerDetector.js';
+import { startRedrawTriggerDetection } from '../src/utils/RedrawTriggerDetector.js';
 import { getRedrawTriggerLogger } from '../src/utils/RedrawTriggerLogger.js';
 import { RedrawTriggerAnalyzer } from '../src/utils/RedrawTriggerAnalyzer.js';
 import { getRedrawTriggerSimulator } from '../src/utils/RedrawTriggerSimulator.js';

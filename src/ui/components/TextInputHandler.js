@@ -486,7 +486,6 @@ input.addEventListener("input", (e) => {
           if (!isDragging) return;
 
           // PERFORMANCE MEASUREMENT: Time this handler
-          const t0 = performance.now();
 
           const deltaY = startY - e.clientY;
           const sensitivity = e.ctrlKey ? 0.001 : e.altKey ? 0.1 : 0.01;

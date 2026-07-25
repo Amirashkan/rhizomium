@@ -4,7 +4,6 @@
 import { UnifiedExpressionSystem } from '../src/utils/UnifiedExpressionSystem.js';
 
 let expressionSystem = null;
-let nodeValueComputer = null;
 
 // Initialize worker
 self.onmessage = async (e) => {

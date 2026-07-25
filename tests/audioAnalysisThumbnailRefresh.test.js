@@ -7,7 +7,7 @@
 // thumbnail stayed frozen. Fix: collect an Audio Analysis node's downstream (wired + expression) and
 // refresh those visual thumbnails whenever any of its level/kick/trig outputs changed this frame.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PreviewIntegration } from '../src/core/preview/PreviewIntegration.js';
 
 describe('updateAnimatedFragmentPreviews refreshes Audio Analysis-driven thumbnails', () => {

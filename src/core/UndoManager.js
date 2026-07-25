@@ -209,7 +209,6 @@ export class UndoManager {
     }
 
     const nodeSnapshots = [];
-    const allConnections = [];
 
     // Create snapshots for each node
     nodes.forEach(node => {

@@ -4,7 +4,6 @@
 import { RenderCache } from './RenderCache.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 
-const STAGES = GPUShaderStage.FRAGMENT | GPUShaderStage.VERTEX;
 
 // Parse WGSL for @group/@binding declarations so we can allocate resources dynamically.
 function analyzeBindings(wgsl) {
@@ -1268,29 +1267,15 @@ export class GPURenderer {
     // to coordinate GPU and canvas rendering properly
 
     const {
-      size,
       timeSec,
-      devicePixelRatio: devicePixelRatioOverride,
     } = options;
 
-    const resolvedDpr = Number.isFinite(devicePixelRatioOverride)
-      ? Math.max(0.5, devicePixelRatioOverride)
-      : window.devicePixelRatio || 1;
 
-    const [sizeWidth, sizeHeight] = Array.isArray(size) ? size : [undefined, undefined];
 
     // CRITICAL PERFORMANCE FIX: Use cached dimensions instead of reading layout properties
     // Reading clientWidth/clientHeight forces synchronous layout recalculation, blocking the main thread
     // This was causing FPS drops during panning. Cache is updated only on explicit resize events.
-    const baseWidth = Number.isFinite(sizeWidth)
-      ? sizeWidth
-      : this._cachedCanvasSize.clientWidth || this._cachedCanvasSize.width || 1;
-    const baseHeight = Number.isFinite(sizeHeight)
-      ? sizeHeight
-      : this._cachedCanvasSize.clientHeight || this._cachedCanvasSize.height || 1;
 
-    const targetWidth = Math.max(1, Math.floor(baseWidth * resolvedDpr));
-    const targetHeight = Math.max(1, Math.floor(baseHeight * resolvedDpr));
 
     // CRITICAL FIX: NEVER resize canvas during render() - only on explicit resize events
     // Canvas resizing breaks WebGPU presentation timing and causes tearing

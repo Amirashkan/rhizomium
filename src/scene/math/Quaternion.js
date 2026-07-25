@@ -1,5 +1,3 @@
-import { Vec3 } from './Vec3.js';
-
 /**
  * Quaternion class for representing rotations
  */

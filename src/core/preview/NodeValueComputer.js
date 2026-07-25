@@ -191,12 +191,12 @@ case "circlefield": {
   // Parameters first, inputs can override
   let radius = this._getParameter(node, "radius") || 0.25;
   if (inputs.a !== undefined) radius = inputs.a;
-  
-  result = this._getParameter(node, "radius") || 0.25;
+
+  result = radius;
   break;
 }case "rectangle":
 case "rectanglefield": {
-  const inputs = this.getConnectedInputs(node, visited);
+  this.getConnectedInputs(node, visited);
   result = this._getParameter(node, "width") || 0.5;
   break;
 }

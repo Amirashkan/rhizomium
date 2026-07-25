@@ -8,10 +8,6 @@ export class TextureRenderers {
 
   register(registry) {
     // Helper function for smoothstep
-    const smoothstep = (edge0, edge1, x) => {
-      const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(0.0001, edge1 - edge0)));
-      return t * t * (3 - 2 * t);
-    };
 
     registry.registerMultiple({
       'rectfield': (ctx, node) => this.renderRectangle(ctx, node),

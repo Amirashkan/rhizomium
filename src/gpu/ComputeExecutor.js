@@ -1129,7 +1129,7 @@ export class ComputeExecutor {
     if (!node || !node.params) return false;
 
     // Check all parameter values for time-dependent expressions
-    for (const [key, value] of Object.entries(node.params)) {
+    for (const [, value] of Object.entries(node.params)) {
       if (typeof value === 'string') {
         const trimmed = value.trim();
         // Check if parameter contains time or audio envelope references
@@ -1528,7 +1528,7 @@ export class ComputeExecutor {
    */
   serializeAll() {
     const serialized = [];
-    for (const [nodeId, node] of this.computeNodes) {
+    for (const [, node] of this.computeNodes) {
       serialized.push(node.serialize());
     }
     return serialized;

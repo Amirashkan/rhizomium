@@ -261,7 +261,6 @@ export class CameraController {
      */
     pan(deltaX, deltaY) {
         // Get camera's right and up vectors
-        const position = this.camera.getWorldPosition();
         const viewMatrix = this.camera.getViewMatrix();
 
         // Extract right and up vectors from view matrix

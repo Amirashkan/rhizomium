@@ -137,13 +137,11 @@ export class AsyncQueueManager {
     
     // Find highest priority message
     let message = null;
-    let priority = -1;
     
     for (let p = 0; p <= 4; p++) {
       const queue = queues.get(p);
       if (queue.length > 0) {
         message = queue.shift();
-        priority = p;
         break;
       }
     }

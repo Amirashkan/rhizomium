@@ -1,7 +1,6 @@
 // src/core/PreviewComputer.js
 import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
-import { MessagePriority } from './AsyncQueueManager.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';

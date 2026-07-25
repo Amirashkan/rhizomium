@@ -346,24 +346,7 @@ export class FloatingGPUPreview {
 
 _setupParameterListeners() {
   // Debounce shader recompilation to prevent cascading updates
-  let rebuildTimeout = null;
   
-  const debouncedRebuild = () => {
-    if (rebuildTimeout) {
-      clearTimeout(rebuildTimeout);
-    }
-    
-    rebuildTimeout = setTimeout(() => {
-      if (this.isVisible && window.rebuild) {
-        // CRITICAL FIX: Don't rebuild if a shader compilation is already in progress
-        // This prevents the GPU bind group mismatch error
-        if (!window.isCompilingShader) {
-          window.rebuild();
-        }
-      }
-      rebuildTimeout = null;
-    }, 100);
-  };
   
   if (window.editor?.eventSystem) {
     // DISABLED: These were causing double shader compilations
@@ -527,7 +510,6 @@ _stopPreviewRenderLoop() {
       this._checkPerformanceAndAutoEnable();
     }
 
-    const perfToken = this._getPerfMonitor()?.timeSection("previewDom");
     const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
     const headerHeight = 37;
     const padding = 20;

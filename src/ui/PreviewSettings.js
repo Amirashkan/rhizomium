@@ -370,7 +370,6 @@ async _publishAnimation() {
     // CRITICAL: Set frame rate constraint on video track for proper MP4 playback speed
     const videoTrack = stream.getVideoTracks()[0];
     if (videoTrack && videoTrack.getSettings) {
-      const settings = videoTrack.getSettings();
       // Apply frame rate constraint if supported
       if (videoTrack.applyConstraints) {
         try {
@@ -1013,7 +1012,6 @@ async _publishAnimation() {
   }
 
   async _updateResolution() {
-    const { width, height } = this.settings.resolution;
 
     if (!this.floatingPreview.gpuCanvas) return;
     
@@ -2035,7 +2033,6 @@ for (let y = 0; y < height; y++) {
       // CRITICAL: Set frame rate constraint on video track for proper MP4 playback speed
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack && videoTrack.getSettings) {
-        const settings = videoTrack.getSettings();
         // Apply frame rate constraint if supported
         if (videoTrack.applyConstraints) {
           try {

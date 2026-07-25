@@ -2159,7 +2159,6 @@ updateDependentExpressions(_node) {
       const container = display.closest('.parameter-container');
       const input = container?.querySelector('.param-input');
       if (input && this.expressionSystem.isExpression(input.value)) {
-        const paramName = input.getAttribute('data-param');
         const validation = this.expressionSystem.validateExpression(
           input.value, 
           {}, 

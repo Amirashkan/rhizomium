@@ -15,8 +15,8 @@
  */
 
 import { Graph } from '../data/Graph.js';
-import { TypeSystem, globalTypeSystem } from '../data/TypeSystem.js';
-import { ExecutionQueue, Priority, globalExecutionQueue } from './ExecutionQueue.js';
+import { globalTypeSystem } from '../data/TypeSystem.js';
+import { Priority, globalExecutionQueue } from './ExecutionQueue.js';
 import { ParameterEventSystem } from '../utils/ParameterEventSystem.js';
 import { Scene } from '../scene/Scene.js';
 
@@ -461,7 +461,7 @@ export class SystemIntegration {
    * Handle parameter change
    */
   handleParameterChange(data) {
-    const { nodeId, parameter, value } = data;
+    const { nodeId } = data;
 
     // Mark node as dirty
     this.graph.markNodeDirty(nodeId);

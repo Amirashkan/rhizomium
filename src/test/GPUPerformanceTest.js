@@ -267,7 +267,6 @@ export class GPUPerformanceTest {
    */
   async _testCommandBufferSync() {
     const iterations = 10;
-    let passed = true;
     const timings = [];
     let errors = [];
 
@@ -293,7 +292,6 @@ export class GPUPerformanceTest {
         // Note: duration > 100ms is just a warning, not a failure
       } catch (error) {
         errors.push(error.message);
-        passed = false;
         // Continue with remaining iterations to get partial results
       }
     }

@@ -461,7 +461,7 @@ async injectExternalTexture(nodeId, bitmap) {
   // Clean up all resources
   destroy() {
     try {
-      for (const [nodeId, textureInfo] of this.textures) {
+      for (const [, textureInfo] of this.textures) {
         if (textureInfo.texture && textureInfo.texture.destroy) {
           textureInfo.texture.destroy();
         }

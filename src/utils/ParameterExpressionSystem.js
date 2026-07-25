@@ -395,7 +395,7 @@ startAnimationLoop() {
   
   this.animationLoop = setInterval(() => {
     // Clear cache for time-dependent expressions
-    for (const [key, cached] of this.expressionCache.entries()) {
+    for (const [key] of this.expressionCache.entries()) {
       if (this.isTimeDependentExpression(key)) {
         this.expressionCache.delete(key);
       }
@@ -1026,10 +1026,8 @@ isIncomplete(value) {
     }
 
     // Auto-add = prefix for expressions
-    let wasModified = false;
     if (value && !value.startsWith('=') && this._looksLikeExpression(value)) {
       value = '=' + value;
-      wasModified = true;
 
       // Update the input element to show the = prefix
       if (inputElement) {
@@ -1248,8 +1246,7 @@ isIncomplete(value) {
         e.stopPropagation();
 
         // Throttle shader rebuilds during drag to avoid performance issues
-        let lastRebuildTime = 0;
-        const REBUILD_THROTTLE_MS = 16.67; // ~60fps max rebuild rate
+ // ~60fps max rebuild rate
 
         const onMouseMove = (e) => {
           if (!isDragging) return;
@@ -1437,7 +1434,7 @@ isIncomplete(value) {
 
   _performPendingMidiUpdates() {
     // Process all pending MIDI value updates
-    for (const [key, { nodeId, paramName, newValue }] of this.pendingMidiUpdates.entries()) {
+    for (const [key, { newValue }] of this.pendingMidiUpdates.entries()) {
       const inputData = this.activeInputs.get(key);
       if (!inputData) continue; // Input not currently visible
 
@@ -1609,7 +1606,7 @@ updateNodePreview(node) {
         if (this.expressionSystem.isExpression(value)) {
 
           try {
-            const result = this.expressionSystem.evaluateExpression(value, {}, node);
+            this.expressionSystem.evaluateExpression(value, {}, node);
 
           } catch {
 
@@ -1666,7 +1663,7 @@ updateNodePreview(node) {
 
   handleDependencyChange(change) {
     // Invalidate cache and update dependent nodes
-    const { nodeId, paramName, newValue } = change;
+    const { nodeId, paramName } = change;
     
     // Find nodes that might depend on this change
     this.graph.nodes.forEach(node => {

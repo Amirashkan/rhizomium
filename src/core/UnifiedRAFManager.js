@@ -546,7 +546,7 @@ export class UnifiedRAFManager {
     this._executionOrderHistory = [];
     
     // Reset handler stats
-    for (const [name, stats] of this._handlerStats.entries()) {
+    for (const [, stats] of this._handlerStats.entries()) {
       stats.executionCount = 0;
       stats.skipCount = 0;
       stats.totalTime = 0;

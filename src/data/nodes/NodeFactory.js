@@ -1,7 +1,6 @@
 // src/data/nodes/NodeFactory.js
 
 import { NodeDefs, makeNode, validateNodeDef } from '../NodeDefs.js';
-import { NodeCategories } from './NodeTypes.js';
 
 /**
  * Factory class for creating and managing nodes

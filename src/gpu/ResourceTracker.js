@@ -317,7 +317,7 @@ export class ResourceTrackerRegistry {
       totalMemoryMB: 0
     };
 
-    for (const [nodeId, tracker] of this.trackers) {
+    for (const [, tracker] of this.trackers) {
       const nodeStats = tracker.destroy();
       stats.totalTextures += parseInt(nodeStats.textures) || 0;
       stats.totalBuffers += parseInt(nodeStats.buffers) || 0;

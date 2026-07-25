@@ -442,7 +442,7 @@ async importProject(projectData, options = {}) {
 
       // Force GPU texture creation for all restored textures
       if (this.textureManager && this.textureManager.device) {
-        for (const [nodeId, texInfo] of this.textureManager.textures.entries()) {
+        for (const [, texInfo] of this.textureManager.textures.entries()) {
           if (texInfo.bitmap && !texInfo.gpuTexture) {
             try {
               // Create the GPU texture from the bitmap
@@ -636,13 +636,11 @@ async importProject(projectData, options = {}) {
           // Don't delete __thumb - keep existing preview so dependent nodes can use it
           // Only create new canvas if needed
           let canvas = node.__thumb;
-          let needsResize = false;
 
           if (!canvas || canvas.width !== 128 || canvas.height !== 128) {
             canvas = document.createElement('canvas');
             canvas.width = 128;
             canvas.height = 128;
-            needsResize = true;
           }
 
           const ctx = canvas.getContext('2d');
@@ -1128,7 +1126,7 @@ async reinitializeWebGPU() {
       if (this.editor) {
         // Mark all nodes as needing preview updates
         if (this.editor.nodePreviews) {
-          for (const [nodeId, preview] of this.editor.nodePreviews) {
+          for (const [, preview] of this.editor.nodePreviews) {
             preview.needsUpdate = true;
             preview.needsRender = true; // Force rendering flag
           }

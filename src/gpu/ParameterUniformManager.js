@@ -78,8 +78,7 @@ analyzeNode(node) {
     }
   }
 
-  const nodeKey = `${node.id}`;
-  const dynamicParamsForNode = Array.from(this.dynamicParams)
+  Array.from(this.dynamicParams)
     .filter(key => key.startsWith(`${node.id}.`))
     .map(key => key.split('.')[1]);
 
@@ -218,7 +217,7 @@ updateValues(graph) {
   const time = performance.now() / 1000;
   
   // Iterate through existing uniform values and update dynamic ones
-  for (const [key, currentValue] of this.uniformValues.entries()) {
+  for (const [key] of this.uniformValues.entries()) {
     const [nodeId, paramName] = key.split('.');
     const node = graph.nodes.find(n => n.id == nodeId);
     
@@ -250,7 +249,7 @@ generateUniformStruct() {
 
   let structDef = 'struct ParamUniforms {\n';
 
-  for (const [key, value] of this.uniformValues.entries()) {
+  for (const [key] of this.uniformValues.entries()) {
     // key format is "nodeId.paramName" like "11.radius"
     // Sanitize and add underscore prefix for valid WGSL
     const sanitizedName = key.replace(/[^a-zA-Z0-9_]/g, '_');

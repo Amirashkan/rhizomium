@@ -90,7 +90,6 @@ export class FrameBudgetAllocator {
    * Get all budgets for current mode
    */
   getBudgets() {
-    const budgets = BUDGETS[this.mode];
     return {
       canvas: this.getBudget('canvas'),
       gpuPreview: this.getBudget('gpuPreview'),

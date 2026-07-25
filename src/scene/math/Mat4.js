@@ -1,5 +1,4 @@
 import { Vec3 } from './Vec3.js';
-import { Quaternion } from './Quaternion.js';
 
 /**
  * 4x4 Matrix class for transformations

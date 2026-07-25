@@ -180,14 +180,6 @@ export class PerformanceLogger {
   logQualityReduction(oldQuality, newQuality, timeSaved = 0) {
     if (!this.enabled) return;
     
-    const qualityEvent = {
-      frameNumber: this.currentFrame?.frameNumber || 0,
-      timestamp: performance.now(),
-      oldQuality,
-      newQuality,
-      timeSaved,
-      interactionState: this.interactionStateManager.getState()
-    };
     
     if (timeSaved > 0) {
       this.optimizationSavings.qualityReduction += timeSaved;

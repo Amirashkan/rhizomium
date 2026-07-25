@@ -2,7 +2,7 @@
 // Web Worker for SaveLoadManager - Offloads file I/O and serialization
 
 self.onmessage = async (e) => {
-  const { type, graph, filename, data, id } = e.data;
+  const { type, graph, data, id } = e.data;
   
   try {
     switch (type) {

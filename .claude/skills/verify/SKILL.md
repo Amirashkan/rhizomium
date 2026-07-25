@@ -70,4 +70,6 @@ check), `window.latestGeneratedWGSL`.
 ## Tests / lint
 
 `npm test` (vitest, happy-dom — no WebGPU, keep GPU-free units testable),
-`npm run lint` (repo has ~800 pre-existing warnings; only errors gate).
+`npm run lint` — clean, 0 warnings. Anything it reports is yours; don't add to it.
+An unused `catch` binding is written `catch { }`, and a deliberately unused parameter is
+`_name` (the config's `argsIgnorePattern`).

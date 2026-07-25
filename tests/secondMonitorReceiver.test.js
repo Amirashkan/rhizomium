@@ -951,7 +951,7 @@ describe('secondMonitorReceiver', () => {
 
       it('resets fragment state when leaving the compute tier', async () => {
         const rt = installFakeRuntime();
-        const r = initSecondMonitorReceiver(doc, win, opts(rt));
+        initSecondMonitorReceiver(doc, win, opts(rt));
         const ch = FakeBroadcastChannel.instances[0];
         ch.emit(blurFedByFragment);
         ch.emit(fragGraph());

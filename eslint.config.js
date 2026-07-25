@@ -36,8 +36,12 @@ export default [
       // Two expression evaluators legitimately use eval and carry a disable comment saying so; the
       // rule is on so those comments mean something and a third eval has to argue for itself.
       "no-eval": "error",
-      // High-volume legacy noise reports as warnings until burned down.
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      // These were the legacy backlog and it is now at zero, so `npm run lint` is clean rather than
+      // 800 lines of noise. Left at "warn" so a work-in-progress branch is not blocked by an unused
+      // variable; promote to "error" if the zero should be enforced in CI.
+      // ignoreRestSiblings: `const { savedAt, ...stable } = data` names savedAt precisely so the
+      // rest object does NOT carry it. The binding being unread is the point, not an oversight.
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", ignoreRestSiblings: true }],
       "no-empty": ["warn", { allowEmptyCatch: true }],
       "no-useless-catch": "warn",
       "no-case-declarations": "warn",

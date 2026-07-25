@@ -24,7 +24,7 @@ export class TextureBindings {
     const computeNodeIdsInUse = new Set();
     if (window.computeNodeRegistry && window.computeNodeRegistry.size > 0) {
       // Check if any compute nodes from registry are in the dependency chain
-      for (const [nodeId, nodeData] of window.computeNodeRegistry) {
+      for (const [nodeId] of window.computeNodeRegistry) {
         if (usedNodeIds && usedNodeIds.has(nodeId)) {
           computeNodeIdsInUse.add(nodeId);
         } else if (!usedNodeIds) {

@@ -136,7 +136,7 @@ export async function unifiedApiExample(device) {
   node.dispatch(device, commandEncoder, time);
 
   // Get output texture for rendering
-  const outputTexture = node.getOutputTexture();
+  node.getOutputTexture();
 
   // Submit commands
   device.queue.submit([commandEncoder.finish()]);
@@ -145,7 +145,7 @@ export async function unifiedApiExample(device) {
   const serialized = node.serialize();
 
   // Later: deserialize and recreate
-  const restoredNode = ComputeNodeBase.deserialize(device, serialized);
+  ComputeNodeBase.deserialize(device, serialized);
   // Note: Must call initialize() with WGSL after deserialization
 
   // Cleanup
@@ -208,14 +208,14 @@ export class ComputeNodeManager {
   }
 
   dispatch(encoder, time) {
-    for (const [id, node] of this.nodes) {
+    for (const [, node] of this.nodes) {
       node.dispatch(this.device, encoder, time);
     }
   }
 
   serializeAll() {
     const serialized = [];
-    for (const [id, node] of this.nodes) {
+    for (const [, node] of this.nodes) {
       serialized.push(node.serialize());
     }
     return serialized;

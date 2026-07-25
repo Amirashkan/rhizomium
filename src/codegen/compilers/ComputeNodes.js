@@ -260,11 +260,7 @@ export class ComputeNodes {
   /**
    * Generate compute noise shader
    */
-  generateNoiseShader(node, __getInput) {
-    const scale = this.getParam(node, 'scale', 8.0);
-    const octaves = this.getParam(node, 'octaves', 5);
-    const speed = this.getParam(node, 'speed', 0.1);
-    const colorize = this.getParam(node, 'colorize', true);
+  generateNoiseShader(_node, __getInput) {
 
     const shader = `
 // Compute Noise Shader
@@ -372,8 +368,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate compute blur shader
    */
-  generateBlurShader(node, __getInput) {
-    const radius = this.getParam(node, 'radius', 5.0);
+  generateBlurShader(_node, __getInput) {
 
     return `
 // Compute Gaussian Blur Shader
@@ -428,7 +423,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateConvolutionShader(node, __getInput) {
     const kernel = this.getParam(node, 'kernel', 'Sharpen');
-    const strength = this.getParam(node, 'strength', 1.0);
 
     // Define convolution kernel matrices
     const kernels = {
@@ -520,11 +514,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateThresholdShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Binary');
-    const threshold = this.getParam(node, 'threshold', 0.5);
-    const thresholdMin = this.getParam(node, 'thresholdMin', 0.3);
-    const thresholdMax = this.getParam(node, 'thresholdMax', 0.7);
-    const outputLow = this.getParam(node, 'outputLow', 0.0);
-    const outputHigh = this.getParam(node, 'outputHigh', 1.0);
 
     const modeIndex = this.getThresholdModeIndex(mode);
 
@@ -831,9 +820,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate feedback shader
    */
-  generateFeedbackShader(node, __getInput) {
-    const decay = this.getParam(node, 'decay', 0.95);
-    const scale = this.getParam(node, 'scale', 1.01);
+  generateFeedbackShader(_node, __getInput) {
 
     return `
 // Compute Feedback Shader
@@ -912,18 +899,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate reaction-diffusion shader
    */
-  generateReactionDiffusionShader(node, __getInput) {
+  generateReactionDiffusionShader(_node, __getInput) {
     // Get pattern preset and apply preset parameters
-    const pattern = this.getParam(node, 'pattern', 'Coral');
-    const presets = this.getReactionDiffusionPresets();
-    const preset = presets[pattern] || presets['Coral'];
+    this.getReactionDiffusionPresets();
 
     // Allow user to override preset values with manual parameters
-    const feedRate = this.getParam(node, 'feedRate', preset.feedRate);
-    const killRate = this.getParam(node, 'killRate', preset.killRate);
-    const diffusionA = this.getParam(node, 'diffusionA', 1.0);
-    const diffusionB = this.getParam(node, 'diffusionB', 0.5);
-    const timestep = this.getParam(node, 'timestep', 1.0);
 
     const shader = `
 // Reaction-Diffusion (Gray-Scott Model) with Feedback
@@ -1166,17 +1146,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate feedback field shader
    * This shader uses the FeedbackManager for persistent state
    */
-  generateFeedbackFieldShader(node, __getInput) {
+  generateFeedbackFieldShader(_node, __getInput) {
     // NOTE: `mode` is intentionally NOT baked into the shader. It is delivered
     // via uniforms.mode (packed at u[7] by packComputeUniforms) and read at
     // runtime below, so switching modes updates a uniform instead of
     // regenerating the WGSL. A WGSL change would change the manager's reuse
     // signature and wipe the accumulated field — exactly the reset we want to
     // avoid. decay/diffusion/feedback/speed are likewise uniforms.
-    const decay = this.getParam(node, 'decay', 0.98);
-    const diffusion = this.getParam(node, 'diffusion', 0.1);
-    const feedback = this.getParam(node, 'feedback', 0.5);
-    const speed = this.getParam(node, 'speed', 1.0);
 
     return `
 // Feedback Field Shader - Persistent Texture System
@@ -1573,13 +1549,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate color adjustment shader
    */
-  generateColorAdjustShader(node, __getInput) {
-    const brightness = this.getParam(node, 'brightness', 0.0);
-    const contrast = this.getParam(node, 'contrast', 1.0);
-    const saturation = this.getParam(node, 'saturation', 1.0);
-    const hue = this.getParam(node, 'hue', 0.0);
-    const gamma = this.getParam(node, 'gamma', 1.0);
-    const exposure = this.getParam(node, 'exposure', 0.0);
+  generateColorAdjustShader(_node, __getInput) {
 
     const shader = `
 // Compute Color Adjust Shader
@@ -1669,9 +1639,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateEdgeDetectShader(node, __getInput) {
     const method = this.getParam(node, 'method', 'Sobel');
-    const threshold = this.getParam(node, 'threshold', 0.1);
-    const strength = this.getParam(node, 'strength', 1.0);
-    const invertEdges = this.getParam(node, 'invertEdges', false);
 
     const methodIndex = this.getEdgeDetectMethodIndex(method);
 
@@ -1870,8 +1837,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   generateMorphologyShader(node, __getInput) {
     const operation = this.getParam(node, 'operation', 'Dilate');
     const kernelSize = this.getParam(node, 'kernelSize', '3x3');
-    const iterations = this.getParam(node, 'iterations', 1);
-    const strength = this.getParam(node, 'strength', 1.0);
 
     const operationIndex = this.getMorphologyOperationIndex(operation);
     const kernelRadius = this.getKernelRadius(kernelSize);
@@ -2010,12 +1975,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateVoronoiShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Cells');
-    const scale = this.getParam(node, 'scale', 8.0);
-    const pointCount = this.getParam(node, 'pointCount', 16);
     const distanceMetric = this.getParam(node, 'distanceMetric', 'Euclidean');
-    const seed = this.getParam(node, 'seed', 0.0);
     const animate = this.getParam(node, 'animate', true);
-    const speed = this.getParam(node, 'speed', 0.1);
 
     const modeIndex = this.getVoronoiModeIndex(mode);
     const metricIndex = this.getDistanceMetricIndex(distanceMetric);
@@ -2196,15 +2157,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // input node), but we only sample it when something is actually connected.
     const hasInput = Array.isArray(node.inputs) && node.inputs[0] != null;
     const type = this.getParam(node, 'type', 'Linear');
-    const angle = this.getParam(node, 'angle', 0.0);
-    const centerX = this.getParam(node, 'centerX', 0.5);
-    const centerY = this.getParam(node, 'centerY', 0.5);
-    const radius = this.getParam(node, 'radius', 0.5);
-    const repeat = this.getParam(node, 'repeat', 1);
     const reverse = this.getParam(node, 'reverse', false);
     const colorMode = this.getParam(node, 'colorMode', 'Grayscale');
-    const saturation = this.getParam(node, 'saturation', 0.8);
-    const brightness = this.getParam(node, 'brightness', 1.0);
     const interpolation = this.getParam(node, 'interpolation', 'Linear');
 
     // Get color stops (max 8 stops supported)
@@ -2413,11 +2367,6 @@ ${hasInput ? `
    */
   generatePatternShader(node, __getInput) {
     const type = this.getParam(node, 'type', 'Checkerboard');
-    const scaleX = this.getParam(node, 'scaleX', 8.0);
-    const scaleY = this.getParam(node, 'scaleY', 8.0);
-    const rotation = this.getParam(node, 'rotation', 0.0);
-    const thickness = this.getParam(node, 'thickness', 0.5);
-    const smoothness = this.getParam(node, 'smoothness', 0.01);
 
     const typeIndex = this.getPatternTypeIndex(type);
 
@@ -2657,12 +2606,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateWarpShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Displace');
-    const strength = this.getParam(node, 'strength', 0.1);
-    const centerX = this.getParam(node, 'centerX', 0.5);
-    const centerY = this.getParam(node, 'centerY', 0.5);
-    const radius = this.getParam(node, 'radius', 0.5);
-    const frequency = this.getParam(node, 'frequency', 4.0);
-    const phase = this.getParam(node, 'phase', 0.0);
 
     const modeIndex = this.getWarpModeIndex(mode);
 
@@ -2824,10 +2767,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateGlitchShader(node, __getInput) {
     const type = this.getParam(node, 'type', 'RGB Shift');
-    const intensity = this.getParam(node, 'intensity', 0.5);
-    const frequency = this.getParam(node, 'frequency', 0.5);
-    const blockSize = this.getParam(node, 'blockSize', 0.05);
-    const seed = this.getParam(node, 'seed', 0.0);
 
     const typeIndex = this.getGlitchTypeIndex(type);
 
@@ -3031,12 +2970,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateKaleidoscopeShader(node, __getInput) {
     const segments = this.getParam(node, 'segments', 6);
-    const rotation = this.getParam(node, 'rotation', 0.0);
-    const centerX = this.getParam(node, 'centerX', 0.5);
-    const centerY = this.getParam(node, 'centerY', 0.5);
-    const scale = this.getParam(node, 'scale', 1.0);
-    const animate = this.getParam(node, 'animate', false);
-    const speed = this.getParam(node, 'speed', 0.5);
 
     const shader = `
 // Compute Kaleidoscope Shader - ${segments} segments
@@ -3144,8 +3077,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    */
   generateMixShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Mix');
-    const amount = this.getParam(node, 'amount', 0.5);
-    const opacity = this.getParam(node, 'opacity', 1.0);
 
     const modeIndex = this.getBlendModeIndex(mode);
 
@@ -3291,13 +3222,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate transform shader - translate, rotate, scale with pivot controls
    */
   generateTransformShader(node, __getInput) {
-    const translateX = this.getParam(node, 'translateX', 0.0);
-    const translateY = this.getParam(node, 'translateY', 0.0);
-    const rotation = this.getParam(node, 'rotation', 0.0);
-    const scaleX = this.getParam(node, 'scaleX', 1.0);
-    const scaleY = this.getParam(node, 'scaleY', 1.0);
-    const pivotX = this.getParam(node, 'pivotX', 0.5);
-    const pivotY = this.getParam(node, 'pivotY', 0.5);
     const wrapMode = this.getParam(node, 'wrapMode', 'Repeat');
 
     const wrapModeIndex = this.getWrapModeIndex(wrapMode);
@@ -3405,16 +3329,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate channels shader - swap, extract, combine, remap channels
    */
-  generateChannelsShader(node, __getInput) {
-    const redSource = this.getParam(node, 'redSource', 'R');
-    const greenSource = this.getParam(node, 'greenSource', 'G');
-    const blueSource = this.getParam(node, 'blueSource', 'B');
-    const alphaSource = this.getParam(node, 'alphaSource', 'A');
+  generateChannelsShader(_node, __getInput) {
 
-    const redIndex = this.getChannelSourceIndex(redSource);
-    const greenIndex = this.getChannelSourceIndex(greenSource);
-    const blueIndex = this.getChannelSourceIndex(blueSource);
-    const alphaIndex = this.getChannelSourceIndex(alphaSource);
 
     const shader = `
 // Compute Channels Shader - Swap, Extract, Combine, Remap
@@ -3497,14 +3413,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate HSV shader for color space operations
    * Supports RGB to HSV, HSV to RGB, and Adjust HSV operations
    */
-  generateHSVShader(node, __getInput) {
-    const operation = this.getParam(node, 'operation', 'Adjust HSV');
-    const hueShift = this.getParam(node, 'hueShift', 0.0);
-    const saturationMult = this.getParam(node, 'saturationMult', 1.0);
-    const valueMult = this.getParam(node, 'valueMult', 1.0);
+  generateHSVShader(_node, __getInput) {
 
     // Convert operation to index: 0=RGB to HSV, 1=HSV to RGB, 2=Adjust HSV
-    const operationIndex = operation === 'RGB to HSV' ? 0 : operation === 'HSV to RGB' ? 1 : 2;
 
     const shader = `
 // Compute HSV Shader - HSV color space operations and conversions
@@ -3592,11 +3503,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate Histogram shader for histogram-based operations
    * Supports: Equalize, Normalize, Stretch, Visualize
    */
-  generateHistogramShader(node, __getInput) {
-    const operation = this.getParam(node, 'operation', 'Equalize');
-    const channel = this.getParam(node, 'channel', 'Luminance');
-    const bins = this.getParam(node, 'bins', 16);
-    const strength = this.getParam(node, 'strength', 1.0);
+  generateHistogramShader(_node, __getInput) {
 
     // Per-invocation histogram arrays are sized to this maximum, so it directly
     // sets the WGSL local-memory footprint per GPU thread (MAX_BINS f32 each, used
@@ -3607,10 +3514,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     const MAX_BINS = 32;
 
     // Convert operation to index: 0=Equalize, 1=Normalize, 2=Stretch, 3=Visualize
-    const operationIndex = operation === 'Equalize' ? 0 : operation === 'Normalize' ? 1 : operation === 'Stretch' ? 2 : 3;
 
     // Convert channel to index: 0=RGB, 1=R, 2=G, 3=B, 4=Luminance
-    const channelIndex = channel === 'RGB' ? 0 : channel === 'R' ? 1 : channel === 'G' ? 2 : channel === 'B' ? 3 : 4;
 
     const shader = `
 // Compute Histogram Shader - Histogram equalization, normalization, and visualization
@@ -3884,16 +3789,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Supports: Rec709, Rec601, Average, Max, Min
    * Output modes: Grayscale, Preserve Color, Isoluminant
    */
-  generateLuminanceShader(node, __getInput) {
-    const method = this.getParam(node, 'method', 'Rec709');
-    const outputMode = this.getParam(node, 'outputMode', 'Grayscale');
-    const threshold = this.getParam(node, 'threshold', 0.5);
+  generateLuminanceShader(_node, __getInput) {
 
     // Convert method to index: 0=Rec709, 1=Rec601, 2=Average, 3=Max, 4=Min
-    const methodIndex = method === 'Rec709' ? 0 : method === 'Rec601' ? 1 : method === 'Average' ? 2 : method === 'Max' ? 3 : 4;
 
     // Convert outputMode to index: 0=Grayscale, 1=Preserve Color, 2=Isoluminant
-    const outputModeIndex = outputMode === 'Grayscale' ? 0 : outputMode === 'Preserve Color' ? 1 : 2;
 
     const shader = `
 // Compute Luminance Shader - Luminance extraction with multiple methods

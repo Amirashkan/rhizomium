@@ -120,7 +120,7 @@ export class MarchingCubes {
      * @private
      */
     static processCube(x, y, z, field, dimensions, isoValue, offset, scale, vertices, normals, indices) {
-        const [w, h, d] = dimensions;
+        const [w, h] = dimensions;
 
         // Get field values at cube corners
         const cubeValues = new Array(8);

@@ -147,15 +147,11 @@ export class UtilityNodes {
   
   compileOutputFinal(node, getInput, __nodeId) {
     // Check if the Output node has any input connection
-    const hasValidInput = node.inputs && node.inputs[0] !== null && node.inputs[0] !== undefined;
 
 
     const color = getInput(0, "vec3", "vec3<f32>(0.0)");
 
     // Check if connected to a ComputeFieldMapper (3D visualization node)
-    if (hasValidInput) {
-      const inputNode = window.editor?.graph?.nodes?.find(n => n.id === node.inputs[0]);
-    }
 
     return {
       line: `finalColor = ${color};`,
@@ -798,7 +794,6 @@ export class UtilityNodes {
       // BUT: Don't split if we're inside a for/if/while/loop block (braceDepth > 0)
       // unless we've closed all braces
       const endsWithComma = trimmedLine.endsWith(',');
-      const endsWithSemicolon = trimmedLine.endsWith(';');
       // Only consider complete if all braces are closed (we're not inside a block)
       const isComplete = parenDepth === 0 && braceDepth === 0 && bracketDepth === 0 && !endsWithComma;
       

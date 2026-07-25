@@ -1,5 +1,4 @@
 import { globalResourceRegistry } from './ResourceTracker.js';
-import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { packComputeUniforms } from './computeUniformLayout.js';

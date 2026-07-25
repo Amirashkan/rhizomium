@@ -470,7 +470,6 @@ export class TimelinePanel {
     }
 
     const track = this.timelineManager.timeline.tracks[trackIndex];
-    const time = this.xToTime(x);
 
     for (let i = 0; i < track.keyframes.length; i++) {
       const kf = track.keyframes[i];
@@ -704,7 +703,6 @@ export class TimelinePanel {
   drawLoopRegion() {
     if (!this.timelineManager.getLoop()) return;
 
-    const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
 
     const loopStart = this.timelineManager.getLoopStart();

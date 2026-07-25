@@ -519,7 +519,7 @@ validateForCompilation(graph) {
 
         // Scan all parameters for expression references
         if (node.params && typeof node.params === 'object') {
-          for (const [paramName, paramValue] of Object.entries(node.params)) {
+          for (const [, paramValue] of Object.entries(node.params)) {
             const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
 
             for (const refId of referencedIds) {
@@ -730,10 +730,6 @@ validateForCompilation(graph) {
             return;
           }
           
-          const id = node.id || 'NO_ID';
-          const kind = node.kind || 'NO_KIND';
-          const type = node.type || 'NO_TYPE';
-          const name = node.name || 'NO_NAME';
 
         });
       }
@@ -745,8 +741,6 @@ validateForCompilation(graph) {
             return;
           }
           
-          const id = node.id || 'NO_ID';
-          const kind = node.kind || 'NO_KIND';
 
         });
       }
