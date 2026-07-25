@@ -1,5 +1,6 @@
 // src/core/HoldNodeProcessor.js
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
+import { audioAnalysisPinValue } from './audioAnalysisPins.js';
 
 /**
  * Drives the Hold (sample-and-hold) node.
@@ -157,14 +158,9 @@ export class HoldNodeProcessor {
         return typeof node.__countValue === 'number' ? node.__countValue : 0;
 
       case 'AudioAnalysis':
-        // Live CPU-computed outputs streamed by AudioAnalysisProcessor. Pin 0 = level (continuous
-        // envelope), 1 = kick (envelope that snaps to 1 on a hit), 2 = trig (single-frame pulse).
-        switch (outPin) {
-          case 2: return typeof node.__kickTrig === 'number' ? node.__kickTrig : 0;
-          case 1: return typeof node.__kickValue === 'number' ? node.__kickValue : 0;
-          case 0:
-          default: return typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
-        }
+        // Live CPU-computed outputs streamed each frame by AudioAnalysisProcessor. The pin order is
+        // shared with the node definition and the compiler; see core/audioAnalysisPins.js.
+        return audioAnalysisPinValue(node, outPin);
 
       default:
         return this._toScalar(node.__preview);

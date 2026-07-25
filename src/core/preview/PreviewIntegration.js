@@ -2,6 +2,7 @@
 // OPTIMIZED VERSION - Fixes timer spam and unnecessary updates
 
 import { PRIORITY } from '../UnifiedRAFManager.js';
+import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../audioAnalysisPins.js';
 
 export class PreviewIntegration {
   constructor(editor, previewSystem) {
@@ -478,12 +479,11 @@ updateTimeNodes() {
     for (const node of this.editor.graph.nodes) {
       if (node?.kind?.toLowerCase() !== 'audioanalysis') continue;
       seenAudio.add(node.id);
-      const level = node.__kickLevel || 0;
-      const kick = node.__kickValue || 0;
-      const trig = node.__kickTrig || 0;
+      const live = AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i));
       const prev = this._lastAudioValues.get(node.id);
-      if (!prev || prev.level !== level || prev.kick !== kick || prev.trig !== trig) {
-        this._lastAudioValues.set(node.id, { level, kick, trig });
+      const changed = !prev || prev.length !== live.length || live.some((v, i) => prev[i] !== v);
+      if (changed) {
+        this._lastAudioValues.set(node.id, live);
         this._collectWithDownstream(node.id, toUpdate, visited, exprDeps);
       }
     }

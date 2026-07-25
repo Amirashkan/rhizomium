@@ -42,7 +42,7 @@ describe('updateAnimatedFragmentPreviews refreshes Audio Analysis-driven thumbna
     const { self, refreshed } = makeSelf(graph);
 
     // Frame 1: live audio -> both consumers refresh.
-    audio.__kickLevel = 0.2; audio.__kickValue = 0.5; audio.__kickTrig = 0;
+    audio.__audio_level = 0.2; audio.__audio_kick = 0.5; audio.__audio_kickTrig = 0;
     self.updateAnimatedFragmentPreviews();
     expect(refreshed).toContain('11'); // wired from kick pin
     expect(refreshed).toContain('12'); // references trig pin
@@ -53,7 +53,7 @@ describe('updateAnimatedFragmentPreviews refreshes Audio Analysis-driven thumbna
     expect(refreshed).toEqual([]);
 
     // Frame 3: audio moved -> refresh again.
-    audio.__kickLevel = 0.8; audio.__kickValue = 0.9; audio.__kickTrig = 1;
+    audio.__audio_level = 0.8; audio.__audio_kick = 0.9; audio.__audio_kickTrig = 1;
     self.updateAnimatedFragmentPreviews();
     expect(refreshed).toContain('11');
     expect(refreshed).toContain('12');
@@ -61,7 +61,7 @@ describe('updateAnimatedFragmentPreviews refreshes Audio Analysis-driven thumbna
 
   it('does not refresh anything when GPU preview is disabled', () => {
     const audio = { id: '10', kind: 'AudioAnalysis', params: {}, inputs: [],
-      __kickLevel: 0.2, __kickValue: 0.5, __kickTrig: 1 };
+      __audio_level: 0.2, __audio_kick: 0.5, __audio_kickTrig: 1 };
     const wired = { id: '11', kind: 'Circle', params: {}, inputs: ['10'] };
     const graph = {
       nodes: [audio, wired],

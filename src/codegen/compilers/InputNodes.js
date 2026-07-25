@@ -226,25 +226,26 @@ export class InputNodes {
       }
 
       case 'AudioAnalysis': {
-        // Live audio analysis needs memory across frames (the envelope follower / ADSR and the kick
-        // detector's adaptive baseline + refractory debounce) that a fragment shader has none of, so
-        // it all runs on the CPU in AudioAnalysisProcessor and streams three per-frame uniforms that
-        // getParam registers here (node.id + ".level"/".kick"/".trig"); the shader just reads them.
-        // Pin 0 is `level` — the continuous shaped envelope — so `=node_<id>` gives a live value.
+        // Real-time analysis has memory across frames (the meters' followers, and each trigger's
+        // armed/re-armed state), which a fragment shader has none of, so it runs on the CPU in
+        // AudioAnalysisProcessor and streams one uniform per output pin. The compiler just wires
+        // up the uniform references getParam registers. Pin 0 is `level`, so `=node_<id>` gives a
+        // live general-purpose value.
+        const OUTPUTS = [
+          'level', 'low', 'mid', 'high',
+          'kick', 'kickTrig', 'snare', 'snareTrig', 'hat', 'hatTrig',
+          'kickMeter', 'snareMeter', 'hatMeter',
+          'centroid', 'density',
+        ];
         const levelRef = getParam ? getParam('level', 0.0) : null;
         if (levelRef) {
-          const kickRef = getParam('kick', 0.0);
-          const trigRef = getParam('trig', 0.0);
-          const strengthRef = getParam('strength', 0.0);
           return {
             line: `let node_${nodeId} = ${levelRef};`,
             outputType: "f32",
-            outputPins: [
-              { expression: levelRef, type: "f32" },    // level    (continuous shaped envelope)
-              { expression: kickRef, type: "f32" },     // kick     (decaying detection envelope)
-              { expression: trigRef, type: "f32" },     // trig     (single-frame pulse)
-              { expression: strengthRef, type: "f32" }, // strength (raw onset signal, for tuning)
-            ],
+            outputPins: OUTPUTS.map((name) => ({
+              expression: name === 'level' ? levelRef : getParam(name, 0.0),
+              type: "f32",
+            })),
           };
         }
         // Fallback (uniform registration unavailable): emit 0 so the node still compiles.

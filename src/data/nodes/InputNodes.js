@@ -173,38 +173,51 @@ export const InputNodes = {
     cat: "Input",
     inputs: 0,
     pinsIn: [],
-    // Kick detection, and a continuous level to modulate with. Two knobs, nothing else.
+    // Real-time audio analysis. Every output is computed from the CURRENT frame of audio: band
+    // meters for modulation, and one threshold per drum for triggers.
     //
-    // Everything the detector needs beyond those two is fixed, because none of it was a real
-    // choice: the frequency range is the kick's (30-120 Hz), the minimum gap between hits and the
-    // decay of the kick envelope are set to values measured on real music, and the level envelope
-    // uses the same settings it always defaulted to. Exposing those as knobs only ever produced
-    // more ways to be wrong.
+    // The arrangement follows a signal chain rather than a statistical test:
+    //   audio -> auto-gain -> band split -> attack/release -> METER (0..1)
+    //   METER -> threshold -> rising edge -> TRIGGER
+    // Everything that adapts sits on the first line, where it only decides how the meter is
+    // scaled. The second line is a plain comparison, which is why the threshold is findable: put
+    // the matching `*Meter` output on screen, watch where it peaks when the drum hits, and set the
+    // threshold under that.
     //
-    // A fragment shader has no memory between frames, so this runs on the CPU in
-    // AudioAnalysisProcessor, which streams the four outputs in as per-frame uniforms.
-    //   level    - continuous 0..1 envelope, moves with the music (pin 0, so `=node_<id>` works)
-    //   kick     - snaps to 1 on a detected kick and decays back down
-    //   trig     - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold)
-    //   strength - what the detector measured this frame; Threshold is compared against THIS
-    // Reference the others with `=node_<id>_1` (kick), `=node_<id>_2` (trig), `=node_<id>_3`.
+    // See src/audio/RealtimeAudioAnalysis.js for the analysis and AudioAnalysisProcessor for the
+    // triggering. Pin 0 is `level`, so `=node_<id>` still gives a general-purpose live value.
     pinsOut: [
-      { label: "level", type: "f32" },
-      { label: "kick", type: "f32" },
-      { label: "trig", type: "f32" },
-      { label: "strength", type: "f32" },
+      { label: "level", type: "f32" },       // overall loudness, 0..1
+      { label: "low", type: "f32" },         // 20-250 Hz
+      { label: "mid", type: "f32" },         // 250-2000 Hz
+      { label: "high", type: "f32" },        // 2000-16000 Hz
+      { label: "kick", type: "f32" },        // envelope: snaps to 1 on a kick, decays
+      { label: "kickTrig", type: "f32" },    // single-frame pulse on a kick
+      { label: "snare", type: "f32" },
+      { label: "snareTrig", type: "f32" },
+      { label: "hat", type: "f32" },
+      { label: "hatTrig", type: "f32" },
+      { label: "kickMeter", type: "f32" },   // what Kick Thresh is compared against - watch this
+      { label: "snareMeter", type: "f32" },
+      { label: "hatMeter", type: "f32" },
+      { label: "centroid", type: "f32" },    // brightness, 0..1
+      { label: "density", type: "f32" },     // noisy (1) vs tonal (0)
     ],
     params: [
-      // How many of the track's recent peaks count as hits, 0..1. Judged against THIS track, not
-      // against an absolute number, so the middle of the range is a sensible starting point on any
-      // material and there is no "correct value" to hunt for. Raising it fires MORE — it is
-      // sensitivity, not strictness. Turn it up until the quiet hits appear, down until the
-      // clutter goes. This is the knob to reach for first.
-      { name: "sense", type: "float", default: 0.5, label: "Sense" },
-      // Shortest time allowed between two hits, in milliseconds. Raise it to thin out a dense
-      // passage, lower it for fast patterns. It controls something Sense cannot, so the two never
-      // cancel each other out.
-      { name: "gap", type: "float", default: 250.0, label: "Gap (ms)" },
+      // One threshold per drum, each on its own 0..1 meter. Wire the matching `*Meter` output to
+      // something visible: set the threshold ABOVE where the meter idles between hits and BELOW
+      // where it peaks on one. Setting it under the idle level leaves the trigger permanently held
+      // open, which produces fewer triggers rather than more — the meter makes that visible.
+      { name: "kickThresh", type: "float", default: 0.5, label: "Kick Thresh" },
+      { name: "snareThresh", type: "float", default: 0.5, label: "Snare Thresh" },
+      { name: "hatThresh", type: "float", default: 0.5, label: "Hat Thresh" },
+      // Shape of every meter. Attack short enough to catch a transient, release long enough that
+      // the hit stays visible for a few frames. These change what the meters LOOK like, which in
+      // turn changes what a threshold has to be set to — they are not a second detector.
+      { name: "attack", type: "float", default: 8.0, label: "Attack (ms)" },
+      { name: "release", type: "float", default: 120.0, label: "Release (ms)" },
+      // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
+      { name: "gain", type: "float", default: 1.0, label: "Gain" },
     ],
   },
 

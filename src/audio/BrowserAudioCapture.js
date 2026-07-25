@@ -11,6 +11,7 @@
  */
 
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
+import { RealtimeAudioAnalysis } from './RealtimeAudioAnalysis.js';
 
 export class BrowserAudioCapture {
     constructor() {
@@ -57,6 +58,12 @@ export class BrowserAudioCapture {
                 mode: 'fullband', // 'fullband', 'bass', 'mids', 'highs', 'custom'
                 customMin: 60,    // Hz
                 customMax: 250    // Hz
+            },
+            // Envelope shaping for the real-time band meters (RealtimeAudioAnalysis).
+            analysis: {
+                attack_ms: 8,
+                release_ms: 120,
+                gain: 1
             }
         };
 
@@ -238,6 +245,10 @@ export class BrowserAudioCapture {
         if (config.frequency) {
             Object.assign(this.config.frequency, config.frequency);
         }
+        if (config.analysis) {
+            if (!this.config.analysis) this.config.analysis = {};
+            Object.assign(this.config.analysis, config.analysis);
+        }
     }
 
     /**
@@ -328,130 +339,41 @@ export class BrowserAudioCapture {
     }
 
     /**
-     * Per-band onset signal: the sum of POSITIVE frame-to-frame increases in LINEAR magnitude
-     * across the band, divided by a slow average of that band's own level. A sustained bass note
-     * contributes ~0 (its bins aren't changing) while a kick's attack lifts every bin in the low
-     * band at once.
+     * Run one frame of the real-time analysis and publish the results.
      *
-     * Two things here are the result of measuring real, commercially mastered music rather than
-     * synthesized drums, and both were wrong before:
-     *
-     * 1. LINEAR magnitude, not dB. Working in dB seemed right — it is relative, so it should not
-     *    care how loud the track is played. In practice it inverts the signal-to-noise ratio on
-     *    real music: a limiter has already squashed the kick's transient, so its dB jump is modest,
-     *    while a near-silent bin drifting from -70 to -50 dB is a huge dB jump carrying almost no
-     *    energy. Measured on a real track, dB flux gave a peak-to-background contrast of about 2;
-     *    linear magnitude gave 40, and the detections went from 62% to 92% locked to the beat.
-     *
-     * 2. Volume independence comes from dividing by the band's own slowly-averaged level instead.
-     *    Both numerator and denominator scale with playback volume, so it cancels — without the
-     *    self-normalization trap of dividing by a running peak, which makes every new maximum read
-     *    as 1.0 and turns pure noise into a stream of perfect onsets. The average is deliberately
-     *    slow (a few seconds) so that individual hits do not move their own reference.
-     *
-     * Results land in this._flux{Bass,Mids,Highs,Full,Custom}. Typical scale: a clear kick reads
-     * around 1-2, background sits near 0.03.
+     * Replaces the spectral-flux onset signal this used to compute. That measured how much the
+     * spectrum CHANGED, which is a fine onset feature but produced an unbounded number with no
+     * natural scale, so the threshold compared against it could not be aimed at anything. The
+     * engine here produces bounded 0..1 meters per band instead, which a threshold can sit in
+     * visibly — see RealtimeAudioAnalysis for why that split matters.
      */
-    _computeSpectralFlux() {
-        this._fluxBass = 0; this._fluxMids = 0; this._fluxHighs = 0; this._fluxFull = 0; this._fluxCustom = 0;
+    _runRealtimeAnalysis(dt) {
+        if (!this._analysis) this._analysis = new RealtimeAudioAnalysis();
         if (!this._fluxAnalyser) return;
+        this._analysis.setSampleRate(this.audioContext.sampleRate);
+        const a = this._analysis.process(this._fluxAnalyser, dt, {
+            attackMs: this.config.analysis?.attack_ms ?? 8,
+            releaseMs: this.config.analysis?.release_ms ?? 120,
+            gain: this.config.analysis?.gain ?? 1,
+        });
+        this._publishAnalysis(a);
+    }
 
-        // Bins quieter than this carry no useful energy; clamping them keeps noise drift in a
-        // near-silent band from registering as a change.
-        const FLUX_FLOOR_DB = -100;
-        // Time constant of the level reference each band's flux is divided by.
-        const LEVEL_TAU_S = 4;
-        // Absolute audibility floor for a band's mean bin magnitude (~-60 dB). Dividing by the
-        // band's own level is what makes the signal volume-independent, but it would equally
-        // happily magnify the noise in a band containing nothing — a Custom range covering no
-        // instrument, or a track's silent passage — into full-sized onsets. Below this a band is
-        // reported as having no onset at all, which is the one thing scale-free measures cannot
-        // conclude for themselves.
-        const LEVEL_FLOOR = 1e-3;
+    /** Expose the frame's analysis on window, where the node processor and shaders read it. */
+    _publishAnalysis(a) {
+        if (typeof window === 'undefined') return;
+        window._audioBands = a;
+    }
 
-        const n = this._fluxAnalyser.frequencyBinCount;
-        if (!this._fluxSpectrum || this._fluxSpectrum.length !== n) {
-            this._fluxSpectrum = new Float32Array(n);
-            this._fluxPrevSpectrum = new Float32Array(n);
-            this._fluxMagnitude = new Float64Array(n);
-            this._fluxPrevMagnitude = new Float64Array(n);
-            this._fluxPrimed = false;
-            this._fluxLevelRef = null;
-        }
-
-        // Reuse the buffers by swapping: last frame's spectrum becomes "prev".
-        let swap = this._fluxPrevSpectrum;
-        this._fluxPrevSpectrum = this._fluxSpectrum;
-        this._fluxSpectrum = swap;
-        swap = this._fluxPrevMagnitude;
-        this._fluxPrevMagnitude = this._fluxMagnitude;
-        this._fluxMagnitude = swap;
-        this._fluxAnalyser.getFloatFrequencyData(this._fluxSpectrum);
-
-        // dB -> linear magnitude, once per bin per frame.
-        for (let i = 0; i < n; i++) {
-            const db = this._fluxSpectrum[i];
-            this._fluxMagnitude[i] = db <= FLUX_FLOOR_DB ? 0 : Math.pow(10, db / 20);
-        }
-
-        // First frame after (re)start has no valid previous spectrum — don't emit a bogus spike.
-        if (!this._fluxPrimed) {
-            this._fluxPrimed = true;
-            return;
-        }
-
-        const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
-        const dt = Math.min(0.5, Math.max(1 / 240, now - (this._fluxLastAt || now - 1 / 60)));
-        this._fluxLastAt = now;
-        const levelAlpha = 1 - Math.exp(-dt / LEVEL_TAU_S);
-
-        const nyquist = this.audioContext.sampleRate / 2;
-        const binWidth = nyquist / n;
-        const bands = ['bass', 'mids', 'highs', 'fullband', 'custom'];
-        if (!this._fluxLevelRef) this._fluxLevelRef = new Float64Array(bands.length);
-        const out = [0, 0, 0, 0, 0];
-
-        for (let b = 0; b < bands.length; b++) {
-            const [minFreq, maxFreq] = this._onsetBandRange(bands[b], nyquist);
-            // Never include bin 0: it is DC, not audio. Its value drifts with any offset in the
-            // signal, so a band narrow enough to be mostly bin 0 (a Custom range of a few Hz)
-            // would otherwise report that drift as a stream of onsets.
-            const start = Math.max(1, Math.floor(minFreq / binWidth));
-            const end = Math.min(n, Math.ceil(maxFreq / binWidth));
-            // A degenerate or empty range (min >= max, or a span narrower than one bin above DC)
-            // has nothing to measure — report no onset rather than whatever one stray bin does.
-            if (end <= start) { out[b] = 0; continue; }
-
-            let rise = 0, level = 0;
-            for (let i = start; i < end; i++) {
-                const cur = this._fluxMagnitude[i];
-                const d = cur - this._fluxPrevMagnitude[i];
-                if (d > 0) rise += d;
-                level += cur;
-            }
-            const width = end - start;
-            rise /= width;
-            level /= width;
-
-            // Slow level reference for this band, seeded on the first real frame so the signal is
-            // usable immediately rather than ramping up from zero.
-            const ref = this._fluxLevelRef[b];
-            this._fluxLevelRef[b] = ref === 0 ? level : ref + (level - ref) * levelAlpha;
-
-            // Nothing audible in this band: report no onset rather than amplifying its noise.
-            if (Math.max(level, this._fluxLevelRef[b]) < LEVEL_FLOOR) { out[b] = 0; continue; }
-            out[b] = rise / Math.max(this._fluxLevelRef[b], LEVEL_FLOOR);
-        }
-
-        // Published raw, one value per band. Rejecting broadband onsets (subtracting the high-band
-        // reference so a snare or clap cancels while a kick survives) happens per-node in
-        // AudioAnalysisProcessor, where the node's Isolate switch decides — it has to apply to
-        // whichever band that node selected, including Custom.
-        this._fluxBass = out[0];
-        this._fluxMids = out[1];
-        this._fluxHighs = out[2];
-        this._fluxFull = out[3];
-        this._fluxCustom = out[4];
+    /** Everything reads zero while nothing is playing. */
+    _publishSilentAnalysis() {
+        if (typeof window === 'undefined') return;
+        if (this._analysis) this._analysis.reset();
+        window._audioBands = {
+            level: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0,
+            centroid: 0, density: 0,
+            presence: { low: false, mid: false, high: false, kick: false, snare: false, hat: false },
+        };
     }
 
     /**
@@ -478,14 +400,9 @@ export class BrowserAudioCapture {
             // Expose globally for GPU shader access
             window._audioEnvelopeValue = this._envelopeValue;
 
-            // No playback -> no onsets. Also drop priming so the first frame after resume
-            // doesn't diff against a stale spectrum and report a phantom kick.
-            this._fluxPrimed = false;
-            window._audioFluxBass = 0;
-            window._audioFluxMids = 0;
-            window._audioFluxHighs = 0;
-            window._audioFluxFull = 0;
-            window._audioFluxCustom = 0;
+            // No playback -> every meter reads zero, and the followers reset so the next track
+            // does not inherit this one's scaling.
+            this._publishSilentAnalysis();
 
             return;
         }
@@ -542,8 +459,8 @@ export class BrowserAudioCapture {
         raw = this._applyShaping(raw);
         this._envelopeValue = Math.max(0, Math.min(1, raw));
 
-        // Band-limited spectral flux for onset/kick detection (see AudioAnalysisProcessor).
-        this._computeSpectralFlux();
+        // Real-time band meters for the Audio Analysis node (see RealtimeAudioAnalysis).
+        this._runRealtimeAnalysis(dt);
 
         // Expose all globally for GPU shader access
         window._audioEnvelopeValue = this._envelopeValue;
@@ -551,11 +468,6 @@ export class BrowserAudioCapture {
         window._audioEnvelopeMids = this._envelopeMids;
         window._audioEnvelopeHighs = this._envelopeHighs;
         window._audioEnvelopeFull = this._envelopeFull;
-        window._audioFluxBass = this._fluxBass;
-        window._audioFluxMids = this._fluxMids;
-        window._audioFluxHighs = this._fluxHighs;
-        window._audioFluxFull = this._fluxFull;
-        window._audioFluxCustom = this._fluxCustom;
 
         // Debug logging (every 1 second)
         if (!this._lastDebugLog || performance.now() - this._lastDebugLog > 1000) {

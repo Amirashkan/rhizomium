@@ -4,6 +4,7 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { MessagePriority } from './AsyncQueueManager.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
+import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
 
 export class PreviewComputer {
   constructor() {
@@ -417,16 +418,17 @@ export class PreviewComputer {
             }
 
             case "AudioAnalysis": {
-              // Three independent outputs (level / kick / trig), advanced every frame on the CPU by
-              // AudioAnalysisProcessor. Expose them as a multi-output split — the same shape a Split
-              // node produces — so every downstream surface reads the RIGHT pin instead of collapsing
-              // to one value: the per-pin value tags (Renderer), a wire from pin 1/2 (_resolveInputValue
-              // indexes the split by source pin), and `=node_<id>_0/1/2` references (_addNodeRefsToContext
-              // unwraps the split into node_<id>_0/1/2). Pin 0 (level) stays the node's on-canvas readout.
-              const level = typeof node.__kickLevel === 'number' ? node.__kickLevel : 0.0;
-              const kick = typeof node.__kickValue === 'number' ? node.__kickValue : 0.0;
-              const trig = typeof node.__kickTrig === 'number' ? node.__kickTrig : 0.0;
-              result = { type: 'split', values: [level, kick, trig] };
+              // Many independent outputs (band meters, per-drum envelopes and triggers, spectral
+              // descriptors), advanced every frame on the CPU by AudioAnalysisProcessor. Exposed as
+              // a multi-output split — the same shape a Split node produces — so every downstream
+              // surface reads the RIGHT pin instead of collapsing to one value: the per-pin value
+              // tags (Renderer), a wire from any pin (_resolveInputValue indexes the split by source
+              // pin), and `=node_<id>_N` references (_addNodeRefsToContext unwraps the split). Pin 0
+              // (level) stays the node's on-canvas readout.
+              result = {
+                type: 'split',
+                values: AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i)),
+              };
               break;
             }
 
@@ -1860,15 +1862,15 @@ _renderOutputThumbnail(ctx, size, color, node) {
       // wired inputs — so the param-hash/input checks above never flag them and the early-return
       // above would serve a stale cached value, freezing the numeric preview and any =node_<id>
       // readout while the GPU output keeps reacting. Force the node (and its dependents, e.g. a
-      // downstream Remap) dirty whenever any of its live outputs (level/kick/trig, advanced every
-      // frame by AudioAnalysisProcessor) differ from the split value we last computed.
+      // downstream Remap) dirty whenever any of its live outputs (band meters, drum triggers and
+      // the rest, advanced every frame by AudioAnalysisProcessor) differ from the last split.
       if (node.kind === 'AudioAnalysis') {
-        const level = typeof node.__kickLevel === 'number' ? node.__kickLevel : 0;
-        const kick = typeof node.__kickValue === 'number' ? node.__kickValue : 0;
-        const trig = typeof node.__kickTrig === 'number' ? node.__kickTrig : 0;
+        const live = AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i));
         const prev = this.lastComputedValues.get(node.id);
         const prevVals = prev && prev.type === 'split' ? prev.values : null;
-        if (!prevVals || prevVals[0] !== level || prevVals[1] !== kick || prevVals[2] !== trig) {
+        const changed = !prevVals || prevVals.length !== live.length
+          || live.some((v, i) => prevVals[i] !== v);
+        if (changed) {
           this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
           this._invalidateNodeValueComputerCacheForNode(node.id);
         }
