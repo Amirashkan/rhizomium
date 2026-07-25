@@ -314,10 +314,10 @@ UV → Texture 2D → Posterize (Steps: 4) → Output
 
 ### Image Formats
 
-- ✅ **PNG** - Lossless, supports transparency
-- ✅ **JPG/JPEG** - Lossy, smaller files
-- ✅ **WebP** - Modern, best compression
-- ✅ **GIF** - Animated (static frames only)
+- **PNG** - Lossless, supports transparency
+- **JPG/JPEG** - Lossy, smaller files
+- **WebP** - Modern, best compression
+- **GIF** - Animated (static frames only)
 
 ### File Size Limits
 

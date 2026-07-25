@@ -4,7 +4,7 @@ This guide will walk you through creating your first visual composition in Rhizo
 
 ---
 
-## 🎯 What You'll Build
+## What You'll Build
 
 By the end of this guide, you'll have created a colorful, animated circular pattern that reacts to time. This will teach you:
 
@@ -15,19 +15,19 @@ By the end of this guide, you'll have created a colorful, animated circular patt
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
 Before you start, make sure you have:
 
-1. ✅ Rhizomium running locally or accessed via the web
-2. ✅ A browser with WebGPU support (Chrome 113+ or Edge 113+)
-3. ✅ The node editor open (usually at `/studio` or `/editor`)
+1. Rhizomium running locally or accessed via the web
+2. A browser with WebGPU support (Chrome 113+ or Edge 113+)
+3. The node editor open (usually at `/studio` or `/editor`)
 
 If you haven't set up Rhizomium yet, check out the [Quick Start guide](quickstart.md).
 
 ---
 
-## 🧩 Understanding the Node Editor
+## Understanding the Node Editor
 
 When you open the editor, you'll see:
 
@@ -48,7 +48,7 @@ When you open the editor, you'll see:
 
 ---
 
-## 🎨 Step-by-Step Tutorial
+## Step-by-Step Tutorial
 
 ### Step 1: Create UV Coordinates
 
@@ -119,7 +119,7 @@ Finally, send your colored pattern to the screen.
 
 ---
 
-## 🎨 Experiment and Explore
+## Experiment and Explore
 
 Now that you have a basic graph, try experimenting:
 
@@ -154,7 +154,7 @@ See [Audio Reactivity](audio-web.md) for details.
 
 ---
 
-## 💡 Understanding Data Flow
+## Understanding Data Flow
 
 In Rhizomium, data flows from **left to right**:
 
@@ -176,7 +176,7 @@ Rhizomium automatically converts between compatible types when possible.
 
 ---
 
-## 🔍 Common Patterns
+## Common Patterns
 
 ### Pattern 1: UV → Generator → Color → Output
 
@@ -214,7 +214,7 @@ Time → Sin → [Parameter Input]
 
 ---
 
-## 🎯 Next Steps
+## Next Steps
 
 Congratulations! You've created your first Rhizomium visual. Here's what to explore next:
 
@@ -229,7 +229,7 @@ Congratulations! You've created your first Rhizomium visual. Here's what to expl
 
 ---
 
-## 💬 Tips and Tricks
+## Tips and Tricks
 
 - **Save frequently** - Use Ctrl+S or the Save button
 - **Name your nodes** - Double-click node titles to rename them
@@ -240,7 +240,7 @@ Congratulations! You've created your first Rhizomium visual. Here's what to expl
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### I don't see any output
 

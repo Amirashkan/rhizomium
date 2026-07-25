@@ -30,11 +30,11 @@ Check the license file in the repository for commercial use terms.
 
 Rhizomium requires a WebGPU-capable browser:
 
-- ✅ **Chrome 113+** (Recommended)
-- ✅ **Edge 113+** (Recommended)
-- ✅ **Opera 99+**
-- ⚠️ **Firefox** - WebGPU support is experimental
-- ⚠️ **Safari** - Limited WebGPU support
+- **Chrome 113+** (Recommended)
+- **Edge 113+** (Recommended)
+- **Opera 99+**
+- **Firefox** - WebGPU support is experimental
+- **Safari** - Limited WebGPU support
 
 ### How do I check if my browser supports WebGPU?
 

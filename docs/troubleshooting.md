@@ -50,11 +50,11 @@ What happens?
 **WebGPU Required!** This editor uses WebGPU.
 
 **Compatible browsers:**
-- ✅ Chrome 113+ (Recommended)
-- ✅ Edge 113+
-- ✅ Opera 99+
-- ❌ Firefox (WebGPU not enabled by default)
-- ❌ Safari (limited support)
+- Chrome 113+ (Recommended)
+- Edge 113+
+- Opera 99+
+- Firefox (WebGPU not enabled by default)
+- Safari (limited support)
 
 **Enable WebGPU in Chrome:**
 1. Go to: `chrome://flags`
@@ -103,14 +103,14 @@ Run through this checklist:
 cd /e/twFFinalPROj/glsl-node-editor
 python -m audio.audio_server --mode mic
 ```
-✅ Should show: "Audio envelope server running on http://localhost:8765"
+Should show: "Audio envelope server running on http://localhost:8765"
 
 ### Terminal 2 (Web Server)
 ```bash
 cd /e/twFFinalPROj/glsl-node-editor
 python -m http.server 8080
 ```
-✅ Should show: "Serving HTTP on :: port 8080"
+Should show: "Serving HTTP on :: port 8080"
 
 ### Browser
 1. Open: `http://localhost:8080/editor/index.html`
@@ -172,4 +172,4 @@ When everything works correctly:
 5. **Audio Settings button** → Opens panel showing "Connected" status
 6. **Browser console** → No red errors
 
-If you see all of this, the editor is working! 🎉
+If you see all of this, the editor is working!

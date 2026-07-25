@@ -20,11 +20,11 @@ Your project is saved to your browser's local storage instantly!
 
 Rhizomium saves your projects in your browser's **Local Storage**:
 
-- ✅ **Fast** - Instant save and load
-- ✅ **Private** - Stored only on your computer
-- ✅ **No account needed** - Works offline
-- ⚠️ **Browser-specific** - Projects are tied to your browser
-- ⚠️ **Limited space** - Usually 5-10MB per site
+- **Fast** - Instant save and load
+- **Private** - Stored only on your computer
+- **No account needed** - Works offline
+- **Browser-specific** - Projects are tied to your browser
+- **Limited space** - Usually 5-10MB per site
 
 ### What Gets Saved
 
@@ -216,18 +216,18 @@ console.log('Storage used:', Math.round(size / 1024), 'KB');
 ### Risks
 
 Projects can be lost if:
-- ❌ **Browser cache is cleared** - Clears all projects!
-- ❌ **Incognito/Private mode** - Not saved permanently
-- ❌ **Different browser** - Projects don't transfer
-- ❌ **Browser uninstall** - Removes all data
-- ❌ **Computer crash** - Rare, but possible
+- **Browser cache is cleared** - Clears all projects!
+- **Incognito/Private mode** - Not saved permanently
+- **Different browser** - Projects don't transfer
+- **Browser uninstall** - Removes all data
+- **Computer crash** - Rare, but possible
 
 ### Protect Your Work
 
-✅ **Export important projects** as JSON files
-✅ **Keep backups** in cloud storage (Dropbox, Google Drive)
-✅ **Don't rely solely on browser storage**
-✅ **Avoid clearing browser data** for studio.tenderworld.org
+**Export important projects** as JSON files
+**Keep backups** in cloud storage (Dropbox, Google Drive)
+**Don't rely solely on browser storage**
+**Avoid clearing browser data** for studio.tenderworld.org
 
 ---
 
@@ -311,4 +311,4 @@ Only you can access your projects!
 
 ---
 
-_Save early, save often, and export your best work!_ 💾
+_Save early, save often, and export your best work!_

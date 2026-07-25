@@ -43,7 +43,7 @@ Shows essential metrics at a glance:
 ║ Compute Time: 2.3ms              ║
 ║ Dispatches: 2                    ║
 ║ Workgroups: 1024                 ║
-║ GPU Timing: ✓                    ║
+║ GPU Timing: Yes                  ║
 ╚══════════════════════════════════╝
 ```
 
@@ -78,9 +78,9 @@ Click **+** button to see detailed breakdown:
 - **<30 FPS** = Poor, noticeable lag
 
 **Color coding:**
-- 🟢 **Green** (≥60) - Excellent
-- 🟡 **Yellow** (30-59) - Acceptable
-- 🔴 **Red** (<30) - Poor
+- **Green** (≥60) - Excellent
+- **Yellow** (30-59) - Acceptable
+- **Red** (<30) - Poor
 
 ### Frame Time
 
@@ -258,11 +258,11 @@ The profiler automatically warns when:
 ### Test Coverage
 
 Tests verify:
-- ✅ Profiler display functionality
-- ✅ Frame rate accuracy
-- ✅ Compute dispatch tracking
-- ✅ GPU timestamp support
-- ✅ Performance warnings
+- Profiler display functionality
+- Frame rate accuracy
+- Compute dispatch tracking
+- GPU timestamp support
+- Performance warnings
 
 ---
 
@@ -276,8 +276,8 @@ Tests verify:
 - Most accurate timing
 
 **Indicators:**
-- **GPU Timing: ✓** - Hardware timestamps enabled
-- **GPU Timing: ✗** - Using CPU fallback
+- **GPU Timing: Yes** - Hardware timestamps enabled
+- **GPU Timing: Fallback** - Using CPU fallback
 
 ### CPU Fallback
 

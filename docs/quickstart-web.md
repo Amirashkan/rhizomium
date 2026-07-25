@@ -68,7 +68,7 @@ You've made your first connection!
 2. Place it at the far right
 3. Connect **ColorRamp output** to **Output input**
 
-**You should now see your visual in the preview!** 🎉
+**You should now see your visual in the preview!**
 
 ---
 
@@ -104,7 +104,7 @@ Now that you have the basics, try:
 ### Add Audio Reactivity
 - Click the **Audio Settings** button to enable microphone
 - Type `=audioEnvelope * 0.5` into a parameter field (e.g. the Circle's Radius)
-- Play some music! 🎵
+- Play some music!
 
 ---
 

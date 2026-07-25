@@ -1,6 +1,6 @@
 # Rhizomium Quick Start Guide
 
-## 🚀 Quick Start (3 Steps)
+## Quick Start (3 Steps)
 
 ### Step 1: Install Dependencies
 
@@ -34,9 +34,9 @@ Open your browser and navigate to:
 http://127.0.0.1:5000/studio
 ```
 
-## 🎨 Using the External Viewer
+## Using the External Viewer
 
-**⚠️ Note:** External viewer is a **local-only feature** - it requires running the Python server on your computer. It will NOT work on Vercel, Netlify, or other cloud hosting platforms.
+**Note:** External viewer is a **local-only feature** - it requires running the Python server on your computer. It will NOT work on Vercel, Netlify, or other cloud hosting platforms.
 
 Once the editor is open locally:
 
@@ -46,9 +46,9 @@ Once the editor is open locally:
 
 **Using the cloud-hosted version?** The external viewer button will show a helpful message with setup instructions.
 
-## 📋 Common Issues
+## Common Issues
 
-### ❌ "External viewer is a local-only feature" (on Vercel/Cloud)
+### "External viewer is a local-only feature" (on Vercel/Cloud)
 
 **Problem:** You're accessing the editor from a cloud-hosted URL (e.g., vercel.app).
 
@@ -61,13 +61,13 @@ Once the editor is open locally:
 See the [Deployment Guide](deployment.md) for details.
 
 
-### ❌ "Failed to launch external viewer: 404"
+### "Failed to launch external viewer: 404"
 
 **Problem:** The server is not running.
 
 **Solution:** Start the server using `python rhizo_server.py` or the startup scripts.
 
-### ❌ "Waiting for stream" in viewer
+### "Waiting for stream" in viewer
 
 **Problem:** GPUCanvas is not sending frames.
 
@@ -76,7 +76,7 @@ See the [Deployment Guide](deployment.md) for details.
 - Check that GPUCanvas.py is integrated with your render loop
 - For testing, run `python GPUCanvas.py` in a separate terminal
 
-### ❌ Import errors
+### Import errors
 
 **Problem:** Dependencies not installed.
 
@@ -85,7 +85,7 @@ See the [Deployment Guide](deployment.md) for details.
 pip install -r requirements.txt
 ```
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 rhizomium/
@@ -101,7 +101,7 @@ rhizomium/
 └── requirements.txt         ← Python dependencies
 ```
 
-## 🔧 Advanced Usage
+## Advanced Usage
 
 ### Running Components Separately
 
@@ -130,7 +130,7 @@ python viewer_api.py
 
 This runs the API on port 5000 without serving static files.
 
-## 🌐 URLs
+## URLs
 
 - **Landing Page:** http://127.0.0.1:5000/
 - **Editor:** http://127.0.0.1:5000/studio
@@ -138,19 +138,19 @@ This runs the API on port 5000 without serving static files.
 - **Health Check:** http://127.0.0.1:5000/api/health
 - **Server Status:** http://127.0.0.1:5000/api/status
 
-## 📖 Further Reading
+## Further Reading
 
 - [External Viewer Setup](external-viewer.md) - Detailed viewer setup and architecture
 - [Starting the Editor](https://github.com/Amirashkan/glsl-node-editor/blob/main/START_EDITOR.md) - Editor launch notes
 - [Troubleshooting](troubleshooting.md) - Detailed troubleshooting guide
 
-## 🎯 Next Steps
+## Next Steps
 
-1. ✅ Start the server
-2. ✅ Open the editor in your browser
-3. ✅ Create some nodes
-4. ✅ Click "Open External Viewer"
-5. 🎨 Start creating generative art!
+1. Start the server
+2. Open the editor in your browser
+3. Create some nodes
+4. Click "Open External Viewer"
+5. Start creating generative art!
 
 ---
 

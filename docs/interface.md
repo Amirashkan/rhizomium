@@ -412,9 +412,9 @@ Monitor real-time performance:
 - **Dispatch Breakdown** - Per-node performance
 
 **Color Coding:**
-- 🟢 Green (≥60 FPS) - Excellent
-- 🟡 Yellow (30-59 FPS) - Acceptable
-- 🔴 Red (<30 FPS) - Poor
+- Green (≥60 FPS) - Excellent
+- Yellow (30-59 FPS) - Acceptable
+- Red (<30 FPS) - Poor
 
 **Controls:**
 - **+** - Expand to see detailed breakdown

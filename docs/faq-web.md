@@ -30,11 +30,11 @@ The web version requires an internet connection to load initially. Once loaded, 
 
 Rhizomium requires WebGPU support:
 
-- ✅ **Chrome 113+** (Recommended)
-- ✅ **Edge 113+** (Recommended)
-- ✅ **Opera 99+**
-- ⚠️ **Firefox** - Experimental WebGPU, limited support
-- ⚠️ **Safari** - Partial WebGPU, may not work
+- **Chrome 113+** (Recommended)
+- **Edge 113+** (Recommended)
+- **Opera 99+**
+- **Firefox** - Experimental WebGPU, limited support
+- **Safari** - Partial WebGPU, may not work
 
 **Bottom line:** Use Chrome or Edge for best experience.
 

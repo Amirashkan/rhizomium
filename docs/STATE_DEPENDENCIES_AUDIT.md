@@ -61,12 +61,12 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Node Creation** | `SelectionManager.createNode()` | ✅ Yes | `nodes` | ✅ **MUST** | New node appears on canvas |
-| **Node Deletion** | `SelectionManager.deleteSelected()` | ✅ Yes | `nodes` | ✅ **MUST** | Node removed from canvas |
-| **Node Position** | `SelectionManager.updateDrag()` | ✅ Yes | `nodes` | ✅ **MUST** | Visual position changes |
-| **Connection Add** | `ConnectionManager.endWireDrag()` | ✅ Yes | `connections` | ✅ **MUST** | Wire appears on canvas |
-| **Connection Remove** | `ConnectionManager.removeConnection()` | ✅ Yes | `connections` | ✅ **MUST** | Wire disappears |
-| **Graph Load** | `SaveLoadManager.loadGraph()` | ✅ Yes | `general` | ✅ **MUST** | Full scene replacement |
+| **Node Creation** | `SelectionManager.createNode()` | Yes | `nodes` | **MUST** | New node appears on canvas |
+| **Node Deletion** | `SelectionManager.deleteSelected()` | Yes | `nodes` | **MUST** | Node removed from canvas |
+| **Node Position** | `SelectionManager.updateDrag()` | Yes | `nodes` | **MUST** | Visual position changes |
+| **Connection Add** | `ConnectionManager.endWireDrag()` | Yes | `connections` | **MUST** | Wire appears on canvas |
+| **Connection Remove** | `ConnectionManager.removeConnection()` | Yes | `connections` | **MUST** | Wire disappears |
+| **Graph Load** | `SaveLoadManager.loadGraph()` | Yes | `general` | **MUST** | Full scene replacement |
 
 **Code References:**
 - `src/core/SelectionManager.js:200-250` (node creation)
@@ -77,10 +77,10 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Pan (mousemove)** | `EventHandler._setupPanEvents()` | ✅ Yes | `viewport` | ✅ **MUST** | Camera position changes |
-| **Zoom (wheel)** | `EventHandler._setupZoomEvents()` | ✅ Yes | `viewport` | ✅ **MUST** | Scale changes |
-| **Zoom (Ctrl+drag)** | `EventHandler._setupDragZoomEvents()` | ✅ Yes | `viewport` | ✅ **MUST** | Scale changes |
-| **Viewport Reset** | `ViewportManager.reset()` | ✅ Yes | `viewport` | ✅ **MUST** | Camera reset |
+| **Pan (mousemove)** | `EventHandler._setupPanEvents()` | Yes | `viewport` | **MUST** | Camera position changes |
+| **Zoom (wheel)** | `EventHandler._setupZoomEvents()` | Yes | `viewport` | **MUST** | Scale changes |
+| **Zoom (Ctrl+drag)** | `EventHandler._setupDragZoomEvents()` | Yes | `viewport` | **MUST** | Scale changes |
+| **Viewport Reset** | `ViewportManager.reset()` | Yes | `viewport` | **MUST** | Camera reset |
 
 **Optimization:** Frame-based throttling during panning (skip every 2nd frame) - `Editor.draw():953-973`
 
@@ -92,10 +92,10 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Select Node** | `SelectionManager.select()` | ✅ Yes | `selection` | ✅ **MUST** | Highlight appears |
-| **Deselect** | `SelectionManager.deselect()` | ✅ Yes | `selection` | ✅ **MUST** | Highlight disappears |
-| **Box Select** | `SelectionManager.updateBoxSelect()` | ✅ Yes | `selection` | ✅ **MUST** | Selection box drawn |
-| **Multi-select** | `SelectionManager.selectMultiple()` | ✅ Yes | `selection` | ✅ **MUST** | Multiple highlights |
+| **Select Node** | `SelectionManager.select()` | Yes | `selection` | **MUST** | Highlight appears |
+| **Deselect** | `SelectionManager.deselect()` | Yes | `selection` | **MUST** | Highlight disappears |
+| **Box Select** | `SelectionManager.updateBoxSelect()` | Yes | `selection` | **MUST** | Selection box drawn |
+| **Multi-select** | `SelectionManager.selectMultiple()` | Yes | `selection` | **MUST** | Multiple highlights |
 
 **Code References:**
 - `src/core/SelectionManager.js:150-300` (selection logic)
@@ -104,10 +104,10 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Parameter Change** | `ParameterValueManager.updateNodeParameter()` | ⚠️ **Conditional** | `previews` | ⚠️ **OPTIONAL** | Only if preview visible |
-| **Parameter Drag** | `ParameterExpressionSystem.setupNumericDragSupport()` | ⚠️ **Conditional** | `previews` | ⚠️ **OPTIONAL** | Throttled during drag |
-| **Expression Change** | `ParameterExpressionSystem.updateExpressionDisplay()` | ❌ No | N/A | ❌ **NO** | UI-only (input field) |
-| **MIDI Parameter** | `MIDIParameterBinding.onMIDIChange()` | ⚠️ **Conditional** | `previews` | ⚠️ **OPTIONAL** | Deferred until MIDI stops |
+| **Parameter Change** | `ParameterValueManager.updateNodeParameter()` | **Conditional** | `previews` | **OPTIONAL** | Only if preview visible |
+| **Parameter Drag** | `ParameterExpressionSystem.setupNumericDragSupport()` | **Conditional** | `previews` | **OPTIONAL** | Throttled during drag |
+| **Expression Change** | `ParameterExpressionSystem.updateExpressionDisplay()` | No | N/A | **NO** | UI-only (input field) |
+| **MIDI Parameter** | `MIDIParameterBinding.onMIDIChange()` | **Conditional** | `previews` | **OPTIONAL** | Deferred until MIDI stops |
 
 **Critical Finding:** Parameter changes trigger `onChange()` → shader recompilation, but canvas redraw is **optional** unless:
 1. Node preview is visible
@@ -123,9 +123,9 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Preview Generate** | `PreviewIntegration.generateNodePreview()` | ✅ Yes | `previews` | ✅ **MUST** | Preview thumbnail updates |
-| **Preview Compute** | `PreviewComputer.computePreviews()` | ❌ No | N/A | ❌ **NO** | Background computation only |
-| **Preview Cache Invalidate** | `PreviewSystem.canvasManager.canvasCache.delete()` | ✅ Yes | `previews` | ✅ **MUST** | Cache cleared, needs redraw |
+| **Preview Generate** | `PreviewIntegration.generateNodePreview()` | Yes | `previews` | **MUST** | Preview thumbnail updates |
+| **Preview Compute** | `PreviewComputer.computePreviews()` | No | N/A | **NO** | Background computation only |
+| **Preview Cache Invalidate** | `PreviewSystem.canvasManager.canvasCache.delete()` | Yes | `previews` | **MUST** | Cache cleared, needs redraw |
 
 **Optimization:** Preview updates are debounced (16ms = ~60 FPS) - `PreviewIntegration.js:134-136`
 
@@ -137,8 +137,8 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Undo** | `UndoManager.undo()` | ✅ Yes | `general` | ✅ **MUST** | State restored, full redraw |
-| **Redo** | `UndoManager.redo()` | ✅ Yes | `general` | ✅ **MUST** | State restored, full redraw |
+| **Undo** | `UndoManager.undo()` | Yes | `general` | **MUST** | State restored, full redraw |
+| **Redo** | `UndoManager.redo()` | Yes | `general` | **MUST** | State restored, full redraw |
 
 **Code References:**
 - `src/core/UndoManager.js:200-400` (undo/redo logic)
@@ -147,9 +147,9 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Wire Drag Start** | `ConnectionManager.startWireDrag()` | ✅ Yes | `connections` | ✅ **MUST** | Temporary wire appears |
-| **Wire Drag Update** | `ConnectionManager.updateWireDrag()` | ✅ Yes | `connections` | ✅ **MUST** | Wire follows cursor |
-| **Wire Drag End** | `ConnectionManager.endWireDrag()` | ✅ Yes | `connections` | ✅ **MUST** | Connection created or cancelled |
+| **Wire Drag Start** | `ConnectionManager.startWireDrag()` | Yes | `connections` | **MUST** | Temporary wire appears |
+| **Wire Drag Update** | `ConnectionManager.updateWireDrag()` | Yes | `connections` | **MUST** | Wire follows cursor |
+| **Wire Drag End** | `ConnectionManager.endWireDrag()` | Yes | `connections` | **MUST** | Connection created or cancelled |
 
 **Code References:**
 - `src/core/ConnectionManager.js:15-200` (wire drag)
@@ -158,10 +158,10 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Mutation | Location | Triggers markDirty? | Region | Must Repaint? | Notes |
 |----------|----------|---------------------|--------|---------------|-------|
-| **Background Warmup** | `EventHandler._startContinuousWarmup()` | ✅ Yes | `general` | ❌ **NO** | Unnecessary redraw |
-| **Window Resize** | `Editor.resize()` | ✅ Yes | `general` | ✅ **MUST** | Canvas size changes |
-| **Focus/Visibility** | `EventHandler._setupFocusHandlers()` | ✅ Yes | `general` | ❌ **NO** | Unnecessary redraw |
-| **Animation Frame** | `main.js:handleRenderFrame()` | ⚠️ **Conditional** | N/A | ⚠️ **OPTIONAL** | Only if time-based expressions exist |
+| **Background Warmup** | `EventHandler._startContinuousWarmup()` | Yes | `general` | **NO** | Unnecessary redraw |
+| **Window Resize** | `Editor.resize()` | Yes | `general` | **MUST** | Canvas size changes |
+| **Focus/Visibility** | `EventHandler._setupFocusHandlers()` | Yes | `general` | **NO** | Unnecessary redraw |
+| **Animation Frame** | `main.js:handleRenderFrame()` | **Conditional** | N/A | **OPTIONAL** | Only if time-based expressions exist |
 
 **Critical Finding:** Background warmup triggers unnecessary redraws every 300ms when idle.
 
@@ -177,25 +177,25 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Category | State Change | Reason | Priority |
 |----------|--------------|--------|----------|
-| **Graph Structure** | Node add/remove | Node appears/disappears | 🔴 **CRITICAL** |
-| **Graph Structure** | Connection add/remove | Wire appears/disappears | 🔴 **CRITICAL** |
-| **Viewport** | Pan/zoom | Camera transform changes | 🔴 **CRITICAL** |
-| **Selection** | Select/deselect | Highlight changes | 🟡 **HIGH** |
-| **Wire Drag** | Drag start/update/end | Temporary wire drawn | 🔴 **CRITICAL** |
-| **Node Position** | Drag node | Node moves on canvas | 🔴 **CRITICAL** |
-| **Preview** | Preview thumbnail update | Preview image changes | 🟡 **HIGH** |
-| **Window** | Resize | Canvas dimensions change | 🔴 **CRITICAL** |
+| **Graph Structure** | Node add/remove | Node appears/disappears | **CRITICAL** |
+| **Graph Structure** | Connection add/remove | Wire appears/disappears | **CRITICAL** |
+| **Viewport** | Pan/zoom | Camera transform changes | **CRITICAL** |
+| **Selection** | Select/deselect | Highlight changes | **HIGH** |
+| **Wire Drag** | Drag start/update/end | Temporary wire drawn | **CRITICAL** |
+| **Node Position** | Drag node | Node moves on canvas | **CRITICAL** |
+| **Preview** | Preview thumbnail update | Preview image changes | **HIGH** |
+| **Window** | Resize | Canvas dimensions change | **CRITICAL** |
 
 ### 3.2 Optional/Deferrable (Non-Visual or Background)
 
 | Category | State Change | Reason | Optimization |
 |----------|--------------|--------|--------------|
-| **Parameter** | Parameter value change (no preview) | Only affects shader, not canvas | ✅ **Skip redraw** |
-| **Parameter** | MIDI parameter (during drag) | Deferred until drag ends | ✅ **Defer 500ms** |
-| **Preview** | Preview computation | Background GPU work | ✅ **No redraw** |
-| **Expression** | Expression validation | UI-only (input field) | ✅ **Skip redraw** |
-| **Background** | Warmup timer | Unnecessary | ✅ **Remove markDirty** |
-| **Animation** | Frame (no time expressions) | No visual change | ✅ **Skip redraw** |
+| **Parameter** | Parameter value change (no preview) | Only affects shader, not canvas | **Skip redraw** |
+| **Parameter** | MIDI parameter (during drag) | Deferred until drag ends | **Defer 500ms** |
+| **Preview** | Preview computation | Background GPU work | **No redraw** |
+| **Expression** | Expression validation | UI-only (input field) | **Skip redraw** |
+| **Background** | Warmup timer | Unnecessary | **Remove markDirty** |
+| **Animation** | Frame (no time expressions) | No visual change | **Skip redraw** |
 
 ### 3.3 Conditional (Context-Dependent)
 
@@ -217,7 +217,7 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 - Parameter change → `onChange()` → shader recompilation → GPU render
 - Canvas redraw triggered separately via `markDirty('previews')`
 
-**Recommendation:** ✅ **Correct** - Canvas and GPU are separate render targets. Parameter changes should NOT trigger canvas redraw unless preview is visible.
+**Recommendation:** **Correct** - Canvas and GPU are separate render targets. Parameter changes should NOT trigger canvas redraw unless preview is visible.
 
 ### 4.2 Expression Dependencies
 
@@ -226,7 +226,7 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 **Current Behavior:**
 - Parameter change → `PreviewIntegration.onParameterChange()` → debounced preview update → `markDirty('previews')`
 
-**Recommendation:** ✅ **Correct** - Expression dependencies are tracked via `findDownstreamNodes()`. Preview updates are properly debounced.
+**Recommendation:** **Correct** - Expression dependencies are tracked via `findDownstreamNodes()`. Preview updates are properly debounced.
 
 ### 4.3 Graph Execution Order Dependencies
 
@@ -236,7 +236,7 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 - Connection change → `Graph.markExecutionOrderDirty()` → `Graph.getExecutionOrder()` recomputes
 - Preview computation uses execution order
 
-**Recommendation:** ✅ **Correct** - Execution order is cached and only recomputed when structure changes.
+**Recommendation:** **Correct** - Execution order is cached and only recomputed when structure changes.
 
 ### 4.4 MIDI Parameter Dependencies
 
@@ -246,7 +246,7 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 - MIDI change → `Editor.handleParameterChangeForExpressions()` → deferred update (500ms)
 - Updates batched until MIDI stops
 
-**Recommendation:** ✅ **Correct** - MIDI updates are properly deferred.
+**Recommendation:** **Correct** - MIDI updates are properly deferred.
 
 ---
 
@@ -256,28 +256,28 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 | Optimization | Current Behavior | Proposed Change | Impact |
 |--------------|------------------|-----------------|--------|
-| **Background Warmup** | `markDirty('background-warmup')` every 300ms | Remove `markDirty()` call | 🟢 **HIGH** - Eliminates unnecessary redraws |
-| **Parameter Drag** | Redraw on every mouse move | Throttle to 30 FPS during drag | 🟢 **MEDIUM** - Smoother interaction |
-| **Preview Updates** | Debounced 16ms | Increase to 33ms (30 FPS) for non-visible nodes | 🟢 **MEDIUM** - Reduces computation |
-| **Animation Frame** | Always calls `editor.draw()` | Check `hasActiveAnimations()` first | 🟢 **HIGH** - Skips redraw when static |
+| **Background Warmup** | `markDirty('background-warmup')` every 300ms | Remove `markDirty()` call | **HIGH** - Eliminates unnecessary redraws |
+| **Parameter Drag** | Redraw on every mouse move | Throttle to 30 FPS during drag | **MEDIUM** - Smoother interaction |
+| **Preview Updates** | Debounced 16ms | Increase to 33ms (30 FPS) for non-visible nodes | **MEDIUM** - Reduces computation |
+| **Animation Frame** | Always calls `editor.draw()` | Check `hasActiveAnimations()` first | **HIGH** - Skips redraw when static |
 
 ### 5.2 Medium-Priority Optimizations
 
 | Optimization | Current Behavior | Proposed Change | Impact |
 |--------------|------------------|-----------------|--------|
-| **Expression Validation** | No redraw (correct) | N/A - Already optimal | ✅ |
-| **Preview Computation** | No redraw (correct) | N/A - Already optimal | ✅ |
-| **Selection Box** | Redraw on every mouse move | Already throttled via RAF | ✅ |
-| **Node Drag** | Redraw on every mouse move | Already throttled via RAF | ✅ |
+| **Expression Validation** | No redraw (correct) | N/A - Already optimal | |
+| **Preview Computation** | No redraw (correct) | N/A - Already optimal | |
+| **Selection Box** | Redraw on every mouse move | Already throttled via RAF | |
+| **Node Drag** | Redraw on every mouse move | Already throttled via RAF | |
 
 ### 5.3 Caching Opportunities
 
 | Cache Target | Current Behavior | Proposed Change | Impact |
 |--------------|------------------|-----------------|--------|
-| **Grid Rendering** | Rendered every frame | ✅ **Already cached** (offscreen canvas) | ✅ |
-| **Node Pin Positions** | Computed every frame | ✅ **Already cached** during panning | ✅ |
-| **Topological Sort** | Cached in Graph | ✅ **Already cached** | ✅ |
-| **Preview Thumbnails** | Cached in PreviewSystem | ✅ **Already cached** | ✅ |
+| **Grid Rendering** | Rendered every frame | **Already cached** (offscreen canvas) | |
+| **Node Pin Positions** | Computed every frame | **Already cached** during panning | |
+| **Topological Sort** | Cached in Graph | **Already cached** | |
+| **Preview Thumbnails** | Cached in PreviewSystem | **Already cached** | |
 
 ---
 
@@ -345,7 +345,7 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 ### 7.1 Missing Indirect Dependencies
 
-**Risk Level:** 🟡 **MEDIUM**
+**Risk Level:** **MEDIUM**
 
 **Potential Issues:**
 1. **Shader Uniform Updates:** Parameter changes affect GPU rendering but may not be reflected in canvas previews
@@ -359,7 +359,7 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 ### 7.2 Over-Optimization Risks
 
-**Risk Level:** 🟢 **LOW**
+**Risk Level:** **LOW**
 
 **Potential Issues:**
 1. **Skipping Required Redraws:** Over-aggressive filtering may skip necessary updates
@@ -436,9 +436,9 @@ State Mutation → markDirty(reason, region) → _isDirty = true
 
 The state dependency system is **generally well-architected** with proper dirty flag tracking and region-based invalidation. Key improvements:
 
-1. ✅ **Remove background warmup redraws** (high impact, low risk)
-2. ✅ **Conditional animation frame redraws** (high impact, low risk)
-3. ✅ **Skip parameter redraws when preview hidden** (medium impact, low risk)
+1. **Remove background warmup redraws** (high impact, low risk)
+2. **Conditional animation frame redraws** (high impact, low risk)
+3. **Skip parameter redraws when preview hidden** (medium impact, low risk)
 
 The system correctly separates canvas (UI) and GPU (shader) render targets, and expression dependencies are properly tracked. The main optimization opportunities are eliminating unnecessary redraws during idle periods and conditional redraws based on actual visual changes.
 

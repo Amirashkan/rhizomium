@@ -414,11 +414,11 @@ renderer.render(
 
 The geometry mapping system provides:
 
-- ✅ Full UV support in mesh rendering pipeline
-- ✅ Automatic UV generation for procedural geometry
-- ✅ Multiple UV projection modes (planar, spherical, cylindrical)
-- ✅ Comprehensive UV transformation utilities
-- ✅ Textured mesh rendering with node graph integration
-- ✅ Foundation for audio, animation, and dynamic inputs
+- Full UV support in mesh rendering pipeline
+- Automatic UV generation for procedural geometry
+- Multiple UV projection modes (planar, spherical, cylindrical)
+- Comprehensive UV transformation utilities
+- Textured mesh rendering with node graph integration
+- Foundation for audio, animation, and dynamic inputs
 
 This system enables rich visual effects by combining procedural geometry generation with shader-based texture mapping, all within the node-based workflow.

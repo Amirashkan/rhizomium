@@ -280,17 +280,17 @@ Save different MIDI mappings:
 
 ### Supported Browsers
 
-- ✅ **Chrome 43+** (Recommended)
-- ✅ **Edge 79+** (Recommended)
-- ❌ **Firefox** (Web MIDI API not supported)
-- ❌ **Safari** (Web MIDI API not supported)
+- **Chrome 43+** (Recommended)
+- **Edge 79+** (Recommended)
+- **Firefox** (Web MIDI API not supported)
+- **Safari** (Web MIDI API not supported)
 
 ### Platform Support
 
-- ✅ **Windows 10+**
-- ✅ **macOS 10.14+**
-- ✅ **Linux** (with ALSA/MIDI support)
-- ⚠️ **Chrome OS** (Limited controller support)
+- **Windows 10+**
+- **macOS 10.14+**
+- **Linux** (with ALSA/MIDI support)
+- **Chrome OS** (Limited controller support)
 
 ---
 

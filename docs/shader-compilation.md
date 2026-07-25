@@ -193,8 +193,8 @@ fn hsvToRgb(hsv: vec3<f32>) -> vec3<f32> {
 The compiler only includes nodes connected to Output:
 
 ```
-UV → Circle → ColorRamp → Output  ✅ Included
-UV → Noise                        ❌ Not included (disconnected)
+UV → Circle → ColorRamp → Output  Included
+UV → Noise                        Not included (disconnected)
 ```
 
 ### 2. Constant Folding
@@ -273,16 +273,16 @@ Error: Unexpected token in WGSL
 
 ### GPU-Friendly Patterns
 
-**✅ Good:**
+**Good:**
 - Simple math operations (add, multiply)
 - Texture sampling
 - Built-in functions (sin, cos, length)
 
-**⚠️ Moderate:**
+**Moderate:**
 - Conditional logic (if/else)
 - Loops with low iteration counts
 
-**❌ Expensive:**
+**Expensive:**
 - Complex noise functions
 - High-iteration loops
 - Recursive patterns

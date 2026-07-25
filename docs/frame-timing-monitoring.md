@@ -2,7 +2,7 @@
 
 The Frame Timing Monitoring system provides comprehensive visibility into RAF (RequestAnimationFrame) performance, helping identify bottlenecks and frame drops in real-time.
 
-## ⚠️ CRITICAL PERFORMANCE REQUIREMENT ⚠️
+## CRITICAL PERFORMANCE REQUIREMENT
 
 **30 FPS IS NEVER ACCEPTED. ALL OPTIMIZATIONS MUST TARGET 60 FPS.**
 
@@ -112,9 +112,9 @@ console.log(stats);
 - **lastFrameTime**: Most recent frame time (current performance)
 
 **Target Values:**
-- ✅ **Good**: <16.67ms (60+ FPS)
-- ⚠️ **Acceptable**: 16.67-33.33ms (30-60 FPS)
-- ❌ **Poor**: >33.33ms (<30 FPS)
+- **Good**: <16.67ms (60+ FPS)
+- **Acceptable**: 16.67-33.33ms (30-60 FPS)
+- **Poor**: >33.33ms (<30 FPS)
 
 ### Frame Drop Tracking
 
@@ -122,9 +122,9 @@ console.log(stats);
 - **frameDropRate**: Percentage of frames that dropped (lower is better)
 
 **Target Values:**
-- ✅ **Good**: <1% drop rate
-- ⚠️ **Acceptable**: 1-5% drop rate
-- ❌ **Poor**: >5% drop rate
+- **Good**: <1% drop rate
+- **Acceptable**: 1-5% drop rate
+- **Poor**: >5% drop rate
 
 ### Handler Statistics
 

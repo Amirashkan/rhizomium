@@ -262,11 +262,11 @@ Safe to use even with complex visuals!
 
 | Browser | Audio Support | Notes |
 |---------|--------------|-------|
-| **Chrome 113+** | ✅ Full | Best experience |
-| **Edge 113+** | ✅ Full | Recommended |
-| **Opera** | ✅ Full | Works well |
-| **Firefox** | ⚠️ Limited | WebGPU issues |
-| **Safari** | ⚠️ Limited | WebGPU partial |
+| **Chrome 113+** | Full | Best experience |
+| **Edge 113+** | Full | Recommended |
+| **Opera** | Full | Works well |
+| **Firefox** | Limited | WebGPU issues |
+| **Safari** | Limited | WebGPU partial |
 
 ---
 
@@ -287,4 +287,4 @@ Safe to use even with complex visuals!
 
 ---
 
-_Let the beat drive your visuals!_ 🎵
+_Let the beat drive your visuals!_

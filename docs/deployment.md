@@ -2,7 +2,7 @@
 
 ## External Viewer Limitations
 
-### ⚠️ Important: External Viewer is Local-Only
+### Important: External Viewer is Local-Only
 
 The **"Open External Viewer"** feature is designed for **local development only** and will **NOT work** when deployed to cloud platforms like:
 
@@ -24,7 +24,7 @@ None of these are possible in a cloud/static hosting environment.
 
 ## Deployment Scenarios
 
-### ✅ What DOES Work on Vercel/Netlify/etc.
+### What DOES Work on Vercel/Netlify/etc.
 
 - **Node Editor** - Full visual shader programming interface
 - **WebGPU Rendering** - Real-time GPU rendering in the browser
@@ -32,7 +32,7 @@ None of these are possible in a cloud/static hosting environment.
 - **Audio Reactivity** - Audio envelope integration
 - **Code Export** - WGSL/JSON export
 
-### ❌ What DOES NOT Work on Cloud Hosting
+### What DOES NOT Work on Cloud Hosting
 
 - **External Viewer** - Requires local Python backend
 - **IPC Frame Streaming** - Requires local shared memory
@@ -58,7 +58,7 @@ python rhizo_server.py
 # http://127.0.0.1:5000/studio
 ```
 
-✅ All features work, including external viewer
+All features work, including external viewer
 
 ### For Production/Demo (Web Only)
 
@@ -69,8 +69,8 @@ Deploy to Vercel/Netlify for public access:
 vercel deploy
 ```
 
-✅ Node editor and rendering work
-❌ External viewer is disabled (button shows tooltip)
+Node editor and rendering work
+External viewer is disabled (button shows tooltip)
 
 ## User Experience
 
@@ -117,11 +117,11 @@ These would require significant architecture changes.
 
 | Feature | Local Server | Cloud Hosting |
 |---------|-------------|---------------|
-| Node Editor | ✅ | ✅ |
-| WebGPU Rendering | ✅ | ✅ |
-| Save/Load | ✅ | ✅ |
-| Audio Reactivity | ✅ | ✅ |
-| Code Export | ✅ | ✅ |
-| **External Viewer** | **✅** | **❌** |
+| Node Editor | | |
+| WebGPU Rendering | | |
+| Save/Load | | |
+| Audio Reactivity | | |
+| Code Export | | |
+| **External Viewer** | **** | **** |
 
 For the full development experience with external viewer support, always run locally with `python rhizo_server.py`.

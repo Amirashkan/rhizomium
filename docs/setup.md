@@ -4,17 +4,17 @@ This guide covers everything you need to know to install and set up Rhizomium on
 
 ---
 
-## 📋 System Requirements
+## System Requirements
 
 ### Browser Requirements
 
 Rhizomium requires a **WebGPU-capable browser**:
 
-- ✅ **Chrome** 113 or later
-- ✅ **Edge** 113 or later
-- ✅ **Opera** (with WebGPU enabled)
-- ❌ Firefox (WebGPU support in progress)
-- ❌ Safari (WebGPU support in progress)
+- **Chrome** 113 or later
+- **Edge** 113 or later
+- **Opera** (with WebGPU enabled)
+- Firefox (WebGPU support in progress)
+- Safari (WebGPU support in progress)
 
 **Check your browser:**
 Visit [webgpu.io](https://webgpu.io/) to verify WebGPU support.
@@ -40,7 +40,7 @@ For local development/server:
 
 ---
 
-## 🚀 Quick Installation
+## Quick Installation
 
 ### Option 1: Cloud Access (Easiest)
 
@@ -103,7 +103,7 @@ You should see the Rhizomium node editor!
 
 ---
 
-## 🔧 Alternative Server Options
+## Alternative Server Options
 
 ### Using Python's Built-in Server
 
@@ -125,7 +125,7 @@ npx serve .
 
 ---
 
-## 🎮 Verifying Your Installation
+## Verifying Your Installation
 
 ### Check 1: Web Server
 
@@ -146,8 +146,8 @@ You should see:
 ### Check 3: WebGPU Support
 
 Open browser console (F12) and check for errors:
-- ✅ No "WebGPU not supported" messages
-- ✅ Canvas renders without errors
+- No "WebGPU not supported" messages
+- Canvas renders without errors
 
 ### Check 4: Server API (Optional)
 
@@ -163,7 +163,7 @@ You should see:
 
 ---
 
-## 🐛 Troubleshooting Installation
+## Troubleshooting Installation
 
 ### Issue: "Python not found"
 
@@ -256,7 +256,7 @@ app.run(host='0.0.0.0', port=5001)  # Changed from 5000
 
 ---
 
-## 🌐 Network Access
+## Network Access
 
 ### Accessing from Other Devices
 
@@ -295,7 +295,7 @@ Example: `http://192.168.1.100:5000/studio`
 
 ---
 
-## 📦 Project Structure
+## Project Structure
 
 After installation, your directory should look like:
 
@@ -322,7 +322,7 @@ rhizomium/
 
 ---
 
-## 🔄 Updating Rhizomium
+## Updating Rhizomium
 
 ### If installed via Git:
 
@@ -340,7 +340,7 @@ pip install -r requirements.txt --upgrade
 
 ---
 
-## 🎯 Next Steps
+## Next Steps
 
 Now that you have Rhizomium installed:
 
@@ -351,7 +351,7 @@ Now that you have Rhizomium installed:
 
 ---
 
-## 💡 Tips for Best Performance
+## Tips for Best Performance
 
 ### Development Mode
 
@@ -380,7 +380,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 rhizo_server:app
 
 ---
 
-## 📞 Getting Help
+## Getting Help
 
 Having trouble with installation?
 
