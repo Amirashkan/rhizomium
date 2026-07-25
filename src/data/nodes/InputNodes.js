@@ -173,45 +173,51 @@ export const InputNodes = {
     cat: "Input",
     inputs: 0,
     pinsIn: [],
-    // Live audio analysis + kick/onset detection. The node configures the shared audio-envelope
-    // engine (the Band + Follower + ADSR + Shaping controls that used to live in the Audio panel)
-    // and reads back the resulting envelope; on top of that it runs a precise kick detector
-    // (absolute floor + adaptive baseline + refractory debounce). It has no fragment-shader memory,
-    // so all of this runs on the CPU in AudioAnalysisProcessor, which streams three uniforms:
-    //   level - the live shaped envelope in [0,1] (a continuous value that moves while audio plays)
-    //   kick  - a [0,1] envelope that snaps to 1 on a detected hit and decays over Kick Release ms
-    //   trig  - a single-frame 1.0 pulse on the detection frame (feeds Trigger/Count/Hold cleanly)
-    // Pin 0 is `level` on purpose, so `=node_<id>` (or `=node_<id>_0`) gives the live analysis value.
-    // Reference the others with `=node_<id>_1` (kick) and `=node_<id>_2` (trig).
+    // Real-time audio analysis. Every output is computed from the CURRENT frame of audio: band
+    // meters for modulation, and one threshold per drum for triggers.
+    //
+    // The arrangement follows a signal chain rather than a statistical test:
+    //   audio -> auto-gain -> band split -> attack/release -> METER (0..1)
+    //   METER -> threshold -> rising edge -> TRIGGER
+    // Everything that adapts sits on the first line, where it only decides how the meter is
+    // scaled. The second line is a plain comparison, which is why the threshold is findable: put
+    // the matching `*Meter` output on screen, watch where it peaks when the drum hits, and set the
+    // threshold under that.
+    //
+    // See src/audio/RealtimeAudioAnalysis.js for the analysis and AudioAnalysisProcessor for the
+    // triggering. Pin 0 is `level`, so `=node_<id>` still gives a general-purpose live value.
     pinsOut: [
-      { label: "level", type: "f32" },
-      { label: "kick", type: "f32" },
-      { label: "trig", type: "f32" },
+      { label: "level", type: "f32" },       // overall loudness, 0..1
+      { label: "low", type: "f32" },         // 20-250 Hz
+      { label: "mid", type: "f32" },         // 250-2000 Hz
+      { label: "high", type: "f32" },        // 2000-16000 Hz
+      { label: "kick", type: "f32" },        // envelope: snaps to 1 on a kick, decays
+      { label: "kickTrig", type: "f32" },    // single-frame pulse on a kick
+      { label: "snare", type: "f32" },
+      { label: "snareTrig", type: "f32" },
+      { label: "hat", type: "f32" },
+      { label: "hatTrig", type: "f32" },
+      { label: "kickMeter", type: "f32" },   // what Kick Thresh is compared against - watch this
+      { label: "snareMeter", type: "f32" },
+      { label: "hatMeter", type: "f32" },
+      { label: "centroid", type: "f32" },    // brightness, 0..1
+      { label: "density", type: "f32" },     // noisy (1) vs tonal (0)
     ],
     params: [
-      // — Source band (drives the envelope engine's frequency selection) —
-      { name: "band", type: "select", options: ["Bass", "Mids", "Highs", "Full", "Custom"], default: "Bass", label: "Band" },
-      { name: "customMin", type: "float", default: 60.0, label: "Custom Min (Hz)" },
-      { name: "customMax", type: "float", default: 250.0, label: "Custom Max (Hz)" },
-      // — Follower (envelope attack/release + noise gate) —
-      { name: "attack", type: "float", default: 50.0, label: "Attack (ms)" },
-      { name: "envRelease", type: "float", default: 200.0, label: "Release (ms)" },
-      { name: "gate", type: "float", default: 0.1, label: "Gate" },
-      // — ADSR —
-      { name: "adsrAttack", type: "float", default: 120.0, label: "ADSR Attack (ms)" },
-      { name: "adsrDecay", type: "float", default: 180.0, label: "ADSR Decay (ms)" },
-      { name: "sustain", type: "float", default: 0.7, label: "ADSR Sustain" },
-      { name: "adsrRelease", type: "float", default: 600.0, label: "ADSR Release (ms)" },
-      // — Shaping —
-      { name: "curve", type: "select", options: ["Linear", "Exponential", "Sigmoid"], default: "Exponential", label: "Curve" },
-      // Off by default: auto-normalize divides by a running peak, which pins a steady track near 1.0
-      // and makes the value look "stuck". Off gives a dynamic level that visibly reacts to the audio.
-      { name: "normalize", type: "bool", default: false, label: "Auto-normalize" },
-      // — Kick detection (runs on top of the shaped envelope) —
-      { name: "threshold", type: "float", default: 0.15, label: "Kick Threshold" },
-      { name: "sensitivity", type: "float", default: 1.6, label: "Sensitivity" },
-      { name: "refractory", type: "float", default: 90.0, label: "Min Gap (ms)" },
-      { name: "kickRelease", type: "float", default: 140.0, label: "Kick Release (ms)" },
+      // One threshold per drum, each on its own 0..1 meter. Wire the matching `*Meter` output to
+      // something visible: set the threshold ABOVE where the meter idles between hits and BELOW
+      // where it peaks on one. Setting it under the idle level leaves the trigger permanently held
+      // open, which produces fewer triggers rather than more — the meter makes that visible.
+      { name: "kickThresh", type: "float", default: 0.5, label: "Kick Thresh" },
+      { name: "snareThresh", type: "float", default: 0.5, label: "Snare Thresh" },
+      { name: "hatThresh", type: "float", default: 0.5, label: "Hat Thresh" },
+      // Shape of every meter. Attack short enough to catch a transient, release long enough that
+      // the hit stays visible for a few frames. These change what the meters LOOK like, which in
+      // turn changes what a threshold has to be set to — they are not a second detector.
+      { name: "attack", type: "float", default: 8.0, label: "Attack (ms)" },
+      { name: "release", type: "float", default: 120.0, label: "Release (ms)" },
+      // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
+      { name: "gain", type: "float", default: 1.0, label: "Gain" },
     ],
   },
 

@@ -937,11 +937,87 @@ case 'flip2d':
     this.panelContent.innerHTML = '';
     this.panelContent.appendChild(title);
 
+    // Parameters may declare an optional `group`. Consecutive parameters sharing one are rendered
+    // under a collapsible heading, which keeps a node with many controls readable — without it,
+    // something like Audio Analysis is a flat wall of eighteen fields where the ones that shape a
+    // continuous level sit indistinguishably next to the ones that detect hits. Parameters with no
+    // `group` render exactly as before, so other nodes are untouched.
+    const realPanelContent = this.panelContent;
+    let currentGroup = null;
+    let target = realPanelContent;
     parameterDefinitions.forEach(param => {
-      this.renderParameter(param, node);
+      const group = param.group || null;
+      if (group !== currentGroup) {
+        currentGroup = group;
+        target = group ? this._createParameterGroup(group, node, param) : realPanelContent;
+      }
+      // renderParameter and its helpers append to this.panelContent; point it at the group body
+      // for the duration so they land inside the section. Rendering is synchronous, so this is
+      // restored before anything else can observe it.
+      this.panelContent = target;
+      try {
+        this.renderParameter(param, node);
+      } finally {
+        this.panelContent = realPanelContent;
+      }
     });
 
     this.addExpressionHelp();
+  }
+
+  /**
+   * Build a collapsible section and return the element parameters should be appended to.
+   * Collapsed state is remembered per node kind + group name, so toggling a section open survives
+   * the re-render that follows every parameter edit.
+   */
+  _createParameterGroup(groupName, node, firstParam) {
+    if (!this._collapsedGroups) this._collapsedGroups = new Map();
+    const key = `${node.kind}:${groupName}`;
+    if (!this._collapsedGroups.has(key)) {
+      this._collapsedGroups.set(key, firstParam?.groupCollapsed === true);
+    }
+    let collapsed = this._collapsedGroups.get(key);
+
+    const section = document.createElement('div');
+    section.style.cssText = 'margin: 4px 0 10px 0;';
+
+    const header = document.createElement('div');
+    header.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+      padding: 6px 4px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #444;
+      color: #9e9e9e;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    `;
+    const caret = document.createElement('span');
+    caret.textContent = collapsed ? '▸' : '▾';
+    const label = document.createElement('span');
+    label.textContent = groupName;
+    header.appendChild(caret);
+    header.appendChild(label);
+
+    const body = document.createElement('div');
+    body.style.display = collapsed ? 'none' : 'block';
+
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      collapsed = !collapsed;
+      this._collapsedGroups.set(key, collapsed);
+      body.style.display = collapsed ? 'none' : 'block';
+      caret.textContent = collapsed ? '▸' : '▾';
+    });
+
+    section.appendChild(header);
+    section.appendChild(body);
+    this.panelContent.appendChild(section);
+    return body;
   }
 
   renderParameter(param, node) {

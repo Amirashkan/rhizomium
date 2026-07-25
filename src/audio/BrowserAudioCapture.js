@@ -11,6 +11,7 @@
  */
 
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
+import { RealtimeAudioAnalysis } from './RealtimeAudioAnalysis.js';
 
 export class BrowserAudioCapture {
     constructor() {
@@ -57,6 +58,12 @@ export class BrowserAudioCapture {
                 mode: 'fullband', // 'fullband', 'bass', 'mids', 'highs', 'custom'
                 customMin: 60,    // Hz
                 customMax: 250    // Hz
+            },
+            // Envelope shaping for the real-time band meters (RealtimeAudioAnalysis).
+            analysis: {
+                attack_ms: 8,
+                release_ms: 120,
+                gain: 1
             }
         };
 
@@ -120,6 +127,16 @@ export class BrowserAudioCapture {
                 this.analyser.smoothingTimeConstant = 0.3;
             }
 
+            // Second analyser dedicated to onset (kick) detection. Spectral flux measures the
+            // frame-to-frame CHANGE in the spectrum, so the main analyser's 0.3 smoothing — good
+            // for a stable envelope — would blur away exactly the transients flux keys on. This
+            // one runs unsmoothed; fftSize 2048 gives ~21 Hz bins, enough to resolve the kick band.
+            if (!this._fluxAnalyser) {
+                this._fluxAnalyser = this.audioContext.createAnalyser();
+                this._fluxAnalyser.fftSize = 2048;
+                this._fluxAnalyser.smoothingTimeConstant = 0;
+            }
+
             // Create source and connect.
             // createMediaElementSource() can only be called once per media element
             // for its entire lifetime, so reuse the existing source node on
@@ -127,6 +144,7 @@ export class BrowserAudioCapture {
             if (!this.source) {
                 this.source = this.audioContext.createMediaElementSource(this.audioElement);
                 this.source.connect(this.analyser);
+                this.source.connect(this._fluxAnalyser);
                 this.analyser.connect(this.audioContext.destination); // So we can hear it
             }
 
@@ -227,6 +245,10 @@ export class BrowserAudioCapture {
         if (config.frequency) {
             Object.assign(this.config.frequency, config.frequency);
         }
+        if (config.analysis) {
+            if (!this.config.analysis) this.config.analysis = {};
+            Object.assign(this.config.analysis, config.analysis);
+        }
     }
 
     /**
@@ -262,28 +284,7 @@ export class BrowserAudioCapture {
         const binWidth = nyquist / bufferLength;
 
         // Determine frequency range based on mode
-        let minFreq, maxFreq;
-        switch (bandMode) {
-            case 'bass':
-                minFreq = 20;
-                maxFreq = 250;
-                break;
-            case 'mids':
-                minFreq = 250;
-                maxFreq = 2000;
-                break;
-            case 'highs':
-                minFreq = 2000;
-                maxFreq = 20000;
-                break;
-            case 'custom':
-                minFreq = this.config.frequency.customMin;
-                maxFreq = this.config.frequency.customMax;
-                break;
-            default:
-                minFreq = 0;
-                maxFreq = nyquist;
-        }
+        const [minFreq, maxFreq] = this._bandRange(bandMode, nyquist);
 
         // Convert frequency range to bin indices
         const startBin = Math.floor(minFreq / binWidth);
@@ -299,6 +300,80 @@ export class BrowserAudioCapture {
         }
 
         return count > 0 ? Math.sqrt(sum / count) : 0;
+    }
+
+    /**
+     * Frequency range (Hz) for a band mode, for the LEVEL envelope.
+     */
+    _bandRange(bandMode, nyquist) {
+        switch (bandMode) {
+            case 'bass': return [20, 250];
+            case 'mids': return [250, 2000];
+            case 'highs': return [2000, 20000];
+            case 'custom': return [this.config.frequency.customMin, this.config.frequency.customMax];
+            default: return [0, nyquist];
+        }
+    }
+
+    /**
+     * Frequency range (Hz) for a band mode, for ONSET DETECTION — deliberately not the same as the
+     * level ranges above.
+     *
+     * "Bass" is narrowed to the kick's fundamental (30-120 Hz) rather than the full 20-250 Hz low
+     * band. Measured on real audio, a snare's onset flux in 20-250 Hz is comparable to a kick's
+     * (its body sits around 200 Hz and its noise burst covers the rest), so a detector watching
+     * that range fires on the backbeat no matter how its threshold is set. Restricting to the
+     * kick's fundamental roughly doubles the kick-to-snare contrast.
+     *
+     * The level envelope keeps the wider range: as a continuous modulation value it wants the whole
+     * low end, and narrowing it would change what every existing patch's `level` output does.
+     */
+    _onsetBandRange(bandMode, nyquist) {
+        switch (bandMode) {
+            case 'bass': return [30, 120];
+            case 'mids': return [250, 2000];
+            case 'highs': return [2000, 16000];
+            case 'custom': return [this.config.frequency.customMin, this.config.frequency.customMax];
+            default: return [0, nyquist];
+        }
+    }
+
+    /**
+     * Run one frame of the real-time analysis and publish the results.
+     *
+     * Replaces the spectral-flux onset signal this used to compute. That measured how much the
+     * spectrum CHANGED, which is a fine onset feature but produced an unbounded number with no
+     * natural scale, so the threshold compared against it could not be aimed at anything. The
+     * engine here produces bounded 0..1 meters per band instead, which a threshold can sit in
+     * visibly — see RealtimeAudioAnalysis for why that split matters.
+     */
+    _runRealtimeAnalysis(dt) {
+        if (!this._analysis) this._analysis = new RealtimeAudioAnalysis();
+        if (!this._fluxAnalyser) return;
+        this._analysis.setSampleRate(this.audioContext.sampleRate);
+        const a = this._analysis.process(this._fluxAnalyser, dt, {
+            attackMs: this.config.analysis?.attack_ms ?? 8,
+            releaseMs: this.config.analysis?.release_ms ?? 120,
+            gain: this.config.analysis?.gain ?? 1,
+        });
+        this._publishAnalysis(a);
+    }
+
+    /** Expose the frame's analysis on window, where the node processor and shaders read it. */
+    _publishAnalysis(a) {
+        if (typeof window === 'undefined') return;
+        window._audioBands = a;
+    }
+
+    /** Everything reads zero while nothing is playing. */
+    _publishSilentAnalysis() {
+        if (typeof window === 'undefined') return;
+        if (this._analysis) this._analysis.reset();
+        window._audioBands = {
+            level: 0, low: 0, mid: 0, high: 0, kick: 0, snare: 0, hat: 0,
+            centroid: 0, density: 0,
+            presence: { low: false, mid: false, high: false, kick: false, snare: false, hat: false },
+        };
     }
 
     /**
@@ -324,6 +399,10 @@ export class BrowserAudioCapture {
 
             // Expose globally for GPU shader access
             window._audioEnvelopeValue = this._envelopeValue;
+
+            // No playback -> every meter reads zero, and the followers reset so the next track
+            // does not inherit this one's scaling.
+            this._publishSilentAnalysis();
 
             return;
         }
@@ -379,6 +458,9 @@ export class BrowserAudioCapture {
         }
         raw = this._applyShaping(raw);
         this._envelopeValue = Math.max(0, Math.min(1, raw));
+
+        // Real-time band meters for the Audio Analysis node (see RealtimeAudioAnalysis).
+        this._runRealtimeAnalysis(dt);
 
         // Expose all globally for GPU shader access
         window._audioEnvelopeValue = this._envelopeValue;

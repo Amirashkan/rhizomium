@@ -19,6 +19,7 @@
 
 import { NodeDefs } from '../data/NodeDefs.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
+import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValues } from '../core/audioAnalysisPins.js';
 
 export class FragmentTextureRenderer {
   constructor(device) {
@@ -587,15 +588,14 @@ export class FragmentTextureRenderer {
       if (refNode?.kind?.toLowerCase() === 'hold' && typeof refNode.__holdValue === 'number') {
         hash += `${refId}.hold:${refNode.__holdValue};`;
       }
-      // Same story for an Audio Analysis node: its level/kick/trig outputs are advanced on the CPU
-      // each frame and aren't visible in this node's own params or as a time/audioEnvelope keyword,
-      // so fold ALL THREE in — a radius driven by `=node_<id>_0` (level) must change the hash when the
-      // level moves, not only when the kick envelope does — or a non-forced render path (e.g. a
+      // Same story for an Audio Analysis node: its outputs are advanced on the CPU each frame and
+      // aren't visible in this node's own params or as a time/audioEnvelope keyword, so fold ALL of
+      // them in — a radius driven by `=node_<id>_0` (level) must change the hash when the level
+      // moves, not only when a drum envelope does — or a non-forced render path (e.g. a
       // compute-bridged texture) freezes on a stale frame.
       if (refNode?.kind === 'AudioAnalysis') {
-        if (typeof refNode.__kickLevel === 'number') hash += `${refId}.level:${refNode.__kickLevel};`;
-        if (typeof refNode.__kickValue === 'number') hash += `${refId}.kick:${refNode.__kickValue};`;
-        if (typeof refNode.__kickTrig === 'number') hash += `${refId}.trig:${refNode.__kickTrig};`;
+        const live = audioAnalysisPinValues(refNode);
+        for (const name of AUDIO_ANALYSIS_PINS) hash += `${refId}.${name}:${live[name]};`;
       }
     }
 
@@ -1081,7 +1081,7 @@ export class FragmentTextureRenderer {
 
   /**
    * Overwrite each Audio Analysis `<id>.level` / `.kick` / `.trig` entry in a (detached) uniform
-   * snapshot with the live value from its node (__kickLevel / __kickValue / __kickTrig, advanced every
+   * snapshot with the live value from its node (__audio_<pin>, advanced every
    * frame by AudioAnalysisProcessor and written into the MAIN uniform manager). This preview builds
    * its OWN manager, so those uniforms would otherwise stay at their compile-time default and any node
    * driven by a pin renders a frozen thumbnail. Map.set on an existing key preserves insertion order,
@@ -1091,9 +1091,12 @@ export class FragmentTextureRenderer {
   _syncAudioUniforms(uniformManager) {
     const values = uniformManager?.uniformValues;
     if (!values || values.size === 0) return;
-    const suffixProp = [['.level', '__kickLevel'], ['.kick', '__kickValue'], ['.trig', '__kickTrig']];
+    const suffixProp = AUDIO_ANALYSIS_PINS.map((name) => [`.${name}`, `__audio_${name}`]);
     for (const key of values.keys()) {
-      const match = suffixProp.find(([sfx]) => key.endsWith(sfx));
+      // Longest suffix first, so `.kickTrig` is not mistaken for `.kick`.
+      const match = suffixProp
+        .filter(([sfx]) => key.endsWith(sfx))
+        .sort((a, b) => b[0].length - a[0].length)[0];
       if (!match) continue;
       const [sfx, prop] = match;
       const nodeId = key.slice(0, -sfx.length);
