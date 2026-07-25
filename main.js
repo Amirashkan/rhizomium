@@ -14,7 +14,6 @@ import { FloatingGPUPreview } from "./src/ui/FloatingGPUPreview.js";
 import { TauriSecondMonitorViewer } from "./src/ui/TauriSecondMonitorViewer.js";
 import { isViteBuild } from "./src/utils/isViteBuild.js";
 import { isTauri } from "./src/utils/isTauri.js";
-import { TextureManager } from "./src/core/TextureManager.js";
 import { UndoManager } from "./src/core/UndoManager.js";
 import { ParameterEventSystem } from "./src/utils/ParameterEventSystem.js";
 import { ErrorHandler } from './src/core/ErrorHandler.js';
@@ -98,93 +97,6 @@ function setupGlobalDragPrevention() {
   });
 }
 
-async function reinitializeWebGPUAfterLoad() {
-  const allCanvases = document.querySelectorAll("#gpu-canvas");
-
-  if (allCanvases.length > 1) {
-    for (let i = 1; i < allCanvases.length; i++) {
-      allCanvases[i].remove();
-    }
-  }
-
-  const canvas = document.getElementById("gpu-canvas");
-  if (!canvas) {
-    console.error("No GPU canvas found after cleanup");
-    return false;
-  }
-
-  canvas.width = canvas.clientWidth || window.innerWidth;
-  canvas.height = canvas.clientHeight || window.innerHeight;
-
-  try {
-    __deviceReady = false;
-
-const adapter = await navigator.gpu.requestAdapter();
-const device = await adapter.requestDevice();
-// Retain the adapter: if it gets garbage-collected, Chromium drops the Dawn
-// instance behind it and later buffer.mapAsync calls fail with "A valid
-// external Instance reference no longer exists" (breaks 3D field readback)
-window.gpuAdapter = adapter;
-window.gpuRenderer = new GPURenderer(device, canvas);
-
-    if (device) {
-      window.textureManager = new TextureManager();
-      await window.textureManager.initialize(device);
-      __deviceReady = true;
-
-      // Re-set WebGPU device for WGSL editor after reinitialization
-      if (editor?.paramPanel && typeof editor.paramPanel.setDevice === 'function' && window.gpuRenderer?.device) {
-        editor.paramPanel.setDevice(window.gpuRenderer.device);
-      }
-
-      // Reinitialize profiler if it exists
-      if (computeProfiler) {
-        computeProfiler.destroy();
-      }
-      computeProfiler = new ComputeProfiler(device);
-      window.computeProfiler = computeProfiler;
-
-      // Recreate profiler overlay
-      profilerOverlay = new ComputeProfilerOverlay();
-      window.profilerOverlay = profilerOverlay;
-
-      // Set profiler on renderer
-      if (window.gpuRenderer) {
-        window.gpuRenderer.profiler = computeProfiler;
-      }
-
-      // The second-monitor mirror taps window.gpuRenderer; re-point it at the
-      // freshly created renderer so the output survives a device reinit.
-      window.secondMonitorViewer?.reattach?.();
-
-      // Profiling runs only while the overlay is shown (synced in the render loop).
-      // Its per-frame GPU timestamp readback (mapAsync) is a CPU<->GPU sync that
-      // stalls the shared GPU, so it must not run when nothing is displayed.
-      computeProfiler.setEnabled(false);
-
-      // Reinitialize GPU Performance Monitor
-      gpuPerformanceMonitor = new GPUPerformanceMonitor({
-        autoShowOverlay: true,
-        enableWarnings: true,
-        fpsWarningThreshold: 30,
-        frameTimeWarningThreshold: 33.33
-      });
-      gpuPerformanceMonitor.initialize(device);
-      window.gpuPerformanceMonitor = gpuPerformanceMonitor;
-    }
-
-    if (device) {
-      await updateShaderFromGraph();
-      return true;
-    } else {
-      console.error("Failed to reinitialize WebGPU");
-      return false;
-    }
-  } catch (error) {
-    console.error("Error reinitializing WebGPU:", error);
-    return false;
-  }
-}
 
 if (window.__mainLoaded) throw new Error("main.js loaded twice");
 window.__mainLoaded = true;
@@ -199,7 +111,6 @@ let fileManager = null;
 let welcomeWindow = null;
 let undoManager = null;
 let parameterEventSystem = null;
-let __deviceReady = false;
 let floatingPreview = null;
 let secondMonitorViewer = null;
 let previewExportSettingsWindow = null;
@@ -223,9 +134,6 @@ const previewPerfMonitor = new PreviewPerfMonitor();
 window.previewPerfMonitor = previewPerfMonitor;
 
 // Detect deployment environment
-const isVercelOrCloud = window.location.hostname.includes('vercel.app') ||
-                        window.location.hostname.includes('netlify.app') ||
-                        window.location.hostname.includes('github.io');
 
 if (typeof window.render !== "function") {
   window.render = () => {};
@@ -438,7 +346,6 @@ async function initialize() {
       }
     }
 
-    __deviceReady = !!device;
   }
 
   setupGlobalDragPrevention();
@@ -2084,8 +1991,6 @@ function setupRhizomiumMenu() {
       e.preventDefault();
       e.stopPropagation();
       const target = document.getElementById("publish-target")?.value || "tenderworld";
-      const includePreviews = document.getElementById("publish-include-previews")?.checked || false;
-      const commitMessage = document.getElementById("publish-commit-message")?.value || "";
       // TODO: Implement publish to cloud/server
       if (typeof updateStatus === "function") {
         updateStatus(`Publish to ${target}: Feature coming soon`);
@@ -2757,7 +2662,7 @@ function setupKeyboardShortcuts() {
         }
         break;
 
-      case "o":
+      case "o": {
         e.preventDefault();
         if (typeof triggerFileLoad === "function") {
           triggerFileLoad();
@@ -2769,6 +2674,7 @@ function setupKeyboardShortcuts() {
           fileInput.click();
         }
         break;
+      }
 
       case "l":
         e.preventDefault();
@@ -3387,7 +3293,6 @@ function setupPreviewButtons() {
     });
   }
 }
-let lastUniformUpdate = 0;
 // PERFORMANCE: Throttle preview computations to reduce CPU overhead
 // Before: Preview computed every frame (60 times/sec) = 10-20ms × 60 = 600-1200ms/sec overhead
 // After: Preview computed every 100ms (10 times/sec) = 10-20ms × 10 = 100-200ms/sec overhead
@@ -3521,10 +3426,8 @@ async function updateShaderFromGraph() {
       return;
     }
 
-    const updateStart = performance.now();
 
     const result = buildWGSL(window.editor.graph);
-    const buildTime = (performance.now() - updateStart).toFixed(2);
 
     if (!result || !result.wgsl) {
       console.error("Shader compilation produced no code");
@@ -3545,30 +3448,27 @@ async function updateShaderFromGraph() {
     // REMOVED AGGRESSIVE CACHING - it was breaking preview updates on connection changes
     // Rely on shader compilation cache (glslBuilder.js) and GPU pipeline cache (gpuRenderer.js) instead
 
-    const regexStart = performance.now();
+    // Strips anything the WGSL tokenizer would reject outright, keeping printable ASCII plus the
+    // three whitespace controls that carry the shader's line structure — the control characters in
+    // the class are the point of it, so no-control-regex has nothing to warn about here.
+    // eslint-disable-next-line no-control-regex
     const sanitizedWGSL = rawWGSL.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
-    const regexTime = (performance.now() - regexStart).toFixed(2);
 
-    const shaderLength = sanitizedWGSL.length;
     window.latestGeneratedWGSL = rawWGSL;
     window.latestGeneratedWGSLClean = sanitizedWGSL;
 
-    const domStart = performance.now();
     const codeElement = document.getElementById("code");
     if (codeElement) {
       codeElement.textContent = sanitizedWGSL;
       codeElement.scrollTop = codeElement.scrollHeight;
     }
-    const domTime = (performance.now() - domStart).toFixed(2);
 
-    const gpuStart = performance.now();
     if (window.gpuRenderer) {
       window.gpuRenderer.setShaderSource(rawWGSL, {
         hasTextures: !!result.usesTextures,
         hasUniforms: !!result.usesUniforms,
       });
 
-      lastUniformUpdate = performance.now();
       if (typeof updateStatus === "function") {
         updateStatus("Shader compiled");
       }
@@ -3589,23 +3489,6 @@ async function updateShaderFromGraph() {
     if (typeof updateStatus === "function") {
       updateStatus("Shader compilation failed", "error");
     }
-  }
-}
-function showShaderError(errorMessage) {
-  const errorOverlay = document.getElementById("err-overlay");
-  const errorLog = document.getElementById("err-log");
-
-  if (errorOverlay && errorLog) {
-    errorLog.textContent = errorMessage;
-    errorOverlay.classList.remove("hidden");
-
-    setTimeout(() => {
-      errorOverlay.classList.add("hidden");
-    }, 5000);
-
-    errorOverlay.onclick = () => {
-      errorOverlay.classList.add("hidden");
-    };
   }
 }
 
@@ -3723,7 +3606,7 @@ function handleRenderFrame(frameState) {
         time: frameState.simTime,
         computeExecutor: window.computeExecutor,
       });
-    } catch (err) {
+    } catch {
       // Never let the hold/count latch break the render loop.
     }
   }
@@ -3753,7 +3636,7 @@ function handleRenderFrame(frameState) {
       // It is now ticked on actual GPU-frame completion via
       // gpuRenderer.onFramePresented (wired where floatingPreview is created).
 
-      renderPromise.catch(err => {
+      renderPromise.catch(__err => {
         // Silently handle render errors to avoid breaking render loop
         // Errors are already logged in gpuRenderer.render()
       });
@@ -3984,7 +3867,6 @@ function handleRenderFrame(frameState) {
   previewPerfMonitor?.endFrame();
   
   // Apply dynamic quality adjustment based on frame budget
-  const budgetAllocator = previewPerfMonitor?.getBudgetAllocator?.();
   // Performance monitoring for smart adaptive quality
   // FloatingGPUPreview now handles its own adaptive quality based on actual resource usage
   // This is called every frame to allow FloatingGPUPreview to monitor and auto-enable if needed

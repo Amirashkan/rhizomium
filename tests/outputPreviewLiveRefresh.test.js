@@ -11,7 +11,7 @@
 // Contract: every node downstream of a compute node is refreshed each frame (compute nodes via
 // their own texture-readback path; their downstream visual consumers via _refreshNodePreview).
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PreviewIntegration } from '../src/core/preview/PreviewIntegration.js';
 
 function isComputeKind(n) {

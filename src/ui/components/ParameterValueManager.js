@@ -12,18 +12,18 @@ export class ParameterValueManager {
   }
   // Check if node is allowed to update via drag, even if not selected
   // Always allow drag on any node regardless of selection state
-  isDragPermitted(node) {
+  isDragPermitted(_node) {
     return true;
   }
 
+  // Off unless the editor was opened with ?debug=params. Five callers build a message for this, so
+  // the body has to exist for the switch to mean anything — it had been emptied down to nothing.
   _debugLog(message, data = {}) {
-    if (this.debugMode) {
-
-    }
+    if (this.debugMode) console.debug('[params]', message, data);
   }
 
   // Safe number conversion
-  _toSafeNumber(value, paramName = 'unknown', defaultValue = 0) {
+  _toSafeNumber(value, _paramName = 'unknown', defaultValue = 0) {
     if (value == null) return Number(defaultValue) || 0;
     if (typeof value === 'number' && !isNaN(value) && isFinite(value)) return value;
     if (typeof value === 'boolean') return value ? 1 : 0;
@@ -34,9 +34,6 @@ export class ParameterValueManager {
     }
     
     const safeDefault = Number(defaultValue) || 0;
-    if (this.debugMode) {
-
-    }
     return safeDefault;
   }
 
@@ -58,7 +55,7 @@ export class ParameterValueManager {
       try {
         const result = this.expressionSystem.evaluateExpression(rawValue, {}, node);
         return this._toSafeNumber(result, `${paramName}(expression)`, defaultValue);
-      } catch (error) {
+      } catch {
 
         return this._toSafeNumber(defaultValue, `${paramName}(error)`, 0);
       }
@@ -87,7 +84,7 @@ export class ParameterValueManager {
         const numericResult = this._toSafeNumber(result, `${paramName}(expression)`, defaultValue);
         this._debugLog(`Expression ${rawValue} evaluated to ${numericResult} for shader`);
         return numericResult;
-      } catch (error) {
+      } catch {
 
         return this._toSafeNumber(defaultValue, `${paramName}(error)`, 0);
       }
@@ -275,14 +272,14 @@ export class ParameterValueManager {
         return true;
       }
       return false;
-    } catch (error) {
+    } catch {
 
       return false;
     }
   }
 
   // Private methods
-  _getConnectedInputValue(node, paramName) {
+  _getConnectedInputValue(_node, _paramName) {
     if (!this.graph?.connections) return undefined;
 
     // Parameters are not driven by input pins in this architecture.
@@ -297,18 +294,19 @@ export class ParameterValueManager {
   _getSourceNodeValue(node) {
     switch (node.kind.toLowerCase()) {
       case "constfloat":
-      case "float":
+      case "float": {
         const rawValue = node.props?.value || node.value || 0;
         if (this.expressionSystem.isExpression(rawValue)) {
           try {
             const result = this.expressionSystem.evaluateExpression(rawValue, {}, node);
             return this._toSafeNumber(result, 'sourceNode.value', 0);
-          } catch (error) {
+          } catch {
 
             return 0;
           }
         }
         return this._toSafeNumber(rawValue, 'sourceNode.value', 0);
+      }
       case "time":
         return (Date.now() / 1000) % 1;
       case "uv":
@@ -318,7 +316,7 @@ export class ParameterValueManager {
     }
   }
 
-  _findConnectedSourceNode(node, paramName) {
+  _findConnectedSourceNode(_node, _paramName) {
     if (!this.graph?.connections) return null;
 
     // Parameters are not driven by input pins in this architecture.
@@ -330,7 +328,7 @@ export class ParameterValueManager {
     return null;
   }
 
-  _updateConnectedSourceNode(connectedSourceNode, value, onChange, oldValue) {
+  _updateConnectedSourceNode(connectedSourceNode, value, onChange, _oldValue) {
     if (connectedSourceNode.kind === "ConstFloat" || connectedSourceNode.kind === "Float") {
       let processedValue;
       

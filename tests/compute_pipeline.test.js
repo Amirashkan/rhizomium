@@ -12,7 +12,7 @@
  * 5. Resource cleanup and state management
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ComputeShaderManager } from '../src/gpu/ComputeShaderManager.js';
 import { ComputeNodeBase } from '../src/gpu/ComputeNodeBase.js';
 

@@ -414,7 +414,7 @@ export class TimelinePanel {
   /**
    * Canvas mouse up event
    */
-  onCanvasMouseUp(e) {
+  onCanvasMouseUp(_e) {
     this.isDraggingPlayhead = false;
     this.isDraggingKeyframe = false;
     this.isDraggingLoopStart = false;
@@ -425,7 +425,7 @@ export class TimelinePanel {
   /**
    * Canvas mouse leave event
    */
-  onCanvasMouseLeave(e) {
+  onCanvasMouseLeave(_e) {
     this.hoveredKeyframe = null;
     this.render();
   }
@@ -470,7 +470,6 @@ export class TimelinePanel {
     }
 
     const track = this.timelineManager.timeline.tracks[trackIndex];
-    const time = this.xToTime(x);
 
     for (let i = 0; i < track.keyframes.length; i++) {
       const kf = track.keyframes[i];
@@ -704,7 +703,6 @@ export class TimelinePanel {
   drawLoopRegion() {
     if (!this.timelineManager.getLoop()) return;
 
-    const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
 
     const loopStart = this.timelineManager.getLoopStart();

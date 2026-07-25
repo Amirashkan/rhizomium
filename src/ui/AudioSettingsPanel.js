@@ -17,7 +17,7 @@ export class AudioSettingsPanel {
         try {
             this.audioClient = getBrowserAudioCapture();
 
-        } catch (error) {
+        } catch {
 
             this.audioClient = null;
         }
@@ -195,7 +195,7 @@ export class AudioSettingsPanel {
                     playBtn.disabled = false;
                     pauseBtn.disabled = false;
                     stopBtn.disabled = false;
-                } catch (error) {
+                } catch {
 
                     filenameEl.textContent = 'Error loading file';
                     filenameEl.style.color = '#f44336';
@@ -207,7 +207,7 @@ export class AudioSettingsPanel {
         playBtn.addEventListener('click', async () => {
             try {
                 await this.audioClient.play();
-            } catch (error) {
+            } catch {
 
             }
         });
@@ -285,7 +285,6 @@ export class AudioSettingsPanel {
             this.panel.style.display = 'block';
             this.visible = true;
 
-        } else {
         }
     }
 
@@ -310,14 +309,7 @@ let instance = null;
 
 export function getAudioSettingsPanel() {
     if (!instance) {
-        try {
-
-            instance = new AudioSettingsPanel();
-
-        } catch (error) {
-
-            throw error; // Re-throw so caller knows it failed
-        }
+        instance = new AudioSettingsPanel();
     }
     return instance;
 }

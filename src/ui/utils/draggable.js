@@ -20,7 +20,6 @@ export function makeDraggable(panel, dragHandle) {
   let initialX = 0;
   let initialY = 0;
   let originalTransition = '';
-  let originalTransform = '';
   let panelWidth = 0;
   let panelHeight = 0;
 
@@ -53,7 +52,6 @@ export function makeDraggable(panel, dragHandle) {
 
     // Store and disable transitions for instant response
     originalTransition = panel.style.transition;
-    originalTransform = panel.style.transform;
     panel.style.transition = 'none';
 
     // Change cursor immediately for instant feedback

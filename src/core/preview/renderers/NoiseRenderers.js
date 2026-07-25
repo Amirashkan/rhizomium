@@ -39,7 +39,7 @@ register(registry) {
       
       // Direct fallback to node parameters or props
       return node.params?.[paramName] ?? node.props?.[paramName] ?? defaultValue;
-    } catch (error) {
+    } catch {
 
       return defaultValue;
     }
@@ -64,7 +64,7 @@ register(registry) {
       return Object.values(node.params).some(value => 
         typeof value === 'string' && value.trim().startsWith('=')
       );
-    } catch (error) {
+    } catch {
       return false;
     }
   }

@@ -8,10 +8,6 @@ export class TextureRenderers {
 
   register(registry) {
     // Helper function for smoothstep
-    const smoothstep = (edge0, edge1, x) => {
-      const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(0.0001, edge1 - edge0)));
-      return t * t * (3 - 2 * t);
-    };
 
     registry.registerMultiple({
       'rectfield': (ctx, node) => this.renderRectangle(ctx, node),
@@ -71,7 +67,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
       const result = safeEval(previewTime);
 
       return isNaN(result) ? defaultValue : result;
-    } catch (error) {
+    } catch {
 
       return defaultValue;
     }
@@ -99,7 +95,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
       return Object.values(node.params).some(value => 
         typeof value === 'string' && value.trim().startsWith('=')
       );
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -306,7 +302,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
           radius = 0.25;
         }
-      } catch (error) {
+      } catch {
 
         radius = 0.25;
       }
@@ -323,7 +319,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
           epsilon = 0.02;
         }
-      } catch (error) {
+      } catch {
 
         epsilon = 0.02;
       }
@@ -418,13 +414,14 @@ renderRectangle(ctx, node) {
           case "diagonal":
             t = (x + y) / (size * 2);
             break;
-          case "radial":
+          case "radial": {
             const centerX = size / 2;
             const centerY = size / 2;
             const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
             const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
             t = dist / maxDist;
             break;
+          }
           default: // horizontal
             t = x / size;
         }

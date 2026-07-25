@@ -138,7 +138,7 @@ export class GPUPerformanceMonitor {
   /**
    * Show performance warning
    */
-  _showPerformanceWarning(message) {
+  _showPerformanceWarning(_message) {
 
     // Show overlay if it's hidden
     if (this.overlay && !this.overlay.visible) {
@@ -158,7 +158,7 @@ export class GPUPerformanceMonitor {
     const results = await this.testRunner.runAllTests();
 
     // Generate and save report
-    const report = this.testRunner.generateReport();
+    this.testRunner.generateReport();
 
     return results;
   }

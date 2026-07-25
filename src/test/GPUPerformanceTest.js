@@ -267,7 +267,6 @@ export class GPUPerformanceTest {
    */
   async _testCommandBufferSync() {
     const iterations = 10;
-    let passed = true;
     const timings = [];
     let errors = [];
 
@@ -293,7 +292,6 @@ export class GPUPerformanceTest {
         // Note: duration > 100ms is just a warning, not a failure
       } catch (error) {
         errors.push(error.message);
-        passed = false;
         // Continue with remaining iterations to get partial results
       }
     }
@@ -342,7 +340,7 @@ export class GPUPerformanceTest {
 
           // Destroy immediately
           buffer.destroy();
-        } catch (error) {
+        } catch {
           // If buffer creation fails, continue with next iteration
           // This can happen if device is lost or limits are exceeded
           break;
@@ -436,7 +434,7 @@ export class GPUPerformanceTest {
         if (invalidBuffer) {
           invalidBuffer.destroy(); // Clean up if somehow created
         }
-      } catch (error) {
+      } catch {
         errorCaught = true;
         // This error is expected, so we don't log it
       } finally {

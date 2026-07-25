@@ -305,7 +305,7 @@ export class Graph {
 
   // ============ Dirty Tracking ============
 
-  markNodeDirty(nodeId, reason = 'unspecified') {
+  markNodeDirty(nodeId, _reason = 'unspecified') {
     if (!nodeId) return;
 
     this.dirtyNodes.add(nodeId);

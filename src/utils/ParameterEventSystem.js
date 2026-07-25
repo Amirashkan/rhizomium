@@ -22,15 +22,12 @@ export class ParameterEventSystem {
 
   // Emit parameter change events
   emit(eventType, data) {
-    if (this.debugMode) {
-
-    }
     
     if (this.listeners.has(eventType)) {
       this.listeners.get(eventType).forEach(callback => {
         try {
           callback(data);
-        } catch (error) {
+        } catch {
 
         }
       });

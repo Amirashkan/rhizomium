@@ -90,7 +90,6 @@ export class FrameBudgetAllocator {
    * Get all budgets for current mode
    */
   getBudgets() {
-    const budgets = BUDGETS[this.mode];
     return {
       canvas: this.getBudget('canvas'),
       gpuPreview: this.getBudget('gpuPreview'),
@@ -288,7 +287,7 @@ export class FrameBudgetAllocator {
    * Quality adjustment is permanently disabled - always use full quality
    * See PERFORMANCE_WORKAROUND_POLICY.md
    */
-  setQualityAdjustmentEnabled(enabled) {
+  setQualityAdjustmentEnabled(_enabled) {
     // No-op: quality adjustment removed to prevent quality degradation
   }
 }

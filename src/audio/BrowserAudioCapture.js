@@ -616,7 +616,7 @@ export class BrowserAudioCapture {
         if (window.renderLoop?.rafManager) {
             window.renderLoop.rafManager.registerHandler(
                 this._handlerName,
-                (frameInfo) => {
+                (__frameInfo) => {
                     // Process audio - this will handle both playing and non-playing states
                     this.tick();
                 },
@@ -680,7 +680,7 @@ export class BrowserAudioCapture {
             this.listeners[event].forEach(callback => {
                 try {
                     callback(...args);
-                } catch (error) {
+                } catch {
 
                 }
             });
@@ -696,16 +696,11 @@ let instance = null;
  */
 export function getBrowserAudioCapture() {
     if (!instance) {
-        try {
-            instance = new BrowserAudioCapture();
-            // Expose the singleton so the render loop's graphIsAnimated check
-            // (window.audioCapture?.getIsPlaying?.()) can see playback and avoid reusing a stale
-            // GPU frame during canvas interaction while audio-reactive nodes should keep moving.
-            if (typeof window !== 'undefined') window.audioCapture = instance;
-        } catch (error) {
-
-            throw error;
-        }
+        instance = new BrowserAudioCapture();
+        // Expose the singleton so the render loop's graphIsAnimated check
+        // (window.audioCapture?.getIsPlaying?.()) can see playback and avoid reusing a stale
+        // GPU frame during canvas interaction while audio-reactive nodes should keep moving.
+        if (typeof window !== 'undefined') window.audioCapture = instance;
     }
     return instance;
 }

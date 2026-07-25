@@ -48,13 +48,6 @@ const DEFAULT_TRIGGER_CONFIG = {
   'unknown': { throttle: 16.67, debounce: null, priority: 'normal' }
 };
 
-const PRIORITY_ORDER = {
-  'critical': 0,
-  'high': 1,
-  'normal': 2,
-  'low': 3,
-  'idle': 4
-};
 
 /**
  * RedrawScheduler - Manages throttling and debouncing of redraw requests

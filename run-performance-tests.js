@@ -46,7 +46,6 @@ class PerformanceTestRunner {
       // Parse test results
       const passedMatch = output.match(/(\d+) passed/);
       const failedMatch = output.match(/(\d+) failed/);
-      const totalMatch = output.match(/(\d+) passed.*?(\d+) failed/);
 
       const passed = passedMatch ? parseInt(passedMatch[1]) : 0;
       const failed = failedMatch ? parseInt(failedMatch[1]) : 0;

@@ -1,7 +1,6 @@
 import { CameraNode } from './nodes/CameraNode.js';
 import { CameraController } from './CameraController.js';
 import { Vec3 } from './math/Vec3.js';
-import { Mat4 } from './math/Mat4.js';
 
 /**
  * 3D Viewport manager for rendering 3D scenes with camera control

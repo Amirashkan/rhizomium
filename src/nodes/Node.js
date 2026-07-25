@@ -15,7 +15,7 @@ export class Node {
     return [this.x * 100 + 380, this.y * 100 + 310 + index * 12];
   }
 
-  getGLSL(id) {
+  getGLSL(_id) {
     return "";
   }
 }

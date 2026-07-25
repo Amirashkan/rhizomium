@@ -28,8 +28,7 @@ export class VectorNodes {
   compile(node, getInput) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
     const comps = [getInput(0, 'f32', '0.0'), getInput(1, 'f32', '0.0'), getInput(2, 'f32', '0.0'), getInput(3, 'f32', '1.0')];
-const values = comps.filter(Boolean).map(c => c.code || c);
-const line = `let node_${nodeId} = vec${values.length}<f32>(${values.join(', ')});`;
+comps.filter(Boolean).map(c => c.code || c);
 
     switch (node.kind) {
       // Vector Math Operations

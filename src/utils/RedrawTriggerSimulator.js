@@ -129,7 +129,6 @@ export class RedrawTriggerSimulator {
    */
   simulateWorkerMessages(interval = 1000, duration = 60000) {
     const id = `worker_${Date.now()}`;
-    let count = 0;
     const maxCount = Math.floor(duration / interval);
 
     // Create a dummy worker (inline worker)
@@ -142,7 +141,7 @@ export class RedrawTriggerSimulator {
     const blob = new Blob([workerCode], { type: 'application/javascript' });
     const worker = new Worker(URL.createObjectURL(blob));
 
-    worker.onmessage = (event) => {
+    worker.onmessage = (_event) => {
       // Simulate worker message triggering a redraw
       if (window.editor && window.editor.markDirty) {
         window.editor.markDirty('simulated-worker-message');
@@ -173,10 +172,8 @@ export class RedrawTriggerSimulator {
   simulateRAFSpam(duration = 60000) {
     const id = `raf_${Date.now()}`;
     let startTime = performance.now();
-    let frameCount = 0;
 
     const animate = () => {
-      frameCount++;
       
       // Simulate RAF triggering redraws
       if (window.editor && window.editor.markDirty) {

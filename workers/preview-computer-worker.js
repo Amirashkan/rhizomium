@@ -4,7 +4,6 @@
 import { UnifiedExpressionSystem } from '../src/utils/UnifiedExpressionSystem.js';
 
 let expressionSystem = null;
-let nodeValueComputer = null;
 
 // Initialize worker
 self.onmessage = async (e) => {
@@ -20,7 +19,7 @@ self.onmessage = async (e) => {
         self.postMessage({ type: 'ready', id });
         break;
         
-      case 'computePreviews':
+      case 'computePreviews': {
         // Compute previews (CPU-intensive, runs in worker)
         const results = await computePreviews(graph, timeContext, audioContext);
         
@@ -34,6 +33,7 @@ self.onmessage = async (e) => {
           }
         });
         break;
+      }
         
       case 'heartbeat-request':
         // Respond to heartbeat immediately
@@ -157,7 +157,7 @@ function evaluateParameter(value, context) {
       const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
       const result = expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
       return typeof result === 'number' ? result : 0;
-    } catch (error) {
+    } catch {
       return 0;
     }
   }
@@ -170,7 +170,7 @@ function evaluateParameter(value, context) {
 /**
  * Compute node output based on node type
  */
-function computeNodeOutput(node, params, context) {
+function computeNodeOutput(node, params, _context) {
   // Basic computation based on node type
   // This is a simplified version - full implementation would handle all node types
   switch (node.type) {
@@ -184,10 +184,11 @@ function computeNodeOutput(node, params, context) {
       return Math.cos(params.angle || 0);
     case 'constant':
       return params.value || 0;
-    default:
+    default: {
       // Default: return first parameter value or 0
       const firstParam = Object.values(params)[0];
       return typeof firstParam === 'number' ? firstParam : 0;
+    }
   }
 }
 

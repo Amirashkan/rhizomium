@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { Transform } from '../../src/scene/Transform.js';
-import { Vec3 } from '../../src/scene/math/Vec3.js';
-import { Quaternion } from '../../src/scene/math/Quaternion.js';
 
 describe('Transform', () => {
     describe('constructor', () => {

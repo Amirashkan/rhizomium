@@ -59,7 +59,7 @@ export class VectorRenderers {
     ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), size / 2, size / 2 + 12);
   }
 
-  renderCross(ctx, node) {
+  renderCross(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#8b5cf620";
     ctx.fillRect(0, 0, size, size);
@@ -80,7 +80,7 @@ export class VectorRenderers {
     ctx.stroke();
   }
 
-  renderNormalize(ctx, node) {
+  renderNormalize(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#10b98120";
     ctx.fillRect(0, 0, size, size);
@@ -130,7 +130,7 @@ export class VectorRenderers {
     ctx.fillText(this.toSafeNumber(result, 0).toFixed(2), size / 2, size / 2 + 12);
   }
 
-  renderReflect(ctx, node) {
+  renderReflect(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#ec489920";
     ctx.fillRect(0, 0, size, size);
@@ -150,7 +150,7 @@ export class VectorRenderers {
     ctx.stroke();
   }
 
-  renderRefract(ctx, node) {
+  renderRefract(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#8b5cf620";
     ctx.fillRect(0, 0, size, size);
@@ -215,7 +215,7 @@ export class VectorRenderers {
     ctx.fillText("V" + symbol, this.size / 2, this.size / 2);
   }
 
-  renderVectorScale(ctx, node) {
+  renderVectorScale(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#f59e0b20";
     ctx.fillRect(0, 0, size, size);

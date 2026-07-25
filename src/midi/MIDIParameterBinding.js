@@ -474,7 +474,7 @@ export class MIDIParameterBinding {
    * Debug
    */
   debugPrintBindings() {
-    this.bindings.forEach((binding, midiKey) => {
+    this.bindings.forEach((_binding, _midiKey) => {
     });
   }
 

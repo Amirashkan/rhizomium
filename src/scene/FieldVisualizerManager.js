@@ -210,7 +210,7 @@ export class FieldVisualizerManager {
                 try {
                     const geometry = await fieldMapper.generateVisualization(fieldTexture);
                     updatedGeometries.set(id, geometry);
-                } catch (error) {
+                } catch {
 
                 }
             }
@@ -297,7 +297,7 @@ export class FieldVisualizerManager {
         this._unsubscribers = [];
 
         // Dispose all field mappers
-        for (const [id, fieldMapper] of this.fieldMappers) {
+        for (const [, fieldMapper] of this.fieldMappers) {
             fieldMapper.dispose?.();
         }
 

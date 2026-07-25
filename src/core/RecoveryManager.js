@@ -99,21 +99,21 @@ export class RecoveryManager {
     switch (type) {
       case 'secondary':
         return {
-          recover: async (name, thread, error) => {
+          recover: async (name, thread, _error) => {
             // Default: restart worker
             await this._restartWorker(name, thread);
           }
         };
       case 'primary':
         return {
-          recover: async (name, thread, error) => {
+          recover: async (name, thread, _error) => {
             // Primary threads can't be restarted, use fallback
             await this._enableFallback(name, thread);
           }
         };
       case 'python':
         return {
-          recover: async (name, thread, error) => {
+          recover: async (name, thread, _error) => {
             // Try to reconnect to Python thread
             await this._reconnectPythonThread(name, thread);
           }
@@ -142,7 +142,7 @@ export class RecoveryManager {
   /**
    * Try fallback strategy
    */
-  async _tryFallbackStrategy(name, thread, error) {
+  async _tryFallbackStrategy(name, thread, _error) {
     // Fallback: disable worker and use main thread
     if (thread.type === 'secondary') {
       this.monitor.loggingSystem.log('warn', `Enabling main thread fallback for ${name}`);
@@ -167,7 +167,7 @@ export class RecoveryManager {
   /**
    * Reconnect to Python thread
    */
-  async _reconnectPythonThread(name, thread) {
+  async _reconnectPythonThread(name, _thread) {
     // Implementation depends on Python thread API
     // This is a placeholder
     this.monitor.loggingSystem.log('info', `Attempting to reconnect to Python thread ${name}`);

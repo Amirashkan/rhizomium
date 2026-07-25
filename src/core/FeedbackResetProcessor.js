@@ -181,7 +181,7 @@ export class FeedbackResetProcessor {
           const result = unifiedExpressionSystem.evaluateCPU(expr, ctx);
           const num = typeof result === 'number' ? result : parseFloat(result);
           return Number.isFinite(num) ? num : def;
-        } catch (e) {
+        } catch {
           return def;
         }
       }

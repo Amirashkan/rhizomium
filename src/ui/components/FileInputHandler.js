@@ -229,7 +229,7 @@ await window.textureManager.uploadTexture(node.id, file);
     }
   }
 
-  _showErrorState(dropZone, errorMessage) {
+  _showErrorState(dropZone, _errorMessage) {
     if (dropZone) {
       dropZone.style.borderColor = "#d9534f";
       dropZone.innerHTML = '<div style="color: #d9534f;">❌ Load failed</div>';
@@ -265,7 +265,7 @@ await window.textureManager.uploadTexture(node.id, file);
       if (onChange) {
         onChange(`File loaded for ${node.kind}`);
       }
-    } catch (error) {
+    } catch {
 
     }
   }

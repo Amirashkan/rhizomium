@@ -340,7 +340,6 @@ export class RedrawTriggerDetector {
     const self = this;
     
     // Wrap common redraw functions
-    const redrawFunctionNames = ['draw', 'render', 'redraw', 'update', 'refresh'];
     
     // Monitor window.editor.draw
     if (window.editor && typeof window.editor.draw === 'function') {
@@ -412,7 +411,6 @@ export class RedrawTriggerDetector {
       info.lastTick = performance.now();
       
       // Store stack trace for potential redraw detection
-      const stackTrace = this._getStackTrace();
       
       // Check if a redraw happens shortly after this tick
       // Use a short timeout to detect redraws triggered by this timer
@@ -698,7 +696,7 @@ export class RedrawTriggerDetector {
     };
 
     // Analyze each trigger
-    for (const [key, trigger] of this.triggers.entries()) {
+    for (const [, trigger] of this.triggers.entries()) {
       const timeWindow = now - trigger.firstSeen;
       const frequency = timeWindow > 0 ? (trigger.count / timeWindow) * 1000 : 0; // per second
       const impact = this.redrawEvents.length > 0 

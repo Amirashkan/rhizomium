@@ -89,7 +89,7 @@ export class PresetManager {
       if (node && node.kind === nodeState.kind) {
         // Apply each parameter
         Object.entries(nodeState.params).forEach(([paramName, paramValue]) => {
-          if (node.params.hasOwnProperty(paramName)) {
+          if (Object.hasOwn(node.params, paramName)) {
             node.params[paramName] = paramValue;
           }
         });
@@ -253,7 +253,7 @@ export class PresetManager {
       }
 
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }

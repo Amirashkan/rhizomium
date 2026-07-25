@@ -12,9 +12,7 @@ import { Scene } from '../scene/Scene.js';
 import { ComputeFieldMapperNode } from '../scene/nodes/ComputeFieldMapperNode.js';
 import { ComputeNodeBase } from '../gpu/ComputeNodeBase.js';
 import { CameraNode } from '../scene/nodes/CameraNode.js';
-import { MeshNode } from '../scene/nodes/MeshNode.js';
 import { FieldVisualizerManager } from '../scene/FieldVisualizerManager.js';
-import { ParameterEventSystem } from '../utils/ParameterEventSystem.js';
 
 /**
  * Example: Visualize a noise field as a point cloud

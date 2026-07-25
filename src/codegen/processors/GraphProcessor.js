@@ -171,9 +171,6 @@ validateForCompilation(graph) {
           continue;
         }
         
-        if (byId.has(node.id)) {
-
-        }
         
         byId.set(node.id, node);
       }
@@ -249,7 +246,7 @@ validateForCompilation(graph) {
         try {
           const identifier = n.kind || n.type || n.name || "";
           return /OutputFinal/i.test(identifier);
-        } catch (error) {
+        } catch {
 
           return false;
         }
@@ -263,7 +260,7 @@ validateForCompilation(graph) {
       const connected = outputs.filter((o) => {
         try {
           return Array.isArray(o.inputs) && o.inputs[0] !== null && o.inputs[0] !== undefined;
-        } catch (error) {
+        } catch {
 
           return false;
         }
@@ -522,7 +519,7 @@ validateForCompilation(graph) {
 
         // Scan all parameters for expression references
         if (node.params && typeof node.params === 'object') {
-          for (const [paramName, paramValue] of Object.entries(node.params)) {
+          for (const [, paramValue] of Object.entries(node.params)) {
             const referencedIds = this.extractNodeReferencesFromExpression(paramValue);
 
             for (const refId of referencedIds) {
@@ -542,7 +539,6 @@ validateForCompilation(graph) {
                       toProcess.push(upstreamId);
                     }
                   }
-                } else {
                 }
               }
             }
@@ -550,9 +546,6 @@ validateForCompilation(graph) {
         }
       }
 
-      if (expanded.size > currentSet.size) {
-
-      }
 
       return expanded;
     } catch (error) {
@@ -575,7 +568,7 @@ validateForCompilation(graph) {
    * @param {Map} byId - Map of node ID to node object
    * @returns {Array} Nodes sorted in dependency order
    */
-  resortWithExpressionDependencies(nodes, byId) {
+  resortWithExpressionDependencies(nodes, __byId) {
     try {
       if (!nodes || nodes.length === 0) {
         return nodes;
@@ -731,35 +724,25 @@ validateForCompilation(graph) {
     try {
 
       if (graph && graph.nodes && Array.isArray(graph.nodes)) {
-        graph.nodes.forEach((node, index) => {
+        graph.nodes.forEach((node, __index) => {
           if (!node) {
 
             return;
           }
           
-          const id = node.id || 'NO_ID';
-          const kind = node.kind || 'NO_KIND';
-          const type = node.type || 'NO_TYPE';
-          const name = node.name || 'NO_NAME';
 
         });
-      } else {
-
       }
 
       if (orderedNodes && Array.isArray(orderedNodes)) {
-        orderedNodes.forEach((node, index) => {
+        orderedNodes.forEach((node, __index) => {
           if (!node) {
 
             return;
           }
           
-          const id = node.id || 'NO_ID';
-          const kind = node.kind || 'NO_KIND';
 
         });
-      } else {
-
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -849,11 +832,6 @@ validateForCompilation(graph) {
         });
       }
       
-      if (issues.length === 0) {
-
-      } else {
-
-      }
       
       return issues;
     } catch (error) {

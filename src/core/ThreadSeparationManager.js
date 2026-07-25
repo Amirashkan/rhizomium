@@ -1,7 +1,7 @@
 // src/core/ThreadSeparationManager.js
 // Main coordinator for two-part thread separation system
 
-import { AsyncQueueManager, MessagePriority } from './AsyncQueueManager.js';
+import { AsyncQueueManager } from './AsyncQueueManager.js';
 import { ThreadMonitor } from './ThreadMonitor.js';
 import { createWorker } from './workerFactories.js';
 
@@ -294,7 +294,7 @@ export class ThreadSeparationManager {
    */
   cleanup() {
     // Terminate all workers
-    for (const [name, worker] of this.workers.entries()) {
+    for (const [, worker] of this.workers.entries()) {
       worker.terminate();
     }
     this.workers.clear();

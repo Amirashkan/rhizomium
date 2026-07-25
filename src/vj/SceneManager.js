@@ -63,24 +63,19 @@ export class SceneManager {
    * Load a scene from file
    */
   async loadSceneFromFile(file) {
-    try {
-      const text = await file.text();
-      const projectData = JSON.parse(text);
+    const text = await file.text();
+    const projectData = JSON.parse(text);
 
-      // Validate project data
-      if (!projectData.nodes || !Array.isArray(projectData.nodes)) {
-        throw new Error('Invalid project file: missing nodes array');
-      }
-
-      const sceneId = `scene_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const name = file.name.replace(/\.(json|rhizo)$/i, '');
-
-      const scene = this.addScene(sceneId, projectData, name);
-      return scene;
-    } catch (error) {
-
-      throw error;
+    // Validate project data
+    if (!projectData.nodes || !Array.isArray(projectData.nodes)) {
+      throw new Error('Invalid project file: missing nodes array');
     }
+
+    const sceneId = `scene_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const name = file.name.replace(/\.(json|rhizo)$/i, '');
+
+    const scene = this.addScene(sceneId, projectData, name);
+    return scene;
   }
 
   /**
@@ -99,7 +94,7 @@ export class SceneManager {
    * @param {string} sceneId - ID of scene to switch to
    * @param {boolean} immediate - If true, switch immediately without transition
    */
-  async switchToScene(sceneId, immediate = false) {
+  async switchToScene(sceneId, _immediate = false) {
     const scene = this.scenes.get(sceneId);
     if (!scene) {
 
@@ -116,7 +111,7 @@ export class SceneManager {
     try {
       await this.saveLoadManager.importProject(scene.data);
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -202,7 +197,7 @@ export class SceneManager {
       }
 
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -216,7 +211,7 @@ export class SceneManager {
       const data = this.exportScenes();
       localStorage.setItem('rhizomium.vj.scenes', JSON.stringify(data));
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -232,7 +227,7 @@ export class SceneManager {
 
       const data = JSON.parse(json);
       return this.importScenes(data);
-    } catch (error) {
+    } catch {
 
       return false;
     }

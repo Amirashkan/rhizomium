@@ -38,7 +38,7 @@ register(registry) {
     ctx.fillText(expr, size / 2, size / 2 + 8);
   }
 
-  renderRemap(ctx, node) {
+  renderRemap(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#8b5cf620";
     ctx.fillRect(0, 0, size, size);
@@ -82,7 +82,7 @@ register(registry) {
     }
   }
 
-  renderColorToGrayscale(ctx, node) {
+  renderColorToGrayscale(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#6b728020";
     ctx.fillRect(0, 0, size, size);
@@ -100,7 +100,7 @@ register(registry) {
     ctx.fillRect(2, size - 10, size - 4, 6);
   }
 
-  renderColorInvert(ctx, node) {
+  renderColorInvert(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#ec489920";
     ctx.fillRect(0, 0, size, size);
@@ -111,7 +111,7 @@ register(registry) {
     ctx.fillText("INV", size / 2, size / 2);
   }
 
-  renderColorSaturate(ctx, node) {
+  renderColorSaturate(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#10b98120";
     ctx.fillRect(0, 0, size, size);
@@ -122,7 +122,7 @@ register(registry) {
     ctx.fillText("SAT", size / 2, size / 2);
   }
 
-  renderColorContrast(ctx, node) {
+  renderColorContrast(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#3b82f620";
     ctx.fillRect(0, 0, size, size);
@@ -133,7 +133,7 @@ register(registry) {
     ctx.fillText("CONT", size / 2, size / 2);
   }
 
-  renderColorBrightness(ctx, node) {
+  renderColorBrightness(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#f59e0b20";
     ctx.fillRect(0, 0, size, size);
@@ -154,7 +154,7 @@ register(registry) {
     ctx.fillText(label, this.size / 2, this.size / 2);
   }
 
-  renderSelect(ctx, node) {
+  renderSelect(ctx, _node) {
     const size = ctx.canvas.width;
     ctx.fillStyle = "#06b6d420";
     ctx.fillRect(0, 0, size, size);

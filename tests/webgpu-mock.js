@@ -201,7 +201,7 @@ export class MockGPUComputePipeline {
     this.lastDispatchDimensions = null;
   }
 
-  getBindGroupLayout(index) {
+  getBindGroupLayout(_index) {
     return new MockGPUBindGroupLayout({ entries: [] });
   }
 
@@ -257,7 +257,7 @@ export class MockGPUCommandEncoder {
     this.copyHistory = [];
   }
 
-  beginComputePass(descriptor = {}) {
+  beginComputePass(_descriptor = {}) {
     return new MockGPUComputePassEncoder(this);
   }
 
@@ -319,7 +319,7 @@ export class MockGPUQueue {
     buffer.writeBuffer(data.slice(dataOffset, dataOffset + size), bufferOffset);
   }
 
-  writeTexture(destination, data, dataLayout, size) {
+  writeTexture(destination, data, _dataLayout, _size) {
     const texture = destination.texture || destination;
 
     if (texture.data && data) {
@@ -394,7 +394,7 @@ export class MockGPUDevice {
     return pipeline;
   }
 
-  createCommandEncoder(descriptor = {}) {
+  createCommandEncoder(_descriptor = {}) {
     return new MockGPUCommandEncoder(this);
   }
 
@@ -452,7 +452,7 @@ export class MockGPUAdapter {
     };
   }
 
-  async requestDevice(descriptor = {}) {
+  async requestDevice(_descriptor = {}) {
     return new MockGPUDevice();
   }
 }
@@ -461,7 +461,7 @@ export class MockGPUAdapter {
  * Mock GPU implementation
  */
 export class MockGPU {
-  async requestAdapter(options = {}) {
+  async requestAdapter(_options = {}) {
     return new MockGPUAdapter();
   }
 

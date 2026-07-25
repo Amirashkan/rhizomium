@@ -147,7 +147,7 @@ export class CameraController {
     /**
      * Handle mouse up event
      */
-    handleMouseUp(event) {
+    handleMouseUp(_event) {
         if (!this.enabled) return;
 
         this.isOrbiting = false;
@@ -231,7 +231,7 @@ export class CameraController {
     /**
      * Handle touch end event
      */
-    handleTouchEnd(event) {
+    handleTouchEnd(_event) {
         if (!this.enabled) return;
 
         this.isOrbiting = false;
@@ -261,7 +261,6 @@ export class CameraController {
      */
     pan(deltaX, deltaY) {
         // Get camera's right and up vectors
-        const position = this.camera.getWorldPosition();
         const viewMatrix = this.camera.getViewMatrix();
 
         // Extract right and up vectors from view matrix

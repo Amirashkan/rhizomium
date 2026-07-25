@@ -78,13 +78,10 @@ analyzeNode(node) {
     }
   }
 
-  const nodeKey = `${node.id}`;
-  const dynamicParamsForNode = Array.from(this.dynamicParams)
+  Array.from(this.dynamicParams)
     .filter(key => key.startsWith(`${node.id}.`))
     .map(key => key.split('.')[1]);
 
-  if (dynamicParamsForNode.length > 0) {
-  }
 }
 
   /**
@@ -141,7 +138,7 @@ evaluateExpression(expr, context = {}) {
       // Add = prefix if not present for expression system
       const exprValue = expr.startsWith('=') ? expr : `=${expr}`;
       return window.expressionSystem.evaluateExpression(exprValue, context);
-    } catch (error) {
+    } catch {
       return 0;
     }
   }
@@ -157,7 +154,7 @@ evaluateExpression(expr, context = {}) {
         const exprValue = value.startsWith('=') ? value : `=${value}`;
         const result = window.expressionSystem.evaluateExpression(exprValue, {}, node);
         return result;
-      } catch (error) {
+      } catch {
         return 0;
       }
     }
@@ -209,7 +206,7 @@ isDynamicExpression(value) {
   }
   
   // Check for other mathematical expressions that DO need parameter uniforms
-  const dynamicPattern = /sin\(|cos\(|tan\(|abs\(|sqrt\(|pow\(|min\(|max\(|floor\(|ceil\(|round\(|fract\(|[+\-*\/()]/;
+  const dynamicPattern = /sin\(|cos\(|tan\(|abs\(|sqrt\(|pow\(|min\(|max\(|floor\(|ceil\(|round\(|fract\(|[+\-*/()]/;
   return dynamicPattern.test(value);
 }
   /**
@@ -220,7 +217,7 @@ updateValues(graph) {
   const time = performance.now() / 1000;
   
   // Iterate through existing uniform values and update dynamic ones
-  for (const [key, currentValue] of this.uniformValues.entries()) {
+  for (const [key] of this.uniformValues.entries()) {
     const [nodeId, paramName] = key.split('.');
     const node = graph.nodes.find(n => n.id == nodeId);
     
@@ -233,7 +230,7 @@ updateValues(graph) {
           // Re-evaluate with current time
           const evaluated = this.evaluateExpression(paramValue, { time });
           this.uniformValues.set(key, evaluated);
-        } catch (error) {
+        } catch {
           // Keep existing value on error
         }
       }
@@ -252,7 +249,7 @@ generateUniformStruct() {
 
   let structDef = 'struct ParamUniforms {\n';
 
-  for (const [key, value] of this.uniformValues.entries()) {
+  for (const [key] of this.uniformValues.entries()) {
     // key format is "nodeId.paramName" like "11.radius"
     // Sanitize and add underscore prefix for valid WGSL
     const sanitizedName = key.replace(/[^a-zA-Z0-9_]/g, '_');

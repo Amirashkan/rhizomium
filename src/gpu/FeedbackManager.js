@@ -326,18 +326,19 @@ export function createReactionDiffusionInitializer(pattern = 'random') {
         let isSeed = false;
 
         switch (pattern) {
-          case 'center':
+          case 'center': {
             const dx = x - width / 2;
             const dy = y - height / 2;
             const dist = Math.sqrt(dx * dx + dy * dy);
             isSeed = dist < width * 0.1;
             break;
+          }
 
           case 'random':
             isSeed = Math.random() < 0.05;
             break;
 
-          case 'spots':
+          case 'spots': {
             const numSpots = 5;
             for (let i = 0; i < numSpots; i++) {
               const sx = (i + 0.5) / numSpots * width;
@@ -348,6 +349,7 @@ export function createReactionDiffusionInitializer(pattern = 'random') {
               }
             }
             break;
+          }
 
           default:
             isSeed = Math.random() < 0.02;

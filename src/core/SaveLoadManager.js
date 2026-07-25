@@ -142,7 +142,7 @@ export class SaveLoadManager {
         hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
       }
       return `${hash}:${str.length}`;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -442,7 +442,7 @@ async importProject(projectData, options = {}) {
 
       // Force GPU texture creation for all restored textures
       if (this.textureManager && this.textureManager.device) {
-        for (const [nodeId, texInfo] of this.textureManager.textures.entries()) {
+        for (const [, texInfo] of this.textureManager.textures.entries()) {
           if (texInfo.bitmap && !texInfo.gpuTexture) {
             try {
               // Create the GPU texture from the bitmap
@@ -461,7 +461,7 @@ async importProject(projectData, options = {}) {
 
               // Store the GPU texture
               texInfo.gpuTexture = gpuTexture;
-            } catch (error) {
+            } catch {
 
             }
           }
@@ -495,9 +495,6 @@ async importProject(projectData, options = {}) {
 
     // Step 2: Force WebGPU reinitialization and capture the device
     let gpuDevice = await this.reinitializeWebGPU();
-    if (!gpuDevice) {
-
-    }
 
     // Step 3: Wait another frame after WebGPU init
     await new Promise(resolve => requestAnimationFrame(resolve));
@@ -563,8 +560,6 @@ async importProject(projectData, options = {}) {
       if (typeof this.editor.previewSystem.updateAllPreviews === 'function' && this.graph && this.graph.nodes) {
         await this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
       }
-    } else {
-
     }
 
     // Force several renders to stabilize GPU
@@ -641,13 +636,11 @@ async importProject(projectData, options = {}) {
           // Don't delete __thumb - keep existing preview so dependent nodes can use it
           // Only create new canvas if needed
           let canvas = node.__thumb;
-          let needsResize = false;
 
           if (!canvas || canvas.width !== 128 || canvas.height !== 128) {
             canvas = document.createElement('canvas');
             canvas.width = 128;
             canvas.height = 128;
-            needsResize = true;
           }
 
           const ctx = canvas.getContext('2d');
@@ -672,12 +665,10 @@ async importProject(projectData, options = {}) {
           if (renderer && typeof renderer === 'function') {
             renderer(ctx, node);
             node.__thumb = canvas;
-          } else {
-
           }
 
           await new Promise(resolve => setTimeout(resolve, 30));
-        } catch (error) {
+        } catch {
 
         }
       }
@@ -725,8 +716,6 @@ async importProject(projectData, options = {}) {
           }
 
           this.hasUnsavedChanges = false;    
-        } else {
-
         }
       }
     }
@@ -872,7 +861,7 @@ async reinitializeWebGPU() {
             const wgsl = window.buildWGSL(this.graph);
             await window.updateShader(wgsl);
             return true;
-          } catch (error) {
+          } catch {
 
             return false;
           }
@@ -886,7 +875,7 @@ async reinitializeWebGPU() {
           try {
             await window.compileShader(this.graph);
             return true;
-          } catch (error) {
+          } catch {
 
             return false;
           }
@@ -903,14 +892,11 @@ async reinitializeWebGPU() {
           success = true;
           break;
         }
-      } catch (error) {
+      } catch {
 
       }
     }
 
-    if (!success) {
-
-    }
 
     return success;
   }
@@ -1072,7 +1058,7 @@ async reinitializeWebGPU() {
 
             // Small delay between node renders
             await new Promise(resolve => setTimeout(resolve, 10));
-          } catch (error) {
+          } catch {
 
           }
         }
@@ -1130,7 +1116,7 @@ async reinitializeWebGPU() {
             if (targetNode && this.editor && this.editor.onNodeChanged) {
               this.editor.onNodeChanged(targetNode);
             }
-          } catch (error) {
+          } catch {
 
           }
         }
@@ -1140,7 +1126,7 @@ async reinitializeWebGPU() {
       if (this.editor) {
         // Mark all nodes as needing preview updates
         if (this.editor.nodePreviews) {
-          for (const [nodeId, preview] of this.editor.nodePreviews) {
+          for (const [, preview] of this.editor.nodePreviews) {
             preview.needsUpdate = true;
             preview.needsRender = true; // Force rendering flag
           }
@@ -1182,7 +1168,7 @@ async reinitializeWebGPU() {
         if (typeof window[funcName] === "function") {
           try {
             await window[funcName]();
-          } catch (error) {
+          } catch {
 
           }
         }
@@ -1332,7 +1318,7 @@ async reinitializeWebGPU() {
         : null;
       const marker = this.hasUnsavedChanges ? "• " : "";
       document.title = name ? `${marker}${name} — ${app}` : app;
-    } catch (_) {
+    } catch {
       /* document may be unavailable in non-DOM contexts */
     }
   }
@@ -1493,7 +1479,7 @@ async reinitializeWebGPU() {
           validator: (v) => (v && v.trim() ? null : "Please enter a name"),
         },
       );
-    } catch (_) {
+    } catch {
       return window.prompt("Save project as:", defaultValue);
     }
   }
@@ -1790,7 +1776,7 @@ async reinitializeWebGPU() {
 
   setupUnloadHandler() {
     try {
-      window.addEventListener("beforeunload", (e) => {
+      window.addEventListener("beforeunload", (_e) => {
         if (this.hasUnsavedChanges) {
           this.saveToLocal();
           // Don't show dialog - just save silently
@@ -2078,7 +2064,7 @@ async importNodes(nodeData) {
 
       for (const [key, value] of Object.entries(data)) {
         if (!['id', 'kind', 'position', 'size', 'inputs', 'outputs'].includes(key) && 
-            !node.hasOwnProperty(key)) {
+            !Object.hasOwn(node, key)) {
           node[key] = value;
         }
       }

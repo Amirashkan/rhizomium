@@ -1,6 +1,5 @@
 // src/codegen/glslBuilder.js
 import { GraphProcessor } from './processors/GraphProcessor.js';
-import { TypeConverter } from './processors/TypeConverter.js';
 import { NodeCompiler } from './processors/NodeCompiler.js';
 import { TextureBindings } from './generators/TextureBindings.js';
 import { generateShader } from './templates/ShaderTemplate.js';
@@ -74,8 +73,6 @@ export function buildWGSL(graph, options = {}) {
   const { orderedNodes, outputNode } = result;
 
 
-  if (orderedNodes.length > 0) {
-  }
 
   if (!outputNode || orderedNodes.length === 0) {
     // There's no compilable output chain (e.g. the OutputFinal node isn't wired up yet), but the
@@ -98,7 +95,7 @@ export function buildWGSL(graph, options = {}) {
 
   // Reset the flag after compilation
   compiler.isSubgraphCompilation = false;
-  const { lines, uniformStruct, uniformManager, usesNoise } = compiledData;
+  const { lines, uniformStruct, usesNoise } = compiledData;
 
   // Per-node previews: register compute nodes that aren't upstream of the output so the compute
   // pipeline still dispatches them and their thumbnail shows real output (otherwise they sit as

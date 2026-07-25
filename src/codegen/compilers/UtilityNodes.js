@@ -49,7 +49,7 @@ export class UtilityNodes {
     if (typeof value === 'string' && value.startsWith('=')) {
       try {
         return unifiedExpressionSystem.generateShader(value, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         return String(defaultValue);
       }
@@ -59,7 +59,7 @@ export class UtilityNodes {
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
       try {
         return unifiedExpressionSystem.generateShader(value, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         return String(defaultValue);
       }
@@ -95,7 +95,7 @@ export class UtilityNodes {
    * @param {Object} context - Optional context with typeConverter
    * @returns {Object} { line, outputType }
    */
-  compile(node, getInput, getParam = null, context = null) {
+  compile(node, getInput, getParam = null, __context = null) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
     
     switch (node.kind) {
@@ -145,28 +145,13 @@ export class UtilityNodes {
     }
   }
   
-  compileOutputFinal(node, getInput, nodeId) {
+  compileOutputFinal(node, getInput, __nodeId) {
     // Check if the Output node has any input connection
-    const hasValidInput = node.inputs && node.inputs[0] !== null && node.inputs[0] !== undefined;
 
-    if (!hasValidInput) {
-
-
-
-
-    }
 
     const color = getInput(0, "vec3", "vec3<f32>(0.0)");
 
     // Check if connected to a ComputeFieldMapper (3D visualization node)
-    if (hasValidInput) {
-      const inputNode = window.editor?.graph?.nodes?.find(n => n.id === node.inputs[0]);
-      if (inputNode && inputNode.kind === 'ComputeFieldMapper') {
-
-
-
-      }
-    }
 
     return {
       line: `finalColor = ${color};`,
@@ -809,7 +794,6 @@ export class UtilityNodes {
       // BUT: Don't split if we're inside a for/if/while/loop block (braceDepth > 0)
       // unless we've closed all braces
       const endsWithComma = trimmedLine.endsWith(',');
-      const endsWithSemicolon = trimmedLine.endsWith(';');
       // Only consider complete if all braces are closed (we're not inside a block)
       const isComplete = parenDepth === 0 && braceDepth === 0 && bracketDepth === 0 && !endsWithComma;
       

@@ -429,7 +429,7 @@ export class MenuManager {
     }
   }
 
-  _activateFocusedItem(el) {
+  _activateFocusedItem(_el) {
     const focused = document.activeElement;
     if (focused && focused.classList.contains("ctx-item")) {
       focused.click();

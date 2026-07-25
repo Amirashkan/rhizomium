@@ -13,45 +13,36 @@ export class TextureManager {
  * Upload texture from file input
  */
 async uploadTexture(nodeId, file) {
-  try {
+  // Read file as data URL for saving
+  const dataUrl = await this.fileToDataUrl(file);
+  
+  // Load image
+  const img = await this.loadImage(dataUrl);
+  
+  // Create bitmap for GPU
+  const bitmap = await createImageBitmap(img);
+  
+  // Store texture info
+  const textureInfo = {
+    filename: file.name,
+    dataUrl: dataUrl,
+    width: img.width,
+    height: img.height,
+    bitmap: bitmap,
+    file: file // Keep reference to original file
+  };
+  
+  this.textures.set(nodeId, textureInfo);
 
-    // Read file as data URL for saving
-    const dataUrl = await this.fileToDataUrl(file);
-    
-    // Load image
-    const img = await this.loadImage(dataUrl);
-    
-    // Create bitmap for GPU
-    const bitmap = await createImageBitmap(img);
-    
-    // Store texture info
-    const textureInfo = {
-      filename: file.name,
-      dataUrl: dataUrl,
-      width: img.width,
-      height: img.height,
-      bitmap: bitmap,
-      file: file // Keep reference to original file
-    };
-    
-    this.textures.set(nodeId, textureInfo);
-
-    // Upload to GPU if device exists
-    if (this.device) {
-      await this.uploadToGPU(nodeId, bitmap);
-    } else {
-
-    }
-
-    // Invalidate bind group since we have new textures
-    this.bindGroup = null;
-
-    return textureInfo;
-    
-  } catch (err) {
-
-    throw err;
+  // Upload to GPU if device exists
+  if (this.device) {
+    await this.uploadToGPU(nodeId, bitmap);
   }
+
+  // Invalidate bind group since we have new textures
+  this.bindGroup = null;
+
+  return textureInfo;
 }
 
 /**
@@ -458,7 +449,7 @@ async injectExternalTexture(nodeId, bitmap) {
   }
 
   // Check if bind group needs rebuilding
-  needsBindGroupUpdate(graph) {
+  needsBindGroupUpdate(_graph) {
     return this.bindGroup === null;
   }
 
@@ -470,7 +461,7 @@ async injectExternalTexture(nodeId, bitmap) {
   // Clean up all resources
   destroy() {
     try {
-      for (const [nodeId, textureInfo] of this.textures) {
+      for (const [, textureInfo] of this.textures) {
         if (textureInfo.texture && textureInfo.texture.destroy) {
           textureInfo.texture.destroy();
         }

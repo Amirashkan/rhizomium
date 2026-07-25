@@ -105,7 +105,7 @@ export class TauriSecondMonitorViewer {
   /** Open the native second-monitor window and start mirroring. */
   async open() {
     if (this._active) {
-      try { await this._win?.setFocus(); } catch (_) { /* ignore */ }
+      try { await this._win?.setFocus(); } catch { /* ignore */ }
       return;
     }
     if (!this.sourceCanvas) {
@@ -144,12 +144,12 @@ export class TauriSecondMonitorViewer {
     const wasActive = this._active;
     this._stopTap();
 
-    try { this._channel?.postMessage({ type: MSG.CLOSE }); } catch (_) { /* ignore */ }
+    try { this._channel?.postMessage({ type: MSG.CLOSE }); } catch { /* ignore */ }
 
     const win = this._win;
     this._teardown();
     this._restoreRenderCap();
-    if (win) { try { await win.close(); } catch (_) { /* already gone */ } }
+    if (win) { try { await win.close(); } catch { /* already gone */ } }
 
     if (wasActive) {
       this.onActiveChange(false);
@@ -171,8 +171,8 @@ export class TauriSecondMonitorViewer {
       const st = typeof loop.getState === 'function' ? loop.getState() : null;
       this._savedLoopMode = st ? st.mode : (loop.mode || null);
       this._savedLoopFps = st ? st.fixedFps : (loop.fixedFps || null);
-    } catch (_) { this._savedLoopMode = null; this._savedLoopFps = null; }
-    try { loop.setFixedFps(60); loop.setMode('fixed'); } catch (_) { /* ignore */ }
+    } catch { this._savedLoopMode = null; this._savedLoopFps = null; }
+    try { loop.setFixedFps(60); loop.setMode('fixed'); } catch { /* ignore */ }
   }
 
   /** Restore the editor's render-loop mode/fps captured in _applyRenderCap. */
@@ -182,7 +182,7 @@ export class TauriSecondMonitorViewer {
     try {
       if (this._savedLoopMode) loop.setMode(this._savedLoopMode);
       if (this._savedLoopFps != null && typeof loop.setFixedFps === 'function') loop.setFixedFps(this._savedLoopFps);
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
     this._savedLoopMode = null;
     this._savedLoopFps = null;
   }
@@ -200,11 +200,11 @@ export class TauriSecondMonitorViewer {
   _teardown() {
     this._stopTap();
     if (this._channel && this._onChannelMessage) {
-      try { this._channel.removeEventListener('message', this._onChannelMessage); } catch (_) { /* ignore */ }
+      try { this._channel.removeEventListener('message', this._onChannelMessage); } catch { /* ignore */ }
     }
-    try { this._channel?.close(); } catch (_) { /* ignore */ }
+    try { this._channel?.close(); } catch { /* ignore */ }
     if (typeof this._unlistenMainClose === 'function') {
-      try { this._unlistenMainClose(); } catch (_) { /* ignore */ }
+      try { this._unlistenMainClose(); } catch { /* ignore */ }
     }
     this._unlistenMainClose = null;
     this._channel = null;
@@ -229,7 +229,7 @@ export class TauriSecondMonitorViewer {
     if (data.type === MSG.READY) {
       const native = this._mode === 'native' || this._mode === 'native-compute';
       if (native && this._lastWgsl) {
-        try { this._channel?.postMessage({ type: MSG.SHADER, wgsl: this._lastWgsl }); } catch (_) { /* ignore */ }
+        try { this._channel?.postMessage({ type: MSG.SHADER, wgsl: this._lastWgsl }); } catch { /* ignore */ }
       }
       if (this._mode === 'native-compute') {
         this._broadcastComputeGraph();
@@ -238,12 +238,12 @@ export class TauriSecondMonitorViewer {
         this._broadcastFeedbackStates();
       }
       if (this._mode) {
-        try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch (_) { /* ignore */ }
+        try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch { /* ignore */ }
       }
       // A (re)connecting receiver also needs the current compute-resolution mode
       // (a fixed long edge, or -1 = match editor; 0 = auto is the receiver default).
       if (this._computeMaxDim !== 0) {
-        try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: this._computeMaxDim }); } catch (_) { /* ignore */ }
+        try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: this._computeMaxDim }); } catch { /* ignore */ }
       }
     }
   }
@@ -262,7 +262,7 @@ export class TauriSecondMonitorViewer {
     if (!Number.isFinite(v)) v = 0;
     v = v <= -1 ? -1 : Math.max(0, Math.min(2048, v));
     this._computeMaxDim = v;
-    try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: v }); } catch (_) { /* ignore */ }
+    try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: v }); } catch { /* ignore */ }
   }
 
   /** Current compute-resolution mode (long edge px; 0 = auto/display; -1 = match editor). */
@@ -306,8 +306,8 @@ export class TauriSecondMonitorViewer {
     // Reuse-proof: drop a window lingering under our label from a prior session.
     try {
       const existing = await WebviewWindow.getByLabel(this.windowLabel);
-      if (existing) { try { await existing.close(); } catch (_) { /* ignore */ } }
-    } catch (_) { /* getByLabel best-effort */ }
+      if (existing) { try { await existing.close(); } catch { /* ignore */ } }
+    } catch { /* getByLabel best-effort */ }
 
     const win = new WebviewWindow(this.windowLabel, options);
     await new Promise((resolve, reject) => {
@@ -325,15 +325,15 @@ export class TauriSecondMonitorViewer {
       const mainWin = windowApi.getCurrentWindow?.();
       if (mainWin && typeof mainWin.onCloseRequested === 'function') {
         this._unlistenMainClose = await mainWin.onCloseRequested(() => {
-          try { this._win?.close(); } catch (_) { /* already gone */ }
+          try { this._win?.close(); } catch { /* already gone */ }
         });
       }
-    } catch (_) { /* close-with-editor is best-effort */ }
+    } catch { /* close-with-editor is best-effort */ }
 
     // True OS fullscreen on the target display. The borderless window already
     // fills the monitor, so a failure here is non-fatal.
     if (target) {
-      try { await win.setFullscreen(true); } catch (_) { /* borderless fill remains */ }
+      try { await win.setFullscreen(true); } catch { /* borderless fill remains */ }
     }
     // Safety net: ensure the window is eventually shown even if the receiver's
     // first-paint reveal never fires (receiver error, or loaded outside Tauri).
@@ -351,7 +351,7 @@ export class TauriSecondMonitorViewer {
       const monitors = await windowApi.availableMonitors();
       if (!Array.isArray(monitors) || monitors.length === 0) return null;
       let current = null;
-      try { current = await windowApi.currentMonitor(); } catch (_) { /* ignore */ }
+      try { current = await windowApi.currentMonitor(); } catch { /* ignore */ }
       const samePos = (a, b) =>
         a && b && a.position?.x === b.position?.x && a.position?.y === b.position?.y;
       return monitors.find((m) => !samePos(m, current)) || null;
@@ -367,7 +367,7 @@ export class TauriSecondMonitorViewer {
       const { pathname } = window.location;
       const dir = pathname.endsWith('/') ? pathname : pathname.replace(/[^/]*$/, '');
       return dir + 'second-monitor.html';
-    } catch (_) {
+    } catch {
       return '/editor/second-monitor.html';
     }
   }
@@ -404,10 +404,10 @@ export class TauriSecondMonitorViewer {
     const renderer = this._resolveRenderer();
     if (renderer) {
       if (this._stateTap && typeof renderer.setStateTap === 'function') {
-        try { renderer.setStateTap(null); } catch (_) { /* ignore */ }
+        try { renderer.setStateTap(null); } catch { /* ignore */ }
       }
       if (this._frameTap && typeof renderer.setFrameTap === 'function') {
-        try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
+        try { renderer.setFrameTap(null); } catch { /* ignore */ }
       }
     }
     this._stateTap = null;
@@ -437,7 +437,7 @@ export class TauriSecondMonitorViewer {
       this._lastWgsl = wgsl;
       this._applyTier(desiredTier);
       if (this._mode === 'native' || this._mode === 'native-compute') {
-        try { this._channel.postMessage({ type: MSG.SHADER, wgsl }); } catch (_) { /* ignore */ }
+        try { this._channel.postMessage({ type: MSG.SHADER, wgsl }); } catch { /* ignore */ }
         if (this._mode === 'native-compute') {
           this._broadcastComputeGraph();
           this._broadcastFragmentGraph();
@@ -480,15 +480,15 @@ export class TauriSecondMonitorViewer {
           globals: snap.globals || null,
           params: snap.params || null,
         });
-      } catch (_) { /* channel closed mid-flight */ }
+      } catch { /* channel closed mid-flight */ }
       if (this._mode === 'native-compute' && snap.compute) {
         // One message = one editor sim step; `step` lets the receiver align a
         // FEEDBACK_STATE seed with the stream (drop steps the state already contains).
         this._stepSeq += 1;
-        try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute, step: this._stepSeq }); } catch (_) { /* ignore */ }
+        try { this._channel.postMessage({ type: MSG.COMPUTE_UNIFORMS, nodes: snap.compute, step: this._stepSeq }); } catch { /* ignore */ }
       }
       if (this._mode === 'native-compute' && snap.fragment) {
-        try { this._channel.postMessage({ type: MSG.FRAGMENT_UNIFORMS, nodes: snap.fragment }); } catch (_) { /* ignore */ }
+        try { this._channel.postMessage({ type: MSG.FRAGMENT_UNIFORMS, nodes: snap.fragment }); } catch { /* ignore */ }
       }
     }
   }
@@ -601,18 +601,18 @@ export class TauriSecondMonitorViewer {
     if (mode === 'fallback') {
       if (renderer && typeof renderer.setFrameTap === 'function') {
         this._frameTap = (bitmap) => this._onTappedFrame(bitmap);
-        try { renderer.setFrameTap(this._frameTap); } catch (_) { /* ignore */ }
+        try { renderer.setFrameTap(this._frameTap); } catch { /* ignore */ }
       }
     } else {
       if (this._frameTap && renderer && typeof renderer.setFrameTap === 'function') {
-        try { renderer.setFrameTap(null); } catch (_) { /* ignore */ }
+        try { renderer.setFrameTap(null); } catch { /* ignore */ }
       }
       this._frameTap = null;
     }
     if (renderer && typeof renderer.setStateTapComputeMode === 'function') {
-      try { renderer.setStateTapComputeMode(mode === 'native-compute'); } catch (_) { /* ignore */ }
+      try { renderer.setStateTapComputeMode(mode === 'native-compute'); } catch { /* ignore */ }
     }
-    try { this._channel?.postMessage({ type: MSG.CAPS, tier }); } catch (_) { /* ignore */ }
+    try { this._channel?.postMessage({ type: MSG.CAPS, tier }); } catch { /* ignore */ }
   }
 
   /** Broadcast the compute subgraph (per-node WGSL + metadata) for the receiver to rebuild. */
@@ -643,7 +643,7 @@ export class TauriSecondMonitorViewer {
       });
     });
     const executionOrder = Array.isArray(exec.executionOrder) ? exec.executionOrder.slice() : [];
-    try { this._channel.postMessage({ type: MSG.COMPUTE_GRAPH, nodes, executionOrder }); } catch (_) { /* ignore */ }
+    try { this._channel.postMessage({ type: MSG.COMPUTE_GRAPH, nodes, executionOrder }); } catch { /* ignore */ }
   }
 
   /**
@@ -664,7 +664,7 @@ export class TauriSecondMonitorViewer {
       try {
         if (graph.getNode) return graph.getNode(id);
         if (Array.isArray(graph.nodes)) return graph.nodes.find((n) => String(n.id) === String(id)) || null;
-      } catch (_) { /* ignore */ }
+      } catch { /* ignore */ }
       return null;
     };
     const collected = new Map(); // id -> serialized node
@@ -704,7 +704,7 @@ export class TauriSecondMonitorViewer {
     const nodes = this._collectFragmentSubgraph();
     if (nodes.length === 0 && !this._sentFragmentNodes) return; // nothing to send or clear
     this._sentFragmentNodes = nodes.length > 0;
-    try { this._channel.postMessage({ type: MSG.FRAGMENT_GRAPH, nodes }); } catch (_) { /* ignore */ }
+    try { this._channel.postMessage({ type: MSG.FRAGMENT_GRAPH, nodes }); } catch { /* ignore */ }
   }
 
   /**
@@ -767,7 +767,7 @@ export class TauriSecondMonitorViewer {
           // receiver can drop queued steps the seed already includes.
           const atStep = this._stepSeq;
           let state = null;
-          try { state = await mgr.captureFeedbackState(); } catch (_) { /* skip node */ }
+          try { state = await mgr.captureFeedbackState(); } catch { /* skip node */ }
           if (!state || !this._active || !this._channel) continue;
           try {
             this._channel.postMessage({
@@ -778,7 +778,7 @@ export class TauriSecondMonitorViewer {
               data: state.data,
               step: atStep,
             });
-          } catch (_) { /* channel closed mid-flight */ }
+          } catch { /* channel closed mid-flight */ }
         }
       } finally {
         this._feedbackStateInFlight = false;
@@ -795,7 +795,7 @@ export class TauriSecondMonitorViewer {
    */
   onFeedbackReset(nodeId) {
     if (!this._active || this._mode !== 'native-compute') return;
-    try { this._channel?.postMessage({ type: MSG.FEEDBACK_RESET, nodeId }); } catch (_) { /* ignore */ }
+    try { this._channel?.postMessage({ type: MSG.FEEDBACK_RESET, nodeId }); } catch { /* ignore */ }
   }
 
   /**
@@ -814,8 +814,8 @@ export class TauriSecondMonitorViewer {
     const src = info.bitmap || info.image || info.source || info.video;
     if (!src || typeof createImageBitmap !== 'function') return;
     let bitmap;
-    try { bitmap = await createImageBitmap(src); } catch (_) { return; }
-    if (!this._active || !this._channel) { try { bitmap.close?.(); } catch (_) { /* ignore */ } return; }
+    try { bitmap = await createImageBitmap(src); } catch { return; }
+    if (!this._active || !this._channel) { try { bitmap.close?.(); } catch { /* ignore */ } return; }
     try {
       this._channel.postMessage({
         type: MSG.TEXTURE,
@@ -825,11 +825,11 @@ export class TauriSecondMonitorViewer {
         width: bitmap.width,
         height: bitmap.height,
       });
-    } catch (_) {
+    } catch {
       /* channel closed mid-flight */
     } finally {
       // The receiver gets a structured-clone copy; free ours.
-      try { bitmap.close?.(); } catch (_) { /* ignore */ }
+      try { bitmap.close?.(); } catch { /* ignore */ }
     }
   }
 
@@ -858,16 +858,16 @@ export class TauriSecondMonitorViewer {
    */
   _onTappedFrame(bitmap) {
     if (!bitmap) return;
-    if (!this._active || !this._channel) { try { bitmap.close(); } catch (_) { /* ignore */ } return; }
+    if (!this._active || !this._channel) { try { bitmap.close(); } catch { /* ignore */ } return; }
     const src = this.sourceCanvas;
     const sw = (src && src.width) || bitmap.width;
     const sh = (src && src.height) || bitmap.height;
     try {
       this._channel.postMessage({ type: MSG.FRAME, bitmap, sw, sh });
-    } catch (_) {
+    } catch {
       // Channel closed mid-flight — nothing to deliver.
     } finally {
-      try { bitmap.close(); } catch (_) { /* ignore */ }
+      try { bitmap.close(); } catch { /* ignore */ }
     }
   }
 }

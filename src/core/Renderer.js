@@ -7,10 +7,7 @@ import {
   nodePinPositions,
   nodePreviewHeight,
   nodeMinHeight,
-  socketRowCount,
-  rowsTop,
   HEADER_H,
-  ROW_H,
   PREVIEW_TOP_GAP,
   PREVIEW_SIDE_MARGIN,
   EDGE_INSET,
@@ -234,8 +231,7 @@ export class Renderer {
 
     // Grid spacing in world space (gridSize is already in world units)
     // The grid tile is rendered in screen space, so spacing needs to account for scale
-    const minorSpacing = gridSize * scale; // Screen pixels per grid unit
-    const majorSpacing = minorSpacing * 5;
+ // Screen pixels per grid unit
     
     // Cache key based on grid size and scale (scale affects visual appearance)
     const cacheKey = `${gridSize}_${scale.toFixed(2)}`;
@@ -289,7 +285,7 @@ export class Renderer {
    * This is only called when scale or grid size changes
    * Grid is rendered in screen space (pixels) for the offscreen canvas
    */
-  _regenerateGrid(gridSize, scale, width, height) {
+  _regenerateGrid(gridSize, scale, _width, _height) {
     // Grid spacing in screen pixels (for offscreen canvas rendering)
     const minorSpacing = gridSize * scale;
     const majorSpacing = minorSpacing * 5;
@@ -410,15 +406,14 @@ export class Renderer {
     }
   }
 
-  _renderParameterReferences(nodes, nodeMap) {
-    const ctx = this.ctx;
+  _renderParameterReferences(nodes, _nodeMap) {
 
     // Extract parameter references from all nodes
     for (const node of nodes) {
       if (!node.params) continue;
 
       // Check each parameter for node references
-      for (const [paramKey, paramValue] of Object.entries(node.params)) {
+      for (const [, paramValue] of Object.entries(node.params)) {
         if (typeof paramValue !== 'string') continue;
 
         // Only process expressions that start with '='
@@ -923,7 +918,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  _drawEnhancedPin(x, y, radius, type) {
+  _drawEnhancedPin(x, y, radius, _type) {
     const ctx = this.ctx;
 
     // Outer ring

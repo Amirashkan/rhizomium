@@ -58,7 +58,7 @@ export class InputNodes {
     try {
       const result = unifiedExpressionSystem.generateShader(rawValue, mapping, this.graph);
       return result === '0.0' ? fallback : result;
-    } catch (error) {
+    } catch {
       return fallback;
     }
   }

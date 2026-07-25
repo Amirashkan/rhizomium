@@ -149,7 +149,7 @@ export class NodeCompiler {
 
       const shaderCode = this.shaderExpressionSystem.generateShader(expression, variableMapping);
       return shaderCode;
-    } catch (error) {
+    } catch {
 
       return fallback;
     }

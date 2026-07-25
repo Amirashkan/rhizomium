@@ -136,7 +136,7 @@ export class NoiseNodes {
     if (typeof rawValue === 'string' && (/time|audioEnvelope/.test(rawValue))) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         return String(defaultValue);
       }
@@ -146,7 +146,7 @@ export class NoiseNodes {
     if (typeof rawValue === 'string' && rawValue.trim().startsWith('=')) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         const numericValue = parseFloat(rawValue.substring(1));
         return isNaN(numericValue) ? defaultValue : numericValue;

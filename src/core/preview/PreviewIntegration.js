@@ -69,8 +69,6 @@ export class PreviewIntegration {
     // Pass the nodes array to updateAllPreviews
     if (this.editor?.graph?.nodes) {
       this.previewSystem.updateAllPreviews(this.editor.graph.nodes);
-    } else {
-
     }
   }
 
@@ -318,7 +316,7 @@ updateTimeNodes() {
     // mouse + its dependents are dirty, so the recompute stays cheap.
     try {
       pc.computePreviews(this.editor.graph, { time: performance.now() / 1000 });
-    } catch (_) {}
+    } catch {}
     if (this.editor.paramPanel?.refreshParameterDisplays) {
       this.editor.paramPanel.refreshParameterDisplays();
     }
@@ -538,7 +536,7 @@ updateTimeNodes() {
       try {
         previewComputer.computePreviews(this.editor.graph);
         this.editor.markDirty?.('drag-value-preview');
-      } catch (e) {
+      } catch {
         // Non-fatal: numeric labels just stay stale for this frame.
       }
     }
@@ -790,7 +788,7 @@ updateTimeNodes() {
     this.editor.draw();
   }
 
-  onNodeAdded(node) {
+  onNodeAdded(_node) {
     // Invalidate topological sort cache since graph structure changed
     if (this.previewSystem?.invalidateSortCache) {
       this.previewSystem.invalidateSortCache();

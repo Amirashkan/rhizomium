@@ -40,7 +40,7 @@ export class AsyncQueueManager {
   /**
    * Register a worker with the queue manager
    */
-  registerWorker(workerName, worker, options = {}) {
+  registerWorker(workerName, worker, __options = {}) {
     this.workers.set(workerName, worker);
     
     // Initialize priority queues for this worker
@@ -137,13 +137,11 @@ export class AsyncQueueManager {
     
     // Find highest priority message
     let message = null;
-    let priority = -1;
     
     for (let p = 0; p <= 4; p++) {
       const queue = queues.get(p);
       if (queue.length > 0) {
         message = queue.shift();
-        priority = p;
         break;
       }
     }

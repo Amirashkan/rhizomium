@@ -2,7 +2,7 @@
 // Web Worker for SaveLoadManager - Offloads file I/O and serialization
 
 self.onmessage = async (e) => {
-  const { type, graph, filename, data, id } = e.data;
+  const { type, graph, data, id } = e.data;
   
   try {
     switch (type) {
@@ -10,7 +10,7 @@ self.onmessage = async (e) => {
         self.postMessage({ type: 'ready', id });
         break;
         
-      case 'serialize':
+      case 'serialize': {
         // Serialize graph to JSON
         const serialized = await serializeGraph(graph);
         self.postMessage({
@@ -19,8 +19,9 @@ self.onmessage = async (e) => {
           result: serialized // Return the serialized string directly
         });
         break;
+      }
         
-      case 'deserialize':
+      case 'deserialize': {
         // Deserialize JSON to graph
         const deserialized = await deserializeGraph(data);
         self.postMessage({
@@ -29,6 +30,7 @@ self.onmessage = async (e) => {
           result: { graph: deserialized }
         });
         break;
+      }
         
       case 'heartbeat-request':
         // Respond to heartbeat immediately

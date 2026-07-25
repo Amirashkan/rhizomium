@@ -130,7 +130,7 @@ export class CrashDetector {
   /**
    * Identify thread from error source
    */
-  _identifyThreadFromError(source, error) {
+  _identifyThreadFromError(source, __error) {
     // Check if error is from a worker
     for (const [name, thread] of this.monitor.threads.entries()) {
       if (thread.type === 'secondary' && thread.thread instanceof Worker) {

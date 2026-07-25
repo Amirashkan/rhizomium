@@ -118,7 +118,7 @@ export class LoggingSystem {
         const data = JSON.stringify(log);
         navigator.sendBeacon(this.monitor.options.remoteLoggingUrl, data);
       }
-    } catch (error) {
+    } catch {
       // Silently fail - don't block on logging errors
     }
   }

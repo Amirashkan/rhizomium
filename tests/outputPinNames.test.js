@@ -6,6 +6,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Renderer } from '../src/core/Renderer.js';
+import { NodeDefs } from '../src/data/NodeDefs.js';
 
 // ≈6px per character, so an expected width is just `text.length * 6`.
 const stubCtx = () => ({
@@ -113,6 +114,15 @@ describe('node width reserves room for the output name', () => {
   const width = (renderer, kind, outCount) =>
     renderer._minNodeWidth({ id: 1, kind }, 0, outCount, false, TAG_W);
 
+  // The widest name among a node's first `outCount` outputs, in stub-ctx characters. Derived from
+  // the definition rather than written out, because the audio branch keeps adding outputs and a
+  // hardcoded length silently stops describing the node it names (see the reservation test below).
+  const widestName = (kind, outCount = Infinity) =>
+    (NodeDefs[kind]?.pinsOut || [])
+      .slice(0, outCount)
+      .map((p) => (typeof p === 'string' ? p : p.label || '').length)
+      .reduce((a, b) => Math.max(a, b), 0);
+
   it('grows a node by exactly its widest pin name plus the gap to the value tag', () => {
     delete globalThis.window; // no preview band
     const renderer = makeRenderer();
@@ -120,9 +130,11 @@ describe('node width reserves room for the output name', () => {
     // ConstFloat's sole output is the placeholder "out" and reserves nothing; Time's is "t" (1 char).
     expect(width(renderer, 'Time', 1) - width(renderer, 'ConstFloat', 1)).toBe(1 * 6 + 6);
 
-    // "level" is the widest of the Audio Analysis node's level/kick/trig — the same bank of named
-    // outputs the audio branch keeps growing (low/mid/high/kickMeter/…).
-    expect(width(renderer, 'AudioAnalysis', 3) - width(renderer, 'ConstFloat', 1)).toBe(5 * 6 + 6);
+    // Only the first three of the Audio Analysis node's outputs are asked for here, so this measures
+    // "level" against level/low/mid — the widest of that slice, not of the whole bank.
+    expect(widestName('AudioAnalysis', 3)).toBe('level'.length);
+    expect(width(renderer, 'AudioAnalysis', 3) - width(renderer, 'ConstFloat', 1))
+      .toBe(widestName('AudioAnalysis', 3) * 6 + 6);
   });
 
   it('keeps the name width even when the value tag collapses to nothing', () => {
@@ -145,6 +157,12 @@ describe('node width reserves room for the output name', () => {
     renderer._ensureNodeSize(named);
     renderer._ensureNodeSize(unnamed);
 
-    expect(named.w - unnamed.w).toBe(5 * 6 + 6);
+    // _ensureNodeSize takes the output count from the definition, so unlike the test above this
+    // reserves for the widest name in the WHOLE bank — currently "snareMeter", twice the width of
+    // the "level" the first row shows. Asserting a literal here is what rotted: the reservation was
+    // written against a three-output Audio Analysis node and the signal-chain rebuild grew it to
+    // fifteen, which is exactly the drift the node-box reservation exists to absorb.
+    expect(named.w - unnamed.w).toBe(widestName('AudioAnalysis') * 6 + 6);
+    expect(widestName('AudioAnalysis')).toBeGreaterThan(widestName('AudioAnalysis', 3));
   });
 });

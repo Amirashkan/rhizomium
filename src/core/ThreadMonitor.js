@@ -247,7 +247,7 @@ export class ThreadMonitor {
           if (thread.heartbeatCallback()) {
             thread.lastHeartbeat = performance.now();
           }
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
       }
 
       // Check for stalls (only if significant time has passed)
@@ -388,7 +388,7 @@ export class ThreadMonitor {
   /**
    * Setup primary thread monitoring
    */
-  _setupPrimaryMonitoring(name, thread) {
+  _setupPrimaryMonitoring(_name, _thread) {
     // Primary threads are monitored via performance hooks
     // No special setup needed
   }
@@ -407,7 +407,7 @@ export class ThreadMonitor {
   /**
    * Check Python thread health
    */
-  async _checkPythonThreadHealth(name, thread) {
+  async _checkPythonThreadHealth(name, _thread) {
     try {
       // Try to ping Python thread (implementation depends on API)
       const response = await fetch(`http://localhost:8080/api/health/${name}`);

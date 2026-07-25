@@ -25,7 +25,7 @@ export class WelcomeWindow {
   shouldShow() {
     try {
       return localStorage.getItem(this.storageKey) !== "true";
-    } catch (error) {
+    } catch {
 
       return true;
     }
@@ -59,7 +59,7 @@ export class WelcomeWindow {
       }
       this.state.backups = backups.slice(0, 3);
       this.renderBackupList();
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -148,7 +148,7 @@ export class WelcomeWindow {
       try {
         const age = Date.now() - autosaveEntry.timestamp;
         autosaveAgeText = this.formatAge(age);
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -169,7 +169,7 @@ export class WelcomeWindow {
         return null;
       }
       return JSON.parse(stored);
-    } catch (error) {
+    } catch {
 
       return null;
     }
@@ -710,7 +710,7 @@ export class WelcomeWindow {
     }
     try {
       return await this.saveLoadManager.loadFromLocal();
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -723,7 +723,7 @@ export class WelcomeWindow {
     try {
       await this.saveLoadManager.restoreBackup(backupId);
       this.hide();
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -732,7 +732,7 @@ export class WelcomeWindow {
     if (this.state.hasAutosave && this.saveLoadManager?.createBackup) {
       try {
         this.saveLoadManager.createBackup("startup");
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -756,7 +756,7 @@ export class WelcomeWindow {
       } else {
         localStorage.removeItem(this.storageKey);
       }
-    } catch (error) {
+    } catch {
 
     }
   }

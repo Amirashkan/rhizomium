@@ -28,7 +28,6 @@ export class PreviewThrottler {
    */
   setMode(mode) {
     if (this.intervals[mode] !== undefined && this.mode !== mode) {
-      const oldMode = this.mode;
       this.mode = mode;
       
       // If there's a pending update, reschedule it with the new interval
@@ -36,7 +35,6 @@ export class PreviewThrottler {
         const now = this._getTime();
         const elapsed = now - this.lastUpdate;
         const newInterval = this.intervals[this.mode];
-        const oldDelay = this.intervals[oldMode] - elapsed;
         
         // Clear the old timeout
         clearTimeout(this.updateTimeout);

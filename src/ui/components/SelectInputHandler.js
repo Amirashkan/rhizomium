@@ -84,7 +84,7 @@ export class SelectInputHandler {
           }
         }
       }
-    } catch (error) {
+    } catch {
 
       if (param.default !== undefined) {
         select.value = param.default;
@@ -101,7 +101,7 @@ export class SelectInputHandler {
     });
 
     // Store initial value when focus starts
-    select.addEventListener("focus", (e) => {
+    select.addEventListener("focus", (_e) => {
       previousValue = select.value;
     });
 
@@ -134,7 +134,7 @@ export class SelectInputHandler {
 
         previousValue = newValue;
 
-      } catch (error) {
+      } catch {
 
         // Revert to previous value on error
         select.value = previousValue;
