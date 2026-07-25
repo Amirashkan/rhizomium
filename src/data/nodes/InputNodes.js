@@ -195,14 +195,16 @@ export const InputNodes = {
       { label: "strength", type: "f32" },
     ],
     params: [
-      // How strong a hit has to be. Compare against the `strength` output: wire it to a number
-      // readout, watch what your track's kicks reach, and set this a bit under that. Raising it
-      // always fires less.
-      { name: "threshold", type: "float", default: 1.0, label: "Threshold" },
-      // How much a hit has to stand out from the last second or so of audio. Raising it fires
-      // MORE (it is sensitivity, not strictness): 1 reacts to almost anything that stands out at
-      // all, 0 only to hits that tower over everything around them.
-      { name: "sense", type: "float", default: 0.6, label: "Sense" },
+      // How many of the track's recent peaks count as hits, 0..1. Judged against THIS track, not
+      // against an absolute number, so the middle of the range is a sensible starting point on any
+      // material and there is no "correct value" to hunt for. Raising it fires MORE — it is
+      // sensitivity, not strictness. Turn it up until the quiet hits appear, down until the
+      // clutter goes. This is the knob to reach for first.
+      { name: "sense", type: "float", default: 0.5, label: "Sense" },
+      // Shortest time allowed between two hits, in milliseconds. Raise it to thin out a dense
+      // passage, lower it for fast patterns. It controls something Sense cannot, so the two never
+      // cancel each other out.
+      { name: "gap", type: "float", default: 250.0, label: "Gap (ms)" },
     ],
   },
 

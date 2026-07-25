@@ -21,7 +21,7 @@ function kickNode(params = {}) {
   return {
     id: 'k', kind: 'AudioAnalysis',
     // The node's entire parameter set (see data/nodes/InputNodes.js): two knobs.
-    params: { threshold: 1.0, sense: 0.6, ...params },
+    params: { sense: 0.5, gap: 250, ...params },
     inputs: [],
   };
 }
@@ -43,8 +43,8 @@ function stubClient() {
 // clear kick reads 1-2.5, which is why the shipped threshold is 1.0.
 const BACKGROUND = 0.03;
 const HIT = 2.5;
-// Fixed internals the node no longer exposes (see AudioAnalysisProcessor).
-const MIN_GAP_MS = 250;
+// The Gap knob's default, in ms.
+const DEFAULT_GAP_MS = 250;
 
 /**
  * A test rig that drives the processor frame by frame on an explicit clock.
@@ -168,43 +168,74 @@ describe('AudioAnalysisProcessor', () => {
 
   // --- the two knobs ---------------------------------------------------------------------------
 
-  it('Threshold: raising it only ever fires less, and a high value fires nothing', () => {
-    // Regression: the floor was once a fraction of a decaying running peak, which made every new
-    // maximum read as 1.0 — a band of pure noise became a stream of onsets no value could refuse.
-    const counts = [0.2, 1.0, 2.0, 50].map((threshold) => {
-      const rig = makeRig({ threshold });
-      let fired = 0;
-      for (let i = 0; i < 6; i++) { fired += rig.hit(1.5); fired += rig.silence(20); }
-      return fired;
-    });
-    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
-    expect(counts[0]).toBeGreaterThan(0);
-    expect(counts[counts.length - 1]).toBe(0);
-  });
-
-  it('Threshold: a hit below it is refused however prominent it is locally', () => {
-    const rig = makeRig({ threshold: 2.0 });
-    rig.silence();
-    expect(rig.hit(2.5)).toBe(1);
-    rig.silence(30);
-    expect(rig.hit(1.2)).toBe(0);
-  });
-
   it('Sense: raising it fires MORE, matching what the name says', () => {
-    // The knob it replaced was a strictness multiplier, so turning "sensitivity" up made the
-    // detector fire less. Sense is inverted internally so the control reads the way it is labelled.
-    const counts = [0.0, 0.4, 0.8, 1.0].map((sense) => {
-      const rig = makeRig({ threshold: 0.05, sense });
+    // Every peak is compared against the peaks around it, so the knob means the same thing on any
+    // material. Feed a mix of strong and weak hits and sweep: more of them should qualify as Sense
+    // rises, with no setting where the knob stops responding.
+    const run = (sense) => {
+      const rig = makeRig({ sense });
       let fired = 0;
-      // Hits that only just stand out from a busy background, so the margin is what decides.
-      for (let i = 0; i < 10; i++) {
-        fired += rig.hit(0.35);
-        for (let j = 0; j < 18; j++) fired += rig.step(0.1 + 0.06 * (j % 3));
+      for (let i = 0; i < 30; i++) {
+        // Alternating strong / middling / weak hits, well spaced.
+        fired += rig.hit([2.5, 1.1, 0.5][i % 3]);
+        rig.silence(20);
       }
       return fired;
-    });
+    };
+    const counts = [0, 0.25, 0.5, 0.75, 1].map(run);
     for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThanOrEqual(counts[i - 1]);
     expect(counts[counts.length - 1]).toBeGreaterThan(counts[0]);
+  });
+
+  it('Sense works the same way whatever the material\'s absolute scale is', () => {
+    // The point of judging against the track's own peaks: multiplying the whole signal by 100
+    // must not change which hits qualify. An absolute threshold could never manage this, which is
+    // why one was impossible to choose on unfamiliar material.
+    const run = (scale) => {
+      const rig = makeRig({ sense: 0.5 });
+      let fired = 0;
+      for (let i = 0; i < 30; i++) {
+        fired += rig.hit([2.5, 1.1, 0.5][i % 3] * scale, { energy: 0.5 });
+        // The background scales with the material too — that is what "same material, louder" means.
+        for (let j = 0; j < 20; j++) rig.step(BACKGROUND * scale, { energy: 0.5 });
+      }
+      return fired;
+    };
+    expect(run(100)).toBe(run(1));
+    expect(run(0.01)).toBe(run(1));
+  });
+
+  it('Gap: raising it fires less, and it is independent of Sense', () => {
+    const run = (gap) => {
+      const rig = makeRig({ sense: 0.8, gap });
+      let fired = 0;
+      // Hits closer together than the widest gap under test.
+      for (let i = 0; i < 40; i++) { fired += rig.hit(2.5); rig.silence(4); }
+      return fired;
+    };
+    const counts = [100, 250, 500, 900].map(run);
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
+    expect(counts[0]).toBeGreaterThan(counts[counts.length - 1]);
+  });
+
+  it('a featureless passage stays quiet at the default Sense', () => {
+    // Ripple in a flat passage must not read as hits. (At Sense 1 it legitimately will — that is
+    // what asking for maximum sensitivity means — but the default has to be usable.)
+    const rig = makeRig();
+    let fired = 0;
+    for (let i = 0; i < 300; i++) fired += rig.step(BACKGROUND * (1 + 0.05 * (i % 5)));
+    expect(fired).toBe(0);
+  });
+
+  it('stays silent when the band is not sounding, whatever Sense is set to', () => {
+    // The one absolute check, and the only thing standing between a fully relative detector and
+    // firing on the noise of a silent band. It is not a knob, deliberately.
+    for (const sense of [0, 0.5, 1]) {
+      const rig = makeRig({ sense });
+      let fired = 0;
+      for (let i = 0; i < 200; i++) fired += rig.step(HIT * Math.random(), { energy: 0.0 });
+      expect(fired).toBe(0);
+    }
   });
 
   it('Sense keeps working past the first few hits', () => {
@@ -220,10 +251,14 @@ describe('AudioAnalysisProcessor', () => {
     }
   });
 
-  it('Sense at 0 still lets an unmistakable hit through', () => {
+  it('Sense at 0 still lets the strongest hits through', () => {
     const rig = makeRig({ sense: 0 });
     rig.silence();
-    expect(rig.hit(HIT)).toBe(1);
+    // A run of equal, unmistakable hits: at the strictest setting these are still the top of the
+    // distribution, so they must fire.
+    let fired = 0;
+    for (let i = 0; i < 10; i++) { fired += rig.hit(HIT); rig.silence(20); }
+    expect(fired).toBeGreaterThan(0);
   });
 
   it('clamps out-of-range knob values rather than misbehaving', () => {
@@ -236,14 +271,14 @@ describe('AudioAnalysisProcessor', () => {
 
   // --- fixed internals -------------------------------------------------------------------------
 
-  it('suppresses a second kick inside the fixed minimum gap, then allows one after it', () => {
+  it('suppresses a second kick inside the Gap, then allows one after it', () => {
     const rig = makeRig();
     rig.silence();
     expect(rig.hit()).toBe(1);
     // Another transient immediately after — inside the gap, so suppressed.
     expect(rig.hit()).toBe(0);
     // Wait out the gap, then a transient is allowed again.
-    rig.silence(Math.ceil(MIN_GAP_MS / 16) + 4);
+    rig.silence(Math.ceil(DEFAULT_GAP_MS / 16) + 4);
     expect(rig.hit()).toBe(1);
   });
 

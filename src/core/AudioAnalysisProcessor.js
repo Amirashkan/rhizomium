@@ -43,16 +43,25 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
  *   <id>.trig     - a single-frame 1.0 pulse on the detection frame
  *   <id>.strength - the onset signal Threshold is compared against
  */
-// How far back the detector looks to judge "what a hit sounds like around here": the strong peaks
-// within this window define the local reference SENSE works against.
-const PEAK_WINDOW_S = 6;
-// Fewer recent peaks than this and there is nothing to generalise from, so SENSE stands down and
-// Threshold decides alone.
-const MIN_PEAKS_FOR_REFERENCE = 5;
-// Which recent peaks count as "hits" for that reference. Background wiggles vastly outnumber real
-// hits, so the reference is the top sliver, not the middle: taking the median of all peaks lands
-// among the noise and drags the reference far below any real hit.
-const PEAK_REFERENCE_PERCENTILE = 0.9;
+// How far back the detector looks to judge what is loud and what is not around here.
+const SIGNAL_WINDOW_S = 6;
+// The reference pair, taken from the recent signal itself rather than from detected peaks. Using
+// every frame matters: a peak list is empty during a quiet intro, so a detector keyed to it
+// refuses to fire until several hits have already gone past — it would miss the first kicks of
+// every track. Every frame contributes here, so the reference exists from the start.
+const BACKGROUND_QUANTILE = 0.5;  // a typical frame: the background
+const STRONG_QUANTILE = 0.995;    // roughly the strength of a clear hit around here
+// A purely relative rule will always find "the biggest of the tiny" — in a flat passage it happily
+// fires on ripple. So the recent signal has to show real dynamic range before anything counts as a
+// hit at all: the strong end must be at least this many times the background. Dimensionless, so it
+// still carries no assumption about how loud any particular track is.
+const MIN_DYNAMIC_RATIO = 2.0;
+// SENSE slides the bar between those two: at 0 it sits at a strong hit, so only the clearest hits
+// fire; at 1 it sits at the background. The exponent shapes the travel — the distribution is
+// steeply skewed, so a linear slide crams the useful change into a small part of the knob. 1.5
+// measured as the most even response end to end on real audio, and puts the middle of the knob at
+// a musically sensible density.
+const SENSE_CURVE = 1.5;
 // The band must carry at least this much energy (band envelope, 0..1) for a peak to count. The
 // onset signal is relative, so without an absolute presence check a silent passage's noise could
 // still be shaped into something that looks like a hit.
@@ -62,20 +71,23 @@ const MIN_BAND_ENERGY = 0.04;
 // These were parameters once. They are constants now because none of them was a real choice: each
 // has one value that measurement supports, and exposing them only multiplied the ways to be wrong.
 
-// Minimum time between hits. Longer than a kick's own decay tail, whose late ripples would
-// otherwise re-trigger, and long enough to step over an intervening hat. Measured on real music,
-// 250ms beat 200ms without costing detections. It still clears quarter-note kicks up to ~240 BPM.
+// Default for the Gap knob: the shortest time allowed between two hits. Longer than a kick's own
+// decay tail, whose late ripples would otherwise re-trigger, and long enough to step over an
+// intervening hat. Measured on real music, 250ms beat 200ms without costing detections, and it
+// still clears quarter-note kicks up to ~240 BPM.
 const MIN_GAP_MS = 250;
 // How long the `kick` envelope takes to fall back to 0. Cosmetic: it shapes the output, it has no
 // effect on what gets detected.
 const KICK_RELEASE_MS = 140;
-// SENSE (0..1) sets how much of a typical recent hit a peak must match to count:
-//   1.0 - no comparison at all, Threshold alone decides (most permissive)
-//   0.5 - must also reach half of what recent hits reach
-//   0.0 - must match recent hits outright (only the strongest survive)
-// It can only ever RAISE the bar above Threshold, never lower it. That ordering matters: a purely
-// relative test would rescale a band of pure noise into "hits" that no setting could refuse, which
-// is a failure this detector has already had once.
+// Both knobs are dimensionless and judged against the track's own recent peaks, never against an
+// absolute number. An absolute threshold is unfindable in principle on unfamiliar material: there
+// is no "correct" value to know, because the number a hit produces depends entirely on the mix.
+// Relative knobs mean the middle of the range is a sensible starting point on anything.
+//
+// Firing on noise — the failure a purely relative rule invites — is prevented by an absolute check
+// that is NOT a knob: the band has to be audibly sounding at all (MIN_BAND_ENERGY here, plus a
+// silence floor in BrowserAudioCapture._computeSpectralFlux). That is the one thing that genuinely
+// needs an absolute, and it is not something anyone should have to tune.
 
 export class AudioAnalysisProcessor {
   constructor() {
@@ -174,18 +186,20 @@ export class AudioAnalysisProcessor {
       const bandEnergy = this._bandEnergy(ctx);
 
       // 2. The two knobs. Everything else about detection is fixed above.
-      const threshold = Math.max(0, this._numericParam(node, 'threshold', 1.0, ctx));
-      // Sense reads as sensitivity: 1 fires readily, 0 only on hits as strong as the recent best.
-      const sense = Math.min(1, Math.max(0, this._numericParam(node, 'sense', 0.6, ctx)));
+      // Sense reads as sensitivity: 1 fires readily, 0 only on the strongest hits around.
+      const sense = Math.min(1, Math.max(0, this._numericParam(node, 'sense', 0.5, ctx)));
+      // Gap is the shortest time allowed between two hits. It decides something Sense cannot —
+      // how dense the output may get — so the two never fight over the same ground, which is what
+      // made the previous pair feel dead: each went inert wherever the other happened to dominate.
+      const refractoryMs = Math.max(0, this._numericParam(node, 'gap', MIN_GAP_MS, ctx));
       const releaseMs = KICK_RELEASE_MS;
-      const refractoryMs = MIN_GAP_MS;
 
       let st = this._state.get(node.id);
       if (!st) {
         st = {
-          // Recent local maxima, as [time, value] pairs, trimmed to PEAK_WINDOW_S. These are what
-          // Sense compares a candidate against.
-          peaks: [],
+          // The recent onset signal, as [time, value] pairs trimmed to SIGNAL_WINDOW_S. This is
+          // what a candidate is compared against, so the knobs mean the same thing on any material.
+          signal: [],
           env: 0,
           // One-frame delay line for peak picking: f1 is the frame being judged, f2 its
           // predecessor. Both start at Infinity so nothing can look like a peak until two real
@@ -222,25 +236,27 @@ export class AudioAnalysisProcessor {
       // one hit instead of firing on the way up and again on every later ripple over the line.
       const isPeak = st.f1 >= st.f2 && st.f1 > flux;
 
-      // Remember every local maximum, so the detector always knows the scale of what is going on
-      // around it, and drop anything older than the window. The finite check skips the delay
-      // line's startup sentinels, which would otherwise be recorded as an infinitely strong hit
-      // and hold the reference above everything real for as long as they stayed in the window.
-      if (isPeak && Number.isFinite(st.f1)) st.peaks.push([clock, st.f1]);
-      while (st.peaks.length && clock - st.peaks[0][0] > PEAK_WINDOW_S) st.peaks.shift();
+      // Keep a rolling window of the signal, so the detector always knows the scale of what is
+      // going on around it.
+      st.signal.push([clock, flux]);
+      while (st.signal.length && clock - st.signal[0][0] > SIGNAL_WINDOW_S) st.signal.shift();
 
-      // The bar a peak has to clear. THRESHOLD is the absolute part, in the units `strength`
-      // reports (on real music a clear kick reads about 1-2.5, the background about 0.07). SENSE
-      // adds a relative part: a share of what recent hits around here actually reach, which is
-      // what keeps a quiet passage from firing on things a loud one would ignore. Taking the max
-      // means Sense can only ever demand MORE, so it cannot rescale noise into hits.
-      let bar = threshold;
-      if (sense < 1 && st.peaks.length >= MIN_PEAKS_FOR_REFERENCE) {
-        const values = st.peaks.map((p) => p[1]).sort((a, b) => a - b);
-        const reference = values[Math.floor(values.length * PEAK_REFERENCE_PERCENTILE)];
-        bar = Math.max(bar, (1 - sense) * reference);
+      // The bar a candidate has to clear, built entirely from what this track has been doing for
+      // the last few seconds, so the same knob position behaves the same way on any material.
+      // Sorting only happens when there is a candidate to judge, which is rare compared with the
+      // frame rate.
+      let overFloor = false;
+      if (isPeak && Number.isFinite(st.f1) && st.signal.length > 8) {
+        const values = st.signal.map((p) => p[1]).sort((a, b) => a - b);
+        const at = (q) => values[Math.min(values.length - 1, Math.floor(values.length * q))];
+        const background = at(BACKGROUND_QUANTILE);
+        const strong = at(STRONG_QUANTILE);
+        // Sense 0 keeps the bar up near a strong hit; sense 1 drops it close to the background.
+        const bar = background + (strong - background) * Math.pow(1 - sense, SENSE_CURVE);
+        // ...and nothing counts unless the passage actually has hits in it to speak of.
+        const hasDynamics = strong >= background * MIN_DYNAMIC_RATIO;
+        overFloor = hasDynamics && st.f1 >= bar && st.f1 > background;
       }
-      const overFloor = st.f1 >= bar;
       // The band must actually be sounding. Flux is relative, so without this the noise floor of a
       // silent passage normalizes into a "strong onset" — a large share of the phantom hits.
       const bandSounding = st.f1Energy >= MIN_BAND_ENERGY;
