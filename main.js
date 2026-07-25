@@ -42,6 +42,8 @@ import { showTestCube } from './show-test-cube.js';
 import { Vec3 } from './src/scene/math/Vec3.js';
 import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindow.js';
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
+import { exportPNG, exportAnimation } from './src/ui/exportRender.js';
+import { publishImage, publishAnimation } from './src/ui/publish.js';
 import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 import { getPerfProbe } from "./src/utils/PerfProbe.js";
 import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
@@ -505,23 +507,6 @@ async function initialize() {
     if (floatingPreview) {
       previewExportSettingsWindow = new PreviewExportSettingsWindow(floatingPreview);
       window.previewExportSettingsWindow = previewExportSettingsWindow;
-      
-      // Initialize settings with default values if needed
-      if (floatingPreview.settings) {
-        const previewSettings = floatingPreview.settings.settings;
-        if (!previewSettings.showGrid) previewSettings.showGrid = false;
-        if (previewSettings.showNodePreviews === undefined) previewSettings.showNodePreviews = true;
-        if (!previewSettings.antiAliasing) previewSettings.antiAliasing = 2;
-        if (previewSettings.startFrame === undefined) previewSettings.startFrame = 0;
-        if (previewSettings.endFrame === undefined) previewSettings.endFrame = 60;
-        if (previewSettings.loop === undefined) previewSettings.loop = true;
-        if (previewSettings.alphaChannel === undefined) previewSettings.alphaChannel = false;
-        if (!previewSettings.compression) previewSettings.compression = 90;
-        if (!previewSettings.aspectRatio) previewSettings.aspectRatio = "16:9";
-      }
-
-      // Setup menu handlers
-      setTimeout(() => setupPreviewSettingsMenu(), 100);
     }
 
     // Initialize Preferences Window BEFORE setupUIEventHandlers
@@ -532,6 +517,10 @@ async function initialize() {
     // Now set up UI event handlers (which will attach handlers to the windows we just created)
     setupUIEventHandlers();
     setupKeyboardShortcuts();
+
+    // Stored preferences win over the editor's built-in defaults, so apply them
+    // once the handlers above have wired the matching View-menu controls.
+    preferencesWindow.applyAll();
 
     // PERFORMANCE: Lightweight uniform update without shader rebuild
     window.updateUniformsOnly = function(nodeId, paramName, value) {
@@ -966,6 +955,7 @@ function setupUIEventHandlers() {
     if (snapSizeInput) {
       snapSizeInput.value = currentSnapSize;
     }
+    window.preferencesWindow?.syncPreference("gridSize", currentSnapSize);
 
     return currentSnapSize;
   };
@@ -991,6 +981,7 @@ function setupUIEventHandlers() {
         editor.setSnapEnabled(enabled);
       }
       syncSnapInputState(enabled);
+      window.preferencesWindow?.syncPreference("snapToGrid", enabled);
       if (enabled) {
         applySnapSize(snapSizeInput?.value ?? currentSnapSize);
       }
@@ -1461,298 +1452,6 @@ function setupUIEventHandlers() {
   setupRhizomiumMenu();
 }
 
-function setupPreviewSettingsMenu() {
-  if (!window.floatingPreview || !window.floatingPreview.settings) {
-    console.warn("Preview settings not available");
-    return;
-  }
-
-  const settings = window.floatingPreview.settings;
-  const previewSettings = settings.settings;
-
-  // Submenu hover behavior
-  const submenuTrigger = document.getElementById("preview-settings-trigger");
-  const submenu = document.getElementById("preview-settings-submenu");
-  
-  if (submenuTrigger && submenu) {
-    let submenuTimeout = null;
-    
-    submenuTrigger.addEventListener("mouseenter", () => {
-      clearTimeout(submenuTimeout);
-      submenu.classList.add("show");
-    });
-    
-    submenuTrigger.addEventListener("mouseleave", () => {
-      submenuTimeout = setTimeout(() => {
-        submenu.classList.remove("show");
-      }, 200);
-    });
-    
-    submenu.addEventListener("mouseenter", () => {
-      clearTimeout(submenuTimeout);
-    });
-    
-    submenu.addEventListener("mouseleave", () => {
-      submenu.classList.remove("show");
-    });
-  }
-
-  // Display Options - Show Grid
-  const showGridCheckbox = document.getElementById("preview-show-grid");
-  if (showGridCheckbox) {
-    showGridCheckbox.checked = previewSettings.showGrid || false;
-    showGridCheckbox.addEventListener("change", (e) => {
-      settings.updateSetting("showGrid", e.target.checked);
-      // TODO: Implement grid display in editor
-    });
-  }
-
-  // Display Options - Show Wireframe
-  const showWireframeCheckbox = document.getElementById("preview-show-wireframe");
-  if (showWireframeCheckbox) {
-    showWireframeCheckbox.checked = previewSettings.wireframe || false;
-    showWireframeCheckbox.addEventListener("change", (e) => {
-      settings.updateSetting("wireframe", e.target.checked);
-    });
-  }
-
-  // Display Options - Show Node Previews
-  const showNodePreviewsCheckbox = document.getElementById("preview-show-node-previews");
-  if (showNodePreviewsCheckbox) {
-    // Default to true if editor has node previews enabled
-    const nodePreviewsEnabled = window.editor?.nodePreviews?.size > 0;
-    showNodePreviewsCheckbox.checked = previewSettings.showNodePreviews !== false && nodePreviewsEnabled;
-    showNodePreviewsCheckbox.addEventListener("change", (e) => {
-      settings.updateSetting("showNodePreviews", e.target.checked);
-      // TODO: Toggle node previews globally
-    });
-  }
-
-  // Resolution / Quality - Resolution Dropdown
-  const resolutionSelect = document.getElementById("preview-resolution");
-  if (resolutionSelect) {
-    const currentRes = previewSettings.resolution || { width: 1920, height: 1080 };
-    if (currentRes.width === 1280 && currentRes.height === 720) {
-      resolutionSelect.value = "720p";
-    } else if (currentRes.width === 1920 && currentRes.height === 1080) {
-      resolutionSelect.value = "1080p";
-    } else if (currentRes.width === 3840 && currentRes.height === 2160) {
-      resolutionSelect.value = "4k";
-    } else {
-      resolutionSelect.value = "custom";
-    }
-
-    resolutionSelect.addEventListener("change", (e) => {
-      const resMap = {
-        "720p": { width: 1280, height: 720 },
-        "1080p": { width: 1920, height: 1080 },
-        "4k": { width: 3840, height: 2160 },
-      };
-      
-      if (resMap[e.target.value]) {
-        settings.updateSetting("resolution.width", resMap[e.target.value].width);
-        settings.updateSetting("resolution.height", resMap[e.target.value].height);
-      }
-    });
-  }
-
-  // Resolution / Quality - Anti-Aliasing Slider
-  const aaSlider = document.getElementById("preview-aa");
-  const aaValue = document.getElementById("preview-aa-value");
-  if (aaSlider && aaValue) {
-    aaSlider.value = previewSettings.antiAliasing || 2;
-    aaValue.textContent = `${aaSlider.value}x`;
-    aaSlider.addEventListener("input", (e) => {
-      const value = parseInt(e.target.value);
-      aaValue.textContent = `${value}x`;
-      settings.updateSetting("antiAliasing", value);
-      // TODO: Apply anti-aliasing to renderer
-    });
-  }
-
-  // Animation Settings - Frame Range
-  const startFrameInput = document.getElementById("preview-start-frame");
-  const endFrameInput = document.getElementById("preview-end-frame");
-  if (startFrameInput) {
-    startFrameInput.value = previewSettings.startFrame || 0;
-    startFrameInput.addEventListener("change", (e) => {
-      const value = parseInt(e.target.value) || 0;
-      settings.updateSetting("startFrame", value);
-      // TODO: Apply frame range to animation
-    });
-  }
-  if (endFrameInput) {
-    endFrameInput.value = previewSettings.endFrame || 60;
-    endFrameInput.addEventListener("change", (e) => {
-      const value = parseInt(e.target.value) || 60;
-      settings.updateSetting("endFrame", value);
-      // TODO: Apply frame range to animation
-    });
-  }
-
-  // Animation Settings - FPS
-  const fpsInput = document.getElementById("preview-fps");
-  if (fpsInput) {
-    fpsInput.value = previewSettings.refreshRate || 60;
-    fpsInput.addEventListener("change", (e) => {
-      const value = parseInt(e.target.value) || 60;
-      settings.updateSetting("refreshRate", Math.min(60, Math.max(1, value)));
-    });
-  }
-
-  // Animation Settings - Loop / Play Options
-  const loopCheckbox = document.getElementById("preview-loop");
-  if (loopCheckbox) {
-    loopCheckbox.checked = previewSettings.loop !== false;
-    loopCheckbox.addEventListener("change", (e) => {
-      settings.updateSetting("loop", e.target.checked);
-      // TODO: Apply loop setting
-    });
-  }
-
-  // Export / Publish - Export PNG
-  const exportPngBtn = document.getElementById("preview-export-png");
-  if (exportPngBtn) {
-    exportPngBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (settings._exportPNG) {
-        await settings._exportPNG();
-      }
-    });
-  }
-
-  // Export / Publish - Export Animation
-  const exportAnimBtn = document.getElementById("preview-export-animation");
-  if (exportAnimBtn) {
-    exportAnimBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (settings._exportAnimation) {
-        await settings._exportAnimation();
-      }
-    });
-  }
-
-  // Export / Publish - Publish Image
-  const publishImageBtn = document.getElementById("preview-publish-image");
-  if (publishImageBtn) {
-    publishImageBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (settings._publishImage) {
-        await settings._publishImage();
-      }
-    });
-  }
-
-  // Export / Publish - Publish Animation
-  const publishAnimBtn = document.getElementById("preview-publish-animation");
-  if (publishAnimBtn) {
-    publishAnimBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (settings._publishAnimation) {
-        await settings._publishAnimation();
-      }
-    });
-  }
-
-  // Advanced Settings - Alpha Channel
-  const alphaChannelCheckbox = document.getElementById("preview-alpha-channel");
-  if (alphaChannelCheckbox) {
-    alphaChannelCheckbox.checked = previewSettings.alphaChannel || false;
-    alphaChannelCheckbox.addEventListener("change", (e) => {
-      settings.updateSetting("alphaChannel", e.target.checked);
-      // TODO: Apply alpha channel setting
-    });
-  }
-
-  // Advanced Settings - Compression Level
-  const compressionSlider = document.getElementById("preview-compression");
-  const compressionValue = document.getElementById("preview-compression-value");
-  if (compressionSlider && compressionValue) {
-    compressionSlider.value = previewSettings.compression || 90;
-    compressionValue.textContent = `${compressionSlider.value}%`;
-    compressionSlider.addEventListener("input", (e) => {
-      const value = parseInt(e.target.value);
-      compressionValue.textContent = `${value}%`;
-      settings.updateSetting("compression", value);
-      // TODO: Apply compression when exporting
-    });
-  }
-
-  // Advanced Settings - GPU Precision
-  const gpuPrecisionSelect = document.getElementById("preview-gpu-precision");
-  if (gpuPrecisionSelect) {
-    gpuPrecisionSelect.value = previewSettings.quality || "high";
-    gpuPrecisionSelect.addEventListener("change", (e) => {
-      settings.updateSetting("quality", e.target.value);
-    });
-  }
-
-  // Miscellaneous - Reset to Defaults
-  const resetBtn = document.getElementById("preview-reset-defaults");
-  if (resetBtn) {
-    resetBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      // Reset all settings to defaults
-      const defaults = {
-        resolution: { width: 1920, height: 1080 },
-        refreshRate: 60,
-        wireframe: false,
-        showGrid: false,
-        showNodePreviews: true,
-        debugChannel: "none",
-        timeScale: 1.0,
-        isPaused: false,
-        quality: "high",
-        showFPS: false,
-        antiAliasing: 2,
-        startFrame: 0,
-        endFrame: 60,
-        loop: true,
-        alphaChannel: false,
-        compression: 90,
-      };
-
-      Object.keys(defaults).forEach((key) => {
-        if (key === "resolution") {
-          settings.updateSetting("resolution.width", defaults[key].width);
-          settings.updateSetting("resolution.height", defaults[key].height);
-        } else {
-          settings.updateSetting(key, defaults[key]);
-        }
-      });
-
-      // Update UI elements
-      if (showGridCheckbox) showGridCheckbox.checked = defaults.showGrid;
-      if (showWireframeCheckbox) showWireframeCheckbox.checked = defaults.wireframe;
-      if (showNodePreviewsCheckbox) showNodePreviewsCheckbox.checked = defaults.showNodePreviews;
-      if (resolutionSelect) resolutionSelect.value = "1080p";
-      if (aaSlider) {
-        aaSlider.value = defaults.antiAliasing;
-        if (aaValue) aaValue.textContent = `${defaults.antiAliasing}x`;
-      }
-      if (startFrameInput) startFrameInput.value = defaults.startFrame;
-      if (endFrameInput) endFrameInput.value = defaults.endFrame;
-      if (fpsInput) fpsInput.value = defaults.refreshRate;
-      if (loopCheckbox) loopCheckbox.checked = defaults.loop;
-      if (alphaChannelCheckbox) alphaChannelCheckbox.checked = defaults.alphaChannel;
-      if (compressionSlider) {
-        compressionSlider.value = defaults.compression;
-        if (compressionValue) compressionValue.textContent = `${defaults.compression}%`;
-      }
-      if (gpuPrecisionSelect) gpuPrecisionSelect.value = defaults.quality;
-
-      if (typeof updateStatus === "function") {
-        updateStatus("Preview settings reset to defaults");
-      }
-    });
-  }
-}
 
 // Export Window Manager
 let exportWindow = null;
@@ -1848,9 +1547,7 @@ function showExportWindow() {
     exportPngBtn.style.background = "rgba(255, 255, 255, 0.1)";
   };
   exportPngBtn.onclick = async () => {
-    if (window.floatingPreview?.settings?._exportPNG) {
-      await window.floatingPreview.settings._exportPNG();
-    }
+    await exportPNG();
   };
 
   const exportAnimBtn = document.createElement("button");
@@ -1876,9 +1573,7 @@ function showExportWindow() {
     exportAnimBtn.style.background = "rgba(255, 255, 255, 0.1)";
   };
   exportAnimBtn.onclick = async () => {
-    if (window.floatingPreview?.settings?._exportAnimation) {
-      await window.floatingPreview.settings._exportAnimation();
-    }
+    await exportAnimation();
   };
 
   content.appendChild(exportPngBtn);
@@ -1984,17 +1679,24 @@ function setupRhizomiumMenu() {
     });
   }
 
-  // Publish
-  const publishBtn = document.getElementById("btn-publish");
-  if (publishBtn) {
-    publishBtn.addEventListener("click", async (e) => {
+  // Publish - share the current render to the TenderWorld gallery.
+  const publishImageBtn = document.getElementById("btn-publish-image");
+  if (publishImageBtn) {
+    publishImageBtn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const target = document.getElementById("publish-target")?.value || "tenderworld";
-      // TODO: Implement publish to cloud/server
-      if (typeof updateStatus === "function") {
-        updateStatus(`Publish to ${target}: Feature coming soon`);
-      }
+      updateStatus("Publishing image to TenderWorld…");
+      await publishImage();
+    });
+  }
+
+  const publishAnimationBtn = document.getElementById("btn-publish-animation");
+  if (publishAnimationBtn) {
+    publishAnimationBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      updateStatus("Publishing animation to TenderWorld…");
+      await publishAnimation();
     });
   }
 
@@ -2677,11 +2379,9 @@ function setupKeyboardShortcuts() {
       }
 
       case "l":
-        e.preventDefault();
         if (e.shiftKey) {
+          e.preventDefault();
           saveLoadManager?.loadFromLocal?.();
-        } else if (!toggleDebugOverlay()) {
-          updateStatus("Debug overlay unavailable", "warning");
         }
         break;
 
@@ -2999,24 +2699,6 @@ function togglePreviewVisibility() {
 
   floatingPreview.toggle();
   updateStatus(floatingPreview.isVisible ? "Preview shown" : "Preview hidden");
-  return true;
-}
-
-function toggleDebugOverlay() {
-  if (!floatingPreview?.settings) {
-    return false;
-  }
-
-  const settings = floatingPreview.settings;
-  const current = settings.settings?.debugChannel || "none";
-  const next = current === "none" ? "alpha" : "none";
-
-  settings.updateSetting("debugChannel", next);
-  updateStatus(
-    next === "none"
-      ? "Debug overlay hidden"
-      : `Debug overlay: ${next.toUpperCase()}`,
-  );
   return true;
 }
 

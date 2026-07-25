@@ -253,6 +253,15 @@
   margin-bottom: 6px;
 }
 
+/* Plain explanatory line inside a submenu section (not a control label). */
+.submenu-note {
+  display: block;
+  padding: 0 16px 8px;
+  color: #8a8a8a;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .submenu-toggle {
   display: flex;
   align-items: center;

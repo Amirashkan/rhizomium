@@ -26,6 +26,7 @@ import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
+import { getRenderResolution } from '../ui/RenderResolution.js';
 
 export class ComputeExecutor {
   constructor(device) {
@@ -308,15 +309,10 @@ export class ComputeExecutor {
     const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
     const DEFAULT_COMPUTE_RES = 1024;
 
-    // Get preview resolution from settings
-    let baseWidth = DEFAULT_COMPUTE_RES;
-    let baseHeight = DEFAULT_COMPUTE_RES;
-
-    if (window.floatingPreview?.settings?.settings?.resolution) {
-      const previewRes = window.floatingPreview.settings.settings.resolution;
-      baseWidth = previewRes.width || DEFAULT_COMPUTE_RES;
-      baseHeight = previewRes.height || DEFAULT_COMPUTE_RES;
-    }
+    // Follow the single render resolution
+    const renderRes = getRenderResolution();
+    const baseWidth = renderRes.width || DEFAULT_COMPUTE_RES;
+    const baseHeight = renderRes.height || DEFAULT_COMPUTE_RES;
 
     let width = baseWidth;
     let height = baseHeight;
@@ -795,15 +791,10 @@ export class ComputeExecutor {
         try {
           // Use the same resolution as the compute node (follows preview settings)
           const resolution = nodeData.resolution || [1024, 1024];
-          // Get preview resolution if available
-          let width = resolution[0] || 1024;
-          let height = resolution[1] || 1024;
-          
-          if (window.floatingPreview?.settings?.settings?.resolution) {
-            const previewRes = window.floatingPreview.settings.settings.resolution;
-            width = previewRes.width || width;
-            height = previewRes.height || height;
-          }
+          // Follow the single render resolution
+          const renderRes = getRenderResolution();
+          let width = renderRes.width || resolution[0] || 1024;
+          let height = renderRes.height || resolution[1] || 1024;
           
           const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
           width = Math.min(width, MAX_COMPUTE_RES);
@@ -846,13 +837,9 @@ export class ComputeExecutor {
       if (!inputNode) continue;
 
       try {
-        let width = 512;
-        let height = 512;
-        if (window.floatingPreview?.settings?.settings?.resolution) {
-          const previewRes = window.floatingPreview.settings.settings.resolution;
-          width = previewRes.width || width;
-          height = previewRes.height || height;
-        }
+        const renderRes = getRenderResolution();
+        let width = renderRes.width || 512;
+        let height = renderRes.height || 512;
         const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
         width = Math.min(width, MAX_COMPUTE_RES);
         height = Math.min(height, MAX_COMPUTE_RES);

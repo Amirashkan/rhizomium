@@ -284,13 +284,6 @@ export class FloatingGPUPreview {
     this._recordPerfWrite("drag:position");
     this.position.x = left;
     this.position.y = top;
-    
-    // PERFORMANCE: Defer settings panel update during dragging to reduce layout reads
-    // Only update settings panel position when drag ends (handled in onMouseUp)
-    if (!this.isDragging && this.settings.settingsPanel) {
-      this.settings._positionSettingsPanel();
-      this._recordPerfWrite("drag:settingsPanel");
-    }
   }
 
   _scheduleDragPositionFlush() {
@@ -544,10 +537,6 @@ _stopPreviewRenderLoop() {
     this._recordPerfWrite("updateSize:canvas");
 
     this._updateTitle();
-
-    if (this.settings.settingsPanel) {
-      this.settings._positionSettingsPanel();
-    }
 
     // FIX: Only trigger shader rebuild if canvas size actually changed
     // This prevents black screen on every canvas click
@@ -1051,26 +1040,6 @@ canvasWrapper.style.cssText = `
       this.fpsCounter.refreshElementCache();
     }
 
-    const debugOverlay = document.createElement("div");
-    debugOverlay.className = "debug-overlay";
-    debugOverlay.style.cssText = `
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      background: rgba(255, 0, 0, 0.7);
-      color: #fff;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 10px;
-      font-weight: bold;
-      z-index: 10;
-      display: ${this.settings.settings.debugChannel !== "none" ? "block" : "none"};
-      pointer-events: none;
-    `;
-    debugOverlay.textContent = this.settings.settings.debugChannel.toUpperCase();
-    canvasWrapper.appendChild(debugOverlay);
-
     if (this.isDocked) {
       const resizeHandle = document.createElement("div");
       resizeHandle.className = "resize-handle-dock";
@@ -1170,12 +1139,6 @@ canvasWrapper.style.cssText = `
       this.isDragging = false;
       this.container.style.transition = "opacity 0.2s ease, transform 0.2s ease";
       this._flushDragPosition();
-      // PERFORMANCE: Update settings panel position after drag ends (batched with final position)
-      // This reduces layout reads during dragging
-      if (this.settings.settingsPanel) {
-        this.settings._positionSettingsPanel();
-        this._recordPerfWrite("drag:settingsPanel:final");
-      }
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };

@@ -212,22 +212,10 @@
             <button class="menu-submenu-trigger">Publish ▸</button>
             <div class="menu-submenu">
               <div class="submenu-section">
-                <div class="submenu-section-title">To Cloud / Server</div>
-                <label for="publish-target" class="menu-label">Select Target:</label>
-                <select id="publish-target">
-                  <option value="tenderworld">TenderWorld</option>
-                  <option value="custom">Custom Server…</option>
-                </select>
-                <label class="submenu-toggle">
-                  <input type="checkbox" id="publish-include-previews" />
-                  Include Node Previews
-                </label>
-              </div>
-              <div class="submenu-section">
-                <div class="submenu-section-title">Version / Commit</div>
-                <label for="publish-commit-message" class="menu-label">Commit Message:</label>
-                <input type="text" id="publish-commit-message" placeholder="Enter version message..." class="submenu-input" />
-                <button id="btn-publish" class="submenu-button submenu-button-primary">Publish</button>
+                <div class="submenu-section-title">Share to TenderWorld Gallery</div>
+                <span class="submenu-note">Uploads at the render resolution set in View → Preview / Export Settings.</span>
+                <button id="btn-publish-image" class="submenu-button submenu-button-primary">Publish Image…</button>
+                <button id="btn-publish-animation" class="submenu-button">Publish Animation…</button>
               </div>
             </div>
           </div>

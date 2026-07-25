@@ -3,6 +3,7 @@
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { getRenderResolution } from '../../ui/RenderResolution.js';
 
 export class ComputeNodes {
   constructor() {
@@ -103,13 +104,10 @@ export class ComputeNodes {
    * Uses canvas resolution to maintain aspect ratio
    */
   getResolution(node) {
-    // Try to get resolution from floating preview settings (maintains aspect ratio)
-    if (window.floatingPreview?.settings?.settings?.resolution) {
-      const { width, height } = window.floatingPreview.settings.settings.resolution;
-      // Ensure we have valid dimensions
-      if (width > 0 && height > 0) {
-        return [width, height];
-      }
+    // Follow the single render resolution (maintains aspect ratio)
+    const { width, height } = getRenderResolution();
+    if (width > 0 && height > 0) {
+      return [width, height];
     }
 
     // Fallback to node parameter (square resolution)
