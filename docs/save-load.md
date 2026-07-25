@@ -22,7 +22,7 @@ Rhizomium includes a comprehensive project management system that allows you to:
 
 **Keyboard Shortcut**: `Ctrl+S` (Windows/Linux) or `Cmd+S` (Mac)
 
-**Button**: Click the **Save** button in the toolbar
+**Menu**: **File → Save**
 
 ### What Gets Saved
 
@@ -49,7 +49,7 @@ When you save a project, Rhizomium stores:
 
 ### Load Menu
 
-1. Click the **Load** button in the toolbar
+1. Choose **File → Open Project…**
 2. Browse your saved projects
 3. Click a project name to load it
 

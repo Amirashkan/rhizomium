@@ -40,6 +40,10 @@ http://127.0.0.1:5000/studio
 
 Once the editor is open locally:
 
+> **Note:** the external viewer is a **desktop-only** feature - it ships in the
+> Tauri build of Rhizomium. The browser version has no "Open External Viewer"
+> control, so if you are running Rhizomium in a tab, this section does not apply.
+
 1. Click **"Open External Viewer"** button in the toolbar
 2. The viewer window will open automatically
 3. Start rendering in the editor to see frames in the viewer

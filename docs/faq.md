@@ -119,7 +119,7 @@ Yes! Select nodes and use **Ctrl+C** (copy), **Ctrl+V** (paste). Or duplicate wi
 
 ### How do I save my work?
 
-Click the **Save** button in the toolbar, or press **Ctrl+S**. Your project will be saved locally or to the server.
+Choose **File → Save**, or press **Ctrl+S**. Your project will be saved locally or to the server.
 
 ### Where are my saved projects?
 

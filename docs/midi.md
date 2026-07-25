@@ -13,7 +13,7 @@ Control your visuals in real-time using MIDI controllers! Connect knobs, sliders
 
 ### Step 2: Enable MIDI in Rhizomium
 
-1. Click the **MIDI Settings** button in the toolbar
+1. Open **Tools → MIDI Settings**
 2. Click **Enable MIDI** to request browser access
 3. Allow MIDI access when prompted by your browser
 4. Your connected MIDI controllers will appear in the device list
@@ -270,7 +270,7 @@ Save different MIDI mappings:
 
 ## Keyboard Shortcuts
 
-- **MIDI Settings**: Click toolbar button (no default shortcut)
+- **MIDI Settings**: **Tools → MIDI Settings** (no default shortcut)
 - **MIDI Learn**: Click parameter field + Learn button
 - **Clear Binding**: Right-click binding in list → Remove
 

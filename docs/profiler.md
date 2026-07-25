@@ -10,7 +10,7 @@ Monitor your visual's performance in real-time! Track frame rate, GPU usage, and
 
 **Keyboard shortcut:** Press **Ctrl+P**
 
-Or click the **Profiler** button in the toolbar (if available).
+There is no menu entry for it - the shortcut is the only way in.
 
 ### Step 2: View Metrics
 
@@ -34,6 +34,8 @@ The profiler overlay appears showing:
 
 Shows essential metrics at a glance:
 
+![The profiler overlay, compact view](images/profiler-compact.png)
+
 ```
 ╔══════════════════════════════════╗
 ║      COMPUTE PROFILER            ║
@@ -50,6 +52,8 @@ Shows essential metrics at a glance:
 ### Expanded View
 
 Click **+** button to see detailed breakdown:
+
+![The profiler overlay, expanded](images/profiler-expanded.png)
 
 ```
 ╔══════════════════════════════════╗

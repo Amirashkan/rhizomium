@@ -12,6 +12,8 @@ Rhizomium uses a **node-based visual programming system** where you build shader
 
 ## Node Anatomy
 
+![Three connected nodes, showing headers, pins and thumbnails](images/node-graph-closeup.png)
+
 Every node has the same basic structure:
 
 ```

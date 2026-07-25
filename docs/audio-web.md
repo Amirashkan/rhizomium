@@ -8,7 +8,7 @@ Make your visuals react to music and sound! Rhizomium includes built-in audio an
 
 ### Step 1: Enable Audio
 
-1. Click the **Audio Settings** button in the toolbar
+1. Open **Tools → Audio Settings**
 2. Click **Enable Audio Input**
 3. Allow microphone access when prompted
 4. You should see audio levels responding to sound

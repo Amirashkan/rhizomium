@@ -8,7 +8,7 @@ Learn how to save, load, and manage your Rhizomium projects in the browser.
 
 **Keyboard Shortcut**: `Ctrl+S` (Windows/Linux) or `Cmd+S` (Mac)
 
-**Button**: Click the **Save** button in the toolbar
+**Menu**: **File → Save**
 
 Your project is saved to your browser's local storage instantly!
 
@@ -65,7 +65,7 @@ Your project is now saved!
 
 ### Load Menu
 
-1. Click the **Load** button in the toolbar
+1. Choose **File → Open Project…**
 2. Browse your saved projects
 3. Click a project name to load it
 
@@ -107,7 +107,7 @@ Or save with a new name to create a copy.
 To backup or share your project:
 
 1. **Method A** - Export Button:
-   - Click **Export** in toolbar (if available)
+   - Choose **File → Export**
    - Choose save location
    - Project downloads as `.json` file
 
@@ -130,7 +130,7 @@ To backup or share your project:
 
 ### Upload JSON File
 
-1. Click **Import** button in toolbar
+1. Choose **File → Open Project…**
 2. Select a `.json` file from your computer
 3. Project loads immediately
 
