@@ -756,6 +756,8 @@ case 'flip2d':
               default: param.default,
               min: param.min,
               max: param.max,
+              group: param.group,
+              groupCollapsed: param.groupCollapsed,
               description: param.label || `${param.name} parameter`
             });
           });
@@ -800,6 +802,8 @@ case 'flip2d':
               options: param.options, // Preserve options array for select parameters
               accept: param.accept, // Preserve accept for file inputs
               action: param.action, // Preserve action for button parameters
+              group: param.group, // Preserve the collapsible section this parameter belongs to
+              groupCollapsed: param.groupCollapsed, // ...and whether that section starts closed
               description: param.label || param.description || `${param.name} parameter`
             });
           });

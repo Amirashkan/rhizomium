@@ -208,16 +208,22 @@ export const InputNodes = {
       // something visible: set the threshold ABOVE where the meter idles between hits and BELOW
       // where it peaks on one. Setting it under the idle level leaves the trigger permanently held
       // open, which produces fewer triggers rather than more — the meter makes that visible.
-      { name: "kickThresh", type: "float", default: 0.5, label: "Kick Thresh" },
-      { name: "snareThresh", type: "float", default: 0.5, label: "Snare Thresh" },
-      { name: "hatThresh", type: "float", default: 0.5, label: "Hat Thresh" },
+      //
+      // `group` puts a parameter under a collapsible heading in the parameter panel; consecutive
+      // parameters sharing a name land in the same section. The thresholds are the ones actually
+      // dialled in per track, so their section stays open. The meter shaping below is set once and
+      // left alone, so it starts collapsed (`groupCollapsed` on the first parameter of a section)
+      // and stays out of the way until it is wanted.
+      { name: "kickThresh", type: "float", default: 0.5, label: "Kick Thresh", group: "Triggers" },
+      { name: "snareThresh", type: "float", default: 0.5, label: "Snare Thresh", group: "Triggers" },
+      { name: "hatThresh", type: "float", default: 0.5, label: "Hat Thresh", group: "Triggers" },
       // Shape of every meter. Attack short enough to catch a transient, release long enough that
       // the hit stays visible for a few frames. These change what the meters LOOK like, which in
       // turn changes what a threshold has to be set to — they are not a second detector.
-      { name: "attack", type: "float", default: 8.0, label: "Attack (ms)" },
-      { name: "release", type: "float", default: 120.0, label: "Release (ms)" },
+      { name: "attack", type: "float", default: 8.0, label: "Attack (ms)", group: "Meter Shape", groupCollapsed: true },
+      { name: "release", type: "float", default: 120.0, label: "Release (ms)", group: "Meter Shape" },
       // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
-      { name: "gain", type: "float", default: 1.0, label: "Gain" },
+      { name: "gain", type: "float", default: 1.0, label: "Gain", group: "Meter Shape" },
     ],
   },
 
