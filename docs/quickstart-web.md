@@ -10,19 +10,19 @@ Visit **[https://studio.tenderworld.org/](https://studio.tenderworld.org/)** in 
 
 A welcome dialog greets you on first load:
 
-![The welcome dialog shown on first load](images/welcome-dialog.png)
+![The welcome dialog shown on first load](images/welcome-dialog.webp)
 
 Choose **Start New Graph**. (**Open Project File** loads a `.json` you exported
 earlier, and **Manage Backups** opens the autosaves the editor keeps as you work.)
 
 You then land in the editor:
 
-![The Rhizomium editor after starting a new graph](images/editor-overview.png)
+![The Rhizomium editor after starting a new graph, with its four main areas numbered](images/editor-overview.annotated.webp)
 
-- **Menu bar** across the top: File, Edit, View, Node, Tools, Window, Help
-- **Canvas** filling the window, where you build the graph
-- **Preview window**, floating over the canvas at the top left
-- **Status text** next to the menus, showing "Idle" or "Shader compiled"
+1. **Menu bar** - File, Edit, View, Node, Tools, Window, Help
+2. **Status** - "Idle" or "Shader compiled"
+3. **Preview window** - the rendered output, floating over the canvas
+4. **Canvas** - the node graph you are building
 
 A new graph is not empty - it starts with **Compute Noise → Gradient → Output**
 already wired up, so there is something on screen immediately.
@@ -41,16 +41,16 @@ Let's build a circle from scratch. Start by deleting the three starter nodes
 **Right-click** anywhere on the canvas. The **Add Node** menu opens as a ring of
 the twelve categories:
 
-![The radial Add Node menu, showing the twelve categories](images/radial-menu.png)
+![The radial Add Node menu, showing the twelve categories](images/radial-menu.webp)
 
 Click a category to fan out the nodes inside it:
 
-![The Transform category expanded in the radial menu](images/radial-menu-category.png)
+![The Transform category expanded in the radial menu](images/radial-menu-category.webp)
 
 You do not have to hunt through categories, though. With the menu open, **just
 start typing** and it filters every node by name:
 
-![Typing "noise" filters the menu to the noise generators](images/radial-menu-search.png)
+![Typing "noise" filters the menu to the noise generators](images/radial-menu-search.webp)
 
 Arrow keys move the selection, **Enter** places the highlighted node, and
 **Esc** (or the left arrow) steps back out.
@@ -115,7 +115,7 @@ pin, so you animate it with an expression rather than by wiring a node into it.
 2. Click into the **Radius** field
 3. Type `=sin(time) * 0.15 + 0.3`
 
-![The parameter panel for a Circle node](images/parameter-panel.png)
+![The parameter panel for a Circle node, with its parts numbered](images/parameter-panel.annotated.webp)
 
 The line under the field shows the value the expression currently evaluates to,
 and the range the parameter accepts. Watch your circle pulse with time!

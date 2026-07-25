@@ -2,7 +2,7 @@
 
 The generated WGSL is viewable at any time from **View → Show Console**:
 
-![The WGSL console showing generated shader code](images/wgsl-console.png)
+![The WGSL console showing generated shader code](images/wgsl-console.webp)
 
 Understanding how Rhizomium transforms your node graph into GPU shaders.
 

@@ -8,7 +8,12 @@ Get familiar with the Rhizomium interface and learn how to navigate the editor e
 
 When you open Rhizomium, you'll see four main areas:
 
-![The Rhizomium editor](images/editor-overview.png)
+![The Rhizomium editor with its four main areas numbered](images/editor-overview.annotated.webp)
+
+1. **Menu bar** - File, Edit, View, Node, Tools, Window, Help
+2. **Status** - "Idle" or "Shader compiled"
+3. **Preview window** - the rendered output, floating over the canvas
+4. **Canvas** - the node graph you are building
 
 ### 1. Canvas (Center)
 
@@ -25,7 +30,7 @@ The large dark area where you build your node graphs.
 Everything outside the canvas lives in seven menus, with the current status
 ("Idle", "Shader compiled") shown beside them:
 
-![The editor menu bar](images/menu-bar.png)
+![The editor menu bar](images/menu-bar.webp)
 
 **File** - New Project, Open Project…, Save, Save As…, File Manager, Export,
 Publish (choose a target, add a commit message, optionally include node
@@ -68,19 +73,19 @@ Shows your visual output in real-time:
 Right-clicking empty canvas opens the **Add Node** menu - a ring of the twelve
 node categories:
 
-![The radial Add Node menu](images/radial-menu.png)
+![The radial Add Node menu](images/radial-menu.webp)
 
 The categories are **Input**, **Output**, **Math**, **Vector**, **Generators**,
 **Transform**, **Modifiers**, **Effects**, **Simulation**, **Utility**,
 **Blend** and **Texture**. Click one to fan its nodes out around the ring:
 
-![The Transform category expanded](images/radial-menu-category.png)
+![The Transform category expanded](images/radial-menu-category.webp)
 
 **You can also just type.** With the menu open, typing filters every node in
 the editor by name, so you never have to remember which category something is
 filed under:
 
-![Typing "noise" filters the menu](images/radial-menu-search.png)
+![Typing "noise" filters the menu](images/radial-menu-search.webp)
 
 - **Type** to search
 - **Arrow keys** to move the selection
@@ -225,7 +230,13 @@ nodes regardless of category.
 
 Opens when you double-click a node, or from **Node → Node Settings / Params…**:
 
-![The parameter panel for a Circle node](images/parameter-panel.png)
+![The parameter panel for a Circle node, with its parts numbered](images/parameter-panel.annotated.webp)
+
+1. **Panel header** - which node these parameters belong to
+2. **Value field** - type a number, or an `=` expression
+3. **Evaluated value** - what the expression currently resolves to
+4. **Accepted range** for this parameter
+5. **Copy reference**, **bind** (MIDI / parameter link), and **keyframe**
 
 ### Panel Layout
 - **Header** - the node's name, e.g. "Circle Parameters"

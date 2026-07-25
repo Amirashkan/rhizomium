@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import { resolve, sep } from 'node:path'
 import { cpSync, existsSync } from 'node:fs'
+import { generate as generateDocsMeta } from './scripts/docs-meta.mjs'
 
 // `docs/` is a self-contained docsify site: `docs/index.html` pulls docsify
 // from a CDN and fetches the markdown next to it at runtime. Rollup only emits
@@ -20,6 +21,11 @@ function copyDocs() {
         recursive: true,
         filter: (from) => from !== skip && !from.startsWith(skip + sep),
       })
+      // The docs render client-side, so a crawler that does not execute
+      // JavaScript sees an empty shell. Emit the plain-text corpus and the
+      // sitemap next to it, from the same sources, so they cannot drift.
+      const { pages } = generateDocsMeta(src, resolve(__dirname, 'dist'))
+      this.info?.(`docs: copied site + generated llms.txt, llms-full.txt, sitemap.xml, robots.txt (${pages} pages)`)
     },
   }
 }

@@ -34,7 +34,7 @@ The profiler overlay appears showing:
 
 Shows essential metrics at a glance:
 
-![The profiler overlay, compact view](images/profiler-compact.png)
+![The profiler overlay, compact view](images/profiler-compact.webp)
 
 ```
 ╔══════════════════════════════════╗
@@ -53,7 +53,7 @@ Shows essential metrics at a glance:
 
 Click **+** button to see detailed breakdown:
 
-![The profiler overlay, expanded](images/profiler-expanded.png)
+![The profiler overlay, expanded](images/profiler-expanded.webp)
 
 ```
 ╔══════════════════════════════════╗

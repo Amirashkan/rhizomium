@@ -12,7 +12,13 @@ Rhizomium uses a **node-based visual programming system** where you build shader
 
 ## Node Anatomy
 
-![Three connected nodes, showing headers, pins and thumbnails](images/node-graph-closeup.png)
+![Three connected nodes with the parts of a node numbered](images/node-graph-closeup.annotated.webp)
+
+1. **Node title** - the node's type
+2. **Header controls** - node id, hide info (X), toggle thumbnail (eye), cycle preview size (S/M/L)
+3. **Preview thumbnail** - this node's own output
+4. **Output pin** - drag from here to connect
+5. **Input pin** - drop a wire here
 
 Every node has the same basic structure:
 
