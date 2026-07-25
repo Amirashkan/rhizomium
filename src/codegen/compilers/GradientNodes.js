@@ -15,7 +15,7 @@ export class GradientNodes {
     this.graph = graph;
   }
 
-  handles(kind) {
+  handles(__kind) {
     // ConicGradient was removed in favour of the GPU Gradient node's Angular type.
     return false;
   }
@@ -40,7 +40,7 @@ export class GradientNodes {
     if (typeof value === 'string' && value.startsWith('=')) {
       try {
         return window.unifiedExpressionSystem.generateShader(value, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         return String(defaultValue);
       }
@@ -50,7 +50,7 @@ export class GradientNodes {
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
       try {
         return window.unifiedExpressionSystem.generateShader(value, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         return String(defaultValue);
       }

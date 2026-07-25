@@ -106,7 +106,7 @@ export class ShaderPreviewManager {
 
       try {
         await this.updateNodePreview(node);
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -134,7 +134,7 @@ export class ShaderPreviewManager {
 
       // For fragment nodes, compile and render
       await this.updateFragmentNodePreview(node);
-    } catch (error) {
+    } catch {
 
       // Fall back to CPU preview on error
       if (this.editor.previewSystem) {
@@ -301,7 +301,7 @@ export class ShaderPreviewManager {
           } else {
             await this._doFragmentPreview(item.node);
           }
-        } catch (_) {
+        } catch {
           if (item.type !== 'external') {
             this.fallbackToLegacyPreview(item.node);
           }
@@ -329,7 +329,7 @@ export class ShaderPreviewManager {
 
     try {
       await this._textureToThumbnail(computeInfo.texture, node);
-    } catch (error) {
+    } catch {
       // Fallback: mark GPU preview available even if readback fails
       node.__gpuPreview = computeInfo;
       this.fallbackToLegacyPreview(node);
@@ -455,8 +455,8 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     // Pool the destination texture + readback buffer. Thumbnail readbacks are serialized, so one
     // pair can be reused across calls instead of allocating/destroying GPU resources every frame.
     if (!this._poolDst || this._poolDstSize !== size || this._poolDevice !== device) {
-      try { this._poolDst?.destroy?.(); } catch (_) {}
-      try { this._poolBuffer?.destroy?.(); } catch (_) {}
+      try { this._poolDst?.destroy?.(); } catch {}
+      try { this._poolBuffer?.destroy?.(); } catch {}
       this._poolBytesPerRow = Math.ceil((size * 4) / 256) * 256;
       this._poolDst = device.createTexture({
         size: [size, size, 1],
@@ -692,8 +692,8 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     this.shaderCache.clear();
     this.pendingNodes.clear();
     this._thumbQueue.clear();
-    try { this._poolDst?.destroy?.(); } catch (_) {}
-    try { this._poolBuffer?.destroy?.(); } catch (_) {}
+    try { this._poolDst?.destroy?.(); } catch {}
+    try { this._poolBuffer?.destroy?.(); } catch {}
     this._poolDst = null;
     this._poolBuffer = null;
   }

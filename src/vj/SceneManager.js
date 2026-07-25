@@ -94,7 +94,7 @@ export class SceneManager {
    * @param {string} sceneId - ID of scene to switch to
    * @param {boolean} immediate - If true, switch immediately without transition
    */
-  async switchToScene(sceneId, immediate = false) {
+  async switchToScene(sceneId, _immediate = false) {
     const scene = this.scenes.get(sceneId);
     if (!scene) {
 
@@ -111,7 +111,7 @@ export class SceneManager {
     try {
       await this.saveLoadManager.importProject(scene.data);
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -197,7 +197,7 @@ export class SceneManager {
       }
 
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -211,7 +211,7 @@ export class SceneManager {
       const data = this.exportScenes();
       localStorage.setItem('rhizomium.vj.scenes', JSON.stringify(data));
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -227,7 +227,7 @@ export class SceneManager {
 
       const data = JSON.parse(json);
       return this.importScenes(data);
-    } catch (error) {
+    } catch {
 
       return false;
     }

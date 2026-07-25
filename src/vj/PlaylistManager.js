@@ -340,7 +340,7 @@ export class PlaylistManager {
       this.currentIndex = -1;
 
       return true;
-    } catch (error) {
+    } catch {
 
       return false;
     }

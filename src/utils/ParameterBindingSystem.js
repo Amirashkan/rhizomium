@@ -379,7 +379,7 @@ export class ParameterBindingSystem {
         targetNode,
       );
       return (typeof result === 'number' && isFinite(result)) ? result : sourceValue;
-    } catch (error) {
+    } catch {
       return sourceValue;
     }
   }
@@ -656,11 +656,11 @@ export class ParameterBindingSystem {
     return null;
   }
 
-  showCopyFeedback(node, param) {
+  showCopyFeedback(_node, _param) {
     // Visual feedback when copying - implement based on your UI
   }
 
-  showBindingCreatedFeedback(sourceNode, sourceParam, targetNode, targetParam) {
+  showBindingCreatedFeedback(_sourceNode, _sourceParam, _targetNode, _targetParam) {
     // Visual feedback when binding created - implement based on your UI
   }
 
@@ -752,8 +752,8 @@ export class ParameterBindingSystem {
 
   // Debug methods
   debugPrintBindings() {
-    this.bindings.forEach((targets, sourceKey) => {
-      targets.forEach(target => {
+    this.bindings.forEach((targets, _sourceKey) => {
+      targets.forEach(_target => {
       });
     });
   }

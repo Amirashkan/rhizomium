@@ -27,7 +27,7 @@ _isValidExpression(value) {
       return true; // Basic syntax check passed
     }
     return false;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -143,7 +143,7 @@ _isValidExpression(value) {
       
       // Update expression styling
       this._updateExpressionStyling(input, currentValue);
-    } catch (error) {
+    } catch {
 
       input.value = param.default ?? "";
     }
@@ -166,7 +166,7 @@ _isValidExpression(value) {
         input.title = "Connected to input - value reflects connected node";
         input.disabled = true;
       }
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -188,7 +188,7 @@ _isValidExpression(value) {
     });
 
     // Capture initial value on focus
-    input.addEventListener("focus", (e) => {
+    input.addEventListener("focus", (_e) => {
       lastValue = input.value;
     });
 
@@ -240,7 +240,7 @@ input.addEventListener("input", (e) => {
 });
 
     // Final update on blur
-    input.addEventListener("blur", (e) => {
+    input.addEventListener("blur", (_e) => {
       if (inputTimer) {
         clearTimeout(inputTimer);
         inputTimer = null;
@@ -275,9 +275,9 @@ input.addEventListener("input", (e) => {
     });
   }
 
-  _addExpressionSupport(input, param, node, valueManager, onChange) {
+  _addExpressionSupport(input, param, node, _valueManager, _onChange) {
     // Real-time expression validation and result preview
-    input.addEventListener("input", (e) => {
+    input.addEventListener("input", (_e) => {
       this._updateExpressionResult(input, param, node);
     });
   }
@@ -297,7 +297,7 @@ input.addEventListener("input", (e) => {
         input.style.color = '#fff';
         input.style.fontWeight = 'normal';
       }
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -321,7 +321,7 @@ input.addEventListener("input", (e) => {
           : "";
         input.title = baseTitle;
       }
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -331,7 +331,7 @@ input.addEventListener("input", (e) => {
     return ['float', 'int', 'string', 'expression'].includes(param.type);
   }
 
-  _createExpressionHelper(input, param, node, valueManager) {
+  _createExpressionHelper(input, _param, _node, _valueManager) {
     const helperBtn = document.createElement("button");
     helperBtn.className = "expression-helper-btn";
     helperBtn.textContent = "fx";
@@ -372,7 +372,7 @@ input.addEventListener("input", (e) => {
         // Trigger change event
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.focus();
-      } catch (error) {
+      } catch {
 
       }
     });
@@ -433,7 +433,7 @@ input.addEventListener("input", (e) => {
       } else {
         resultDiv.textContent = '';
       }
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -520,7 +520,7 @@ input.addEventListener("input", (e) => {
           e.stopPropagation(); // Prevent EventHandler from processing this event
         };
 
-        const onMouseUp = (e) => {
+        const onMouseUp = (_e) => {
           // PERFORMANCE: Disable console logging during drag
           // console.log(`Ending shift+drag on ${param.name}`);
 

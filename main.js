@@ -3728,7 +3728,7 @@ function handleRenderFrame(frameState) {
         time: frameState.simTime,
         computeExecutor: window.computeExecutor,
       });
-    } catch (err) {
+    } catch {
       // Never let the hold/count latch break the render loop.
     }
   }
@@ -3758,7 +3758,7 @@ function handleRenderFrame(frameState) {
       // It is now ticked on actual GPU-frame completion via
       // gpuRenderer.onFramePresented (wired where floatingPreview is created).
 
-      renderPromise.catch(err => {
+      renderPromise.catch(__err => {
         // Silently handle render errors to avoid breaking render loop
         // Errors are already logged in gpuRenderer.render()
       });

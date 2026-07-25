@@ -448,7 +448,7 @@ export class PerformanceBenchmark {
           interactionStateManager.setDragging(true);
           return { interactionStateManager };
         },
-        onFrame: (frameCount, timestamp) => {
+        onFrame: (_frameCount, _timestamp) => {
           // Simulate rapid parameter updates every frame
           // In real scenario, throttler should limit these
           if (window.editor?.previewIntegration) {
@@ -477,7 +477,7 @@ export class PerformanceBenchmark {
           interactionStateManager.setPanning(true);
           return { interactionStateManager };
         },
-        onFrame: (frameCount, timestamp) => {
+        onFrame: (_frameCount, _timestamp) => {
           // Simulate panning updates
           if (window.editor?.markDirty) {
             window.editor.markDirty('panning-simulation');
@@ -501,7 +501,7 @@ export class PerformanceBenchmark {
           // Simulate compilation mode
           return { interactionStateManager, compileCount: 0 };
         },
-        onFrame: (frameCount, timestamp) => {
+        onFrame: (frameCount, _timestamp) => {
           // Simulate periodic shader recompilation
           if (frameCount % 30 === 0 && window.editor?.graph) {
             // Trigger shader update simulation
@@ -510,7 +510,7 @@ export class PerformanceBenchmark {
             }
           }
         },
-        cleanup: async (context) => {
+        cleanup: async (_context) => {
           // Cleanup handled by interaction state manager
         }
       }),
@@ -524,7 +524,7 @@ export class PerformanceBenchmark {
         setup: async () => {
           return { changeCount: 0 };
         },
-        onFrame: (frameCount, timestamp) => {
+        onFrame: (frameCount, _timestamp) => {
           // Simulate rapid graph structure changes
           if (frameCount % 10 === 0 && window.editor?.invalidationManager) {
             const manager = window.editor.invalidationManager;
@@ -532,7 +532,7 @@ export class PerformanceBenchmark {
             manager.invalidateNode({ id: `test-${frameCount}`, x: 0, y: 0, w: 100, h: 80 }, 'rapid-change');
           }
         },
-        cleanup: async (context) => {
+        cleanup: async (_context) => {
           // Cleanup invalidations
           if (window.editor?.invalidationManager) {
             window.editor.invalidationManager.clear();
@@ -549,7 +549,7 @@ export class PerformanceBenchmark {
         setup: async () => {
           return { cacheKeys: [] };
         },
-        onFrame: (frameCount, timestamp) => {
+        onFrame: (frameCount, _timestamp) => {
           // Simulate rapid cache key creation/invalidation
           if (window.editor?.renderCache) {
             const cache = window.editor.renderCache;
@@ -558,7 +558,7 @@ export class PerformanceBenchmark {
             cache.invalidateKey(key, 'thrashing-test');
           }
         },
-        cleanup: async (context) => {
+        cleanup: async (_context) => {
           // Cache cleanup handled automatically
         }
       }),
@@ -575,7 +575,7 @@ export class PerformanceBenchmark {
           interactionStateManager.setPanning(true);
           return { interactionStateManager };
         },
-        onFrame: (frameCount, timestamp) => {
+        onFrame: (frameCount, _timestamp) => {
           // Simulate multiple interaction types
           if (window.editor?.markDirty) {
             window.editor.markDirty('mixed-interaction');

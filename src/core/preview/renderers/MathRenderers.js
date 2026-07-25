@@ -76,7 +76,7 @@ register(registry) {
         return this.previewSystem.getParameter(node, paramName) ?? defaultValue;
       }
       return node.params?.[paramName] ?? defaultValue;
-    } catch (error) {
+    } catch {
       return defaultValue;
     }
   }

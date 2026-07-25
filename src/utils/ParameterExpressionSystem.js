@@ -295,7 +295,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
       return result;
 
-    } catch (error) {
+    } catch {
 
       return this.parseValue(expression.slice(1)); // Return expression without = on error
     }
@@ -365,7 +365,7 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
 
       return result;
 
-    } catch (error) {
+    } catch {
       return this.parseValue(expression.slice(1)); // Return expression without = on error
     }
   }
@@ -687,7 +687,7 @@ isIncompleteExpression(expression) {
   /**
    * Updates dependency graph for expression invalidation
    */
-  updateDependencyGraph(nodeId, expression, context) {
+  updateDependencyGraph(nodeId, expression, _context) {
     if (!nodeId) return;
     
     // Simple dependency tracking - could be enhanced
@@ -727,7 +727,7 @@ isIncompleteExpression(expression) {
 
       // Notify listeners of dependency changes
       this.notifyDependencyChange(nodeId, paramName, newValue);
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -739,7 +739,7 @@ isIncompleteExpression(expression) {
     this.listeners.forEach(listener => {
       try {
         listener({ nodeId, paramName, newValue });
-      } catch (error) {
+      } catch {
 
       }
     });
@@ -866,7 +866,7 @@ create(param, node, div, label, valueManager, onChange) {
     div.appendChild(container);
 
     return div;
-  } catch (error) {
+  } catch {
 
     return div;
   }
@@ -902,7 +902,7 @@ isIncomplete(value) {
     return container;
   }
 
-  createInput(param, node, valueManager) {
+  createInput(param, node, _valueManager) {
     const input = document.createElement('textarea');
     input.className = 'param-input expression-capable';
     input.setAttribute('data-param', param.name);
@@ -1355,7 +1355,7 @@ isIncomplete(value) {
 
 
 
-  updateExpressionDisplay(input, resultDisplay, param, node, valueManager) {
+  updateExpressionDisplay(input, resultDisplay, param, node, _valueManager) {
     const value = input.value;
     
     if (this.expressionSystem.isExpression(value)) {
@@ -1397,8 +1397,8 @@ isIncomplete(value) {
   }
 
   // Update all active inputs when dependencies change
-  updateDependentInputs(nodeId, paramName) {
-    this.activeInputs.forEach((inputData, key) => {
+  updateDependentInputs(_nodeId, _paramName) {
+    this.activeInputs.forEach((inputData, _key) => {
       const { input, resultDisplay, param, node, valueManager } = inputData;
 
       // Update if this input might be affected
@@ -1524,7 +1524,7 @@ getValue(node, paramName) {
     }
     
     return this.expressionSystem.parseValue(rawValue);
-  } catch (error) {
+  } catch {
 
     // Return the raw value as fallback
     return node.params?.[paramName];
@@ -1590,7 +1590,7 @@ setValue(node, paramName, value) {
       });
     }
 
-  } catch (error) {
+  } catch {
 
   }
 }
@@ -1605,13 +1605,13 @@ updateNodePreview(node) {
 
     // CRITICAL: Force evaluation of all expressions in this node BEFORE preview
     if (node.params) {
-      Object.entries(node.params).forEach(([paramName, value]) => {
+      Object.entries(node.params).forEach(([_paramName, value]) => {
         if (this.expressionSystem.isExpression(value)) {
 
           try {
             const result = this.expressionSystem.evaluateExpression(value, {}, node);
 
-          } catch (error) {
+          } catch {
 
           }
         }
@@ -1638,7 +1638,7 @@ updateNodePreview(node) {
     }
     // Removed debounced draw() call - render loop handles drawing at 60fps
     
-  } catch (error) {
+  } catch {
 
   }
 }
@@ -1671,7 +1671,7 @@ updateNodePreview(node) {
     // Find nodes that might depend on this change
     this.graph.nodes.forEach(node => {
       if (node.params) {
-        Object.entries(node.params).forEach(([key, value]) => {
+        Object.entries(node.params).forEach(([_key, value]) => {
           if (this.expressionSystem.isExpression(value)) {
             // This is a simple check - could be enhanced with proper dependency tracking
             if (value.includes(paramName) || value.includes(nodeId)) {

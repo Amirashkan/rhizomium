@@ -425,7 +425,7 @@ export class ComputeExecutor {
       // receiver window (whose reset is driven BY that broadcast) the global is
       // absent, so this cannot loop.
       if (typeof window !== 'undefined') {
-        try { window.secondMonitorViewer?.onFeedbackReset?.(nodeId); } catch (_) { /* ignore */ }
+        try { window.secondMonitorViewer?.onFeedbackReset?.(nodeId); } catch { /* ignore */ }
       }
       return true;
     }
@@ -520,7 +520,7 @@ export class ComputeExecutor {
       }
 
       this.executionOrder = result;
-    } catch (error) {
+    } catch {
       this.executionOrder = Array.from(this.computeManagers.keys());
     }
   }
@@ -623,7 +623,7 @@ export class ComputeExecutor {
 
       // Mark as dispatched this frame
       this.dispatchedThisFrame.add(nodeId);
-    } catch (error) {
+    } catch {
       // Silently handle errors
     }
   }
@@ -830,7 +830,7 @@ export class ComputeExecutor {
             // Mark this compute node's hash for invalidation
             computeNodesToClearHash.add(nodeId);
           }
-        } catch (error) {
+        } catch {
           // Silently handle errors
         }
       }
@@ -1067,7 +1067,7 @@ export class ComputeExecutor {
           this.dispatchedThisFrame.add(nodeId);
         }
         // Skipping dispatch is normal behavior when inputs haven't changed
-      } catch (error) {
+      } catch {
         // Drop the recorded input hash so this node retries next frame.
         // checkInputsChanged() records the hash BEFORE dispatch, so a failed
         // dispatch would otherwise leave the node stuck serving its stale
@@ -1100,7 +1100,7 @@ export class ComputeExecutor {
       if (outputTexture) {
         this.nodeOutputs.set(nodeId, outputTexture);
       }
-    } catch (error) {
+    } catch {
       // Silently handle errors
     }
   }
@@ -1278,7 +1278,7 @@ export class ComputeExecutor {
       }
 
       return changed;
-    } catch (error) {
+    } catch {
       return true; // Update on error to be safe
     }
   }
@@ -1329,7 +1329,7 @@ export class ComputeExecutor {
   /**
    * Get all compute texture for creating bind groups
    */
-  getBindGroupEntries(startBinding = 100) {
+  getBindGroupEntries(_startBinding = 100) {
     const entries = [];
 
     for (const binding of this.getTextureBindings()) {

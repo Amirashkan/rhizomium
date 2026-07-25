@@ -407,7 +407,7 @@ export class SceneRenderer3D {
           this.renderMeshNode(passEncoder, meshNode, time);
         }
       }
-    } catch (error) {
+    } catch {
 
     }
 
@@ -420,7 +420,7 @@ export class SceneRenderer3D {
           this.renderFieldMapperNode(passEncoder, fieldNode, time);
         }
       }
-    } catch (error) {
+    } catch {
 
     }
 
@@ -543,7 +543,7 @@ export class SceneRenderer3D {
    * geometry is drawn as a lit vertex-colored mesh; unindexed geometry is
    * drawn as a point cloud of camera-facing quads.
    */
-  renderFieldMapperNode(passEncoder, fieldNode, time) {
+  renderFieldMapperNode(passEncoder, fieldNode, _time) {
     const renderers = this.getFieldRenderers(fieldNode);
     const viewMatrix = this.viewport3D.getViewMatrix();
     const projectionMatrix = this.viewport3D.getProjectionMatrix();

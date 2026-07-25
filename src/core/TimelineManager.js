@@ -50,7 +50,7 @@ export class TimelineManager {
   /**
    * Handle interaction start - pause timeline updates
    */
-  _onInteractionStart(event) {
+  _onInteractionStart(_event) {
     if (this.enabled && this.timeline.playing) {
       this._wasPlayingBeforeInteraction = true;
       this._pausedForInteraction = true;
@@ -61,7 +61,7 @@ export class TimelineManager {
   /**
    * Handle interaction end - resume timeline updates
    */
-  _onInteractionEnd(event) {
+  _onInteractionEnd(_event) {
     if (this._pausedForInteraction) {
       this._pausedForInteraction = false;
       this._wasPlayingBeforeInteraction = false;

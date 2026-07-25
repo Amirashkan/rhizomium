@@ -233,7 +233,7 @@ export class TransitionManager {
   /**
    * Apply master opacity (placeholder - needs shader integration)
    */
-  applyMasterOpacity(opacity) {
+  applyMasterOpacity(_opacity) {
     // This would need to be integrated with the GPU renderer
     // For now, this is a placeholder that could modify canvas alpha
     // or inject an opacity uniform into the shader

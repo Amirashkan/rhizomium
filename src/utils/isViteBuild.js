@@ -26,7 +26,7 @@ export function isViteBuild() {
   if (_cached !== null) return _cached;
   try {
     _cached = typeof import.meta !== 'undefined' && !!import.meta.env;
-  } catch (_) {
+  } catch {
     // `import.meta` is always valid inside an ES module, but guard anyway so a
     // hostile transform can never turn this into a hard error.
     _cached = false;

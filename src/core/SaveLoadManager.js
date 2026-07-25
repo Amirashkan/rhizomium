@@ -142,7 +142,7 @@ export class SaveLoadManager {
         hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
       }
       return `${hash}:${str.length}`;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -461,7 +461,7 @@ async importProject(projectData, options = {}) {
 
               // Store the GPU texture
               texInfo.gpuTexture = gpuTexture;
-            } catch (error) {
+            } catch {
 
             }
           }
@@ -670,7 +670,7 @@ async importProject(projectData, options = {}) {
           }
 
           await new Promise(resolve => setTimeout(resolve, 30));
-        } catch (error) {
+        } catch {
 
         }
       }
@@ -863,7 +863,7 @@ async reinitializeWebGPU() {
             const wgsl = window.buildWGSL(this.graph);
             await window.updateShader(wgsl);
             return true;
-          } catch (error) {
+          } catch {
 
             return false;
           }
@@ -877,7 +877,7 @@ async reinitializeWebGPU() {
           try {
             await window.compileShader(this.graph);
             return true;
-          } catch (error) {
+          } catch {
 
             return false;
           }
@@ -894,7 +894,7 @@ async reinitializeWebGPU() {
           success = true;
           break;
         }
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -1060,7 +1060,7 @@ async reinitializeWebGPU() {
 
             // Small delay between node renders
             await new Promise(resolve => setTimeout(resolve, 10));
-          } catch (error) {
+          } catch {
 
           }
         }
@@ -1118,7 +1118,7 @@ async reinitializeWebGPU() {
             if (targetNode && this.editor && this.editor.onNodeChanged) {
               this.editor.onNodeChanged(targetNode);
             }
-          } catch (error) {
+          } catch {
 
           }
         }
@@ -1170,7 +1170,7 @@ async reinitializeWebGPU() {
         if (typeof window[funcName] === "function") {
           try {
             await window[funcName]();
-          } catch (error) {
+          } catch {
 
           }
         }
@@ -1320,7 +1320,7 @@ async reinitializeWebGPU() {
         : null;
       const marker = this.hasUnsavedChanges ? "• " : "";
       document.title = name ? `${marker}${name} — ${app}` : app;
-    } catch (_) {
+    } catch {
       /* document may be unavailable in non-DOM contexts */
     }
   }
@@ -1481,7 +1481,7 @@ async reinitializeWebGPU() {
           validator: (v) => (v && v.trim() ? null : "Please enter a name"),
         },
       );
-    } catch (_) {
+    } catch {
       return window.prompt("Save project as:", defaultValue);
     }
   }
@@ -1778,7 +1778,7 @@ async reinitializeWebGPU() {
 
   setupUnloadHandler() {
     try {
-      window.addEventListener("beforeunload", (e) => {
+      window.addEventListener("beforeunload", (_e) => {
         if (this.hasUnsavedChanges) {
           this.saveToLocal();
           // Don't show dialog - just save silently

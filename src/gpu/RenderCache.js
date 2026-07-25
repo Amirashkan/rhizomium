@@ -450,7 +450,7 @@ export class RenderCache {
     this._updateMemoryMetrics();
   }
 
-  _invalidateKey(key, reason) {
+  _invalidateKey(key, _reason) {
     const entry = this._cache.get(key);
     if (!entry) {
       return;

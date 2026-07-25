@@ -118,7 +118,7 @@ export class GPUPreviewRenderer {
    * @param {object} options - Readback options
    * @returns {Promise<Uint8Array>} Pixel data (RGBA)
    */
-  async readbackPreviewTexture(nodeId, options = {}) {
+  async readbackPreviewTexture(nodeId, _options = {}) {
     const previewInfo = this.previewCache.get(nodeId);
 
     if (!previewInfo) {

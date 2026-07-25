@@ -833,7 +833,7 @@ export class UnifiedExpressionSystem {
       const ast = this.parse(expressionString);
       const evaluator = new CPUEvaluator(context);
       return evaluator.evaluate(ast);
-    } catch (error) {
+    } catch {
 
 
       return 0; // Fallback to 0 on error
@@ -855,7 +855,7 @@ export class UnifiedExpressionSystem {
       const nodeRefMapping = this._buildInputNodeReferenceMapping(expressionString, resolvedGraph);
       const generator = new ShaderGenerator({ ...nodeRefMapping, ...variableMapping });
       return generator.generate(ast);
-    } catch (error) {
+    } catch {
 
 
       return '0.0'; // Fallback to 0.0 on error

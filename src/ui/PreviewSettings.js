@@ -48,7 +48,7 @@ export class PreviewSettings {
     if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
       try { 
         await window.initWebGPU(canvas, true); 
-      } catch (_) {}
+      } catch {}
     }
 
     const renderer = window.gpuRenderer;
@@ -200,7 +200,7 @@ async _publishAnimation() {
   if (typeof window.initWebGPU === 'function' && !window._gpuDevice) {
     try {
       await window.initWebGPU(canvas, true);
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -1770,7 +1770,7 @@ _createExportButtons() {
     if (typeof window.initWebGPU === "function" && !window._gpuDevice) {
       try {
         await window.initWebGPU(canvas, true);
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -1862,7 +1862,7 @@ for (let y = 0; y < height; y++) {
     if (typeof window.initWebGPU === "function" && !window._gpuDevice) {
       try {
         await window.initWebGPU(canvas, true);
-      } catch (error) {
+      } catch {
 
       }
     }

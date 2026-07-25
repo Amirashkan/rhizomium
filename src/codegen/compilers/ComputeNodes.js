@@ -61,7 +61,7 @@ export class ComputeNodes {
    * Compile a compute shader node
    * Compute nodes don't generate inline WGSL code - they execute on GPU and return texture references
    */
-  compile(node, getInput, getParam) {
+  compile(node, getInput, __getParam) {
     // Sanitize and ensure node_ prefix for consistency
     let nodeId = String(node.id).replace(/[^a-zA-Z0-9_]/g, "_");
     // Remove any existing node_ prefix to avoid double-prefixing
@@ -260,7 +260,7 @@ export class ComputeNodes {
   /**
    * Generate compute noise shader
    */
-  generateNoiseShader(node, getInput) {
+  generateNoiseShader(node, __getInput) {
     const scale = this.getParam(node, 'scale', 8.0);
     const octaves = this.getParam(node, 'octaves', 5);
     const speed = this.getParam(node, 'speed', 0.1);
@@ -372,7 +372,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate compute blur shader
    */
-  generateBlurShader(node, getInput) {
+  generateBlurShader(node, __getInput) {
     const radius = this.getParam(node, 'radius', 5.0);
 
     return `
@@ -426,7 +426,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate compute convolution shader
    */
-  generateConvolutionShader(node, getInput) {
+  generateConvolutionShader(node, __getInput) {
     const kernel = this.getParam(node, 'kernel', 'Sharpen');
     const strength = this.getParam(node, 'strength', 1.0);
 
@@ -518,7 +518,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate threshold shader
    */
-  generateThresholdShader(node, getInput) {
+  generateThresholdShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Binary');
     const threshold = this.getParam(node, 'threshold', 0.5);
     const thresholdMin = this.getParam(node, 'thresholdMin', 0.3);
@@ -657,7 +657,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * marks an unconnected pin, which fieldVec2() detects by size and treats as a
    * zero field.
    */
-  generateParticlesShader(node, getInput) {
+  generateParticlesShader(__node, _getInput) {
     return `
 // Compute Particles Shader (stateless grid particles)
 struct Uniforms {
@@ -831,7 +831,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate feedback shader
    */
-  generateFeedbackShader(node, getInput) {
+  generateFeedbackShader(node, __getInput) {
     const decay = this.getParam(node, 'decay', 0.95);
     const scale = this.getParam(node, 'scale', 1.01);
 
@@ -912,7 +912,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate reaction-diffusion shader
    */
-  generateReactionDiffusionShader(node, getInput) {
+  generateReactionDiffusionShader(node, __getInput) {
     // Get pattern preset and apply preset parameters
     const pattern = this.getParam(node, 'pattern', 'Coral');
     const presets = this.getReactionDiffusionPresets();
@@ -1043,7 +1043,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate cellular automata shader
    */
-  generateCellularShader(node, getInput) {
+  generateCellularShader(__node, _getInput) {
     return `
 // Cellular Automata — four selectable rule sets.
 //
@@ -1166,7 +1166,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate feedback field shader
    * This shader uses the FeedbackManager for persistent state
    */
-  generateFeedbackFieldShader(node, getInput) {
+  generateFeedbackFieldShader(node, __getInput) {
     // NOTE: `mode` is intentionally NOT baked into the shader. It is delivered
     // via uniforms.mode (packed at u[7] by packComputeUniforms) and read at
     // runtime below, so switching modes updates a uniform instead of
@@ -1371,7 +1371,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * into the WGSL: a WGSL change would change the manager reuse signature and
    * wipe the accumulated fluid state mid-tweak.
    */
-  generateFluidSimShader(node, getInput) {
+  generateFluidSimShader(__node, _getInput) {
     return `
 // Fluid Simulation Shader (single-pass stable fluids)
 struct Uniforms {
@@ -1573,7 +1573,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate color adjustment shader
    */
-  generateColorAdjustShader(node, getInput) {
+  generateColorAdjustShader(node, __getInput) {
     const brightness = this.getParam(node, 'brightness', 0.0);
     const contrast = this.getParam(node, 'contrast', 1.0);
     const saturation = this.getParam(node, 'saturation', 1.0);
@@ -1667,7 +1667,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate edge detection shader
    */
-  generateEdgeDetectShader(node, getInput) {
+  generateEdgeDetectShader(node, __getInput) {
     const method = this.getParam(node, 'method', 'Sobel');
     const threshold = this.getParam(node, 'threshold', 0.1);
     const strength = this.getParam(node, 'strength', 1.0);
@@ -1867,7 +1867,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate morphology shader
    */
-  generateMorphologyShader(node, getInput) {
+  generateMorphologyShader(node, __getInput) {
     const operation = this.getParam(node, 'operation', 'Dilate');
     const kernelSize = this.getParam(node, 'kernelSize', '3x3');
     const iterations = this.getParam(node, 'iterations', 1);
@@ -2008,7 +2008,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate Voronoi diagram shader
    */
-  generateVoronoiShader(node, getInput) {
+  generateVoronoiShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Cells');
     const scale = this.getParam(node, 'scale', 8.0);
     const pointCount = this.getParam(node, 'pointCount', 16);
@@ -2190,7 +2190,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate gradient shader
    */
-  generateGradientShader(node, getInput) {
+  generateGradientShader(node, __getInput) {
     // A node wired to the "Value" input drives the gradient. The input texture
     // binding is always present in the layout (ComputeGradient is registered as an
     // input node), but we only sample it when something is actually connected.
@@ -2411,7 +2411,7 @@ ${hasInput ? `
   /**
    * Generate pattern shader
    */
-  generatePatternShader(node, getInput) {
+  generatePatternShader(node, __getInput) {
     const type = this.getParam(node, 'type', 'Checkerboard');
     const scaleX = this.getParam(node, 'scaleX', 8.0);
     const scaleY = this.getParam(node, 'scaleY', 8.0);
@@ -2655,7 +2655,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate warp distortion shader
    */
-  generateWarpShader(node, getInput) {
+  generateWarpShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Displace');
     const strength = this.getParam(node, 'strength', 0.1);
     const centerX = this.getParam(node, 'centerX', 0.5);
@@ -2822,7 +2822,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate glitch effect shader
    */
-  generateGlitchShader(node, getInput) {
+  generateGlitchShader(node, __getInput) {
     const type = this.getParam(node, 'type', 'RGB Shift');
     const intensity = this.getParam(node, 'intensity', 0.5);
     const frequency = this.getParam(node, 'frequency', 0.5);
@@ -3029,7 +3029,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate kaleidoscope shader - symmetry and mirroring effects
    */
-  generateKaleidoscopeShader(node, getInput) {
+  generateKaleidoscopeShader(node, __getInput) {
     const segments = this.getParam(node, 'segments', 6);
     const rotation = this.getParam(node, 'rotation', 0.0);
     const centerX = this.getParam(node, 'centerX', 0.5);
@@ -3142,7 +3142,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate mix/blend shader - composite two textures with blend modes
    */
-  generateMixShader(node, getInput) {
+  generateMixShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Mix');
     const amount = this.getParam(node, 'amount', 0.5);
     const opacity = this.getParam(node, 'opacity', 1.0);
@@ -3290,7 +3290,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate transform shader - translate, rotate, scale with pivot controls
    */
-  generateTransformShader(node, getInput) {
+  generateTransformShader(node, __getInput) {
     const translateX = this.getParam(node, 'translateX', 0.0);
     const translateY = this.getParam(node, 'translateY', 0.0);
     const rotation = this.getParam(node, 'rotation', 0.0);
@@ -3405,7 +3405,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate channels shader - swap, extract, combine, remap channels
    */
-  generateChannelsShader(node, getInput) {
+  generateChannelsShader(node, __getInput) {
     const redSource = this.getParam(node, 'redSource', 'R');
     const greenSource = this.getParam(node, 'greenSource', 'G');
     const blueSource = this.getParam(node, 'blueSource', 'B');
@@ -3497,7 +3497,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate HSV shader for color space operations
    * Supports RGB to HSV, HSV to RGB, and Adjust HSV operations
    */
-  generateHSVShader(node, getInput) {
+  generateHSVShader(node, __getInput) {
     const operation = this.getParam(node, 'operation', 'Adjust HSV');
     const hueShift = this.getParam(node, 'hueShift', 0.0);
     const saturationMult = this.getParam(node, 'saturationMult', 1.0);
@@ -3592,7 +3592,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Generate Histogram shader for histogram-based operations
    * Supports: Equalize, Normalize, Stretch, Visualize
    */
-  generateHistogramShader(node, getInput) {
+  generateHistogramShader(node, __getInput) {
     const operation = this.getParam(node, 'operation', 'Equalize');
     const channel = this.getParam(node, 'channel', 'Luminance');
     const bins = this.getParam(node, 'bins', 16);
@@ -3884,7 +3884,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
    * Supports: Rec709, Rec601, Average, Max, Min
    * Output modes: Grayscale, Preserve Color, Isoluminant
    */
-  generateLuminanceShader(node, getInput) {
+  generateLuminanceShader(node, __getInput) {
     const method = this.getParam(node, 'method', 'Rec709');
     const outputMode = this.getParam(node, 'outputMode', 'Grayscale');
     const threshold = this.getParam(node, 'threshold', 0.5);
@@ -4061,7 +4061,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   /**
    * Generate fallback shader for unsupported compute nodes
    */
-  generateFallbackShader(node) {
+  generateFallbackShader(__node) {
     return `
 struct Uniforms {
   resolution: vec2<f32>,
@@ -4121,7 +4121,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (typeof rawValue === 'string' && rawValue.startsWith('=') && !isNodeReference) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         // Fall through to uniform registration below
       }
@@ -4132,7 +4132,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (typeof rawValue === 'string' && !isNodeReference && (/time|audioEnvelope/.test(rawValue))) {
       try {
         return unifiedExpressionSystem.generateShader(rawValue, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         // Fall through to uniform registration below
       }

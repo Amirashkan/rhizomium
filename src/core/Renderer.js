@@ -289,7 +289,7 @@ export class Renderer {
    * This is only called when scale or grid size changes
    * Grid is rendered in screen space (pixels) for the offscreen canvas
    */
-  _regenerateGrid(gridSize, scale, width, height) {
+  _regenerateGrid(gridSize, scale, _width, _height) {
     // Grid spacing in screen pixels (for offscreen canvas rendering)
     const minorSpacing = gridSize * scale;
     const majorSpacing = minorSpacing * 5;
@@ -410,7 +410,7 @@ export class Renderer {
     }
   }
 
-  _renderParameterReferences(nodes, nodeMap) {
+  _renderParameterReferences(nodes, _nodeMap) {
     const ctx = this.ctx;
 
     // Extract parameter references from all nodes
@@ -923,7 +923,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  _drawEnhancedPin(x, y, radius, type) {
+  _drawEnhancedPin(x, y, radius, _type) {
     const ctx = this.ctx;
 
     // Outer ring

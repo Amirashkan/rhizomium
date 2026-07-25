@@ -326,7 +326,7 @@ export class ComputeShaderTest {
       // Update FPS
       this.updateFPS();
 
-    } catch (error) {
+    } catch {
 
     }
   }

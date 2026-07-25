@@ -789,7 +789,7 @@ export class UndoManager {
             try {
               action.undo();
               success = true;
-            } catch (error) {
+            } catch {
 
               return false;
             }
@@ -811,7 +811,7 @@ export class UndoManager {
         return false;
       }
 
-    } catch (error) {
+    } catch {
 
       this.undoStack.push(action);
       return false;
@@ -1038,7 +1038,7 @@ export class UndoManager {
             try {
               action.redo();
               success = true;
-            } catch (error) {
+            } catch {
 
               return false;
             }
@@ -1059,7 +1059,7 @@ export class UndoManager {
         return false;
       }
 
-    } catch (error) {
+    } catch {
 
       this.redoStack.push(action);
       return false;
@@ -1195,7 +1195,7 @@ export class UndoManager {
 
       return true;
 
-    } catch (error) {
+    } catch {
 
       return false;
     }

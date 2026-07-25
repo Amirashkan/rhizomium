@@ -158,7 +158,7 @@ function evaluateParameter(value, context) {
       const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
       const result = expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
       return typeof result === 'number' ? result : 0;
-    } catch (error) {
+    } catch {
       return 0;
     }
   }
@@ -171,7 +171,7 @@ function evaluateParameter(value, context) {
 /**
  * Compute node output based on node type
  */
-function computeNodeOutput(node, params, context) {
+function computeNodeOutput(node, params, _context) {
   // Basic computation based on node type
   // This is a simplified version - full implementation would handle all node types
   switch (node.type) {

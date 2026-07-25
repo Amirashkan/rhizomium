@@ -60,7 +60,7 @@ class AudioEnvelopeClient {
                     } else if (data.type === 'pong') {
                         // Handle pong response
                     }
-                } catch (error) {
+                } catch {
 
                 }
             };
@@ -178,7 +178,7 @@ class AudioEnvelopeClient {
             this.listeners[event].forEach(callback => {
                 try {
                     callback(...args);
-                } catch (error) {
+                } catch {
 
                 }
             });

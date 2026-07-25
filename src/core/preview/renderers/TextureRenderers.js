@@ -71,7 +71,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
       const result = safeEval(previewTime);
 
       return isNaN(result) ? defaultValue : result;
-    } catch (error) {
+    } catch {
 
       return defaultValue;
     }
@@ -99,7 +99,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
       return Object.values(node.params).some(value => 
         typeof value === 'string' && value.trim().startsWith('=')
       );
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -306,7 +306,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
           radius = 0.25;
         }
-      } catch (error) {
+      } catch {
 
         radius = 0.25;
       }
@@ -323,7 +323,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
 
           epsilon = 0.02;
         }
-      } catch (error) {
+      } catch {
 
         epsilon = 0.02;
       }

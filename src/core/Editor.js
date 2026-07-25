@@ -203,7 +203,7 @@ export class Editor {
           this.listeners.get(event).forEach(callback => {
             try {
               callback(data);
-            } catch (error) {
+            } catch {
 
             }
           });
@@ -394,7 +394,7 @@ connectGPURenderer(renderFunction) {
   }
 
   // PERFORMANCE OPTIMIZATION: Debounced shader rebuild
-  triggerShaderRebuild(reason = 'Unknown') {
+  triggerShaderRebuild(_reason = 'Unknown') {
     // Debounce rebuild calls to prevent spam
     if (this.rebuildTimeout) {
       clearTimeout(this.rebuildTimeout);
@@ -407,7 +407,7 @@ connectGPURenderer(renderFunction) {
 
           // Clear time expression cache after rebuild
           this.timeExpressionCache = null;
-        } catch (error) {
+        } catch {
 
         }
       }
@@ -440,13 +440,13 @@ connectGPURenderer(renderFunction) {
         this.previewSystem.getParameterValue = (node, paramName, defaultValue) => {
           try {
             return this.getNodeParameterValue(node, paramName, defaultValue);
-          } catch (error) {
+          } catch {
 
             return originalGetParameterValue(node, paramName, defaultValue);
           }
         };
       }
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -460,13 +460,13 @@ connectGPURenderer(renderFunction) {
         this.nodeValueComputer.getParameterValue = (node, paramName, defaultValue) => {
           try {
             return this.getNodeParameterValue(node, paramName, defaultValue);
-          } catch (error) {
+          } catch {
 
             return originalGetParameterValue(node, paramName, defaultValue);
           }
         };
       }
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -483,7 +483,7 @@ connectGPURenderer(renderFunction) {
       }
       
       return this.expressionSystem.parseValue(rawValue);
-    } catch (error) {
+    } catch {
 
       return defaultValue;
     }
@@ -551,7 +551,7 @@ connectGPURenderer(renderFunction) {
       context.frame = this.getAnimationFrame();
       
       return context;
-    } catch (error) {
+    } catch {
 
       return {};
     }
@@ -569,7 +569,7 @@ connectGPURenderer(renderFunction) {
       }
       
       return 0;
-    } catch (error) {
+    } catch {
 
       return 0;
     }
@@ -614,7 +614,7 @@ connectGPURenderer(renderFunction) {
 
       // Update previews for dependent nodes
       this.updateDependentNodePreviews(node, parameterName);
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -636,7 +636,7 @@ connectGPURenderer(renderFunction) {
       // Clear pending updates
       this.pendingMidiDependencyUpdates.clear();
       this.midiPreviewUpdateTimer = null;
-    } catch (error) {
+    } catch {
 
       this.midiPreviewUpdateTimer = null;
     }
@@ -665,7 +665,7 @@ connectGPURenderer(renderFunction) {
 
       // Update previews for nodes with expressions
       this.updateNodesWithExpressions();
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -677,7 +677,7 @@ connectGPURenderer(renderFunction) {
       if (node) {
         this.updateDependentNodePreviews(node, change.paramName);
       }
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -699,7 +699,7 @@ connectGPURenderer(renderFunction) {
       nodesWithExpressions.forEach(node => {
         this.updateNodePreview(node);
       });
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -726,7 +726,7 @@ connectGPURenderer(renderFunction) {
       dependentNodes.forEach(node => {
         this.updateNodePreview(node);
       });
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -743,7 +743,7 @@ connectGPURenderer(renderFunction) {
       
       // Invalidate node region for redraw
       this.invalidateNode(node, 'preview-update');
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -762,7 +762,7 @@ connectGPURenderer(renderFunction) {
       // Clear cache to force re-evaluation with new time
       this.expressionSystem.clearCache();
       
-    } catch (error) {
+    } catch {
 
     }
   }
@@ -883,7 +883,7 @@ connectGPURenderer(renderFunction) {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.fillStyle = '#ff0000';
         this.ctx.fillText('Render Error - See notifications', 10, 30);
-      } catch (recoveryError) {
+      } catch {
 
       }
     }
@@ -1622,7 +1622,7 @@ connectGPURenderer(renderFunction) {
         if (this.selection && this.selection.has && this.selection.has(nodeToDelete)) {
           try {
             this.selection.delete(nodeToDelete);
-          } catch (selectionError) {
+          } catch {
 
           }
         }
@@ -1647,7 +1647,7 @@ connectGPURenderer(renderFunction) {
         .filter(item => item.index !== -1)
         .sort((a, b) => b.index - a.index);
       
-      sortedNodesToDelete.forEach(({ node, index }) => {
+      sortedNodesToDelete.forEach(({ node: _node, index }) => {
         this.graph.nodes.splice(index, 1);
       });
 
@@ -1872,7 +1872,7 @@ connectGPURenderer(renderFunction) {
           if (this.selection.clear) {
             try {
               this.selection.clear();
-            } catch (clearError) {
+            } catch {
 
             }
           }
@@ -2205,7 +2205,7 @@ connectGPURenderer(renderFunction) {
         window.computeExecutor?.inputHashes?.clear?.();
         window.computeExecutor?.fragmentRenderer?.clearCache?.();
         window.shaderPreviewManager?.fragmentRenderer?.clearCache?.();
-      } catch (_) { /* cache objects are best-effort */ }
+      } catch { /* cache objects are best-effort */ }
 
       // Bypass changes the generated shader, so recompile and refresh the previews + canvas.
       this.onChange(`Toggle Bypass: ${nodeId}`);
@@ -2229,7 +2229,7 @@ connectGPURenderer(renderFunction) {
       // collapses to a compact node with no empty thumbnail gap. The title-bar controls are drawn
       // separately (always), so a hidden node can still be toggled back on.
       return this.isNodePreviewEnabled(node);
-    } catch (error) {
+    } catch {
 
       return false;
     }
@@ -2250,7 +2250,7 @@ connectGPURenderer(renderFunction) {
       const spm = window.shaderPreviewManager;
       if (!spm) return true;
       return !!(spm.isComputeNode(node) || spm.isVisualNode(node));
-    } catch (error) {
+    } catch {
       return true;
     }
   }
@@ -2264,7 +2264,7 @@ connectGPURenderer(renderFunction) {
       const preview = this.nodePreviews.get(node.id);
       if (preview) return preview.enabled !== false;
       return this.defaultNodePreviewEnabled(node);
-    } catch (error) {
+    } catch {
       return true;
     }
   }
@@ -2274,7 +2274,7 @@ connectGPURenderer(renderFunction) {
       if (typeof nodeId === 'undefined') return true;
       const preview = this.nodePreviews.get(nodeId);
       return preview ? preview.enabled : true;
-    } catch (error) {
+    } catch {
 
       return true;
     }
@@ -2285,7 +2285,7 @@ connectGPURenderer(renderFunction) {
       if (typeof nodeId === 'undefined') return true;
       const preview = this.nodePreviews.get(nodeId);
       return preview ? preview.showVisualInfo : true;
-    } catch (error) {
+    } catch {
 
       return true;
     }
@@ -2297,7 +2297,7 @@ connectGPURenderer(renderFunction) {
       const preview = this.nodePreviews.get(nodeId);
       const sizeKey = preview?.size || "large";
       return this.previewSizes[sizeKey] || this.previewSizes.large;
-    } catch (error) {
+    } catch {
 
       return this.previewSizes.small;
     }
@@ -2454,7 +2454,7 @@ connectGPURenderer(renderFunction) {
       this.movementState.originalPositions.clear();
       this.movementState.movedNodes.clear();
 
-    } catch (error) {
+    } catch {
 
     }
   }

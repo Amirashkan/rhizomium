@@ -63,7 +63,7 @@ async function defaultCreateRenderer(canvas) {
     const renderer = new GPURenderer(device, canvas);
     renderer.externalUniformMode = true; // uniforms come from the editor's snapshots
     return renderer;
-  } catch (_) {
+  } catch {
     return null;
   }
 }
@@ -208,10 +208,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       // frame, which starved the shared GPU (the editor's framerate) and added memory
       // pressure. Must be set before the first shader builds the pipeline. (The editor
       // keeps its own MSAA; this only affects this mirror window's blit.)
-      try { renderer.sampleCount = 1; } catch (_) { /* ignore */ }
+      try { renderer.sampleCount = 1; } catch { /* ignore */ }
       // Count GPU-completed frames so the profiler can show real throughput
       // (onFramePresented fires on onSubmittedWorkDone, not at dispatch time).
-      try { renderer.onFramePresented = () => profiler.presented(); } catch (_) { /* ignore */ }
+      try { renderer.onFramePresented = () => profiler.presented(); } catch { /* ignore */ }
       if (pendingWgsl) { applyShader(pendingWgsl); pendingWgsl = null; }
       return renderer;
     }).catch(() => {
@@ -224,12 +224,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
 
   function requestPixelFallback() {
     tier = TIER.FALLBACK;
-    try { channel?.postMessage({ type: MSG.NEED_FALLBACK }); } catch (_) { /* ignore */ }
+    try { channel?.postMessage({ type: MSG.NEED_FALLBACK }); } catch { /* ignore */ }
   }
 
   function applyShader(wgsl) {
     if (!renderer || !wgsl || wgsl === appliedWgsl) return;
-    try { renderer.setShaderSource(wgsl); appliedWgsl = wgsl; } catch (_) { /* ignore */ }
+    try { renderer.setShaderSource(wgsl); appliedWgsl = wgsl; } catch { /* ignore */ }
   }
 
   // --- native compute runtime (Tier 2) ------------------------------------
@@ -381,7 +381,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         // queued steps on top would advance the sim past the editor. Drop them.
         stepQueue = stepQueue.filter((s) => !(typeof s.step === 'number' && s.step <= msg.step));
       }
-    } catch (_) { /* keep own state */ }
+    } catch { /* keep own state */ }
   }
 
   function applyComputeUniforms(msg) {
@@ -398,12 +398,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       // wrong (stretched output, mis-scaled kernels).
       const ov = computeDimsOverride.get(n.id);
       if (ov && n.packed && n.packed.length >= 2) { n.packed[0] = ov[0]; n.packed[1] = ov[1]; }
-      try { mgr.writeRawComputeUniforms(n.packed, n.colorStops || null); } catch (_) { /* ignore */ }
+      try { mgr.writeRawComputeUniforms(n.packed, n.colorStops || null); } catch { /* ignore */ }
       // Static-input stateless nodes are skipped by the executor's change detection;
       // when the injected uniforms OR color stops change, invalidate the hash so it
       // re-dispatches. (Color stops live in a separate buffer, not in `packed`.)
       if (_computeChanged(n.id, n.packed, n.colorStops)) {
-        try { exec.inputHashes?.delete?.(n.id); } catch (_) { /* ignore */ }
+        try { exec.inputHashes?.delete?.(n.id); } catch { /* ignore */ }
         // Cascade: nodes downstream of this one must also re-dispatch so an
         // upstream parameter change propagates through the chain in real time
         // (without it, only the changed node re-runs and consumers show stale input).
@@ -462,7 +462,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       for (const node of nodes) {
         if (node && Array.isArray(node.inputs) && node.inputs.includes(id) && !seen.has(node.id)) {
           seen.add(node.id);
-          try { exec.inputHashes.delete(node.id); } catch (_) { /* ignore */ }
+          try { exec.inputHashes.delete(node.id); } catch { /* ignore */ }
           queue.push(node.id);
         }
       }
@@ -510,7 +510,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (!computeRuntime) { pendingFragmentGraph = msg; ensureComputeRuntime(); return; }
     mergeFragmentNodesIntoGraph();
     const fr = computeRuntime.computeExecutor && computeRuntime.computeExecutor.fragmentRenderer;
-    try { fr?.clearCache?.(); } catch (_) { /* ignore */ }
+    try { fr?.clearCache?.(); } catch { /* ignore */ }
     prevFragmentParams.clear(); // force a re-render with the next injected uniforms
   }
 
@@ -531,7 +531,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     for (const n of (msg.nodes || [])) {
       fr.externalUniforms.set(n.id, n.params);
       if (_fragmentParamsChanged(n.id, n.params)) {
-        try { fr.parameterHashes?.delete?.(n.id); } catch (_) { /* ignore */ }
+        try { fr.parameterHashes?.delete?.(n.id); } catch { /* ignore */ }
       }
     }
   }
@@ -554,12 +554,12 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (!computeRuntime) { pendingTextures.push(msg); ensureComputeRuntime(); return; }
     const tm = computeRuntime.textureManager;
     if (tm && typeof tm.injectExternalTexture === 'function') {
-      try { tm.injectExternalTexture(msg.nodeId, msg.bitmap); } catch (_) { /* ignore */ }
+      try { tm.injectExternalTexture(msg.nodeId, msg.bitmap); } catch { /* ignore */ }
     }
   }
 
   function clearComputeRuntime() {
-    try { win.computeExecutor?.clear?.(); } catch (_) { /* ignore */ }
+    try { win.computeExecutor?.clear?.(); } catch { /* ignore */ }
     appliedComputeKey = null;
     latestComputeUniforms = null;
     stepQueue = [];
@@ -647,7 +647,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         // A Feedback node was reset in the editor (panel button / Reset pin). Our
         // sim is an independent replica, so clear it too. Before the runtime
         // exists there is nothing accumulated yet — safe to ignore.
-        try { computeRuntime?.computeExecutor?.resetNodeFeedback?.(d.nodeId); } catch (_) { /* ignore */ }
+        try { computeRuntime?.computeExecutor?.resetNodeFeedback?.(d.nodeId); } catch { /* ignore */ }
         break;
       case MSG.CLOSE:
         closeSelf();
@@ -667,7 +667,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   if (channel) channel.addEventListener('message', onMessage);
 
   function setLatest(bitmap, w, h) {
-    if (latest && latest !== bitmap) { try { latest.close(); } catch (_) { /* ignore */ } }
+    if (latest && latest !== bitmap) { try { latest.close(); } catch { /* ignore */ } }
     latest = bitmap;
     latestW = w || (bitmap && bitmap.width) || 0;
     latestH = h || (bitmap && bitmap.height) || 0;
@@ -747,7 +747,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         height: (gpuCanvas || fbCanvas)?.height || 0,
         dpr: win.devicePixelRatio || 1,
       });
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   // --- viewer compute resolution -------------------------------------------
@@ -875,7 +875,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
             applyComputeUniforms(last);
             r.writeRawUniforms(snapshot);
             r.render({ timeSec });
-          } catch (_) {
+          } catch {
             /* skip this frame — the next tick renders */
           } finally {
             stepJobBusy = false;
@@ -889,7 +889,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       r.writeRawUniforms(snapshot);
       r.render({ timeSec });
       return true;
-    } catch (_) {
+    } catch {
       return false;
     }
   }
@@ -903,7 +903,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (latest) {
       const { dx, dy, dw, dh } = letterboxRect(latestW, latestH, cw, ch);
       if (dw > 0 && dh > 0) {
-        try { fbCtx.drawImage(latest, dx, dy, dw, dh); } catch (_) { /* skip frame */ }
+        try { fbCtx.drawImage(latest, dx, dy, dw, dh); } catch { /* skip frame */ }
       }
     }
   }
@@ -1049,8 +1049,8 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   win.requestAnimationFrame(() => win.requestAnimationFrame(async () => {
     const w = await tauriWindow();
     if (w) {
-      try { await w.show(); } catch (_) { /* ignore */ }
-      try { await w.setFocus(); } catch (_) { /* ignore */ }
+      try { await w.show(); } catch { /* ignore */ }
+      try { await w.setFocus(); } catch { /* ignore */ }
     }
   }));
 
@@ -1066,7 +1066,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   });
   win.addEventListener('dblclick', () => toggleFullscreen());
   win.addEventListener('beforeunload', () => {
-    try { channel?.postMessage({ type: MSG.CLOSED }); } catch (_) { /* ignore */ }
+    try { channel?.postMessage({ type: MSG.CLOSED }); } catch { /* ignore */ }
   });
 
   async function tauriWindow() {
@@ -1075,7 +1075,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       cachedWindow = getCurrentWindow();
-    } catch (_) {
+    } catch {
       cachedWindow = null;
     }
     return cachedWindow;
@@ -1085,36 +1085,36 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     const w = await tauriWindow();
     if (!w) return;
     let cur = false;
-    try { cur = await w.isFullscreen(); } catch (_) { /* assume windowed */ }
+    try { cur = await w.isFullscreen(); } catch { /* assume windowed */ }
     const next = !cur;
-    try { await w.setFullscreen(next); } catch (_) { /* ignore */ }
-    try { await w.setDecorations(!next); } catch (_) { /* ignore */ }
+    try { await w.setFullscreen(next); } catch { /* ignore */ }
+    try { await w.setDecorations(!next); } catch { /* ignore */ }
   }
 
   async function closeSelf() {
     if (closing) return;
     closing = true;
     clearComputeRuntime();
-    try { win.textureManager?.destroy?.(); } catch (_) { /* ignore */ }
-    try { channel?.postMessage({ type: MSG.CLOSED }); } catch (_) { /* ignore */ }
-    if (rafId != null) { try { win.cancelAnimationFrame(rafId); } catch (_) { /* ignore */ } }
+    try { win.textureManager?.destroy?.(); } catch { /* ignore */ }
+    try { channel?.postMessage({ type: MSG.CLOSED }); } catch { /* ignore */ }
+    if (rafId != null) { try { win.cancelAnimationFrame(rafId); } catch { /* ignore */ } }
     const w = await tauriWindow();
-    if (w) { try { await w.close(); return; } catch (_) { /* fall through */ } }
-    try { win.close(); } catch (_) { /* ignore */ }
+    if (w) { try { await w.close(); return; } catch { /* fall through */ } }
+    try { win.close(); } catch { /* ignore */ }
   }
 
   // Announce we're listening and whether native rendering is possible, so the
   // editor can pick the right path from the start.
   if (channel) {
     const webgpu = !!gpuCanvas && typeof navigator !== 'undefined' && !!navigator.gpu;
-    try { channel.postMessage({ type: MSG.READY, webgpu }); } catch (_) { /* ignore */ }
-    if (!webgpu) { try { channel.postMessage({ type: MSG.NEED_FALLBACK }); } catch (_) { /* ignore */ } }
+    try { channel.postMessage({ type: MSG.READY, webgpu }); } catch { /* ignore */ }
+    if (!webgpu) { try { channel.postMessage({ type: MSG.NEED_FALLBACK }); } catch { /* ignore */ } }
   }
   reportSize();
 
   // Expose the profiler on the window so it can be read from devtools
   // (e.g. `__secondMonitorProfiler.snapshot()`) without the overlay.
-  try { win.__secondMonitorProfiler = profiler; } catch (_) { /* ignore */ }
+  try { win.__secondMonitorProfiler = profiler; } catch { /* ignore */ }
 
   return {
     get tier() { return tier; },

@@ -289,7 +289,7 @@ export class MIDISettingsPanel {
         this.showLearnMode();
       });
 
-      this.midiManager.eventSystem.on('MIDI_LEARN_COMPLETED', (data) => {
+      this.midiManager.eventSystem.on('MIDI_LEARN_COMPLETED', (_data) => {
         this.hideLearnMode();
         this.updateBindingsList();
       });
@@ -328,7 +328,7 @@ export class MIDISettingsPanel {
     const node = paramPanel.selectedNode;
 
     // Start learning
-    this.midiBinding.startLearning(node.id, paramName, (result) => {
+    this.midiBinding.startLearning(node.id, paramName, (_result) => {
 
     });
   }
@@ -404,7 +404,7 @@ export class MIDISettingsPanel {
       return;
     }
 
-    this.bindingsList.innerHTML = bindings.map((binding, index) => {
+    this.bindingsList.innerHTML = bindings.map((binding, _index) => {
       const node = window.editor?.graph?.nodes.find(n => n.id === binding.nodeId);
       const nodeName = node ? node.kind : 'Unknown';
 

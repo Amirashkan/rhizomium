@@ -61,7 +61,7 @@ export async function runTests(device) {
     assert(node.params.scale === 8.0, 'Params should be set');
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -84,7 +84,7 @@ export async function runTests(device) {
     node.destroy();
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -108,7 +108,7 @@ export async function runTests(device) {
     assert(node.params.speed === 0.5, 'Speed should be updated');
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -134,7 +134,7 @@ export async function runTests(device) {
     node.destroy();
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -162,7 +162,7 @@ export async function runTests(device) {
     original.destroy();
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -204,7 +204,7 @@ export async function runTests(device) {
     executor.clear();
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -227,7 +227,7 @@ export async function runTests(device) {
     node.destroy();
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -266,7 +266,7 @@ export async function runTests(device) {
     executor.clear();
 
     passed++;
-  } catch (error) {
+  } catch {
 
     failed++;
   }
@@ -293,7 +293,7 @@ function assert(condition, message) {
  * Run tests if this file is executed directly
  */
 if (typeof window !== 'undefined' && window.testDevice) {
-  runTests(window.testDevice).catch(error => {
+  runTests(window.testDevice).catch(_error => {
 
   });
 }

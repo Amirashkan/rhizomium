@@ -178,7 +178,7 @@ export class PerformanceCollector {
   /**
    * Collect metrics for Python thread
    */
-  _collectPythonMetrics(name, thread, metrics) {
+  _collectPythonMetrics(_name, _thread, _metrics) {
     // Python threads are monitored via API
     // Metrics collected asynchronously
   }

@@ -27,7 +27,7 @@ export class ParameterEventSystem {
       this.listeners.get(eventType).forEach(callback => {
         try {
           callback(data);
-        } catch (error) {
+        } catch {
 
         }
       });

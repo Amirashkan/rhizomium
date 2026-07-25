@@ -60,7 +60,7 @@ export class AudioAnalysisProcessor {
     if (this._audioClient === undefined) {
       try {
         this._audioClient = getBrowserAudioCapture();
-      } catch (e) {
+      } catch {
         this._audioClient = null;
       }
     }
@@ -86,7 +86,7 @@ export class AudioAnalysisProcessor {
     this._lastConfigJson = json;
     try {
       this._client()?.updateConfig?.(config);
-    } catch (e) {
+    } catch {
       // Never let a config push break the render loop.
     }
   }
@@ -110,7 +110,7 @@ export class AudioAnalysisProcessor {
 
     // Advance the engine before reading it. De-duped against its own RAF handler, so the meters
     // stay live even if that handler never registered.
-    try { this._client()?.tick?.(); } catch (e) { /* never break the render loop */ }
+    try { this._client()?.tick?.(); } catch { /* never break the render loop */ }
 
     const ctx = this._buildContext(time);
     const clock = Number.isFinite(now)
@@ -232,7 +232,7 @@ export class AudioAnalysisProcessor {
           const result = unifiedExpressionSystem.evaluateCPU(expr, ctx);
           const num = typeof result === 'number' ? result : parseFloat(result);
           return Number.isFinite(num) ? num : def;
-        } catch (e) {
+        } catch {
           return def;
         }
       }

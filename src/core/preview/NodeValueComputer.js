@@ -335,7 +335,7 @@ case "rectanglefield": {
               }
             }
           }
-        } catch (connError) {
+        } catch {
           // Skip individual connection errors, continue processing others
 
         }
@@ -373,7 +373,7 @@ _getParameter(node, name) {
     }
 
     return raw;
-  } catch (error) {
+  } catch {
     return 0;
   }
 }
@@ -389,7 +389,7 @@ _getParameter(node, name) {
         return [input, input, input];
       }
       return [0, 0, 0];
-    } catch (error) {
+    } catch {
       return [0, 0, 0];
     }
   }
@@ -409,7 +409,7 @@ _getParameter(node, name) {
       }
       
       return Number.isFinite(result) ? result : fallback;
-    } catch (error) {
+    } catch {
       return fallback;
     }
   }
@@ -431,13 +431,13 @@ getNodeParameter(node, paramName, defaultValue = 0) {
         if (expressionSystem) {
           return expressionSystem.evaluateExpression(rawValue, {}, node);
         }
-      } catch (error) {
+      } catch {
 
       }
     }
     
     return typeof rawValue === 'number' ? rawValue : parseFloat(rawValue) || defaultValue;
-  } catch (error) {
+  } catch {
 
     return defaultValue;
   }
@@ -559,7 +559,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
       }
 
       return hashParts.length > 0 ? hashParts.join('|') : 'no-inputs';
-    } catch (error) {
+    } catch {
       return 'hash-error';
     }
   }
@@ -573,7 +573,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
         return 'no-params';
       }
       return JSON.stringify(node.params);
-    } catch (error) {
+    } catch {
       return 'param-hash-error';
     }
   }
@@ -613,7 +613,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
 
       // Cache is valid, return cached value
       return cached.value;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -638,7 +638,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
 
       this._lastInputHashes.set(node.id, inputHash);
       this._lastParamHashes.set(node.id, paramHash);
-    } catch (error) {
+    } catch {
       // Silently fail cache storage
     }
   }
@@ -686,7 +686,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
       }
 
       return null;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -721,7 +721,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
         const paramHash = this._computeParameterHash(node);
         previewComputer.lastParameterHashes.set(node.id, paramHash);
       }
-    } catch (error) {
+    } catch {
       // Silently fail cache update
     }
   }
@@ -735,7 +735,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
         return [];
       }
       return node.inputs.map((input) => input ?? null);
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -756,7 +756,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
         }
       }
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -778,7 +778,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
         this._lastInputHashes.delete(nodeId);
         this._lastParamHashes.delete(nodeId);
       }
-    } catch (error) {
+    } catch {
       // Silently fail invalidation
     }
   }
@@ -821,7 +821,7 @@ getNodeParameter(node, paramName, defaultValue = 0) {
       for (const dependentId of dependents) {
         this.invalidateCache(dependentId);
       }
-    } catch (error) {
+    } catch {
       // Silently fail invalidation
     }
   }

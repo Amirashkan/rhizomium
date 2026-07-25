@@ -170,7 +170,7 @@ getParameterValue(node, paramName, defaultValue = 0) {
     ctx.putImageData(imageData, 0, 0);
   }
 
-  renderColorRamp(ctx, node) {
+  renderColorRamp(ctx, _node) {
     const size = ctx.canvas.width;
     // Placeholder for color ramp implementation
     ctx.fillStyle = '#888888';

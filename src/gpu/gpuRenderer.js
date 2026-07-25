@@ -230,7 +230,7 @@ export class GPURenderer {
       if (!this.renderCache.hasKey(this._msaaCacheKey)) {
         try {
           this.msaaTexture.destroy();
-        } catch (err) {
+        } catch {
           // Texture may already be destroyed
         }
       }
@@ -815,7 +815,7 @@ export class GPURenderer {
     // pointer input, on PreviewIntegration's own throttle — keeps this work off
     // the render loop so it never throttles the final preview.
     const notifyMouseInput = () => {
-      try { window.editor?.previewIntegration?.notifyMouseInput?.(); } catch (_) {}
+      try { window.editor?.previewIntegration?.notifyMouseInput?.(); } catch {}
     };
 
     this._onPointerMove = (e) => {
@@ -934,7 +934,7 @@ export class GPURenderer {
       }
 
       this.canvas.style.backgroundColor = "";
-    } catch (err) {
+    } catch {
 
       this.clear();
       this.presentFallbackColor();
@@ -1463,7 +1463,7 @@ export class GPURenderer {
       // already created above, so it adds no extra GPU sync.
       if (this._lastFramePromise && typeof this.onFramePresented === "function") {
         this._lastFramePromise.then(
-          () => { try { this.onFramePresented(); } catch (_) { /* ignore */ } },
+          () => { try { this.onFramePresented(); } catch { /* ignore */ } },
           () => { /* device lost / frame dropped — ignore */ },
         );
       }
@@ -1481,7 +1481,7 @@ export class GPURenderer {
         const destroyFns = ce._pendingDestroys.splice(0);
         const fence = this._lastFramePromise || Promise.resolve();
         fence.then(() => {
-          for (const fn of destroyFns) { try { fn(); } catch (_) {} }
+          for (const fn of destroyFns) { try { fn(); } catch {} }
         }).catch(() => {});
       }
     } catch (submitErr) {
@@ -1499,7 +1499,7 @@ export class GPURenderer {
     if (this._lastFramePromise) {
       try {
         await this._lastFramePromise;
-      } catch (err) {
+      } catch {
         // Ignore errors - frame might already be presented
       }
     }
@@ -1549,7 +1549,7 @@ export class GPURenderer {
       // expressions/params. Null unless a fragment node feeds a compute node.
       snap.fragment = this._collectFragmentUniformSnapshot();
     }
-    try { tap(snap); } catch (_) { /* consumer error — never break the render loop */ }
+    try { tap(snap); } catch { /* consumer error — never break the render loop */ }
   }
 
   /**
@@ -1731,7 +1731,7 @@ export class GPURenderer {
     let pending;
     try {
       pending = createImageBitmap(this.canvas);
-    } catch (_) {
+    } catch {
       return; // canvas mid-resize / context lost — skip this frame
     }
     this._frameTapInFlight = true;
@@ -1739,8 +1739,8 @@ export class GPURenderer {
       (bitmap) => {
         this._frameTapInFlight = false;
         const cb = this._frameTap;
-        if (!cb) { try { bitmap.close(); } catch (_) { /* ignore */ } return; }
-        try { cb(bitmap); } catch (_) { try { bitmap.close(); } catch (_) { /* ignore */ } }
+        if (!cb) { try { bitmap.close(); } catch { /* ignore */ } return; }
+        try { cb(bitmap); } catch { try { bitmap.close(); } catch { /* ignore */ } }
       },
       () => { this._frameTapInFlight = false; },
     );

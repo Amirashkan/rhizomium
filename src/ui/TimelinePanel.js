@@ -414,7 +414,7 @@ export class TimelinePanel {
   /**
    * Canvas mouse up event
    */
-  onCanvasMouseUp(e) {
+  onCanvasMouseUp(_e) {
     this.isDraggingPlayhead = false;
     this.isDraggingKeyframe = false;
     this.isDraggingLoopStart = false;
@@ -425,7 +425,7 @@ export class TimelinePanel {
   /**
    * Canvas mouse leave event
    */
-  onCanvasMouseLeave(e) {
+  onCanvasMouseLeave(_e) {
     this.hoveredKeyframe = null;
     this.render();
   }

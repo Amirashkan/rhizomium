@@ -40,7 +40,7 @@ export class AsyncQueueManager {
   /**
    * Register a worker with the queue manager
    */
-  registerWorker(workerName, worker, options = {}) {
+  registerWorker(workerName, worker, __options = {}) {
     this.workers.set(workerName, worker);
     
     // Initialize priority queues for this worker

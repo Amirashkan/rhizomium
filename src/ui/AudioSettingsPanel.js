@@ -17,7 +17,7 @@ export class AudioSettingsPanel {
         try {
             this.audioClient = getBrowserAudioCapture();
 
-        } catch (error) {
+        } catch {
 
             this.audioClient = null;
         }
@@ -195,7 +195,7 @@ export class AudioSettingsPanel {
                     playBtn.disabled = false;
                     pauseBtn.disabled = false;
                     stopBtn.disabled = false;
-                } catch (error) {
+                } catch {
 
                     filenameEl.textContent = 'Error loading file';
                     filenameEl.style.color = '#f44336';
@@ -207,7 +207,7 @@ export class AudioSettingsPanel {
         playBtn.addEventListener('click', async () => {
             try {
                 await this.audioClient.play();
-            } catch (error) {
+            } catch {
 
             }
         });

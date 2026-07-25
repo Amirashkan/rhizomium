@@ -194,7 +194,7 @@ export class WGSLCodeInputHandler {
     return wrapper;
   }
 
-  _createTextarea(param, node, valueManager) {
+  _createTextarea(param, _node, _valueManager) {
     const textarea = document.createElement("textarea");
     textarea.className = "wgsl-editor";
     textarea.dataset.param = param.name;
@@ -288,7 +288,7 @@ export class WGSLCodeInputHandler {
     return errorDiv;
   }
 
-  _setCurrentValue(textarea, param, node, valueManager) {
+  _setCurrentValue(textarea, param, node, _valueManager) {
     try {
       // Get WGSL source from node or parameter
       let wgslCode = "";

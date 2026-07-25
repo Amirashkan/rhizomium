@@ -60,12 +60,12 @@ export class ComputeProfiler {
    */
   _setupInteractionListeners() {
     // Listen to interaction start events
-    this.interactionStateManager.addEventListener('interactionstart', (event) => {
+    this.interactionStateManager.addEventListener('interactionstart', (_event) => {
       this._isInteractionMode = true;
     });
     
     // Listen to interaction end events
-    this.interactionStateManager.addEventListener('interactionend', (event) => {
+    this.interactionStateManager.addEventListener('interactionend', (_event) => {
       this._isInteractionMode = false;
     });
   }
@@ -103,7 +103,7 @@ export class ComputeProfiler {
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
       });
 
-    } catch (error) {
+    } catch {
 
       this.supportsTimestamps = false;
     }
@@ -203,7 +203,7 @@ export class ComputeProfiler {
 
       try {
         commandEncoder.writeTimestamp(this.querySet, dispatch.queryIndex);
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -230,7 +230,7 @@ export class ComputeProfiler {
     if (this.supportsTimestamps && this.querySet && dispatch.queryIndex >= 0) {
       try {
         commandEncoder.writeTimestamp(this.querySet, dispatch.queryIndex + 1);
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -286,7 +286,7 @@ export class ComputeProfiler {
 
         // Schedule async read
         this._scheduleQueryRead(this.currentFrameDispatches.slice());
-      } catch (error) {
+      } catch {
 
       }
     }
@@ -322,7 +322,7 @@ export class ComputeProfiler {
       }
 
       this.queryBuffer.unmap();
-    } catch (error) {
+    } catch {
 
       // Buffer might still be mapped, try to unmap
       try {

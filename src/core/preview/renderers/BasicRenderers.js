@@ -36,7 +36,7 @@ export class BasicRenderers {
       
       // Direct fallback to node parameters
       return node.params?.[paramName] ?? defaultValue;
-    } catch (error) {
+    } catch {
 
       return defaultValue;
     }
@@ -123,7 +123,7 @@ export class BasicRenderers {
     }
   }
 
-  renderUV(ctx, node) {
+  renderUV(ctx, _node) {
     const size = ctx.canvas.width;
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
@@ -147,7 +147,7 @@ export class BasicRenderers {
     ctx.stroke();
   }
 
-renderTime(ctx, node) {
+renderTime(ctx, _node) {
     const size = ctx.canvas.width;
   // NEVER access dynamic values in preview renderers
   // Use a simple static time value or visual representation
@@ -226,7 +226,7 @@ renderTime(ctx, node) {
           }
           hasValidPlot = true;
         }
-      } catch (e) {
+      } catch {
 
       }
     }
@@ -318,7 +318,7 @@ renderOutput(ctx, node) {
     try {
       const rawValue = node.params?.[paramName];
       return typeof rawValue === 'string' && rawValue.trim().startsWith('=');
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -329,7 +329,7 @@ renderOutput(ctx, node) {
       return Object.values(node.params).some(value => 
         typeof value === 'string' && value.trim().startsWith('=')
       );
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -365,7 +365,7 @@ renderOutput(ctx, node) {
       // Substituted arithmetic from a node's own parameter expression, evaluated for a preview value
       // only; the throw path below is the guard against whatever it turns out not to be.
       return eval(processed); // eslint-disable-line no-eval
-    } catch (e) {
+    } catch {
       return 0;
     }
   }

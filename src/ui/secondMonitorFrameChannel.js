@@ -62,7 +62,7 @@ export function openSecondMonitorChannel() {
   if (typeof BroadcastChannel !== 'function') return null;
   try {
     return new BroadcastChannel(SECOND_MONITOR_CHANNEL);
-  } catch (_) {
+  } catch {
     return null;
   }
 }

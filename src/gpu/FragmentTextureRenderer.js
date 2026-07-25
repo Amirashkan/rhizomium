@@ -95,9 +95,9 @@ export class FragmentTextureRenderer {
     if (!live.length) return;
     const ce = (typeof window !== 'undefined') ? window.computeExecutor : null;
     if (ce?._deferDestroy) {
-      ce._deferDestroy(() => { for (const t of live) { try { t.destroy(); } catch (_) {} } });
+      ce._deferDestroy(() => { for (const t of live) { try { t.destroy(); } catch {} } });
     } else {
-      setTimeout(() => { for (const t of live) { try { t.destroy(); } catch (_) {} } }, 0);
+      setTimeout(() => { for (const t of live) { try { t.destroy(); } catch {} } }, 0);
     }
   }
 
@@ -243,7 +243,7 @@ export class FragmentTextureRenderer {
       // If no render needed, return cached texture (unchanged)
 
       return cached.texture;
-    } catch (error) {
+    } catch {
 
       return this._createFallbackTexture(width, height);
     }
@@ -279,7 +279,7 @@ export class FragmentTextureRenderer {
 
       // Return both WGSL and uniformManager so we can write parameters in the correct order
       return { wgsl, uniformManager };
-    } catch (error) {
+    } catch {
 
       return null;
     }
@@ -481,7 +481,7 @@ export class FragmentTextureRenderer {
         bindingMap,  // Store for recreating bind groups
         layouts      // Store layouts for recreating bind groups
       };
-    } catch (error) {
+    } catch {
 
       return null;
     }
@@ -545,7 +545,7 @@ export class FragmentTextureRenderer {
    * PERFORMANCE: Optimized to avoid expensive JSON.stringify calls
    * @private
    */
-  _buildFragmentNodeHash(node, time, audioContext) {
+  _buildFragmentNodeHash(node, time, _audioContext) {
     // PERFORMANCE: Use simple string concatenation instead of JSON.stringify
     // JSON.stringify is expensive and can cause frame time spikes
     let hash = '';

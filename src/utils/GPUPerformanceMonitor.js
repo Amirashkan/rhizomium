@@ -138,7 +138,7 @@ export class GPUPerformanceMonitor {
   /**
    * Show performance warning
    */
-  _showPerformanceWarning(message) {
+  _showPerformanceWarning(_message) {
 
     // Show overlay if it's hidden
     if (this.overlay && !this.overlay.visible) {

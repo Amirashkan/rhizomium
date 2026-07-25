@@ -121,7 +121,7 @@ async function evaluateExpression(expression, context, nodeId) {
     // Remove = prefix if present
     const cleanExpression = expression.startsWith('=') ? expression.slice(1) : expression;
     result = expressionSystem.evaluateCPU(cleanExpression, context);
-  } catch (error) {
+  } catch {
     // Fallback: try to parse as number
     const parsed = parseFloat(expression);
     result = isNaN(parsed) ? 0 : parsed;

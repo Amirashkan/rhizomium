@@ -49,7 +49,7 @@ export class UtilityNodes {
     if (typeof value === 'string' && value.startsWith('=')) {
       try {
         return unifiedExpressionSystem.generateShader(value, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         return String(defaultValue);
       }
@@ -59,7 +59,7 @@ export class UtilityNodes {
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
       try {
         return unifiedExpressionSystem.generateShader(value, {}, this.graph);
-      } catch (error) {
+      } catch {
 
         return String(defaultValue);
       }
@@ -95,7 +95,7 @@ export class UtilityNodes {
    * @param {Object} context - Optional context with typeConverter
    * @returns {Object} { line, outputType }
    */
-  compile(node, getInput, getParam = null, context = null) {
+  compile(node, getInput, getParam = null, __context = null) {
     const nodeId = node.id.replace(/[^a-zA-Z0-9_]/g, "_");
     
     switch (node.kind) {
@@ -145,7 +145,7 @@ export class UtilityNodes {
     }
   }
   
-  compileOutputFinal(node, getInput, nodeId) {
+  compileOutputFinal(node, getInput, __nodeId) {
     // Check if the Output node has any input connection
     const hasValidInput = node.inputs && node.inputs[0] !== null && node.inputs[0] !== undefined;
 

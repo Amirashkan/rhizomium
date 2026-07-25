@@ -374,7 +374,7 @@ export class ErrorHandler {
                 // Clipboard API failed, ignore
               });
             }
-          } catch (clipboardError) {
+          } catch {
             // Ignore clipboard errors
           }
         }
@@ -438,7 +438,7 @@ export class ErrorHandler {
   /**
    * Get user-friendly error message
    */
-  getUserFriendlyMessage(error, context) {
+  getUserFriendlyMessage(error, _context) {
     const message = error?.message || String(error);
 
     // Map technical errors to user-friendly messages

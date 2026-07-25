@@ -164,7 +164,7 @@ export class ResourceTracker {
           texture.destroy();
           destroyedCount++;
         }
-      } catch (error) {
+      } catch {
 
         errorCount++;
       }
@@ -177,7 +177,7 @@ export class ResourceTracker {
           buffer.destroy();
           destroyedCount++;
         }
-      } catch (error) {
+      } catch {
 
         errorCount++;
       }

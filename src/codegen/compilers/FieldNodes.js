@@ -340,7 +340,7 @@ getParam(node, paramName, defaultValue) {
     try {
       const result = unifiedExpressionSystem.generateShader(rawValue, scalarMapping, this.graph);
       return result === '0.0' ? this._defaultLiteral(defaultValue) : result;
-    } catch (error) {
+    } catch {
       return this._defaultLiteral(defaultValue);
     }
   }

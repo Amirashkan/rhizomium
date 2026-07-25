@@ -150,7 +150,7 @@ export class GLSLCodeInputHandler {
     return overlay;
   }
 
-  createTextarea(param, node, valueManager) {
+  createTextarea(param, node, _valueManager) {
     const textarea = document.createElement('textarea');
     textarea.className = 'glsl-code-editor';
     textarea.setAttribute('data-param', param.name);

@@ -142,7 +142,7 @@ export class RedrawTriggerSimulator {
     const blob = new Blob([workerCode], { type: 'application/javascript' });
     const worker = new Worker(URL.createObjectURL(blob));
 
-    worker.onmessage = (event) => {
+    worker.onmessage = (_event) => {
       // Simulate worker message triggering a redraw
       if (window.editor && window.editor.markDirty) {
         window.editor.markDirty('simulated-worker-message');

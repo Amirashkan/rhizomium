@@ -130,7 +130,7 @@ export class ComputeShaderManager {
           const result = expressionSystem.evaluateExpression(value, context, this.node);
 
           return isFinite(result) ? result : defaultValue;
-        } catch (error) {
+        } catch {
           return defaultValue;
         }
       }
@@ -963,10 +963,10 @@ export class ComputeShaderManager {
       }
       buffer.unmap();
       return { width: w, height: h, data };
-    } catch (_) {
+    } catch {
       return null;
     } finally {
-      try { buffer?.destroy(); } catch (_) { /* ignore */ }
+      try { buffer?.destroy(); } catch { /* ignore */ }
     }
   }
 
@@ -997,7 +997,7 @@ export class ComputeShaderManager {
         this.device.queue.writeTexture({ texture: this.outputTexture }, bytes, layout, size);
       }
       return true;
-    } catch (_) {
+    } catch {
       return false;
     }
   }
@@ -1143,11 +1143,11 @@ export class ComputeShaderManager {
     ].filter(Boolean);
     if (window.computeExecutor) {
       window.computeExecutor._deferDestroy(() => {
-        for (const t of oldTextures) { try { t.destroy(); } catch (_) {} }
+        for (const t of oldTextures) { try { t.destroy(); } catch {} }
       });
     } else {
       // No executor to defer through — wait one tick then destroy
-      setTimeout(() => { for (const t of oldTextures) { try { t.destroy(); } catch (_) {} } }, 0);
+      setTimeout(() => { for (const t of oldTextures) { try { t.destroy(); } catch {} } }, 0);
     }
 
     // Recreate textures

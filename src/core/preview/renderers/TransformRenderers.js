@@ -45,7 +45,7 @@ export class TransformRenderers {
 
       // Return parsed value or default
       return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
-    } catch (error) {
+    } catch {
 
       return defaultValue;
     }
@@ -70,7 +70,7 @@ export class TransformRenderers {
       return Object.values(node.params).some(value => 
         typeof value === 'string' && value.trim().startsWith('=')
       );
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -130,7 +130,7 @@ export class TransformRenderers {
       }
 
       return inputNode.__thumb;
-    } catch (error) {
+    } catch {
 
       return null;
     }
@@ -157,7 +157,7 @@ export class TransformRenderers {
         return null;
       }
       return inputNode.__thumb;
-    } catch (_) {
+    } catch {
       return null;
     }
   }
@@ -219,7 +219,7 @@ export class TransformRenderers {
 
       // Restore context state
       ctx.restore();
-    } catch (error) {
+    } catch {
 
       // Fallback: just draw the input
       const size = ctx.canvas.width;
@@ -278,7 +278,7 @@ export class TransformRenderers {
       }
 
       ctx.restore();
-    } catch (error) {
+    } catch {
 
       // Fallback: just draw the input once
       const size = ctx.canvas.width;
@@ -352,7 +352,7 @@ export class TransformRenderers {
       }
 
       ctx.putImageData(destData, 0, 0);
-    } catch (error) {
+    } catch {
 
       const size = ctx.canvas.width;
       if (inputCanvas && inputCanvas.width && inputCanvas.height) {
@@ -564,7 +564,7 @@ export class TransformRenderers {
       if (this.hasExpressions(node)) {
         this.drawExpressionIndicator(ctx);
       }
-    } catch (error) {
+    } catch {
 
       // Draw error indicator
       ctx.fillStyle = "#ff0000";

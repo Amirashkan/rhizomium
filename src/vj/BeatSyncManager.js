@@ -218,7 +218,7 @@ export class BeatSyncManager {
     this.beatCallbacks.forEach(callback => {
       try {
         callback(beat, this.currentMeasure);
-      } catch (error) {
+      } catch {
 
       }
     });
@@ -231,7 +231,7 @@ export class BeatSyncManager {
     this.measureCallbacks.forEach(callback => {
       try {
         callback(measure);
-      } catch (error) {
+      } catch {
 
       }
     });

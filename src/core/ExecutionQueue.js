@@ -487,7 +487,7 @@ export class ExecutionQueue {
       for (const callback of listeners) {
         try {
           callback(data);
-        } catch (error) {
+        } catch {
 
         }
       }

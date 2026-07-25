@@ -342,7 +342,7 @@ export class GPUPerformanceTest {
 
           // Destroy immediately
           buffer.destroy();
-        } catch (error) {
+        } catch {
           // If buffer creation fails, continue with next iteration
           // This can happen if device is lost or limits are exceeded
           break;
@@ -436,7 +436,7 @@ export class GPUPerformanceTest {
         if (invalidBuffer) {
           invalidBuffer.destroy(); // Clean up if somehow created
         }
-      } catch (error) {
+      } catch {
         errorCaught = true;
         // This error is expected, so we don't log it
       } finally {

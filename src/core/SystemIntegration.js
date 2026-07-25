@@ -104,7 +104,7 @@ export class SystemIntegration {
     });
 
     // Listen to execution queue events
-    this.executionQueue.on('complete', (data) => {
+    this.executionQueue.on('complete', (_data) => {
       this.stats.executionsCompleted++;
     });
 

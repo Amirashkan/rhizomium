@@ -449,7 +449,7 @@ async injectExternalTexture(nodeId, bitmap) {
   }
 
   // Check if bind group needs rebuilding
-  needsBindGroupUpdate(graph) {
+  needsBindGroupUpdate(_graph) {
     return this.bindGroup === null;
   }
 

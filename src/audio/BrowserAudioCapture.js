@@ -616,7 +616,7 @@ export class BrowserAudioCapture {
         if (window.renderLoop?.rafManager) {
             window.renderLoop.rafManager.registerHandler(
                 this._handlerName,
-                (frameInfo) => {
+                (__frameInfo) => {
                     // Process audio - this will handle both playing and non-playing states
                     this.tick();
                 },
@@ -680,7 +680,7 @@ export class BrowserAudioCapture {
             this.listeners[event].forEach(callback => {
                 try {
                     callback(...args);
-                } catch (error) {
+                } catch {
 
                 }
             });

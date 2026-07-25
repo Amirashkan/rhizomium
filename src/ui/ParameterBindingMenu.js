@@ -374,7 +374,7 @@ export class ParameterBindingMenu {
     dialog.appendChild(header);
 
     // List bindings
-    bindings.forEach((binding, index) => {
+    bindings.forEach((binding, _index) => {
       const sourceNode = this.paramPanel.graph.nodes.find(n => n.id === binding.source.nodeId);
       const targetNode = this.paramPanel.graph.nodes.find(n => n.id === binding.target.nodeId);
 

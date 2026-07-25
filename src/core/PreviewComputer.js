@@ -54,13 +54,13 @@ export class PreviewComputer {
    */
   _setupInteractionListeners() {
     // Listen to interaction start events
-    this.interactionStateManager.addEventListener('interactionstart', (event) => {
+    this.interactionStateManager.addEventListener('interactionstart', (_event) => {
       this._interactionMode = true;
       this.interactionCacheWindow = 400; // Longer cache window during interactions
     });
     
     // Listen to interaction end events
-    this.interactionStateManager.addEventListener('interactionend', (event) => {
+    this.interactionStateManager.addEventListener('interactionend', (_event) => {
       this._interactionMode = false;
       this.interactionCacheWindow = 250; // Shorter cache window when not interacting
     });
@@ -169,7 +169,7 @@ export class PreviewComputer {
     return snapshot;
   }
 
-  markNodeDirty(nodeId, reason = 'manual') {
+  markNodeDirty(nodeId, _reason = 'manual') {
     if (!nodeId) {
       return;
     }
@@ -235,7 +235,7 @@ export class PreviewComputer {
         let audioCapture = null;
         try {
           audioCapture = getBrowserAudioCapture();
-        } catch (e) {
+        } catch {
           // Audio system not available
         }
 
@@ -263,7 +263,7 @@ export class PreviewComputer {
         // Evaluate using expression system
         const result = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
         return typeof result === 'number' ? result : defaultValue;
-      } catch (error) {
+      } catch {
 
         return defaultValue;
       }
@@ -458,7 +458,7 @@ export class PreviewComputer {
                     let audioCapture = null;
                     try {
                       audioCapture = getBrowserAudioCapture();
-                    } catch (e) {
+                    } catch {
                       // Audio system not available
                     }
 
@@ -485,7 +485,7 @@ export class PreviewComputer {
 
                     // Evaluate using UnifiedExpressionSystem (has proper math function support)
                     value = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
-                  } catch (error) {
+                  } catch {
 
 
                     value = 0;
@@ -1301,7 +1301,7 @@ _renderCheckerThumbnail(ctx, size, node) {
 
 // Then update _renderOutputThumbnail to accept and use the node parameter:
 
-_renderRemapThumbnail(ctx, size, node) {
+_renderRemapThumbnail(ctx, size, _node) {
   ctx.fillStyle = "#8b5cf620";
   ctx.fillRect(0, 0, size, size);
   
@@ -1483,7 +1483,7 @@ _renderOutputThumbnail(ctx, size, color, node) {
           ctx.lineWidth = 2;
           ctx.strokeRect(1, 1, size - 2, size - 2);
           return;
-        } catch (err) {
+        } catch {
 
         }
       }
@@ -1820,7 +1820,7 @@ _renderOutputThumbnail(ctx, size, color, node) {
     }
   }
 
-  _evaluateDirtyNodes(graph, nodes, byId) {
+  _evaluateDirtyNodes(graph, nodes, _byId) {
     const dirtyNodes = new Set();
     const dependentsMap = this._buildDependentsMap(nodes);
     const currentStructureHash = this._computeGraphStructureHash(graph);
@@ -1922,7 +1922,7 @@ _renderOutputThumbnail(ctx, size, color, node) {
     }
     try {
       return JSON.stringify(node.params);
-    } catch (error) {
+    } catch {
       return 'param-hash-error';
     }
   }
@@ -2402,7 +2402,7 @@ _renderOutputThumbnail(ctx, size, color, node) {
       if (editor?.previewSystem?.nodeValueComputer) {
         editor.previewSystem.nodeValueComputer.invalidateNodeAndDependents(nodeId);
       }
-    } catch (error) {
+    } catch {
       // Silently fail if NodeValueComputer is not available
     }
   }
@@ -2416,7 +2416,7 @@ _renderOutputThumbnail(ctx, size, color, node) {
       if (editor?.previewSystem?.nodeValueComputer) {
         editor.previewSystem.nodeValueComputer.invalidateCache(null);
       }
-    } catch (error) {
+    } catch {
       // Silently fail if NodeValueComputer is not available
     }
   }

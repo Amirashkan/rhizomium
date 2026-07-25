@@ -139,7 +139,7 @@ evaluateExpression(expr, context = {}) {
       // Add = prefix if not present for expression system
       const exprValue = expr.startsWith('=') ? expr : `=${expr}`;
       return window.expressionSystem.evaluateExpression(exprValue, context);
-    } catch (error) {
+    } catch {
       return 0;
     }
   }
@@ -155,7 +155,7 @@ evaluateExpression(expr, context = {}) {
         const exprValue = value.startsWith('=') ? value : `=${value}`;
         const result = window.expressionSystem.evaluateExpression(exprValue, {}, node);
         return result;
-      } catch (error) {
+      } catch {
         return 0;
       }
     }
@@ -231,7 +231,7 @@ updateValues(graph) {
           // Re-evaluate with current time
           const evaluated = this.evaluateExpression(paramValue, { time });
           this.uniformValues.set(key, evaluated);
-        } catch (error) {
+        } catch {
           // Keep existing value on error
         }
       }

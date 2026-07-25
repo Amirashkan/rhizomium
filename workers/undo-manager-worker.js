@@ -118,7 +118,7 @@ async function recordState(snapshot, version) {
 /**
  * Undo operation
  */
-async function undo(currentVersion) {
+async function undo(_currentVersion) {
   if (undoStack.length === 0) {
     return null;
   }
@@ -139,7 +139,7 @@ async function undo(currentVersion) {
 /**
  * Redo operation
  */
-async function redo(currentVersion) {
+async function redo(_currentVersion) {
   if (redoStack.length === 0) {
     return null;
   }

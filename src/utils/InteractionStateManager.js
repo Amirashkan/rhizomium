@@ -150,7 +150,7 @@ export class InteractionStateManager {
   /**
    * End an interaction
    */
-  _endInteraction(type) {
+  _endInteraction(_type) {
     if (!this.isInteracting) return;
     
     // Calculate duration

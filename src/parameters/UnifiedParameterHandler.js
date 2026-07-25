@@ -109,7 +109,7 @@ toShaderCode(nodeKind, paramName, value, uniformName = null) {
     // This guarantees shader behavior matches preview behavior exactly
     try {
       return unifiedExpressionSystem.generateShader(value);
-    } catch (error) {
+    } catch {
 
       return def?.default ?? 0;
     }
@@ -146,7 +146,7 @@ isMathExpression(value) {
 
     try {
       return this.expressionSystem.evaluateExpression(value, {}, null);
-    } catch (error) {
+    } catch {
 
       return 0;
     }
@@ -222,7 +222,7 @@ isMathExpression(value) {
         resolution: 'g.resolution'
       };
       return unifiedExpressionSystem.generateShader(expr, variableMapping);
-    } catch (error) {
+    } catch {
 
       return '(0.0)';
     }

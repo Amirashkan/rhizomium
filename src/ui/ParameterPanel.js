@@ -259,7 +259,7 @@ export class ParameterPanel {
 
     try {
       localStorage.setItem('glsl-node-editor.parameter-panel.size', JSON.stringify(size));
-    } catch (error) {
+    } catch {
     }
   }
 
@@ -283,7 +283,7 @@ export class ParameterPanel {
       } else {
         this.panel.style.height = '';
       }
-    } catch (error) {
+    } catch {
     }
 
     this.clampPanelSizeToViewport();
@@ -1257,7 +1257,7 @@ case 'flip2d':
               input.title = `Bound to ${bindingInfo.source.nodeId}.${bindingInfo.source.parameterName}`;
             }
           }
-        } catch (error) {
+        } catch {
 
           this.createFallbackInput(param, node, inputContainer);
         }
@@ -1694,7 +1694,7 @@ case 'flip2d':
       this.renderParameters(sourceNode);
       if (window.editor?.markDirty) window.editor.markDirty('binding-source-focus');
       if (window.editor?.draw) window.editor.draw();
-    } catch (error) {
+    } catch {
       // Non-fatal: the binding status is informational even if focusing fails.
     }
   }
@@ -2056,7 +2056,7 @@ _processPreviewUpdate(node) {
       window.render();
     }
 
-  } catch (error) {
+  } catch {
   }
 }
 
@@ -2078,7 +2078,7 @@ _processPreviewUpdate(node) {
           window.editor.onChange('Parameter Panel Update');
         }
       }
-    } catch (error) {
+    } catch {
     }
   }
 
@@ -2142,7 +2142,7 @@ _processPreviewUpdate(node) {
     }
   }
 
-updateDependentExpressions(node) {
+updateDependentExpressions(_node) {
   // DISABLED: This was causing infinite preview loops
   // if (this.textInputHandler.updateDependentInputs) {
   //   this.textInputHandler.updateDependentInputs(node.id);

@@ -210,7 +210,7 @@ export class FieldVisualizerManager {
                 try {
                     const geometry = await fieldMapper.generateVisualization(fieldTexture);
                     updatedGeometries.set(id, geometry);
-                } catch (error) {
+                } catch {
 
                 }
             }

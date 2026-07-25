@@ -438,7 +438,7 @@ _startPreviewRenderLoop() {
   if (window.renderLoop?.rafManager) {
     window.renderLoop.rafManager.registerHandler(
       this._handlerName,
-      (frameInfo) => {
+      (_frameInfo) => {
         // This handler is called every time RenderLoop._step() is called.
         // In fixed mode, _step() is called multiple times per RAF frame to achieve
         // the target refresh rate. In vsync mode, it's called once per RAF frame.

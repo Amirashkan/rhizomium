@@ -246,7 +246,7 @@ validateForCompilation(graph) {
         try {
           const identifier = n.kind || n.type || n.name || "";
           return /OutputFinal/i.test(identifier);
-        } catch (error) {
+        } catch {
 
           return false;
         }
@@ -260,7 +260,7 @@ validateForCompilation(graph) {
       const connected = outputs.filter((o) => {
         try {
           return Array.isArray(o.inputs) && o.inputs[0] !== null && o.inputs[0] !== undefined;
-        } catch (error) {
+        } catch {
 
           return false;
         }
@@ -568,7 +568,7 @@ validateForCompilation(graph) {
    * @param {Map} byId - Map of node ID to node object
    * @returns {Array} Nodes sorted in dependency order
    */
-  resortWithExpressionDependencies(nodes, byId) {
+  resortWithExpressionDependencies(nodes, __byId) {
     try {
       if (!nodes || nodes.length === 0) {
         return nodes;
@@ -724,7 +724,7 @@ validateForCompilation(graph) {
     try {
 
       if (graph && graph.nodes && Array.isArray(graph.nodes)) {
-        graph.nodes.forEach((node, index) => {
+        graph.nodes.forEach((node, __index) => {
           if (!node) {
 
             return;
@@ -739,7 +739,7 @@ validateForCompilation(graph) {
       }
 
       if (orderedNodes && Array.isArray(orderedNodes)) {
-        orderedNodes.forEach((node, index) => {
+        orderedNodes.forEach((node, __index) => {
           if (!node) {
 
             return;

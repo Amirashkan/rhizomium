@@ -108,7 +108,7 @@ describe('PerformanceBenchmark', () => {
       
       try {
         await promise;
-      } catch (e) {
+      } catch {
         // May fail due to missing dependencies, but setup/cleanup should be called
       }
 
