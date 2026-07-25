@@ -59,6 +59,7 @@ describe('thumbnail queue honors a hide that lands after enqueue', () => {
       previewThumbSize: 8,
       gpuRenderer: { pixelsToImageData: () => ({}) },
       _renderThumbnailReadback: async () => new Uint8Array(8 * 8 * 4),
+      _thumbnailSize: ShaderPreviewManager.prototype._thumbnailSize,
       _textureToThumbnail: ShaderPreviewManager.prototype._textureToThumbnail,
     };
 

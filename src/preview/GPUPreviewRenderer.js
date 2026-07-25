@@ -183,11 +183,12 @@ export class GPUPreviewRenderer {
   /**
    * Convert readback pixels to Canvas ImageData
    * @param {Uint8Array} pixels - Pixel data from readback
-   * @param {number} size - Texture size
+   * @param {number} width - Texture width
+   * @param {number} [height] - Texture height (defaults to width, i.e. square)
    * @returns {ImageData} Canvas-compatible image data
    */
-  pixelsToImageData(pixels, size) {
-    return new ImageData(new Uint8ClampedArray(pixels), size, size);
+  pixelsToImageData(pixels, width, height = width) {
+    return new ImageData(new Uint8ClampedArray(pixels), width, height);
   }
 
   /**

@@ -34,7 +34,6 @@ export class PreviewSettings {
         enabled: false,
         lightMode: false,
         autoEnable: true,
-        interactionScale: 0.7,
         resolutionScale: 0.75,
         cooldownMs: 350,
       },
@@ -122,7 +121,6 @@ export class PreviewSettings {
       case "adaptiveQuality.enabled":
       case "adaptiveQuality.lightMode":
       case "adaptiveQuality.autoEnable":
-      case "adaptiveQuality.interactionScale":
       case "adaptiveQuality.resolutionScale":
       case "adaptiveQuality.cooldownMs":
         this._updateAdaptiveQuality();
