@@ -706,7 +706,7 @@ isIncompleteExpression(expression) {
       if (match.startsWith('node_')) return true;
 
       // Filter out built-in functions and constants
-      return !this.builtInFunctions.hasOwnProperty(match) &&
+      return !Object.hasOwn(this.builtInFunctions, match) &&
         !['PI', 'E', 'true', 'false', 'time', 'frame', 'audioEnvelope'].includes(match);
     });
   }
@@ -719,7 +719,7 @@ isIncompleteExpression(expression) {
       // Clear cache entries that might depend on this parameter
       for (const [key, cached] of this.expressionCache.entries()) {
         if (key.includes(nodeId) || 
-            cached.context.hasOwnProperty(paramName) ||
+            Object.hasOwn(cached.context, paramName) ||
             key.includes(paramName)) {
           this.expressionCache.delete(key);
         }

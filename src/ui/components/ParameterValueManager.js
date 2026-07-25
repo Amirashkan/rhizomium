@@ -17,9 +17,6 @@ export class ParameterValueManager {
   }
 
   _debugLog(message, data = {}) {
-    if (this.debugMode) {
-
-    }
   }
 
   // Safe number conversion
@@ -34,9 +31,6 @@ export class ParameterValueManager {
     }
     
     const safeDefault = Number(defaultValue) || 0;
-    if (this.debugMode) {
-
-    }
     return safeDefault;
   }
 
@@ -297,7 +291,7 @@ export class ParameterValueManager {
   _getSourceNodeValue(node) {
     switch (node.kind.toLowerCase()) {
       case "constfloat":
-      case "float":
+      case "float": {
         const rawValue = node.props?.value || node.value || 0;
         if (this.expressionSystem.isExpression(rawValue)) {
           try {
@@ -309,6 +303,7 @@ export class ParameterValueManager {
           }
         }
         return this._toSafeNumber(rawValue, 'sourceNode.value', 0);
+      }
       case "time":
         return (Date.now() / 1000) % 1;
       case "uv":

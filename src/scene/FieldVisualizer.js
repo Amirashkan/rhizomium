@@ -529,7 +529,7 @@ export class FieldVisualizer {
                     v = (z - bounds.min[2]) / boundsSize[2];
                     break;
 
-                case 'spherical':
+                case 'spherical': {
                     // Spherical projection
                     // Calculate spherical coordinates from position
                     const dx = x - (bounds.min[0] + bounds.max[0]) / 2;
@@ -547,8 +547,9 @@ export class FieldVisualizer {
                         v = 0.5;
                     }
                     break;
+                }
 
-                case 'cylindrical':
+                case 'cylindrical': {
                     // Cylindrical projection around Y axis
                     const centerX = (bounds.min[0] + bounds.max[0]) / 2;
                     const centerZ = (bounds.min[2] + bounds.max[2]) / 2;
@@ -560,6 +561,7 @@ export class FieldVisualizer {
                     // V: height along Y axis
                     v = (y - bounds.min[1]) / boundsSize[1];
                     break;
+                }
 
                 default:
                     // Default to planar XZ

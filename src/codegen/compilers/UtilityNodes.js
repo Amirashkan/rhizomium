@@ -149,23 +149,12 @@ export class UtilityNodes {
     // Check if the Output node has any input connection
     const hasValidInput = node.inputs && node.inputs[0] !== null && node.inputs[0] !== undefined;
 
-    if (!hasValidInput) {
-
-
-
-
-    }
 
     const color = getInput(0, "vec3", "vec3<f32>(0.0)");
 
     // Check if connected to a ComputeFieldMapper (3D visualization node)
     if (hasValidInput) {
       const inputNode = window.editor?.graph?.nodes?.find(n => n.id === node.inputs[0]);
-      if (inputNode && inputNode.kind === 'ComputeFieldMapper') {
-
-
-
-      }
     }
 
     return {

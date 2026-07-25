@@ -418,13 +418,14 @@ renderRectangle(ctx, node) {
           case "diagonal":
             t = (x + y) / (size * 2);
             break;
-          case "radial":
+          case "radial": {
             const centerX = size / 2;
             const centerY = size / 2;
             const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
             const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
             t = dist / maxDist;
             break;
+          }
           default: // horizontal
             t = x / size;
         }

@@ -428,32 +428,27 @@ export class SystemIntegration {
 
     // If ComputeExecutor is available and node is a compute node, use GPU execution
     if (this.computeExecutor && node.type && node.type.startsWith('compute')) {
-      try {
-        // Ensure node is initialized in compute executor
-        if (!this.computeExecutor.computeManagers.has(nodeId)) {
-          await this.computeExecutor.initializeComputeNode(nodeId, node);
-        }
-
-        // Update node parameters/uniforms if needed
-        if (node.params) {
-          for (const [paramName, paramValue] of Object.entries(node.params)) {
-            this.computeExecutor.setUniform(nodeId, paramName, paramValue);
-          }
-        }
-
-        // Get output texture
-        const output = this.computeExecutor.getNodeOutput(nodeId);
-
-        return {
-          nodeId,
-          executed: true,
-          output,
-          type: 'compute'
-        };
-      } catch (error) {
-
-        throw error;
+      // Ensure node is initialized in compute executor
+      if (!this.computeExecutor.computeManagers.has(nodeId)) {
+        await this.computeExecutor.initializeComputeNode(nodeId, node);
       }
+
+      // Update node parameters/uniforms if needed
+      if (node.params) {
+        for (const [paramName, paramValue] of Object.entries(node.params)) {
+          this.computeExecutor.setUniform(nodeId, paramName, paramValue);
+        }
+      }
+
+      // Get output texture
+      const output = this.computeExecutor.getNodeOutput(nodeId);
+
+      return {
+        nodeId,
+        executed: true,
+        output,
+        type: 'compute'
+      };
     }
 
     // Fallback for non-compute nodes

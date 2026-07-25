@@ -190,41 +190,31 @@ class AudioEnvelopeClient {
      * @param {Object} config - Configuration object
      */
     async updateConfig(config) {
-        try {
-            const response = await fetch(`http://localhost:8765/config`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(config),
-            });
+        const response = await fetch(`http://localhost:8765/config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config),
+        });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-            return result;
-        } catch (error) {
-
-            throw error;
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        const result = await response.json();
+        return result;
     }
 
     /**
      * Get server status
      */
     async getStatus() {
-        try {
-            const response = await fetch(`http://localhost:8765/status`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return await response.json();
-        } catch (error) {
-
-            throw error;
+        const response = await fetch(`http://localhost:8765/status`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        return await response.json();
     }
 }
 

@@ -532,8 +532,6 @@ export class TransformRenderers {
           this.drawExpressionIndicator(ctx);
         }
         return;
-      } else {
-
       }
     }
 

@@ -29,7 +29,7 @@ self.onmessage = async (e) => {
         });
         break;
         
-      case 'undo':
+      case 'undo': {
         // Get previous state
         const previousState = await undo(version);
         self.postMessage({
@@ -38,8 +38,9 @@ self.onmessage = async (e) => {
           result: previousState
         });
         break;
+      }
         
-      case 'redo':
+      case 'redo': {
         // Get next state
         const nextState = await redo(version);
         self.postMessage({
@@ -48,6 +49,7 @@ self.onmessage = async (e) => {
           result: nextState
         });
         break;
+      }
         
       case 'canUndo':
         self.postMessage({

@@ -365,8 +365,6 @@ setupOptimizedGPUAnimationLoop() {
 connectGPURenderer(renderFunction) {
   if (typeof renderFunction === 'function') {
     this.gpuRenderFunction = renderFunction;
-  } else {
-
   }
 }
 
@@ -1440,11 +1438,7 @@ connectGPURenderer(renderFunction) {
             node.y = newY;
             movedNodes.push(node);
             movedCount++;
-          } else {
-
           }
-        } else {
-
         }
       });
       
@@ -1490,9 +1484,6 @@ connectGPURenderer(renderFunction) {
 
       if (!sourceNode) {
         sourceNode = this.graph.nodes.find(n => n.id == currentConnection);
-        if (!sourceNode) {
-
-        }
       }
 
       const connectionData = {
@@ -1609,9 +1600,6 @@ connectGPURenderer(renderFunction) {
       const validNodes = nodesToDelete.filter(node => {
         if (!node) return false;
         const exists = this.graph.nodes.includes(node);
-        if (!exists) {
-
-        }
         return exists;
       });
       
@@ -2069,8 +2057,6 @@ connectGPURenderer(renderFunction) {
           } catch (previewError) {
             window.errorHandler?.handleError(previewError, 'Generate Node Preview', 'warning');
           }
-        } else if (!node) {
-
         }
       } else {
         if (node) node.__thumb = null;
@@ -2167,8 +2153,6 @@ connectGPURenderer(renderFunction) {
           } catch (previewError) {
             window.errorHandler?.handleError(previewError, 'Update Node Preview Size', 'warning');
           }
-        } else if (!node) {
-
         }
       }
 
@@ -2325,8 +2309,6 @@ connectGPURenderer(renderFunction) {
     try {
       if (this.selection && this.selection.selectAll) {
         this.selection.selectAll();
-      } else {
-
       }
     } catch (error) {
       window.errorHandler?.handleError(error, 'Select All', 'warning');
@@ -2342,8 +2324,6 @@ connectGPURenderer(renderFunction) {
       if (this.selection && this.selection.moveSelected) {
         this.selection.moveSelected(dx, dy);
         this.safeDraw();
-      } else {
-
       }
     } catch (error) {
       window.errorHandler?.handleError(error, 'Move Selection', 'warning');
@@ -2359,8 +2339,6 @@ connectGPURenderer(renderFunction) {
           this.triggerShaderRebuild('Duplicate Selection');
           this.safeDraw();
         }
-      } else {
-
       }
     } catch (error) {
       window.errorHandler?.handleError(error, 'Duplicate Selection', 'warning');
@@ -2545,9 +2523,6 @@ connectGPURenderer(renderFunction) {
         }
       });
       
-      if (issues.length > 0) {
-
-      }
       
       return issues;
       

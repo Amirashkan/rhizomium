@@ -276,10 +276,6 @@ export async function runTests(device) {
 
 
 
-  if (failed === 0) {
-
-  } else {
-  }
 
   return { passed, failed };
 }

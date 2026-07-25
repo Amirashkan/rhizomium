@@ -139,9 +139,6 @@ export class ComputeNodeBase {
    * @param {any} value - Parameter value
    */
   setUniform(name, value) {
-    if (!this.params.hasOwnProperty(name)) {
-
-    }
 
     this.params[name] = value;
 

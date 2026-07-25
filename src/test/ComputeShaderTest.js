@@ -37,44 +37,33 @@ export class ComputeShaderTest {
       return;
     }
 
-    try {
-      // Load compute shader source
-      const shaderSource = await this.loadComputeShader();
+    // Load compute shader source
+    const shaderSource = await this.loadComputeShader();
 
-      // Create compute manager
-      this.computeManager = new ComputeShaderManager(this.device);
-      await this.computeManager.initialize(shaderSource, this.textureWidth, this.textureHeight);
+    // Create compute manager
+    this.computeManager = new ComputeShaderManager(this.device);
+    await this.computeManager.initialize(shaderSource, this.textureWidth, this.textureHeight);
 
-      // Setup display pipeline to show compute output
-      await this.setupDisplayPipeline();
+    // Setup display pipeline to show compute output
+    await this.setupDisplayPipeline();
 
-      // Create debug overlay
-      this.createDebugOverlay();
+    // Create debug overlay
+    this.createDebugOverlay();
 
-      this.isInitialized = true;
-
-    } catch (error) {
-
-      throw error;
-    }
+    this.isInitialized = true;
   }
 
   /**
    * Load compute shader WGSL source
    */
   async loadComputeShader() {
-    try {
-      const response = await fetch('/src/shaders/testCompute.wgsl');
-      if (!response.ok) {
-        throw new Error(`Failed to load shader: ${response.statusText}`);
-      }
-      const source = await response.text();
-
-      return source;
-    } catch (error) {
-
-      throw error;
+    const response = await fetch('/src/shaders/testCompute.wgsl');
+    if (!response.ok) {
+      throw new Error(`Failed to load shader: ${response.statusText}`);
     }
+    const source = await response.text();
+
+    return source;
   }
 
   /**

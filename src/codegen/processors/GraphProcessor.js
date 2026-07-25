@@ -171,9 +171,6 @@ validateForCompilation(graph) {
           continue;
         }
         
-        if (byId.has(node.id)) {
-
-        }
         
         byId.set(node.id, node);
       }
@@ -542,7 +539,6 @@ validateForCompilation(graph) {
                       toProcess.push(upstreamId);
                     }
                   }
-                } else {
                 }
               }
             }
@@ -550,9 +546,6 @@ validateForCompilation(graph) {
         }
       }
 
-      if (expanded.size > currentSet.size) {
-
-      }
 
       return expanded;
     } catch (error) {
@@ -743,8 +736,6 @@ validateForCompilation(graph) {
           const name = node.name || 'NO_NAME';
 
         });
-      } else {
-
       }
 
       if (orderedNodes && Array.isArray(orderedNodes)) {
@@ -758,8 +749,6 @@ validateForCompilation(graph) {
           const kind = node.kind || 'NO_KIND';
 
         });
-      } else {
-
       }
     } catch (error) {
       window.errorHandler?.handleError(error, { 
@@ -849,11 +838,6 @@ validateForCompilation(graph) {
         });
       }
       
-      if (issues.length === 0) {
-
-      } else {
-
-      }
       
       return issues;
     } catch (error) {

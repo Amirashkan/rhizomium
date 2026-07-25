@@ -495,9 +495,6 @@ async importProject(projectData, options = {}) {
 
     // Step 2: Force WebGPU reinitialization and capture the device
     let gpuDevice = await this.reinitializeWebGPU();
-    if (!gpuDevice) {
-
-    }
 
     // Step 3: Wait another frame after WebGPU init
     await new Promise(resolve => requestAnimationFrame(resolve));
@@ -563,8 +560,6 @@ async importProject(projectData, options = {}) {
       if (typeof this.editor.previewSystem.updateAllPreviews === 'function' && this.graph && this.graph.nodes) {
         await this.editor.previewSystem.updateAllPreviews(this.graph.nodes);
       }
-    } else {
-
     }
 
     // Force several renders to stabilize GPU
@@ -672,8 +667,6 @@ async importProject(projectData, options = {}) {
           if (renderer && typeof renderer === 'function') {
             renderer(ctx, node);
             node.__thumb = canvas;
-          } else {
-
           }
 
           await new Promise(resolve => setTimeout(resolve, 30));
@@ -725,8 +718,6 @@ async importProject(projectData, options = {}) {
           }
 
           this.hasUnsavedChanges = false;    
-        } else {
-
         }
       }
     }
@@ -908,9 +899,6 @@ async reinitializeWebGPU() {
       }
     }
 
-    if (!success) {
-
-    }
 
     return success;
   }
@@ -2078,7 +2066,7 @@ async importNodes(nodeData) {
 
       for (const [key, value] of Object.entries(data)) {
         if (!['id', 'kind', 'position', 'size', 'inputs', 'outputs'].includes(key) && 
-            !node.hasOwnProperty(key)) {
+            !Object.hasOwn(node, key)) {
           node[key] = value;
         }
       }

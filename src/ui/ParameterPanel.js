@@ -745,7 +745,7 @@ case 'flip2d':
       // Pattern and field nodes: Use parameter definitions from NodeDefs
       case 'checker':
       case 'stripe':
-      case 'displacement':
+      case 'displacement': {
         const nodeDef = NodeDefs[node.kind];
         if (nodeDef && nodeDef.params && Array.isArray(nodeDef.params)) {
           nodeDef.params.forEach(param => {
@@ -765,6 +765,7 @@ case 'flip2d':
           });
         }
         break;
+      }
         
         case 'colormix':
           definitions.push({
@@ -788,7 +789,7 @@ case 'flip2d':
           });
           break;
 
-        default:
+        default: {
         // For all other nodes, try to use their NodeDef parameters first
         const defaultNodeDef = NodeDefs[node.kind];
         if (defaultNodeDef && defaultNodeDef.params && Array.isArray(defaultNodeDef.params)) {
@@ -842,6 +843,7 @@ case 'flip2d':
           });
         }
         break;
+        }
     }
     
     return definitions;

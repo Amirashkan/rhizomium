@@ -74,8 +74,6 @@ export function buildWGSL(graph, options = {}) {
   const { orderedNodes, outputNode } = result;
 
 
-  if (orderedNodes.length > 0) {
-  }
 
   if (!outputNode || orderedNodes.length === 0) {
     // There's no compilable output chain (e.g. the OutputFinal node isn't wired up yet), but the

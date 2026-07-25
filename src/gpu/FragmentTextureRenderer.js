@@ -558,7 +558,7 @@ export class FragmentTextureRenderer {
     if (node.params) {
       // Build hash from parameter values directly without JSON.stringify
       for (const key in node.params) {
-        if (node.params.hasOwnProperty(key)) {
+        if (Object.hasOwn(node.params, key)) {
           const value = node.params[key];
           // Convert value to string quickly
           if (typeof value === 'string') {
@@ -613,7 +613,7 @@ export class FragmentTextureRenderer {
     if (exprSystem && node.params && typeof exprSystem.isExpression === 'function') {
       const t = (typeof window.renderLoop?._simTime === 'number') ? window.renderLoop._simTime : time;
       for (const key in node.params) {
-        if (!node.params.hasOwnProperty(key)) continue;
+        if (!Object.hasOwn(node.params, key)) continue;
         const value = node.params[key];
         if (typeof value !== 'string' || !exprSystem.isExpression(value)) continue;
         let evaluated;
@@ -722,63 +722,56 @@ export class FragmentTextureRenderer {
    * @private
    */
   async _renderToTexture(cached, time, width, height, audioContext, externalEncoder = null) {
-    try {
-      // Rebuild bind groups with current compute textures BEFORE rendering
-      // This ensures we use the latest compute node outputs
-      this._rebuildBindGroups(cached);
+    // Rebuild bind groups with current compute textures BEFORE rendering
+    // This ensures we use the latest compute node outputs
+    this._rebuildBindGroups(cached);
 
-      // Update uniforms (time, resolution, audio, etc.)
-      this._updateUniforms(cached, time, width, height, audioContext);
+    // Update uniforms (time, resolution, audio, etc.)
+    this._updateUniforms(cached, time, width, height, audioContext);
 
-      // Use external encoder if provided, otherwise create our own
-      const encoder = externalEncoder || this.device.createCommandEncoder({
-        label: 'fragment-texture-render'
-      });
-      const shouldSubmit = !externalEncoder; // Only submit if we created the encoder
+    // Use external encoder if provided, otherwise create our own
+    const encoder = externalEncoder || this.device.createCommandEncoder({
+      label: 'fragment-texture-render'
+    });
+    const shouldSubmit = !externalEncoder; // Only submit if we created the encoder
 
-      // Begin render pass
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: cached.texture.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store'
-        }]
-      });
+    // Begin render pass
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: cached.texture.createView(),
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: 'clear',
+        storeOp: 'store'
+      }]
+    });
 
-      pass.setPipeline(cached.pipeline);
+    pass.setPipeline(cached.pipeline);
 
-      // Bind all bind groups
-      for (let i = 0; i < cached.bindGroups.length; i++) {
-        pass.setBindGroup(i, cached.bindGroups[i]);
-      }
+    // Bind all bind groups
+    for (let i = 0; i < cached.bindGroups.length; i++) {
+      pass.setBindGroup(i, cached.bindGroups[i]);
+    }
 
-      // Draw fullscreen triangle
-      pass.draw(3, 1, 0, 0);
-      pass.end();
+    // Draw fullscreen triangle
+    pass.draw(3, 1, 0, 0);
+    pass.end();
 
-      // Only submit if we created the encoder ourselves
-      if (shouldSubmit) {
-        this.device.queue.submit([encoder.finish()]);
+    // Only submit if we created the encoder ourselves
+    if (shouldSubmit) {
+      this.device.queue.submit([encoder.finish()]);
 
-        // PERFORMANCE: Don't wait for GPU to finish - let it run asynchronously
-        // The command buffer is submitted, GPU will process it
-        // Waiting here causes frame time variance and stutters
-        // Compute shaders will wait for dependencies via proper GPU synchronization
-        // CRITICAL: Removed await to prevent blocking render loop
-        // GPU command buffer submission is sufficient - GPU handles synchronization
-        // If we need to wait, it should be done at the compute shader level, not here
-        // NOTE: This is safe because we're using the same command encoder, so GPU
-        // will execute commands in order and handle synchronization automatically
+      // PERFORMANCE: Don't wait for GPU to finish - let it run asynchronously
+      // The command buffer is submitted, GPU will process it
+      // Waiting here causes frame time variance and stutters
+      // Compute shaders will wait for dependencies via proper GPU synchronization
+      // CRITICAL: Removed await to prevent blocking render loop
+      // GPU command buffer submission is sufficient - GPU handles synchronization
+      // If we need to wait, it should be done at the compute shader level, not here
+      // NOTE: This is safe because we're using the same command encoder, so GPU
+      // will execute commands in order and handle synchronization automatically
 
-        // Debug: Log texture details after render
+      // Debug: Log texture details after render
 
-      } else {
-
-      }
-    } catch (error) {
-
-      throw error;
     }
   }
 

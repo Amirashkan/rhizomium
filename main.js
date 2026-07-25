@@ -2757,7 +2757,7 @@ function setupKeyboardShortcuts() {
         }
         break;
 
-      case "o":
+      case "o": {
         e.preventDefault();
         if (typeof triggerFileLoad === "function") {
           triggerFileLoad();
@@ -2769,6 +2769,7 @@ function setupKeyboardShortcuts() {
           fileInput.click();
         }
         break;
+      }
 
       case "l":
         e.preventDefault();
@@ -3546,6 +3547,10 @@ async function updateShaderFromGraph() {
     // Rely on shader compilation cache (glslBuilder.js) and GPU pipeline cache (gpuRenderer.js) instead
 
     const regexStart = performance.now();
+    // Strips anything the WGSL tokenizer would reject outright, keeping printable ASCII plus the
+    // three whitespace controls that carry the shader's line structure — the control characters in
+    // the class are the point of it, so no-control-regex has nothing to warn about here.
+    // eslint-disable-next-line no-control-regex
     const sanitizedWGSL = rawWGSL.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
     const regexTime = (performance.now() - regexStart).toFixed(2);
 

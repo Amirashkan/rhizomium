@@ -452,135 +452,130 @@ export class ComputeShaderManager {
    * Create compute pipeline from WGSL source
    */
   async createComputePipeline(wgslSource) {
-    try {
-      // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
-      // CRITICAL FIX: Cache is now device-specific - pass device to get/set
-      const wgslHash = hashWGSL(wgslSource, false);
-      let shaderModule = this.shaderModuleCache.get(this.device, wgslHash);
-      
-      if (!shaderModule) {
-        // Create shader module if not cached
-        shaderModule = this.device.createShaderModule({
-          code: wgslSource,
-          label: 'Compute Shader Module'
-        });
-        this.shaderModuleCache.set(this.device, wgslHash, shaderModule);
-      }
+    // PERFORMANCE: Use shader module cache to avoid recompiling identical WGSL
+    // CRITICAL FIX: Cache is now device-specific - pass device to get/set
+    const wgslHash = hashWGSL(wgslSource, false);
+    let shaderModule = this.shaderModuleCache.get(this.device, wgslHash);
+    
+    if (!shaderModule) {
+      // Create shader module if not cached
+      shaderModule = this.device.createShaderModule({
+        code: wgslSource,
+        label: 'Compute Shader Module'
+      });
+      this.shaderModuleCache.set(this.device, wgslHash, shaderModule);
+    }
 
-      // Build bind group layout entries
-      // Standard layout:
-      // - binding(0): uniforms
-      // - binding(1): storage texture (output) - ALWAYS
-      // - binding(2): color stops storage buffer (ComputeGradient only) OR input texture (if needsInput) OR feedback texture (if supportsFeedback && !needsInput)
-      // - binding(3): sampler (if needsInput || supportsFeedback)
-      // - binding(4): feedback texture (if supportsFeedback && needsInput)
-      const entries = [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: 'uniform' }
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.COMPUTE,
-          storageTexture: {
-            access: 'write-only',
-            format: 'rgba8unorm',
-            viewDimension: '2d'
-          }
+    // Build bind group layout entries
+    // Standard layout:
+    // - binding(0): uniforms
+    // - binding(1): storage texture (output) - ALWAYS
+    // - binding(2): color stops storage buffer (ComputeGradient only) OR input texture (if needsInput) OR feedback texture (if supportsFeedback && !needsInput)
+    // - binding(3): sampler (if needsInput || supportsFeedback)
+    // - binding(4): feedback texture (if supportsFeedback && needsInput)
+    const entries = [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'uniform' }
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.COMPUTE,
+        storageTexture: {
+          access: 'write-only',
+          format: 'rgba8unorm',
+          viewDimension: '2d'
         }
-      ];
-
-      // Add color stops storage buffer for ComputeGradient
-      if (this.node?.kind === 'ComputeGradient') {
-        entries.push({
-          binding: 2,
-          visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: 'read-only-storage' }
-        });
       }
+    ];
 
-      // Add input texture binding for nodes that take inputs from other compute nodes.
-      // ComputeGradient already uses binding(2) for its color-stops buffer, so its
-      // input texture/sampler live at binding(3)/(4) instead of (2)/(3).
-      if (this.needsInput) {
-        const inputTexBinding = this.node?.kind === 'ComputeGradient' ? 3 : 2;
+    // Add color stops storage buffer for ComputeGradient
+    if (this.node?.kind === 'ComputeGradient') {
+      entries.push({
+        binding: 2,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'read-only-storage' }
+      });
+    }
+
+    // Add input texture binding for nodes that take inputs from other compute nodes.
+    // ComputeGradient already uses binding(2) for its color-stops buffer, so its
+    // input texture/sampler live at binding(3)/(4) instead of (2)/(3).
+    if (this.needsInput) {
+      const inputTexBinding = this.node?.kind === 'ComputeGradient' ? 3 : 2;
+      entries.push({
+        binding: inputTexBinding,
+        visibility: GPUShaderStage.COMPUTE,
+        texture: { sampleType: 'float', viewDimension: '2d' }
+      });
+      // Add sampler for input texture
+      entries.push({
+        binding: inputTexBinding + 1,
+        visibility: GPUShaderStage.COMPUTE,
+        sampler: { type: 'filtering' }
+      });
+    }
+
+    // Add previous frame texture binding for feedback (uses binding 4 if input exists, else binding 2)
+    if (this.supportsFeedback) {
+      entries.push({
+        binding: this.needsInput ? 4 : 2,
+        visibility: GPUShaderStage.COMPUTE,
+        texture: { sampleType: 'float', viewDimension: '2d' }
+      });
+      // Add sampler for feedback texture (binding 3 if no input, binding 5 if input exists)
+      if (!this.needsInput) {
         entries.push({
-          binding: inputTexBinding,
-          visibility: GPUShaderStage.COMPUTE,
-          texture: { sampleType: 'float', viewDimension: '2d' }
-        });
-        // Add sampler for input texture
-        entries.push({
-          binding: inputTexBinding + 1,
+          binding: 3,
           visibility: GPUShaderStage.COMPUTE,
           sampler: { type: 'filtering' }
         });
       }
-
-      // Add previous frame texture binding for feedback (uses binding 4 if input exists, else binding 2)
-      if (this.supportsFeedback) {
-        entries.push({
-          binding: this.needsInput ? 4 : 2,
-          visibility: GPUShaderStage.COMPUTE,
-          texture: { sampleType: 'float', viewDimension: '2d' }
-        });
-        // Add sampler for feedback texture (binding 3 if no input, binding 5 if input exists)
-        if (!this.needsInput) {
-          entries.push({
-            binding: 3,
-            visibility: GPUShaderStage.COMPUTE,
-            sampler: { type: 'filtering' }
-          });
-        }
-      }
-
-      // Create bind group layout
-      const bindGroupLayout = this.device.createBindGroupLayout({
-        label: 'Compute Bind Group Layout',
-        entries
-      });
-
-      // Create pipeline layout
-      const pipelineLayout = this.device.createPipelineLayout({
-        label: 'Compute Pipeline Layout',
-        bindGroupLayouts: [bindGroupLayout]
-      });
-
-      // Create compute pipeline
-      this.computePipeline = this.device.createComputePipeline({
-        label: 'Compute Pipeline',
-        layout: pipelineLayout,
-        compute: {
-          module: shaderModule,
-          entryPoint: 'main'
-        }
-      });
-
-      // Store bind group layout for dynamic bind group creation
-      this.bindGroupLayout = bindGroupLayout;
-
-      // Initialize color stops buffer for ComputeGradient
-      if (this.node?.kind === 'ComputeGradient') {
-        const defaultColorStops = [
-          { position: 0.0, color: [0, 0, 0, 1] },
-          { position: 1.0, color: [1, 1, 1, 1] }
-        ];
-        this.updateColorStopsBuffer(this.node.params?.colorStops || defaultColorStops);
-      }
-
-      // Fluid sim: build the second (visualization) pipeline that renders the
-      // raw sim state into the output texture — see fluidSimViz.js.
-      if (this.node?.kind === 'ComputeFluidSim') {
-        this.createFluidVizPipeline();
-      }
-
-      // Create initial bind group (will be recreated each frame for feedback)
-      this.recreateBindGroup();
-
-    } catch (error) {
-      throw error;
     }
+
+    // Create bind group layout
+    const bindGroupLayout = this.device.createBindGroupLayout({
+      label: 'Compute Bind Group Layout',
+      entries
+    });
+
+    // Create pipeline layout
+    const pipelineLayout = this.device.createPipelineLayout({
+      label: 'Compute Pipeline Layout',
+      bindGroupLayouts: [bindGroupLayout]
+    });
+
+    // Create compute pipeline
+    this.computePipeline = this.device.createComputePipeline({
+      label: 'Compute Pipeline',
+      layout: pipelineLayout,
+      compute: {
+        module: shaderModule,
+        entryPoint: 'main'
+      }
+    });
+
+    // Store bind group layout for dynamic bind group creation
+    this.bindGroupLayout = bindGroupLayout;
+
+    // Initialize color stops buffer for ComputeGradient
+    if (this.node?.kind === 'ComputeGradient') {
+      const defaultColorStops = [
+        { position: 0.0, color: [0, 0, 0, 1] },
+        { position: 1.0, color: [1, 1, 1, 1] }
+      ];
+      this.updateColorStopsBuffer(this.node.params?.colorStops || defaultColorStops);
+    }
+
+    // Fluid sim: build the second (visualization) pipeline that renders the
+    // raw sim state into the output texture — see fluidSimViz.js.
+    if (this.node?.kind === 'ComputeFluidSim') {
+      this.createFluidVizPipeline();
+    }
+
+    // Create initial bind group (will be recreated each frame for feedback)
+    this.recreateBindGroup();
   }
 
   /**

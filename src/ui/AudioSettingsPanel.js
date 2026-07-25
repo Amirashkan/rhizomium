@@ -285,7 +285,6 @@ export class AudioSettingsPanel {
             this.panel.style.display = 'block';
             this.visible = true;
 
-        } else {
         }
     }
 
@@ -310,14 +309,7 @@ let instance = null;
 
 export function getAudioSettingsPanel() {
     if (!instance) {
-        try {
-
-            instance = new AudioSettingsPanel();
-
-        } catch (error) {
-
-            throw error; // Re-throw so caller knows it failed
-        }
+        instance = new AudioSettingsPanel();
     }
     return instance;
 }

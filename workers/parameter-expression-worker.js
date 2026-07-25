@@ -17,7 +17,7 @@ self.onmessage = async (e) => {
         self.postMessage({ type: 'ready', id });
         break;
         
-      case 'evaluateBatch':
+      case 'evaluateBatch': {
         // Evaluate batch of expressions
         const results = await evaluateExpressionBatch(expressions);
         self.postMessage({
@@ -26,8 +26,9 @@ self.onmessage = async (e) => {
           result: results
         });
         break;
+      }
         
-      case 'evaluate':
+      case 'evaluate': {
         // Single expression evaluation
         const result = await evaluateExpression(expression, context, nodeId);
         self.postMessage({
@@ -36,6 +37,7 @@ self.onmessage = async (e) => {
           result: result
         });
         break;
+      }
         
       case 'heartbeat-request':
         // Respond to heartbeat immediately

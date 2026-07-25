@@ -301,115 +301,111 @@ export class ComputeExecutor {
    * Initialize a single compute node
    */
   async initializeComputeNode(nodeId, nodeData) {
-    try {
-      const { node, wgslCode, resolution, supportsFeedback } = nodeData;
+    const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
-      // Use preview resolution setting to maintain full quality
-      // Resolution follows the preview settings - optimizations come from smart caching
-      const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
-      const DEFAULT_COMPUTE_RES = 1024;
+    // Use preview resolution setting to maintain full quality
+    // Resolution follows the preview settings - optimizations come from smart caching
+    const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
+    const DEFAULT_COMPUTE_RES = 1024;
 
-      // Get preview resolution from settings
-      let baseWidth = DEFAULT_COMPUTE_RES;
-      let baseHeight = DEFAULT_COMPUTE_RES;
+    // Get preview resolution from settings
+    let baseWidth = DEFAULT_COMPUTE_RES;
+    let baseHeight = DEFAULT_COMPUTE_RES;
 
-      if (window.floatingPreview?.settings?.settings?.resolution) {
-        const previewRes = window.floatingPreview.settings.settings.resolution;
-        baseWidth = previewRes.width || DEFAULT_COMPUTE_RES;
-        baseHeight = previewRes.height || DEFAULT_COMPUTE_RES;
-      }
-
-      let width = baseWidth;
-      let height = baseHeight;
-
-      // If the node has a custom resolution setting, use it
-      if (node.computeResolution) {
-        width = node.computeResolution[0] || baseWidth;
-        height = node.computeResolution[1] || baseHeight;
-      } else if (resolution && resolution[0] > 0 && resolution[1] > 0) {
-        // Use node's specified resolution if provided
-        width = resolution[0];
-        height = resolution[1];
-      }
-
-      // Cap at maximum supported resolution only (no quality reduction)
-      width = Math.min(width, MAX_COMPUTE_RES);
-      height = Math.min(height, MAX_COMPUTE_RES);
-
-      // Ensure we have valid dimensions before initializing
-      if (!width || !height || width <= 0 || height <= 0) {
-        width = DEFAULT_COMPUTE_RES;
-        height = DEFAULT_COMPUTE_RES;
-      }
-
-      // Detect if this node needs input textures from other compute nodes
-      // Check both the node definition (how many inputs it's designed for) and actual connections
-      // Nodes like ComputeBlur and ComputeFeedback are designed to take inputs
-      //
-      // IMPORTANT: When adding a new compute node that requires input textures,
-      // you MUST add its name to this list. Otherwise, the bind group layout won't
-      // include bindings for @binding(2) inputTexture and @binding(3) texSampler,
-      // causing WebGPU validation errors like "Binding doesn't exist in BindGroupLayoutInternal"
-      const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
-                                     'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
-                                     'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect',
-                                     'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels', 'ComputeHSV', 'ComputeHistogram', 'ComputeLuminance', 'ComputeGradient'].includes(node.kind);
-      const needsInput = nodeDesignedForInput;
-
-      // Reuse signature: a node can keep its existing manager (and its
-      // accumulated feedback state) across a rebuild only if everything that
-      // shapes the GPU pipeline/textures is identical. Parameters that map to
-      // uniforms (decay, scale, offset, …) don't appear here because they don't
-      // change the WGSL, so tweaking them no longer wipes the feedback buffer.
-      const initSignature = `${node.kind}|${width}x${height}|fb${supportsFeedback ? 1 : 0}|in${needsInput ? 1 : 0}|${wgslCode}`;
-
-      // Reuse an unchanged node's manager during a reinitialize() pass.
-      const reuseContext = this._reuseContext;
-      if (reuseContext && !reuseContext.reused.has(nodeId)) {
-        const prev = reuseContext.previousManagers.get(nodeId);
-        if (prev && prev._initSignature === initSignature) {
-          prev.node = node; // keep the live node reference current for params
-          reuseContext.reused.add(nodeId);
-          this.computeManagers.set(nodeId, prev);
-          const prevTex = reuseContext.previousTextures.get(nodeId);
-          if (prevTex) {
-            this.computeTextures.set(nodeId, prevTex);
-          }
-          return;
-        }
-      }
-
-      // Create compute shader manager with node reference for parameters
-      const manager = new ComputeShaderManager(this.device, node);
-      await manager.initialize(wgslCode, width, height, supportsFeedback, needsInput);
-      manager._initSignature = initSignature;
-
-      // Store manager
-      this.computeManagers.set(nodeId, manager);
-
-      // Create sampler for this texture
-      const sampler = this.device.createSampler({
-        magFilter: 'linear',
-        minFilter: 'linear',
-        addressModeU: 'repeat',
-        addressModeV: 'repeat'
-      });
-
-      // Get output texture
-      const outputTexture = manager.getOutputTexture();
-      if (!outputTexture) {
-        throw new Error(`Manager failed to create output texture for ${nodeId}`);
-      }
-
-      // Store texture and sampler
-      this.computeTextures.set(nodeId, {
-        texture: outputTexture,
-        sampler,
-        manager
-      });
-    } catch (error) {
-      throw error;
+    if (window.floatingPreview?.settings?.settings?.resolution) {
+      const previewRes = window.floatingPreview.settings.settings.resolution;
+      baseWidth = previewRes.width || DEFAULT_COMPUTE_RES;
+      baseHeight = previewRes.height || DEFAULT_COMPUTE_RES;
     }
+
+    let width = baseWidth;
+    let height = baseHeight;
+
+    // If the node has a custom resolution setting, use it
+    if (node.computeResolution) {
+      width = node.computeResolution[0] || baseWidth;
+      height = node.computeResolution[1] || baseHeight;
+    } else if (resolution && resolution[0] > 0 && resolution[1] > 0) {
+      // Use node's specified resolution if provided
+      width = resolution[0];
+      height = resolution[1];
+    }
+
+    // Cap at maximum supported resolution only (no quality reduction)
+    width = Math.min(width, MAX_COMPUTE_RES);
+    height = Math.min(height, MAX_COMPUTE_RES);
+
+    // Ensure we have valid dimensions before initializing
+    if (!width || !height || width <= 0 || height <= 0) {
+      width = DEFAULT_COMPUTE_RES;
+      height = DEFAULT_COMPUTE_RES;
+    }
+
+    // Detect if this node needs input textures from other compute nodes
+    // Check both the node definition (how many inputs it's designed for) and actual connections
+    // Nodes like ComputeBlur and ComputeFeedback are designed to take inputs
+    //
+    // IMPORTANT: When adding a new compute node that requires input textures,
+    // you MUST add its name to this list. Otherwise, the bind group layout won't
+    // include bindings for @binding(2) inputTexture and @binding(3) texSampler,
+    // causing WebGPU validation errors like "Binding doesn't exist in BindGroupLayoutInternal"
+    const nodeDesignedForInput = ['ComputeBlur', 'ComputeFeedback', 'ComputeFeedbackField',
+                                   'ComputeConvolution', 'ComputeFluidSim', 'ComputeParticles',
+                                   'ComputeThreshold', 'ComputeColorAdjust', 'ComputeEdgeDetect',
+                                   'ComputeMorphology', 'ComputeWarp', 'ComputeKaleidoscope', 'ComputeGlitch', 'ComputeMix', 'ComputeTransform', 'ComputeChannels', 'ComputeHSV', 'ComputeHistogram', 'ComputeLuminance', 'ComputeGradient'].includes(node.kind);
+    const needsInput = nodeDesignedForInput;
+
+    // Reuse signature: a node can keep its existing manager (and its
+    // accumulated feedback state) across a rebuild only if everything that
+    // shapes the GPU pipeline/textures is identical. Parameters that map to
+    // uniforms (decay, scale, offset, …) don't appear here because they don't
+    // change the WGSL, so tweaking them no longer wipes the feedback buffer.
+    const initSignature = `${node.kind}|${width}x${height}|fb${supportsFeedback ? 1 : 0}|in${needsInput ? 1 : 0}|${wgslCode}`;
+
+    // Reuse an unchanged node's manager during a reinitialize() pass.
+    const reuseContext = this._reuseContext;
+    if (reuseContext && !reuseContext.reused.has(nodeId)) {
+      const prev = reuseContext.previousManagers.get(nodeId);
+      if (prev && prev._initSignature === initSignature) {
+        prev.node = node; // keep the live node reference current for params
+        reuseContext.reused.add(nodeId);
+        this.computeManagers.set(nodeId, prev);
+        const prevTex = reuseContext.previousTextures.get(nodeId);
+        if (prevTex) {
+          this.computeTextures.set(nodeId, prevTex);
+        }
+        return;
+      }
+    }
+
+    // Create compute shader manager with node reference for parameters
+    const manager = new ComputeShaderManager(this.device, node);
+    await manager.initialize(wgslCode, width, height, supportsFeedback, needsInput);
+    manager._initSignature = initSignature;
+
+    // Store manager
+    this.computeManagers.set(nodeId, manager);
+
+    // Create sampler for this texture
+    const sampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'repeat',
+      addressModeV: 'repeat'
+    });
+
+    // Get output texture
+    const outputTexture = manager.getOutputTexture();
+    if (!outputTexture) {
+      throw new Error(`Manager failed to create output texture for ${nodeId}`);
+    }
+
+    // Store texture and sampler
+    this.computeTextures.set(nodeId, {
+      texture: outputTexture,
+      sampler,
+      manager
+    });
   }
 
   /**

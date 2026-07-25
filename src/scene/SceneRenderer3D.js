@@ -38,38 +38,33 @@ export class SceneRenderer3D {
   async initialize() {
     if (this.initialized) return;
 
-    try {
-      // Get WebGPU context
-      this.context = this.canvas.getContext('webgpu');
-      if (!this.context) {
-        throw new Error('Failed to get WebGPU context');
-      }
-
-      // Configure context. COPY_DST lets us blit the offscreen scene texture
-      // (which doubles as the live node-thumbnail source) onto the canvas.
-      const preferredFormat = navigator.gpu.getPreferredCanvasFormat();
-      this.preferredFormat = preferredFormat;
-      this.context.configure({
-        device: this.device,
-        format: preferredFormat,
-        alphaMode: 'premultiplied',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST
-      });
-
-      // Create depth texture
-      this.createDepthTexture();
-
-      // Create render pipeline
-      await this.createRenderPipeline(preferredFormat);
-
-      // Create uniform buffer
-      this.createUniformBuffer();
-
-      this.initialized = true;
-    } catch (error) {
-
-      throw error;
+    // Get WebGPU context
+    this.context = this.canvas.getContext('webgpu');
+    if (!this.context) {
+      throw new Error('Failed to get WebGPU context');
     }
+
+    // Configure context. COPY_DST lets us blit the offscreen scene texture
+    // (which doubles as the live node-thumbnail source) onto the canvas.
+    const preferredFormat = navigator.gpu.getPreferredCanvasFormat();
+    this.preferredFormat = preferredFormat;
+    this.context.configure({
+      device: this.device,
+      format: preferredFormat,
+      alphaMode: 'premultiplied',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST
+    });
+
+    // Create depth texture
+    this.createDepthTexture();
+
+    // Create render pipeline
+    await this.createRenderPipeline(preferredFormat);
+
+    // Create uniform buffer
+    this.createUniformBuffer();
+
+    this.initialized = true;
   }
 
   /**

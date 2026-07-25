@@ -30,9 +30,6 @@ export class MIDIManager {
     this.isSupported = typeof navigator !== 'undefined' &&
                        typeof navigator.requestMIDIAccess === 'function';
 
-    if (!this.isSupported) {
-
-    }
 
     return this.isSupported;
   }
@@ -193,7 +190,7 @@ export class MIDIManager {
         parsedData = { channel, note, velocity };
         break;
 
-      case 0xB: // Control Change (CC)
+      case 0xB: { // Control Change (CC)
         messageType = 'cc';
         const cc = note;
         const value = velocity;
@@ -213,12 +210,14 @@ export class MIDIManager {
           normalizedValue: value / 127 // Normalize to 0-1
         });
         break;
+      }
 
-      case 0xE: // Pitch Bend
+      case 0xE: { // Pitch Bend
         messageType = 'pitchbend';
         const pitchBend = (velocity << 7) | note;
         parsedData = { channel, value: pitchBend };
         break;
+      }
 
       case 0xD: // Channel Pressure (Aftertouch)
         messageType = 'pressure';

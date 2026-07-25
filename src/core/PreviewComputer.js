@@ -1220,7 +1220,7 @@ case "Compare":
         this._renderOutputThumbnail(ctx, size, node.__preview, node); // Pass node here
         break;
         
-      default:
+      default: {
         // ENHANCEMENT: For nodes without specific thumbnail rendering, use preview value
         // Check node output type to determine appropriate thumbnail rendering
         const nodeDef = NodeDefs[node.kind];
@@ -1249,6 +1249,7 @@ case "Compare":
           this._renderDefaultThumbnail(ctx, size, 0);
         }
         break;
+      }
     }
 
     return canvas;

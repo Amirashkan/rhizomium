@@ -20,7 +20,7 @@ self.onmessage = async (e) => {
         self.postMessage({ type: 'ready', id });
         break;
         
-      case 'computePreviews':
+      case 'computePreviews': {
         // Compute previews (CPU-intensive, runs in worker)
         const results = await computePreviews(graph, timeContext, audioContext);
         
@@ -34,6 +34,7 @@ self.onmessage = async (e) => {
           }
         });
         break;
+      }
         
       case 'heartbeat-request':
         // Respond to heartbeat immediately
@@ -184,10 +185,11 @@ function computeNodeOutput(node, params, context) {
       return Math.cos(params.angle || 0);
     case 'constant':
       return params.value || 0;
-    default:
+    default: {
       // Default: return first parameter value or 0
       const firstParam = Object.values(params)[0];
       return typeof firstParam === 'number' ? firstParam : 0;
+    }
   }
 }
 

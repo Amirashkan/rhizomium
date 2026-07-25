@@ -655,7 +655,6 @@ export class TimelineManager {
           anyChanged = true;
           changedNodeId = nodeId;
         }
-      } else {
       }
     }
 

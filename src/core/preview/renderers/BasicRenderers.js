@@ -362,7 +362,9 @@ renderOutput(ctx, node) {
       processed = processed.replace(/cos/g, "Math.cos");
       processed = processed.replace(/pi/g, "Math.PI");
 
-      return eval(processed);
+      // Substituted arithmetic from a node's own parameter expression, evaluated for a preview value
+      // only; the throw path below is the guard against whatever it turns out not to be.
+      return eval(processed); // eslint-disable-line no-eval
     } catch (e) {
       return 0;
     }

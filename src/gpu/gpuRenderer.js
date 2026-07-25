@@ -548,8 +548,6 @@ export class GPURenderer {
         } else {
           return { texture: computeInfo.texture, textureView: computeInfo.texture.createView() };
         }
-      } else {
-
       }
     }
 

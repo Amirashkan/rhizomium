@@ -83,8 +83,6 @@ analyzeNode(node) {
     .filter(key => key.startsWith(`${node.id}.`))
     .map(key => key.split('.')[1]);
 
-  if (dynamicParamsForNode.length > 0) {
-  }
 }
 
   /**
@@ -209,7 +207,7 @@ isDynamicExpression(value) {
   }
   
   // Check for other mathematical expressions that DO need parameter uniforms
-  const dynamicPattern = /sin\(|cos\(|tan\(|abs\(|sqrt\(|pow\(|min\(|max\(|floor\(|ceil\(|round\(|fract\(|[+\-*\/()]/;
+  const dynamicPattern = /sin\(|cos\(|tan\(|abs\(|sqrt\(|pow\(|min\(|max\(|floor\(|ceil\(|round\(|fract\(|[+\-*/()]/;
   return dynamicPattern.test(value);
 }
   /**

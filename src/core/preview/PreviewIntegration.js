@@ -69,8 +69,6 @@ export class PreviewIntegration {
     // Pass the nodes array to updateAllPreviews
     if (this.editor?.graph?.nodes) {
       this.previewSystem.updateAllPreviews(this.editor.graph.nodes);
-    } else {
-
     }
   }
 

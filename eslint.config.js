@@ -33,6 +33,9 @@ export default [
       "no-dupe-keys": "error",
       "no-duplicate-case": "error",
       "no-fallthrough": ["error", { allowEmptyCase: true }],
+      // Two expression evaluators legitimately use eval and carry a disable comment saying so; the
+      // rule is on so those comments mean something and a third eval has to argue for itself.
+      "no-eval": "error",
       // High-volume legacy noise reports as warnings until burned down.
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "no-empty": ["warn", { allowEmptyCatch: true }],

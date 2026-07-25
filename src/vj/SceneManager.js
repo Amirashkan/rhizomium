@@ -63,24 +63,19 @@ export class SceneManager {
    * Load a scene from file
    */
   async loadSceneFromFile(file) {
-    try {
-      const text = await file.text();
-      const projectData = JSON.parse(text);
+    const text = await file.text();
+    const projectData = JSON.parse(text);
 
-      // Validate project data
-      if (!projectData.nodes || !Array.isArray(projectData.nodes)) {
-        throw new Error('Invalid project file: missing nodes array');
-      }
-
-      const sceneId = `scene_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const name = file.name.replace(/\.(json|rhizo)$/i, '');
-
-      const scene = this.addScene(sceneId, projectData, name);
-      return scene;
-    } catch (error) {
-
-      throw error;
+    // Validate project data
+    if (!projectData.nodes || !Array.isArray(projectData.nodes)) {
+      throw new Error('Invalid project file: missing nodes array');
     }
+
+    const sceneId = `scene_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const name = file.name.replace(/\.(json|rhizo)$/i, '');
+
+    const scene = this.addScene(sceneId, projectData, name);
+    return scene;
   }
 
   /**
