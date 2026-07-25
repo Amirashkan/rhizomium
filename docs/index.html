@@ -115,6 +115,12 @@
       maxLevel: 4,
       subMaxLevel: 3,
 
+      // Pin the markdown root to an absolute path. The site is deployed with
+      // `trailingSlash: false`, so this page is served at `/docs` (no slash)
+      // and relative fetches would resolve against the site root instead —
+      // every page would 404. With basePath both /docs and /docs/ work.
+      basePath: '/docs/',
+
       // Homepage
       homepage: 'README.md',
 

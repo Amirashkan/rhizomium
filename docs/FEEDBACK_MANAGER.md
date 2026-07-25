@@ -325,6 +325,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 ## See Also
 
-- [ComputeShaderManager.js](../src/gpu/ComputeShaderManager.js) - Low-level compute shader wrapper
-- [ComputeNodes.js](../src/data/nodes/ComputeNodes.js) - Compute node definitions
+- [ComputeShaderManager.js](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/gpu/ComputeShaderManager.js) - Low-level compute shader wrapper
+- [ComputeNodes.js](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/data/nodes/ComputeNodes.js) - Compute node definitions
 - [COMPUTE_NODE_API.md](./COMPUTE_NODE_API.md) - Compute node API documentation

@@ -340,4 +340,4 @@ See [Parameter Expressions](parameter-expressions.md) for more details.
 - [Parameter Expressions](parameter-expressions.md) - Animate compute node parameters
 - [Performance Tips](performance.md) - Optimize your graphs
 - [3D Field Visualization](field-visualization.md) - Visualize compute outputs in 3D
-- [Compute Node API](../COMPUTE_NODE_API.md) - Developer reference
+- [Compute Node API](COMPUTE_NODE_API.md) - Developer reference

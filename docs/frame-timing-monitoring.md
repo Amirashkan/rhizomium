@@ -422,8 +422,8 @@ Works alongside the GPU Performance Monitor:
 ## Related Documentation
 
 - **[Performance Tips](performance.md)** - General performance optimization
-- **[GPU Performance Guide](GPU_PERFORMANCE_GUIDE.md)** - GPU-specific monitoring
-- **[UnifiedRAFManager Source](../src/core/UnifiedRAFManager.js)** - Implementation details
+- **[GPU Performance Guide](https://github.com/Amirashkan/glsl-node-editor/blob/main/GPU_PERFORMANCE_GUIDE.md)** - GPU-specific monitoring
+- **[UnifiedRAFManager Source](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/core/UnifiedRAFManager.js)** - Implementation details
 
 ---
 

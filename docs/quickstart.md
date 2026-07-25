@@ -58,7 +58,7 @@ Once the editor is open locally:
 3. Run the server: `python rhizo_server.py`
 4. Open: `http://127.0.0.1:5000/studio`
 
-See [DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md) for details.
+See the [Deployment Guide](deployment.md) for details.
 
 
 ### ❌ "Failed to launch external viewer: 404"
@@ -140,9 +140,9 @@ This runs the API on port 5000 without serving static files.
 
 ## 📖 Further Reading
 
-- [RHIZOMIUM_VIEWER_SETUP.md](RHIZOMIUM_VIEWER_SETUP.md) - Detailed viewer setup and architecture
-- [START_EDITOR.md](START_EDITOR.md) - Editor documentation (if exists)
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Detailed troubleshooting guide
+- [External Viewer Setup](external-viewer.md) - Detailed viewer setup and architecture
+- [Starting the Editor](https://github.com/Amirashkan/glsl-node-editor/blob/main/START_EDITOR.md) - Editor launch notes
+- [Troubleshooting](troubleshooting.md) - Detailed troubleshooting guide
 
 ## 🎯 Next Steps
 

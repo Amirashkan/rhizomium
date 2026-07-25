@@ -418,7 +418,7 @@ triggers: {
 ## References
 
 - [Redraw Throttling Policy](./REDRAW_THROTTLING_POLICY.md) - Detailed policy documentation
-- [Renderer Implementation](../src/core/Renderer.js) - Renderer with requestRedraw()
-- [RedrawScheduler Implementation](../src/core/RedrawScheduler.js) - Scheduler implementation
-- [Editor Implementation](../src/core/Editor.js) - Editor integration
+- [Renderer Implementation](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/core/Renderer.js) - Renderer with requestRedraw()
+- [RedrawScheduler Implementation](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/core/RedrawScheduler.js) - Scheduler implementation
+- [Editor Implementation](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/core/Editor.js) - Editor integration
 
