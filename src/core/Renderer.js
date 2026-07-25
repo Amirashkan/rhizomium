@@ -23,6 +23,9 @@ import {
 // the whole node permanently wider.
 const VALUE_TAG_INT_DIGITS = 3;
 
+// Gap between an output pin's name and the value tag to its right, on the same socket row.
+const OUT_NAME_GAP = 6;
+
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
     this.ctx = ctx;
@@ -889,7 +892,11 @@ export class Renderer {
       ctx.fillStyle = pinColor;
       this._drawEnhancedPin(pos.x, pos.y, 5, "output");
 
-      this._renderOutputPinLabel(node, i, pos);
+      // The value tag reports where the pin's width ends so the name can be placed just left of it,
+      // right-aligned on the same row: `name  value ●`. 0 means no tag was drawn this frame (previews
+      // off, or zoomed out), and the name then right-aligns against the port itself.
+      const tagW = this._renderOutputPinLabel(node, i, pos);
+      this._renderOutputPinName(node, i, pos, tagW);
     }
 
     // Render input pins with enhanced styling
@@ -938,11 +945,13 @@ export class Renderer {
     ctx.fill();
   }
 
+  // Draws the live value tag for one output pin. Returns the drawn tag's width so the caller can
+  // place the pin's name immediately left of it — 0 when no tag was drawn.
   _renderOutputPinLabel(node, pinIndex, pinPos) {
     const editor = window.editor;
 
     // FIXED: Use property instead of function call
-    if (!editor || !editor.isPreviewEnabled) return;
+    if (!editor || !editor.isPreviewEnabled) return 0;
 
     const ctx = this.ctx;
     const pinDef = NodeDefs[node.kind]?.pinsOut?.[pinIndex];
@@ -1099,7 +1108,7 @@ export class Renderer {
     node.__valueTagW = Math.max(node.__valueTagW || 0, reserveWidth);
 
     // Skip label if it would be too cramped
-    if (this.viewport.scale < 0.7) return;
+    if (this.viewport.scale < 0.7) return 0;
 
     ctx.save();
 
@@ -1122,6 +1131,32 @@ export class Renderer {
     ctx.fillStyle = textColor;
     ctx.textAlign = "right";
     ctx.fillText(labelText, pinPos.x - 10, pinPos.y + 2);
+    ctx.restore();
+
+    return textWidth;
+  }
+
+  // The output pin's NAME, drawn inside the node and right-aligned just left of its value tag, so a
+  // row reads `name  value ●`. This mirrors the input labels on the left edge: on a multi-output node
+  // (Split's x/y/z, Resolution's res/width/height/aspect, Audio Analysis' level/low/kick/kickMeter/…)
+  // the value tags alone are a column of interchangeable numbers, and the name is the only thing that
+  // says which pin a wire is about to come from.
+  _renderOutputPinName(node, pinIndex, pinPos, tagW) {
+    // Same cramped-zoom cutoff as the value tag, so the two appear and disappear together.
+    if (this.viewport.scale < 0.7) return;
+
+    const name = this._outputLabel(node, pinIndex);
+    if (!name) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+    // Dimmer than the type-coloured value tag: the name identifies the pin, the value is what you
+    // watch. With no tag this frame, right-align against the port instead.
+    ctx.fillStyle = "#9b9ca3";
+    ctx.font = this._cachedFonts.pinLabel;
+    ctx.textAlign = "right";
+    const rightX = tagW ? pinPos.x - 6 - tagW - OUT_NAME_GAP : pinPos.x - 10;
+    ctx.fillText(name, rightX, pinPos.y + 2);
     ctx.restore();
   }
 
@@ -1177,6 +1212,22 @@ export class Renderer {
     return typeof entry === "string" ? entry : entry.label || "";
   }
 
+  // An output pin's display name. pinsOut entries are either a plain string ("Texture") or the object
+  // form `{ label, type }`; normalise both, returning "" when there's nothing worth showing.
+  //
+  // The one suppression: a node whose SOLE output is named "out" gets no name. "out" isn't a name
+  // there, it's a placeholder for "this node's result" — it would repeat the title on the ~83 nodes
+  // that use it and widen every one of them for nothing. On a multi-output node it stays, because
+  // there it does distinguish a pin (CellNoise's "out" vs its "cellID").
+  _outputLabel(node, i) {
+    const pins = NodeDefs[node.kind]?.pinsOut;
+    const entry = pins?.[i];
+    if (!entry) return "";
+    const label = typeof entry === "string" ? entry : entry.label || "";
+    if (pins.length === 1 && label.toLowerCase() === "out") return "";
+    return label;
+  }
+
   // Size the node box to the shared anatomy: header → optional preview band → fixed socket rows.
   // Height is recomputed every frame (cheap, no text measuring) so it tracks preview-size and
   // row-count changes both up and down — and so changing the S/M/L chip resizes only the preview
@@ -1215,15 +1266,23 @@ export class Renderer {
     const idW = ctx.measureText(`#${node.id}`).width;
     const headerW = 10 + titleW + 8 + idW + 8 + 65 + 6;
 
-    // Widest socket row: an input label (inside, right of its port) plus the output value tag
-    // (inside, left of its port). Inputs and outputs can share a row, so reserve room for both.
+    // Widest socket row: an input label (inside, right of its port) plus the output pin's name and
+    // value tag (inside, left of its port). Inputs and outputs can share a row, so reserve room for
+    // all three. The name is static per node kind — unlike the value tag it never changes with a live
+    // value, so measuring it here can't make a node drift wider while you work.
     ctx.font = this._cachedFonts.pinLabel || "10px sans-serif";
     let inLabelW = 0;
     for (let i = 0; i < inCount; i++) {
       const lbl = this._inputLabel(node, i);
       if (lbl) inLabelW = Math.max(inLabelW, ctx.measureText(lbl).width);
     }
-    const rowW = EDGE_INSET + 10 + inLabelW + (inLabelW && tagW ? 12 : 0) + tagW + 14 + EDGE_INSET;
+    let outNameW = 0;
+    for (let i = 0; i < outCount; i++) {
+      const name = this._outputLabel(node, i);
+      if (name) outNameW = Math.max(outNameW, ctx.measureText(name).width);
+    }
+    const outW = outNameW + (outNameW && tagW ? OUT_NAME_GAP : 0) + tagW;
+    const rowW = EDGE_INSET + 10 + inLabelW + (inLabelW && outW ? 12 : 0) + outW + 14 + EDGE_INSET;
 
     const previewMinW = hasPreview ? 180 : 0;
 
