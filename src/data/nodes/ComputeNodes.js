@@ -215,8 +215,8 @@ export const ComputeNodes = {
       { name: 'mode', type: 'select', options: ['surface', 'instances'], default: 'surface', description: 'Surface shape or instanced field' },
 
       // Surface mode
-      { name: 'shape', type: 'select', options: ['plane', 'sphere', 'box', 'torus'], default: 'plane', description: 'Surface: shape the field is mapped onto', group: 'Surface' },
-      { name: 'resolution', type: 'int', default: 96, min: 8, max: 256, description: 'Surface: tessellation (segments)', group: 'Surface' },
+      { name: 'shape', type: 'select', options: ['plane', 'sphere', 'box', 'torus'], default: 'plane', description: 'Surface: shape the field is mapped onto', group: 'Surface', activeWhen: { mode: 'surface' } },
+      { name: 'resolution', type: 'int', default: 96, min: 8, max: 256, description: 'Surface: tessellation (segments)', group: 'Surface', activeWhen: { mode: 'surface' } },
 
       // Shared between both modes: overall size, and how much of the field reaches the result.
       { name: 'scale', type: 'float', default: 1.5, min: 0.1, max: 5.0, description: 'Size in the viewport', group: 'Size & Field' },
@@ -233,11 +233,11 @@ export const ComputeNodes = {
       { name: 'rotateZ', type: 'float', default: 0.0, min: -180.0, max: 180.0, description: 'Rotate around Z (degrees)', group: 'Transform' },
 
       // Instanced mode. Inert in the default surface mode, so it starts folded too.
-      { name: 'instanceShape', type: 'select', options: ['cube', 'sphere', 'quad'], default: 'cube', description: 'Instances: mesh drawn per field cell', group: 'Instances', groupCollapsed: true },
-      { name: 'instanceCount', type: 'int', default: 48, min: 4, max: 160, description: 'Instances: grid per axis (count x count cells)', group: 'Instances' },
-      { name: 'instanceSize', type: 'float', default: 0.03, min: 0.002, max: 0.2, description: 'Instances: base size in world units', group: 'Instances' },
-      { name: 'sizeByField', type: 'float', default: 0.6, min: 0.0, max: 1.0, description: 'Instances: how much the field scales each instance', group: 'Instances' },
-      { name: 'instanceThreshold', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Instances: hide cells below this field value', group: 'Instances' }
+      { name: 'instanceShape', type: 'select', options: ['cube', 'sphere', 'quad'], default: 'cube', description: 'Instances: mesh drawn per field cell', group: 'Instances', groupCollapsed: true, activeWhen: { mode: 'instances' } },
+      { name: 'instanceCount', type: 'int', default: 48, min: 4, max: 160, description: 'Instances: grid per axis (count x count cells)', group: 'Instances', activeWhen: { mode: 'instances' } },
+      { name: 'instanceSize', type: 'float', default: 0.03, min: 0.002, max: 0.2, description: 'Instances: base size in world units', group: 'Instances', activeWhen: { mode: 'instances' } },
+      { name: 'sizeByField', type: 'float', default: 0.6, min: 0.0, max: 1.0, description: 'Instances: how much the field scales each instance', group: 'Instances', activeWhen: { mode: 'instances' } },
+      { name: 'instanceThreshold', type: 'float', default: 0.15, min: 0.0, max: 1.0, description: 'Instances: hide cells below this field value', group: 'Instances', activeWhen: { mode: 'instances' } }
     ],
     description: "Map field data onto a live 3D surface (plane, sphere, box, torus) or an instanced grid (cubes, spheres, points)",
     workgroupSize: [8, 8, 1]
@@ -253,9 +253,11 @@ export const ComputeNodes = {
     pinsOut: ["Texture"],
     params: [
       { name: 'mode', type: 'select', options: ['Binary', 'Range', 'Adaptive'], default: 'Binary' },
-      { name: 'threshold', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
-      { name: 'thresholdMin', type: 'float', default: 0.3, min: 0.0, max: 1.0 },
-      { name: 'thresholdMax', type: 'float', default: 0.7, min: 0.0, max: 1.0 },
+      // Binary and Adaptive read `threshold`; Range reads the min/max pair instead. Whichever
+      // set the current mode ignores is dimmed — it is inert, not merely unused.
+      { name: 'threshold', type: 'float', default: 0.5, min: 0.0, max: 1.0, activeWhen: { mode: ['Binary', 'Adaptive'] } },
+      { name: 'thresholdMin', type: 'float', default: 0.3, min: 0.0, max: 1.0, activeWhen: { mode: 'Range' } },
+      { name: 'thresholdMax', type: 'float', default: 0.7, min: 0.0, max: 1.0, activeWhen: { mode: 'Range' } },
       { name: 'outputLow', type: 'float', default: 0.0, min: 0.0, max: 1.0 },
       { name: 'outputHigh', type: 'float', default: 1.0, min: 0.0, max: 1.0 }
     ],
@@ -328,7 +330,7 @@ export const ComputeNodes = {
       { name: 'distanceMetric', type: 'select', options: ['Euclidean', 'Manhattan', 'Chebyshev', 'Minkowski'], default: 'Euclidean' },
       { name: 'seed', type: 'float', default: 0.0, min: 0.0, max: 100.0 },
       { name: 'animate', type: 'boolean', default: true },
-      { name: 'speed', type: 'float', default: 0.1, min: 0.0, max: 2.0 }
+      { name: 'speed', type: 'float', default: 0.1, min: 0.0, max: 2.0, activeWhen: { animate: true } }
     ],
     description: "Voronoi diagrams and Worley noise patterns",
     workgroupSize: [8, 8, 1]
@@ -348,31 +350,35 @@ export const ComputeNodes = {
       // It leads the list, and is ungrouped so it renders above both headings: it decides whether
       // the gradient's own geometry means anything at all, which makes it the first thing to check
       // when a wired-up Gradient does not look like the shape below says it should.
-      { name: 'inputMix', type: 'float', default: 1.0, min: 0.0, max: 1.0 },
+      { name: 'inputMix', type: 'float', default: 1.0, min: 0.0, max: 1.0, activeWhenConnected: 0 },
 
       // The remaining twelve split cleanly in two: where the gradient runs, and what colors it
       // takes. Both stay open — either is a normal thing to reach for.
       { name: 'type', type: 'select', options: ['Linear', 'Radial', 'Angular', 'Diamond'], default: 'Linear', group: 'Shape' },
-      { name: 'angle', type: 'float', default: 0.0, min: 0.0, max: 360.0, group: 'Shape' },
-      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0, group: 'Shape' },
-      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0, group: 'Shape' },
-      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0, group: 'Shape' },
+      { name: 'angle', type: 'float', default: 0.0, min: 0.0, max: 360.0, group: 'Shape', activeWhen: { type: ['Linear', 'Angular'] } },
+      // Linear runs across the whole image from a fixed midpoint; only the other three are centred.
+      { name: 'centerX', type: 'float', default: 0.5, min: 0.0, max: 1.0, group: 'Shape', activeWhen: { type: ['Radial', 'Angular', 'Diamond'] } },
+      { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0, group: 'Shape', activeWhen: { type: ['Radial', 'Angular', 'Diamond'] } },
+      { name: 'radius', type: 'float', default: 0.5, min: 0.0, max: 2.0, group: 'Shape', activeWhen: { type: ['Radial', 'Diamond'] } },
       { name: 'repeat', type: 'int', default: 1, min: 1, max: 20, group: 'Shape' },
       { name: 'reverse', type: 'boolean', default: false, group: 'Shape' },
 
       { name: 'colorMode', type: 'select', options: ['Grayscale', 'Rainbow', 'Gradient'], default: 'Grayscale', group: 'Color' },
-      { name: 'saturation', type: 'float', default: 0.8, min: 0.0, max: 1.0, group: 'Color' },
-      { name: 'brightness', type: 'float', default: 1.0, min: 0.0, max: 2.0, group: 'Color' },
+      // Rainbow builds its color in HSV; Grayscale scales by brightness alone; Gradient takes its
+      // color from the stops and reads neither.
+      { name: 'saturation', type: 'float', default: 0.8, min: 0.0, max: 1.0, group: 'Color', activeWhen: { colorMode: 'Rainbow' } },
+      { name: 'brightness', type: 'float', default: 1.0, min: 0.0, max: 2.0, group: 'Color', activeWhen: { colorMode: ['Grayscale', 'Rainbow'] } },
       {
         name: 'colorStops',
         type: 'colorstops',
         group: 'Color',
+        activeWhen: { colorMode: 'Gradient' },
         default: [
           { position: 0.0, color: [0, 0, 0, 1] },
           { position: 1.0, color: [1, 1, 1, 1] }
         ]
       },
-      { name: 'interpolation', type: 'select', options: ['Linear', 'Step', 'Smooth'], default: 'Linear', group: 'Color' }
+      { name: 'interpolation', type: 'select', options: ['Linear', 'Step', 'Smooth'], default: 'Linear', group: 'Color', activeWhen: { colorMode: 'Gradient' } }
     ],
     description: "Generate linear, radial, angular, and diamond gradients with visual color picker. Wire a value/mask into the input to drive the gradient (replaces Color Ramp).",
     workgroupSize: [8, 8, 1]
@@ -430,7 +436,7 @@ export const ComputeNodes = {
       { name: 'centerY', type: 'float', default: 0.5, min: 0.0, max: 1.0 },
       { name: 'scale', type: 'float', default: 1.0, min: 0.1, max: 5.0 },
       { name: 'animate', type: 'boolean', default: false },
-      { name: 'speed', type: 'float', default: 0.5, min: 0.0, max: 5.0 }
+      { name: 'speed', type: 'float', default: 0.5, min: 0.0, max: 5.0, activeWhen: { animate: true } }
     ],
     description: "Kaleidoscope symmetry and mirroring effects",
     workgroupSize: [8, 8, 1]

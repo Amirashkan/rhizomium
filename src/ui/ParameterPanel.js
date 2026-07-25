@@ -758,6 +758,8 @@ case 'flip2d':
               max: param.max,
               group: param.group,
               groupCollapsed: param.groupCollapsed,
+              activeWhen: param.activeWhen,
+              activeWhenConnected: param.activeWhenConnected,
               description: param.label || `${param.name} parameter`
             });
           });
@@ -804,6 +806,8 @@ case 'flip2d':
               action: param.action, // Preserve action for button parameters
               group: param.group, // Preserve the collapsible section this parameter belongs to
               groupCollapsed: param.groupCollapsed, // ...and whether that section starts closed
+              activeWhen: param.activeWhen, // ...and the conditions under which it applies at all
+              activeWhenConnected: param.activeWhenConnected,
               description: param.label || param.description || `${param.name} parameter`
             });
           });
@@ -947,24 +951,33 @@ case 'flip2d':
     // continuous level sit indistinguishably next to the ones that detect hits. Parameters with no
     // `group` render exactly as before, so other nodes are untouched.
     const realPanelContent = this.panelContent;
-    let currentGroup = null;
-    let target = realPanelContent;
-    parameterDefinitions.forEach(param => {
+
+    // Collect consecutive runs first, so a section knows all of its parameters before it is built
+    // — the heading dims when every parameter under it is inactive.
+    const runs = [];
+    for (const param of parameterDefinitions) {
       const group = param.group || null;
-      if (group !== currentGroup) {
-        currentGroup = group;
-        target = group ? this._createParameterGroup(group, node, param) : realPanelContent;
+      const last = runs[runs.length - 1];
+      if (last && last.group === group) last.params.push(param);
+      else runs.push({ group, params: [param] });
+    }
+
+    for (const run of runs) {
+      const target = run.group
+        ? this._createParameterGroup(run.group, node, run.params)
+        : realPanelContent;
+      for (const param of run.params) {
+        // renderParameter and its helpers append to this.panelContent; point it at the group body
+        // for the duration so they land inside the section. Rendering is synchronous, so this is
+        // restored before anything else can observe it.
+        this.panelContent = target;
+        try {
+          this.renderParameter(param, node);
+        } finally {
+          this.panelContent = realPanelContent;
+        }
       }
-      // renderParameter and its helpers append to this.panelContent; point it at the group body
-      // for the duration so they land inside the section. Rendering is synchronous, so this is
-      // restored before anything else can observe it.
-      this.panelContent = target;
-      try {
-        this.renderParameter(param, node);
-      } finally {
-        this.panelContent = realPanelContent;
-      }
-    });
+    }
 
     this.addExpressionHelp();
   }
@@ -974,18 +987,21 @@ case 'flip2d':
    * Collapsed state is remembered per node kind + group name, so toggling a section open survives
    * the re-render that follows every parameter edit.
    */
-  _createParameterGroup(groupName, node, firstParam) {
+  _createParameterGroup(groupName, node, params) {
     if (!this._collapsedGroups) this._collapsedGroups = new Map();
     const key = `${node.kind}:${groupName}`;
     if (!this._collapsedGroups.has(key)) {
-      this._collapsedGroups.set(key, firstParam?.groupCollapsed === true);
+      this._collapsedGroups.set(key, params[0]?.groupCollapsed === true);
     }
     let collapsed = this._collapsedGroups.get(key);
 
     const section = document.createElement('div');
+    section.className = 'parameter-group';
+    section.dataset.group = groupName;
     section.style.cssText = 'margin: 4px 0 10px 0;';
 
     const header = document.createElement('div');
+    header.className = 'parameter-group-header';
     header.style.cssText = `
       display: flex;
       align-items: center;
@@ -1007,6 +1023,14 @@ case 'flip2d':
     header.appendChild(caret);
     header.appendChild(label);
 
+    // A section whose every parameter is inactive is itself inactive — the whole Instances section
+    // does nothing in surface mode. Dimming the heading says so without opening it.
+    if (params.every(p => !this._isParameterActive(p, node))) {
+      section.classList.add('parameter-group-inactive');
+      header.style.opacity = '0.45';
+      header.title = this._inactiveReason(params[0], node) || 'Not used with the current settings';
+    }
+
     const body = document.createElement('div');
     body.style.display = collapsed ? 'none' : 'block';
 
@@ -1024,6 +1048,92 @@ case 'flip2d':
     return body;
   }
 
+  /**
+   * Is this parameter used by the node as currently configured?
+   *
+   * Several nodes carry parameters that only apply in one mode: the 3D Field Visualizer ignores
+   * every instancing control while `mode` is 'surface', Threshold reads either `threshold` or the
+   * min/max pair but never both. Nothing distinguished those from the live ones, so the panel
+   * offered controls that provably do nothing.
+   *
+   * Two optional declarations express it:
+   *   activeWhen: { mode: 'instances' }               - another parameter equals this value
+   *   activeWhen: { type: ['Radial', 'Diamond'] }     - ...or any value in this list
+   *   activeWhenConnected: 0                          - something is wired to this input pin
+   * Both must hold. A parameter that declares neither is always active, so nodes that say nothing
+   * behave exactly as before.
+   */
+  _isParameterActive(param, node) {
+    if (param?.activeWhenConnected !== undefined) {
+      const source = node?.inputs?.[param.activeWhenConnected];
+      if (source === null || source === undefined) return false;
+    }
+    const conditions = param?.activeWhen;
+    if (!conditions) return true;
+
+    for (const [name, expected] of Object.entries(conditions)) {
+      const current = node?.params?.[name];
+      // An expression drives the value at frame time and cannot be resolved here. Leave the
+      // parameter alone rather than dimming a control that may well be live.
+      if (typeof current === 'string' && current.startsWith('=')) continue;
+      const actual = String(current ?? this._defaultOf(node, name) ?? '');
+      const allowed = (Array.isArray(expected) ? expected : [expected]).map(String);
+      if (!allowed.includes(actual)) return false;
+    }
+    return true;
+  }
+
+  /** Wording for the tooltip on a dimmed control: why it is doing nothing right now. */
+  _inactiveReason(param, node) {
+    if (param?.activeWhenConnected !== undefined) {
+      const source = node?.inputs?.[param.activeWhenConnected];
+      if (source === null || source === undefined) {
+        const pin = NodeDefs[node?.kind]?.pinsIn?.[param.activeWhenConnected];
+        const pinName = (typeof pin === 'string' ? pin : pin?.label) || 'the input';
+        return `Not used until something is connected to ${pinName}`;
+      }
+    }
+    const conditions = param?.activeWhen || {};
+    const parts = [];
+    for (const [name, expected] of Object.entries(conditions)) {
+      if (this._isConditionMet(name, expected, node)) continue;
+      const values = (Array.isArray(expected) ? expected : [expected]).map(String);
+      const label = this._parameterLabel(node, name);
+      const list = values.length > 1
+        ? `${values.slice(0, -1).join(', ')} or ${values[values.length - 1]}`
+        : values[0];
+      parts.push(`${label} is ${list}`);
+    }
+    return parts.length ? `Only applies when ${parts.join(' and ')}` : '';
+  }
+
+  _isConditionMet(name, expected, node) {
+    const current = node?.params?.[name];
+    if (typeof current === 'string' && current.startsWith('=')) return true;
+    const actual = String(current ?? this._defaultOf(node, name) ?? '');
+    return (Array.isArray(expected) ? expected : [expected]).map(String).includes(actual);
+  }
+
+  _defaultOf(node, name) {
+    return NodeDefs[node?.kind]?.params?.find(p => p.name === name)?.default;
+  }
+
+  _parameterLabel(node, name) {
+    const def = NodeDefs[node?.kind]?.params?.find(p => p.name === name);
+    return def?.displayName || def?.label || name.charAt(0).toUpperCase() + name.slice(1);
+  }
+
+  /**
+   * Does any parameter on this node key its availability off `changedName`? Editing such a
+   * parameter changes which other controls apply, so the panel has to be redrawn to restate it.
+   */
+  _controlsOtherParameters(node, changedName) {
+    if (!node || !changedName) return false;
+    return (NodeDefs[node.kind]?.params || []).some(
+      p => p.activeWhen && Object.prototype.hasOwnProperty.call(p.activeWhen, changedName)
+    );
+  }
+
   renderParameter(param, node) {
     // Action buttons (e.g. the Feedback node's "Reset Feedback") are momentary
     // controls, not stored values, so they skip the binding/keyframe/value
@@ -1035,20 +1145,31 @@ case 'flip2d':
 
     const paramContainer = document.createElement('div');
     paramContainer.className = 'parameter-container';
+    paramContainer.setAttribute('data-param', param.name);
 
     // Get binding info
     const bindingInfo = this.bindingSystem ? 
       this.bindingSystem.getBindingInfo(node.id, param.name) : 
       { isBound: false, hasTargets: false };
     
+    // A parameter the node is currently ignoring is dimmed rather than disabled: it says "this is
+    // doing nothing right now" while still letting the value be set up before switching modes.
+    const active = this._isParameterActive(param, node);
+
     paramContainer.style.cssText = `
       margin-bottom: 12px;
       padding: 8px;
       background: ${bindingInfo.isBound ? '#2a2a4a' : '#333'};
       border-radius: 4px;
-      border-left: 3px solid ${bindingInfo.isBound ? '#ff9800' : '#4CAF50'};
+      border-left: 3px solid ${active ? (bindingInfo.isBound ? '#ff9800' : '#4CAF50') : '#555'};
       position: relative;
+      opacity: ${active ? '1' : '0.45'};
     `;
+
+    if (!active) {
+      paramContainer.classList.add('parameter-inactive');
+      paramContainer.title = this._inactiveReason(param, node) || 'Not used with the current settings';
+    }
 
     // Create label container
     const labelContainer = document.createElement('div');
@@ -1987,6 +2108,16 @@ _processPreviewUpdate(node) {
 
       // For non-MIDI sources, update immediately
       this.expressionSystem.updateDependencies(node.id, parameterName, newValue);
+
+      // Switching a mode changes which of the other parameters the node actually reads, and the
+      // dimming that says so is decided at render time — so that parameter needs a full redraw,
+      // not just refreshed values. Only parameters something else keys off qualify, so ordinary
+      // edits still take the cheap path and nothing is rebuilt under the user's cursor.
+      if (this._controlsOtherParameters(node, parameterName)) {
+        this.renderParameters(node);
+        return;
+      }
+
       this.refreshParameterDisplays();
     } else if (source !== 'midi') {
       // Only update dependencies for non-MIDI sources if node not selected
