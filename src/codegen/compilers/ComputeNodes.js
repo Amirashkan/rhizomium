@@ -3,6 +3,7 @@
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { resolveResolution } from '../../ui/OutputFormat.js';
 
 export class ComputeNodes {
   constructor() {
@@ -103,13 +104,17 @@ export class ComputeNodes {
    * Uses canvas resolution to maintain aspect ratio
    */
   getResolution(node) {
-    // Try to get resolution from floating preview settings (maintains aspect ratio)
-    if (window.floatingPreview?.settings?.settings?.resolution) {
-      const { width, height } = window.floatingPreview.settings.settings.resolution;
-      // Ensure we have valid dimensions
-      if (width > 0 && height > 0) {
-        return [width, height];
-      }
+    // An explicit per-node override wins - that is how the second-monitor
+    // receiver renders at its own display's dimensions instead of the editor's.
+    const override = node?.computeResolution;
+    if (override?.[0] > 0 && override?.[1] > 0) {
+      return [override[0], override[1]];
+    }
+
+    // Otherwise follow the sim role (output aspect at the project's sim quality)
+    const { width, height } = resolveResolution('sim');
+    if (width > 0 && height > 0) {
+      return [width, height];
     }
 
     // Fallback to node parameter (square resolution)

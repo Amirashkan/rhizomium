@@ -224,27 +224,41 @@ describe('TauriSecondMonitorViewer', () => {
     expect(renderer.setStateTap).toHaveBeenLastCalledWith(null);
   });
 
-  it('broadcasts RENDER_RES on setComputeResolution and re-sends it to a late receiver (READY)', async () => {
+  // The viewer always RENDERS the editor's output format (maxDim -1), so its sims
+  // and framing are identical to the editor's - a viewer-specific render size was
+  // confusing precisely because it was not. Only the presentation surface is
+  // configurable, and the render is letterboxed into it.
+  it('broadcasts RENDER_RES on setDisplayResolution and re-sends it to a late receiver (READY)', async () => {
     const renderer = makeFakeRenderer({ eligible: true });
     const viewer = new TauriSecondMonitorViewer(source, { renderer });
     await viewer.open();
     const channel = FakeBroadcastChannel.instances[0];
 
-    viewer.setComputeResolution(1080);
-    expect(viewer.computeMaxDim).toBe(1080);
-    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(1080);
+    viewer.setDisplayResolution(1920);
+    expect(viewer.displayMaxDim).toBe(1920);
+    const sent = channel.posted.find((m) => m.type === MSG.RENDER_RES);
+    expect(sent?.displayMaxDim).toBe(1920);
+    expect(sent?.maxDim).toBe(-1); // always render the output format
 
-    // A receiver that connects late announces READY and must get the current res.
+    // A receiver that connects late announces READY and must get the current size.
     channel.posted.length = 0;
     channel.emit({ type: MSG.READY, webgpu: true });
-    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(1080);
+    const resent = channel.posted.find((m) => m.type === MSG.RENDER_RES);
+    expect(resent?.displayMaxDim).toBe(1920);
+    expect(resent?.maxDim).toBe(-1);
 
-    // "Match editor" (-1) is a valid mode and survives a reconnect too.
-    viewer.setComputeResolution(-1);
-    expect(viewer.computeMaxDim).toBe(-1);
+    // 0 means "this display's own resolution" and is a valid setting.
+    viewer.setDisplayResolution(0);
+    expect(viewer.displayMaxDim).toBe(0);
     channel.posted.length = 0;
     channel.emit({ type: MSG.READY, webgpu: true });
-    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.maxDim).toBe(-1);
+    expect(channel.posted.find((m) => m.type === MSG.RENDER_RES)?.displayMaxDim).toBe(0);
+
+    // Out-of-range values clamp instead of producing an unusable surface.
+    viewer.setDisplayResolution(10);
+    expect(viewer.displayMaxDim).toBe(256);
+    viewer.setDisplayResolution(99999);
+    expect(viewer.displayMaxDim).toBe(7680);
 
     await viewer.close();
   });

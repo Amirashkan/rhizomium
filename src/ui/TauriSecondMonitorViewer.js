@@ -45,6 +45,13 @@ import {
 
 const WINDOW_LABEL = 'second-monitor';
 
+// The viewer always renders the editor's output format (protocol value -1), so
+// its sims replicate the editor's exactly and its framing is the composition's.
+// Only the presentation surface is configurable, between these long edges.
+const MATCH_OUTPUT = -1;
+const MIN_DISPLAY_EDGE = 256;
+const MAX_DISPLAY_EDGE = 7680;
+
 export class TauriSecondMonitorViewer {
   /**
    * @param {HTMLCanvasElement} sourceCanvas  the live GPU canvas to mirror
@@ -76,7 +83,11 @@ export class TauriSecondMonitorViewer {
     this._lastFragmentSig = null; // last fragment-subgraph structure signature broadcast
     this._sentFragmentNodes = false; // whether a non-empty FRAGMENT_GRAPH has been sent
     this._forceFallback = false; // receiver can't render natively → pixels only
-    this._computeMaxDim = 0;     // viewer compute long-edge override (0 = match editor)
+    // The viewer always RENDERS the output format (MATCH_OUTPUT, sent on every
+    // RENDER_RES), so its sims and framing are identical to the editor's. Only
+    // how many pixels the presentation surface spends is configurable here
+    // (0 = the display's own resolution).
+    this._displayMaxDim = 0;
     this._feedbackStateInFlight = false; // a feedback-state capture/broadcast is running
     this._stepSeq = 0;           // sim-step counter (one per COMPUTE_UNIFORMS message)
     this._active = false;
@@ -240,33 +251,43 @@ export class TauriSecondMonitorViewer {
       if (this._mode) {
         try { this._channel?.postMessage({ type: MSG.CAPS, tier: this._mode }); } catch { /* ignore */ }
       }
-      // A (re)connecting receiver also needs the current compute-resolution mode
-      // (a fixed long edge, or -1 = match editor; 0 = auto is the receiver default).
-      if (this._computeMaxDim !== 0) {
-        try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: this._computeMaxDim }); } catch { /* ignore */ }
-      }
+      // A (re)connecting receiver needs the resolution contract: always render
+      // the output format, at this display size.
+      try {
+        this._channel?.postMessage({
+          type: MSG.RENDER_RES,
+          maxDim: MATCH_OUTPUT,
+          displayMaxDim: this._displayMaxDim,
+        });
+      } catch { /* ignore */ }
     }
   }
 
   /**
-   * Set the second viewer's compute resolution. The viewer is INDEPENDENT of the
-   * editor's floating preview: 0 = Auto (the viewer renders at its own display's
-   * resolution, the default) and a positive value fixes the long edge (up to 2048).
-   * -1 = "Match editor", the explicit opt-in that follows the editor's
-   * preview-derived compute size so feedback sims can match exactly. Persists
-   * across reconnects (re-sent on READY). No-op until a viewer is open.
-   * @param {number} maxDim
+   * Set the second viewer's DISPLAY size: the long edge, in device pixels, of the
+   * surface it presents on. 0 (the default) uses the display's own resolution.
+   * The render itself is always the output format, letterboxed into this surface,
+   * so the viewer shows exactly the editor's framing and its sims stay 1:1 -
+   * only the cost of presenting changes. Persists across reconnects (re-sent on
+   * READY). No-op until a viewer is open.
+   * @param {number} longEdge
    */
-  setComputeResolution(maxDim) {
-    let v = Math.round(Number(maxDim));
-    if (!Number.isFinite(v)) v = 0;
-    v = v <= -1 ? -1 : Math.max(0, Math.min(2048, v));
-    this._computeMaxDim = v;
-    try { this._channel?.postMessage({ type: MSG.RENDER_RES, maxDim: v }); } catch { /* ignore */ }
+  setDisplayResolution(longEdge) {
+    let v = Math.round(Number(longEdge));
+    if (!Number.isFinite(v) || v <= 0) v = 0;
+    else v = Math.max(MIN_DISPLAY_EDGE, Math.min(MAX_DISPLAY_EDGE, v));
+    this._displayMaxDim = v;
+    try {
+      this._channel?.postMessage({
+        type: MSG.RENDER_RES,
+        maxDim: MATCH_OUTPUT,
+        displayMaxDim: v,
+      });
+    } catch { /* ignore */ }
   }
 
-  /** Current compute-resolution mode (long edge px; 0 = auto/display; -1 = match editor). */
-  get computeMaxDim() { return this._computeMaxDim; }
+  /** Current display long edge in device px; 0 = the display's own resolution. */
+  get displayMaxDim() { return this._displayMaxDim; }
 
   /**
    * Create the native WebviewWindow on a detected second display (borderless,

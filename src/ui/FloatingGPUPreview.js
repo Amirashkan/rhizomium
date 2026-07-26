@@ -1,8 +1,18 @@
 // src/ui/FloatingGPUPreview.js - Fixed version with proper aspect ratio handling
 
 import { PreviewSettings } from "./PreviewSettings.js";
+import { letterboxRect } from "./letterbox.js";
+import { resolveResolution } from "./OutputFormat.js";
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
+
+// Panel chrome: the header strip plus the 1px border on each edge. The canvas
+// area is whatever is left, and the render is fitted into it.
+const HEADER_HEIGHT = 37;
+const BORDER = 1;
+const MIN_PANEL_WIDTH = 200;
+const MIN_PANEL_HEIGHT = 150;
+const PANEL_SIZE_STORAGE_KEY = "rhizo.previewPanelSize";
 
 export class FloatingGPUPreview {
   constructor(gpuCanvas) {
@@ -15,7 +25,9 @@ export class FloatingGPUPreview {
     this.isDocked = false;
     this.isResizing = false;
     this.position = { x: 20, y: 60 };
-    this.previewScale = 0.5;
+    // The panel is sized freely by the user (drag its corner); the render is
+    // fitted inside whatever size it has. Sizes persist per docking mode.
+    this.panelSizes = this._loadPanelSizes();
     this.originalCanvasParent = gpuCanvas.parentNode;
     this.originalCanvasStyles = {
       position: gpuCanvas.style.position,
@@ -45,7 +57,6 @@ export class FloatingGPUPreview {
       enabled: false, // Disabled by default - only auto-enable when resources are low
       lightMode: false, // User can enable "light mode" to always use adaptive quality
       autoEnable: true, // Auto-enable when frame times consistently exceed budget
-      interactionScale: 0.7,
       resolutionScale: 0.75,
       cooldownMs: 350,
       // Thresholds for auto-enabling
@@ -55,7 +66,6 @@ export class FloatingGPUPreview {
       autoDisableFrames: 60, // Number of consecutive frames before disabling
     };
     this._isAdaptiveActive = false;
-    this._adaptiveScaleMultiplier = 1;
     this._adaptiveResolutionMultiplier = 1;
     this._adaptiveCooldownTimer = null;
     this._performanceMonitoringActive = false;
@@ -146,7 +156,10 @@ export class FloatingGPUPreview {
   }
 
   _getEffectiveResolution() {
-    const { width, height } = this.settings.settings.resolution;
+    // The preview renders the 'preview' role: the output's aspect at the
+    // machine's preview quality. Its panel size is separate again (see
+    // _getPanelSize) - this is only how many pixels the render costs.
+    const { width, height } = resolveResolution("preview");
     // Apply adaptive resolution multiplier only if adaptive mode is active
     const multiplier = this._adaptiveResolutionMultiplier || 1;
     const effectiveWidth = Math.max(64, Math.round(width * multiplier));
@@ -154,12 +167,96 @@ export class FloatingGPUPreview {
     return { width: effectiveWidth, height: effectiveHeight, baseWidth: width, baseHeight: height };
   }
 
-  _getDisplayScale() {
-    const baseScale = this.isDocked ? 0.3 : this.previewScale;
-    // Apply adaptive scale multiplier only if adaptive mode is active
-    return baseScale * (this._adaptiveScaleMultiplier || 1);
+  _loadPanelSizes() {
+    try {
+      const raw = window.localStorage?.getItem(PANEL_SIZE_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return {
+        floating: this._sanitizePanelSize(parsed?.floating),
+        docked: this._sanitizePanelSize(parsed?.docked),
+      };
+    } catch {
+      return { floating: null, docked: null };
+    }
   }
-  
+
+  _sanitizePanelSize(size) {
+    const width = Number(size?.width);
+    const height = Number(size?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    return {
+      width: Math.max(MIN_PANEL_WIDTH, Math.round(width)),
+      height: Math.max(MIN_PANEL_HEIGHT, Math.round(height)),
+    };
+  }
+
+  _savePanelSizes() {
+    try {
+      window.localStorage?.setItem(PANEL_SIZE_STORAGE_KEY, JSON.stringify(this.panelSizes));
+    } catch {
+      // Storage unavailable - the size still applies for this session.
+    }
+  }
+
+  /**
+   * Panel size for the current docking mode. The first time a mode is used the
+   * size is seeded from the render resolution so the panel opens at a familiar
+   * size - and then pinned, so from that point on the panel is the user's and
+   * never moves again when the render resolution changes.
+   */
+  _getPanelSize() {
+    const mode = this.isDocked ? "docked" : "floating";
+    const stored = this.panelSizes[mode];
+    if (stored) return { ...stored };
+
+    const { baseWidth, baseHeight } = this._getEffectiveResolution();
+    const scale = this.isDocked ? 0.3 : 0.5;
+    // Keep the seed on screen: a 4K render must not open a panel wider than
+    // the window. The user can still drag it to any size afterwards.
+    const maxWidth = Math.max(MIN_PANEL_WIDTH, (window.innerWidth || 1280) * 0.8);
+    const maxHeight = Math.max(MIN_PANEL_HEIGHT, (window.innerHeight || 800) * 0.8);
+
+    return this._setPanelSize(
+      Math.min(maxWidth, Math.round(baseWidth * scale) + 2 * BORDER),
+      Math.min(maxHeight, Math.round(baseHeight * scale) + HEADER_HEIGHT + 2 * BORDER),
+    );
+  }
+
+  _setPanelSize(width, height) {
+    const mode = this.isDocked ? "docked" : "floating";
+    this.panelSizes[mode] = {
+      width: Math.max(MIN_PANEL_WIDTH, Math.round(width)),
+      height: Math.max(MIN_PANEL_HEIGHT, Math.round(height)),
+    };
+    this._savePanelSizes();
+    return { ...this.panelSizes[mode] };
+  }
+
+  /** Space left for the render once the header and borders are taken out. */
+  _getCanvasBox(panelSize = this._getPanelSize()) {
+    return {
+      width: Math.max(1, panelSize.width - 2 * BORDER),
+      height: Math.max(1, panelSize.height - HEADER_HEIGHT - 2 * BORDER),
+    };
+  }
+
+  /**
+   * Fit the render into the panel preserving its aspect ratio, letterboxing the
+   * leftover space. The canvas backing store stays at the render resolution;
+   * only its CSS size changes, so panel size and render size are independent.
+   */
+  _fitCanvasToPanel(panelSize = this._getPanelSize()) {
+    const { baseWidth, baseHeight } = this._getEffectiveResolution();
+    const box = this._getCanvasBox(panelSize);
+    const { dw, dh } = letterboxRect(baseWidth, baseHeight, box.width, box.height);
+
+    this.gpuCanvas.style.width = Math.max(1, Math.round(dw)) + "px";
+    this.gpuCanvas.style.height = Math.max(1, Math.round(dh)) + "px";
+    this._recordPerfWrite("fitCanvas");
+
+    return { width: dw, height: dh };
+  }
+
   /**
    * Enable adaptive mode (called automatically when resources are low, or manually via light mode)
    */
@@ -172,7 +269,6 @@ export class FloatingGPUPreview {
     }
     
     this._isAdaptiveActive = true;
-    this._adaptiveScaleMultiplier = config.interactionScale;
     this._adaptiveResolutionMultiplier = config.resolutionScale;
     
     if (this.isVisible) {
@@ -197,7 +293,6 @@ export class FloatingGPUPreview {
     }
     
     this._isAdaptiveActive = false;
-    this._adaptiveScaleMultiplier = 1;
     this._adaptiveResolutionMultiplier = 1;
     
     if (this.isVisible) {
@@ -227,7 +322,6 @@ export class FloatingGPUPreview {
       enabled: false,
       lightMode: false,
       autoEnable: true,
-      interactionScale: 1,
       resolutionScale: 1,
       cooldownMs: 300,
     };
@@ -241,11 +335,6 @@ export class FloatingGPUPreview {
       enabled: config?.enabled === true, // Must be explicitly enabled
       lightMode: config?.lightMode === true, // Light mode option
       autoEnable: config?.autoEnable !== false, // Auto-enable by default
-      interactionScale: this._clamp(
-        Number(config?.interactionScale ?? 0.7),
-        0.3,
-        1
-      ),
       resolutionScale: this._clamp(
         Number(config?.resolutionScale ?? 0.75),
         0.25,
@@ -284,13 +373,6 @@ export class FloatingGPUPreview {
     this._recordPerfWrite("drag:position");
     this.position.x = left;
     this.position.y = top;
-    
-    // PERFORMANCE: Defer settings panel update during dragging to reduce layout reads
-    // Only update settings panel position when drag ends (handled in onMouseUp)
-    if (!this.isDragging && this.settings.settingsPanel) {
-      this.settings._positionSettingsPanel();
-      this._recordPerfWrite("drag:settingsPanel");
-    }
   }
 
   _scheduleDragPositionFlush() {
@@ -316,9 +398,13 @@ export class FloatingGPUPreview {
   }
 
   _applyResizeDimensions(widthPx, heightPx) {
-    this.container.style.width = widthPx + "px";
-    this.container.style.height = heightPx + "px";
+    const panel = this._setPanelSize(widthPx, heightPx);
+    this.container.style.width = panel.width + "px";
+    this.container.style.height = panel.height + "px";
     this._recordPerfWrite("resize:container");
+    // Re-fit the render into the new panel box (letterboxed, never stretched).
+    this._fitCanvasToPanel(panel);
+    this._updateTitle();
   }
 
   _scheduleResizeFlush() {
@@ -510,13 +596,11 @@ _stopPreviewRenderLoop() {
       this._checkPerformanceAndAutoEnable();
     }
 
-    const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
-    const headerHeight = 37;
-    const padding = 20;
+    const { width, height } = this._getEffectiveResolution();
 
     // FIX: Only rebuild if canvas size actually changed
-    const sizeChanged = 
-      this._lastCanvasSize.width !== width || 
+    const sizeChanged =
+      this._lastCanvasSize.width !== width ||
       this._lastCanvasSize.height !== height;
 
     // CRITICAL FIX: Use synchronized resize to prevent screen tearing
@@ -530,24 +614,10 @@ _stopPreviewRenderLoop() {
       this.gpuCanvas.height = height;
     }
 
-    const displayScale = this._getDisplayScale();
-    const cssWidth = baseWidth * displayScale;
-    const cssHeight = baseHeight * displayScale;
-
-    this.container.style.width = cssWidth + padding + "px";
-    this.container.style.height = cssHeight + headerHeight + padding + "px";
-    this._recordPerfWrite("updateSize:container");
-
-    // FIX: Set CSS size to maintain aspect ratio
-    this.gpuCanvas.style.width = cssWidth + "px";
-    this.gpuCanvas.style.height = cssHeight + "px";
-    this._recordPerfWrite("updateSize:canvas");
+    // The panel keeps whatever size the user gave it; only the fit changes.
+    this._fitCanvasToPanel();
 
     this._updateTitle();
-
-    if (this.settings.settingsPanel) {
-      this.settings._positionSettingsPanel();
-    }
 
     // FIX: Only trigger shader rebuild if canvas size actually changed
     // This prevents black screen on every canvas click
@@ -584,9 +654,7 @@ async show() {
     const canvasWrapper = this.container.querySelector(".preview-canvas-wrapper");
     canvasWrapper.appendChild(this.gpuCanvas);
 
-    // FIX: Don't use 100% - use actual scaled dimensions
-    const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
-    const scale = this._getDisplayScale();
+    const { width, height } = this._getEffectiveResolution();
 
     // CRITICAL FIX: Use synchronized resize to prevent screen tearing
     const gpuRenderer = window.gpuRenderer;
@@ -598,8 +666,8 @@ async show() {
       this.gpuCanvas.height = height;
     }
 
-    this.gpuCanvas.style.width = (baseWidth * scale) + "px";
-    this.gpuCanvas.style.height = (baseHeight * scale) + "px";
+    // Fit the render into the panel rather than sizing the panel to the render.
+    this._fitCanvasToPanel();
     this.gpuCanvas.style.position = "relative";
     this.gpuCanvas.style.zIndex = "auto";
     // FIX: Override global canvas CSS that sets left/top to 0
@@ -610,10 +678,7 @@ async show() {
     this._lastCanvasSize = { width, height };
     await this.updateSize();
     this._setupDragging();
-
-    if (this.isDocked) {
-      this._setupDockedResize();
-    }
+    this._setupResize();
 
     this.isVisible = true;
     if (this.settings.settings.showFPS) {
@@ -716,8 +781,8 @@ async show() {
         hud.style.display = "none";
       }
 
-      // FIX: Maintain aspect ratio in fullscreen
-      const { width, height } = this.settings.settings.resolution;
+      // Fullscreen renders the preview role, letterboxed to the output aspect.
+      const { width, height } = resolveResolution("preview");
       const aspectRatio = width / height;
 
       let fsWidth = window.innerWidth;
@@ -805,10 +870,13 @@ async show() {
     const title = this.container?.querySelector(".preview-title");
     if (title) {
       const { width, height, baseWidth, baseHeight } = this._getEffectiveResolution();
-      const scaleValue = this.isDocked
-        ? "Docked"
-        : `${Math.round(this._getDisplayScale() / (this.isDocked ? 0.3 : 1) * 100)}%`;
-      
+      // The panel size is the user's; the percentage is how large the render is
+      // drawn inside it after the aspect-preserving fit.
+      const box = this._getCanvasBox();
+      const fitted = letterboxRect(baseWidth, baseHeight, box.width, box.height);
+      const fitPercent = baseWidth > 0 ? Math.round((fitted.dw / baseWidth) * 100) : 100;
+      const scaleValue = this.isDocked ? `Docked ${fitPercent}%` : `${fitPercent}%`;
+
       let resolutionLabel = `${baseWidth}×${baseHeight}`;
       if (this._isAdaptiveActive && (width !== baseWidth || height !== baseHeight)) {
         resolutionLabel = `${baseWidth}×${baseHeight} → ${width}×${height}`;
@@ -882,17 +950,14 @@ async show() {
   }
 
   _dockToWindow() {
-    const { width, height } = this.settings.settings.resolution;
-    const dockedScale = 0.3;
-    const headerHeight = 37;
-    const padding = 20;
+    const panel = this._getPanelSize();
 
     this.container.style.cssText = `
       position: fixed;
       top: 20px;
       right: 20px;
-      width: ${width * dockedScale + padding}px;
-      height: ${height * dockedScale + headerHeight + padding}px;
+      width: ${panel.width}px;
+      height: ${panel.height}px;
       background: rgba(20, 20, 22, 0.98);
       /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
       /* backdrop-filter: blur(20px); */
@@ -905,19 +970,16 @@ async show() {
       opacity: 0;
       transform: scale(0.95);
       transition: opacity 0.2s ease, transform 0.2s ease;
-      min-width: 200px;
-      min-height: 150px;
+      min-width: ${MIN_PANEL_WIDTH}px;
+      min-height: ${MIN_PANEL_HEIGHT}px;
     `;
 
     document.body.appendChild(this.container);
   }
 
   _createContainer() {
-    const { width, height } = this.settings.settings.resolution;
-    const headerHeight = 37;
-    const padding = 20;
-    const displayWidth = width * this.previewScale;
-    const displayHeight = height * this.previewScale;
+    const headerHeight = HEADER_HEIGHT;
+    const panel = this._getPanelSize();
 
     const container = document.createElement("div");
     container.className = "floating-gpu-preview";
@@ -927,8 +989,8 @@ async show() {
         position: fixed;
         left: ${this.position.x}px;
         top: ${this.position.y}px;
-        width: ${displayWidth + padding}px;
-        height: ${displayHeight + headerHeight + padding}px;
+        width: ${panel.width}px;
+        height: ${panel.height}px;
         background: rgba(20, 20, 22, 0.98);
         /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
         /* backdrop-filter: blur(20px); */
@@ -938,8 +1000,8 @@ async show() {
         box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
         z-index: 1000;
         overflow: hidden;
-        min-width: 200px;
-        min-height: 150px;
+        min-width: ${MIN_PANEL_WIDTH}px;
+        min-height: ${MIN_PANEL_HEIGHT}px;
         opacity: 0;
         transform: scale(0.95);
         transition: opacity 0.2s ease, transform 0.2s ease;
@@ -1051,42 +1113,23 @@ canvasWrapper.style.cssText = `
       this.fpsCounter.refreshElementCache();
     }
 
-    const debugOverlay = document.createElement("div");
-    debugOverlay.className = "debug-overlay";
-    debugOverlay.style.cssText = `
+    // The panel is freely resizable in both docking modes - the render is
+    // fitted into whatever size it ends up with.
+    const resizeHandle = document.createElement("div");
+    resizeHandle.className = "preview-resize-handle";
+    resizeHandle.title = "Drag to resize the preview panel";
+    resizeHandle.style.cssText = `
       position: absolute;
-      top: 8px;
-      right: 8px;
-      background: rgba(255, 0, 0, 0.7);
-      color: #fff;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 10px;
-      font-weight: bold;
-      z-index: 10;
-      display: ${this.settings.settings.debugChannel !== "none" ? "block" : "none"};
-      pointer-events: none;
+      bottom: 0;
+      right: 0;
+      width: 16px;
+      height: 16px;
+      background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 60%);
+      cursor: se-resize;
+      border-radius: 0 0 12px 0;
+      z-index: 20;
     `;
-    debugOverlay.textContent = this.settings.settings.debugChannel.toUpperCase();
-    canvasWrapper.appendChild(debugOverlay);
-
-    if (this.isDocked) {
-      const resizeHandle = document.createElement("div");
-      resizeHandle.className = "resize-handle-dock";
-      resizeHandle.style.cssText = `
-        position: absolute;
-        bottom: 0;
-        right: 0;
-        width: 16px;
-        height: 16px;
-        background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 60%);
-        cursor: se-resize;
-        border-radius: 0 0 12px 0;
-        z-index: 20;
-      `;
-      canvasWrapper.appendChild(resizeHandle);
-    }
+    canvasWrapper.appendChild(resizeHandle);
 
     container.appendChild(header);
     container.appendChild(canvasWrapper);
@@ -1170,12 +1213,6 @@ canvasWrapper.style.cssText = `
       this.isDragging = false;
       this.container.style.transition = "opacity 0.2s ease, transform 0.2s ease";
       this._flushDragPosition();
-      // PERFORMANCE: Update settings panel position after drag ends (batched with final position)
-      // This reduces layout reads during dragging
-      if (this.settings.settingsPanel) {
-        this.settings._positionSettingsPanel();
-        this._recordPerfWrite("drag:settingsPanel:final");
-      }
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
@@ -1184,8 +1221,13 @@ canvasWrapper.style.cssText = `
   }
 
 
-  _setupDockedResize() {
-    const resizeHandle = this.container.querySelector(".resize-handle-dock");
+  /**
+   * Free resize: width and height move independently and the render is
+   * letterboxed inside the result, so the panel is never forced back to the
+   * render's aspect ratio.
+   */
+  _setupResize() {
+    const resizeHandle = this.container.querySelector(".preview-resize-handle");
     if (!resizeHandle) return;
 
     let startX, startY, startWidth, startHeight;
@@ -1209,20 +1251,8 @@ canvasWrapper.style.cssText = `
     const onMouseMove = (e) => {
       if (!this.isResizing) return;
 
-      const deltaX = e.clientX - startX;
-      const deltaY = e.clientY - startY;
-
-      let newWidth = Math.max(200, startWidth + deltaX);
-      let newHeight = Math.max(150, startHeight + deltaY);
-
-      const { width, height } = this.settings.settings.resolution;
-      const aspectRatio = width / height;
-
-      if (Math.abs(deltaX) > Math.abs(deltaY)) {
-        newHeight = newWidth / aspectRatio + 37 + 20;
-      } else {
-        newWidth = (newHeight - 37 - 20) * aspectRatio + 20;
-      }
+      const newWidth = Math.max(MIN_PANEL_WIDTH, startWidth + (e.clientX - startX));
+      const newHeight = Math.max(MIN_PANEL_HEIGHT, startHeight + (e.clientY - startY));
 
       this._pendingResizeDimensions = { width: newWidth, height: newHeight };
       this._scheduleResizeFlush();
