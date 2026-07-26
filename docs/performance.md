@@ -31,7 +31,7 @@ Rhizomium runs entirely on your GPU using WebGPU. Performance depends on:
 
 Use this checklist if your visuals are running slowly:
 
-- [ ] Reduce preview resolution (try 1280x720 or 960x540)
+- [ ] Reduce render resolution in **View → Preview / Export Settings** (try 720p, or one of the square presets)
 - [ ] Minimize noise/Voronoi nodes (most expensive operations)
 - [ ] Disable node preview thumbnails (save GPU cycles)
 - [ ] Close unused browser tabs/applications
@@ -123,13 +123,17 @@ Preview resolution has **massive** impact on performance:
 
 ### Resolution Impact Table
 
-| Resolution | Pixels | Relative Cost | Use Case |
-|------------|--------|---------------|----------|
-| 960x540 (SD) | 518K | 1× (baseline) | Complex graphs, older GPUs |
-| 1280x720 (HD) | 922K | 1.8× | Balanced performance |
-| 1920x1080 (FHD) | 2.1M | 4× | Recommended, modern GPUs |
-| 2560x1440 (QHD) | 3.7M | 7× | Powerful GPUs |
-| 3840x2160 (4K) | 8.3M | 16× | High-end GPUs only |
+Costs are relative to 720p, the default output format.
+
+| Preset | Pixels | Relative cost | Use case |
+|--------|--------|---------------|----------|
+| 512 x 512 (square) | 262K | 0.3x | Complex graphs, older GPUs |
+| 720p (1280 x 720) | 922K | 1x (default) | Balanced performance |
+| 1024 x 1024 (square) | 1.0M | 1.1x | Square output, stills |
+| 1080p (1920 x 1080) | 2.1M | 2.2x | Modern GPUs |
+| 2048 x 2048 (square) | 4.2M | 4.5x | Large square stills |
+| 1440p (2560 x 1440) | 3.7M | 4x | Powerful GPUs |
+| 4K (3840 x 2160) | 8.3M | 9x | High-end GPUs only |
 
 **Performance Tip:** Every pixel computes your entire node graph, every frame!
 
@@ -146,7 +150,7 @@ Preview resolution has **massive** impact on performance:
 - GPU is older than 5 years
 - Running on integrated graphics
 
-**Use 960x540 (SD) if:**
+**Use 512 x 512 if:**
 - Still experiencing lag at HD
 - Testing complex graphs
 - Low-end hardware

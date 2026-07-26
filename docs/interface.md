@@ -33,8 +33,8 @@ Everything outside the canvas lives in seven menus, with the current status
 ![The editor menu bar](images/menu-bar.webp)
 
 **File** - New Project, Open Project…, Save, Save As…, File Manager, Export,
-Publish (choose a target, add a commit message, optionally include node
-previews), Backups, Exit
+Publish (**Publish Image…** and **Publish Animation…**, which upload at the
+render resolution set in **View → Preview / Export Settings**), Backups, Exit
 
 **Edit** - Undo, Redo, Cut, Copy, Paste, Delete, Rebuild, Preferences…
 
@@ -544,12 +544,25 @@ Position preview where it works for you:
 
 ### Resolution
 
-Choose resolution based on your needs:
-- **960x540** - Low-end GPUs, best performance
-- **1280x720** - Balanced quality/performance
-- **1920x1080** - Standard HD, recommended
-- **2560x1440** - High quality
-- **3840x2160** - 4K, powerful GPUs only
+**View → Preview / Export Settings** is the single place render resolution,
+frame rate and export options are set - the preview, exports and publishing all
+follow it.
+
+**Output format** presets:
+
+- **512 × 512** and **1024 × 1024** (square) - light, good for older GPUs
+- **2048 × 2048** (square) - heavy, for stills
+- **720p** (1280 × 720) - the default, balanced
+- **1080p** (1920 × 1080) - standard HD
+- **1440p** (2560 × 1440) - high quality
+- **4K** (3840 × 2160) - powerful GPUs only
+- **Custom…** - type your own width and height
+
+**Frame rate** is either **V-Sync (display refresh)** or a **fixed step**.
+
+The second-monitor viewer has its own **Viewer Display** setting - Auto, 720p,
+1080p, 1440p, 4K, or a custom long edge - so the presentation window can run at
+a different size from the render.
 
 ---
 
