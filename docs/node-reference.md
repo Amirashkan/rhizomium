@@ -787,9 +787,10 @@ Rearranges vector components.
 
 ## Generator Nodes
 
-Every generator, rendered at its default settings:
+Every generator and simulation node at a glance - each one also appears in
+its own entry below:
 
-![All generator and simulation nodes rendered at their default settings, including Circle, Rectangle, Polygon, Random, the noise family, Voronoi, Gradient, Pattern, Compute Particles, Reaction Diffusion, Fluid Simulation and Cellular Automata](images/node-gallery-generators.webp)
+![All generator and simulation nodes rendered at their default settings: Circle, Rectangle, Polygon, Random, Value, Perlin, Simplex, FBM, Voronoi, Ridged, Warp, Worley and Cell noise, Compute Noise, Voronoi, Gradient, Pattern, Compute Particles, Reaction Diffusion, Fluid Simulation, Cellular Automata and the 3D Field Visualizer](images/node-gallery-generators.webp)
 
 Generator nodes create procedural content: gradients, shapes, and noise. The category contains both fragment nodes and compute nodes.
 
@@ -827,6 +828,8 @@ Maps values to colors using a gradient with control points.
 - **Description**: Converts scalar values into colors by interpolating through a user-defined color gradient with multiple control points.
 
 #### Gradient (Compute)
+
+![A Gradient compute node rendering a smooth black-to-white ramp](images/node-gradient-compute.webp)
 Generates linear, radial, angular, and diamond gradients as a texture.
 
 - **Category**: Generators
@@ -849,6 +852,8 @@ Generates linear, radial, angular, and diamond gradients as a texture.
 ### Shape Generators
 
 #### Circle
+
+![A Circle node rendering a filled white disc](images/node-circle.webp)
 Generates a circular shape or distance field.
 
 - **Category**: Generators
@@ -865,6 +870,8 @@ Generates a circular shape or distance field.
 - **Description**: Creates a circular shape with smooth edges, can be used as a mask or distance field.
 
 #### Rectangle
+
+![A Rectangle node rendering a filled white square](images/node-rectangle.webp)
 Generates a rectangular shape.
 
 - **Category**: Generators
@@ -883,6 +890,8 @@ Generates a rectangular shape.
 - **Description**: Creates a rectangular shape with optional rounded corners and smooth edges.
 
 #### Polygon
+
+![A Polygon node rendering a filled white hexagon](images/node-polygon.webp)
 Generates a regular polygon shape.
 
 - **Category**: Generators
@@ -901,6 +910,8 @@ Generates a regular polygon shape.
 - **Description**: Creates regular polygons (triangle, hexagon, etc.) with adjustable sides, rotation, and smooth edges.
 
 #### Pattern (Compute)
+
+![A Pattern compute node rendering a black and white checkerboard](images/node-pattern-compute.webp)
 Generates tiled procedural patterns as a texture.
 
 - **Category**: Generators
@@ -918,6 +929,8 @@ Generates tiled procedural patterns as a texture.
 ### Noise Functions
 
 #### Random
+
+![A Random node rendering fine per-pixel static](images/node-random.webp)
 Generates pseudo-random values.
 
 - **Category**: Generators
@@ -931,6 +944,8 @@ Generates pseudo-random values.
 - **Description**: Generates a spatial pseudo-random field based on UV coordinates, useful for adding randomness to patterns. For a time-driven random number, use the **Random Value** input node instead.
 
 #### Value Noise
+
+![A Value Noise node at its default settings](images/node-value-noise.webp)
 Generates smooth value noise.
 
 - **Category**: Generators
@@ -946,6 +961,8 @@ Generates smooth value noise.
 - **Description**: Simple interpolated noise between random values at grid points.
 
 #### Perlin Noise
+
+![A Perlin Noise node rendering soft cloudy greyscale noise](images/node-perlin-noise.webp)
 Generates classic Perlin gradient noise.
 
 - **Category**: Generators
@@ -960,6 +977,8 @@ Generates classic Perlin gradient noise.
 - **Description**: Classic Perlin noise algorithm producing smooth, natural-looking noise patterns.
 
 #### Simplex Noise
+
+![A Simplex Noise node rendering smooth organic greyscale noise](images/node-simplex-noise.webp)
 Generates Simplex noise with optional variations.
 
 - **Category**: Generators
@@ -976,6 +995,8 @@ Generates Simplex noise with optional variations.
 - **Description**: Modern Simplex noise with better performance than Perlin, includes ridge and turbulence variations.
 
 #### FBM Noise
+
+![An FBM Noise node rendering layered fractal noise](images/node-fbm-noise.webp)
 Generates Fractional Brownian Motion noise.
 
 - **Category**: Generators
@@ -995,6 +1016,8 @@ Generates Fractional Brownian Motion noise.
 - **Description**: Layered noise with multiple octaves creating complex, natural-looking patterns like clouds or terrain.
 
 #### Voronoi Noise
+
+![A Voronoi Noise node rendering a regular cell lattice, with F1, F2 and cells outputs](images/node-voronoi-noise.webp)
 Generates cellular Voronoi patterns.
 
 - **Category**: Generators
@@ -1014,6 +1037,8 @@ Generates cellular Voronoi patterns.
 - **Description**: Creates cellular patterns based on distances to randomly distributed points, useful for tiles, cells, and stone textures.
 
 #### Ridged Noise
+
+![A Ridged Noise node at its default settings](images/node-ridged-noise.webp)
 Generates ridged multi-fractal noise.
 
 - **Category**: Generators
@@ -1032,6 +1057,8 @@ Generates ridged multi-fractal noise.
 - **Description**: Specialized noise creating sharp ridges and valleys, ideal for mountainous terrain.
 
 #### Warp Noise
+
+![A Warp Noise node at its default settings](images/node-warp-noise.webp)
 Generates domain-warped noise.
 
 - **Category**: Generators
@@ -1048,6 +1075,8 @@ Generates domain-warped noise.
 - **Description**: Applies domain warping to create swirling, organic noise patterns.
 
 #### Worley Noise
+
+![A Worley Noise node rendering a cellular grid, with F1, F2 and Combined outputs](images/node-worley-noise.webp)
 Generates Worley (cellular) noise.
 
 - **Category**: Generators
@@ -1065,6 +1094,8 @@ Generates Worley (cellular) noise.
 - **Description**: Creates cellular patterns based on distances to random points using various distance metrics.
 
 #### Cell Noise
+
+![A Cell Noise node rendering blocky stepped cells, with out and cellID outputs](images/node-cell-noise.webp)
 Generates simple cell-based patterns.
 
 - **Category**: Generators
@@ -1080,6 +1111,8 @@ Generates simple cell-based patterns.
 - **Description**: Simple cellular pattern generator with optional smoothing and cell identification output.
 
 #### Compute Noise (Compute)
+
+![A Compute Noise node rendering dense greyscale noise on the GPU](images/node-compute-noise.webp)
 Generates animated procedural noise as a texture.
 
 - **Category**: Generators
@@ -1096,6 +1129,8 @@ Generates animated procedural noise as a texture.
 - **Description**: Fractal Brownian Motion noise computed in a compute pass, ideal for animated backgrounds and organic textures.
 
 #### Voronoi (Compute)
+
+![A Voronoi compute node rendering randomly coloured Voronoi cells](images/node-voronoi-compute.webp)
 Generates Voronoi diagrams and Worley noise as a texture.
 
 - **Category**: Generators
@@ -1572,6 +1607,8 @@ Digital glitch and artifact effects.
 Simulation nodes are compute nodes that run stateful, physics-based systems on the GPU.
 
 #### Compute Particles (Compute)
+
+![A Compute Particles node rendering a sparse particle field, with Force Field and Velocity Field inputs](images/node-compute-particles.webp)
 GPU particle system with physics.
 
 - **Category**: Simulation
@@ -1597,6 +1634,8 @@ GPU particle system with physics.
 - **Description**: Simulates and renders thousands of particles in real time; force and velocity fields can be driven by other textures. The Force Field input accelerates particles, the Velocity Field sets their initial velocity — both decode the texture's red/green channels as a vector field (mid-gray = zero). Output is opaque over black; wire it into Compute Feedback for motion trails.
 
 #### Reaction Diffusion (Compute)
+
+![A Reaction Diffusion node rendering blue spots on a dark field](images/node-reaction-diffusion.webp)
 Gray-Scott reaction-diffusion simulation.
 
 - **Category**: Simulation
@@ -1614,6 +1653,8 @@ Gray-Scott reaction-diffusion simulation.
 - **Description**: Organic Turing patterns that continuously evolve. Pattern presets configure the feed/kill rates for classic morphologies.
 
 #### Fluid Simulation (Compute)
+
+![A Fluid Simulation node rendering swirling smoke, with a Velocity Input](images/node-fluid-simulation.webp)
 Navier-Stokes fluid dynamics (single-pass stable fluids with dye advection).
 
 - **Category**: Simulation
@@ -1634,6 +1675,8 @@ Navier-Stokes fluid dynamics (single-pass stable fluids with dye advection).
 - **Description**: Real-time smoke/ink-style fluid simulation. Dye mode renders neutral white smoke on black (composable downstream); Velocity maps flow direction to hue; Vorticity and Pressure are diagnostic views of the solver state.
 
 #### Cellular Automata (Compute)
+
+![A Cellular Automata node rendering a sparse live-cell field](images/node-cellular-automata.webp)
 Cellular automata simulation (Game of Life, etc.).
 
 - **Category**: Simulation
@@ -1839,6 +1882,8 @@ HSV color space operations on a texture.
 - **Description**: Converts between RGB and HSV or adjusts hue/saturation/value directly. Replaces the former HSV to RGB / RGB to HSV fragment nodes.
 
 #### 3D Field Visualizer (Compute)
+
+![A 3D Field Visualizer node rendering a shaded plane, with a Field Input and a 3D Geometry output](images/node-field-visualizer-3d.webp)
 Visualizes compute field data as 3D geometry.
 
 - **Category**: Utility

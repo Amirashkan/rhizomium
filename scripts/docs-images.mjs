@@ -3,6 +3,7 @@
 //
 //   node scripts/docs-images.mjs optimize [file...]   crop/downscale/re-encode to .webp
 //   node scripts/docs-images.mjs annotate [name...]   draw numbered callouts
+//   node scripts/docs-images.mjs slice [sheet...]     cut a contact sheet into per-node files
 //   node scripts/docs-images.mjs list                 show what is in docs/images
 //
 // Rendering runs through headless Chromium (the same binary Playwright uses),
@@ -182,6 +183,46 @@ async function annotate() {
   });
 }
 
+// --- slice ---------------------------------------------------------------
+// Cuts one contact-sheet capture into a file per node, using the fractional
+// boxes recorded under the sheet's "slices" key. Keeping the boxes in the
+// config means a re-capture of the sheet only needs the numbers adjusted, not
+// the whole slicing redone by hand.
+async function slice() {
+  const names = args.length ? args : Object.keys(cfg.images || {}).filter((n) => cfg.images[n].slices?.length);
+  if (!names.length) return console.log('no images have slices in images.config.json');
+  await withPage(async (page) => {
+    for (const sheet of names) {
+      const spec = cfg.images?.[sheet];
+      if (!spec?.slices?.length) { console.log(`  skip ${sheet} (no slices)`); continue; }
+      const file = existsSync(join(IMAGES, `${sheet}.webp`)) ? `${sheet}.webp` : `${sheet}.png`;
+      if (!existsSync(join(IMAGES, file))) { console.log(`  skip ${sheet} (no image)`); continue; }
+      const outs = await page.evaluate(async ({ url, slices, QUALITY }) => {
+        const img = new Image();
+        await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = url; });
+        const res = [];
+        for (const s of slices) {
+          const x = Math.round(s.x * img.width), y = Math.round(s.y * img.height);
+          const w = Math.round(s.w * img.width), h = Math.round(s.h * img.height);
+          const c = document.createElement('canvas');
+          // 2x, so a card lifted out of a full-window capture stays crisp.
+          c.width = w * 2; c.height = h * 2;
+          const ctx = c.getContext('2d');
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, x, y, w, h, 0, 0, c.width, c.height);
+          res.push(c.toDataURL('image/webp', QUALITY));
+        }
+        return res;
+      }, { url: dataUrl(file), slices: spec.slices, QUALITY });
+      outs.forEach((u, i) => {
+        writeFileSync(join(IMAGES, `${spec.slices[i].name}.webp`), Buffer.from(u.split(',')[1], 'base64'));
+      });
+      console.log(`  sliced ${sheet} -> ${outs.length} files`);
+      for (const s of spec.slices) console.log(`      ${s.name}.webp`);
+    }
+  });
+}
+
 function list() {
   for (const f of readdirSync(IMAGES).sort()) {
     if (f === basename(CONFIG)) continue;
@@ -194,5 +235,6 @@ function list() {
 
 if (cmd === 'optimize') await optimize();
 else if (cmd === 'annotate') await annotate();
+else if (cmd === 'slice') await slice();
 else if (cmd === 'list') list();
 else { console.error(`unknown command: ${cmd}`); process.exit(1); }
