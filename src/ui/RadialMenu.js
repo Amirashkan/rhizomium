@@ -1,5 +1,6 @@
 // src/ui/RadialMenu.js
 import { makeNode, NodeDefs } from "../data/NodeDefs.js";
+import { pickAutoConnectInputPin } from "../core/autoConnect.js";
 
 // Category glyphs for the radial "Add Node" menu. Monoline set on a 24x24 grid,
 // 1.6px stroke, single-color (currentColor) so each segment tints its own icon.
@@ -1119,11 +1120,14 @@ _createNode(kind) {
           connections.endWireDrag(connectionInfo.pos, hitPin);
         }
       } else {
-        // Dragging from output: connect the output to first input (pin 0) of new node
-        // Check if node has inputs
-        const inputCount = nodeDef?.inputs || 0;
-        if (inputCount > 0) {
-          const inputPin = 0; // First input pin
+        // Dragging from output: land the wire on the input pin that suits the source. Pin 0 for
+        // almost every node, but a texture source (Texture 2D / Compute) dropped on a Transform
+        // belongs on its Texture pin, not on the UV pin that sits at index 0.
+        const sourceNode = this.graph.nodes.find(
+          (n) => n.id === connectionInfo.from?.nodeId,
+        );
+        const inputPin = pickAutoConnectInputPin(sourceNode?.kind, kind);
+        if (inputPin >= 0) {
           const hitPin = {
             nodeId: node.id,
             pin: inputPin
