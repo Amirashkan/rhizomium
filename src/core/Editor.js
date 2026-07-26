@@ -2,6 +2,7 @@
 import { EventHandler } from "./EventHandler.js";
 import { Renderer } from "./Renderer.js";
 import { MenuManager } from "../ui/MenuManager.js";
+import { defaultParameterValues, applyNodeParameterValue } from "../data/NodeDefs.js";
 import { ParameterPanel } from "../ui/ParameterPanel.js";
 import { SelectionManager } from "./SelectionManager.js";
 import { ConnectionManager } from "./ConnectionManager.js";
@@ -15,6 +16,17 @@ import { ShaderPreviewManager } from '../preview/ShaderPreviewManager.js';
 import { logRedrawDirtyMark, logRedrawCommit } from '../utils/RedrawDiagnostics.js';
 import { InvalidationManager } from "./InvalidationManager.js";
 import { PRIORITY } from './UnifiedRAFManager.js';
+
+// Value equality for a stored parameter. Most parameters are scalars, but a few hold structured
+// values (a gradient's colour stops), so those compare by content — a fresh deep copy of the same
+// stops must not read as a change.
+const sameParameterValue = (a, b) => {
+  if (a === b) return true;
+  if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return false;
+};
 
 const getTimestamp = () => {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -2213,6 +2225,198 @@ connectGPURenderer(renderFunction) {
     } catch (error) {
       window.errorHandler?.handleError(error, 'Toggle Node Bypass', 'warning');
     }
+  }
+
+  // ---- PARAMETER RESET ----
+
+  // Restore parameters to the values a freshly created node of the same kind would carry.
+  // Applies to every node in `ids` (the live selection by default) so the node menu's entry can
+  // reset a whole multi-selection in one step, like Duplicate and Delete do. Only parameter values
+  // change: wiring, position, size, bypass state, preview visibility and any parameter bindings
+  // are left alone. The whole reset lands on the undo stack as a single step. Returns the number
+  // of nodes whose parameters actually changed.
+  resetNodeParameters(ids = this.graph?.selection) {
+    try {
+      if (!ids || typeof ids[Symbol.iterator] !== 'function') return 0;
+
+      const snapshots = []; // { before, after } per node, for one-step undo/redo
+      const touched = [];
+
+      for (const nodeId of ids) {
+        const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+        if (!node) continue;
+
+        const defaults = this.defaultParametersFor(node);
+        const before = this.snapshotNodeParameters(node);
+        const changes = [];
+
+        for (const [name, value] of Object.entries(defaults)) {
+          const oldValue = this.readNodeParameter(node, name);
+          if (sameParameterValue(oldValue, value)) continue;
+          applyNodeParameterValue(node, name, value);
+          changes.push({ name, oldValue, newValue: value });
+        }
+
+        if (changes.length === 0) continue;
+
+        snapshots.push({ before, after: this.snapshotNodeParameters(node) });
+        touched.push(node);
+
+        for (const change of changes) {
+          // A parameter that held an expression is now a literal, so its cached dependencies have
+          // to go — otherwise the old expression keeps driving the node on the next evaluation.
+          try {
+            this.expressionSystem?.updateDependencies?.(node.id, change.name, change.newValue);
+          } catch { /* dependency bookkeeping is best-effort */ }
+
+          // Same event the panel and the binding system listen to for a normal edit, so bound
+          // parameters follow the reset and an open panel redraws the control.
+          this.eventSystem?.emit?.('PARAMETER_CHANGED', {
+            node,
+            parameterName: change.name,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            source: 'reset',
+          });
+        }
+      }
+
+      if (touched.length === 0) return 0;
+
+      // One undo entry for the whole gesture. UndoManager has no action type for this, so the
+      // snapshots ride along as custom undo/redo callbacks (its default branch invokes them).
+      if (this.undoManager?.pushAction) {
+        this.undoManager.pushAction({
+          type: 'RESET_PARAMETERS',
+          timestamp: Date.now(),
+          nodeIds: touched.map((n) => n.id),
+          undo: () => this.restoreNodeParameters(snapshots.map((s) => s.before)),
+          redo: () => this.restoreNodeParameters(snapshots.map((s) => s.after)),
+        });
+      }
+
+      this.refreshAfterParameterReset(touched, 'Reset Parameters');
+      return touched.length;
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Reset Node Parameters', 'warning');
+      return 0;
+    }
+  }
+
+  // Default value for every parameter this node should carry. The node definition is the
+  // authority — it is what makeNode seeds, so matching it is what "default" means. A handful of
+  // kinds also expose panel-only controls that predate the definitions (Circle's `epsilon`
+  // softness, the gradient nodes' angle/offset/scale); those are folded in for parameters the
+  // node actually stores, so an edited value still resets while nothing new is invented on a node
+  // that never had it.
+  defaultParametersFor(node) {
+    const defaults = defaultParameterValues(node?.kind);
+    if (!node) return defaults;
+
+    try {
+      const panelDefs = this.paramPanel?.getParameterDefinitions?.(node) || [];
+      for (const param of panelDefs) {
+        if (!param || typeof param.name !== 'string') continue;
+        if (param.default === undefined) continue;
+        if (param.name in defaults) continue;
+        if (!this.nodeStoresParameter(node, param.name)) continue;
+        defaults[param.name] = param.default !== null && typeof param.default === 'object'
+          ? JSON.parse(JSON.stringify(param.default))
+          : param.default;
+      }
+    } catch { /* panel definitions are a best-effort supplement to the node definition */ }
+
+    return defaults;
+  }
+
+  // Whether resetting this node would change anything — lets the node menu hide the entry on a
+  // node that is already at its defaults instead of offering a no-op.
+  hasNonDefaultParameters(node) {
+    if (!node) return false;
+    const defaults = this.defaultParametersFor(node);
+    return Object.entries(defaults).some(
+      ([name, value]) => !sameParameterValue(this.readNodeParameter(node, name), value),
+    );
+  }
+
+  nodeStoresParameter(node, name) {
+    if (name === 'value' || name === 'expr' || name === 'code') {
+      if (node[name] !== undefined) return true;
+    }
+    return !!(node.params && name in node.params) || !!(node.props && name in node.props);
+  }
+
+  // Raw stored value for a parameter, read from the same slots ParameterValueManager reads.
+  readNodeParameter(node, name) {
+    if (name === 'value' && node.value !== undefined) return node.value;
+    if (name === 'expr' && node.expr !== undefined) return node.expr;
+    if (name === 'code' && node.code !== undefined) return node.code;
+    if (node.params && node.params[name] !== undefined) return node.params[name];
+    if (node.props && node.props[name] !== undefined) return node.props[name];
+    return undefined;
+  }
+
+  // Copy of every slot a parameter can live in, so undo restores the node exactly — including
+  // parameters the reset did not touch and keys that only exist on one side of it.
+  snapshotNodeParameters(node) {
+    const clone = (obj) => (obj ? JSON.parse(JSON.stringify(obj)) : null);
+    return {
+      nodeId: node.id,
+      params: clone(node.params),
+      props: clone(node.props),
+      value: node.value,
+      expr: node.expr,
+      code: node.code,
+    };
+  }
+
+  restoreNodeParameters(snapshots) {
+    const restored = [];
+
+    for (const snapshot of snapshots || []) {
+      const node = this.graph?.nodes?.find((n) => n.id === snapshot.nodeId);
+      if (!node) continue;
+
+      if (snapshot.params) node.params = JSON.parse(JSON.stringify(snapshot.params));
+      else delete node.params;
+      if (snapshot.props) node.props = JSON.parse(JSON.stringify(snapshot.props));
+      else delete node.props;
+
+      // Absent in the snapshot means the field did not exist yet — drop it rather than restoring
+      // an `undefined` that later reads would treat as a real (empty) value.
+      for (const field of ['value', 'expr', 'code']) {
+        if (snapshot[field] === undefined) delete node[field];
+        else node[field] = snapshot[field];
+      }
+
+      restored.push(node);
+    }
+
+    if (restored.length) this.refreshAfterParameterReset(restored, 'Restore Parameters');
+    return restored.length;
+  }
+
+  // Push a batch of parameter changes through the same refresh path a single edit takes:
+  // recompute the affected thumbnails, recompile the shader, redraw the canvas, and re-render the
+  // parameter panel if it is showing one of these nodes.
+  refreshAfterParameterReset(nodes, reason) {
+    for (const node of nodes) {
+      try {
+        this.previewSystem?.canvasManager?.canvasCache?.delete?.(node.id);
+      } catch { /* cache objects are best-effort */ }
+      // Discrete change, not a drag — refresh immediately instead of waiting on the debounce.
+      this.previewIntegration?.onParameterChange?.(node, true);
+    }
+
+    const panelNode = this.paramPanel?.selectedNode;
+    if (panelNode && nodes.some((n) => n.id === panelNode.id)) {
+      this.paramPanel.renderParameters(panelNode);
+    }
+
+    this.onChange(reason);
+    this.eventSystem?.emit?.('GRAPH_CHANGED', { action: reason });
+    this.triggerShaderRebuild(reason);
+    this.safeDraw();
   }
 
   // ---- PREVIEW HELPER METHODS ----

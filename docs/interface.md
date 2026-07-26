@@ -87,6 +87,7 @@ Context-sensitive menu that appears when you right-click:
 - Delete node
 - Duplicate node
 - Edit parameters
+- Reset parameters to default (only shown when a value has been changed; applies to the whole selection and undoes in one step)
 - Show/hide preview
 
 ---

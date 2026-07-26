@@ -191,6 +191,32 @@ export class MenuManager {
       );
     }
 
+    // Reset Parameters — put every parameter back to the value a freshly created node of this kind
+    // would have. Acts on the whole selection (like Duplicate above), and is offered only when
+    // something would actually change, so it never appears as a dead entry on an untouched node.
+    if (editor?.resetNodeParameters && editor.hasNonDefaultParameters) {
+      const ids = this.graph.selection;
+      const resettable = [];
+      for (const id of ids || []) {
+        const n = this.graph.nodes.find((x) => x.id === id);
+        if (n && editor.hasNonDefaultParameters(n)) resettable.push(n);
+      }
+
+      if (resettable.length) {
+        const suffix = resettable.length > 1 ? ` (${resettable.length})` : "";
+        el.appendChild(
+          this._createMenuItem(
+            "Reset Parameters to Default" + suffix,
+            () => {
+              editor.resetNodeParameters();
+              this.hide();
+            },
+            nodeType,
+          ),
+        );
+      }
+    }
+
     // Bulk thumbnail visibility for the whole selection (the node under the cursor is already part
     // of it — see the selection guard above). Label reflects the dominant current state: if any
     // selected node's preview is visible, offer to hide them all; otherwise offer to show them.
