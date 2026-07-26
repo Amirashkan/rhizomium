@@ -702,16 +702,21 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     };
   }
 
-  // Letterboxing applies ONLY in the explicit "Match editor" mode. In Auto/fixed
-  // modes the compute textures are display-shaped by construction and fragments are
-  // resolution-independent, so the output always fills this display — the editor's
-  // floating preview can never reshape it. In match mode prefer the compute output
-  // texture's aspect; the editor's broadcast aspect (its on-screen display box) can
-  // differ from the compute texture's shape and would stretch the sampled output.
+  // Letterboxing applies in match mode - which is what the editor always asks for
+  // now, so the viewer frames the composition exactly like the editor's preview
+  // does. The EDITOR'S aspect is the authority: it is the output format's shape,
+  // the same number the preview fits its panel to. The compute texture's own
+  // aspect is only a fallback for before the first UNIFORMS message arrives; it
+  // used to be preferred, from when a capped texture could be reshaped relative
+  // to the composition (a 2560x1080 output became a 2048x1080 texture) and the
+  // sampled output would stretch. Compute textures are now capped along their
+  // long edge, preserving shape, so the two agree and the editor's is the one to
+  // trust. In the legacy display-shaped modes there is nothing to letterbox to.
   function effectiveAspect() {
     if (!isMatchEditor()) return 0; // fill the display
+    if (editorAspect > 0) return editorAspect;
     if (tier === TIER.NATIVE_COMPUTE && computeAspect > 0) return computeAspect;
-    return editorAspect;
+    return 0;
   }
 
   function sizeGpuCanvas() {

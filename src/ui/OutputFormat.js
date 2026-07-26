@@ -28,6 +28,14 @@ export const MAX_HEIGHT = 4320;
 /** Derived targets may go below the authored minimum, but never to nothing. */
 const MIN_DERIVED = 64;
 
+/**
+ * Longest edge a simulation texture may have. Compute work is quadratic in area
+ * and every feedback node holds two of these, so the sim role is capped even at
+ * Full quality. The cap scales BOTH axes, so it can lower the sim's detail but
+ * never its shape - see fitToLongEdge.
+ */
+export const MAX_SIM_EDGE = 2048;
+
 export const DEFAULT_OUTPUT = { width: 1280, height: 720 };
 
 export const OUTPUT_PRESETS = [
@@ -138,10 +146,38 @@ function emit(kind, source) {
   });
 }
 
+/**
+ * Apply a quality scale. The minimum is enforced by scaling LESS, never by
+ * clamping one axis: flooring the axes separately would reshape an extreme
+ * composition (4000x100 at quarter would land on 1000x64, a different image).
+ */
 function scaled(size, scale) {
+  const shortEdge = Math.min(size.width, size.height);
+  const effective = Math.max(scale, MIN_DERIVED / shortEdge);
   return {
-    width: Math.max(MIN_DERIVED, Math.round(size.width * scale)),
-    height: Math.max(MIN_DERIVED, Math.round(size.height * scale)),
+    width: Math.max(1, Math.round(size.width * effective)),
+    height: Math.max(1, Math.round(size.height * effective)),
+  };
+}
+
+/**
+ * Cap a size to a long edge WITHOUT reshaping it. Clamping the axes separately
+ * is the tempting version and it is wrong: a 2560x1080 composition capped per
+ * axis becomes 2048x1080, i.e. 1.90:1 instead of 2.37:1, and every surface that
+ * frames itself from that texture then disagrees with the composition. The cap
+ * is a hard limit, so it wins over the quality minimum above - it just never
+ * takes an axis below one pixel.
+ * @returns {{width:number, height:number}} scaled down, or unchanged if it fits.
+ */
+export function fitToLongEdge(size, maxEdge) {
+  const longEdge = Math.max(size.width, size.height);
+  if (!(maxEdge > 0) || longEdge <= maxEdge) {
+    return { width: size.width, height: size.height };
+  }
+  const scale = maxEdge / longEdge;
+  return {
+    width: Math.max(1, Math.round(size.width * scale)),
+    height: Math.max(1, Math.round(size.height * scale)),
   };
 }
 
@@ -165,7 +201,8 @@ export function resolveResolution(role = "output") {
     case "preview":
       return scaled(state.output, qualityScale(state.previewQuality));
     case "sim":
-      return scaled(state.output, qualityScale(state.simQuality));
+      // Capped, so the settings window reports the size the sims really get.
+      return fitToLongEdge(scaled(state.output, qualityScale(state.simQuality)), MAX_SIM_EDGE);
     case "export":
       return state.exportTarget.mode === "custom"
         ? { width: state.exportTarget.width, height: state.exportTarget.height }

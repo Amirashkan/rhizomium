@@ -544,20 +544,24 @@ describe('secondMonitorReceiver', () => {
       expect(mgr.writeRawComputeUniforms).toHaveBeenCalledTimes(1);
     });
 
-    it('Match editor mode letterboxes to the compute texture aspect, not the editor display box', async () => {
+    // The viewer frames the composition exactly like the editor's floating preview:
+    // both letterbox to the OUTPUT format's aspect, which the editor broadcasts as
+    // its canvas dimensions. Framing from the compute texture instead (the old
+    // behaviour) made the two windows disagree whenever a texture's shape differed
+    // from the composition's - which is what a custom output ratio produced once
+    // the compute cap reshaped the texture.
+    it('Match mode letterboxes to the editor output aspect, so the viewer frames like the preview', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
       const ch = FakeBroadcastChannel.instances[0];
-      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 }); // explicit opt-in: follow the editor
+      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 });
 
-      // The editor's on-screen preview box is 16:9, but the compute output texture
-      // is square (sized from the render-resolution setting). The viewer must frame
-      // to the SQUARE texture — otherwise the sampled output is stretched to the
-      // display aspect, which is the edge-detect "stretched rectangle" bug.
+      // A 1:1 composition on a 16:9 display: pillarboxed to 720x720, exactly what
+      // the editor's preview shows.
       ch.emit({
         type: MSG.UNIFORMS,
-        aspect: new Float32Array([1280 / 720, 0, 0, 0]),
-        globals: new Float32Array([1280, 720, 0, 0, 0, 0, 0, 0]),
+        aspect: new Float32Array([1, 0, 0, 0]),
+        globals: new Float32Array([1000, 1000, 0, 0, 0, 0, 0, 0]),
         params: new Float32Array([0]),
       });
       ch.emit({
@@ -567,40 +571,59 @@ describe('secondMonitorReceiver', () => {
       });
       await settle();
 
-      // Square (1:1) letterboxed into the 1280x720 display → 720x720, pillarboxed.
-      // (Without the fix it would fill 1280x720 at the editor's 16:9 and stretch.)
       expect(gpuCanvas.width).toBe(720);
       expect(gpuCanvas.height).toBe(720);
-      expect(gpuCanvas.style.left).toBe('280px'); // (1280-720)/2 — black bars left & right
+      expect(gpuCanvas.style.left).toBe('280px'); // (1280-720)/2 — bars left & right
     });
 
-    it('Match editor mode re-frames the mirror when a preset changes the compute texture aspect', async () => {
+    it('follows the output aspect even when a compute texture is shaped differently', async () => {
       const rt = installFakeRuntime();
       initSecondMonitorReceiver(doc, win, opts(rt));
       const ch = FakeBroadcastChannel.instances[0];
-      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 }); // explicit opt-in: follow the editor
+      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 });
 
-      // Preset switch re-broadcasts COMPUTE_GRAPH with the new texture size (the
-      // editor's signature includes WxH). Start on a non-square preset (FHD): the
-      // 16:9 texture fills the 1280x720 display.
+      // 2560x1080 (2.37:1) composition. A texture that is not that shape - a
+      // per-node override, or an older sender's per-axis cap - must not reframe
+      // the viewer, or it stops matching the preview.
+      ch.emit({
+        type: MSG.UNIFORMS,
+        aspect: new Float32Array([2560 / 1080, 0, 0, 0]),
+        globals: new Float32Array([2560, 1080, 0, 0, 0, 0, 0, 0]),
+        params: new Float32Array([0]),
+      });
       ch.emit({
         type: MSG.COMPUTE_GRAPH,
-        nodes: [{ id: '1', kind: 'ComputeEdgeDetect', wgsl: 'W', width: 1920, height: 1080, inputs: [] }],
+        nodes: [{ id: '1', kind: 'ComputeEdgeDetect', wgsl: 'W', width: 2048, height: 1080, inputs: [] }],
         executionOrder: ['1'],
       });
       await settle();
+
+      // 2.37:1 into a 1280x720 display → 1280x540, letterboxed top and bottom.
+      expect(gpuCanvas.width).toBe(1280);
+      expect(gpuCanvas.height).toBe(540);
+      expect(gpuCanvas.style.top).toBe('90px'); // (720-540)/2
+    });
+
+    it('re-frames when the editor changes its output format', async () => {
+      const rt = installFakeRuntime();
+      initSecondMonitorReceiver(doc, win, opts(rt));
+      const ch = FakeBroadcastChannel.instances[0];
+      ch.emit({ type: MSG.RENDER_RES, maxDim: -1 });
+
+      const uniforms = (w, h) => ch.emit({
+        type: MSG.UNIFORMS,
+        aspect: new Float32Array([w / h, 0, 0, 0]),
+        globals: new Float32Array([w, h, 0, 0, 0, 0, 0, 0]),
+        params: new Float32Array([0]),
+      });
+
+      uniforms(1920, 1080);
       expect(gpuCanvas.width).toBe(1280);   // 16:9 into 16:9 display → fills
       expect(gpuCanvas.height).toBe(720);
       expect(gpuCanvas.style.left).toBe('0px');
 
-      // Switch to a square preset (1K²): the mirror must reshape to a pillarboxed
-      // square, not keep the old 16:9 framing.
-      ch.emit({
-        type: MSG.COMPUTE_GRAPH,
-        nodes: [{ id: '1', kind: 'ComputeEdgeDetect', wgsl: 'W', width: 1024, height: 1024, inputs: [] }],
-        executionOrder: ['1'],
-      });
-      await settle();
+      // Switching the output to a square composition reshapes the viewer too.
+      uniforms(1024, 1024);
       expect(gpuCanvas.width).toBe(720);
       expect(gpuCanvas.height).toBe(720);
       expect(gpuCanvas.style.left).toBe('280px');
