@@ -3,7 +3,7 @@
 
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
-import { getRenderResolution } from '../../ui/RenderResolution.js';
+import { resolveResolution } from '../../ui/OutputFormat.js';
 
 export class ComputeNodes {
   constructor() {
@@ -111,8 +111,8 @@ export class ComputeNodes {
       return [override[0], override[1]];
     }
 
-    // Otherwise follow the single render resolution (maintains aspect ratio)
-    const { width, height } = getRenderResolution();
+    // Otherwise follow the sim role (output aspect at the project's sim quality)
+    const { width, height } = resolveResolution('sim');
     if (width > 0 && height > 0) {
       return [width, height];
     }

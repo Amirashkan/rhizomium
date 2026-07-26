@@ -1309,15 +1309,48 @@ function setupUIEventHandlers() {
     // preview-derived size for exact feedback-sim matching.
     const secondMonitorResRow = document.getElementById("row-second-monitor-res");
     const secondMonitorResSel = removeExistingHandlers("second-monitor-res");
+    const secondMonitorResCustomRow = document.getElementById("row-second-monitor-res-custom");
+    const secondMonitorResCustom = removeExistingHandlers("second-monitor-res-custom");
     if (secondMonitorResRow && secondMonitorResSel
         && typeof secondMonitorViewer.setComputeResolution === "function") {
       secondMonitorResRow.style.removeProperty("display");
-      if (Number.isFinite(secondMonitorViewer.computeMaxDim)) {
-        secondMonitorResSel.value = String(secondMonitorViewer.computeMaxDim);
+
+      // The preset list covers the common long edges; "Custom…" reveals a free
+      // one. Only the density is chosen here - the aspect ratio always comes
+      // from the output format, so the viewer can never fork the framing.
+      const presets = new Set(["0", "720", "1080", "1440", "2048", "-1"]);
+      const current = secondMonitorViewer.computeMaxDim;
+      const isCustom = Number.isFinite(current) && !presets.has(String(current));
+
+      if (Number.isFinite(current)) {
+        secondMonitorResSel.value = isCustom ? "custom" : String(current);
+        if (isCustom && secondMonitorResCustom) secondMonitorResCustom.value = String(current);
       }
+
+      const syncCustomRow = () => {
+        if (!secondMonitorResCustomRow) return;
+        const showCustom = secondMonitorResSel.value === "custom";
+        secondMonitorResCustomRow.style.display = showCustom ? "" : "none";
+      };
+      syncCustomRow();
+
       secondMonitorResSel.addEventListener("change", (e) => {
+        syncCustomRow();
+        if (e.target.value === "custom") {
+          const longEdge = parseInt(secondMonitorResCustom?.value, 10);
+          if (Number.isFinite(longEdge)) secondMonitorViewer.setComputeResolution(longEdge);
+          return;
+        }
         const maxDim = parseInt(e.target.value, 10);
         if (Number.isFinite(maxDim)) secondMonitorViewer.setComputeResolution(maxDim);
+      });
+
+      secondMonitorResCustom?.addEventListener("change", (e) => {
+        const longEdge = parseInt(e.target.value, 10);
+        if (!Number.isFinite(longEdge)) return;
+        secondMonitorViewer.setComputeResolution(longEdge);
+        // The viewer clamps; show what was actually applied.
+        e.target.value = String(secondMonitorViewer.computeMaxDim);
       });
     }
   }

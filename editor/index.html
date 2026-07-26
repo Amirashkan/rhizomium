@@ -315,8 +315,15 @@
               <option value="1080">1080p</option>
               <option value="1440">1440p</option>
               <option value="2048">Max (2048)</option>
-              <option value="-1">Match editor</option>
+              <option value="custom">Custom…</option>
+              <option value="-1">Match output</option>
             </select>
+          </label>
+          <!-- Custom long edge for the viewer. The aspect ratio still comes from
+               the output format, so only the density is set here. -->
+          <label class="snap-size" id="row-second-monitor-res-custom" style="display:none">
+            <span>Long edge:</span>
+            <input type="number" id="second-monitor-res-custom" inputmode="numeric" min="128" max="2048" step="1" value="1080" />
           </label>
         </div>
       </div>

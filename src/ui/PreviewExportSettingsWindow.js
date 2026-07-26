@@ -2,26 +2,34 @@
  * PreviewExportSettingsWindow.js - The single window for render settings.
  *
  * Opened from View -> Preview / Export Settings and from the floating preview's
- * gear button. Every control here is wired to something that actually runs:
- * the render resolution store, the render loop, or the exporters. Publishing to
- * the gallery lives in File -> Publish.
+ * gear button. Every control here is wired to something that actually runs: the
+ * output format, the quality knobs derived from it, the render loop, or the
+ * exporters. Publishing to the gallery lives in File -> Publish.
  */
 
 import { makeDraggable } from './utils/draggable.js';
 import { exportPNG, exportAnimation } from './exportRender.js';
 import {
-  DEFAULT_RESOLUTION,
   MAX_HEIGHT,
   MAX_WIDTH,
   MIN_HEIGHT,
   MIN_WIDTH,
-  RESOLUTION_PRESETS,
+  OUTPUT_PRESETS,
+  QUALITY_STEPS,
+  getExportTarget,
+  getOutputFormat,
   getPreset,
-  getRenderResolution,
+  getPreviewQuality,
+  getSimQuality,
   matchPreset,
-  setRenderResolution,
-  subscribeRenderResolution,
-} from './RenderResolution.js';
+  resetOutputFormat,
+  resolveResolution,
+  setExportTarget,
+  setOutputFormat,
+  setPreviewQuality,
+  setSimQuality,
+  subscribeOutputFormat,
+} from './OutputFormat.js';
 
 const DEFAULT_SETTINGS = {
   refreshRate: 60,
@@ -136,7 +144,8 @@ export class PreviewExportSettingsWindow {
     `;
     content.className = "custom-scroll";
 
-    content.appendChild(this._createResolutionSection());
+    content.appendChild(this._createOutputSection());
+    content.appendChild(this._createQualitySection());
     content.appendChild(this._createTimingSection());
     content.appendChild(this._createDisplaySection());
     content.appendChild(this._createExportSection());
@@ -146,8 +155,10 @@ export class PreviewExportSettingsWindow {
     this.window.appendChild(content);
     document.body.appendChild(this.window);
 
-    this._unsubscribeResolution = subscribeRenderResolution((resolution) => {
-      this._syncResolutionControls(resolution);
+    this._unsubscribeResolution = subscribeOutputFormat(() => {
+      this._syncResolutionControls();
+      this._syncQualityLabels();
+      this._syncExportControls();
     });
 
     requestAnimationFrame(() => {
@@ -220,13 +231,13 @@ export class PreviewExportSettingsWindow {
     return section;
   }
 
-  _createResolutionSection() {
+  _createOutputSection() {
     const section = this._createSection(
-      "Render Resolution",
-      "The one size everything renders at - preview, PNG export, animation export and publishing.",
+      "Output Format",
+      "The composition you are authoring. It owns the aspect ratio: the preview, the internal sims, exports and the second viewer all derive their size from it. Saved with the project.",
     );
 
-    const resolution = getRenderResolution();
+    const resolution = getOutputFormat();
 
     // Preset dropdown
     const presetContainer = document.createElement("div");
@@ -245,7 +256,7 @@ export class PreviewExportSettingsWindow {
     presetSelect.id = "render-resolution-preset";
     presetSelect.style.cssText = this._selectStyle();
 
-    RESOLUTION_PRESETS.forEach((preset) => {
+    OUTPUT_PRESETS.forEach((preset) => {
       const option = document.createElement("option");
       option.value = preset.id;
       option.textContent = preset.label;
@@ -260,7 +271,7 @@ export class PreviewExportSettingsWindow {
     presetSelect.addEventListener("change", (e) => {
       const preset = getPreset(e.target.value);
       if (preset) {
-        setRenderResolution(preset.width, preset.height, "settingsWindow");
+        setOutputFormat(preset.width, preset.height, "settingsWindow");
       }
     });
 
@@ -276,13 +287,13 @@ export class PreviewExportSettingsWindow {
     const heightInput = this._createSizeInput("Height", resolution.height, MIN_HEIGHT, MAX_HEIGHT);
 
     const commit = () => {
-      setRenderResolution(
+      setOutputFormat(
         parseInt(widthInput.input.value, 10),
         parseInt(heightInput.input.value, 10),
         "settingsWindow",
       );
       // Re-read: the store clamps, so the inputs must show what was applied.
-      this._syncResolutionControls(getRenderResolution());
+      this._syncResolutionControls(getOutputFormat());
     };
 
     widthInput.input.addEventListener("change", commit);
@@ -389,18 +400,112 @@ export class PreviewExportSettingsWindow {
     return section;
   }
 
+  /**
+   * Quality knobs. Both are scale factors on the output format, so they survive
+   * a change of output size - and neither can alter the aspect ratio.
+   */
+  _createQualitySection() {
+    const section = this._createSection("Quality");
+
+    const preview = this._createDropdown(
+      "Preview Quality",
+      QUALITY_STEPS.map((q) => ({ value: q.id, label: q.label })),
+      getPreviewQuality(),
+      (value) => setPreviewQuality(value, "settingsWindow"),
+    );
+    section.appendChild(preview.container);
+
+    const previewNote = this._createNote(
+      "How hard the live preview works. Machine-local - it never travels with the project.",
+    );
+    section.appendChild(previewNote);
+
+    const sim = this._createDropdown(
+      "Simulation Quality",
+      QUALITY_STEPS.map((q) => ({ value: q.id, label: q.label })),
+      getSimQuality(),
+      (value) => setSimQuality(value, "settingsWindow"),
+    );
+    section.appendChild(sim.container);
+
+    const simNote = this._createNote(
+      "Resolution of the internal compute and feedback textures. Feedback, fluid and noise sims are resolution-dependent, so lowering this changes how the piece looks, not just how sharp it is - which is why it is saved with the project.",
+    );
+    section.appendChild(simNote);
+
+    this._controls.previewQuality = preview.select;
+    this._controls.simQuality = sim.select;
+    this._controls.previewNote = previewNote;
+    this._controls.simNote = simNote;
+    this._syncQualityLabels();
+
+    return section;
+  }
+
   _createExportSection() {
     const section = this._createSection(
       "Export",
-      "Saves to your machine at the render resolution. To share to the gallery use File → Publish.",
+      "Saves to your machine. To share to the gallery use File → Publish.",
     );
+
+    const target = getExportTarget();
+
+    const modeControl = this._createDropdown(
+      "Export Size",
+      [
+        { value: "output", label: "Output format" },
+        { value: "custom", label: "Custom…" },
+      ],
+      target.mode,
+      (value) => {
+        if (value === "custom") {
+          const size = getExportTarget();
+          setExportTarget({ mode: "custom", width: size.width, height: size.height }, "settingsWindow");
+        } else {
+          setExportTarget({ mode: "output" }, "settingsWindow");
+        }
+        this._syncExportControls();
+      },
+    );
+    section.appendChild(modeControl.container);
+
+    const sizeRow = document.createElement("div");
+    sizeRow.style.cssText = "display: flex; gap: 8px; margin-bottom: 12px;";
+
+    const widthInput = this._createSizeInput("Width", target.width, MIN_WIDTH, MAX_WIDTH);
+    const heightInput = this._createSizeInput("Height", target.height, MIN_HEIGHT, MAX_HEIGHT);
+
+    const commit = () => {
+      setExportTarget({
+        mode: "custom",
+        width: parseInt(widthInput.input.value, 10),
+        height: parseInt(heightInput.input.value, 10),
+      }, "settingsWindow");
+      this._syncExportControls();
+    };
+    widthInput.input.addEventListener("change", commit);
+    heightInput.input.addEventListener("change", commit);
+
+    sizeRow.appendChild(widthInput.container);
+    sizeRow.appendChild(heightInput.container);
+    section.appendChild(sizeRow);
+
+    const exportNote = this._createNote("");
+    section.appendChild(exportNote);
 
     const buttons = document.createElement("div");
     buttons.style.cssText = "display: flex; flex-direction: column; gap: 8px;";
     buttons.appendChild(this._createButton("Export as PNG", () => exportPNG()));
     buttons.appendChild(this._createButton("Export Animation (MP4/WebM)", () => exportAnimation()));
-
     section.appendChild(buttons);
+
+    this._controls.exportMode = modeControl.select;
+    this._controls.exportWidth = widthInput.input;
+    this._controls.exportHeight = heightInput.input;
+    this._controls.exportSizeRow = sizeRow;
+    this._controls.exportNote = exportNote;
+    this._syncExportControls();
+
     return section;
   }
 
@@ -414,6 +519,18 @@ export class PreviewExportSettingsWindow {
   }
 
   // ---------------------------------------------------------------- controls
+
+  _createNote(text) {
+    const note = document.createElement("div");
+    note.textContent = text;
+    note.style.cssText = `
+      color: rgba(255, 255, 255, 0.45);
+      font-size: 11px;
+      line-height: 1.4;
+      margin: -6px 0 12px 0;
+    `;
+    return note;
+  }
 
   _selectStyle() {
     return `
@@ -618,7 +735,7 @@ export class PreviewExportSettingsWindow {
     fps.labelEl.style.opacity = disabled ? "0.6" : "1";
   }
 
-  _syncResolutionControls(resolution = getRenderResolution()) {
+  _syncResolutionControls(resolution = getOutputFormat()) {
     const { resolutionPreset, resolutionWidth, resolutionHeight } = this._controls;
     if (resolutionWidth && resolutionWidth.value !== String(resolution.width)) {
       resolutionWidth.value = resolution.width;
@@ -628,6 +745,41 @@ export class PreviewExportSettingsWindow {
     }
     if (resolutionPreset) {
       resolutionPreset.value = matchPreset(resolution);
+    }
+  }
+
+  /** Show what each quality step currently costs in pixels. */
+  _syncQualityLabels() {
+    const { previewQuality, simQuality, previewNote, simNote } = this._controls;
+    if (previewQuality) previewQuality.value = getPreviewQuality();
+    if (simQuality) simQuality.value = getSimQuality();
+
+    const preview = resolveResolution("preview");
+    const sim = resolveResolution("sim");
+    if (previewNote) {
+      previewNote.textContent =
+        `Rendering at ${preview.width} × ${preview.height}. How hard the live preview works - machine-local, never travels with the project.`;
+    }
+    if (simNote) {
+      simNote.textContent =
+        `Internal textures at ${sim.width} × ${sim.height}. Feedback, fluid and noise sims are resolution-dependent, so lowering this changes how the piece looks, not just how sharp it is - which is why it is saved with the project.`;
+    }
+  }
+
+  _syncExportControls() {
+    const { exportMode, exportWidth, exportHeight, exportSizeRow, exportNote } = this._controls;
+    const target = getExportTarget();
+    const size = resolveResolution("export");
+
+    if (exportMode) exportMode.value = target.mode;
+    if (exportSizeRow) exportSizeRow.style.display = target.mode === "custom" ? "flex" : "none";
+    if (exportWidth) exportWidth.value = size.width;
+    if (exportHeight) exportHeight.value = size.height;
+    if (exportNote) {
+      const sim = resolveResolution("sim");
+      exportNote.textContent = target.mode === "custom"
+        ? `Exporting ${size.width} × ${size.height}. The composite is re-rendered at this size; the sims stay at ${sim.width} × ${sim.height}, so their detail does not change.`
+        : `Exporting at the output format, ${size.width} × ${size.height}.`;
     }
   }
 
@@ -668,6 +820,8 @@ export class PreviewExportSettingsWindow {
 
   _refreshFromState() {
     this._syncResolutionControls();
+    this._syncQualityLabels();
+    this._syncExportControls();
     ["timingMode", "refreshRate", "timeScale", "isPaused", "showFPS"].forEach((key) => {
       this.syncControl(key, this.settings[key]);
     });
@@ -675,7 +829,7 @@ export class PreviewExportSettingsWindow {
   }
 
   _resetToDefaults() {
-    setRenderResolution(DEFAULT_RESOLUTION.width, DEFAULT_RESOLUTION.height, "reset");
+    resetOutputFormat("reset");
 
     Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => {
       this._set(key, value);

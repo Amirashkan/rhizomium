@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { FloatingGPUPreview } from '../src/ui/FloatingGPUPreview.js';
-import { setRenderResolution, resetRenderResolution } from '../src/ui/RenderResolution.js';
+import { DEFAULT_OUTPUT, setOutputFormat, resetOutputFormat } from '../src/ui/OutputFormat.js';
 
 const HEADER_AND_BORDERS = 39; // 37px header + 1px border top/bottom
 
@@ -20,8 +20,9 @@ describe('FloatingGPUPreview fits the render into a freely sized panel', () => {
   let preview;
 
   beforeEach(() => {
-    resetRenderResolution('test');
+    resetOutputFormat('test');
     window.localStorage?.removeItem('rhizo.previewPanelSize');
+    window.localStorage?.removeItem('rhizo.renderQuality');
     canvas = document.createElement('canvas');
     window.gpuRenderer = {
       resizeCanvasSync: vi.fn().mockResolvedValue(),
@@ -33,13 +34,13 @@ describe('FloatingGPUPreview fits the render into a freely sized panel', () => {
   });
 
   afterEach(() => {
-    resetRenderResolution('test');
+    resetOutputFormat('test');
     vi.restoreAllMocks();
   });
 
   it('letterboxes a square render inside a wide panel', () => {
     preview._setPanelSize(802, 402 + HEADER_AND_BORDERS); // 800x402 canvas box
-    setRenderResolution(512, 512, 'test');
+    setOutputFormat(512, 512, 'test');
 
     preview._fitCanvasToPanel();
 
@@ -50,7 +51,7 @@ describe('FloatingGPUPreview fits the render into a freely sized panel', () => {
 
   it('letterboxes a 16:9 render inside a square panel', () => {
     preview._setPanelSize(402, 400 + HEADER_AND_BORDERS); // 400x400 canvas box
-    setRenderResolution(1920, 1080, 'test');
+    setOutputFormat(1920, 1080, 'test');
 
     preview._fitCanvasToPanel();
 
@@ -60,16 +61,16 @@ describe('FloatingGPUPreview fits the render into a freely sized panel', () => {
 
   it('keeps the panel size when the render resolution changes', () => {
     const panel = preview._setPanelSize(640, 480);
-    setRenderResolution(1920, 1080, 'test');
+    setOutputFormat(1920, 1080, 'test');
 
     expect(preview._getPanelSize()).toEqual(panel);
 
-    setRenderResolution(512, 512, 'test');
+    setOutputFormat(512, 512, 'test');
     expect(preview._getPanelSize()).toEqual(panel);
   });
 
   it('resizing the panel does not touch the render resolution', () => {
-    setRenderResolution(1280, 720, 'test');
+    setOutputFormat(1280, 720, 'test');
     preview._applyResizeDimensions(900, 300);
 
     expect(preview.settings.settings.resolution).toEqual({ width: 1280, height: 720 });
@@ -86,9 +87,12 @@ describe('FloatingGPUPreview fits the render into a freely sized panel', () => {
     // once. Re-deriving it on every read would make the panel track the render
     // again - the exact behaviour this replaces.
     const seeded = preview._getPanelSize();
-    expect(seeded).toEqual({ width: 258, height: 295 }); // 512*0.5 + chrome
+    expect(seeded).toEqual({
+      width: DEFAULT_OUTPUT.width * 0.5 + 2,
+      height: DEFAULT_OUTPUT.height * 0.5 + HEADER_AND_BORDERS,
+    });
 
-    setRenderResolution(1920, 1080, 'test');
+    setOutputFormat(1920, 1080, 'test');
     expect(preview._getPanelSize()).toEqual(seeded);
 
     preview._fitCanvasToPanel();

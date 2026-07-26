@@ -26,7 +26,7 @@ import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
-import { getRenderResolution } from '../ui/RenderResolution.js';
+import { resolveResolution } from '../ui/OutputFormat.js';
 
 export class ComputeExecutor {
   constructor(device) {
@@ -309,10 +309,11 @@ export class ComputeExecutor {
     const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
     const DEFAULT_COMPUTE_RES = 1024;
 
-    // Follow the single render resolution
-    const renderRes = getRenderResolution();
-    const baseWidth = renderRes.width || DEFAULT_COMPUTE_RES;
-    const baseHeight = renderRes.height || DEFAULT_COMPUTE_RES;
+    // Internal sim textures follow the 'sim' role: the output aspect at the
+    // project's sim quality, independent of how cheaply the preview draws.
+    const simRes = resolveResolution('sim');
+    const baseWidth = simRes.width || DEFAULT_COMPUTE_RES;
+    const baseHeight = simRes.height || DEFAULT_COMPUTE_RES;
 
     let width = baseWidth;
     let height = baseHeight;
@@ -794,9 +795,9 @@ export class ComputeExecutor {
           // receiver registers its own dims and stays independent of the editor,
           // so the node's registration wins and the store is only the fallback.
           const resolution = nodeData.resolution || [];
-          const renderRes = getRenderResolution();
-          let width = resolution[0] > 0 ? resolution[0] : (renderRes.width || 1024);
-          let height = resolution[1] > 0 ? resolution[1] : (renderRes.height || 1024);
+          const simRes = resolveResolution('sim');
+          let width = resolution[0] > 0 ? resolution[0] : (simRes.width || 1024);
+          let height = resolution[1] > 0 ? resolution[1] : (simRes.height || 1024);
 
 
           const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
@@ -843,9 +844,9 @@ export class ComputeExecutor {
         // Same rule as the fragment bridge above: the mapper's own registered
         // dims win, the shared render resolution is the fallback.
         const mapperDims = mapperNode?.computeResolution || [];
-        const renderRes = getRenderResolution();
-        let width = mapperDims[0] > 0 ? mapperDims[0] : (renderRes.width || 512);
-        let height = mapperDims[1] > 0 ? mapperDims[1] : (renderRes.height || 512);
+        const simRes = resolveResolution('sim');
+        let width = mapperDims[0] > 0 ? mapperDims[0] : (simRes.width || 512);
+        let height = mapperDims[1] > 0 ? mapperDims[1] : (simRes.height || 512);
         const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
         width = Math.min(width, MAX_COMPUTE_RES);
         height = Math.min(height, MAX_COMPUTE_RES);

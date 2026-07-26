@@ -6,16 +6,16 @@
  * lives in the single settings window (PreviewExportSettingsWindow), which
  * writes here through updateSetting().
  *
- * The resolution itself is not stored here - it is delegated to the single
- * render-resolution store (RenderResolution.js) so preview, export and publish
- * can never drift apart.
+ * The resolution itself is not stored here - it is delegated to OutputFormat.js,
+ * which derives every surface's pixel size from the one authored composition, so
+ * preview, sim, export and publish can never disagree about the image's shape.
  */
 
 import {
-  getRenderResolution,
-  setRenderResolution,
-  subscribeRenderResolution,
-} from './RenderResolution.js';
+  getOutputFormat,
+  setOutputFormat,
+  subscribeRole,
+} from './OutputFormat.js';
 
 export class PreviewSettings {
   constructor(floatingPreview) {
@@ -39,21 +39,22 @@ export class PreviewSettings {
       },
     };
 
-    // resolution is a view onto the shared render-resolution store.
+    // resolution is a view onto the authored output format.
     Object.defineProperty(this.settings, "resolution", {
       enumerable: true,
-      get: () => getRenderResolution(),
+      get: () => getOutputFormat(),
       set: (value) => {
-        setRenderResolution(
-          value?.width ?? getRenderResolution().width,
-          value?.height ?? getRenderResolution().height,
+        setOutputFormat(
+          value?.width ?? getOutputFormat().width,
+          value?.height ?? getOutputFormat().height,
           "previewSettings",
         );
       },
     });
 
+    // The preview follows its own role: output size AND preview quality move it.
     this._resolutionApplyTimer = null;
-    this._unsubscribeResolution = subscribeRenderResolution(() => {
+    this._unsubscribeResolution = subscribeRole("preview", () => {
       this._scheduleResolutionApply();
     });
   }
@@ -79,10 +80,10 @@ export class PreviewSettings {
 
   updateSetting(key, value) {
     if (key === "resolution.width" || key === "resolution.height") {
-      const current = getRenderResolution();
+      const current = getOutputFormat();
       const width = key === "resolution.width" ? value : current.width;
       const height = key === "resolution.height" ? value : current.height;
-      setRenderResolution(width, height, "updateSetting");
+      setOutputFormat(width, height, "updateSetting");
       return;
     }
 

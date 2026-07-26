@@ -2,19 +2,20 @@
  * exportRender.js - Save the render to a local file (PNG frame / video).
  *
  * Reached from File → Export and from the Preview / Export Settings window.
- * Both entry points capture at the single render resolution
- * (see RenderResolution.js).
+ * Both entry points capture at the 'export' role's size (see OutputFormat.js):
+ * the output format, or the per-export override. The internal sims keep their
+ * own authored resolution - only the composite is re-rendered at this size.
  */
 
 import { modalManager } from './ModalManager.js';
-import { getRenderResolution } from './RenderResolution.js';
+import { resolveResolution } from './OutputFormat.js';
 
 function getPreview() {
   return window.floatingPreview || null;
 }
 
 function captureSize(canvas) {
-  const resolution = getRenderResolution();
+  const resolution = resolveResolution('export');
   return {
     width: Math.max(1, Math.floor(resolution.width || canvas?.width || 1)),
     height: Math.max(1, Math.floor(resolution.height || canvas?.height || 1)),
@@ -118,7 +119,7 @@ export async function exportPNG() {
   }
 }
 
-/** Record an animation at the render resolution and download it. */
+/** Record an animation at the export resolution and download it. */
 export async function exportAnimation() {
   const preview = getPreview();
   const canvas = preview?.gpuCanvas;
@@ -244,7 +245,7 @@ export async function exportAnimation() {
   const progress = modalManager.showProgress('Exporting Animation', 'Preparing export...');
 
   try {
-    progress.update(5, 'Resizing canvas to render resolution...', `${targetWidth}x${targetHeight}`);
+    progress.update(5, 'Resizing canvas to export resolution...', `${targetWidth}x${targetHeight}`);
 
     const gpuRenderer = window.gpuRenderer;
     if (gpuRenderer && gpuRenderer.resizeCanvasSync) {

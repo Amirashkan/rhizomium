@@ -10,24 +10,24 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { ComputeNodes } from '../src/codegen/compilers/ComputeNodes.js';
-import { setRenderResolution, resetRenderResolution } from '../src/ui/RenderResolution.js';
+import { setOutputFormat, resetOutputFormat } from '../src/ui/OutputFormat.js';
 
 describe('per-node resolution overrides beat the shared render resolution', () => {
-  afterEach(() => resetRenderResolution('test'));
+  afterEach(() => resetOutputFormat('test'));
 
   it('follows the render resolution when a node has no override', () => {
-    setRenderResolution(1920, 1080, 'test');
+    setOutputFormat(1920, 1080, 'test');
     expect(new ComputeNodes().getResolution({ params: {} })).toEqual([1920, 1080]);
   });
 
   it('uses the node override (the second-monitor viewer\'s own dims) when present', () => {
-    setRenderResolution(1920, 1080, 'test');
+    setOutputFormat(1920, 1080, 'test');
     const node = { params: {}, computeResolution: [1280, 720] };
     expect(new ComputeNodes().getResolution(node)).toEqual([1280, 720]);
   });
 
   it('ignores a malformed override rather than rendering at zero', () => {
-    setRenderResolution(800, 600, 'test');
+    setOutputFormat(800, 600, 'test');
     expect(new ComputeNodes().getResolution({ params: {}, computeResolution: [0, 0] }))
       .toEqual([800, 600]);
     expect(new ComputeNodes().getResolution({ params: {}, computeResolution: [] }))

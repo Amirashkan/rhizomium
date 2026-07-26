@@ -1,13 +1,13 @@
 /**
  * publish.js - Share renders to the TenderWorld gallery.
  *
- * Reached from File → Publish. Both entry points capture at the single render
- * resolution (see RenderResolution.js), upload the file and open the gallery's
- * publish page for the uploaded asset.
+ * Reached from File → Publish. Both entry points capture at the 'export' role's
+ * size (see OutputFormat.js), upload the file and open the gallery's publish
+ * page for the uploaded asset.
  */
 
 import { modalManager } from './ModalManager.js';
-import { getRenderResolution } from './RenderResolution.js';
+import { resolveResolution } from './OutputFormat.js';
 
 const UPLOAD_ENDPOINT = 'https://art.tenderworld.org/api/rhizo-upload';
 const GALLERY_ORIGIN = 'https://art.tenderworld.org';
@@ -17,7 +17,7 @@ function getPreview() {
 }
 
 function captureSize(canvas) {
-  const resolution = getRenderResolution();
+  const resolution = resolveResolution('export');
   return {
     width: Math.max(1, Math.floor(resolution.width || canvas?.width || 1)),
     height: Math.max(1, Math.floor(resolution.height || canvas?.height || 1)),
@@ -44,7 +44,7 @@ function uploadBlob(blob, filename, onProgress) {
         }
       } else if (xhr.status === 413) {
         const fileSizeMB = blob.size / 1024 / 1024;
-        reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try a lower render resolution.`));
+        reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try a smaller export size.`));
       } else {
         reject(new Error(`Upload failed (${xhr.status})`));
       }
@@ -175,12 +175,12 @@ export async function publishImage() {
     const fileSizeMB = (blob?.size || 0) / 1024 / 1024;
     await handleUploadError(
       err,
-      `Size: ${fileSizeMB.toFixed(2)} MB at ${width}x${height}. Lower the render resolution in View → Preview / Export Settings.`
+      `Size: ${fileSizeMB.toFixed(2)} MB at ${width}x${height}. Lower the export size in View → Preview / Export Settings.`
     );
   }
 }
 
-/** Record an animation at the render resolution and publish it to the gallery. */
+/** Record an animation at the export resolution and publish it to the gallery. */
 export async function publishAnimation() {
   const preview = getPreview();
   const canvas = preview?.gpuCanvas;
@@ -306,7 +306,7 @@ export async function publishAnimation() {
   const progress = modalManager.showProgress('Publishing Animation', 'Preparing export...');
 
   try {
-    progress.update(5, 'Resizing canvas to render resolution...', `${targetWidth}x${targetHeight}`);
+    progress.update(5, 'Resizing canvas to export resolution...', `${targetWidth}x${targetHeight}`);
 
     const gpuRenderer = window.gpuRenderer;
     if (gpuRenderer && gpuRenderer.resizeCanvasSync) {

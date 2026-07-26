@@ -2,6 +2,7 @@
 
 import { PreviewSettings } from "./PreviewSettings.js";
 import { letterboxRect } from "./letterbox.js";
+import { resolveResolution } from "./OutputFormat.js";
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
 
@@ -155,7 +156,10 @@ export class FloatingGPUPreview {
   }
 
   _getEffectiveResolution() {
-    const { width, height } = this.settings.settings.resolution;
+    // The preview renders the 'preview' role: the output's aspect at the
+    // machine's preview quality. Its panel size is separate again (see
+    // _getPanelSize) - this is only how many pixels the render costs.
+    const { width, height } = resolveResolution("preview");
     // Apply adaptive resolution multiplier only if adaptive mode is active
     const multiplier = this._adaptiveResolutionMultiplier || 1;
     const effectiveWidth = Math.max(64, Math.round(width * multiplier));
@@ -777,8 +781,8 @@ async show() {
         hud.style.display = "none";
       }
 
-      // FIX: Maintain aspect ratio in fullscreen
-      const { width, height } = this.settings.settings.resolution;
+      // Fullscreen renders the preview role, letterboxed to the output aspect.
+      const { width, height } = resolveResolution("preview");
       const aspectRatio = width / height;
 
       let fsWidth = window.innerWidth;
