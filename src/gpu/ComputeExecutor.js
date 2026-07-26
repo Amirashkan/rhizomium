@@ -789,13 +789,16 @@ export class ComputeExecutor {
 
         // This is a fragment node being used as compute input!
         try {
-          // Use the same resolution as the compute node (follows preview settings)
-          const resolution = nodeData.resolution || [1024, 1024];
-          // Follow the single render resolution
+          // Match the CONSUMING compute node's texture dims so UV/texel math lines
+          // up. In the editor those are the render resolution; the second-monitor
+          // receiver registers its own dims and stays independent of the editor,
+          // so the node's registration wins and the store is only the fallback.
+          const resolution = nodeData.resolution || [];
           const renderRes = getRenderResolution();
-          let width = renderRes.width || resolution[0] || 1024;
-          let height = renderRes.height || resolution[1] || 1024;
-          
+          let width = resolution[0] > 0 ? resolution[0] : (renderRes.width || 1024);
+          let height = resolution[1] > 0 ? resolution[1] : (renderRes.height || 1024);
+
+
           const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
           width = Math.min(width, MAX_COMPUTE_RES);
           height = Math.min(height, MAX_COMPUTE_RES);
@@ -830,16 +833,19 @@ export class ComputeExecutor {
     // Auto-wrap fragment (or mixed) subgraphs feeding 3D Field Visualizer
     // nodes: render them to a texture exactly like fragment-fed compute
     // inputs, so the mapper can consume ANY graph output
-    for (const { sourceId } of mapperConsumers) {
+    for (const { node: mapperNode, sourceId } of mapperConsumers) {
       if (this.renderedFragmentNodes.has(sourceId)) continue;
 
       const inputNode = window.graph.getNode(sourceId);
       if (!inputNode) continue;
 
       try {
+        // Same rule as the fragment bridge above: the mapper's own registered
+        // dims win, the shared render resolution is the fallback.
+        const mapperDims = mapperNode?.computeResolution || [];
         const renderRes = getRenderResolution();
-        let width = renderRes.width || 512;
-        let height = renderRes.height || 512;
+        let width = mapperDims[0] > 0 ? mapperDims[0] : (renderRes.width || 512);
+        let height = mapperDims[1] > 0 ? mapperDims[1] : (renderRes.height || 512);
         const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
         width = Math.min(width, MAX_COMPUTE_RES);
         height = Math.min(height, MAX_COMPUTE_RES);

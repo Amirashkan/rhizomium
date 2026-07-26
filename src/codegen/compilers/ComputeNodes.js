@@ -104,7 +104,14 @@ export class ComputeNodes {
    * Uses canvas resolution to maintain aspect ratio
    */
   getResolution(node) {
-    // Follow the single render resolution (maintains aspect ratio)
+    // An explicit per-node override wins - that is how the second-monitor
+    // receiver renders at its own display's dimensions instead of the editor's.
+    const override = node?.computeResolution;
+    if (override?.[0] > 0 && override?.[1] > 0) {
+      return [override[0], override[1]];
+    }
+
+    // Otherwise follow the single render resolution (maintains aspect ratio)
     const { width, height } = getRenderResolution();
     if (width > 0 && height > 0) {
       return [width, height];
