@@ -129,19 +129,47 @@ async function annotate() {
         const r = Math.max(15, Math.round(Math.min(c.width, c.height) * 0.028));
         ctx.font = `700 ${Math.round(r * 1.25)}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        callouts.forEach((cal, i) => {
+        // Boxes and leader lines first, so every badge sits on top of its own
+        // line rather than being crossed by a later one.
+        const placed = callouts.map((cal) => {
           const x = cal.x * c.width, y = cal.y * c.height;
-          if (cal.box) {
-            ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = Math.max(2, r * 0.16);
-            ctx.strokeRect(cal.box.x * c.width, cal.box.y * c.height,
-                           cal.box.w * c.width, cal.box.h * c.height);
+          const box = cal.box && {
+            x: cal.box.x * c.width, y: cal.box.y * c.height,
+            w: cal.box.w * c.width, h: cal.box.h * c.height,
+          };
+          return { cal, x, y, box };
+        });
+
+        for (const { x, y, box } of placed) {
+          if (!box) continue;
+          ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = Math.max(2, r * 0.16);
+          ctx.strokeRect(box.x, box.y, box.w, box.h);
+
+          // Leader line from the badge to the nearest point on the box, so a
+          // badge parked in empty space is still unambiguously attached to the
+          // thing it names. Skipped when the badge already touches the box.
+          const tx = Math.max(box.x, Math.min(x, box.x + box.w));
+          const ty = Math.max(box.y, Math.min(y, box.y + box.h));
+          const dx = tx - x, dy = ty - y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > r * 1.25) {
+            const ux = dx / dist, uy = dy / dist;
+            ctx.beginPath();
+            ctx.moveTo(x + ux * r, y + uy * r);
+            ctx.lineTo(tx - ux * 2, ty - uy * 2);
+            ctx.strokeStyle = '#ff9d4d';
+            ctx.lineWidth = Math.max(2, r * 0.12);
+            ctx.stroke();
           }
+        }
+
+        for (const [i, { cal, x, y }] of placed.entries()) {
           ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fillStyle = '#d67f4f'; ctx.fill();
           ctx.lineWidth = Math.max(2, r * 0.14); ctx.strokeStyle = '#1a1a1a'; ctx.stroke();
           ctx.fillStyle = '#ffffff';
           ctx.fillText(String(cal.n ?? i + 1), x, y + r * 0.06);
-        });
+        }
         return c.toDataURL('image/webp', QUALITY);
       }, { url: dataUrl(file), callouts: spec.callouts, QUALITY });
       const dst = join(IMAGES, `${name}.annotated.webp`);

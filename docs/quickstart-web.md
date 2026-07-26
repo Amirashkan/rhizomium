@@ -117,6 +117,12 @@ pin, so you animate it with an expression rather than by wiring a node into it.
 
 ![The parameter panel for a Circle node, with its parts numbered](images/parameter-panel.annotated.webp)
 
+1. **Panel header** - which node these parameters belong to
+2. **Value field** - type a number, or an `=` expression
+3. **Evaluated value** - what the expression currently resolves to
+4. **Accepted range** for this parameter
+5. **Copy reference**, **bind** (MIDI / parameter link), and **keyframe**
+
 The line under the field shows the value the expression currently evaluates to,
 and the range the parameter accepts. Watch your circle pulse with time!
 
