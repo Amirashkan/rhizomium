@@ -34,40 +34,17 @@ The profiler overlay appears showing:
 
 Shows essential metrics at a glance:
 
-![The profiler overlay, compact view](images/profiler-compact.webp)
-
-```
-╔══════════════════════════════════╗
-║      COMPUTE PROFILER            ║
-╠══════════════════════════════════╣
-║ FPS: 60                          ║
-║ Frame Time: 16.5ms               ║
-║ Compute Time: 2.3ms              ║
-║ Dispatches: 2                    ║
-║ Workgroups: 1024                 ║
-║ GPU Timing: Yes                  ║
-╚══════════════════════════════════╝
-```
+![The profiler overlay in compact view, listing FPS, frame time, compute time, dispatches, workgroups and GPU timing](images/profiler-compact.webp)
 
 ### Expanded View
 
 Click **+** button to see detailed breakdown:
 
-![The profiler overlay, expanded](images/profiler-expanded.webp)
+![The profiler overlay expanded, with a dispatch breakdown listing each compute node's time, dispatch size, workgroup size and total workgroups](images/profiler-expanded.webp)
 
-```
-╔══════════════════════════════════╗
-║      COMPUTE PROFILER            ║
-╠══════════════════════════════════╣
-║ FPS: 60                          ║
-║ Frame Time: 16.5ms               ║
-║ Compute Time: 2.3ms              ║
-║                                  ║
-║ Dispatch Breakdown:             ║
-║ • ComputeNoise: 1.2ms (512×512) ║
-║ • ComputeBlur: 1.1ms (512×512)  ║
-╚══════════════════════════════════╝
-```
+Each dispatch is listed with its time (and whether that time came from the GPU
+or the CPU fallback), its dispatch and workgroup dimensions, and the total
+workgroup count.
 
 ---
 
