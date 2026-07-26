@@ -219,13 +219,6 @@
           "h": 0.30299
         },
         {
-          "name": "node-random",
-          "x": 0.37125,
-          "y": 0.07152,
-          "w": 0.1125,
-          "h": 0.28349
-        },
-        {
           "name": "node-rectangle",
           "x": 0.13,
           "y": 0.07672,
@@ -245,13 +238,6 @@
           "y": 0.08973,
           "w": 0.13375,
           "h": 0.28479
-        },
-        {
-          "name": "node-value-noise",
-          "x": 0.37125,
-          "y": 0.329,
-          "w": 0.11438,
-          "h": 0.28349
         },
         {
           "name": "node-cell-noise",
@@ -296,13 +282,6 @@
           "h": 0.3212
         },
         {
-          "name": "node-ridged-noise",
-          "x": 0.12812,
-          "y": 0.6593,
-          "w": 0.12,
-          "h": 0.28479
-        },
-        {
           "name": "node-compute-noise",
           "x": 0.50125,
           "y": 0.6658,
@@ -315,13 +294,6 @@
           "y": 0.6684,
           "w": 0.1375,
           "h": 0.29129
-        },
-        {
-          "name": "node-worley-noise",
-          "x": 0.26062,
-          "y": 0.6697,
-          "w": 0.11875,
-          "h": 0.3225
         },
         {
           "name": "node-gradient-compute",
@@ -343,15 +315,48 @@
           "y": 0.6814,
           "w": 0.1125,
           "h": 0.28349
+        }
+      ]
+    },
+    "node-gallery-noise": {
+      "slices": [
+        {
+          "name": "node-ridged-noise",
+          "x": 0.05731,
+          "y": 0.06759,
+          "w": 0.2807,
+          "h": 0.43674
+        },
+        {
+          "name": "node-random",
+          "x": 0.34035,
+          "y": 0.06586,
+          "w": 0.2807,
+          "h": 0.43674
+        },
+        {
+          "name": "node-worley-noise",
+          "x": 0.62222,
+          "y": 0.0312,
+          "w": 0.2807,
+          "h": 0.54939
+        },
+        {
+          "name": "node-value-noise",
+          "x": 0.05731,
+          "y": 0.487,
+          "w": 0.2807,
+          "h": 0.43674
         },
         {
           "name": "node-warp-noise",
-          "x": 0.37938,
-          "y": 0.68661,
-          "w": 0.11438,
-          "h": 0.28479
+          "x": 0.34035,
+          "y": 0.487,
+          "w": 0.2807,
+          "h": 0.43674
         }
-      ]
+      ],
+      "_comment": "Re-capture of the five noise nodes that the hash fix corrected. These names were removed from node-gallery-generators' slices so a bare `slice` run cannot overwrite them with the pre-fix cards still in that sheet."
     }
   }
 }
