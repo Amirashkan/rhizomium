@@ -291,6 +291,46 @@ describe('secondMonitorReceiver', () => {
     expect(gpuCanvas.style.top).toBe('40px');   // (720-640)/2, black bars top & bottom
   });
 
+  // The editor now always pins the viewer to the output format (maxDim -1) and
+  // configures only the DISPLAY size: how many pixels the presentation surface
+  // spends. The render is letterboxed into the display's box either way, so the
+  // element keeps filling the monitor while the pixels behind it are capped.
+  it('caps the presentation surface to the display size, keeping the letterboxed layout', () => {
+    const r = initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    const ch = FakeBroadcastChannel.instances[0];
+
+    const uniforms = () => ch.emit({
+      type: MSG.UNIFORMS,
+      aspect: new Float32Array([2, 0, 0, 0]),
+      globals: new Float32Array([1000, 500, 0, 0, 0, 0, 0, 0]),
+      params: new Float32Array([0]),
+    });
+
+    // Output format (2:1) letterboxed into a 1280x720 display: 1280x640 centred.
+    ch.emit({ type: MSG.RENDER_RES, maxDim: -1, displayMaxDim: 0 });
+    uniforms();
+    expect(r.displayMaxDim).toBe(0);
+    expect(gpuCanvas.width).toBe(1280);
+    expect(gpuCanvas.height).toBe(640);
+
+    // Halve the display size: same CSS box (still fills the monitor, same bars),
+    // half the pixels behind it.
+    ch.emit({ type: MSG.RENDER_RES, maxDim: -1, displayMaxDim: 640 });
+    uniforms();
+    expect(r.displayMaxDim).toBe(640);
+    expect(gpuCanvas.width).toBe(640);
+    expect(gpuCanvas.height).toBe(320);
+    expect(gpuCanvas.style.width).toBe('1280px');
+    expect(gpuCanvas.style.height).toBe('640px');
+    expect(gpuCanvas.style.top).toBe('40px');
+
+    // A display size above the display's own resolution never upscales.
+    ch.emit({ type: MSG.RENDER_RES, maxDim: -1, displayMaxDim: 4096 });
+    uniforms();
+    expect(gpuCanvas.width).toBe(1280);
+    expect(gpuCanvas.height).toBe(640);
+  });
+
   it('holds the last frame after sustained silence, then resumes on new state', async () => {
     const renderer = makeFakeRenderer();
     const ch = await primeNative(renderer);

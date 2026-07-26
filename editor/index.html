@@ -302,28 +302,25 @@
                only in the Vite/desktop build (see main.js / isViteBuild.js). -->
           <div class="menu-separator" id="sep-second-monitor" style="display:none"></div>
           <button id="btn-second-monitor" style="display:none">Second Monitor Viewer</button>
-          <!-- Compute resolution for the second viewer. The viewer is independent
-               of the floating preview: Auto renders at the viewer display's own
-               resolution, fixed values at that long edge. "Match editor" is the
-               explicit opt-in that follows the editor's preview-derived size for
-               exact feedback-sim matching. Revealed with the button. -->
-          <label class="snap-size" id="row-second-monitor-res" style="display:none">
-            <span>Viewer Res:</span>
-            <select id="second-monitor-res">
+          <!-- The second viewer always RENDERS the output format, so its sims and
+               framing match the editor exactly. This only sets how many pixels it
+               presents with; the render is letterboxed into that surface.
+               Revealed with the button. -->
+          <label class="snap-size" id="row-second-monitor-display" style="display:none">
+            <span>Viewer Display:</span>
+            <select id="second-monitor-display">
               <option value="0">Auto (display)</option>
-              <option value="720">720p</option>
-              <option value="1080">1080p</option>
-              <option value="1440">1440p</option>
-              <option value="2048">Max (2048)</option>
+              <option value="1280">720p</option>
+              <option value="1920">1080p</option>
+              <option value="2560">1440p</option>
+              <option value="3840">4K</option>
               <option value="custom">Custom…</option>
-              <option value="-1">Match output</option>
             </select>
           </label>
-          <!-- Custom long edge for the viewer. The aspect ratio still comes from
-               the output format, so only the density is set here. -->
-          <label class="snap-size" id="row-second-monitor-res-custom" style="display:none">
+          <!-- Custom presentation long edge in device pixels. -->
+          <label class="snap-size" id="row-second-monitor-display-custom" style="display:none">
             <span>Long edge:</span>
-            <input type="number" id="second-monitor-res-custom" inputmode="numeric" min="128" max="2048" step="1" value="1080" />
+            <input type="number" id="second-monitor-display-custom" inputmode="numeric" min="256" max="7680" step="1" value="1920" />
           </label>
         </div>
       </div>

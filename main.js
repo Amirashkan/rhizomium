@@ -1302,55 +1302,52 @@ function setupUIEventHandlers() {
       }
     });
 
-    // Compute-resolution control for the second viewer. The viewer is independent
-    // of the floating preview: Auto (0, default) renders at the viewer display's
-    // own resolution, a fixed long-edge at that detail (up to 2048). "Match
-    // editor" (-1) is the explicit opt-in that follows the editor's
-    // preview-derived size for exact feedback-sim matching.
-    const secondMonitorResRow = document.getElementById("row-second-monitor-res");
-    const secondMonitorResSel = removeExistingHandlers("second-monitor-res");
-    const secondMonitorResCustomRow = document.getElementById("row-second-monitor-res-custom");
-    const secondMonitorResCustom = removeExistingHandlers("second-monitor-res-custom");
-    if (secondMonitorResRow && secondMonitorResSel
-        && typeof secondMonitorViewer.setComputeResolution === "function") {
-      secondMonitorResRow.style.removeProperty("display");
+    // Display-size control for the second viewer. The viewer always RENDERS the
+    // output format - same framing, same sim resolution as the editor - and this
+    // only chooses how many pixels it presents with. Auto (0, the default) uses
+    // the viewer display's own resolution; a fixed long edge presents below it,
+    // with the render letterboxed into the surface either way.
+    const secondMonitorDisplayRow = document.getElementById("row-second-monitor-display");
+    const secondMonitorDisplaySel = removeExistingHandlers("second-monitor-display");
+    const secondMonitorDisplayCustomRow = document.getElementById("row-second-monitor-display-custom");
+    const secondMonitorDisplayCustom = removeExistingHandlers("second-monitor-display-custom");
+    if (secondMonitorDisplayRow && secondMonitorDisplaySel
+        && typeof secondMonitorViewer.setDisplayResolution === "function") {
+      secondMonitorDisplayRow.style.removeProperty("display");
 
-      // The preset list covers the common long edges; "Custom…" reveals a free
-      // one. Only the density is chosen here - the aspect ratio always comes
-      // from the output format, so the viewer can never fork the framing.
-      const presets = new Set(["0", "720", "1080", "1440", "2048", "-1"]);
-      const current = secondMonitorViewer.computeMaxDim;
-      const isCustom = Number.isFinite(current) && !presets.has(String(current));
+      const presets = new Set(["0", "1280", "1920", "2560", "3840"]);
+      const current = secondMonitorViewer.displayMaxDim;
+      const isCustom = Number.isFinite(current) && current > 0 && !presets.has(String(current));
 
       if (Number.isFinite(current)) {
-        secondMonitorResSel.value = isCustom ? "custom" : String(current);
-        if (isCustom && secondMonitorResCustom) secondMonitorResCustom.value = String(current);
+        secondMonitorDisplaySel.value = isCustom ? "custom" : String(current);
+        if (isCustom && secondMonitorDisplayCustom) {
+          secondMonitorDisplayCustom.value = String(current);
+        }
       }
 
       const syncCustomRow = () => {
-        if (!secondMonitorResCustomRow) return;
-        const showCustom = secondMonitorResSel.value === "custom";
-        secondMonitorResCustomRow.style.display = showCustom ? "" : "none";
+        if (!secondMonitorDisplayCustomRow) return;
+        secondMonitorDisplayCustomRow.style.display =
+          secondMonitorDisplaySel.value === "custom" ? "" : "none";
       };
       syncCustomRow();
 
-      secondMonitorResSel.addEventListener("change", (e) => {
+      secondMonitorDisplaySel.addEventListener("change", (e) => {
         syncCustomRow();
-        if (e.target.value === "custom") {
-          const longEdge = parseInt(secondMonitorResCustom?.value, 10);
-          if (Number.isFinite(longEdge)) secondMonitorViewer.setComputeResolution(longEdge);
-          return;
-        }
-        const maxDim = parseInt(e.target.value, 10);
-        if (Number.isFinite(maxDim)) secondMonitorViewer.setComputeResolution(maxDim);
+        const raw = e.target.value === "custom"
+          ? secondMonitorDisplayCustom?.value
+          : e.target.value;
+        const longEdge = parseInt(raw, 10);
+        if (Number.isFinite(longEdge)) secondMonitorViewer.setDisplayResolution(longEdge);
       });
 
-      secondMonitorResCustom?.addEventListener("change", (e) => {
+      secondMonitorDisplayCustom?.addEventListener("change", (e) => {
         const longEdge = parseInt(e.target.value, 10);
         if (!Number.isFinite(longEdge)) return;
-        secondMonitorViewer.setComputeResolution(longEdge);
+        secondMonitorViewer.setDisplayResolution(longEdge);
         // The viewer clamps; show what was actually applied.
-        e.target.value = String(secondMonitorViewer.computeMaxDim);
+        e.target.value = String(secondMonitorViewer.displayMaxDim);
       });
     }
   }
