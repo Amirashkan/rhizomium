@@ -376,9 +376,13 @@ export class ShaderPreviewManager {
       throw new Error('preview source texture is not sampleable');
     }
 
-    const thumbSize = this.previewThumbSize || 128;
-    const pixels = await this._renderThumbnailReadback(texture, thumbSize);
-    const imageData = this.gpuRenderer.pixelsToImageData(pixels, thumbSize);
+    // Thumbnails keep the source's aspect ratio: the long edge gets the full
+    // thumbnail budget and the short edge shrinks to match. A square target
+    // would squash a 16:9 render, and the node band (which fits thumbnails by
+    // their own dimensions) would have no way to tell.
+    const { width: thumbWidth, height: thumbHeight } = this._thumbnailSize(texture);
+    const pixels = await this._renderThumbnailReadback(texture, thumbWidth, thumbHeight);
+    const imageData = this.gpuRenderer.pixelsToImageData(pixels, thumbWidth, thumbHeight);
 
     // The render + readback above is async and slow; the eye toggle can land WHILE it's in flight
     // (after the drain-time gate passed). Re-check right before the write so a node hidden mid-render
@@ -387,8 +391,8 @@ export class ShaderPreviewManager {
     if (ed?.isNodePreviewEnabled && !ed.isNodePreviewEnabled(node)) return;
 
     const canvas = document.createElement('canvas');
-    canvas.width = thumbSize;
-    canvas.height = thumbSize;
+    canvas.width = thumbWidth;
+    canvas.height = thumbHeight;
     canvas.getContext('2d').putImageData(imageData, 0, 0);
 
     node.__thumb = canvas;
@@ -396,6 +400,30 @@ export class ShaderPreviewManager {
     if (window.editor?.markDirty) {
       window.editor.markDirty('node-thumbnail-update');
     }
+  }
+
+  /**
+   * Thumbnail dimensions for a source texture: the long edge is the thumbnail
+   * budget, the short edge follows the source aspect ratio (min 1px). Sources
+   * that don't report a size fall back to a square.
+   * @param {GPUTexture} texture
+   * @returns {{width:number, height:number}}
+   * @private
+   */
+  _thumbnailSize(texture) {
+    const budget = this.previewThumbSize || 128;
+    const srcW = Number(texture?.width);
+    const srcH = Number(texture?.height);
+
+    if (!Number.isFinite(srcW) || !Number.isFinite(srcH) || srcW <= 0 || srcH <= 0) {
+      return { width: budget, height: budget };
+    }
+
+    const scale = budget / Math.max(srcW, srcH);
+    return {
+      width: Math.max(1, Math.round(srcW * scale)),
+      height: Math.max(1, Math.round(srcH * scale)),
+    };
   }
 
   /**
@@ -443,33 +471,37 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
   }
 
   /**
-   * GPU-downscale a source texture into a size x size RGBA texture and read THAT back. Sampling
-   * antialiases, and reading back only size² keeps the GPU->CPU transfer tiny — the dominant
-   * per-preview cost — independent of the (often much larger) source resolution.
+   * GPU-downscale a source texture into a width x height RGBA texture and read THAT back. Sampling
+   * antialiases, and reading back only the thumbnail keeps the GPU->CPU transfer tiny — the dominant
+   * per-preview cost — independent of the (often much larger) source resolution. The destination
+   * carries the source's aspect ratio, so the downscale never distorts.
    * @private
    */
-  async _renderThumbnailReadback(srcTexture, size) {
+  async _renderThumbnailReadback(srcTexture, width, height = width) {
     const device = this.device;
     this._ensureDownsampler();
 
     // Pool the destination texture + readback buffer. Thumbnail readbacks are serialized, so one
     // pair can be reused across calls instead of allocating/destroying GPU resources every frame.
-    if (!this._poolDst || this._poolDstSize !== size || this._poolDevice !== device) {
+    // Changing the render aspect ratio changes these dimensions, so the pool keys on both.
+    if (!this._poolDst || this._poolDstWidth !== width || this._poolDstHeight !== height
+        || this._poolDevice !== device) {
       try { this._poolDst?.destroy?.(); } catch {}
       try { this._poolBuffer?.destroy?.(); } catch {}
-      this._poolBytesPerRow = Math.ceil((size * 4) / 256) * 256;
+      this._poolBytesPerRow = Math.ceil((width * 4) / 256) * 256;
       this._poolDst = device.createTexture({
-        size: [size, size, 1],
+        size: [width, height, 1],
         format: 'rgba8unorm',
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
         label: 'preview-thumb',
       });
       this._poolBuffer = device.createBuffer({
-        size: this._poolBytesPerRow * size,
+        size: this._poolBytesPerRow * height,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         label: 'preview-thumb-readback',
       });
-      this._poolDstSize = size;
+      this._poolDstWidth = width;
+      this._poolDstHeight = height;
       this._poolDevice = device;
     }
     const dst = this._poolDst;
@@ -500,7 +532,7 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     encoder.copyTextureToBuffer(
       { texture: dst },
       { buffer, bytesPerRow },
-      { width: size, height: size, depthOrArrayLayers: 1 }
+      { width, height, depthOrArrayLayers: 1 }
     );
     // The source texture is queue-shared state that can be destroyed between
     // enqueue and drain (fragment-bridge textures recycle per frame, the 3D
@@ -518,9 +550,9 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     // mapAsync already waits for the submitted copy, so no separate onSubmittedWorkDone sync.
     await buffer.mapAsync(GPUMapMode.READ);
     const mapped = buffer.getMappedRange();
-    const pixels = new Uint8Array(size * size * 4);
-    for (let y = 0; y < size; y++) {
-      pixels.set(new Uint8Array(mapped, y * bytesPerRow, size * 4), y * size * 4);
+    const pixels = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      pixels.set(new Uint8Array(mapped, y * bytesPerRow, width * 4), y * width * 4);
     }
     buffer.unmap();
     return pixels;

@@ -212,22 +212,10 @@
             <button class="menu-submenu-trigger">Publish ▸</button>
             <div class="menu-submenu">
               <div class="submenu-section">
-                <div class="submenu-section-title">To Cloud / Server</div>
-                <label for="publish-target" class="menu-label">Select Target:</label>
-                <select id="publish-target">
-                  <option value="tenderworld">TenderWorld</option>
-                  <option value="custom">Custom Server…</option>
-                </select>
-                <label class="submenu-toggle">
-                  <input type="checkbox" id="publish-include-previews" />
-                  Include Node Previews
-                </label>
-              </div>
-              <div class="submenu-section">
-                <div class="submenu-section-title">Version / Commit</div>
-                <label for="publish-commit-message" class="menu-label">Commit Message:</label>
-                <input type="text" id="publish-commit-message" placeholder="Enter version message..." class="submenu-input" />
-                <button id="btn-publish" class="submenu-button submenu-button-primary">Publish</button>
+                <div class="submenu-section-title">Share to TenderWorld Gallery</div>
+                <span class="submenu-note">Uploads at the render resolution set in View → Preview / Export Settings.</span>
+                <button id="btn-publish-image" class="submenu-button submenu-button-primary">Publish Image…</button>
+                <button id="btn-publish-animation" class="submenu-button">Publish Animation…</button>
               </div>
             </div>
           </div>
@@ -314,21 +302,25 @@
                only in the Vite/desktop build (see main.js / isViteBuild.js). -->
           <div class="menu-separator" id="sep-second-monitor" style="display:none"></div>
           <button id="btn-second-monitor" style="display:none">Second Monitor Viewer</button>
-          <!-- Compute resolution for the second viewer. The viewer is independent
-               of the floating preview: Auto renders at the viewer display's own
-               resolution, fixed values at that long edge. "Match editor" is the
-               explicit opt-in that follows the editor's preview-derived size for
-               exact feedback-sim matching. Revealed with the button. -->
-          <label class="snap-size" id="row-second-monitor-res" style="display:none">
-            <span>Viewer Res:</span>
-            <select id="second-monitor-res">
+          <!-- The second viewer always RENDERS the output format, so its sims and
+               framing match the editor exactly. This only sets how many pixels it
+               presents with; the render is letterboxed into that surface.
+               Revealed with the button. -->
+          <label class="snap-size" id="row-second-monitor-display" style="display:none">
+            <span>Viewer Display:</span>
+            <select id="second-monitor-display">
               <option value="0">Auto (display)</option>
-              <option value="720">720p</option>
-              <option value="1080">1080p</option>
-              <option value="1440">1440p</option>
-              <option value="2048">Max (2048)</option>
-              <option value="-1">Match editor</option>
+              <option value="1280">720p</option>
+              <option value="1920">1080p</option>
+              <option value="2560">1440p</option>
+              <option value="3840">4K</option>
+              <option value="custom">Custom…</option>
             </select>
+          </label>
+          <!-- Custom presentation long edge in device pixels. -->
+          <label class="snap-size" id="row-second-monitor-display-custom" style="display:none">
+            <span>Long edge:</span>
+            <input type="number" id="second-monitor-display-custom" inputmode="numeric" min="256" max="7680" step="1" value="1920" />
           </label>
         </div>
       </div>

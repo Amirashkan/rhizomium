@@ -1,4 +1,5 @@
 import { MessagePriority } from './AsyncQueueManager.js';
+import { serializeProjectFormat, applyProjectFormat } from '../ui/OutputFormat.js';
 import { BackupStore } from './BackupStore.js';
 import { migrateProjectData, SAVE_FORMAT_VERSION } from './projectMigrations.js';
 
@@ -270,6 +271,11 @@ exportProject(options = {}) {
       format: "rhizomium-project",
       savedAt: new Date().toISOString(),
 
+      // Output format: the authored composition size + sim quality. These are
+      // part of the artwork (resolution-dependent sims render differently at a
+      // different size), so they travel with the project rather than the machine.
+      outputFormat: serializeProjectFormat(),
+
       // Core graph data
       nodes: this.exportNodes(),
       connections: this.exportConnections(),
@@ -468,6 +474,11 @@ async importProject(projectData, options = {}) {
         }
       }
     }
+
+    // Restore the authored output format before the shader rebuild below, so
+    // the first render already uses the project's own size. Older projects have
+    // no such field and keep the current setting.
+    applyProjectFormat(projectData.outputFormat);
 
     // Restore viewport
     if (restoreViewport && projectData.viewport) {

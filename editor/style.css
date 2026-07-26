@@ -14,6 +14,20 @@
   --snap-grid-line-strong: rgba(255, 255, 255, 0.05);
 }
 
+/* Dropdown popups take their palette from the platform, not from the element's
+   own colours: without an explicit option rule the open list renders our light
+   text on a default white background - unreadable. color-scheme additionally
+   asks the browser for a dark native popup where that is supported. */
+select {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: #1c1c1e;
+  color: #e8e8e8;
+}
+
 /* Top Menu Bar */
 #top-menu-bar {
   position: fixed;

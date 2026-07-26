@@ -29,7 +29,6 @@ describe('FloatingGPUPreview adaptive quality', () => {
     const updateSpy = vi.spyOn(preview, 'updateSize').mockResolvedValue();
     preview.onAdaptiveSettingsChanged({
       enabled: true,
-      interactionScale: 0.5,
       resolutionScale: 0.5,
       cooldownMs: 15,
     });

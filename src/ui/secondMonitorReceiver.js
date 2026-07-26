@@ -145,6 +145,10 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   // explicit opt-in that adopts the editor's dims for exact feedback-sim matching.
   const MATCH_EDITOR = -1;
   let computeMaxDim = 0;
+  // Long edge (device px) of the surface we present on; 0 = this display's own
+  // resolution. Independent of what we RENDER, which the editor pins to its
+  // output format - the render is letterboxed into whatever this yields.
+  let displayMaxDim = 0;
   const isMatchEditor = () => computeMaxDim === MATCH_EDITOR;
   let editorAspect = 0;                     // editor's aspect ratio (w/h); 0 = unknown → fill
   let computeAspect = 0;                    // compute output texture aspect (w/h); preferred in the
@@ -642,6 +646,7 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         break;
       case MSG.RENDER_RES:
         setComputeMaxDim(d.maxDim);
+        setDisplayMaxDim(d.displayMaxDim);
         break;
       case MSG.FEEDBACK_RESET:
         // A Feedback node was reset in the editor (panel button / Reset pin). Our
@@ -674,27 +679,44 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
   }
 
   // --- sizing --------------------------------------------------------------
+  // Scale factor that brings a device-pixel box down to the configured display
+  // long edge. 1 when the display size is Auto or the box already fits, so the
+  // surface is only ever capped, never upscaled.
+  function displayScaleFor(bw, bh) {
+    if (!(displayMaxDim > 0)) return 1;
+    const longEdge = Math.max(bw, bh);
+    return longEdge > displayMaxDim ? displayMaxDim / longEdge : 1;
+  }
+
   function backingSize() {
     const dpr = win.devicePixelRatio || 1;
     const cssW = win.innerWidth || 1280;
     const cssH = win.innerHeight || 720;
+    const fullW = Math.max(1, Math.round(cssW * dpr));
+    const fullH = Math.max(1, Math.round(cssH * dpr));
+    const scale = displayScaleFor(fullW, fullH);
     return {
       dpr, cssW, cssH,
-      bw: Math.max(1, Math.round(cssW * dpr)),
-      bh: Math.max(1, Math.round(cssH * dpr)),
+      bw: Math.max(1, Math.round(fullW * scale)),
+      bh: Math.max(1, Math.round(fullH * scale)),
     };
   }
 
-  // Letterboxing applies ONLY in the explicit "Match editor" mode. In Auto/fixed
-  // modes the compute textures are display-shaped by construction and fragments are
-  // resolution-independent, so the output always fills this display — the editor's
-  // floating preview can never reshape it. In match mode prefer the compute output
-  // texture's aspect; the editor's broadcast aspect (its on-screen display box) can
-  // differ from the compute texture's shape and would stretch the sampled output.
+  // Letterboxing applies in match mode - which is what the editor always asks for
+  // now, so the viewer frames the composition exactly like the editor's preview
+  // does. The EDITOR'S aspect is the authority: it is the output format's shape,
+  // the same number the preview fits its panel to. The compute texture's own
+  // aspect is only a fallback for before the first UNIFORMS message arrives; it
+  // used to be preferred, from when a capped texture could be reshaped relative
+  // to the composition (a 2560x1080 output became a 2048x1080 texture) and the
+  // sampled output would stretch. Compute textures are now capped along their
+  // long edge, preserving shape, so the two agree and the editor's is the one to
+  // trust. In the legacy display-shaped modes there is nothing to letterbox to.
   function effectiveAspect() {
     if (!isMatchEditor()) return 0; // fill the display
+    if (editorAspect > 0) return editorAspect;
     if (tier === TIER.NATIVE_COMPUTE && computeAspect > 0) return computeAspect;
-    return editorAspect;
+    return 0;
   }
 
   function sizeGpuCanvas() {
@@ -711,8 +733,13 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
       const rect = letterboxRect(a, 1, cssW, cssH);
       if (rect.dw > 0 && rect.dh > 0) { elW = rect.dw; elH = rect.dh; left = rect.dx; top = rect.dy; }
     }
-    const bw = Math.max(1, Math.round(elW * dpr));
-    const bh = Math.max(1, Math.round(elH * dpr));
+    // The element keeps its letterboxed CSS box (so the output still fills the
+    // display's usable area); only the pixels behind it are capped.
+    const fullW = Math.max(1, Math.round(elW * dpr));
+    const fullH = Math.max(1, Math.round(elH * dpr));
+    const scale = displayScaleFor(fullW, fullH);
+    const bw = Math.max(1, Math.round(fullW * scale));
+    const bh = Math.max(1, Math.round(fullH * scale));
     if (gpuCanvas.width !== bw) gpuCanvas.width = bw;
     if (gpuCanvas.height !== bh) gpuCanvas.height = bh;
     gpuCanvas.style.width = elW + 'px';
@@ -761,6 +788,25 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
    * (adopt the editor's preview-derived dims for exact sim matching). Rebuilds the
    * compute graph at the new size.
    */
+  /**
+   * Presentation surface long edge in device px (0 = this display's own
+   * resolution). Only affects how many pixels we present with - never what we
+   * render, which stays the editor's output format.
+   */
+  function setDisplayMaxDim(next) {
+    let v = Math.round(Number(next));
+    if (!Number.isFinite(v) || v <= 0) v = 0;
+    if (v === displayMaxDim) return;
+    displayMaxDim = v;
+    sizeGpuCanvas();
+    // Compute textures are display-derived outside match mode, so a changed
+    // surface size has to re-key the graph there too.
+    if (!isMatchEditor() && lastComputeGraphMsg) {
+      appliedComputeKey = null;
+      applyComputeGraph(lastComputeGraphMsg);
+    }
+  }
+
   function setComputeMaxDim(next) {
     let v = Math.round(Number(next));
     if (!Number.isFinite(v)) v = 0;
@@ -1122,7 +1168,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     get computeRuntime() { return computeRuntime; },
     get latestSize() { return { width: latestW, height: latestH }; },
     get computeMaxDim() { return computeMaxDim; },
+    get displayMaxDim() { return displayMaxDim; },
     setComputeMaxDim,
+    setDisplayMaxDim,
     profiler,
     onMessage,
     closeSelf,

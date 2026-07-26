@@ -26,6 +26,7 @@ import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
+import { MAX_SIM_EDGE, fitToLongEdge, resolveResolution } from '../ui/OutputFormat.js';
 
 export class ComputeExecutor {
   constructor(device) {
@@ -97,10 +98,23 @@ export class ComputeExecutor {
     this._pendingDestroys.push(fn);
   }
 
-  // PERFORMANCE: Maximum resolution for compute nodes
-  // For full HD preview (1920x1080), we use full resolution for compute nodes
-  // Quality is maintained - optimizations come from smarter caching and dispatch logic
-  static MAX_COMPUTE_RES = 2048; // High enough to support full HD and beyond
+  // Longest edge a compute texture may have. Shared with the resolution policy
+  // so the settings window can report the size the sims actually get.
+  static MAX_COMPUTE_RES = MAX_SIM_EDGE;
+
+  /**
+   * Cap a compute texture to MAX_COMPUTE_RES preserving its aspect ratio. Capping
+   * the axes independently reshapes the sim - a 2560x1080 composition became a
+   * 2048x1080 texture - and then the composite that samples it, and the second
+   * viewer that frames itself from it, no longer agree with the composition.
+   */
+  static fitComputeSize(width, height) {
+    const fitted = fitToLongEdge(
+      { width: Math.round(width), height: Math.round(height) },
+      ComputeExecutor.MAX_COMPUTE_RES,
+    );
+    return [Math.max(1, fitted.width), Math.max(1, fitted.height)];
+  }
 
   // Compute kinds that evolve on their own every frame (time-based or
   // stateful feedback), used by isGraphAnimated()
@@ -303,20 +317,13 @@ export class ComputeExecutor {
   async initializeComputeNode(nodeId, nodeData) {
     const { node, wgslCode, resolution, supportsFeedback } = nodeData;
 
-    // Use preview resolution setting to maintain full quality
-    // Resolution follows the preview settings - optimizations come from smart caching
-    const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
     const DEFAULT_COMPUTE_RES = 1024;
 
-    // Get preview resolution from settings
-    let baseWidth = DEFAULT_COMPUTE_RES;
-    let baseHeight = DEFAULT_COMPUTE_RES;
-
-    if (window.floatingPreview?.settings?.settings?.resolution) {
-      const previewRes = window.floatingPreview.settings.settings.resolution;
-      baseWidth = previewRes.width || DEFAULT_COMPUTE_RES;
-      baseHeight = previewRes.height || DEFAULT_COMPUTE_RES;
-    }
+    // Internal sim textures follow the 'sim' role: the output aspect at the
+    // project's sim quality, independent of how cheaply the preview draws.
+    const simRes = resolveResolution('sim');
+    const baseWidth = simRes.width || DEFAULT_COMPUTE_RES;
+    const baseHeight = simRes.height || DEFAULT_COMPUTE_RES;
 
     let width = baseWidth;
     let height = baseHeight;
@@ -331,9 +338,8 @@ export class ComputeExecutor {
       height = resolution[1];
     }
 
-    // Cap at maximum supported resolution only (no quality reduction)
-    width = Math.min(width, MAX_COMPUTE_RES);
-    height = Math.min(height, MAX_COMPUTE_RES);
+    // Cap detail at the maximum supported size, never the shape.
+    [width, height] = ComputeExecutor.fitComputeSize(width, height);
 
     // Ensure we have valid dimensions before initializing
     if (!width || !height || width <= 0 || height <= 0) {
@@ -793,21 +799,17 @@ export class ComputeExecutor {
 
         // This is a fragment node being used as compute input!
         try {
-          // Use the same resolution as the compute node (follows preview settings)
-          const resolution = nodeData.resolution || [1024, 1024];
-          // Get preview resolution if available
-          let width = resolution[0] || 1024;
-          let height = resolution[1] || 1024;
-          
-          if (window.floatingPreview?.settings?.settings?.resolution) {
-            const previewRes = window.floatingPreview.settings.settings.resolution;
-            width = previewRes.width || width;
-            height = previewRes.height || height;
-          }
-          
-          const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
-          width = Math.min(width, MAX_COMPUTE_RES);
-          height = Math.min(height, MAX_COMPUTE_RES);
+          // Match the CONSUMING compute node's texture dims so UV/texel math lines
+          // up. In the editor those are the render resolution; the second-monitor
+          // receiver registers its own dims and stays independent of the editor,
+          // so the node's registration wins and the store is only the fallback.
+          const resolution = nodeData.resolution || [];
+          const simRes = resolveResolution('sim');
+          let width = resolution[0] > 0 ? resolution[0] : (simRes.width || 1024);
+          let height = resolution[1] > 0 ? resolution[1] : (simRes.height || 1024);
+
+
+          [width, height] = ComputeExecutor.fitComputeSize(width, height);
 
 
           // Render the fragment node WITH its compute dependencies dispatched first
@@ -839,23 +841,20 @@ export class ComputeExecutor {
     // Auto-wrap fragment (or mixed) subgraphs feeding 3D Field Visualizer
     // nodes: render them to a texture exactly like fragment-fed compute
     // inputs, so the mapper can consume ANY graph output
-    for (const { sourceId } of mapperConsumers) {
+    for (const { node: mapperNode, sourceId } of mapperConsumers) {
       if (this.renderedFragmentNodes.has(sourceId)) continue;
 
       const inputNode = window.graph.getNode(sourceId);
       if (!inputNode) continue;
 
       try {
-        let width = 512;
-        let height = 512;
-        if (window.floatingPreview?.settings?.settings?.resolution) {
-          const previewRes = window.floatingPreview.settings.settings.resolution;
-          width = previewRes.width || width;
-          height = previewRes.height || height;
-        }
-        const MAX_COMPUTE_RES = ComputeExecutor.MAX_COMPUTE_RES;
-        width = Math.min(width, MAX_COMPUTE_RES);
-        height = Math.min(height, MAX_COMPUTE_RES);
+        // Same rule as the fragment bridge above: the mapper's own registered
+        // dims win, the shared render resolution is the fallback.
+        const mapperDims = mapperNode?.computeResolution || [];
+        const simRes = resolveResolution('sim');
+        let width = mapperDims[0] > 0 ? mapperDims[0] : (simRes.width || 512);
+        let height = mapperDims[1] > 0 ? mapperDims[1] : (simRes.height || 512);
+        [width, height] = ComputeExecutor.fitComputeSize(width, height);
 
         // FORCE the render every frame. A field mapper wants a live view, and
         // its source may be animated only transitively - e.g. a Circle whose
