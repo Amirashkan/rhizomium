@@ -109,6 +109,8 @@ Circle 3: Radius = audioEnvelopeHighs * 0.4
 
 ## Audio Settings Panel
 
+![The Audio Envelope panel, showing a loaded file and the live envelope value](images/panel-audio-envelope.webp)
+
 ### Smoothing
 Controls how quickly audio values change:
 - **Low (0.1-0.3)**: Responds quickly, more jittery

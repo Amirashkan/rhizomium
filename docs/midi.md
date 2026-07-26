@@ -59,6 +59,8 @@ You can use any CC number - just move the control and Rhizomium will detect it.
 
 ## MIDI Settings Panel
 
+![The MIDI Controllers panel: connection status, detected devices, MIDI Learn, active bindings and a live activity log](images/panel-midi-controllers.webp)
+
 ### Device List
 
 Shows all connected MIDI input devices:

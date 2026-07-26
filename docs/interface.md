@@ -424,6 +424,34 @@ See [Timeline & Keyframes Guide](timeline.md) for detailed instructions.
 
 ---
 
+## VJ Control Panel
+
+Store whole graphs as scenes and switch between them during a performance.
+
+**Open:** **View → VJ Control**
+
+![The VJ Control panel: Scenes, Presets and Playlist tabs, two saved scenes, transition settings, BPM tap tempo, and opacity and speed sliders](images/panel-vj-control.webp)
+
+**Tabs** - **Scenes**, **Presets** and **Playlist**.
+
+**Scenes** - each saved scene is listed with its duration and a **Load** button,
+plus a red button to remove it. Below the list:
+
+- **Load Scene** - bring a scene in from a file
+- **Capture Current** - save the graph as it stands right now into a new scene
+- **Save All** - write every scene out
+
+**Transition** - how one scene gives way to the next (for example Crossfade),
+and how long the transition takes in seconds.
+
+**BPM** - set the tempo numerically, or click **Tap** in time with the music.
+The indicator beside it beats along so you can check the tempo took.
+
+**Opacity** and **Speed** - global sliders over the whole output, so you can
+fade the visuals out or run them faster and slower without touching the graph.
+
+---
+
 ## Performance Profiler
 
 Monitor real-time performance:

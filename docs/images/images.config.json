@@ -67,70 +67,6 @@
         "h": 0.88
       }
     },
-    "node-graph-closeup": {
-      "callouts": [
-        {
-          "n": 1,
-          "x": 0.085,
-          "y": 0.055,
-          "box": {
-            "x": 0.045,
-            "y": 0.145,
-            "w": 0.09,
-            "h": 0.11
-          },
-          "label": "Node title - the node's type"
-        },
-        {
-          "n": 2,
-          "x": 0.225,
-          "y": 0.055,
-          "box": {
-            "x": 0.155,
-            "y": 0.145,
-            "w": 0.075,
-            "h": 0.11
-          },
-          "label": "Header controls - node id, hide info (X), toggle thumbnail (eye), cycle preview size (S/M/L)"
-        },
-        {
-          "n": 3,
-          "x": 0.135,
-          "y": 0.925,
-          "box": {
-            "x": 0.073,
-            "y": 0.26,
-            "w": 0.125,
-            "h": 0.46
-          },
-          "label": "Preview thumbnail - this node's own output"
-        },
-        {
-          "n": 4,
-          "x": 0.3,
-          "y": 0.66,
-          "box": {
-            "x": 0.205,
-            "y": 0.735,
-            "w": 0.038,
-            "h": 0.11
-          },
-          "label": "Output pin - drag from here to connect"
-        },
-        {
-          "n": 5,
-          "x": 0.36,
-          "y": 0.925,
-          "box": {
-            "x": 0.404,
-            "y": 0.735,
-            "w": 0.03,
-            "h": 0.11
-          },
-          "label": "Input pin - drop a wire here"
-        }
-      ]
-    },
     "parameter-panel": {
       "callouts": [
         {
@@ -192,6 +128,70 @@
             "h": 0.1
           },
           "label": "Copy reference, bind (MIDI / parameter link), and keyframe"
+        }
+      ]
+    },
+    "node-graph-live": {
+      "callouts": [
+        {
+          "n": 1,
+          "x": 0.13,
+          "y": 0.13,
+          "box": {
+            "x": 0.116,
+            "y": 0.253,
+            "w": 0.098,
+            "h": 0.05
+          },
+          "label": "Node title - the node's type"
+        },
+        {
+          "n": 2,
+          "x": 0.25,
+          "y": 0.13,
+          "box": {
+            "x": 0.216,
+            "y": 0.253,
+            "w": 0.062,
+            "h": 0.05
+          },
+          "label": "Header controls - node id, hide info (X), toggle thumbnail (eye), cycle preview size (S/M/L)"
+        },
+        {
+          "n": 3,
+          "x": 0.2,
+          "y": 0.8,
+          "box": {
+            "x": 0.149,
+            "y": 0.318,
+            "w": 0.101,
+            "h": 0.29
+          },
+          "label": "Preview thumbnail - this node's own output"
+        },
+        {
+          "n": 4,
+          "x": 0.33,
+          "y": 0.47,
+          "box": {
+            "x": 0.269,
+            "y": 0.61,
+            "w": 0.017,
+            "h": 0.055
+          },
+          "label": "Output pin - drag from here to connect"
+        },
+        {
+          "n": 5,
+          "x": 0.42,
+          "y": 0.8,
+          "box": {
+            "x": 0.417,
+            "y": 0.61,
+            "w": 0.017,
+            "h": 0.055
+          },
+          "label": "Input pin - drop a wire here"
         }
       ]
     }

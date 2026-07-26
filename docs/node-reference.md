@@ -787,6 +787,10 @@ Rearranges vector components.
 
 ## Generator Nodes
 
+Every generator, rendered at its default settings:
+
+![All generator and simulation nodes rendered at their default settings, including Circle, Rectangle, Polygon, Random, the noise family, Voronoi, Gradient, Pattern, Compute Particles, Reaction Diffusion, Fluid Simulation and Cellular Automata](images/node-gallery-generators.webp)
+
 Generator nodes create procedural content: gradients, shapes, and noise. The category contains both fragment nodes and compute nodes.
 
 > Basic patterns (checkerboard, stripes) and the common gradients (linear, radial, angular) are provided by the **Pattern** and **Gradient** compute nodes below.
@@ -1121,6 +1125,8 @@ Transform nodes manipulate UV coordinates for texture mapping, distortion, and c
 ### Basic Transforms
 
 #### Transform 2D
+
+![A checkerboard Pattern feeding Transform 2D, rotated and scaled](images/node-transform-2d.webp)
 Applies combined transformation to UV coordinates.
 
 - **Category**: Transform
@@ -1140,6 +1146,8 @@ Applies combined transformation to UV coordinates.
 - **Description**: Combines translation, rotation, and scaling transformations around a specified center point.
 
 #### Scale 2D
+
+![A checkerboard Pattern feeding Scale 2D, magnified to a few large cells](images/node-scale-2d.webp)
 Scales UV coordinates.
 
 - **Category**: Transform
@@ -1156,6 +1164,8 @@ Scales UV coordinates.
 - **Description**: Scales UV coordinates around a center point. Values > 1 zoom in, values < 1 zoom out.
 
 #### Rotate 2D
+
+![A checkerboard Pattern feeding Rotate 2D, turned 45 degrees](images/node-rotate-2d.webp)
 Rotates UV coordinates.
 
 - **Category**: Transform
@@ -1171,6 +1181,8 @@ Rotates UV coordinates.
 - **Description**: Rotates UV coordinates around a center point.
 
 #### Tile and Offset
+
+![A checkerboard Pattern feeding Tile and Offset, repeated across the frame](images/node-tile-and-offset.webp)
 Applies tiling and offset to UV coordinates.
 
 - **Category**: Transform
@@ -1187,6 +1199,8 @@ Applies tiling and offset to UV coordinates.
 - **Description**: Classic UV tiling and offset operation. Tiling creates repeating patterns, offset shifts them.
 
 #### Flip 2D
+
+![A checkerboard Pattern feeding Flip 2D](images/node-flip-2d.webp)
 Flips UV coordinates horizontally and/or vertically.
 
 - **Category**: Transform
@@ -1203,6 +1217,8 @@ Flips UV coordinates horizontally and/or vertically.
 ### Coordinate Conversion
 
 #### UV to Color
+
+![A Compute Noise node feeding UV to Color, mapping coordinates to colour](images/node-uv-to-color.webp)
 Converts UV coordinates to a color for visualization.
 
 - **Category**: Transform
@@ -1213,6 +1229,8 @@ Converts UV coordinates to a color for visualization.
 - **Description**: Visualizes UV coordinates as colors (U=Red, V=Green). Useful for debugging UV layouts.
 
 #### Polar Coordinates
+
+![A Compute Noise node feeding Polar Coordinates, swirled around the centre](images/node-polar-coordinates.webp)
 Converts Cartesian coordinates to polar coordinates.
 
 - **Category**: Transform
@@ -1231,6 +1249,8 @@ Converts Cartesian coordinates to polar coordinates.
 ### Distortion Effects
 
 #### Spherize
+
+![A Compute Noise node feeding Spherize, bulged outward from the centre](images/node-spherize.webp)
 Applies spherical distortion to UV coordinates.
 
 - **Category**: Transform
@@ -1247,6 +1267,8 @@ Applies spherical distortion to UV coordinates.
 - **Description**: Creates a spherical bulge or pinch distortion effect.
 
 #### Twirl
+
+![A Compute Noise node feeding Twirl, rotated progressively toward the centre](images/node-twirl.webp)
 Applies twisting/swirling distortion to UV coordinates.
 
 - **Category**: Transform
@@ -1263,6 +1285,8 @@ Applies twisting/swirling distortion to UV coordinates.
 - **Description**: Creates a spiral/vortex distortion effect, rotating UVs around a center point.
 
 #### Displacement
+
+![Compute Noise and a Pattern feeding Displacement, the pattern pushing the noise around](images/node-displacement.webp)
 Displaces UV coordinates based on an offset field.
 
 - **Category**: Transform
@@ -1300,6 +1324,8 @@ Converts a color to grayscale.
 - **Description**: Converts RGB color to a single grayscale value using various methods. Luminance uses perceptual weighting (0.299R + 0.587G + 0.114B).
 
 #### Invert Color
+
+![A Compute Noise node feeding Invert Color, with colours reversed](images/node-invert-color.webp)
 Inverts a color.
 
 - **Category**: Modifiers
@@ -1326,6 +1352,8 @@ Blends two colors using various blend modes.
 ### Compute Image Processing
 
 #### Compute Blur (Compute)
+
+![A checkerboard Pattern feeding Compute Blur, with softened edges](images/node-compute-blur.webp)
 Applies Gaussian blur to an input texture.
 
 - **Category**: Modifiers
@@ -1340,6 +1368,8 @@ Applies Gaussian blur to an input texture.
 - **Description**: Fast Gaussian blur for glow, depth-of-field, and softening effects.
 
 #### Compute Convolution (Compute)
+
+![A Compute Noise node feeding Compute Convolution](images/node-compute-convolution.webp)
 Applies a convolution kernel to an input texture.
 
 - **Category**: Modifiers
@@ -1353,6 +1383,8 @@ Applies a convolution kernel to an input texture.
 - **Description**: Classic image convolution filtering (sharpen, edge detect, emboss).
 
 #### Threshold (Compute)
+
+![A Compute Noise node feeding Threshold, cut to hard black and white](images/node-threshold.webp)
 Thresholds an input texture.
 
 - **Category**: Modifiers
@@ -1368,6 +1400,8 @@ Thresholds an input texture.
 - **Description**: Binary, range, and adaptive thresholding operations.
 
 #### Color Adjust (Compute)
+
+![A Compute Noise node feeding Color Adjust, shifted toward blue](images/node-color-adjust.webp)
 Full color grading for a texture.
 
 - **Category**: Modifiers
@@ -1400,6 +1434,8 @@ Detects edges in an input texture.
 - **Description**: Edge detection using various gradient operators.
 
 #### Morphology (Compute)
+
+![A Compute Noise node feeding Morphology, its blobs dilated](images/node-morphology.webp)
 Morphological operations on a texture.
 
 - **Category**: Modifiers
@@ -1415,6 +1451,8 @@ Morphological operations on a texture.
 - **Description**: Dilate, erode, open, and close operations for growing/shrinking bright regions.
 
 #### Histogram (Compute)
+
+![A Compute Noise node feeding Histogram, with the tonal range redistributed](images/node-histogram.webp)
 Histogram-based analysis and equalization.
 
 - **Category**: Modifiers
@@ -1430,6 +1468,8 @@ Histogram-based analysis and equalization.
 - **Description**: Histogram equalization, normalization, contrast stretching, and visualization.
 
 #### Luminance (Compute)
+
+![A Compute Noise node feeding Luminance, reduced to greyscale brightness](images/node-luminance.webp)
 Luminance extraction and operations.
 
 - **Category**: Modifiers
@@ -1450,6 +1490,8 @@ Luminance extraction and operations.
 Effect nodes are compute nodes that create visual effects — warps, mirrors, glitches, and feedback trails.
 
 #### Compute Feedback (Compute)
+
+![A Pattern node feeding Compute Feedback, with the accumulated trail in its thumbnail](images/node-compute-feedback.webp)
 Creates feedback loops for trails and recursive patterns.
 
 - **Category**: Effects
@@ -1467,6 +1509,8 @@ Creates feedback loops for trails and recursive patterns.
 - **Description**: Blends the previous frame back into the current one with a transformation, creating motion trails, tunnels, and recursive patterns. Uses ping-pong buffers. The **Reset** pin performs the same clear as the button, driven by a signal — wire a Trigger to reset on a beat or event.
 
 #### Warp (Compute)
+
+![A Pattern node and a second Pattern used as a warp field, feeding the Warp node](images/node-compute-warp.webp)
 UV distortion and displacement effects.
 
 - **Category**: Effects
@@ -1485,6 +1529,8 @@ UV distortion and displacement effects.
 - **Description**: Distorts a texture with several warp modes; the Warp Field input allows another texture (e.g. noise) to drive the displacement.
 
 #### Kaleidoscope (Compute)
+
+![A checkerboard Pattern feeding Kaleidoscope, mirrored into radial segments](images/node-kaleidoscope.webp)
 Creates kaleidoscope mirror effects.
 
 - **Category**: Effects
@@ -1502,6 +1548,8 @@ Creates kaleidoscope mirror effects.
 - **Description**: Creates repeating mirror symmetry patterns like a kaleidoscope. Replaces the former fragment Kaleidoscope transform node, adding animation support.
 
 #### Glitch (Compute)
+
+![A checkerboard Pattern feeding Glitch, showing channel-shifted scanlines](images/node-glitch.webp)
 Digital glitch and artifact effects.
 
 - **Category**: Effects
@@ -1816,6 +1864,8 @@ Blend nodes provide operations for combining signed distance fields (SDFs) and c
 ### SDF Operations
 
 #### Add (SDF)
+
+![A Pattern and a Compute Noise node feeding Add (SDF)](images/node-sdf-add.webp)
 Adds two signed distance fields.
 
 - **Category**: Blend
@@ -1827,6 +1877,8 @@ Adds two signed distance fields.
 - **Description**: Combines two SDFs by adding their distance values together.
 
 #### Subtract (SDF)
+
+![A Pattern and a Compute Noise node feeding Subtract (SDF)](images/node-sdf-subtract.webp)
 Subtracts one SDF from another.
 
 - **Category**: Blend
@@ -1838,6 +1890,8 @@ Subtracts one SDF from another.
 - **Description**: CSG subtraction operation - removes B from A. Creates negative space.
 
 #### Union (Min)
+
+![A Pattern and a Compute Noise node feeding Union (Min)](images/node-sdf-union.webp)
 Creates a union of two SDFs.
 
 - **Category**: Blend
@@ -1849,6 +1903,8 @@ Creates a union of two SDFs.
 - **Description**: CSG union operation using minimum. Combines both shapes with a hard edge.
 
 #### Intersection (Max)
+
+![A Pattern and a Compute Noise node feeding Intersection (Max)](images/node-sdf-intersection.webp)
 Creates an intersection of two SDFs.
 
 - **Category**: Blend
@@ -1862,6 +1918,8 @@ Creates an intersection of two SDFs.
 ### Smooth SDF Operations
 
 #### Smooth Union
+
+![A Pattern and a Compute Noise node feeding Smooth Union](images/node-sdf-smooth-union.webp)
 Creates a smooth union of two SDFs.
 
 - **Category**: Blend
@@ -1907,6 +1965,8 @@ Creates a smooth subtraction of two SDFs.
 Texture nodes sample image files.
 
 #### Texture 2D
+
+![A Texture 2D node with an image loaded, shown in its thumbnail](images/node-texture-2d.webp)
 Samples a 2D texture image.
 
 - **Category**: Texture
