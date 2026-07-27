@@ -133,56 +133,80 @@ function createBaseNode(kind, x, y, def) {
  */
 function initializeNodeParameters(node, def) {
   if (!def.params) return;
- 
+
   if (!node.params) {
     node.params = {};
   }
 
-  for (const param of def.params) {
-        // Initialize with default value
-    node.params[param.name] = param.default;
-    if (param.type === 'colorstops') {
-      // Deep clone the default array of objects
-      node.params[param.name] = JSON.parse(JSON.stringify(param.default));
-    } else if (param.type === 'select') {
-      node.params[param.name] = param.default;
-    } else {
-      switch (param.name) {
-        case 'value':
-          node.value = param.default;
-          break;
-        case 'expr':
-          node.expr = param.default;
-          break;
-        case 'code':
-          node.code = param.default;
-          break;
-        default:
-          node.params[param.name] = param.default;
-      }
-    }
+  const defaults = defaultsFromDef(def);
+  for (const [name, value] of Object.entries(defaults)) {
+    applyNodeParameterValue(node, name, value);
   }
+}
+
+/**
+ * Deep-copy a parameter default so a node never shares structure with the definition it came
+ * from. The colour-stop editor mutates its array in place, and a shared reference would rewrite
+ * the definition's default for every node created afterwards.
+ */
+function cloneParamDefault(value) {
+  return value !== null && typeof value === 'object'
+    ? JSON.parse(JSON.stringify(value))
+    : value;
+}
+
+function defaultsFromDef(def) {
+  const defaults = {};
+  if (!def || !Array.isArray(def.params)) return defaults;
 
   for (const param of def.params) {
-    switch (param.name) {
-      // NOTE: params named 'x' and 'y' (e.g. ConstVec2/3/4 components) are intentionally
-      // NOT mapped to node.x / node.y here — those fields are the node's canvas position.
-      // The component values live in node.params (set above) / node.props, which is what
-      // the codegen and preview computer read. Writing them onto node.x/node.y would force
-      // every Vec node to spawn at the param defaults (0,0) instead of the cursor.
-      case 'value':
-        node.value = param.default;
-        break;
-      case 'expr':
-        node.expr = param.default;
-        break;
-      case 'code':
-        node.code = param.default;
-        break;
-      default:
-        if (!node.props) node.props = {};
-        node.props[param.name] = param.default;
-    }
+    if (!param || typeof param.name !== 'string') continue;
+    // Parameters that declare no default (file pickers, momentary action buttons) carry no value
+    // to seed or to restore — skip them rather than writing `undefined` over whatever is there.
+    if (param.default === undefined) continue;
+    defaults[param.name] = cloneParamDefault(param.default);
+  }
+
+  return defaults;
+}
+
+/**
+ * The parameter values a freshly created node of `kind` carries, keyed by parameter name.
+ * This is the same set makeNode seeds, so it doubles as the target state for "reset to defaults".
+ */
+export function defaultParameterValues(kind) {
+  return defaultsFromDef(NodeDefs[kind]);
+}
+
+/**
+ * Write one parameter value into every slot the rest of the app reads it from: node.params for
+ * every parameter, node.props for backward compatibility, and the dedicated node.value /
+ * node.expr / node.code fields those three names are mirrored onto.
+ *
+ * NOTE: params named 'x' and 'y' (e.g. ConstVec2/3/4 components) are intentionally NOT mapped to
+ * node.x / node.y — those fields are the node's canvas position. The component values live in
+ * node.params / node.props, which is what the codegen and preview computer read. Writing them
+ * onto node.x/node.y would teleport every Vec node to the param defaults (0,0).
+ */
+export function applyNodeParameterValue(node, name, value) {
+  if (!node || typeof name !== 'string') return;
+
+  if (!node.params) node.params = {};
+  node.params[name] = value;
+
+  switch (name) {
+    case 'value':
+      node.value = value;
+      break;
+    case 'expr':
+      node.expr = value;
+      break;
+    case 'code':
+      node.code = value;
+      break;
+    default:
+      if (!node.props) node.props = {};
+      node.props[name] = value;
   }
 }
 

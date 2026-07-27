@@ -94,7 +94,9 @@ filed under:
 - **Scroll** to page through a category with more nodes than fit the ring
 
 **On a node**, right-click gives that node's own menu - edit parameters, delete,
-duplicate, and toggle its preview thumbnail.
+duplicate, and toggle its preview thumbnail. It also offers **Reset parameters
+to default**, which appears only once a value has been changed; it applies to
+the whole selection and undoes in one step.
 
 ---
 
