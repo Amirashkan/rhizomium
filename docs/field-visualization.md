@@ -193,6 +193,8 @@ Control how often visualization regenerates:
 
 ## 3D Viewport Controls
 
+![The 3D Viewport panel showing a plane, with shape, field-of-view, spin and camera controls along the bottom](images/panel-3d-viewport.webp)
+
 ### Camera Controls
 
 **Orbit:**

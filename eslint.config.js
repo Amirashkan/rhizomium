@@ -14,7 +14,9 @@ export default [
     ],
   },
   {
-    files: ["**/*.js"],
+    // .mjs covers the build-time tooling under scripts/, which is ESM by
+    // extension rather than by package type.
+    files: ["**/*.js", "**/*.mjs"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

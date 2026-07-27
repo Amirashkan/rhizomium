@@ -60,6 +60,10 @@ python rhizo_server.py
 http://127.0.0.1:5000/studio
 ```
 
+> **Note:** the external viewer is a **desktop-only** feature - it ships in the
+> Tauri build of Rhizomium. The browser version has no "Open External Viewer"
+> control, so if you are running Rhizomium in a tab, this section does not apply.
+
 3. Click the **"Open External Viewer"** button in the toolbar
 
 The viewer will launch automatically!

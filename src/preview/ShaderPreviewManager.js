@@ -5,6 +5,7 @@ import { PreviewThrottler } from './PreviewThrottler.js';
 import { GPUPreviewRenderer } from './GPUPreviewRenderer.js';
 import { FragmentTextureRenderer } from '../gpu/FragmentTextureRenderer.js';
 import { NodeDefs } from '../data/NodeDefs.js';
+import { getOutputFormat, fitToLongEdge } from '../ui/OutputFormat.js';
 
 export class ShaderPreviewManager {
   constructor(editor, device, format) {
@@ -427,6 +428,25 @@ export class ShaderPreviewManager {
   }
 
   /**
+   * Target size for a fragment-path node preview: the composition's aspect, with
+   * the long edge given the supersampling budget. Falls back to a square only if
+   * the output format is unreadable, which keeps previews working rather than
+   * failing outright.
+   * @private
+   */
+  _fragmentPreviewSize(budget) {
+    try {
+      const output = getOutputFormat();
+      if (output?.width > 0 && output?.height > 0) {
+        return fitToLongEdge(output, budget);
+      }
+    } catch {
+      // fall through
+    }
+    return { width: budget, height: budget };
+  }
+
+  /**
    * Lazily build the downscale blit pipeline (a fullscreen-triangle pass that box-filters a
    * source texture). Rebuilt if the GPU device changes (reinit).
    * @private
@@ -590,7 +610,16 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
       }
     }
 
-    const size = this.previewRenderSize || 256;
+    // Render at the composition's aspect, not a square. Two things depend on it:
+    // the shader's own `u.aspect` uniform is width/height of the target, so a
+    // square target composes the node at 1:1 while the main preview composes it
+    // at the output ratio - the thumbnail then shows a different image, not just
+    // a differently shaped one. And _thumbnailSize derives the thumbnail's shape
+    // from the source texture, so a square source can only ever yield a square
+    // thumbnail. Compute nodes already follow the output aspect via
+    // resolveResolution('sim'); this is the fragment path catching up.
+    const budget = this.previewRenderSize || 256;
+    const { width: renderW, height: renderH } = this._fragmentPreviewSize(budget);
     const time = this._currentTime();
     const audioContext = this._currentAudioContext();
 
@@ -600,7 +629,7 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
     this.fragmentRenderer.beginRead?.(renderId);
     try {
       const texture = await this.fragmentRenderer.renderNodeToTexture(
-        renderId, size, size, time, audioContext, null, /* force */ true
+        renderId, renderW, renderH, time, audioContext, null, /* force */ true
       );
       if (!texture) {
         this.fallbackToLegacyPreview(node);

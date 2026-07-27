@@ -8,7 +8,7 @@ Make your visuals react to music and sound! Rhizomium includes built-in audio an
 
 ### Step 1: Enable Audio
 
-1. Click the **Audio Settings** button in the toolbar
+1. Open **Tools → Audio Settings**
 2. Click **Enable Audio Input**
 3. Allow microphone access when prompted
 4. You should see audio levels responding to sound
@@ -108,6 +108,8 @@ Circle 3: Radius = audioEnvelopeHighs * 0.4
 ---
 
 ## Audio Settings Panel
+
+![The Audio Envelope panel, showing a loaded file and the live envelope value](images/panel-audio-envelope.webp)
 
 ### Smoothing
 Controls how quickly audio values change:
@@ -262,11 +264,11 @@ Safe to use even with complex visuals!
 
 | Browser | Audio Support | Notes |
 |---------|--------------|-------|
-| **Chrome 113+** | ✅ Full | Best experience |
-| **Edge 113+** | ✅ Full | Recommended |
-| **Opera** | ✅ Full | Works well |
-| **Firefox** | ⚠️ Limited | WebGPU issues |
-| **Safari** | ⚠️ Limited | WebGPU partial |
+| **Chrome 113+** | Full | Best experience |
+| **Edge 113+** | Full | Recommended |
+| **Opera** | Full | Works well |
+| **Firefox** | Limited | WebGPU issues |
+| **Safari** | Limited | WebGPU partial |
 
 ---
 
@@ -287,4 +289,4 @@ Safe to use even with complex visuals!
 
 ---
 
-_Let the beat drive your visuals!_ 🎵
+_Let the beat drive your visuals!_

@@ -346,8 +346,8 @@ Existing `markDirty()` calls continue to work but are now throttled:
 
 ## References
 
-- [Performance Analysis Report](./PERFORMANCE_ANALYSIS.md)
+- [Performance Analysis Report](https://github.com/Amirashkan/glsl-node-editor/blob/main/PERFORMANCE_ANALYSIS.md)
 - [Redraw Trigger Detection](./REDRAW_TRIGGER_DETECTION.md)
-- [Renderer Implementation](../src/core/Renderer.js)
-- [Editor Implementation](../src/core/Editor.js)
+- [Renderer Implementation](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/core/Renderer.js)
+- [Editor Implementation](https://github.com/Amirashkan/glsl-node-editor/blob/main/src/core/Editor.js)
 

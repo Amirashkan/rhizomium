@@ -8,10 +8,24 @@ Get started with Rhizomium in just 5 minutes! This guide will help you create yo
 
 Visit **[https://studio.tenderworld.org/](https://studio.tenderworld.org/)** in Chrome or Edge.
 
-You should see the node editor with:
-- Dark canvas in the center
-- Toolbar at the top
-- Right-click menu available
+A welcome dialog greets you on first load:
+
+![The welcome dialog shown on first load](images/welcome-dialog.webp)
+
+Choose **Start New Graph**. (**Open Project File** loads a `.json` you exported
+earlier, and **Manage Backups** opens the autosaves the editor keeps as you work.)
+
+You then land in the editor:
+
+![The Rhizomium editor after starting a new graph, with its four main areas numbered](images/editor-overview.annotated.webp)
+
+1. **Menu bar** - File, Edit, View, Node, Tools, Window, Help
+2. **Status** - "Idle" or "Shader compiled"
+3. **Preview window** - the rendered output, floating over the canvas
+4. **Canvas** - the node graph you are building
+
+A new graph is not empty - it starts with **Compute Noise → Gradient → Output**
+already wired up, so there is something on screen immediately.
 
 **No installation required** - it runs entirely in your browser!
 
@@ -19,23 +33,43 @@ You should see the node editor with:
 
 ## Step 2: Create Your First Nodes
 
-Let's create a simple animated circle:
+Let's build a circle from scratch. Start by deleting the three starter nodes
+(box-select them with a right-click drag, then press Delete).
 
-### Add a UV Node
+### The Add Node menu
+
+**Right-click** anywhere on the canvas. The **Add Node** menu opens as a ring of
+the twelve categories:
+
+![The radial Add Node menu, showing the twelve categories](images/radial-menu.webp)
+
+Click a category to fan out the nodes inside it:
+
+![The Transform category expanded in the radial menu](images/radial-menu-category.webp)
+
+You do not have to hunt through categories, though. With the menu open, **just
+start typing** and it filters every node by name:
+
+![Typing "noise" filters the menu to the noise generators](images/radial-menu-search.webp)
+
+Arrow keys move the selection, **Enter** places the highlighted node, and
+**Esc** (or the left arrow) steps back out.
+
+### Add a UV node
 
 1. **Right-click** on the canvas
-2. Navigate to **Input → UV**
-3. Click to place the node
+2. Type `uv`, or click the **Input** category and pick **UV**
+3. Press **Enter** to place it
 
 The UV node provides coordinates for every pixel on the screen.
 
-### Add a Circle Node
+### Add a Circle node
 
-1. **Right-click** again
-2. Navigate to **Generators → Circle**
-3. Place it to the right of the UV node
+1. **Right-click** again, to the right of the UV node
+2. Type `circle`, or open the **Generators** category
+3. Place the **Circle** node
 
-### Connect Them
+### Connect them
 
 1. Click and drag from the **UV output** (right side)
 2. Connect to the **Circle input** (left side)
@@ -46,44 +80,54 @@ You've made your first connection!
 
 ## Step 3: Add Color
 
-### Add a ColorRamp Node
+### Add a Gradient node
 
-1. Right-click → **Generators → Color Ramp**
+1. Right-click → type `gradient` (it lives under **Generators**)
 2. Place it to the right of Circle
-3. Connect **Circle output** to **ColorRamp input**
+3. Connect **Circle output** to the **Gradient** input
 
-### Customize the Colors
+### Customize the colors
 
-1. Click on the ColorRamp node
-2. Click on the gradient to add color stops
-3. Choose your favorite colors!
+1. Double-click the Gradient node to open its parameters
+2. Adjust the colour stops and the gradient's type and angle
+3. Changes apply to the preview as you make them
 
 ---
 
 ## Step 4: Output Your Visual
 
-### Add an Output Node
+### Add an Output node
 
-1. Right-click → **Output → Output**
+1. Right-click → type `output` (category **Output**)
 2. Place it at the far right
-3. Connect **ColorRamp output** to **Output input**
+3. Connect **Gradient output** to the **Output** input
 
-**You should now see your visual in the preview!** 🎉
+**You should now see your visual in the preview!**
 
 ---
 
 ## Step 5: Make It Animate
 
-Let's add some motion:
+The Circle node takes a single input - its **Radius** is a *parameter*, not a
+pin, so you animate it with an expression rather than by wiring a node into it.
 
-### Add Time and Math
+1. **Double-click** the Circle node to open its parameters
+2. Click into the **Radius** field
+3. Type `=sin(time) * 0.15 + 0.3`
 
-1. Add a **Time** node (**Input → Time**)
-2. Add a **Sine** node (**Math → Sine**)
-3. Connect **Time output** to **Sine input**
-4. Connect **Sine output** to **Circle's second input** (radius)
+![The parameter panel for a Circle node, with its parts numbered](images/parameter-panel.annotated.webp)
 
-Watch your circle pulse with time!
+1. **Panel header** - which node these parameters belong to
+2. **Value field** - type a number, or an `=` expression
+3. **Evaluated value** - what the expression currently resolves to
+4. **Accepted range** for this parameter
+5. **Copy reference**, **bind** (MIDI / parameter link), and **keyframe**
+
+The line under the field shows the value the expression currently evaluates to,
+and the range the parameter accepts. Watch your circle pulse with time!
+
+Parameters that take expressions can reference `time`, `audioEnvelope`,
+`mouse.x` and more - see [Parameter Expressions](parameter-expressions.md).
 
 ---
 
@@ -92,29 +136,29 @@ Watch your circle pulse with time!
 Now that you have the basics, try:
 
 ### Change Parameters
-- Click nodes to adjust their parameters
-- Try different values for Circle radius
-- Adjust ColorRamp stops
+- Double-click a node to open its parameters
+- Try different values for the Circle's Radius and Softness
+- Adjust the Gradient's colour stops
 
 ### Try Different Nodes
-- Replace Circle with **Noise** or **Voronoi**
-- Add **Rotate** or **Scale** transforms
+- Replace Circle with **Perlin Noise** or **Voronoi Noise**
+- Add a **Rotate 2D** or **Scale 2D** transform
 - Use **Math** nodes to combine values
 
 ### Add Audio Reactivity
-- Click the **Audio Settings** button to enable microphone
+- Open **Tools → Audio Settings** and enable the microphone
 - Type `=audioEnvelope * 0.5` into a parameter field (e.g. the Circle's Radius)
-- Play some music! 🎵
+- Play some music!
 
 ---
 
 ## Common Controls
 
-- **Add Node**: Right-click → Select category → Choose node
+- **Add Node**: Right-click, then type to search or pick a category
 - **Delete Node**: Select node → Press Delete or Backspace
 - **Pan Canvas**: Middle-click drag or drag with two fingers
 - **Zoom**: Mouse wheel or pinch
-- **Save**: Ctrl+S or toolbar Save button
+- **Save**: Ctrl+S, or **File → Save**
 - **Undo**: Ctrl+Z
 
 ---
@@ -125,7 +169,7 @@ Ready to learn more?
 
 1. **[Your First Graph](guide.md)** - Detailed step-by-step tutorial
 2. **[Interface Overview](interface.md)** - Learn all the features
-3. **[Node Reference](node-reference.md)** - Explore 90+ nodes
+3. **[Node Reference](node-reference.md)** - Explore all 133 nodes
 4. **[Parameter Expressions](parameter-expressions.md)** - Animate with math formulas
 5. **[Compute Nodes](compute-nodes.md)** - GPU-accelerated effects
 6. **[Audio Reactivity](audio-web.md)** - Make visuals react to sound

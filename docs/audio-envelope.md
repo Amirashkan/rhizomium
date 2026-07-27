@@ -80,6 +80,10 @@ Create pulsing effects that are modulated by audio.
 
 ## Audio Settings Panel
 
+![The Audio Envelope panel: file chooser, transport controls, playback position and a live envelope meter](images/panel-audio-envelope.webp)
+
+Load an MP3, WAV or OGG file, then use Play / Pause / Stop to drive the envelope. The meter shows the current `audioEnvelope` value, which is what parameter expressions read.
+
 The Audio Settings panel allows you to fine-tune how audio is processed:
 
 ### Follower

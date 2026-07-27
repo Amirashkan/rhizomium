@@ -301,6 +301,6 @@ window.redrawThrottleConfig = {
 
 - [Redraw Throttling Policy](./REDRAW_THROTTLING_POLICY.md) - Detailed policy documentation
 - [Configuration Reference](./REDRAW_THROTTLING_CONFIG.md) - Complete configuration guide
-- [Performance Analysis](./PERFORMANCE_ANALYSIS.md) - Original performance analysis
+- [Performance Analysis](https://github.com/Amirashkan/glsl-node-editor/blob/main/PERFORMANCE_ANALYSIS.md) - Original performance analysis
 - [Redraw Trigger Detection](./REDRAW_TRIGGER_DETECTION.md) - Trigger detection documentation
 

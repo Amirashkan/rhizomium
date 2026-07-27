@@ -1,4 +1,4 @@
-# 🌱 Rhizomium Documentation
+# Rhizomium Documentation
 
 **Visual Synthesis, Rhizome-Style**
 
@@ -6,14 +6,14 @@ Welcome to Rhizomium - a node-based visual synthesis environment that runs entir
 
 ---
 
-## ⚡ What is Rhizomium?
+## What is Rhizomium?
 
 Rhizomium is a **GPU-powered visual programming tool** where you create shaders by connecting simple building blocks called nodes. Think of it as:
 
-- 🎨 **A visual programming environment** - No code needed
-- 🧩 **A modular synthesis system** - Connect nodes like patching a synthesizer
-- 🎭 **A performance tool** - Perfect for live visuals and VJ work
-- 🌊 **A creative playground** - Explore generative art and procedural graphics
+- **A visual programming environment** - No code needed
+- **A modular synthesis system** - Connect nodes like patching a synthesizer
+- **A performance tool** - Perfect for live visuals and VJ work
+- **A creative playground** - Explore generative art and procedural graphics
 
 ### Perfect For
 
@@ -25,7 +25,7 @@ Rhizomium is a **GPU-powered visual programming tool** where you create shaders 
 
 ---
 
-## 🚀 Get Started Now
+## Get Started Now
 
 Ready to create? You're just a few clicks away:
 
@@ -37,7 +37,7 @@ Ready to create? You're just a few clicks away:
 
 ---
 
-## 📚 Learn the Basics
+## Learn the Basics
 
 ### For Beginners
 
@@ -62,7 +62,7 @@ Ready to create? You're just a few clicks away:
 
 ---
 
-## 🎨 What Can You Create?
+## What Can You Create?
 
 ### Patterns & Shapes
 Combine geometric primitives, distance fields, and procedural patterns to create infinite variations.
@@ -78,19 +78,19 @@ Create and perform with visuals in real-time, perfect for VJ work and live shows
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-- **💪 WebGPU Powered** - Hardware-accelerated GPU rendering
-- **🎵 Audio Reactive** - Built-in audio analysis and reactivity
-- **⚡ Real-Time** - Instant visual feedback as you create
-- **🎯 Node-Based** - Visual programming, no coding required
-- **💾 Save/Load** - Manage multiple projects
-- **🌐 Browser-Based** - Works in Chrome and Edge
-- **📱 No Installation** - Start creating immediately
+- **WebGPU Powered** - Hardware-accelerated GPU rendering
+- **Audio Reactive** - Built-in audio analysis and reactivity
+- **Real-Time** - Instant visual feedback as you create
+- **Node-Based** - Visual programming, no coding required
+- **Save/Load** - Manage multiple projects
+- **Browser-Based** - Works in Chrome and Edge
+- **No Installation** - Start creating immediately
 
 ---
 
-## 🎯 System Requirements
+## System Requirements
 
 - **Browser**: Chrome 113+ or Edge 113+ (with WebGPU support)
 - **GPU**: Any modern graphics card (last 5-7 years)
@@ -101,7 +101,7 @@ Create and perform with visuals in real-time, perfect for VJ work and live shows
 
 ---
 
-## 🔧 Need Help?
+## Need Help?
 
 - **[FAQ](faq-web.md)** - Quick answers to common questions
 - **[Node Reference](node-reference.md)** - Complete node documentation
@@ -109,7 +109,7 @@ Create and perform with visuals in real-time, perfect for VJ work and live shows
 
 ---
 
-## 💡 Philosophy
+## Philosophy
 
 Rhizomium embraces the **rhizome** metaphor from Deleuze and Guattari - a non-hierarchical network where any point can connect to any other. Your visual compositions grow organically, branching and connecting in unexpected ways.
 
@@ -119,7 +119,7 @@ There's no "right" way to create - explore, experiment, and evolve.
 
 ---
 
-## 🌐 Quick Links
+## Quick Links
 
 - **[Open Rhizomium Studio](https://studio.tenderworld.org/)** - Start creating now
 - **[GitHub Repository](https://github.com/Amirashkan/glsl-node-editor)** - Source code
@@ -127,9 +127,9 @@ There's no "right" way to create - explore, experiment, and evolve.
 
 ---
 
-## 🛠️ For Developers
+## For Developers
 
-### ⚠️ CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS ⚠️
+### CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS
 
 **30 FPS IS NEVER ACCEPTED. ALL OPTIMIZATIONS MUST TARGET 60 FPS.**
 

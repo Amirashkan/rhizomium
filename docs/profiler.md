@@ -10,7 +10,7 @@ Monitor your visual's performance in real-time! Track frame rate, GPU usage, and
 
 **Keyboard shortcut:** Press **Ctrl+P**
 
-Or click the **Profiler** button in the toolbar (if available).
+There is no menu entry for it - the shortcut is the only way in.
 
 ### Step 2: View Metrics
 
@@ -34,36 +34,17 @@ The profiler overlay appears showing:
 
 Shows essential metrics at a glance:
 
-```
-╔══════════════════════════════════╗
-║      COMPUTE PROFILER            ║
-╠══════════════════════════════════╣
-║ FPS: 60                          ║
-║ Frame Time: 16.5ms               ║
-║ Compute Time: 2.3ms              ║
-║ Dispatches: 2                    ║
-║ Workgroups: 1024                 ║
-║ GPU Timing: ✓                    ║
-╚══════════════════════════════════╝
-```
+![The profiler overlay in compact view, listing FPS, frame time, compute time, dispatches, workgroups and GPU timing](images/profiler-compact.webp)
 
 ### Expanded View
 
 Click **+** button to see detailed breakdown:
 
-```
-╔══════════════════════════════════╗
-║      COMPUTE PROFILER            ║
-╠══════════════════════════════════╣
-║ FPS: 60                          ║
-║ Frame Time: 16.5ms               ║
-║ Compute Time: 2.3ms              ║
-║                                  ║
-║ Dispatch Breakdown:             ║
-║ • ComputeNoise: 1.2ms (512×512) ║
-║ • ComputeBlur: 1.1ms (512×512)  ║
-╚══════════════════════════════════╝
-```
+![The profiler overlay expanded, with a dispatch breakdown listing each compute node's time, dispatch size, workgroup size and total workgroups](images/profiler-expanded.webp)
+
+Each dispatch is listed with its time (and whether that time came from the GPU
+or the CPU fallback), its dispatch and workgroup dimensions, and the total
+workgroup count.
 
 ---
 
@@ -78,9 +59,9 @@ Click **+** button to see detailed breakdown:
 - **<30 FPS** = Poor, noticeable lag
 
 **Color coding:**
-- 🟢 **Green** (≥60) - Excellent
-- 🟡 **Yellow** (30-59) - Acceptable
-- 🔴 **Red** (<30) - Poor
+- **Green** (≥60) - Excellent
+- **Yellow** (30-59) - Acceptable
+- **Red** (<30) - Poor
 
 ### Frame Time
 
@@ -258,11 +239,11 @@ The profiler automatically warns when:
 ### Test Coverage
 
 Tests verify:
-- ✅ Profiler display functionality
-- ✅ Frame rate accuracy
-- ✅ Compute dispatch tracking
-- ✅ GPU timestamp support
-- ✅ Performance warnings
+- Profiler display functionality
+- Frame rate accuracy
+- Compute dispatch tracking
+- GPU timestamp support
+- Performance warnings
 
 ---
 
@@ -276,8 +257,8 @@ Tests verify:
 - Most accurate timing
 
 **Indicators:**
-- **GPU Timing: ✓** - Hardware timestamps enabled
-- **GPU Timing: ✗** - Using CPU fallback
+- **GPU Timing: Yes** - Hardware timestamps enabled
+- **GPU Timing: Fallback** - Using CPU fallback
 
 ### CPU Fallback
 

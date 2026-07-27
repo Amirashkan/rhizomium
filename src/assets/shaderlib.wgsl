@@ -118,12 +118,18 @@ fn worleyNoise(p: vec2<f32>, jitter: f32) -> f32 {
   return minDist;
 }
 
+// Hash without Sine (Dave Hoskins). The `p3 += dot(p3, p3.yzx + 33.33)` step is
+// what decorrelates neighbouring inputs; without it the result is close to a
+// linear function of p and any lattice-interpolated noise built on it comes out
+// as smooth bands. Keep in step with NoiseNodes.js and ComputeNodes.js.
 fn hash22(p: vec2<f32>) -> vec2<f32> {
-  let p3 = fract(vec3<f32>(p.x, p.y, p.x) * vec3<f32>(0.1031, 0.1030, 0.0973));
-  return fract((p3.xx + p3.yz) * p3.zy + vec2<f32>(33.33));
+  var p3 = fract(vec3<f32>(p.x, p.y, p.x) * vec3<f32>(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
 }
 
 fn hash12(p: vec2<f32>) -> f32 {
-  let p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-  return fract((p3.x + p3.y) * p3.z + dot(p3, vec3<f32>(33.33)));
+  var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }

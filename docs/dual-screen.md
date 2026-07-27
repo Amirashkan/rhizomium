@@ -28,12 +28,12 @@ The Dual-Screen system allows you to display your GLSL shader output on a second
 
 ### Key Features
 
-- ✅ **Real-time streaming** - Low-latency frame transmission (30+ FPS)
-- ✅ **WebSocket-based** - Works over network, not just locally
-- ✅ **Multiple viewers** - Support for many simultaneous connections
-- ✅ **Two viewer types** - Native Python viewer or browser-based viewer
-- ✅ **Auto-reconnect** - Viewers automatically reconnect if connection drops
-- ✅ **Resolution-independent** - Automatically adapts to frame size changes
+- **Real-time streaming** - Low-latency frame transmission (30+ FPS)
+- **WebSocket-based** - Works over network, not just locally
+- **Multiple viewers** - Support for many simultaneous connections
+- **Two viewer types** - Native Python viewer or browser-based viewer
+- **Auto-reconnect** - Viewers automatically reconnect if connection drops
+- **Resolution-independent** - Automatically adapts to frame size changes
 
 ---
 
@@ -587,4 +587,4 @@ For issues or questions:
 
 ---
 
-**Happy streaming! 🌿✨**
+**Happy streaming!**

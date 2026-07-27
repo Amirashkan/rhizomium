@@ -30,11 +30,11 @@ The web version requires an internet connection to load initially. Once loaded, 
 
 Rhizomium requires WebGPU support:
 
-- ✅ **Chrome 113+** (Recommended)
-- ✅ **Edge 113+** (Recommended)
-- ✅ **Opera 99+**
-- ⚠️ **Firefox** - Experimental WebGPU, limited support
-- ⚠️ **Safari** - Partial WebGPU, may not work
+- **Chrome 113+** (Recommended)
+- **Edge 113+** (Recommended)
+- **Opera 99+**
+- **Firefox** - Experimental WebGPU, limited support
+- **Safari** - Partial WebGPU, may not work
 
 **Bottom line:** Use Chrome or Edge for best experience.
 
@@ -143,19 +143,19 @@ Projects save to your browser's **Local Storage** - stored only on your computer
 
 ### How do I save my work?
 
-Click the **Save** button in the toolbar, or press **Ctrl+S**. Enter a project name when prompted.
+Choose **File → Save**, or press **Ctrl+S**. Enter a project name when prompted.
 
 Your project saves instantly to browser storage!
 
 ### How do I load a saved project?
 
-Click the **Load** button in the toolbar. Browse your saved projects and click one to load it.
+Choose **File → Open Project…**. Browse your saved projects and click one to load it.
 
 **Warning:** Loading replaces your current graph. Save first if you have unsaved changes!
 
 ### Can I export my projects?
 
-Yes! Click **Export JSON** in the toolbar. Your project downloads as a `.json` file that you can:
+Yes! Choose **File → Export**. Your project downloads as a `.json` file that you can:
 - Backup to cloud storage
 - Share with others
 - Move to another computer
@@ -165,7 +165,7 @@ Yes! Click **Export JSON** in the toolbar. Your project downloads as a `.json` f
 
 ### How do I import a project file?
 
-Click **Import** in the toolbar, then select a `.json` file from your computer. The project loads immediately.
+Choose **File → Open Project…**, then select a `.json` file from your computer. The project loads immediately.
 
 ### My saved projects disappeared! What happened?
 
@@ -210,7 +210,7 @@ Recipients import the JSON file to use it.
 
 ### How do I make visuals react to audio?
 
-1. Click **Audio Settings** button in toolbar
+1. Open **Tools → Audio Settings**
 2. Click **Enable Audio Input**
 3. Allow microphone access when prompted
 4. Type an audio expression into any numeric parameter field, e.g. `=audioEnvelope * 0.5`
@@ -529,7 +529,7 @@ WGSL (WebGPU Shading Language) is the shader language for WebGPU. It's cleaner a
 
 ### Can I see the generated shader code?
 
-Yes! Click **Console** button in toolbar to view the WGSL code generated from your nodes. You can:
+Yes! Open **View → Show Console** to view the WGSL code generated from your nodes. You can:
 - Copy code to clipboard
 - Export as .wgsl file
 - Learn WGSL from your graphs
