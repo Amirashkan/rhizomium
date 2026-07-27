@@ -39,6 +39,7 @@
   * [External Viewer Setup](external-viewer.md)
   * [Dual Screen Setup](dual-screen.md)
   * [Audio Server Setup](audio.md)
+  * [Audio Analysis Design](audio-analysis-design.md)
   * [Troubleshooting](troubleshooting.md)
   * [Windows Fixes](windows-fix.md)
 

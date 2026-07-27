@@ -13,6 +13,23 @@
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
 import { RealtimeAudioAnalysis } from './RealtimeAudioAnalysis.js';
 
+// Longest frame the envelopes will advance by in one step, in seconds. Matches the clamp
+// AudioAnalysisProcessor already applies to its own trigger clock.
+//
+// A frame longer than this means the page stalled — a shader compile, a heavy graph edit, a
+// backgrounded tab — and the audio that played during the gap was never sampled. The one frame we
+// do get afterwards is a single instant, so advancing a filter by the whole elapsed time treats
+// that instant as if it had been true for the entire gap. For the instrument bands' background
+// reference that is actively destructive: stall for five seconds, resume on a kick transient, and
+// the reference is handed the loudest the band ever gets as its new idea of "normal". Measured,
+// the kick immediately after read 0.003 instead of 0.711, and it took four kicks — about two
+// seconds — to recover.
+//
+// Clamping advances the filters as though one ordinary frame had passed. That under-advances them,
+// which for a background estimator is the safe direction: it lags briefly rather than being
+// poisoned by a sample that was never representative of the gap.
+const MAX_FRAME_DT_S = 0.1;
+
 export class BrowserAudioCapture {
     constructor() {
         this.audioContext = null;
@@ -377,14 +394,23 @@ export class BrowserAudioCapture {
     }
 
     /**
+     * Seconds since the last processed frame, bounded and never negative. See MAX_FRAME_DT_S for
+     * why an unbounded value corrupts the analysis rather than merely delaying it.
+     */
+    _frameDelta() {
+        const now = performance.now();
+        const raw = (now - this._lastUpdateTime) / 1000;
+        this._lastUpdateTime = now;
+        return Math.min(MAX_FRAME_DT_S, Math.max(0, raw));
+    }
+
+    /**
      * Process audio and update envelope
      */
     _processAudio() {
         if (!this.isPlaying || !this.analyser) {
             // Decay envelope when not playing
-            const now = performance.now();
-            const dt = (now - this._lastUpdateTime) / 1000;
-            this._lastUpdateTime = now;
+            const dt = this._frameDelta();
 
             this._updateFollower(0, dt);
             this._updateADSR(false, dt);
@@ -417,9 +443,7 @@ export class BrowserAudioCapture {
         const rms = this._getFrequencyBandRMS();
 
         // Time delta
-        const now = performance.now();
-        const dt = (now - this._lastUpdateTime) / 1000; // Convert to seconds
-        this._lastUpdateTime = now;
+        const dt = this._frameDelta();
 
         // Follower (AR envelope) - using current config band
         this._updateFollower(rms, dt);
