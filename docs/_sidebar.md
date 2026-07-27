@@ -1,4 +1,4 @@
-* [🏠 Home](/)
+* [Home](/)
 
 * Getting Started
   * [Quick Start](quickstart-web.md)

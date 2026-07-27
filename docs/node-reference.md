@@ -787,6 +787,11 @@ Rearranges vector components.
 
 ## Generator Nodes
 
+Every generator and simulation node at a glance - each one also appears in
+its own entry below:
+
+![All generator and simulation nodes rendered at their default settings: Circle, Rectangle, Polygon, Random, Value, Perlin, Simplex, FBM, Voronoi, Ridged, Warp, Worley and Cell noise, Compute Noise, Voronoi, Gradient, Pattern, Compute Particles, Reaction Diffusion, Fluid Simulation, Cellular Automata and the 3D Field Visualizer](images/node-gallery-generators.webp)
+
 Generator nodes create procedural content: gradients, shapes, and noise. The category contains both fragment nodes and compute nodes.
 
 > Basic patterns (checkerboard, stripes) and the common gradients (linear, radial, angular) are provided by the **Pattern** and **Gradient** compute nodes below.
@@ -823,6 +828,8 @@ Maps values to colors using a gradient with control points.
 - **Description**: Converts scalar values into colors by interpolating through a user-defined color gradient with multiple control points.
 
 #### Gradient (Compute)
+
+![A Gradient compute node rendering a smooth black-to-white ramp](images/node-gradient-compute.webp)
 Generates linear, radial, angular, and diamond gradients as a texture.
 
 - **Category**: Generators
@@ -845,6 +852,8 @@ Generates linear, radial, angular, and diamond gradients as a texture.
 ### Shape Generators
 
 #### Circle
+
+![A Circle node rendering a filled white disc](images/node-circle.webp)
 Generates a circular shape or distance field.
 
 - **Category**: Generators
@@ -861,6 +870,8 @@ Generates a circular shape or distance field.
 - **Description**: Creates a circular shape with smooth edges, can be used as a mask or distance field.
 
 #### Rectangle
+
+![A Rectangle node rendering a filled white square](images/node-rectangle.webp)
 Generates a rectangular shape.
 
 - **Category**: Generators
@@ -879,6 +890,8 @@ Generates a rectangular shape.
 - **Description**: Creates a rectangular shape with optional rounded corners and smooth edges.
 
 #### Polygon
+
+![A Polygon node rendering a filled white hexagon](images/node-polygon.webp)
 Generates a regular polygon shape.
 
 - **Category**: Generators
@@ -897,6 +910,8 @@ Generates a regular polygon shape.
 - **Description**: Creates regular polygons (triangle, hexagon, etc.) with adjustable sides, rotation, and smooth edges.
 
 #### Pattern (Compute)
+
+![A Pattern compute node rendering a black and white checkerboard](images/node-pattern-compute.webp)
 Generates tiled procedural patterns as a texture.
 
 - **Category**: Generators
@@ -914,6 +929,8 @@ Generates tiled procedural patterns as a texture.
 ### Noise Functions
 
 #### Random
+
+![A Random node rendering fine per-pixel static](images/node-random.webp)
 Generates pseudo-random values.
 
 - **Category**: Generators
@@ -927,6 +944,8 @@ Generates pseudo-random values.
 - **Description**: Generates a spatial pseudo-random field based on UV coordinates, useful for adding randomness to patterns. For a time-driven random number, use the **Random Value** input node instead.
 
 #### Value Noise
+
+![A Value Noise node at its default settings](images/node-value-noise.webp)
 Generates smooth value noise.
 
 - **Category**: Generators
@@ -942,6 +961,8 @@ Generates smooth value noise.
 - **Description**: Simple interpolated noise between random values at grid points.
 
 #### Perlin Noise
+
+![A Perlin Noise node rendering soft cloudy greyscale noise](images/node-perlin-noise.webp)
 Generates classic Perlin gradient noise.
 
 - **Category**: Generators
@@ -956,6 +977,8 @@ Generates classic Perlin gradient noise.
 - **Description**: Classic Perlin noise algorithm producing smooth, natural-looking noise patterns.
 
 #### Simplex Noise
+
+![A Simplex Noise node rendering smooth organic greyscale noise](images/node-simplex-noise.webp)
 Generates Simplex noise with optional variations.
 
 - **Category**: Generators
@@ -972,6 +995,8 @@ Generates Simplex noise with optional variations.
 - **Description**: Modern Simplex noise with better performance than Perlin, includes ridge and turbulence variations.
 
 #### FBM Noise
+
+![An FBM Noise node rendering layered fractal noise](images/node-fbm-noise.webp)
 Generates Fractional Brownian Motion noise.
 
 - **Category**: Generators
@@ -991,6 +1016,8 @@ Generates Fractional Brownian Motion noise.
 - **Description**: Layered noise with multiple octaves creating complex, natural-looking patterns like clouds or terrain.
 
 #### Voronoi Noise
+
+![A Voronoi Noise node rendering a regular cell lattice, with F1, F2 and cells outputs](images/node-voronoi-noise.webp)
 Generates cellular Voronoi patterns.
 
 - **Category**: Generators
@@ -1010,6 +1037,8 @@ Generates cellular Voronoi patterns.
 - **Description**: Creates cellular patterns based on distances to randomly distributed points, useful for tiles, cells, and stone textures.
 
 #### Ridged Noise
+
+![A Ridged Noise node at its default settings](images/node-ridged-noise.webp)
 Generates ridged multi-fractal noise.
 
 - **Category**: Generators
@@ -1028,6 +1057,8 @@ Generates ridged multi-fractal noise.
 - **Description**: Specialized noise creating sharp ridges and valleys, ideal for mountainous terrain.
 
 #### Warp Noise
+
+![A Warp Noise node at its default settings](images/node-warp-noise.webp)
 Generates domain-warped noise.
 
 - **Category**: Generators
@@ -1044,6 +1075,8 @@ Generates domain-warped noise.
 - **Description**: Applies domain warping to create swirling, organic noise patterns.
 
 #### Worley Noise
+
+![A Worley Noise node rendering a cellular grid, with F1, F2 and Combined outputs](images/node-worley-noise.webp)
 Generates Worley (cellular) noise.
 
 - **Category**: Generators
@@ -1061,6 +1094,8 @@ Generates Worley (cellular) noise.
 - **Description**: Creates cellular patterns based on distances to random points using various distance metrics.
 
 #### Cell Noise
+
+![A Cell Noise node rendering blocky stepped cells, with out and cellID outputs](images/node-cell-noise.webp)
 Generates simple cell-based patterns.
 
 - **Category**: Generators
@@ -1076,6 +1111,8 @@ Generates simple cell-based patterns.
 - **Description**: Simple cellular pattern generator with optional smoothing and cell identification output.
 
 #### Compute Noise (Compute)
+
+![A Compute Noise node rendering dense greyscale noise on the GPU](images/node-compute-noise.webp)
 Generates animated procedural noise as a texture.
 
 - **Category**: Generators
@@ -1092,6 +1129,8 @@ Generates animated procedural noise as a texture.
 - **Description**: Fractal Brownian Motion noise computed in a compute pass, ideal for animated backgrounds and organic textures.
 
 #### Voronoi (Compute)
+
+![A Voronoi compute node rendering randomly coloured Voronoi cells](images/node-voronoi-compute.webp)
 Generates Voronoi diagrams and Worley noise as a texture.
 
 - **Category**: Generators
@@ -1121,6 +1160,8 @@ Transform nodes manipulate UV coordinates for texture mapping, distortion, and c
 ### Basic Transforms
 
 #### Transform 2D
+
+![A checkerboard Pattern feeding Transform 2D, rotated and scaled](images/node-transform-2d.webp)
 Applies combined transformation to UV coordinates.
 
 - **Category**: Transform
@@ -1140,6 +1181,8 @@ Applies combined transformation to UV coordinates.
 - **Description**: Combines translation, rotation, and scaling transformations around a specified center point.
 
 #### Scale 2D
+
+![A checkerboard Pattern feeding Scale 2D, magnified to a few large cells](images/node-scale-2d.webp)
 Scales UV coordinates.
 
 - **Category**: Transform
@@ -1156,6 +1199,8 @@ Scales UV coordinates.
 - **Description**: Scales UV coordinates around a center point. Values > 1 zoom in, values < 1 zoom out.
 
 #### Rotate 2D
+
+![A checkerboard Pattern feeding Rotate 2D, turned 45 degrees](images/node-rotate-2d.webp)
 Rotates UV coordinates.
 
 - **Category**: Transform
@@ -1171,6 +1216,8 @@ Rotates UV coordinates.
 - **Description**: Rotates UV coordinates around a center point.
 
 #### Tile and Offset
+
+![A checkerboard Pattern feeding Tile and Offset, repeated across the frame](images/node-tile-and-offset.webp)
 Applies tiling and offset to UV coordinates.
 
 - **Category**: Transform
@@ -1187,6 +1234,8 @@ Applies tiling and offset to UV coordinates.
 - **Description**: Classic UV tiling and offset operation. Tiling creates repeating patterns, offset shifts them.
 
 #### Flip 2D
+
+![A checkerboard Pattern feeding Flip 2D](images/node-flip-2d.webp)
 Flips UV coordinates horizontally and/or vertically.
 
 - **Category**: Transform
@@ -1203,6 +1252,8 @@ Flips UV coordinates horizontally and/or vertically.
 ### Coordinate Conversion
 
 #### UV to Color
+
+![A Compute Noise node feeding UV to Color, mapping coordinates to colour](images/node-uv-to-color.webp)
 Converts UV coordinates to a color for visualization.
 
 - **Category**: Transform
@@ -1213,6 +1264,8 @@ Converts UV coordinates to a color for visualization.
 - **Description**: Visualizes UV coordinates as colors (U=Red, V=Green). Useful for debugging UV layouts.
 
 #### Polar Coordinates
+
+![A Compute Noise node feeding Polar Coordinates, swirled around the centre](images/node-polar-coordinates.webp)
 Converts Cartesian coordinates to polar coordinates.
 
 - **Category**: Transform
@@ -1231,6 +1284,8 @@ Converts Cartesian coordinates to polar coordinates.
 ### Distortion Effects
 
 #### Spherize
+
+![A Compute Noise node feeding Spherize, bulged outward from the centre](images/node-spherize.webp)
 Applies spherical distortion to UV coordinates.
 
 - **Category**: Transform
@@ -1247,6 +1302,8 @@ Applies spherical distortion to UV coordinates.
 - **Description**: Creates a spherical bulge or pinch distortion effect.
 
 #### Twirl
+
+![A Compute Noise node feeding Twirl, rotated progressively toward the centre](images/node-twirl.webp)
 Applies twisting/swirling distortion to UV coordinates.
 
 - **Category**: Transform
@@ -1263,6 +1320,8 @@ Applies twisting/swirling distortion to UV coordinates.
 - **Description**: Creates a spiral/vortex distortion effect, rotating UVs around a center point.
 
 #### Displacement
+
+![Compute Noise and a Pattern feeding Displacement, the pattern pushing the noise around](images/node-displacement.webp)
 Displaces UV coordinates based on an offset field.
 
 - **Category**: Transform
@@ -1300,6 +1359,8 @@ Converts a color to grayscale.
 - **Description**: Converts RGB color to a single grayscale value using various methods. Luminance uses perceptual weighting (0.299R + 0.587G + 0.114B).
 
 #### Invert Color
+
+![A Compute Noise node feeding Invert Color, with colours reversed](images/node-invert-color.webp)
 Inverts a color.
 
 - **Category**: Modifiers
@@ -1326,6 +1387,8 @@ Blends two colors using various blend modes.
 ### Compute Image Processing
 
 #### Compute Blur (Compute)
+
+![A checkerboard Pattern feeding Compute Blur, with softened edges](images/node-compute-blur.webp)
 Applies Gaussian blur to an input texture.
 
 - **Category**: Modifiers
@@ -1340,6 +1403,8 @@ Applies Gaussian blur to an input texture.
 - **Description**: Fast Gaussian blur for glow, depth-of-field, and softening effects.
 
 #### Compute Convolution (Compute)
+
+![A Compute Noise node feeding Compute Convolution](images/node-compute-convolution.webp)
 Applies a convolution kernel to an input texture.
 
 - **Category**: Modifiers
@@ -1353,6 +1418,8 @@ Applies a convolution kernel to an input texture.
 - **Description**: Classic image convolution filtering (sharpen, edge detect, emboss).
 
 #### Threshold (Compute)
+
+![A Compute Noise node feeding Threshold, cut to hard black and white](images/node-threshold.webp)
 Thresholds an input texture.
 
 - **Category**: Modifiers
@@ -1368,6 +1435,8 @@ Thresholds an input texture.
 - **Description**: Binary, range, and adaptive thresholding operations.
 
 #### Color Adjust (Compute)
+
+![A Compute Noise node feeding Color Adjust, shifted toward blue](images/node-color-adjust.webp)
 Full color grading for a texture.
 
 - **Category**: Modifiers
@@ -1400,6 +1469,8 @@ Detects edges in an input texture.
 - **Description**: Edge detection using various gradient operators.
 
 #### Morphology (Compute)
+
+![A Compute Noise node feeding Morphology, its blobs dilated](images/node-morphology.webp)
 Morphological operations on a texture.
 
 - **Category**: Modifiers
@@ -1415,6 +1486,8 @@ Morphological operations on a texture.
 - **Description**: Dilate, erode, open, and close operations for growing/shrinking bright regions.
 
 #### Histogram (Compute)
+
+![A Compute Noise node feeding Histogram, with the tonal range redistributed](images/node-histogram.webp)
 Histogram-based analysis and equalization.
 
 - **Category**: Modifiers
@@ -1430,6 +1503,8 @@ Histogram-based analysis and equalization.
 - **Description**: Histogram equalization, normalization, contrast stretching, and visualization.
 
 #### Luminance (Compute)
+
+![A Compute Noise node feeding Luminance, reduced to greyscale brightness](images/node-luminance.webp)
 Luminance extraction and operations.
 
 - **Category**: Modifiers
@@ -1450,6 +1525,8 @@ Luminance extraction and operations.
 Effect nodes are compute nodes that create visual effects — warps, mirrors, glitches, and feedback trails.
 
 #### Compute Feedback (Compute)
+
+![A Pattern node feeding Compute Feedback, with the accumulated trail in its thumbnail](images/node-compute-feedback.webp)
 Creates feedback loops for trails and recursive patterns.
 
 - **Category**: Effects
@@ -1467,6 +1544,8 @@ Creates feedback loops for trails and recursive patterns.
 - **Description**: Blends the previous frame back into the current one with a transformation, creating motion trails, tunnels, and recursive patterns. Uses ping-pong buffers. The **Reset** pin performs the same clear as the button, driven by a signal — wire a Trigger to reset on a beat or event.
 
 #### Warp (Compute)
+
+![A Pattern node and a second Pattern used as a warp field, feeding the Warp node](images/node-compute-warp.webp)
 UV distortion and displacement effects.
 
 - **Category**: Effects
@@ -1485,6 +1564,8 @@ UV distortion and displacement effects.
 - **Description**: Distorts a texture with several warp modes; the Warp Field input allows another texture (e.g. noise) to drive the displacement.
 
 #### Kaleidoscope (Compute)
+
+![A checkerboard Pattern feeding Kaleidoscope, mirrored into radial segments](images/node-kaleidoscope.webp)
 Creates kaleidoscope mirror effects.
 
 - **Category**: Effects
@@ -1502,6 +1583,8 @@ Creates kaleidoscope mirror effects.
 - **Description**: Creates repeating mirror symmetry patterns like a kaleidoscope. Replaces the former fragment Kaleidoscope transform node, adding animation support.
 
 #### Glitch (Compute)
+
+![A checkerboard Pattern feeding Glitch, showing channel-shifted scanlines](images/node-glitch.webp)
 Digital glitch and artifact effects.
 
 - **Category**: Effects
@@ -1524,6 +1607,8 @@ Digital glitch and artifact effects.
 Simulation nodes are compute nodes that run stateful, physics-based systems on the GPU.
 
 #### Compute Particles (Compute)
+
+![A Compute Particles node rendering a sparse particle field, with Force Field and Velocity Field inputs](images/node-compute-particles.webp)
 GPU particle system with physics.
 
 - **Category**: Simulation
@@ -1549,6 +1634,8 @@ GPU particle system with physics.
 - **Description**: Simulates and renders thousands of particles in real time; force and velocity fields can be driven by other textures. The Force Field input accelerates particles, the Velocity Field sets their initial velocity — both decode the texture's red/green channels as a vector field (mid-gray = zero). Output is opaque over black; wire it into Compute Feedback for motion trails.
 
 #### Reaction Diffusion (Compute)
+
+![A Reaction Diffusion node rendering blue spots on a dark field](images/node-reaction-diffusion.webp)
 Gray-Scott reaction-diffusion simulation.
 
 - **Category**: Simulation
@@ -1566,6 +1653,8 @@ Gray-Scott reaction-diffusion simulation.
 - **Description**: Organic Turing patterns that continuously evolve. Pattern presets configure the feed/kill rates for classic morphologies.
 
 #### Fluid Simulation (Compute)
+
+![A Fluid Simulation node rendering swirling smoke, with a Velocity Input](images/node-fluid-simulation.webp)
 Navier-Stokes fluid dynamics (single-pass stable fluids with dye advection).
 
 - **Category**: Simulation
@@ -1586,6 +1675,8 @@ Navier-Stokes fluid dynamics (single-pass stable fluids with dye advection).
 - **Description**: Real-time smoke/ink-style fluid simulation. Dye mode renders neutral white smoke on black (composable downstream); Velocity maps flow direction to hue; Vorticity and Pressure are diagnostic views of the solver state.
 
 #### Cellular Automata (Compute)
+
+![A Cellular Automata node rendering a sparse live-cell field](images/node-cellular-automata.webp)
 Cellular automata simulation (Game of Life, etc.).
 
 - **Category**: Simulation
@@ -1791,6 +1882,8 @@ HSV color space operations on a texture.
 - **Description**: Converts between RGB and HSV or adjusts hue/saturation/value directly. Replaces the former HSV to RGB / RGB to HSV fragment nodes.
 
 #### 3D Field Visualizer (Compute)
+
+![A 3D Field Visualizer node rendering a shaded plane, with a Field Input and a 3D Geometry output](images/node-field-visualizer-3d.webp)
 Visualizes compute field data as 3D geometry.
 
 - **Category**: Utility
@@ -1816,6 +1909,8 @@ Blend nodes provide operations for combining signed distance fields (SDFs) and c
 ### SDF Operations
 
 #### Add (SDF)
+
+![A Pattern and a Compute Noise node feeding Add (SDF)](images/node-sdf-add.webp)
 Adds two signed distance fields.
 
 - **Category**: Blend
@@ -1827,6 +1922,8 @@ Adds two signed distance fields.
 - **Description**: Combines two SDFs by adding their distance values together.
 
 #### Subtract (SDF)
+
+![A Pattern and a Compute Noise node feeding Subtract (SDF)](images/node-sdf-subtract.webp)
 Subtracts one SDF from another.
 
 - **Category**: Blend
@@ -1838,6 +1935,8 @@ Subtracts one SDF from another.
 - **Description**: CSG subtraction operation - removes B from A. Creates negative space.
 
 #### Union (Min)
+
+![A Pattern and a Compute Noise node feeding Union (Min)](images/node-sdf-union.webp)
 Creates a union of two SDFs.
 
 - **Category**: Blend
@@ -1849,6 +1948,8 @@ Creates a union of two SDFs.
 - **Description**: CSG union operation using minimum. Combines both shapes with a hard edge.
 
 #### Intersection (Max)
+
+![A Pattern and a Compute Noise node feeding Intersection (Max)](images/node-sdf-intersection.webp)
 Creates an intersection of two SDFs.
 
 - **Category**: Blend
@@ -1862,6 +1963,8 @@ Creates an intersection of two SDFs.
 ### Smooth SDF Operations
 
 #### Smooth Union
+
+![A Pattern and a Compute Noise node feeding Smooth Union](images/node-sdf-smooth-union.webp)
 Creates a smooth union of two SDFs.
 
 - **Category**: Blend
@@ -1907,6 +2010,8 @@ Creates a smooth subtraction of two SDFs.
 Texture nodes sample image files.
 
 #### Texture 2D
+
+![A Texture 2D node with an image loaded, shown in its thumbnail](images/node-texture-2d.webp)
 Samples a 2D texture image.
 
 - **Category**: Texture

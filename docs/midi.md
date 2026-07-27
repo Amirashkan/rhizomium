@@ -13,7 +13,7 @@ Control your visuals in real-time using MIDI controllers! Connect knobs, sliders
 
 ### Step 2: Enable MIDI in Rhizomium
 
-1. Click the **MIDI Settings** button in the toolbar
+1. Open **Tools → MIDI Settings**
 2. Click **Enable MIDI** to request browser access
 3. Allow MIDI access when prompted by your browser
 4. Your connected MIDI controllers will appear in the device list
@@ -58,6 +58,8 @@ You can use any CC number - just move the control and Rhizomium will detect it.
 ---
 
 ## MIDI Settings Panel
+
+![The MIDI Controllers panel: connection status, detected devices, MIDI Learn, active bindings and a live activity log](images/panel-midi-controllers.webp)
 
 ### Device List
 
@@ -270,7 +272,7 @@ Save different MIDI mappings:
 
 ## Keyboard Shortcuts
 
-- **MIDI Settings**: Click toolbar button (no default shortcut)
+- **MIDI Settings**: **Tools → MIDI Settings** (no default shortcut)
 - **MIDI Learn**: Click parameter field + Learn button
 - **Clear Binding**: Right-click binding in list → Remove
 
@@ -280,17 +282,17 @@ Save different MIDI mappings:
 
 ### Supported Browsers
 
-- ✅ **Chrome 43+** (Recommended)
-- ✅ **Edge 79+** (Recommended)
-- ❌ **Firefox** (Web MIDI API not supported)
-- ❌ **Safari** (Web MIDI API not supported)
+- **Chrome 43+** (Recommended)
+- **Edge 79+** (Recommended)
+- **Firefox** (Web MIDI API not supported)
+- **Safari** (Web MIDI API not supported)
 
 ### Platform Support
 
-- ✅ **Windows 10+**
-- ✅ **macOS 10.14+**
-- ✅ **Linux** (with ALSA/MIDI support)
-- ⚠️ **Chrome OS** (Limited controller support)
+- **Windows 10+**
+- **macOS 10.14+**
+- **Linux** (with ALSA/MIDI support)
+- **Chrome OS** (Limited controller support)
 
 ---
 

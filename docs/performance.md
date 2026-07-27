@@ -2,7 +2,7 @@
 
 Optimize your Rhizomium node graphs for smooth, real-time performance.
 
-## ⚠️ CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS ⚠️
+## CRITICAL PERFORMANCE REQUIREMENT FOR ALL AGENTS
 
 **30 FPS IS NEVER ACCEPTED. ALL OPTIMIZATIONS MUST TARGET 60 FPS.**
 
@@ -31,7 +31,7 @@ Rhizomium runs entirely on your GPU using WebGPU. Performance depends on:
 
 Use this checklist if your visuals are running slowly:
 
-- [ ] Reduce preview resolution (try 1280x720 or 960x540)
+- [ ] Reduce render resolution in **View → Preview / Export Settings** (try 720p, or one of the square presets)
 - [ ] Minimize noise/Voronoi nodes (most expensive operations)
 - [ ] Disable node preview thumbnails (save GPU cycles)
 - [ ] Close unused browser tabs/applications
@@ -123,13 +123,17 @@ Preview resolution has **massive** impact on performance:
 
 ### Resolution Impact Table
 
-| Resolution | Pixels | Relative Cost | Use Case |
-|------------|--------|---------------|----------|
-| 960x540 (SD) | 518K | 1× (baseline) | Complex graphs, older GPUs |
-| 1280x720 (HD) | 922K | 1.8× | Balanced performance |
-| 1920x1080 (FHD) | 2.1M | 4× | Recommended, modern GPUs |
-| 2560x1440 (QHD) | 3.7M | 7× | Powerful GPUs |
-| 3840x2160 (4K) | 8.3M | 16× | High-end GPUs only |
+Costs are relative to 720p, the default output format.
+
+| Preset | Pixels | Relative cost | Use case |
+|--------|--------|---------------|----------|
+| 512 x 512 (square) | 262K | 0.3x | Complex graphs, older GPUs |
+| 720p (1280 x 720) | 922K | 1x (default) | Balanced performance |
+| 1024 x 1024 (square) | 1.0M | 1.1x | Square output, stills |
+| 1080p (1920 x 1080) | 2.1M | 2.2x | Modern GPUs |
+| 2048 x 2048 (square) | 4.2M | 4.5x | Large square stills |
+| 1440p (2560 x 1440) | 3.7M | 4x | Powerful GPUs |
+| 4K (3840 x 2160) | 8.3M | 9x | High-end GPUs only |
 
 **Performance Tip:** Every pixel computes your entire node graph, every frame!
 
@@ -146,7 +150,7 @@ Preview resolution has **massive** impact on performance:
 - GPU is older than 5 years
 - Running on integrated graphics
 
-**Use 960x540 (SD) if:**
+**Use 512 x 512 if:**
 - Still experiencing lag at HD
 - Testing complex graphs
 - Low-end hardware
@@ -215,25 +219,25 @@ If your GPU overheats, it slows down automatically:
 
 1. **Minimize Noise Nodes**
    ```
-   ❌ Bad: UV → Noise → FBM → Turbulence
-   ✅ Good: UV → Noise → Some Math
+   Bad: UV → Noise → FBM → Turbulence
+   Good: UV → Noise → Some Math
    ```
 
 2. **Reuse Expensive Operations**
    ```
-   ❌ Bad: Same noise node duplicated 3 times
-   ✅ Good: One noise node → Split to multiple outputs
+   Bad: Same noise node duplicated 3 times
+   Good: One noise node → Split to multiple outputs
    ```
 
 3. **Simplify When Possible**
    ```
-   ❌ Bad: Noise → Complex color ramp → More noise
-   ✅ Good: Noise → Simple gradient → Done
+   Bad: Noise → Complex color ramp → More noise
+   Good: Noise → Simple gradient → Done
    ```
 
 4. **Use Cheap Math First**
    ```
-   ✅ Good: UV → Scale → Rotate → Noise
+   Good: UV → Scale → Rotate → Noise
    (Transform reduces noise sampling area)
    ```
 
@@ -250,10 +254,10 @@ If your GPU overheats, it slows down automatically:
 
 **Combine Operations:**
 ```
-❌ Bad:
+Bad:
 UV → Rotate → Scale → Translate
 
-✅ Good:
+Good:
 UV → Combined Transform (one node with matrix math)
 ```
 
@@ -549,21 +553,21 @@ If you hit performance limits consistently:
 ## Summary
 
 ### Do This:
-- ✅ Start with 1920×1080 resolution
-- ✅ Limit noise nodes to 2-3 per graph
-- ✅ Disable node previews when not needed
-- ✅ Use simple math operations freely
-- ✅ Close other GPU-intensive applications
-- ✅ Monitor GPU temperature
-- ✅ Update graphics drivers
+- Start with 1920×1080 resolution
+- Limit noise nodes to 2-3 per graph
+- Disable node previews when not needed
+- Use simple math operations freely
+- Close other GPU-intensive applications
+- Monitor GPU temperature
+- Update graphics drivers
 
 ### Avoid This:
-- ❌ Don't use 5+ noise nodes
-- ❌ Don't max out FBM octaves (use 3-4, not 8)
-- ❌ Don't run at 4K on weak GPUs
-- ❌ Don't leave many node previews enabled
-- ❌ Don't use Firefox/Safari for production
-- ❌ Don't ignore thermal throttling
+- Don't use 5+ noise nodes
+- Don't max out FBM octaves (use 3-4, not 8)
+- Don't run at 4K on weak GPUs
+- Don't leave many node previews enabled
+- Don't use Firefox/Safari for production
+- Don't ignore thermal throttling
 
 ---
 

@@ -452,16 +452,26 @@ export class NoiseNodes {
 
 // FIXED & OPTIMIZED WGSL Noise Functions - Split into individual definitions for selective inclusion
 export const NOISE_FUNCTION_DEFINITIONS = {
+  // Hash without Sine (Dave Hoskins). The `p3 += dot(p3, p3.yzx + 33.33)` step
+  // is what decorrelates neighbouring inputs; without it the result is close to
+  // a linear function of p, and every lattice-interpolated noise built on it
+  // (value, fast, ridged, warp, worley) comes out as smooth bands rather than
+  // noise. Adding a constant inside the final fract, as this used to, does not
+  // mix anything. Measured over a 64x64 integer lattice, neighbour correlation
+  // goes from 0.63 (x) / -0.45 (y) to 0.03 / -0.03. This matches the form the
+  // compute-path shaders in ComputeNodes.js already use.
   hash12: `// Hash function: vec2 -> f32
 fn hash12(p: vec2<f32>) -> f32 {
-  let p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-  return fract((p3.x + p3.y) * p3.z + dot(p3, vec3<f32>(33.33)));
+  var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }`,
 
   hash22: `// Hash function: vec2 -> vec2
 fn hash22(p: vec2<f32>) -> vec2<f32> {
-  let p3 = fract(vec3<f32>(p.x, p.y, p.x) * vec3<f32>(0.1031, 0.1030, 0.0973));
-  return fract((p3.xx + p3.yz) * p3.zy + vec2<f32>(33.33));
+  var p3 = fract(vec3<f32>(p.x, p.y, p.x) * vec3<f32>(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
 }`,
 
   fastNoise: `// Fast Noise - Optimized for high frequencies

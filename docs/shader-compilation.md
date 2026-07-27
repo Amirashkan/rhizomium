@@ -1,5 +1,9 @@
 # Shader Compilation
 
+The generated WGSL is viewable at any time from **View → Show Console**:
+
+![The WGSL console showing generated shader code](images/wgsl-console.webp)
+
 Understanding how Rhizomium transforms your node graph into GPU shaders.
 
 ---
@@ -193,8 +197,8 @@ fn hsvToRgb(hsv: vec3<f32>) -> vec3<f32> {
 The compiler only includes nodes connected to Output:
 
 ```
-UV → Circle → ColorRamp → Output  ✅ Included
-UV → Noise                        ❌ Not included (disconnected)
+UV → Circle → ColorRamp → Output  Included
+UV → Noise                        Not included (disconnected)
 ```
 
 ### 2. Constant Folding
@@ -273,16 +277,16 @@ Error: Unexpected token in WGSL
 
 ### GPU-Friendly Patterns
 
-**✅ Good:**
+**Good:**
 - Simple math operations (add, multiply)
 - Texture sampling
 - Built-in functions (sin, cos, length)
 
-**⚠️ Moderate:**
+**Moderate:**
 - Conditional logic (if/else)
 - Loops with low iteration counts
 
-**❌ Expensive:**
+**Expensive:**
 - Complex noise functions
 - High-iteration loops
 - Recursive patterns

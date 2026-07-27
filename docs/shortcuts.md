@@ -154,7 +154,7 @@ When shortcuts list `Ctrl`, Mac users should use `Cmd` instead.
 
 ### Grid Controls
 
-These are in the toolbar, not keyboard shortcuts:
+These live in the menu bar, not on the keyboard:
 
 - **Snap Toggle** - Enable/disable snap-to-grid
 - **Grid Size** - Adjust grid spacing (2-512)
@@ -166,12 +166,12 @@ When snap is enabled, arrow key movement uses grid size.
 ## Audio Shortcuts
 
 **Audio:**
-- Click **Audio Settings** button in toolbar
+- Open **Tools → Audio Settings**
 - No dedicated keyboard shortcuts
 - See [Audio Reactivity Guide](audio-web.md)
 
 **MIDI:**
-- Click **MIDI Settings** button in toolbar
+- **Tools → MIDI Settings**
 - **MIDI Learn** - Click parameter + Learn button, then move controller
 - See [MIDI Controller Guide](midi.md) for setup
 

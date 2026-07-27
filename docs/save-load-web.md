@@ -8,7 +8,7 @@ Learn how to save, load, and manage your Rhizomium projects in the browser.
 
 **Keyboard Shortcut**: `Ctrl+S` (Windows/Linux) or `Cmd+S` (Mac)
 
-**Button**: Click the **Save** button in the toolbar
+**Menu**: **File → Save**
 
 Your project is saved to your browser's local storage instantly!
 
@@ -20,11 +20,11 @@ Your project is saved to your browser's local storage instantly!
 
 Rhizomium saves your projects in your browser's **Local Storage**:
 
-- ✅ **Fast** - Instant save and load
-- ✅ **Private** - Stored only on your computer
-- ✅ **No account needed** - Works offline
-- ⚠️ **Browser-specific** - Projects are tied to your browser
-- ⚠️ **Limited space** - Usually 5-10MB per site
+- **Fast** - Instant save and load
+- **Private** - Stored only on your computer
+- **No account needed** - Works offline
+- **Browser-specific** - Projects are tied to your browser
+- **Limited space** - Usually 5-10MB per site
 
 ### What Gets Saved
 
@@ -65,7 +65,7 @@ Your project is now saved!
 
 ### Load Menu
 
-1. Click the **Load** button in the toolbar
+1. Choose **File → Open Project…**
 2. Browse your saved projects
 3. Click a project name to load it
 
@@ -107,7 +107,7 @@ Or save with a new name to create a copy.
 To backup or share your project:
 
 1. **Method A** - Export Button:
-   - Click **Export** in toolbar (if available)
+   - Choose **File → Export**
    - Choose save location
    - Project downloads as `.json` file
 
@@ -130,7 +130,7 @@ To backup or share your project:
 
 ### Upload JSON File
 
-1. Click **Import** button in toolbar
+1. Choose **File → Open Project…**
 2. Select a `.json` file from your computer
 3. Project loads immediately
 
@@ -216,18 +216,18 @@ console.log('Storage used:', Math.round(size / 1024), 'KB');
 ### Risks
 
 Projects can be lost if:
-- ❌ **Browser cache is cleared** - Clears all projects!
-- ❌ **Incognito/Private mode** - Not saved permanently
-- ❌ **Different browser** - Projects don't transfer
-- ❌ **Browser uninstall** - Removes all data
-- ❌ **Computer crash** - Rare, but possible
+- **Browser cache is cleared** - Clears all projects!
+- **Incognito/Private mode** - Not saved permanently
+- **Different browser** - Projects don't transfer
+- **Browser uninstall** - Removes all data
+- **Computer crash** - Rare, but possible
 
 ### Protect Your Work
 
-✅ **Export important projects** as JSON files
-✅ **Keep backups** in cloud storage (Dropbox, Google Drive)
-✅ **Don't rely solely on browser storage**
-✅ **Avoid clearing browser data** for studio.tenderworld.org
+**Export important projects** as JSON files
+**Keep backups** in cloud storage (Dropbox, Google Drive)
+**Don't rely solely on browser storage**
+**Avoid clearing browser data** for studio.tenderworld.org
 
 ---
 
@@ -311,4 +311,4 @@ Only you can access your projects!
 
 ---
 
-_Save early, save often, and export your best work!_ 💾
+_Save early, save often, and export your best work!_

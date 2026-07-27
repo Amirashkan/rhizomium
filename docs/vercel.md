@@ -63,7 +63,7 @@ vercel
 3. Import your Git repository
 4. Click "Deploy"
 
-That's it! 🎉
+That's it!
 
 ---
 
@@ -138,14 +138,14 @@ Frames stream automatically between tabs!
 
 ### BroadcastChannel Limitations
 
-✅ **Works:**
+**Works:**
 - Multiple tabs/windows on same computer
 - Same browser instance
 - Zero latency
 - No backend required
 - Perfect for live editing
 
-❌ **Doesn't Work:**
+**Doesn't Work:**
 - Different computers/devices
 - Remote viewing over network
 - Different browsers
@@ -235,7 +235,7 @@ Your site will be available at: `https://your-domain.com`
 
 ## Environment Variables
 
-No environment variables needed! 🎉
+No environment variables needed!
 
 The editor works entirely client-side.
 
@@ -268,10 +268,10 @@ Or visit: `https://vercel.com/your-project/deployments`
 ### Issue: Viewer shows "BroadcastChannel not supported"
 
 **Solution:** Use a modern browser:
-- ✅ Chrome/Edge 54+
-- ✅ Firefox 38+
-- ✅ Safari 15.4+
-- ❌ Internet Explorer (not supported)
+- Chrome/Edge 54+
+- Firefox 38+
+- Safari 15.4+
+- Internet Explorer (not supported)
 
 ### Issue: Frames not appearing in viewer
 
@@ -343,7 +343,7 @@ vercel --prod
 - Password protection
 - Team features
 
-For most users, the **free tier is sufficient**! 🎉
+For most users, the **free tier is sufficient**!
 
 ---
 
@@ -413,7 +413,7 @@ const frameStream = new VercelFrameStream({
 });
 ```
 
-Now you have full network streaming on Vercel! 🚀
+Now you have full network streaming on Vercel!
 
 ---
 
@@ -436,4 +436,4 @@ For issues:
 
 ---
 
-**Happy deploying! 🌿✨**
+**Happy deploying!**

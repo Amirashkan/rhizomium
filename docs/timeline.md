@@ -21,7 +21,7 @@ The Timeline lets you **record parameter changes over time** and play them back 
 
 ### Step 1: Open the Timeline
 
-1. Click the **Timeline** button in the toolbar (or press `Ctrl+T`)
+1. Choose **View → Timeline** (or press `Ctrl+T`)
 2. The timeline panel appears at the bottom of the screen
 
 ### Step 2: Enable Timeline Mode

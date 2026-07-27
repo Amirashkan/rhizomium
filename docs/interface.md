@@ -8,6 +8,13 @@ Get familiar with the Rhizomium interface and learn how to navigate the editor e
 
 When you open Rhizomium, you'll see four main areas:
 
+![The Rhizomium editor with its four main areas numbered](images/editor-overview.annotated.webp)
+
+1. **Menu bar** - File, Edit, View, Node, Tools, Window, Help
+2. **Status** - "Idle" or "Shader compiled"
+3. **Preview window** - the rendered output, floating over the canvas
+4. **Canvas** - the node graph you are building
+
 ### 1. Canvas (Center)
 
 The large dark area where you build your node graphs.
@@ -18,44 +25,36 @@ The large dark area where you build your node graphs.
 - **Select nodes** by clicking them
 - **Box select** by right-click dragging
 
-### 2. Toolbar (Top)
+### 2. Menu Bar (Top)
 
-The horizontal menu bar with buttons and controls:
+Everything outside the canvas lives in seven menus, with the current status
+("Idle", "Shader compiled") shown beside them:
 
-**Core Actions:**
-- **Toggle Preview** - Show/hide the preview window
-- **Dock Preview** - Snap preview to canvas or float it
-- **Lock Preview** - Prevent preview from moving
-- **Fullscreen** - Expand preview to full screen
+![The editor menu bar](images/menu-bar.webp)
 
-**Grid & Snapping:**
-- **Snap Toggle** - Enable grid snapping
-- **Grid Size** - Adjust snap grid spacing (default: 20)
+**File** - New Project, Open Project…, Save, Save As…, File Manager, Export,
+Publish (**Publish Image…** and **Publish Animation…**, which upload at the
+render resolution set in **View → Preview / Export Settings**), Backups, Exit
 
-**History:**
-- **Undo** - Revert last action (Ctrl+Z)
-- **Redo** - Redo undone action (Ctrl+Y)
+**Edit** - Undo, Redo, Cut, Copy, Paste, Delete, Rebuild, Preferences…
 
-**Project Management:**
-- **Save Project** - Save to browser storage
-- **Load Project** - Load saved projects
-- **Backups** - View autosave backups
-- **Export JSON** - Download project file
-- **Import** - Load project from file
+**View** - Panels (Toggle ParamPanel, Toggle Preview Panel, Toggle 3D
+Viewport), Zoom (Zoom In, Zoom Out, Reset Zoom), Grid (Show Grid, Snap to
+Grid, Grid Size), Preview / Export Settings, Show Console, Timeline,
+VJ Control, Second Monitor Viewer
 
-**Tools:**
-- **Rebuild** - Recompile shader
-- **Console** - View generated WGSL code
-- **Audio Settings** - Configure audio reactivity
-- **MIDI Settings** - Connect and map MIDI controllers
-- **Timeline** - Open keyframe timeline (Ctrl+T)
-- **Profiler** - Performance monitoring overlay (Ctrl+P)
-- **VJ Control** - Scene management panel
-- **Open External Viewer** - Launch fullscreen window (local only)
+**Node** - Create Node…, Delete Node, Duplicate Node, Pins (Connect Pins,
+Disconnect Pins), Node Settings / Params…
 
-**Display Settings:**
-- **Resolution** - Set preview resolution (960x540 to 4K)
-- **Display** - Choose monitor for external viewer
+**Tools** - Script Editor / Python Console, Shader Tools (Shader Compiler,
+GLSL Utilities), Audio Settings, MIDI Settings
+
+**Window** - Layouts (Default, Custom, Minimal), Floating Windows, Reset Layout
+
+**Help** - Documentation, Shortcuts / Keymap, Welcome, About
+
+The preview window carries its own controls rather than sitting in a toolbar -
+see [Preview Window](#preview-window) below.
 
 ### 3. Preview Window
 
@@ -71,23 +70,31 @@ Shows your visual output in real-time:
 
 ### 4. Right-Click Menu
 
-Context-sensitive menu that appears when you right-click:
+Right-clicking empty canvas opens the **Add Node** menu - a ring of the twelve
+node categories:
 
-**On Canvas:**
-- Radial node menu organized by category
-- **Input** - Constants, UV, Time, Mouse, Audio
-- **Output** - Final output node
-- **Field** - Patterns, shapes, noise
-- **Math** - Arithmetic, trigonometry
-- **Utility** - Color, data manipulation
-- **Blend** - SDF operations
-- **Transform** - UV effects, distortion
+![The radial Add Node menu](images/radial-menu.webp)
 
-**On Node:**
-- Delete node
-- Duplicate node
-- Edit parameters
-- Show/hide preview
+The categories are **Input**, **Output**, **Math**, **Vector**, **Generators**,
+**Transform**, **Modifiers**, **Effects**, **Simulation**, **Utility**,
+**Blend** and **Texture**. Click one to fan its nodes out around the ring:
+
+![The Transform category expanded](images/radial-menu-category.webp)
+
+**You can also just type.** With the menu open, typing filters every node in
+the editor by name, so you never have to remember which category something is
+filed under:
+
+![Typing "noise" filters the menu](images/radial-menu-search.webp)
+
+- **Type** to search
+- **Arrow keys** to move the selection
+- **Enter** to place the highlighted node
+- **Esc** or **←** to step back out
+- **Scroll** to page through a category with more nodes than fit the ring
+
+**On a node**, right-click gives that node's own menu - edit parameters, delete,
+duplicate, and toggle its preview thumbnail.
 
 ---
 
@@ -170,12 +177,13 @@ Each node has several parts:
 
 ### Adding Nodes
 
-1. Right-click on canvas
-2. Navigate category menu
-3. Click node name
-4. Node appears at cursor position
+1. Right-click on canvas to open the radial **Add Node** menu
+2. Type to search, or click a category to fan out its nodes
+3. Click a node, or highlight it with the arrow keys and press **Enter**
+4. Node appears where you right-clicked
 
-**Tip:** Use Ctrl+Space for quick search (if available)
+**Tip:** Typing is usually faster than browsing - the search covers all 133
+nodes regardless of category.
 
 ### Connecting Nodes
 
@@ -202,11 +210,11 @@ Each node has several parts:
 
 **Double-click** a node to open the parameter panel:
 
-- Adjust values with sliders or inputs
+- Type values directly into the parameter's field
+- Prefix with `=` to drive it from an expression
 - Color pickers for color parameters
 - Dropdowns for options
 - File pickers for textures
-- **Expression mode** (=) for math formulas
 
 **Click outside** the panel to close it
 
@@ -220,19 +228,36 @@ Each node has several parts:
 
 ## Parameter Panel
 
-Opens when you double-click a node:
+Opens when you double-click a node, or from **Node → Node Settings / Params…**:
+
+![The parameter panel for a Circle node, with its parts numbered](images/parameter-panel.annotated.webp)
+
+1. **Panel header** - which node these parameters belong to
+2. **Value field** - type a number, or an `=` expression
+3. **Evaluated value** - what the expression currently resolves to
+4. **Accepted range** for this parameter
+5. **Copy reference**, **bind** (MIDI / parameter link), and **keyframe**
 
 ### Panel Layout
-- **Header** - Node name and close button
-- **Parameters** - Organized by type
-- **Real-time updates** - Changes apply immediately
+- **Header** - the node's name, e.g. "Circle Parameters"
+- **Parameters** - one block each, in the order the node declares them
+- **Real-time updates** - changes apply immediately
+
+Each parameter block carries three buttons on the right:
+
+- **Copy reference** - copies this parameter as a reference you can paste into
+  another parameter's expression
+- **Bind** - opens the binding menu, used for MIDI and parameter links
+- **Keyframe** - adds a keyframe at the playhead for timeline animation
 
 ### Parameter Types
 
 **Numeric:**
-- Sliders with text input
-- Click number to type directly
-- Arrow keys to adjust
+- A text field you type into directly - every numeric parameter accepts a plain
+  number or an `=` expression
+- Below the field, the editor shows the value it currently evaluates to and the
+  accepted range (e.g. "Range: 0 to 2")
+- Out-of-range values are clamped to that range
 
 **Color:**
 - Color picker interface
@@ -313,7 +338,7 @@ Individual nodes can show preview thumbnails:
 
 View and export generated WGSL shader code:
 
-**Open:** Click "Console" button in toolbar
+**Open:** **View → Show Console**
 
 **Features:**
 - **Select All** - Highlight all code
@@ -355,7 +380,7 @@ See [Audio Reactivity Guide](audio-web.md) for details.
 
 Control parameters with MIDI controllers:
 
-**Open:** Click "MIDI Settings" button in toolbar
+**Open:** **Tools → MIDI Settings**
 
 **Features:**
 - **Device Detection** - Automatically lists connected MIDI controllers
@@ -399,6 +424,34 @@ See [Timeline & Keyframes Guide](timeline.md) for detailed instructions.
 
 ---
 
+## VJ Control Panel
+
+Store whole graphs as scenes and switch between them during a performance.
+
+**Open:** **View → VJ Control**
+
+![The VJ Control panel: Scenes, Presets and Playlist tabs, two saved scenes, transition settings, BPM tap tempo, and opacity and speed sliders](images/panel-vj-control.webp)
+
+**Tabs** - **Scenes**, **Presets** and **Playlist**.
+
+**Scenes** - each saved scene is listed with its duration and a **Load** button,
+plus a red button to remove it. Below the list:
+
+- **Load Scene** - bring a scene in from a file
+- **Capture Current** - save the graph as it stands right now into a new scene
+- **Save All** - write every scene out
+
+**Transition** - how one scene gives way to the next (for example Crossfade),
+and how long the transition takes in seconds.
+
+**BPM** - set the tempo numerically, or click **Tap** in time with the music.
+The indicator beside it beats along so you can check the tempo took.
+
+**Opacity** and **Speed** - global sliders over the whole output, so you can
+fade the visuals out or run them faster and slower without touching the graph.
+
+---
+
 ## Performance Profiler
 
 Monitor real-time performance:
@@ -412,9 +465,9 @@ Monitor real-time performance:
 - **Dispatch Breakdown** - Per-node performance
 
 **Color Coding:**
-- 🟢 Green (≥60 FPS) - Excellent
-- 🟡 Yellow (30-59 FPS) - Acceptable
-- 🔴 Red (<30 FPS) - Poor
+- Green (≥60 FPS) - Excellent
+- Yellow (30-59 FPS) - Acceptable
+- Red (<30 FPS) - Poor
 
 **Controls:**
 - **+** - Expand to see detailed breakdown
@@ -491,12 +544,25 @@ Position preview where it works for you:
 
 ### Resolution
 
-Choose resolution based on your needs:
-- **960x540** - Low-end GPUs, best performance
-- **1280x720** - Balanced quality/performance
-- **1920x1080** - Standard HD, recommended
-- **2560x1440** - High quality
-- **3840x2160** - 4K, powerful GPUs only
+**View → Preview / Export Settings** is the single place render resolution,
+frame rate and export options are set - the preview, exports and publishing all
+follow it.
+
+**Output format** presets:
+
+- **512 × 512** and **1024 × 1024** (square) - light, good for older GPUs
+- **2048 × 2048** (square) - heavy, for stills
+- **720p** (1280 × 720) - the default, balanced
+- **1080p** (1920 × 1080) - standard HD
+- **1440p** (2560 × 1440) - high quality
+- **4K** (3840 × 2160) - powerful GPUs only
+- **Custom…** - type your own width and height
+
+**Frame rate** is either **V-Sync (display refresh)** or a **fixed step**.
+
+The second-monitor viewer has its own **Viewer Display** setting - Auto, 720p,
+1080p, 1440p, 4K, or a custom long edge - so the presentation window can run at
+a different size from the render.
 
 ---
 

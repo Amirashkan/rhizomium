@@ -30,11 +30,11 @@ Check the license file in the repository for commercial use terms.
 
 Rhizomium requires a WebGPU-capable browser:
 
-- ✅ **Chrome 113+** (Recommended)
-- ✅ **Edge 113+** (Recommended)
-- ✅ **Opera 99+**
-- ⚠️ **Firefox** - WebGPU support is experimental
-- ⚠️ **Safari** - Limited WebGPU support
+- **Chrome 113+** (Recommended)
+- **Edge 113+** (Recommended)
+- **Opera 99+**
+- **Firefox** - WebGPU support is experimental
+- **Safari** - Limited WebGPU support
 
 ### How do I check if my browser supports WebGPU?
 
@@ -119,7 +119,7 @@ Yes! Select nodes and use **Ctrl+C** (copy), **Ctrl+V** (paste). Or duplicate wi
 
 ### How do I save my work?
 
-Click the **Save** button in the toolbar, or press **Ctrl+S**. Your project will be saved locally or to the server.
+Choose **File → Save**, or press **Ctrl+S**. Your project will be saved locally or to the server.
 
 ### Where are my saved projects?
 

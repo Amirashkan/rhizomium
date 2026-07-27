@@ -1,4 +1,4 @@
-# 🌱 Rhizomium
+# Rhizomium
 
 **Visual Synthesis, Rhizome-Style**  
 **Compose. Evolve. Perform.**  
@@ -10,7 +10,7 @@ combining mathematical, procedural, and organic structures in real time.
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ### Requirements
 - **Browser:** Chrome 113+ or Edge 113+ (WebGPU enabled)
@@ -28,7 +28,7 @@ npm run dev
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 ### Visual Node Editor
 - **130+ nodes** across 12 categories
@@ -56,7 +56,7 @@ npm run dev
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 ### Getting Started
 - **[Quick Start](quickstart-web.md)** - Get started in 5 minutes
@@ -87,7 +87,7 @@ npm run dev
 
 ---
 
-## 🚀 Quick Links
+## Quick Links
 
 **New Users:**
 1. Start with [Quick Start Guide](quickstart-web.md)
