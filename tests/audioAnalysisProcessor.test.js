@@ -117,6 +117,27 @@ describe('AudioAnalysisProcessor', () => {
     expect(rig.hold({ kick: 0.9 }, 3)).toBe(1);
   });
 
+  it('never latches an instrument shut, even at a threshold the meter never falls below', () => {
+    // The threshold-relative re-arm needs the meter under threshold*(1-hysteresis). Put the
+    // threshold near the floor and ordinary material never gets there, so that rule alone fires
+    // once and then goes silent for the rest of the track — a far worse failure than a stray
+    // trigger, and one that used to be reachable both this way and via a meter stuck at its clamp.
+    // The fall-from-peak rule is what keeps the instrument alive.
+    const rig = makeRig({ kickThresh: 0.05 });
+    const half = () => {
+      let fired = 0;
+      for (let i = 0; i < 6; i++) {
+        fired += rig.hold({ kick: 0.9 }, 3); // a hit
+        fired += rig.hold({ kick: 0.2 }, 6); // the gap — still far above 0.05 * 0.75
+      }
+      return fired;
+    };
+    const first = half();
+    const second = half();
+    expect(first).toBeGreaterThan(0);
+    expect(second).toBeGreaterThan(0); // still responding, not stuck since the very first hit
+  });
+
   it('leaves the trigger high for exactly one frame', () => {
     const rig = makeRig();
     rig.step({ kick: 0.1 });
