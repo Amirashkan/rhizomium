@@ -177,12 +177,18 @@ export const InputNodes = {
     // meters for modulation, and one threshold per drum for triggers.
     //
     // The arrangement follows a signal chain rather than a statistical test:
-    //   audio -> auto-gain -> band split -> attack/release -> METER (0..1)
+    //   audio -> band split -> attack/release -> normalise -> METER (0..1)
     //   METER -> threshold -> rising edge -> TRIGGER
     // Everything that adapts sits on the first line, where it only decides how the meter is
     // scaled. The second line is a plain comparison, which is why the threshold is findable: put
     // the matching `*Meter` output on screen, watch where it peaks when the drum hits, and set the
     // threshold under that.
+    //
+    // The two kinds of meter normalise differently because they are asked different questions.
+    // low/mid/high read absolute loudness, for modulation. kick/snare/hat read how far their band
+    // has jumped above its OWN recent background, so a drum meter means the same thing in every
+    // bar of every track and nothing outside its band can move it — which also means a band that
+    // is merely loud and steady (a held bass note under the kick) correctly reads near zero.
     //
     // See src/audio/RealtimeAudioAnalysis.js for the analysis and AudioAnalysisProcessor for the
     // triggering. Pin 0 is `level`, so `=node_<id>` still gives a general-purpose live value.

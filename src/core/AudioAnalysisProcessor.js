@@ -30,6 +30,20 @@ import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 // threshold and an unclearable chasm below a low one, which made a low threshold fire LESS than a
 // high one — it would latch open on the first hit and never re-arm.
 const HYSTERESIS_FRACTION = 0.25;
+// Second way back to armed: the meter has fallen to this fraction of its peak since the trigger.
+//
+// The threshold-relative rule above cannot re-arm a meter that never falls that far, and when that
+// happens the instrument does not just mistime — it goes permanently silent, which is far worse
+// than a stray trigger. That used to be reachable two ways: a low threshold sits so close to the
+// floor that ordinary material never clears it, and a meter held at its clamp could not fall at
+// all. This rule keys off the hit's own peak instead, so "the hit is over" is answered without
+// reference to where the threshold happens to sit.
+//
+// It is an OR with the rule above, so it can only ever re-arm sooner, never later. Re-arming early
+// cannot invent a trigger on its own: firing again still needs the meter to climb back over the
+// threshold from below 40% of the last peak, which is a new hit by any reading, and
+// MIN_RETRIGGER_MS still bounds how close together two of them can land.
+const PEAK_FALLBACK_FRACTION = 0.4;
 // Shortest time between two triggers on one instrument. Short: the edge does the real work, this
 // only suppresses chatter faster than any drummer plays.
 const MIN_RETRIGGER_MS = 45;
@@ -127,7 +141,7 @@ export class AudioAnalysisProcessor {
       if (!st) {
         st = { lastTime: clock, inst: {} };
         for (const name of INSTRUMENTS) {
-          st.inst[name] = { armed: true, env: 0, lastTrigTime: -Infinity };
+          st.inst[name] = { armed: true, env: 0, peak: 0, lastTrigTime: -Infinity };
         }
         this._state.set(node.id, st);
       }
@@ -153,14 +167,22 @@ export class AudioAnalysisProcessor {
         if (inst.env < 1e-4) inst.env = 0;
 
         // Re-arm once the meter has dropped clear of the threshold, so one hit gives one trigger
-        // however long the meter stays up.
-        if (meter < threshold * (1 - HYSTERESIS_FRACTION)) inst.armed = true;
+        // however long the meter stays up — or, failing that, once it has fallen well off the peak
+        // of the hit that fired, so the instrument can never latch shut. See the constants above.
+        if (!inst.armed) {
+          if (meter > inst.peak) inst.peak = meter;
+          if (meter < threshold * (1 - HYSTERESIS_FRACTION) ||
+              meter < inst.peak * PEAK_FALLBACK_FRACTION) {
+            inst.armed = true;
+          }
+        }
 
         let trig = 0;
         const pastRetrigger = (clock - inst.lastTrigTime) * 1000 >= MIN_RETRIGGER_MS;
         if (inst.armed && sounding && threshold > 0 && meter >= threshold && pastRetrigger) {
           inst.armed = false;
           inst.lastTrigTime = clock;
+          inst.peak = meter;
           inst.env = 1;
           trig = 1;
         }

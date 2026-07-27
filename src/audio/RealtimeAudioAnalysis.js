@@ -7,7 +7,7 @@
  * The shape follows the signal chain a TouchDesigner patch uses, because that arrangement is what
  * makes thresholds findable by hand:
  *
- *     input -> auto-gain -> band split -> RMS -> attack/release -> normalise -> METER (0..1)
+ *     input -> band split -> RMS -> attack/release -> normalise -> METER (0..1)
  *
  * and then, separately, the decision:
  *
@@ -25,6 +25,24 @@
  *
  * Normalising per band cannot invent hits out of a silent band: `presence` reports each band's
  * absolute level and anything below AUDIBLE_FLOOR is reported as silent, meter forced to zero.
+ *
+ * The two kinds of meter are normalised differently, because they are asked different questions.
+ *
+ *   TONAL (low/mid/high) — "how much energy is in this band right now?" A modulation value, so it
+ *   wants an absolute reading: auto-gain, then a fixed per-band scale. Nothing compares it to a
+ *   threshold, so it is free to sit wherever the music puts it.
+ *
+ *   INSTRUMENT (kick/snare/hat) — "is a drum hitting right now?" This one feeds a threshold, so it
+ *   must mean the same thing in every bar of every track. It is normalised against a slow average
+ *   of THAT BAND's own level, so it reads how far the band has jumped above its own recent
+ *   background, and nothing outside the band can move it.
+ *
+ * That split is the fix for a real bug. Driving the instrument meters from the shared auto-gain
+ * coupled them to the entire spectrum: the gain is computed from the full-spectrum mean, so adding
+ * a hat or synth layer that puts NO energy at all below 2 kHz would wind the gain down and drag the
+ * kick meter with it — measured at 0.03x, a 33-fold drop, for a kick that had not changed. Detection
+ * then held for a few seconds and fell apart for a few seconds as the arrangement moved, with a
+ * threshold that was correct one bar and hopeless the next.
  */
 
 // Frequency ranges, in Hz. The instrument bands are narrower than the tonal ones on purpose: they
@@ -44,28 +62,48 @@ export const BANDS = {
 // quantity in the file, and it exists so that dividing a band by its own recent level cannot turn
 // the noise in an empty band into a full-scale meter.
 const AUDIBLE_FLOOR = 1e-4;
-// Fixed scale per band, turning an auto-gained band level into a 0..1 meter. Bands do not carry
-// equal energy in real music — the low end is far hotter than the top — so each gets its own
-// factor, chosen (see tools notes in the tests) so ordinary material sits mid-meter and a hit
-// approaches the top.
+// Fixed scale per TONAL band, turning an auto-gained band level into a 0..1 meter. Bands do not
+// carry equal energy in real music — the low end is far hotter than the top — so each gets its own
+// factor, chosen (see the calibration note in the tests) so ordinary material sits mid-meter and a
+// loud moment approaches the top, near 0.85, leaving headroom without pinning the meter. Bands
+// differ by more than an order of magnitude, which is why guessing these does not work.
 //
-// These are FIXED on purpose. Normalising each band against its own recent peak is the obvious
-// alternative and it is a trap: any reference that converges on the signal reads full-scale in
-// steady state, so a quiet, unchanging band would show a meter pinned at 1.0 and every threshold
-// would be met. Absolute scaling after a single whole-signal auto-gain keeps quiet quiet.
-// Measured by running this engine over a commercially mastered track and reading what each band's
-// auto-gained envelope actually reaches (see the calibration note in the tests): each scale puts
-// that band's loudest moments near 0.85, leaving headroom without pinning the meter. Bands differ
-// by more than an order of magnitude, which is why guessing these does not work — the low end
-// carries vastly more energy than the top.
+// These are FIXED because a tonal meter is a modulation value and has to read loudness: a
+// normaliser that converged on the signal would report a quiet unchanging band as full-scale.
+// The instrument bands are the opposite case and are handled separately below — they answer "is
+// something happening", where reading zero on a steady band is exactly right, so a converging
+// reference is the correct tool there rather than a trap.
 const BAND_SCALE = {
   low: 0.077,
   mid: 0.41,
   high: 2.1,
-  kick: 0.054,
-  snare: 0.11,
-  hat: 2.0,
 };
+
+// The bands whose meter feeds a threshold, and which therefore take the contrast path below rather
+// than the auto-gained absolute path above.
+const INSTRUMENT_BANDS = new Set(['kick', 'snare', 'hat']);
+// How long the instrument meters' reference looks back. This is the "background level" a hit is
+// measured against, and the choice is a trade: shorter adapts to an arrangement change faster but
+// starts averaging away the hits themselves once it approaches the gap between them. One second
+// spans two beats at 120 BPM, so even sixteenth-note patterns still stand above their own average,
+// while a section change is absorbed within a bar or two.
+const REFERENCE_TAU_S = 1.0;
+// The contrast — band level over its own reference — that reads full scale. Eight is +18 dB above
+// the band's recent background, which a drum hit in a mix comfortably exceeds while ordinary
+// programme material does not get near.
+//
+// The mapping is logarithmic, so equal ratios are equal distances on the meter: contrast 1 (a band
+// sitting exactly at its own average, i.e. nothing happening) reads 0, contrast 8 reads 1, and the
+// halfway mark is contrast ~2.8. A linear map would cram everything interesting into the bottom of
+// the range and give the threshold nothing to grip.
+//
+// This is also what makes the meter self-clearing, which the fixed-scale version was not: there,
+// a wound-up gain could pin the meter at the 1.0 clamp for seconds, and since re-arming needs the
+// meter to fall back below the threshold, the detector latched and stopped triggering entirely.
+// A ratio against a converging reference cannot stay pinned — holding the band high just pulls the
+// reference up after it, and the meter returns to 0.
+const CONTRAST_FULL = 8;
+const LOG_CONTRAST_FULL = Math.log2(CONTRAST_FULL);
 // Auto-gain (the `audiodynamics` equivalent): a slow trim that brings the whole signal toward a
 // working level, so a quietly mastered track and a loud one present similar meters.
 const AUTOGAIN_TAU_S = 1.5;
@@ -84,9 +122,11 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 /** One band's running state. */
 class BandState {
   constructor() {
-    this.env = 0;    // attack/release smoothed, auto-gained level
-    this.meter = 0;  // env * BAND_SCALE, clamped — the number a threshold is compared against
-    this.level = 0;  // raw level, before gain (for the presence check)
+    this.env = 0;     // attack/release smoothed level
+    this.meter = 0;   // the 0..1 output — what a threshold is compared against
+    this.level = 0;   // raw level, before gain (for the presence check)
+    this.slow = 0;    // instrument bands: slow average of this band's own level, the reference
+    this.frames = 0;  // instrument bands: frames seen, for the reference's warm-up
   }
 }
 
@@ -95,6 +135,7 @@ export class RealtimeAudioAnalysis {
     this._bands = {};
     for (const name of Object.keys(BANDS)) this._bands[name] = new BandState();
     this._gain = 1;
+    this._gainSeeded = false;
     this._spectrum = null;
     this._magnitude = null;
     this._binRanges = null;
@@ -154,16 +195,27 @@ export class RealtimeAudioAnalysis {
 
     // Auto-gain: creep toward the level everything downstream expects. Slow on purpose — it is
     // matching the track to the meters, not reacting to individual hits.
+    //
+    // The first frame after a reset jumps straight to the wanted gain instead of ramping to it.
+    // Ramping from 1 costs about eight seconds before the meters mean anything — five time
+    // constants to climb to a gain in the tens — and playback almost always starts on a downbeat,
+    // so that was the opening of every track under-reading and under-triggering.
     if (meanMag > AUTOGAIN_MIN_MEAN) {
       const wanted = Math.min(AUTOGAIN_MAX, AUTOGAIN_TARGET_RMS / meanMag);
-      const a = 1 - Math.exp(-dt / AUTOGAIN_TAU_S);
-      this._gain += (wanted - this._gain) * a;
+      if (!this._gainSeeded) {
+        this._gain = wanted;
+        this._gainSeeded = true;
+      } else {
+        const a = 1 - Math.exp(-dt / AUTOGAIN_TAU_S);
+        this._gain += (wanted - this._gain) * a;
+      }
     }
     const g = this._gain * gain;
 
     // Frame-rate independent one-pole coefficients.
     const attack = 1 - Math.exp(-dt / Math.max(0.001, attackMs / 1000));
     const release = 1 - Math.exp(-dt / Math.max(0.001, releaseMs / 1000));
+    const reference = 1 - Math.exp(-dt / REFERENCE_TAU_S);
 
     for (const name of Object.keys(BANDS)) {
       const [start, end] = this._binRanges[name];
@@ -172,16 +224,53 @@ export class RealtimeAudioAnalysis {
       const rms = Math.sqrt(sum / (end - start));
       const st = this._bands[name];
       st.level = rms;
-
       const audible = rms > AUDIBLE_FLOOR;
-      const target = audible ? rms * g : 0;
 
-      // Attack/release follower: fast up so a transient is caught on its way in, slower down so it
-      // stays readable for a few frames afterwards.
-      st.env += (target - st.env) * (target > st.env ? attack : release);
+      if (INSTRUMENT_BANDS.has(name)) {
+        // Instrument band: measure the hit against this band's own recent background.
+        //
+        // The follower runs on the RAW band level, deliberately skipping the auto-gain and the
+        // manual trim. Both cancel in the ratio below, so applying them would only couple this
+        // meter back to material in other bands — the bug this path exists to fix.
+        const target = audible ? rms : 0;
+        st.frames++;
+        if (st.frames === 1) {
+          // Seed rather than climb from zero: an empty reference makes the first frame's ratio
+          // enormous, which would fire a trigger on the instant playback starts.
+          st.env = target;
+        } else {
+          st.env += (target - st.env) * (target > st.env ? attack : release);
+        }
 
-      // Fixed scale to a 0..1 meter. Quiet stays quiet, which is the whole point.
-      st.meter = audible ? clamp01(st.env * BAND_SCALE[name]) : 0;
+        // The reference is a plain running mean until it has REFERENCE_TAU_S of history, and the
+        // exponential average after that — 1/frames crosses below the exponential coefficient at
+        // exactly that point, so the two meet without a step.
+        //
+        // Seeding it to the first frame instead would carry that frame's contents for a second or
+        // more: start playback on a downbeat and the reference begins at the height of a kick, so
+        // the following hits measure against it and read low until it decays. The whole first
+        // phrase came in under-triggered. A running mean has no such memory of where it started.
+        st.slow += (rms - st.slow) * Math.max(reference, 1 / st.frames);
+
+        // Contrast against the band's own background, on a log scale. Steady material of any
+        // loudness sits at ratio 1 and reads 0; only a jump above the background moves the meter,
+        // which is why a held bass note in the kick band no longer parks it halfway up.
+        const ref = Math.max(st.slow, AUDIBLE_FLOOR);
+        const contrast = st.env / ref;
+        st.meter = audible && contrast > 1
+          ? clamp01(Math.log2(contrast) / LOG_CONTRAST_FULL)
+          : 0;
+      } else {
+        // Tonal band: an absolute reading, auto-gained and scaled to land in range.
+        const target = audible ? rms * g : 0;
+
+        // Attack/release follower: fast up so a transient is caught on its way in, slower down so
+        // it stays readable for a few frames afterwards.
+        st.env += (target - st.env) * (target > st.env ? attack : release);
+
+        // Fixed scale to a 0..1 meter. Quiet stays quiet, which is the whole point.
+        st.meter = audible ? clamp01(st.env * BAND_SCALE[name]) : 0;
+      }
 
       this.out[name] = st.meter;
       this.out.presence[name] = audible;
@@ -229,9 +318,11 @@ export class RealtimeAudioAnalysis {
   /** Reset every follower, so restarting playback does not inherit the previous track's scaling. */
   reset() {
     for (const st of Object.values(this._bands)) {
-      st.env = 0; st.meter = 0; st.level = 0;
+      st.env = 0; st.meter = 0; st.level = 0; st.slow = 0; st.frames = 0;
     }
     this._gain = 1;
+    // Re-seed on the next frame with real audio rather than ramping up from 1 again.
+    this._gainSeeded = false;
     for (const k of Object.keys(this.out.presence)) this.out.presence[k] = false;
   }
 
