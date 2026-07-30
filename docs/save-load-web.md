@@ -328,6 +328,13 @@ embedded. If Rhizomium warns you before uploading, use smaller source images in
 your Texture nodes or remove textures the graph no longer uses. You can also
 publish the artwork without the patch.
 
+### If the gallery can't store the patch
+
+The artwork publishes anyway. If the gallery rejects the patch — most often
+because its patch storage has not been set up yet — Rhizomium re-uploads the
+render on its own and tells you the patch was left off. You never lose a
+finished render to a patch problem.
+
 ### Opening a patch from a newer Rhizomium
 
 A patch created by a newer build than yours will not open — Rhizomium tells you
