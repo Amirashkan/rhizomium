@@ -51,6 +51,7 @@ import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
 import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
+import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -92,10 +93,23 @@ function setupGlobalDragPrevention() {
     e.preventDefault();
     e.stopPropagation();
 
+    // Texture nodes own their own drop zones - leave those files to them.
     const dropZone = e.target.closest(".file-drop-zone");
-    if (!dropZone) {
-      return false;
-    }
+    if (dropZone) return;
+
+    // Anywhere else, a dropped .rz opens as a project. This is how a patch
+    // downloaded from a gallery artwork gets back into the editor, so it has to
+    // work on the canvas and not just through File → Open.
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (ext !== "rz" && ext !== "json") return;
+
+    // The dropped file has no writable handle, so a later "Save" becomes
+    // "Save As" - the same as opening through the hidden file input.
+    if (saveLoadManager) saveLoadManager.currentFileHandle = null;
+    loadProjectFromFile(file);
   });
 }
 
@@ -521,6 +535,13 @@ async function initialize() {
     // Stored preferences win over the editor's built-in defaults, so apply them
     // once the handlers above have wired the matching View-menu controls.
     preferencesWindow.applyAll();
+
+    // Desktop only: open a .rz the app was launched with (double-clicked patch).
+    // Deliberately not awaited - a file-association open should not hold up the
+    // rest of the boot, and it no-ops in the browser.
+    setupTauriFileAssociation(loadProjectFromFile).catch((err) => {
+      console.warn('Tauri file association setup failed:', err);
+    });
 
     // PERFORMANCE: Lightweight uniform update without shader rebuild
     window.updateUniformsOnly = function(nodeId, paramName, value) {

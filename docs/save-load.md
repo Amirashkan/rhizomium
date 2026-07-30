@@ -147,6 +147,20 @@ Rhizomium can automatically save your work at regular intervals.
 2. Select a `.json` file from your computer
 3. The project loads immediately
 
+### Opening a `.rz` patch
+
+`.rz` is Rhizomium's native document, and it is what a gallery artwork's
+**Download Rhizomium Patch** button gives you. Three ways to open one:
+
+- **File → Open Project…**
+- **Drag and drop** the file onto the canvas
+- **Double-click** it in your file browser — the desktop build registers itself
+  as the handler for `.rz`
+
+A patch embeds its textures, so one downloaded from someone else's artwork
+opens and re-renders without their source images. See
+[Saving Your Work](save-load-web.md) for what a published patch contains.
+
 ### Importing from Web Version
 
 If you saved a project on the web version:

@@ -24,6 +24,10 @@ export default [
         ...globals.browser,
         ...globals.worker,
         ...globals.node,
+        // Substituted from package.json at build time (see vite.config.js).
+        // Read only behind a `typeof` guard, since the un-bundled deployments
+        // never run the substitution.
+        __APP_VERSION__: "readonly",
       },
     },
     rules: {

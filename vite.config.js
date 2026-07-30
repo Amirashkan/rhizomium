@@ -1,7 +1,13 @@
 import { defineConfig } from 'vite'
 import { resolve, sep } from 'node:path'
-import { cpSync, existsSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync } from 'node:fs'
 import { generate as generateDocsMeta } from './scripts/docs-meta.mjs'
+
+// Single source of truth for the version the app reports about itself (see
+// src/utils/appVersion.js) - read from package.json so it cannot drift.
+const { version: appVersion } = JSON.parse(
+  readFileSync(resolve(__dirname, 'package.json'), 'utf8'),
+)
 
 // `docs/` is a self-contained docsify site: `docs/index.html` pulls docsify
 // from a CDN and fetches the markdown next to it at runtime. Rollup only emits
@@ -36,6 +42,9 @@ function copyDocs() {
 export default defineConfig({
   clearScreen: false,
   plugins: [copyDocs()],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   server: {
     port: 5173,
     strictPort: true,

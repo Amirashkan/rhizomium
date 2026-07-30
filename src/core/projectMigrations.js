@@ -190,13 +190,19 @@ export function migrateProjectData(data) {
     throw new Error("Invalid project data");
   }
 
-  let version = typeof data.version === "number" ? data.version : 1;
+  // Patches published to the gallery carry `schemaVersion` alongside `version`
+  // (see patchSerializer.js). Take the higher of the two so a patch from a
+  // newer Rhizomium is refused here rather than half-loading as a graph full of
+  // node kinds this build has never heard of.
+  const declared = typeof data.version === "number" ? data.version : 1;
+  const schema = typeof data.schemaVersion === "number" ? data.schemaVersion : declared;
+  let version = Math.max(declared, schema);
 
   if (version > SAVE_FORMAT_VERSION) {
     throw new Error(
       `This project was saved by a newer version of the editor ` +
         `(format ${version}, this editor supports up to ${SAVE_FORMAT_VERSION}). ` +
-        `Please update the editor to open it.`,
+        `Please update Rhizomium to open it.`,
     );
   }
 
@@ -209,5 +215,7 @@ export function migrateProjectData(data) {
     version++;
   }
 
-  return { ...migrated, version: SAVE_FORMAT_VERSION };
+  const result = { ...migrated, version: SAVE_FORMAT_VERSION };
+  if ("schemaVersion" in result) result.schemaVersion = SAVE_FORMAT_VERSION;
+  return result;
 }
