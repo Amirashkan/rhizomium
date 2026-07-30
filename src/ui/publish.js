@@ -97,7 +97,9 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
         }
       } else if (xhr.status === 413) {
         const fileSizeMB = blob.size / 1024 / 1024;
-        reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try a smaller export size.`));
+        const err = new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try a smaller export size.`);
+        err.status = xhr.status;
+        reject(err);
       } else {
         // The gallery explains 400s (bad type, oversize) in the body; surface
         // that rather than a bare status the artist can do nothing with.
@@ -107,7 +109,10 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
         } catch {
           // Non-JSON error body - fall back to the status code alone.
         }
-        reject(new Error(detail ? `${detail} (${xhr.status})` : `Upload failed (${xhr.status})`));
+        const err = new Error(detail ? `${detail} (${xhr.status})` : `Upload failed (${xhr.status})`);
+        err.status = xhr.status;
+        err.detail = detail;
+        reject(err);
       }
     });
 
@@ -120,6 +125,51 @@ function uploadBlob(blob, filename, onProgress, patch = null) {
   xhr.send(formData);
 
   return uploadPromise;
+}
+
+/** Toast text for a finished upload, saying plainly whether the patch made it. */
+export function describeUpload(kind, patch, patchDropped) {
+  if (patchDropped) {
+    return `${kind} uploaded — but the gallery could not store the patch, so it was left off.`;
+  }
+  if (patch) return `${kind} and patch uploaded! Opening publish page...`;
+  return `${kind} uploaded successfully! Opening publish page...`;
+}
+
+/**
+ * Is this failure plausibly the patch's fault rather than the artwork's?
+ *
+ * The gallery names the patch when it is the problem ("Patch upload failed:
+ * Bucket not found"), and a 500 is a storage/server fault that a media-only
+ * request may well survive — a gallery whose `patches` bucket has not been
+ * provisioned yet fails exactly this way. Auth and payload-size failures are
+ * excluded: they will fail identically without the patch, so retrying would
+ * only re-upload the media for nothing.
+ */
+export function isPatchAttributable(err) {
+  if (!err || err.status === 401 || err.status === 413) return false;
+  return /patch/i.test(err.message || '') || err.status === 500;
+}
+
+/**
+ * Upload the artwork, dropping the patch rather than the publish if the patch
+ * is what the gallery choked on.
+ *
+ * The patch is a bonus attached to the artwork; a gallery that cannot store it
+ * must not cost the artist a finished render. Resolves with the response plus
+ * `patchDropped`, so the caller can tell the artist what they actually got.
+ */
+export async function uploadArtwork(blob, filename, onProgress, patch) {
+  try {
+    const data = await uploadBlob(blob, filename, onProgress, patch);
+    return { data, patchDropped: false };
+  } catch (err) {
+    if (!patch || !isPatchAttributable(err)) throw err;
+
+    console.warn('Patch rejected by the gallery, retrying without it:', err);
+    const data = await uploadBlob(blob, filename, onProgress, null);
+    return { data, patchDropped: true, patchError: err };
+  }
 }
 
 /**
@@ -235,7 +285,7 @@ export async function publishImage() {
         (patch ? ` + patch ${(patch.blob.size / 1024).toFixed(2)} KB` : '')
     );
 
-    const data = await uploadBlob(blob, filename, (loaded, total) => {
+    const { data, patchDropped } = await uploadArtwork(blob, filename, (loaded, total) => {
       progress.update(
         70 + (loaded / total) * 25,
         'Uploading to gallery...',
@@ -249,10 +299,8 @@ export async function publishImage() {
     setTimeout(() => {
       progress.close();
       modalManager.toast(
-        patch
-          ? 'Image and patch uploaded! Opening publish page...'
-          : 'Image uploaded successfully! Opening publish page...',
-        'success',
+        describeUpload('Image', patch, patchDropped),
+        patchDropped ? 'warning' : 'success',
         'Share to Gallery'
       );
       openPublishPage(data);
@@ -587,7 +635,7 @@ export async function publishAnimation() {
     try {
       progress.update(80, 'Uploading to gallery...', 'Please wait...');
 
-      const data = await uploadBlob(blob, filename, (loaded, total) => {
+      const { data, patchDropped } = await uploadArtwork(blob, filename, (loaded, total) => {
         progress.update(
           80 + (loaded / total) * 15,
           'Uploading to gallery...',
@@ -601,10 +649,8 @@ export async function publishAnimation() {
       setTimeout(() => {
         progress.close();
         modalManager.toast(
-          patch
-            ? 'Animation and patch uploaded! Opening publish page...'
-            : 'Animation uploaded successfully! Opening publish page...',
-          'success',
+          describeUpload('Animation', patch, patchDropped),
+          patchDropped ? 'warning' : 'success',
           'Share to Gallery'
         );
         openPublishPage(data);

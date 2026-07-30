@@ -1,0 +1,186 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { isPatchAttributable, describeUpload, uploadArtwork } from '../src/ui/publish.js';
+
+// Minimal XMLHttpRequest stand-in. Each instance takes its outcome from the
+// queue the test set up, so a first-attempt failure and a second-attempt
+// success can be scripted in order.
+let responses = [];
+let requests = [];
+
+class FakeXHR {
+  constructor() {
+    this.upload = { addEventListener: () => {} };
+    this._listeners = {};
+    this.withCredentials = false;
+  }
+
+  addEventListener(type, fn) {
+    this._listeners[type] = fn;
+  }
+
+  open() {}
+
+  send(formData) {
+    const outcome = responses.shift() || { status: 200, body: {} };
+    requests.push({
+      hasPatch: formData.has('patch'),
+      hasFile: formData.has('file'),
+    });
+
+    queueMicrotask(() => {
+      if (outcome.networkError) {
+        this._listeners.error?.();
+        return;
+      }
+      this.status = outcome.status;
+      this.responseText = JSON.stringify(outcome.body);
+      this._listeners.load?.();
+    });
+  }
+}
+
+const media = () => new Blob(['media-bytes'], { type: 'image/webp' });
+const patch = () => ({
+  blob: new Blob(['{"schemaVersion":6}'], { type: 'application/json' }),
+  filename: 'slow-bloom.rz',
+});
+
+beforeEach(() => {
+  responses = [];
+  requests = [];
+  vi.stubGlobal('XMLHttpRequest', FakeXHR);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe('isPatchAttributable', () => {
+  it('claims a failure that names the patch', () => {
+    const err = new Error('Patch upload failed: Bucket not found (500)');
+    err.status = 500;
+
+    expect(isPatchAttributable(err)).toBe(true);
+  });
+
+  it('claims a bare 500 - storage faults may not survive naming the cause', () => {
+    const err = new Error('Upload failed (500)');
+    err.status = 500;
+
+    expect(isPatchAttributable(err)).toBe(true);
+  });
+
+  it('does not claim an auth failure - it fails the same without the patch', () => {
+    const err = new Error('Unauthorized (401)');
+    err.status = 401;
+
+    expect(isPatchAttributable(err)).toBe(false);
+  });
+
+  it('does not claim an oversize media failure', () => {
+    const err = new Error('File too large (120.00 MB). Server limit exceeded.');
+    err.status = 413;
+
+    expect(isPatchAttributable(err)).toBe(false);
+  });
+
+  it('does not claim a plain media rejection', () => {
+    const err = new Error('Unsupported file type (400)');
+    err.status = 400;
+
+    expect(isPatchAttributable(err)).toBe(false);
+  });
+
+  it('claims a 400 that names the patch', () => {
+    const err = new Error('Patch must be .rz, .json or .zip (400)');
+    err.status = 400;
+
+    expect(isPatchAttributable(err)).toBe(true);
+  });
+});
+
+describe('uploadArtwork', () => {
+  it('sends the media and the patch together when all is well', async () => {
+    responses = [{ status: 200, body: { url: 'https://cdn/img.webp', patchUrl: 'https://cdn/p.rz' } }];
+
+    const result = await uploadArtwork(media(), 'shader.webp', null, patch());
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].hasPatch).toBe(true);
+    expect(result.patchDropped).toBe(false);
+    expect(result.data.patchUrl).toBe('https://cdn/p.rz');
+  });
+
+  it('republishes without the patch when the gallery has no patches bucket', async () => {
+    responses = [
+      { status: 500, body: { error: 'Patch upload failed: Bucket not found' } },
+      { status: 200, body: { url: 'https://cdn/img.webp', patchUrl: null } },
+    ];
+
+    const result = await uploadArtwork(media(), 'shader.webp', null, patch());
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].hasPatch).toBe(true);
+    expect(requests[1].hasPatch).toBe(false);
+    // The artwork still publishes - that is the whole point.
+    expect(result.data.url).toBe('https://cdn/img.webp');
+    expect(result.patchDropped).toBe(true);
+    expect(result.patchError.message).toMatch(/Bucket not found/);
+  });
+
+  // happy-dom's FormData drops the filename argument, so the name the gallery
+  // receives is covered by patchFilename() in patchSerializer.test.js instead.
+  it('still sends the media on the retry', async () => {
+    responses = [
+      { status: 500, body: { error: 'Patch upload failed: Bucket not found' } },
+      { status: 200, body: { url: 'https://cdn/img.webp' } },
+    ];
+
+    await uploadArtwork(media(), 'shader.webp', null, patch());
+
+    expect(requests[1].hasFile).toBe(true);
+  });
+
+  it('does not retry when there was no patch to blame', async () => {
+    responses = [{ status: 500, body: { error: 'Storage unavailable' } }];
+
+    await expect(uploadArtwork(media(), 'shader.webp', null, null)).rejects.toThrow(/Storage unavailable/);
+    expect(requests).toHaveLength(1);
+  });
+
+  it('does not retry a 401 - it would only re-upload the media for nothing', async () => {
+    responses = [{ status: 401, body: { error: 'Unauthorized' } }];
+
+    await expect(uploadArtwork(media(), 'shader.webp', null, patch())).rejects.toThrow(/Unauthorized/);
+    expect(requests).toHaveLength(1);
+  });
+
+  it('surfaces the original failure when the retry fails too', async () => {
+    responses = [
+      { status: 500, body: { error: 'Patch upload failed: Bucket not found' } },
+      { status: 500, body: { error: 'Storage unavailable' } },
+    ];
+
+    await expect(uploadArtwork(media(), 'shader.webp', null, patch())).rejects.toThrow(/Storage unavailable/);
+    expect(requests).toHaveLength(2);
+  });
+});
+
+describe('describeUpload', () => {
+  it('says both landed', () => {
+    expect(describeUpload('Image', {}, false)).toMatch(/Image and patch uploaded/);
+  });
+
+  it('says the artwork landed without a patch attached', () => {
+    expect(describeUpload('Animation', null, false)).toMatch(/Animation uploaded successfully/);
+  });
+
+  it('does not claim a patch was published when it was dropped', () => {
+    const message = describeUpload('Image', {}, true);
+
+    expect(message).toMatch(/could not store the patch/);
+    expect(message).not.toMatch(/and patch uploaded/);
+  });
+});
