@@ -8,12 +8,58 @@
 
 import { modalManager } from './ModalManager.js';
 import { resolveResolution } from './OutputFormat.js';
+import { serializePatch, patchFilename, checkPatchSize } from '../core/patchSerializer.js';
+import { APP_VERSION } from '../utils/appVersion.js';
 
 const UPLOAD_ENDPOINT = 'https://art.tenderworld.org/api/rhizo-upload';
 const GALLERY_ORIGIN = 'https://art.tenderworld.org';
 
 function getPreview() {
   return window.floatingPreview || null;
+}
+
+/**
+ * Serialize the current graph as a `.rz` patch to publish alongside the media,
+ * so a visitor can download the source document and reopen the work here.
+ *
+ * Returns null when there is nothing to attach or the export fails: the patch
+ * is a bonus on top of the artwork, and losing a finished render because the
+ * serializer tripped would be the wrong trade. The oversize case is the one
+ * exception — it asks the artist, since silently dropping the patch after they
+ * chose to publish it is worse than a question.
+ */
+async function buildPatch() {
+  const manager = window.saveLoadManager;
+  if (!manager || typeof manager.exportProject !== 'function') return null;
+
+  let blob;
+  let filename;
+  try {
+    const projectData = manager.exportProject();
+    if (!projectData?.nodes?.length) return null;
+
+    const title = manager.getProjectName?.() || '';
+    blob = serializePatch(projectData, { title, generatorVersion: APP_VERSION });
+    filename = patchFilename(title, 'rhizomium-patch');
+  } catch (err) {
+    console.warn('Patch serialization failed, publishing media only:', err);
+    return null;
+  }
+
+  // Catch oversize here rather than letting the gallery reject it: a 400 after
+  // a long render, with the work still only in memory, is a bad place to land.
+  const oversize = checkPatchSize(blob);
+  if (oversize) {
+    const publishAnyway = await modalManager.confirm(
+      `${oversize}\n\nPublish the artwork without the patch?`,
+      'Patch Too Large',
+      { confirmLabel: 'Publish Without Patch', cancelLabel: 'Cancel' }
+    );
+    if (!publishAnyway) return { cancelled: true };
+    return null;
+  }
+
+  return { blob, filename };
 }
 
 function captureSize(canvas) {
@@ -24,10 +70,17 @@ function captureSize(canvas) {
   };
 }
 
-/** Upload a blob with progress reporting. Resolves with the parsed response. */
-function uploadBlob(blob, filename, onProgress) {
+/**
+ * Upload the media (and, when present, the `.rz` patch) with progress
+ * reporting. Resolves with the parsed response.
+ *
+ * Both objects go in one request: that is a single round trip and one shared
+ * timestamp, so the gallery stores them as a matched pair.
+ */
+function uploadBlob(blob, filename, onProgress, patch = null) {
   const formData = new FormData();
   formData.append('file', blob, filename);
+  if (patch) formData.append('patch', patch.blob, patch.filename);
 
   const xhr = new XMLHttpRequest();
   const uploadPromise = new Promise((resolve, reject) => {
@@ -46,7 +99,15 @@ function uploadBlob(blob, filename, onProgress) {
         const fileSizeMB = blob.size / 1024 / 1024;
         reject(new Error(`File too large (${fileSizeMB.toFixed(2)} MB). Server limit exceeded. Try a smaller export size.`));
       } else {
-        reject(new Error(`Upload failed (${xhr.status})`));
+        // The gallery explains 400s (bad type, oversize) in the body; surface
+        // that rather than a bare status the artist can do nothing with.
+        let detail = '';
+        try {
+          detail = JSON.parse(xhr.responseText)?.error || '';
+        } catch {
+          // Non-JSON error body - fall back to the status code alone.
+        }
+        reject(new Error(detail ? `${detail} (${xhr.status})` : `Upload failed (${xhr.status})`));
       }
     });
 
@@ -61,8 +122,18 @@ function uploadBlob(blob, filename, onProgress) {
   return uploadPromise;
 }
 
-function openPublishPage(url) {
-  window.open(`${GALLERY_ORIGIN}/gallery/publish?url=${encodeURIComponent(url)}`, '_blank');
+/**
+ * Open the gallery's publish page for an upload.
+ *
+ * Prefer the `publishUrl` the endpoint returns: it is assembled server-side
+ * with the media, patch and patch-name parameters already encoded, so building
+ * it here would only risk dropping the patch. The manual URL is the fallback
+ * for an older gallery that does not send one.
+ */
+function openPublishPage(data) {
+  const url = data?.publishUrl
+    || `${GALLERY_ORIGIN}/gallery/publish?url=${encodeURIComponent(data?.url || '')}`;
+  window.open(url, '_blank');
 }
 
 async function handleUploadError(err, sizeHint) {
@@ -73,7 +144,7 @@ async function handleUploadError(err, sizeHint) {
       'You need to sign in to share your work.\n\nWould you like to go to the gallery and sign in?',
       'Sign In Required'
     );
-    if (shouldSignIn) window.open(GALLERY_ORIGIN, '_blank');
+    if (shouldSignIn) window.open(`${GALLERY_ORIGIN}/login`, '_blank');
     return;
   }
 
@@ -110,6 +181,11 @@ export async function publishImage() {
     await modalManager.alert('Renderer not ready. Render the preview at least once.', 'Error');
     return;
   }
+
+  // Serialize the patch before the progress dialog opens: it can ask about an
+  // oversize patch, and stacking that on top of a progress modal reads badly.
+  const patch = await buildPatch();
+  if (patch?.cancelled) return;
 
   const { width, height } = captureSize(canvas);
   const progress = modalManager.showProgress('Publishing Image', 'Capturing frame...');
@@ -152,7 +228,12 @@ export async function publishImage() {
     }
 
     const filename = `shader-${Date.now()}.webp`;
-    progress.update(70, 'Preparing upload...', `File size: ${(blob.size / 1024).toFixed(2)} KB`);
+    progress.update(
+      70,
+      'Preparing upload...',
+      `File size: ${(blob.size / 1024).toFixed(2)} KB` +
+        (patch ? ` + patch ${(patch.blob.size / 1024).toFixed(2)} KB` : '')
+    );
 
     const data = await uploadBlob(blob, filename, (loaded, total) => {
       progress.update(
@@ -160,15 +241,21 @@ export async function publishImage() {
         'Uploading to gallery...',
         `${(loaded / 1024).toFixed(2)} KB / ${(total / 1024).toFixed(2)} KB`
       );
-    });
+    }, patch);
 
     if (!data.url) throw new Error('No URL returned from upload');
 
     progress.update(100, 'Upload complete!', 'Opening publish page...');
     setTimeout(() => {
       progress.close();
-      modalManager.toast('Image uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
-      openPublishPage(data.url);
+      modalManager.toast(
+        patch
+          ? 'Image and patch uploaded! Opening publish page...'
+          : 'Image uploaded successfully! Opening publish page...',
+        'success',
+        'Share to Gallery'
+      );
+      openPublishPage(data);
     }, 500);
   } catch (err) {
     progress.close();
@@ -302,6 +389,13 @@ export async function publishAnimation() {
     adaptiveBitrate = Math.floor(estimatedBitrate * scaleFactor * 0.95);
   }
   adaptiveBitrate = Math.max(1_000_000, Math.min(50_000_000, adaptiveBitrate));
+
+  // Serialize the patch before recording rather than after: an oversize patch
+  // should be caught in seconds, not once the artist has waited out a full
+  // render. The graph does not change while recording, so this is the same
+  // patch we would produce afterwards.
+  const patch = await buildPatch();
+  if (patch?.cancelled) return;
 
   const progress = modalManager.showProgress('Publishing Animation', 'Preparing export...');
 
@@ -499,15 +593,21 @@ export async function publishAnimation() {
           'Uploading to gallery...',
           `${(loaded / 1024 / 1024).toFixed(2)} MB / ${(total / 1024 / 1024).toFixed(2)} MB`
         );
-      });
+      }, patch);
 
       if (!data.url) throw new Error('No URL returned from upload');
 
       progress.update(100, 'Upload complete!', 'Opening publish page...');
       setTimeout(() => {
         progress.close();
-        modalManager.toast('Animation uploaded successfully! Opening publish page...', 'success', 'Share to Gallery');
-        openPublishPage(data.url);
+        modalManager.toast(
+          patch
+            ? 'Animation and patch uploaded! Opening publish page...'
+            : 'Animation uploaded successfully! Opening publish page...',
+          'success',
+          'Share to Gallery'
+        );
+        openPublishPage(data);
       }, 500);
     } catch (err) {
       progress.close();

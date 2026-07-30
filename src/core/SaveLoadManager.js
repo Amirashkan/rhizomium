@@ -1581,6 +1581,18 @@ async reinitializeWebGPU() {
         extension: file?.name?.split(".").pop()
       });
       this.updateStatus(`Load failed: ${error.message}`, "error");
+
+      // A patch or project from a newer build is a dead end the artist has to
+      // act on (update Rhizomium), not something to leave in the status bar
+      // where a dropped file's failure would look like nothing happened.
+      if (/newer version of/i.test(error.message || "")) {
+        try {
+          const { modalManager } = await import("../ui/ModalManager.js");
+          await modalManager.alert(error.message, "Update Rhizomium");
+        } catch {
+          /* modal unavailable - the status message already reported it */
+        }
+      }
     }
   }
 

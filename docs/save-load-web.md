@@ -136,9 +136,12 @@ To backup or share your project:
 
 ### Drag and Drop
 
-Some versions support drag-and-drop:
-- Drag `.json` file onto the canvas
-- Project loads automatically
+Drag a `.rz` or `.json` project file onto the canvas and it loads immediately.
+This is the quickest way to reopen a patch you downloaded from a gallery
+artwork.
+
+On the desktop build you can also double-click a `.rz` file in your file
+browser — Rhizomium is registered as its handler.
 
 ---
 
@@ -291,15 +294,58 @@ Export projects to share between browsers.
 
 ---
 
+## Publishing a Patch to the Gallery
+
+**File → Publish Image…** and **File → Publish Animation…** upload your render
+to the TenderWorld gallery. Alongside the image or video, Rhizomium attaches
+the **patch** — a `.rz` copy of the graph that produced it.
+
+Visitors to your artwork page get a **Download Rhizomium Patch** button. Anyone
+who downloads it can open the patch here and re-render, tweak or build on your
+work.
+
+### What travels with a patch
+
+- The full node graph, connections and parameter values
+- Timeline keyframes and MIDI bindings
+- The output format (composition size and sim quality)
+- Textures, **embedded in the file** — so the patch opens on a machine that has
+  never seen your source images
+
+Removed before upload: wall-clock timestamps, your browser and platform
+details, and anything that looks like a credential or a path on your machine.
+
+### Patches are public
+
+> **Anyone who can see your artwork page can download the patch.** That is the
+> point of the feature — but treat a published patch as published source. If a
+> graph contains something you would not hand to a stranger, don't publish it.
+
+### Patch too large?
+
+Patches are capped at **5 MB**, and textures dominate the size because they are
+embedded. If Rhizomium warns you before uploading, use smaller source images in
+your Texture nodes or remove textures the graph no longer uses. You can also
+publish the artwork without the patch.
+
+### Opening a patch from a newer Rhizomium
+
+A patch created by a newer build than yours will not open — Rhizomium tells you
+to update rather than loading it half-way. Updating fixes it.
+
+---
+
 ## Privacy
 
-Your projects are **100% private**:
+Projects you save are **private by default**:
 - Stored only in your browser
 - Not sent to any server
 - Not accessible to anyone else
 - Not tracked or analyzed
 
-Only you can access your projects!
+The one exception is **publishing**: when you publish to the gallery, both the
+render and the attached patch become public. Nothing leaves your browser until
+you choose to publish.
 
 ---
 
