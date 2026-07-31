@@ -2,6 +2,7 @@
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { logRedrawTriggerEvent } from '../utils/RedrawDiagnostics.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
+import { modalManager } from '../ui/ModalManager.js';
 
 export class EventHandler {
   constructor(options) {
@@ -935,10 +936,14 @@ export class EventHandler {
         }
       }
 
-      // SIMPLIFIED: Use SelectionManager's undo-aware deleteSelected directly
+      // SIMPLIFIED: Use SelectionManager's undo-aware deleteSelected directly.
+      // Focus on <body> is not enough on its own to mean "the canvas has the key":
+      // an open dialog leaves it there until its field is focused or after a click
+      // on the dialog chrome, and Backspace then belongs to the dialog's input.
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
-        document.activeElement === document.body
+        document.activeElement === document.body &&
+        !modalManager.isModalOpen()
       ) {
         // SelectionManager now handles undo recording automatically
         this.selection.deleteSelected();

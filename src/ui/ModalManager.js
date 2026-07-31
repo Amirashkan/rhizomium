@@ -329,6 +329,10 @@ export class ModalManager {
       const modal = this.createModal({
         title,
         body: message,
+        // A prompt usually gates a longer flow (Publish records the animation with
+        // the answers), so cancelling it has to be deliberate - Cancel or Escape,
+        // never a click that happened to land beside the dialog.
+        requireAction: true,
         input: {
           type: inputType,
           value: defaultValue,
@@ -403,10 +407,12 @@ export class ModalManager {
       input.value = config.input.value || '';
       input.placeholder = config.input.placeholder || '';
       body.appendChild(input);
-
-      // Focus input after a brief delay
-      setTimeout(() => input.focus(), 100);
     }
+
+    // showModal focuses this once the dialog is in the document. It used to happen
+    // on a 100ms timer, which left a window where the keystrokes meant for the
+    // field went to the editor behind the dialog instead.
+    overlay._focusTarget = input;
 
     dialog.appendChild(body);
 
@@ -438,20 +444,32 @@ export class ModalManager {
 
     overlay.appendChild(dialog);
 
-    // Click outside to close (only for non-critical modals)
+    // Click outside to close (only for non-critical modals).
+    //
+    // Dismiss only when the press *and* the release both land on the backdrop. A
+    // drag that starts inside the dialog - selecting the text in a prompt field is
+    // the common one - ends with a click event whose target is the overlay, and
+    // closing on that reads as the dialog vanishing on its own.
     if (!config.requireAction) {
+      let pressedOnBackdrop = false;
+      overlay.addEventListener('mousedown', (e) => {
+        pressedOnBackdrop = e.target === overlay;
+      });
       overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-          this.closeModal(overlay);
-        }
+        const dismiss = pressedOnBackdrop && e.target === overlay;
+        pressedOnBackdrop = false;
+        if (dismiss) this.closeModal(overlay);
       });
     }
 
-    // ESC to close
-    const escHandler = (e) => {
+    // Escape closes, Enter confirms - but only for the modal currently on top, so
+    // a dialog still fading out cannot act on a keystroke meant for its successor
+    // (Publish asks for FPS, then duration, back to back).
+    const handleKey = (e) => {
+      if (this.topModal() !== overlay) return;
+
       if (e.key === 'Escape') {
         this.closeModal(overlay);
-        document.removeEventListener('keydown', escHandler);
       } else if (e.key === 'Enter' && config.buttons) {
         // Enter key triggers primary button
         const primaryBtn = config.buttons.find(b => b.primary);
@@ -465,6 +483,22 @@ export class ModalManager {
         e.preventDefault();
       }
     };
+
+    // Keys pressed inside the dialog belong to the dialog: stop them here so the
+    // editor's global shortcuts never see them. Backspace is the one that bites -
+    // it deletes the selected nodes and calls preventDefault(), so without this it
+    // would eat a node instead of a digit of the value being typed.
+    overlay.addEventListener('keydown', (e) => {
+      handleKey(e);
+      e.stopPropagation();
+    });
+
+    // Fallback for modals with nothing focused inside them (alerts, confirms):
+    // their keystrokes never pass through the overlay at all.
+    const escHandler = (e) => {
+      if (e.target instanceof Node && overlay.contains(e.target)) return;
+      handleKey(e);
+    };
     document.addEventListener('keydown', escHandler);
 
     overlay._escHandler = escHandler;
@@ -475,12 +509,25 @@ export class ModalManager {
   showModal(modal, onClose) {
     modal._onClose = onClose;
     this.modals.push(modal);
-    
+
     // Set z-index before appending to ensure it's on top of FileManager and other modals
     const zIndex = this.zIndexBase + this.modals.length;
     modal.style.zIndex = zIndex;
-    
+
     document.body.appendChild(modal);
+
+    // Focus the field as soon as it is in the document, and select what is already
+    // there: the artist can type "30" straight over the suggested "60" instead of
+    // reaching for Backspace to clear it first.
+    const focusTarget = modal._focusTarget;
+    if (focusTarget) {
+      focusTarget.focus();
+      try {
+        focusTarget.select();
+      } catch {
+        // Not every input type supports selection - focus is the part that matters.
+      }
+    }
 
     // Trigger animation immediately
     requestAnimationFrame(() => {
@@ -488,8 +535,40 @@ export class ModalManager {
     });
   }
 
+  /** The modal that currently owns the keyboard - the most recently opened one. */
+  topModal() {
+    return this.modals[this.modals.length - 1] || null;
+  }
+
+  /**
+   * Is a dialog on screen right now (including progress dialogs)?
+   *
+   * The editor's global shortcuts consult this before acting on a bare keypress:
+   * with a prompt open, Backspace has to edit the text in its field rather than
+   * delete the selected nodes behind it. Modals that are fading out are excluded -
+   * their input is already gone, and the shortcuts should not stay deaf for the
+   * length of the animation.
+   */
+  isModalOpen() {
+    return document.querySelector('.modal-overlay:not([data-closing])') !== null;
+  }
+
   closeModal(modal) {
-    if (!modal) return;
+    if (!modal || modal._closing) return;
+
+    modal._closing = true;
+    modal.dataset.closing = 'true';
+
+    // Leave the stack and drop the key handler now rather than after the fade: the
+    // next modal in a sequence opens immediately, and it has to be the one the
+    // keyboard talks to.
+    const index = this.modals.indexOf(modal);
+    if (index > -1) {
+      this.modals.splice(index, 1);
+    }
+    if (modal._escHandler) {
+      document.removeEventListener('keydown', modal._escHandler);
+    }
 
     modal.classList.remove('visible');
 
@@ -498,20 +577,9 @@ export class ModalManager {
         modal.parentElement.removeChild(modal);
       }
 
-      // Clean up escape handler
-      if (modal._escHandler) {
-        document.removeEventListener('keydown', modal._escHandler);
-      }
-
       // Call onClose callback
       if (modal._onClose) {
         modal._onClose();
-      }
-
-      // Remove from modals array
-      const index = this.modals.indexOf(modal);
-      if (index > -1) {
-        this.modals.splice(index, 1);
       }
     }, 300);
   }
@@ -592,6 +660,10 @@ export class ModalManager {
         }
       },
       close: () => {
+        // Marks it as no longer blocking for isModalOpen(), which the editor's
+        // global shortcuts consult - they should come back as the dialog starts
+        // fading, not 300ms later.
+        overlay.dataset.closing = 'true';
         overlay.classList.remove('visible');
         setTimeout(() => {
           if (overlay.parentElement) {
