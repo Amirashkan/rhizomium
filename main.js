@@ -44,6 +44,7 @@ import { PreviewExportSettingsWindow } from './src/ui/PreviewExportSettingsWindo
 import { PreferencesWindow } from './src/ui/PreferencesWindow.js';
 import { exportPNG, exportAnimation } from './src/ui/exportRender.js';
 import { publishImage, publishAnimation } from './src/ui/publish.js';
+import { modalManager } from './src/ui/ModalManager.js';
 import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 import { getPerfProbe } from "./src/utils/PerfProbe.js";
 import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
@@ -2518,6 +2519,15 @@ function setupKeyboardShortcuts() {
   });
 
   window.addEventListener("keydown", (e) => {
+    // This is where Delete/Backspace deletes the selected nodes, and it calls
+    // preventDefault(), so it has to stay out of the way whenever the keystroke
+    // belongs to a text field. `shouldIgnoreShortcutTarget` covers a focused input;
+    // the modal check covers a dialog whose field has not been clicked into yet
+    // (Publish → Animation asks for FPS and duration before recording).
+    if (shouldIgnoreShortcutTarget(e) || modalManager.isModalOpen()) {
+      return;
+    }
+
     if (editor && editor.handleKeyDown) {
       editor.handleKeyDown(e);
     }
