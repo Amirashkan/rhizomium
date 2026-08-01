@@ -502,15 +502,10 @@ Get server and streaming status.
 }
 ```
 
-#### POST /api/launch-viewer
-Launch external Python viewer.
-
-**Request:**
-```json
-{
-  "viewer": "rhizo_viewer.py"
-}
-```
+#### POST /api/launch-viewer  *(removed)*
+This endpoint took a filesystem path from the request body and executed it,
+with CORS open to every origin. It has been removed; launch `rhizo_viewer.py`
+directly instead.
 
 **Response:**
 ```json

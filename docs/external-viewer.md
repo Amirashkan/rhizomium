@@ -24,9 +24,9 @@ This guide explains how to set up and use the Rhizomium external viewer with IPC
   - Serves static files (editor UI)
   - Provides API endpoints
   - Single server for everything
-- **viewer_api.py** - Standalone API server (optional)
+- ~~**viewer_api.py**~~ - removed (executed a request-supplied path; see below)
   - Use if you have your own web server
-  - Endpoint: `POST /api/launch-viewer`
+  - Endpoint: `POST /api/launch-viewer` *(removed)*
   - Auto-detects and launches Python or executable viewer
 
 ## Installation
@@ -85,9 +85,11 @@ python rhizo_viewer.py
 If you already have a web server:
 
 1. Start the API server:
-```bash
-python viewer_api.py
-```
+> **Removed.** `viewer_api.py` and the `POST /api/launch-viewer` endpoint no
+> longer exist. The endpoint executed a filesystem path taken from the request
+> body, and CORS was open to every origin, so any website open in the artist's
+> browser could start a local process. Nothing in the editor called it. Launch
+> `rhizo_viewer.py` directly instead.
 
 2. Open the Rhizomium editor in your browser
 
@@ -116,7 +118,7 @@ The viewer will automatically connect to the shared memory channel and display f
     frames                                        │
        │                                          │
        │                                  ┌───────┴──────┐
-       │                                  │ viewer_api.py│
+       │                                  │  (removed)   │
        │                                  │ (Flask API)  │
        │                                  └──────────────┘
        │                                          ▲
@@ -147,7 +149,7 @@ To display on a secondary monitor:
 
 **"Viewer not found" error:**
 - Ensure rhizo_viewer.py exists in project root
-- Check Python interpreter path in viewer_api.py
+- Launch `rhizo_viewer.py` directly (`viewer_api.py` was removed)
 
 **Black screen in viewer:**
 - Frame size mismatch

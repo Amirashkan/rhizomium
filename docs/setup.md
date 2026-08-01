@@ -121,7 +121,7 @@ Then visit: **http://localhost:8000**
 npx serve .
 ```
 
-**Note**: External viewer features won't work without running `viewer_api.py` separately.
+**Note**: `viewer_api.py` was removed (it executed a request-supplied path with CORS open to all origins). Launch `rhizo_viewer.py` directly for external viewer support.
 
 ---
 

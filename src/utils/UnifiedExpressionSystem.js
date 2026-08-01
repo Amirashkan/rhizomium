@@ -830,14 +830,26 @@ export class UnifiedExpressionSystem {
    */
   evaluateCPU(expressionString, context = {}) {
     try {
-      const ast = this.parse(expressionString);
-      const evaluator = new CPUEvaluator(context);
-      return evaluator.evaluate(ast);
+      return this.evaluateCPUOrThrow(expressionString, context);
     } catch {
 
 
       return 0; // Fallback to 0 on error
     }
+  }
+
+  /**
+   * Evaluate for CPU, letting parse/eval errors escape.
+   *
+   * Callers that need to tell "the expression is broken" apart from "the
+   * expression legitimately evaluated to 0" use this instead of evaluateCPU,
+   * which collapses both into 0. Preview code wants that distinction so a
+   * typo falls back to the parameter's default rather than snapping to zero.
+   */
+  evaluateCPUOrThrow(expressionString, context = {}) {
+    const ast = this.parse(expressionString);
+    const evaluator = new CPUEvaluator(context);
+    return evaluator.evaluate(ast);
   }
 
   /**

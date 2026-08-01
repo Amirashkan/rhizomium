@@ -214,7 +214,12 @@ await window.textureManager.uploadTexture(node.id, file);
   _showSuccessState(dropZone, file) {
     if (dropZone) {
       dropZone.style.borderColor = "#5cb85c";
-      dropZone.innerHTML = `<div style="color: #5cb85c;">✓ ${file.name}</div>`;
+      // A filename is arbitrary text the user did not type here, so it goes in
+      // as text rather than markup.
+      const label = document.createElement("div");
+      label.style.color = "#5cb85c";
+      label.textContent = `✓ ${file.name}`;
+      dropZone.replaceChildren(label);
 
       // Reset after a moment
       setTimeout(() => {

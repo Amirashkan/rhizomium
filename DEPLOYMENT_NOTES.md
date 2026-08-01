@@ -15,7 +15,7 @@ The **"Open External Viewer"** feature is designed for **local development only*
 
 The external viewer requires:
 
-1. **Python Backend**: Must run `rhizo_server.py` or `viewer_api.py` locally
+1. **Python Backend**: Must run `rhizo_server.py` locally
 2. **Process Spawning**: Needs to launch `rhizo_viewer.py` as a desktop application
 3. **Shared Memory IPC**: Uses local shared memory for frame streaming
 4. **Desktop Display**: Opens an OpenGL window on your local machine

@@ -988,27 +988,12 @@ export class PreviewComputer {
               const expr = (node.expr || "a").toString();
 
               try {
-                if (this._isExpressionDangerous(expr)) {
-                  throw new Error("Expression contains forbidden patterns");
-                }
-
-                const scope = {
+                // Math functions come from the evaluator's builtin table, so the
+                // scope only carries this node's values.
+                result = this.expressionSystem.evaluateCPUOrThrow(expr, {
                   a, b,
                   u_time: this.animationTime,
-                  sin: Math.sin,
-                  cos: Math.cos,
-                  tan: Math.tan,
-                  floor: Math.floor,
-                  ceil: Math.ceil,
-                  abs: Math.abs,
-                  PI: Math.PI,
-                  sqrt: Math.sqrt,
-                  pow: Math.pow,
-                  min: Math.min,
-                  max: Math.max,
-                };
-                const func = new Function(...Object.keys(scope), `return (${expr});`);
-                result = Number(func(...Object.values(scope)));
+                });
                 if (!Number.isFinite(result)) result = 0;
               } catch (error) {
                 window.errorHandler?.handleError(error, {
@@ -1117,16 +1102,6 @@ case "Rectangle": {
       // Return empty previews on error
       return { previews: {} };
     }
-  }
-
-  _isExpressionDangerous(expr) {
-    const forbidden = [
-      'import', 'require', 'eval', 'Function', 'constructor',
-      'window', 'document', 'global', 'process', '__proto__',
-      'prototype', 'valueOf', 'toString', 'hasOwnProperty'
-    ];
-    const lowerExpr = expr.toLowerCase();
-    return forbidden.some(keyword => lowerExpr.includes(keyword));
   }
 
 // In PreviewComputer.js, replace the _generateEnhancedThumbnails method:
