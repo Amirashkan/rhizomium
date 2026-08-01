@@ -168,17 +168,38 @@ async restoreTextures(textureData) {
   }
 
   if (restorePromises.length > 0) {
-    await Promise.all(restorePromises);
+    // One unusable texture should not cost the artist the rest of the patch —
+    // a rejected or refused source leaves that node without its image and the
+    // graph still opens.
+    const results = await Promise.allSettled(restorePromises);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.warn('Skipped a texture while restoring patch:', result.reason?.message ?? result.reason);
+      }
+    }
   }
 }
 
 /**
- * Load texture from data URL and register it
+ * Load texture from data URL and register it.
+ *
+ * The field is named dataUrl but it arrives from a patch file, and patches are
+ * downloaded from the gallery and opened by other people. Nothing stopped a
+ * patch from putting `https://attacker.example/x.png` here, and assigning that
+ * to img.src fires an outbound request on open — enough to log the viewer's IP
+ * and tell the author their patch was opened, before any pixel is drawn. The
+ * inlined payload that makes a patch self-contained is always a data: URL, so
+ * anything else is refused rather than fetched.
  */
 async loadTextureFromDataUrl(nodeId, dataUrl, filename) {
   return new Promise((resolve, reject) => {
+    if (typeof dataUrl !== 'string' || !/^data:image\//i.test(dataUrl.trim())) {
+      reject(new Error('Texture source must be an inline data: image URL'));
+      return;
+    }
+
     const img = new Image();
-    
+
     img.onload = async () => {
       try {
         const bitmap = await createImageBitmap(img);
