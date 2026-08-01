@@ -3,6 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <!--
+      The editor opens `.rz` patches written on other people's machines, so it
+      treats patch contents as untrusted. Expression parameters are evaluated by
+      the AST interpreter in utils/UnifiedExpressionSystem.js rather than eval();
+      omitting 'unsafe-eval' here makes that a rule the platform enforces, so a
+      future eval() shortcut fails loudly instead of silently reopening the hole.
+      'unsafe-inline' is still required by the inline bootstrap script below.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://art.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    />
     <title>GLSL Node Editor</title>
     <link rel="stylesheet" href="./style.css" />
     <link rel="stylesheet" href="../src/styles/menu.css" />

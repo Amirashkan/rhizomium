@@ -341,7 +341,15 @@ export class MIDISettingsPanel {
 
     // Show which parameter is being learned
     if (selectedParam && node) {
-      learnStatus.innerHTML = `Waiting for MIDI input...<br><strong>${node.kind}.${selectedParam.name}</strong>`;
+      // node.kind comes out of the patch file, so build the markup instead of
+      // interpolating it into innerHTML.
+      learnStatus.replaceChildren(
+        document.createTextNode('Waiting for MIDI input...'),
+        document.createElement('br'),
+        Object.assign(document.createElement('strong'), {
+          textContent: `${node.kind}.${selectedParam.name}`,
+        }),
+      );
     } else {
       learnStatus.textContent = 'Waiting for MIDI input...';
     }

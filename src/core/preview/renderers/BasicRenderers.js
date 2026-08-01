@@ -1,6 +1,8 @@
 // src/core/preview/renderers/BasicRenderers.js
 // Updated to support expression system integration
 
+import { evaluateExpressionSafely } from '../../../utils/safeExpression.js';
+
 export class BasicRenderers {
   constructor(previewSystem) {
     this.previewSystem = previewSystem;
@@ -353,21 +355,7 @@ renderOutput(ctx, node) {
   // Existing helper methods (preserved)
 
   _evaluateExpression(expr, vars) {
-    try {
-      let processed = expr;
-      for (const [name, value] of Object.entries(vars)) {
-        processed = processed.replace(new RegExp(`\\b${name}\\b`, "g"), value);
-      }
-      processed = processed.replace(/sin/g, "Math.sin");
-      processed = processed.replace(/cos/g, "Math.cos");
-      processed = processed.replace(/pi/g, "Math.PI");
-
-      // Substituted arithmetic from a node's own parameter expression, evaluated for a preview value
-      // only; the throw path below is the guard against whatever it turns out not to be.
-      return eval(processed); // eslint-disable-line no-eval
-    } catch {
-      return 0;
-    }
+    return evaluateExpressionSafely(expr, vars, 0);
   }
 
   _hashString(str) {

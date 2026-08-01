@@ -1,5 +1,6 @@
 // src/core/PreviewSystem.js - Enhanced with ErrorHandler integration
 
+import { evaluateExpressionSafely, PREVIEW_TIME } from '../utils/safeExpression.js';
 import { CanvasManager } from './preview/CanvasManager.js';
 import { NodeValueComputer } from './preview/NodeValueComputer.js';
 import { RendererRegistry } from './preview/RendererRegistry.js';
@@ -524,22 +525,12 @@ export class PreviewSystem {
           return this.editor.paramPanel.expressionSystem.evaluateExpression(rawValue, {}, node);
         }
 
-        if (/\btime\b/i.test(rawValue)) {
-          const previewTime = Math.PI / 2;
-          const expression = rawValue
-            .substring(1)
-            .replace(/\bsin\(/g, 'Math.sin(')
-            .replace(/\bcos\(/g, 'Math.cos(')
-            .replace(/\btan\(/g, 'Math.tan(')
-            .replace(/\btime\b/g, previewTime.toString());
-          const result = eval(expression); // eslint-disable-line no-eval
-          return Number.isNaN(result) ? defaultValue : result;
-        }
+        // No panel yet (previews can render before the editor finishes wiring
+        // up), so evaluate against a frozen preview clock.
+        return evaluateExpressionSafely(rawValue, { time: PREVIEW_TIME }, defaultValue);
       } catch {
         return defaultValue;
       }
-
-      return defaultValue;
     }
 
     return typeof rawValue === 'number' ? rawValue : parseFloat(rawValue) || defaultValue;

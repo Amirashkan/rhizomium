@@ -98,7 +98,7 @@ rhizomium/
 ├── GPUCanvas.py             ← GPU renderer with IPC
 ├── ipc_protocol.py          ← IPC protocol definitions
 ├── ipc_shared.py            ← Shared memory channel
-├── viewer_api.py            ← Standalone API server (optional)
+├── (viewer_api.py removed — executed a request-supplied path)
 ├── editor/                  ← Editor UI files
 │   └── index.html
 ├── main.js                  ← Main editor logic
@@ -128,9 +128,11 @@ python rhizo_viewer.py
 
 If you already have a web server running, use the standalone API:
 
-```bash
-python viewer_api.py
-```
+> **Removed.** `viewer_api.py` and the `POST /api/launch-viewer` endpoint no
+> longer exist. The endpoint executed a filesystem path taken from the request
+> body, and CORS was open to every origin, so any website open in the artist's
+> browser could start a local process. Nothing in the editor called it. Launch
+> `rhizo_viewer.py` directly instead.
 
 This runs the API on port 5000 without serving static files.
 

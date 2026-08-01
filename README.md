@@ -185,7 +185,7 @@ python -m http.server 8000
 npx serve .
 ```
 
-**Note:** These require running `viewer_api.py` separately for external viewer support.
+**Note:** The standalone `viewer_api.py` server and the `POST /api/launch-viewer` endpoint were removed: the endpoint took a filesystem path from the request body and executed it, and with CORS open to all origins any website could reach it on localhost. Nothing in the editor called it.
 
 ## 🔧 Requirements
 

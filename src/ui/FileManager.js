@@ -628,7 +628,11 @@ export class FileManager {
       this.renderFiles();
     } catch (error) {
       console.error('Failed to load files:', error);
-      listContainer.innerHTML = `<div class="file-manager-error">Error loading files: ${error.message}</div>`;
+      // error.message can carry server-controlled text.
+      const errorEl = document.createElement('div');
+      errorEl.className = 'file-manager-error';
+      errorEl.textContent = `Error loading files: ${error.message}`;
+      listContainer.replaceChildren(errorEl);
     } finally {
       this.loading = false;
     }
@@ -981,7 +985,10 @@ export class FileManager {
     if (!this.dialog) return;
     const listContainer = this.dialog.querySelector("#file-manager-list");
     if (!listContainer) return;
-    listContainer.innerHTML = `<div class="file-manager-empty">${message}</div>`;
+    const empty = document.createElement("div");
+    empty.className = "file-manager-empty";
+    empty.textContent = message;
+    listContainer.replaceChildren(empty);
   }
 }
 

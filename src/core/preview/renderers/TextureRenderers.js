@@ -1,5 +1,7 @@
 // src/core/preview/renderers/TextureRenderers.js - Fixed with expression evaluation
 
+import { getNumericParam, PREVIEW_TIME } from '../../../utils/safeExpression.js';
+
 export class TextureRenderers {
   constructor(previewSystem) {
     this.previewSystem = previewSystem;
@@ -56,26 +58,10 @@ export class TextureRenderers {
   }
 
   // Helper method to get parameter values with expression support
-getParameterValue(node, paramName, defaultValue = 0) {
-  const rawValue = node.params?.[paramName] ?? defaultValue;
-  
-  // Handle expressions containing 'time'
-  if (typeof rawValue === 'string' && /\btime\b/i.test(rawValue)) {
-    try {
-      const previewTime = Math.PI / 2;
-      const safeEval = new Function('time', `return ${rawValue.replace(/\bsin\(/g, 'Math.sin(').replace(/\bcos\(/g, 'Math.cos(').replace(/\btan\(/g, 'Math.tan(')}`);
-      const result = safeEval(previewTime);
-
-      return isNaN(result) ? defaultValue : result;
-    } catch {
-
-      return defaultValue;
-    }
+  getParameterValue(node, paramName, defaultValue = 0) {
+    // Previews freeze time so the thumbnail is stable frame to frame.
+    return getNumericParam(node, paramName, defaultValue, { time: PREVIEW_TIME });
   }
-  
-  // ADD THIS LINE - handles all non-time parameters
-  return typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || defaultValue);
-}
   // Helper to safely convert values to numbers
   toSafeNumber(value, defaultValue = 0) {
     if (value == null) return defaultValue;

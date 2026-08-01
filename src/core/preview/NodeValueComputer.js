@@ -1,5 +1,6 @@
 // src/core/preview/NodeValueComputer.js
 import { getResolutionForNode } from '../../utils/resolutionMode.js';
+import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 
 export class NodeValueComputer {
   constructor(editor) {
@@ -451,67 +452,17 @@ getNodeParameter(node, paramName, defaultValue = 0) {
         return 0;
       }
 
-      // Validate expression for dangerous patterns
-      if (this._isExpressionDangerous(expr)) {
-        throw new Error('Expression contains forbidden patterns');
-      }
-
-      let processed = expr;
-      
-      // Replace variables safely
-      for (const [name, value] of Object.entries(vars)) {
-        if (typeof value === 'number' && Number.isFinite(value)) {
-          processed = processed.replace(new RegExp(`\\b${name}\\b`, "g"), value.toString());
-        }
-      }
-      
-      // Replace math functions
-      processed = processed.replace(/\bsin\b/g, "Math.sin");
-      processed = processed.replace(/\bcos\b/g, "Math.cos");
-      processed = processed.replace(/\btan\b/g, "Math.tan");
-      processed = processed.replace(/\babs\b/g, "Math.abs");
-      processed = processed.replace(/\bsqrt\b/g, "Math.sqrt");
-      processed = processed.replace(/\bfloor\b/g, "Math.floor");
-      processed = processed.replace(/\bceil\b/g, "Math.ceil");
-      processed = processed.replace(/\bpow\b/g, "Math.pow");
-      processed = processed.replace(/\bmin\b/g, "Math.min");
-      processed = processed.replace(/\bmax\b/g, "Math.max");
-      processed = processed.replace(/\bpi\b/g, "Math.PI");
-
-      // Use safer evaluation method instead of direct eval
-      const result = this._safeEval(processed);
+      // `pi` stays spelled lowercase in existing patches; the evaluator only
+      // knows the `PI` constant, so bind it explicitly.
+      const result = unifiedExpressionSystem.evaluateCPUOrThrow(expr, { pi: Math.PI, ...vars });
       return Number.isFinite(result) ? result : 0;
     } catch (error) {
-      window.errorHandler?.handleError(error, { 
+      window.errorHandler?.handleError(error, {
         component: 'expression-evaluation',
         nodeId,
         expression: expr
       });
       return 0;
-    }
-  }
-
-  _isExpressionDangerous(expr) {
-    const forbidden = [
-      'import', 'require', 'eval', 'Function', 'constructor',
-      'window', 'document', 'global', 'process', '__proto__',
-      'prototype', 'valueOf', 'toString', 'hasOwnProperty',
-      'while', 'for', 'do', 'if', 'else', 'switch', 'case',
-      'function', '=>', 'return', 'var', 'let', 'const',
-      'delete', 'new', 'this', 'alert', 'confirm', 'prompt'
-    ];
-    
-    const lowerExpr = expr.toLowerCase();
-    return forbidden.some(keyword => lowerExpr.includes(keyword));
-  }
-
-  _safeEval(expression) {
-    try {
-      // Create a restricted function that only has access to Math
-      const func = new Function('Math', `return (${expression});`);
-      return func(Math);
-    } catch (error) {
-      throw new Error(`Expression evaluation failed: ${error.message}`);
     }
   }
 

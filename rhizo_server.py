@@ -5,14 +5,14 @@ Serves static files (editor UI) and provides API endpoints for viewer management
 Includes WebSocket frame streaming for dual-screen support.
 """
 
-import subprocess
 import time
-import sys
 import os
 import asyncio
 import threading
 from flask import Flask, jsonify, request, send_from_directory, send_file
 from flask_cors import CORS
+from werkzeug.exceptions import NotFound
+from werkzeug.security import safe_join
 
 # Import frame streaming server
 from frame_stream_server import FrameStreamServer, get_server
@@ -23,7 +23,18 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__,
             static_folder=BASE_DIR,
             static_url_path='')
-CORS(app)  # Enable CORS for frontend requests
+
+# This server listens on loopback, but "loopback" is not a trust boundary in a
+# browser: any page the artist happens to have open can send it cross-origin
+# requests. Allowing '*' would let any site on the internet drive these
+# endpoints, so the allowlist is the origins the editor is actually served from.
+ALLOWED_ORIGINS = [
+    "http://127.0.0.1:5000",
+    "http://localhost:5000",
+    "http://127.0.0.1:5173",  # vite dev server
+    "http://localhost:5173",
+]
+CORS(app, origins=ALLOWED_ORIGINS)
 
 
 # ============================================================================
@@ -50,101 +61,39 @@ def editor():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """Serve static files from the project root."""
-    file_path = os.path.join(BASE_DIR, path)
+    """Serve static files from the project root.
 
-    # If it's a directory, try to serve index.html
-    if os.path.isdir(file_path):
-        index_path = os.path.join(file_path, 'index.html')
-        if os.path.exists(index_path):
-            return send_file(index_path)
+    Werkzeug does not collapse '..' in PATH_INFO, so a request path reaches
+    here verbatim. send_file() would happily follow it out of the project and
+    hand back any file the server process can read; send_from_directory()
+    resolves against BASE_DIR and refuses to escape it, which is why the
+    directory case below routes through it too rather than joining by hand.
+    """
+    try:
+        candidate = safe_join(BASE_DIR, path)
+    except (NotFound, ValueError):
+        return jsonify({'error': 'File not found'}), 404
 
-    # Serve the file if it exists
-    if os.path.exists(file_path):
-        return send_file(file_path)
+    if candidate is None:
+        return jsonify({'error': 'File not found'}), 404
 
-    # 404 if not found
-    return jsonify({'error': 'File not found'}), 404
+    # If it's a directory, try to serve its index.html
+    if os.path.isdir(candidate):
+        index_relative = os.path.join(path, 'index.html')
+        try:
+            return send_from_directory(BASE_DIR, index_relative)
+        except NotFound:
+            return jsonify({'error': 'File not found'}), 404
+
+    try:
+        return send_from_directory(BASE_DIR, path)
+    except NotFound:
+        return jsonify({'error': 'File not found'}), 404
 
 
 # ============================================================================
 # API Endpoints
 # ============================================================================
-
-@app.route('/api/launch-viewer', methods=['POST'])
-def launch_viewer():
-    """Launch the external Rhizomium viewer application."""
-    try:
-        data = request.get_json() or {}
-        viewer_path = data.get('viewer', 'rhizo_viewer.exe')
-
-        # Auto-detect viewer: try .py first, then .exe
-        if not os.path.exists(viewer_path):
-            # Try rhizo_viewer.py in the base directory
-            py_viewer = os.path.join(BASE_DIR, 'rhizo_viewer.py')
-            if os.path.exists(py_viewer):
-                viewer_path = py_viewer
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': f'Viewer not found: {viewer_path} or {py_viewer}'
-                }), 404
-
-        print(f"[rhizo_server] Launching viewer: {viewer_path}")
-
-        # Get launch options from request
-        fullscreen = data.get('fullscreen', False)
-        monitor = data.get('monitor', 'primary')
-        
-        # Launch the viewer process
-        if viewer_path.endswith('.py'):
-            # Build command arguments
-            cmd = [
-                sys.executable,
-                viewer_path,
-                '--ws',  # Enable WebSocket mode
-                '--url', 'ws://localhost:8766/ws'  # Frame streaming URL
-            ]
-            
-            # Add fullscreen flag if requested
-            if fullscreen:
-                cmd.append('--fullscreen')
-            
-            # Note: Monitor selection would need to be implemented in the viewer
-            # For now, we'll pass it as an environment variable or future parameter
-            process = subprocess.Popen(cmd, env={**os.environ, 'RHIZO_MONITOR': str(monitor)})
-        else:
-            # Launch executable
-            process = subprocess.Popen([viewer_path])
-
-        # Wait briefly to ensure process starts
-        time.sleep(1)
-
-        # Check if process is still running (not immediately crashed)
-        poll_result = process.poll()
-        if poll_result is not None:
-            return jsonify({
-                'success': False,
-                'error': f'Viewer process exited immediately with code {poll_result}'
-            }), 500
-
-        return jsonify({
-            'success': True,
-            'message': 'External viewer launched',
-            'pid': process.pid
-        }), 200
-
-    except FileNotFoundError:
-        return jsonify({
-            'success': False,
-            'error': f'Viewer executable not found: {viewer_path}'
-        }), 404
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
 
 @app.route('/api/detect-monitors', methods=['GET'])
 def detect_monitors():
@@ -291,7 +240,7 @@ def status():
         },
         'endpoints': {
             'static': ['/', '/studio', '/editor', '/viewer.html'],
-            'api': ['/api/health', '/api/status', '/api/launch-viewer', '/api/stream-frame']
+            'api': ['/api/health', '/api/status', '/api/stream-frame']
         }
     }), 200
 
@@ -375,7 +324,7 @@ def start_frame_stream_server():
         asyncio.set_event_loop(frame_stream_loop)
 
         # Create and start server
-        frame_stream_server = FrameStreamServer(host='0.0.0.0', port=8766)
+        frame_stream_server = FrameStreamServer(host='127.0.0.1', port=8766)
 
         try:
             frame_stream_loop.run_until_complete(frame_stream_server.start())
@@ -431,7 +380,6 @@ def main():
     print("  Frame Stream:  ws://127.0.0.1:8766/ws")
     print()
     print("API Endpoints:")
-    print("  POST /api/launch-viewer - Launch external viewer")
     print("  POST /api/stream-frame  - Send frame to viewers")
     print("  GET  /api/health        - Health check")
     print("  GET  /api/status        - Server status")

@@ -30,6 +30,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger('FrameStreamServer')
 
+# Origins the editor is served from. Kept in step with ALLOWED_ORIGINS in
+# rhizo_server.py.
+ALLOWED_ORIGINS = frozenset({
+    "http://127.0.0.1:5000",
+    "http://localhost:5000",
+    "http://127.0.0.1:5173",  # vite dev server
+    "http://localhost:5173",
+})
+
 
 class FrameStreamServer:
     """
@@ -43,7 +52,7 @@ class FrameStreamServer:
     - Performance monitoring
     """
 
-    def __init__(self, host: str = '0.0.0.0', port: int = 8766):
+    def __init__(self, host: str = '127.0.0.1', port: int = 8766):
         self.host = host
         self.port = port
         self.app = web.Application()
@@ -76,15 +85,24 @@ class FrameStreamServer:
 
     @web.middleware
     async def _cors_middleware(self, request, handler):
-        """Add CORS headers to all responses"""
+        """Add CORS headers to all responses.
+
+        This stream carries whatever the artist is rendering, and /frame lets a
+        caller push frames to every connected viewer. '*' would put both on
+        offer to any page in any browser on the machine, so the header is
+        echoed back only for the origins the editor is served from.
+        """
         if request.method == 'OPTIONS':
             response = web.Response()
         else:
             response = await handler(request)
 
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        origin = request.headers.get('Origin')
+        if origin in ALLOWED_ORIGINS:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Vary'] = 'Origin'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response
 
     async def handle_index(self, request):
@@ -342,7 +360,7 @@ class FrameStreamServer:
 _server_instance: Optional[FrameStreamServer] = None
 
 
-async def get_server(host: str = '0.0.0.0', port: int = 8766) -> FrameStreamServer:
+async def get_server(host: str = '127.0.0.1', port: int = 8766) -> FrameStreamServer:
     """Get or create the global server instance"""
     global _server_instance
     if _server_instance is None:
@@ -370,7 +388,7 @@ def broadcast_frame(frame_data: bytes, width: int, height: int, format_type: str
 # Standalone server mode
 async def main():
     """Run the server standalone"""
-    server = FrameStreamServer(host='0.0.0.0', port=8766)
+    server = FrameStreamServer(host='127.0.0.1', port=8766)
     await server.start()
 
     logger.info('Press Ctrl+C to stop...')
