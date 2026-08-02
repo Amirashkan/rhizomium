@@ -175,9 +175,19 @@ export class Editor {
       // PERFORMANCE: Use optimized canvas context settings
       // willReadFrequently: false - we don't read pixels, only draw
       // This allows browser to optimize for drawing performance
+      //
+      // NOTE: `desynchronized: true` must NOT be set here. It asks for a low-latency
+      // presentation path that is decoupled from page compositing, and in exchange the
+      // canvas contents are no longer guaranteed to survive between frames — the
+      // compositor may show a buffer this frame's draw hasn't finished writing (that is
+      // the tearing the hint explicitly permits). This editor depends on that guarantee
+      // twice over: draw() is skipped entirely when nothing is dirty, and a dirty frame
+      // may repaint only its dirty regions. Under a desynchronized canvas both leave the
+      // untouched pixels undefined, which shows up in the Tauri webview as nodes and
+      // wires blinking out for a single frame, worst while zoomed in where each frame's
+      // draw takes longest.
       this.ctx = this.canvas.getContext("2d", {
         willReadFrequently: false,
-        desynchronized: true, // Allow async rendering, reduces blocking
         alpha: true // We need transparency for node rendering
       });
       if (!this.ctx) {
