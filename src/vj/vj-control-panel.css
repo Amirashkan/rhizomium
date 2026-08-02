@@ -14,13 +14,17 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
   color: #ffffff;
-  z-index: 1000;
+  /* Above the floating GPU preview (1000), which is created after this panel and
+     therefore won the tie at the same z-index - it covered the VJ header and
+     swallowed the mousedown, so the panel could not be dragged where the two
+     overlapped. Still below open menu dropdowns (1002). */
+  z-index: 1001;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* Header */
+/* Header - doubles as the drag handle for the panel */
 .vj-header {
   display: flex;
   justify-content: space-between;
@@ -28,6 +32,12 @@
   padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(58, 58, 62, 0.3);
+  cursor: grab;
+  user-select: none;
+}
+
+.vj-header:active {
+  cursor: grabbing;
 }
 
 .vj-title {
@@ -413,6 +423,15 @@
 
 .vj-btn:active {
   transform: scale(0.97);
+}
+
+.vj-btn:disabled,
+.vj-btn:disabled:hover {
+  opacity: 0.4;
+  cursor: default;
+  background: rgba(58, 58, 62, 0.4);
+  border-color: rgba(255, 255, 255, 0.08);
+  transform: none;
 }
 
 .vj-btn-small {

@@ -10,6 +10,8 @@ import { PresetManager } from './PresetManager.js';
 import { TransitionManager } from './TransitionManager.js';
 import { PlaylistManager } from './PlaylistManager.js';
 import { BeatSyncManager } from './BeatSyncManager.js';
+import { setMasterOpacity } from './MasterOutput.js';
+import { makeDraggable } from '../ui/utils/draggable.js';
 
 export class VJControlPanel {
   constructor(editor) {
@@ -34,6 +36,9 @@ export class VJControlPanel {
     this.attachEventListeners();
     this.loadFromStorage();
 
+    // Playback that advances on its own (auto-advance, next/previous, a scene
+    // that dropped out) has to be able to redraw the list.
+    this.playlistManager.onStateChange = () => this.syncPlaylistUI();
   }
 
   /**
@@ -89,6 +94,11 @@ export class VJControlPanel {
     header.appendChild(closeBtn);
 
     this.container.appendChild(header);
+    this.header = header;
+
+    // Drag by the header, like every other floating panel in the editor. The
+    // helper ignores mousedown on buttons, so × still closes.
+    this.cleanupDraggable = makeDraggable(this.container, header);
   }
 
   /**
@@ -287,11 +297,18 @@ export class VJControlPanel {
 
     this.playlistItems = playlistItems;
 
-    // Add to playlist button
+    // Add to playlist: pick any scene, loaded or not.
     const addGroup = document.createElement('div');
     addGroup.className = 'vj-button-group';
 
-    const addBtn = this.createButton('➕ Add Active Scene', 'Add current scene to playlist', () => this.addActiveSceneToPlaylist());
+    this.playlistSceneSelect = document.createElement('select');
+    this.playlistSceneSelect.className = 'vj-select';
+    this.playlistSceneSelect.title = 'Scene to add';
+    addGroup.appendChild(this.playlistSceneSelect);
+
+    const addBtn = this.createButton('➕ Add', 'Add the selected scene to the playlist', () => {
+      this.addSceneToPlaylist(this.playlistSceneSelect.value);
+    });
     const clearBtn = this.createButton('🗑️ Clear Playlist', 'Clear all playlist items', () => this.clearPlaylist());
 
     addGroup.appendChild(addBtn);
@@ -299,6 +316,43 @@ export class VJControlPanel {
     tab.appendChild(addGroup);
 
     this.contentArea.appendChild(tab);
+  }
+
+  /**
+   * Keep the scene picker in step with the scene collection, holding the current
+   * choice where it still exists.
+   */
+  refreshPlaylistSceneOptions() {
+    if (!this.playlistSceneSelect) return;
+
+    const scenes = this.sceneManager.getAllScenes();
+    const previous = this.playlistSceneSelect.value;
+
+    this.playlistSceneSelect.innerHTML = '';
+
+    if (scenes.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No scenes available';
+      this.playlistSceneSelect.appendChild(option);
+      this.playlistSceneSelect.disabled = true;
+      return;
+    }
+
+    this.playlistSceneSelect.disabled = false;
+    scenes.forEach(scene => {
+      const option = document.createElement('option');
+      option.value = scene.id;
+      option.textContent = scene.name;
+      this.playlistSceneSelect.appendChild(option);
+    });
+
+    const keep = scenes.some(scene => scene.id === previous)
+      ? previous
+      : (this.sceneManager.activeSceneId && scenes.some(s => s.id === this.sceneManager.activeSceneId)
+        ? this.sceneManager.activeSceneId
+        : scenes[0].id);
+    this.playlistSceneSelect.value = keep;
   }
 
   /**
@@ -360,8 +414,7 @@ export class VJControlPanel {
     this.opacitySlider.max = '100';
     this.opacitySlider.value = '100';
     this.opacitySlider.oninput = () => {
-      this.masterOpacity = parseFloat(this.opacitySlider.value) / 100;
-      this.opacityValue.textContent = `${this.opacitySlider.value}%`;
+      this.setMasterOpacity(parseFloat(this.opacitySlider.value) / 100);
     };
     opacityGroup.appendChild(this.opacitySlider);
 
@@ -387,9 +440,7 @@ export class VJControlPanel {
     this.speedSlider.max = '200';
     this.speedSlider.value = '100';
     this.speedSlider.oninput = () => {
-      this.playbackSpeed = parseFloat(this.speedSlider.value) / 100;
-      this.speedValue.textContent = `${(this.playbackSpeed).toFixed(2)}x`;
-      this.applyPlaybackSpeed();
+      this.setPlaybackSpeed(parseFloat(this.speedSlider.value) / 100);
     };
     speedGroup.appendChild(this.speedSlider);
 
@@ -447,6 +498,8 @@ export class VJControlPanel {
    */
   refreshScenes() {
     this.scenesArea.innerHTML = '';
+    // The playlist's scene picker reads from the same collection.
+    this.refreshPlaylistSceneOptions();
 
     const scenes = this.sceneManager.getAllScenes();
 
@@ -483,6 +536,15 @@ export class VJControlPanel {
       });
       switchBtn.className = 'vj-btn-small';
       actions.appendChild(switchBtn);
+
+      // Queue straight from the scene list. Requiring a scene to be loaded
+      // before it could be queued meant building a playlist tore down the graph
+      // once per entry - and any scene that failed to load could never be added.
+      const queueBtn = this.createButton('＋', 'Add to playlist', () => {
+        this.addSceneToPlaylist(scene.id);
+      });
+      queueBtn.className = 'vj-btn-small';
+      actions.appendChild(queueBtn);
 
       const deleteBtn = this.createButton('×', 'Remove scene', () => {
         if (confirm(`Remove scene "${scene.name}"?`)) {
@@ -538,9 +600,7 @@ export class VJControlPanel {
       actions.className = 'vj-preset-actions';
 
       const applyBtn = this.createButton('Apply', 'Apply this preset', () => {
-        const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
-        this.presetManager.applyPreset(preset.id, transitionTime);
-        this.refreshPresets();
+        this.applyPreset(preset.id);
       });
       applyBtn.className = 'vj-btn-small';
       actions.appendChild(applyBtn);
@@ -559,9 +619,7 @@ export class VJControlPanel {
       // Click to apply
       presetCard.onclick = (e) => {
         if (!e.target.closest('.vj-preset-actions')) {
-          const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
-          this.presetManager.applyPreset(preset.id, transitionTime);
-          this.refreshPresets();
+          this.applyPreset(preset.id);
         }
       };
 
@@ -570,9 +628,23 @@ export class VJControlPanel {
   }
 
   /**
+   * Apply a preset, then redraw so the active marker lands on it. The redraw
+   * waits for the transition to finish - an interpolated preset only becomes
+   * the active one once it has arrived.
+   */
+  async applyPreset(presetId) {
+    const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
+    const applied = await this.presetManager.applyPreset(presetId, transitionTime);
+    this.refreshPresets();
+    return applied;
+  }
+
+  /**
    * Refresh playlist display
    */
   refreshPlaylist() {
+    this.refreshPlaylistSceneOptions();
+    this.updateTransportButtons();
     this.playlistItems.innerHTML = '';
 
     const playlist = this.playlistManager.getPlaylist();
@@ -717,16 +789,26 @@ export class VJControlPanel {
     const transitionDuration = parseFloat(this.transitionDurationInput.value) || 0;
 
     const scene = this.sceneManager.getScene(sceneId);
-    if (!scene) return;
+    if (!scene) return false;
 
-    await this.transitionManager.startTransition(
-      scene.data,
-      transitionType,
-      transitionDuration
-    );
+    try {
+      await this.transitionManager.startTransition(
+        scene.data,
+        transitionType,
+        transitionDuration
+      );
+    } catch (error) {
+      // Surface the failure instead of leaving an unhandled rejection behind a
+      // panel that looks like it did nothing.
+      alert(`Failed to load scene "${scene.name}": ${error?.message || error}`);
+      this.refreshScenes();
+      return false;
+    }
 
     this.sceneManager.activeSceneId = sceneId;
+    scene.lastUsed = Date.now();
     this.refreshScenes();
+    return true;
   }
 
   /**
@@ -751,27 +833,33 @@ export class VJControlPanel {
   }
 
   /**
-   * Add active scene to playlist
+   * Add a scene to the playlist.
+   *
+   * Any scene can be queued, whether or not it is the one currently loaded -
+   * a playlist is a list of scenes to come, so demanding that each be loaded
+   * first made building one impossible past the first entry.
    */
-  addActiveSceneToPlaylist() {
-    const activeSceneId = this.sceneManager.activeSceneId;
-    if (!activeSceneId) {
-      alert('No active scene. Switch to a scene first.');
-      return;
+  addSceneToPlaylist(sceneId) {
+    const id = sceneId || this.sceneManager.activeSceneId;
+    const scene = id ? this.sceneManager.getScene(id) : null;
+
+    if (!scene) {
+      alert('No scene to add. Capture or load a scene first.');
+      return false;
     }
 
     const transitionType = this.transitionTypeSelect.value;
     const transitionDuration = parseFloat(this.transitionDurationInput.value) || 1.0;
-    const scene = this.sceneManager.getScene(activeSceneId);
 
-    this.playlistManager.addToPlaylist(
-      activeSceneId,
-      scene?.duration || 30,
+    const added = this.playlistManager.addToPlaylist(
+      scene.id,
+      scene.duration || 30,
       transitionType,
       transitionDuration
     );
 
     this.refreshPlaylist();
+    return added;
   }
 
   /**
@@ -792,15 +880,17 @@ export class VJControlPanel {
 
     if (status.isPlaying) {
       this.playlistManager.pause();
-      this.playlistPlayBtn.textContent = '▶';
+    } else if (status.playlistLength === 0) {
+      // Nothing queued - don't claim to be playing.
+      this.updateTransportButtons();
+      return;
+    } else if (status.currentIndex < 0) {
+      await this.playlistManager.play(0);
     } else {
-      if (status.currentIndex < 0) {
-        await this.playlistManager.play(0);
-      } else {
-        this.playlistManager.resume();
-      }
-      this.playlistPlayBtn.textContent = '⏸';
+      await this.playlistManager.resume();
     }
+
+    this.updateTransportButtons();
   }
 
   /**
@@ -808,7 +898,34 @@ export class VJControlPanel {
    */
   stopPlaylist() {
     this.playlistManager.stop();
-    this.playlistPlayBtn.textContent = '▶';
+    this.refreshPlaylist();
+  }
+
+  /**
+   * Transport buttons reflect real playback state, whoever changed it - the
+   * play button used to be flipped by hand and would lie as soon as playback
+   * ended, looped out, or ran off the end of a non-looping playlist.
+   */
+  updateTransportButtons() {
+    const status = this.playlistManager.getStatus();
+    const empty = status.playlistLength === 0;
+
+    if (this.playlistPlayBtn) {
+      this.playlistPlayBtn.textContent = status.isPlaying ? '⏸' : '▶';
+      this.playlistPlayBtn.title = status.isPlaying ? 'Pause playlist' : 'Play playlist';
+      this.playlistPlayBtn.disabled = empty;
+    }
+    if (this.playlistStopBtn) this.playlistStopBtn.disabled = empty;
+    if (this.playlistPrevBtn) this.playlistPrevBtn.disabled = empty;
+    if (this.playlistNextBtn) this.playlistNextBtn.disabled = empty;
+  }
+
+  /**
+   * Redraw the playlist tab in response to playback state changes. Only when
+   * that tab is on screen - rebuilding hidden DOM mid-show is wasted work.
+   */
+  syncPlaylistUI() {
+    if (!this.visible || this.activeTab !== 'playlist') return;
     this.refreshPlaylist();
   }
 
@@ -821,14 +938,71 @@ export class VJControlPanel {
   }
 
   /**
+   * Master opacity fader.
+   *
+   * Goes through MasterOutput rather than writing the canvas directly, so a
+   * scene transition running at the same time composes with the fader instead of
+   * one overwriting the other.
+   */
+  setMasterOpacity(opacity) {
+    const clamped = Math.min(1, Math.max(0, Number.isFinite(opacity) ? opacity : 1));
+    this.masterOpacity = clamped;
+
+    const percent = Math.round(clamped * 100);
+    if (this.opacitySlider && this.opacitySlider.value !== String(percent)) {
+      this.opacitySlider.value = String(percent);
+    }
+    if (this.opacityValue) this.opacityValue.textContent = `${percent}%`;
+
+    setMasterOpacity(clamped);
+    return clamped;
+  }
+
+  /**
+   * Playback speed fader - drives the render loop's time scale.
+   */
+  setPlaybackSpeed(speed) {
+    const clamped = Math.min(4, Math.max(0, Number.isFinite(speed) ? speed : 1));
+    this.playbackSpeed = clamped;
+
+    const percent = Math.round(clamped * 100);
+    if (this.speedSlider && this.speedSlider.value !== String(percent)) {
+      this.speedSlider.value = String(percent);
+    }
+    if (this.speedValue) this.speedValue.textContent = `${clamped.toFixed(2)}x`;
+
+    this.applyPlaybackSpeed();
+    return clamped;
+  }
+
+  /**
    * Apply playback speed
+   *
+   * Preview settings own the render loop's time scale, so route through them
+   * where possible - that keeps the settings window's own speed control in sync
+   * and reuses the code path that already refreshes the preview. The fallback
+   * covers the panel running before the floating preview exists.
    */
   applyPlaybackSpeed() {
-    // This would need to be integrated with the timeline manager
-    if (this.editor.timelineManager) {
-      // Modify time scale
-      // This is a placeholder - actual implementation would depend on
-      // how the timeline manager handles playback speed
+    const scale = this.playbackSpeed;
+
+    const previewSettings = typeof window !== 'undefined' ? window.floatingPreview?.settings : null;
+    if (previewSettings && typeof previewSettings.updateSetting === 'function') {
+      previewSettings.updateSetting('timeScale', scale);
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.timeScale = scale;
+      if (window.expressionSystem) {
+        window.expressionSystem.timeScale = scale;
+      }
+      window.renderLoop?.setTimeScale?.(scale);
+      window.renderLoop?.renderNow?.({ advance: false });
+    }
+
+    if (this.editor) {
+      this.editor.timeScale = scale;
     }
   }
 
@@ -862,8 +1036,7 @@ export class VJControlPanel {
           e.preventDefault();
           const presets = this.presetManager.getAllPresets();
           if (presets[fNum - 1]) {
-            const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
-            this.presetManager.applyPreset(presets[fNum - 1].id, transitionTime);
+            this.applyPreset(presets[fNum - 1].id);
           }
         }
       }

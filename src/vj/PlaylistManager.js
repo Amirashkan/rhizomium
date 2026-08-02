@@ -19,6 +19,20 @@ export class PlaylistManager {
     this.currentSceneStartTime = null;
     this.playbackTimer = null;
 
+    // Set by the panel so playback that advances on its own (the auto-advance
+    // timer, next/previous, a scene that failed to load) redraws the list
+    // instead of leaving a stale "current" highlight behind.
+    this.onStateChange = null;
+  }
+
+  /** Tell the UI something moved. Never let a listener break playback. */
+  notifyStateChange() {
+    if (typeof this.onStateChange !== 'function') return;
+    try {
+      this.onStateChange(this.getStatus());
+    } catch {
+      // A broken listener is not worth stopping the show for.
+    }
   }
 
   /**
@@ -39,6 +53,7 @@ export class PlaylistManager {
     };
 
     this.playlist.push(playlistItem);
+    this.notifyStateChange();
     return true;
   }
 
@@ -55,6 +70,12 @@ export class PlaylistManager {
       this.currentIndex--;
     }
 
+    if (this.playlist.length === 0) {
+      this.stop();
+      this.currentIndex = -1;
+    }
+
+    this.notifyStateChange();
     return true;
   }
 
@@ -77,6 +98,7 @@ export class PlaylistManager {
       this.currentIndex++;
     }
 
+    this.notifyStateChange();
     return true;
   }
 
@@ -87,6 +109,7 @@ export class PlaylistManager {
     this.stop();
     this.playlist = [];
     this.currentIndex = -1;
+    this.notifyStateChange();
   }
 
   /**
@@ -102,7 +125,7 @@ export class PlaylistManager {
     }
 
     this.isPlaying = true;
-    this.currentIndex = startIndex;
+    this.currentIndex = Math.min(Math.max(startIndex, 0), this.playlist.length - 1);
 
     await this.playCurrentScene();
 
@@ -113,14 +136,19 @@ export class PlaylistManager {
    * Stop playlist playback
    */
   stop() {
-    if (!this.isPlaying) return;
+    this.clearPlaybackTimer();
 
+    const wasActive = this.isPlaying || this.currentIndex >= 0;
     this.isPlaying = false;
-    if (this.playbackTimer) {
-      clearTimeout(this.playbackTimer);
-      this.playbackTimer = null;
-    }
+    // Stop rewinds; pause is the one that holds its place. Leaving the index
+    // parked here made the next press of ▶ resume into an already-elapsed scene
+    // and skip straight to the following one.
+    this.currentIndex = -1;
+    this.currentSceneStartTime = null;
 
+    if (wasActive) {
+      this.notifyStateChange();
+    }
   }
 
   /**
@@ -130,11 +158,8 @@ export class PlaylistManager {
     if (!this.isPlaying) return;
 
     this.isPlaying = false;
-    if (this.playbackTimer) {
-      clearTimeout(this.playbackTimer);
-      this.playbackTimer = null;
-    }
-
+    this.clearPlaybackTimer();
+    this.notifyStateChange();
   }
 
   /**
@@ -143,8 +168,17 @@ export class PlaylistManager {
   resume() {
     if (this.isPlaying) return;
 
+    if (this.currentIndex < 0 || this.currentIndex >= this.playlist.length) {
+      // Nothing was paused - start from the top instead of reading a duration
+      // off an item that isn't there.
+      return this.play(0);
+    }
+
     this.isPlaying = true;
-    const elapsed = (performance.now() - this.currentSceneStartTime) / 1000;
+
+    const elapsed = this.currentSceneStartTime === null
+      ? 0
+      : (performance.now() - this.currentSceneStartTime) / 1000;
     const remaining = this.playlist[this.currentIndex].duration - elapsed;
 
     if (remaining > 0) {
@@ -153,12 +187,16 @@ export class PlaylistManager {
       this.next();
     }
 
+    this.notifyStateChange();
+    return true;
   }
 
   /**
    * Play next scene in playlist
    */
   async next() {
+    if (this.playlist.length === 0) return;
+
     if (!this.isPlaying && this.currentIndex >= 0) {
       // Manual next
       this.currentIndex = (this.currentIndex + 1) % this.playlist.length;
@@ -166,7 +204,12 @@ export class PlaylistManager {
       return;
     }
 
-    if (!this.isPlaying) return;
+    if (!this.isPlaying) {
+      // Stopped: a manual next starts the sequence from the beginning.
+      this.currentIndex = 0;
+      await this.playCurrentScene();
+      return;
+    }
 
     this.currentIndex++;
 
@@ -186,6 +229,8 @@ export class PlaylistManager {
    * Play previous scene in playlist
    */
   async previous() {
+    if (this.playlist.length === 0) return;
+
     if (this.currentIndex <= 0) {
       if (this.loop) {
         this.currentIndex = this.playlist.length - 1;
@@ -222,18 +267,30 @@ export class PlaylistManager {
     const scene = this.sceneManager.getScene(item.sceneId);
 
     if (!scene) {
-
+      // The scene was removed since it was queued - drop the dead entry so the
+      // playlist can't loop forever on an item that will never load.
+      this.playlist.splice(this.currentIndex, 1);
+      this.currentIndex--;
       await this.next();
       return;
     }
 
+    this.notifyStateChange();
 
-    // Perform transition
-    await this.transitionManager.startTransition(
-      scene.data,
-      item.transitionType,
-      item.transitionDuration
-    );
+    // Perform transition. A scene that fails to load must not take playback with
+    // it: the show carries on to the next item.
+    try {
+      await this.transitionManager.startTransition(
+        scene.data,
+        item.transitionType,
+        item.transitionDuration
+      );
+    } catch {
+      if (this.isPlaying) {
+        this.scheduleNextScene(item.duration);
+      }
+      return;
+    }
 
     // Update active scene in scene manager
     this.sceneManager.activeSceneId = item.sceneId;
@@ -246,21 +303,30 @@ export class PlaylistManager {
     if (this.isPlaying) {
       this.scheduleNextScene(item.duration);
     }
+
+    this.notifyStateChange();
   }
 
   /**
    * Schedule next scene playback
    */
   scheduleNextScene(delay) {
-    if (this.playbackTimer) {
-      clearTimeout(this.playbackTimer);
-    }
+    this.clearPlaybackTimer();
 
     this.playbackTimer = setTimeout(() => {
+      this.playbackTimer = null;
       if (this.isPlaying) {
         this.next();
       }
-    }, delay * 1000);
+    }, Math.max(0, delay) * 1000);
+  }
+
+  /** Drop any pending auto-advance. */
+  clearPlaybackTimer() {
+    if (this.playbackTimer) {
+      clearTimeout(this.playbackTimer);
+      this.playbackTimer = null;
+    }
   }
 
   /**
@@ -275,6 +341,7 @@ export class PlaylistManager {
     if (updates.transitionType !== undefined) item.transitionType = updates.transitionType;
     if (updates.transitionDuration !== undefined) item.transitionDuration = updates.transitionDuration;
 
+    this.notifyStateChange();
     return true;
   }
 
@@ -339,6 +406,7 @@ export class PlaylistManager {
       this.loop = data.loop !== undefined ? data.loop : true;
       this.currentIndex = -1;
 
+      this.notifyStateChange();
       return true;
     } catch {
 
