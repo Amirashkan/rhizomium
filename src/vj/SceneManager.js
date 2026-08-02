@@ -33,6 +33,8 @@ export class SceneManager {
       data: sceneData,
       thumbnail: null,
       duration: sceneData.timeline?.duration || 10,
+      // Free-text cue note - what this scene is for, when to fire it.
+      notes: '',
       addedAt: Date.now(),
       lastUsed: null
     };
@@ -155,6 +157,7 @@ export class SceneManager {
 
     if (metadata.name !== undefined) scene.name = metadata.name;
     if (metadata.duration !== undefined) scene.duration = metadata.duration;
+    if (metadata.notes !== undefined) scene.notes = String(metadata.notes);
 
     return true;
   }

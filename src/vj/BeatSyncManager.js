@@ -52,6 +52,10 @@ export class BeatSyncManager {
 
     this.isPlaying = true;
     this.startTime = performance.now() - this.pauseTime;
+    // -1, not 0: the first update lands on beat 0 and has to read as a change,
+    // otherwise nothing listening hears the downbeat and the indicator sits
+    // blank until beat 1.
+    this.currentBeat = -1;
     this.update();
 
   }
@@ -135,12 +139,37 @@ export class BeatSyncManager {
    * Set BPM
    */
   setBPM(bpm) {
-    if (bpm <= 0 || bpm > 300) {
+    if (!Number.isFinite(bpm) || bpm <= 0 || bpm > 300) {
       return false;
     }
 
-    this.bpm = bpm;
+    // The beat count is derived from elapsed time divided by beat duration, so
+    // changing the tempo of a running clock would otherwise re-scale all the
+    // time already elapsed and jump the count. Re-anchor the start so the
+    // current position within the bar is carried over to the new tempo.
+    if (this.isPlaying && this.startTime !== null) {
+      const phase = this.getPositionInMeasure();
+      this.bpm = bpm;
+      this.startTime = performance.now() - phase * this.getMeasureDuration() * 1000;
+      // Re-anchoring rewinds elapsed time to within one bar, so the measure
+      // count starts over here rather than reporting a jump backwards.
+      this.currentMeasure = 0;
+    } else {
+      this.bpm = bpm;
+    }
+
     return true;
+  }
+
+  /**
+   * Where the clock sits within the current bar, 0..1.
+   */
+  getPositionInMeasure() {
+    if (this.startTime === null) return 0;
+    const elapsed = (performance.now() - this.startTime) / 1000;
+    const measure = this.getMeasureDuration();
+    if (measure <= 0) return 0;
+    return (elapsed % measure) / measure;
   }
 
   /**
@@ -179,6 +208,11 @@ export class BeatSyncManager {
 
       if (bpm >= 30 && bpm <= 300) {
         this.setBPM(bpm);
+        // Tapping sets where the beat falls, not just how fast it goes - land
+        // the downbeat on the tap that was just made.
+        if (this.isPlaying) {
+          this.syncToBeat(0);
+        }
       }
     }
 
@@ -258,6 +292,10 @@ export class BeatSyncManager {
     this.startTime = performance.now() - (beat * beatDuration * 1000);
     this.currentBeat = beat % this.beatsPerMeasure;
     this.currentMeasure = Math.floor(beat / this.beatsPerMeasure);
+
+    // Announce the beat we just landed on. update() compares against
+    // currentBeat, so without this the sync point itself passes in silence.
+    this.triggerBeatCallbacks(this.currentBeat);
   }
 
   /**

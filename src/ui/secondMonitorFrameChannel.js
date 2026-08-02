@@ -44,6 +44,7 @@ export const SecondMonitorMessage = Object.freeze({
   FRAGMENT_UNIFORMS: 'fragment-uniforms', // { nodes:[{id,params}] } — per-frame evaluated fragment u_params bytes (static params; streams without a rebuild)
   TEXTURE: 'texture',   // { nodeId, varKind, bitmap, width, height } — loaded image/video texture (on change)
   FRAME: 'frame',       // { bitmap, sw, sh }  — mirrored pixels (fallback path only)
+  MASTER_OPACITY: 'master-opacity', // { opacity } — VJ master fader × any running scene transition, 0..1. The receiver renders its own frames, so the editor's canvas opacity means nothing to it; this carries the level across. Sent on change and on READY
   RENDER_RES: 'render-res', // { maxDim, displayMaxDim } — maxDim is the viewer's compute long edge and the editor always sends -1 (render the output format, so the viewer's sims match exactly); displayMaxDim caps the PRESENTATION surface's long edge in device px (0 = the display's own resolution). The render is letterboxed into the display either way
   FEEDBACK_RESET: 'feedback-reset', // { nodeId } — a Feedback node was reset in the editor (panel button or Reset pin); the receiver clears its own sim to match
   CLOSE: 'close',       // shut the window down

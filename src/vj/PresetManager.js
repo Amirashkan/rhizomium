@@ -26,11 +26,12 @@ export class PresetManager {
     // Capture all node parameters
     const parameterState = {};
 
-    this.editor.graph.nodes.forEach(node => {
-      if (node.params && Object.keys(node.params).length > 0) {
-        parameterState[node.id] = {
+    (this.editor.graph?.nodes || []).forEach(node => {
+      const params = this.readNodeParameters(node);
+      if (Object.keys(params).length > 0) {
+        parameterState[String(node.id)] = {
           kind: node.kind,
-          params: JSON.parse(JSON.stringify(node.params)) // Deep clone
+          params
         };
       }
     });
@@ -49,6 +50,96 @@ export class PresetManager {
     }
 
     return preset;
+  }
+
+  /**
+   * Read a node's parameters the way the rest of the editor stores them.
+   *
+   * A parameter does not always live in node.params: scalar nodes keep theirs in
+   * node.value, expression nodes in node.expr, and older graphs in node.props.
+   * Capturing node.params alone skipped those nodes entirely, which is why a
+   * preset could look captured and then change nothing on apply.
+   */
+  readNodeParameters(node) {
+    const params = {};
+
+    if (node.props && typeof node.props === 'object') {
+      Object.assign(params, node.props);
+    }
+    if (node.params && typeof node.params === 'object') {
+      Object.assign(params, node.params);
+    }
+    if (typeof node.value !== 'undefined') {
+      params.value = node.value;
+    }
+    if (typeof node.expr !== 'undefined') {
+      params.expr = node.expr;
+    }
+
+    // Deep clone so later edits to the graph can't mutate the stored preset.
+    return JSON.parse(JSON.stringify(params));
+  }
+
+  /**
+   * Write one parameter back, mirroring ParameterValueManager's storage rules so
+   * codegen and the parameter panel both read the value we just set.
+   */
+  writeNodeParameter(node, paramName, value) {
+    if (paramName === 'value') {
+      node.value = value;
+      return;
+    }
+    if (paramName === 'expr') {
+      node.expr = value;
+      return;
+    }
+
+    if (!node.params) node.params = {};
+    node.params[paramName] = value;
+
+    // props is the legacy mirror; several readers still fall back to it.
+    if (node.props && typeof node.props === 'object') {
+      node.props[paramName] = value;
+    }
+  }
+
+  /**
+   * Find the node a captured entry belongs to. Preset keys are strings because
+   * they came from an object, while node ids may be numbers - compare loosely so
+   * the lookup doesn't silently miss.
+   */
+  findNode(nodeId, kind) {
+    const node = (this.editor.graph?.nodes || []).find(n => String(n.id) === String(nodeId));
+    if (!node) return null;
+    if (kind && node.kind !== kind) return null;
+    return node;
+  }
+
+  /**
+   * Push the parameter writes through to the render.
+   *
+   * The old code called editor.onGraphChanged(), which no editor has ever
+   * defined, so applying a preset updated the data and nothing else - no
+   * recompile, no visible change.
+   */
+  commitParameterChanges(touchedNodes = []) {
+    touchedNodes.forEach(node => {
+      try {
+        this.editor.updateNodePreview?.(node);
+      } catch {
+        // A preview refresh failing must not stop the shader rebuild below.
+      }
+    });
+
+    if (typeof this.editor.onChange === 'function') {
+      this.editor.onChange('VJ Preset');
+    } else if (typeof window !== 'undefined' && typeof window.rebuild === 'function') {
+      window.rebuild();
+    }
+
+    // Keep the parameter panel showing the values that are now live.
+    this.editor.paramPanel?.refreshParameterDisplays?.();
+    this.editor.markDirty?.('vj-preset', 'nodes');
   }
 
   /**
@@ -82,24 +173,21 @@ export class PresetManager {
    */
   applyPresetInstant(preset) {
     const { parameterState } = preset;
+    const touched = [];
 
     // Apply parameters to matching nodes
-    Object.entries(parameterState).forEach(([nodeId, nodeState]) => {
-      const node = this.editor.graph.nodes.find(n => n.id === nodeId);
-      if (node && node.kind === nodeState.kind) {
-        // Apply each parameter
-        Object.entries(nodeState.params).forEach(([paramName, paramValue]) => {
-          if (Object.hasOwn(node.params, paramName)) {
-            node.params[paramName] = paramValue;
-          }
-        });
-      }
+    Object.entries(parameterState || {}).forEach(([nodeId, nodeState]) => {
+      const node = this.findNode(nodeId, nodeState.kind);
+      if (!node) return;
+
+      Object.entries(nodeState.params || {}).forEach(([paramName, paramValue]) => {
+        this.writeNodeParameter(node, paramName, paramValue);
+      });
+      touched.push(node);
     });
 
     // Trigger recompile
-    if (this.editor.onGraphChanged) {
-      this.editor.onGraphChanged();
-    }
+    this.commitParameterChanges(touched);
   }
 
   /**
@@ -108,56 +196,54 @@ export class PresetManager {
   async interpolateToPreset(preset, duration) {
     const { parameterState } = preset;
     const startTime = performance.now();
-    const startState = {};
 
-    // Capture start values
-    Object.entries(parameterState).forEach(([nodeId, nodeState]) => {
-      const node = this.editor.graph.nodes.find(n => n.id === nodeId);
-      if (node && node.kind === nodeState.kind) {
-        startState[nodeId] = {
-          kind: node.kind,
-          params: JSON.parse(JSON.stringify(node.params))
-        };
-      }
+    // Resolve every target node once, up front: the animation runs per frame and
+    // re-scanning the graph each time is both slow and a chance to disagree with
+    // the start values we snapshot here.
+    const targets = [];
+    Object.entries(parameterState || {}).forEach(([nodeId, nodeState]) => {
+      const node = this.findNode(nodeId, nodeState.kind);
+      if (!node) return;
+
+      targets.push({
+        node,
+        params: nodeState.params || {},
+        startParams: this.readNodeParameters(node)
+      });
     });
+
+    if (targets.length === 0) return;
 
     // Animation loop
     return new Promise(resolve => {
       const animate = () => {
         const elapsed = (performance.now() - startTime) / 1000;
-        const t = Math.min(elapsed / duration, 1);
+        const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1;
         const eased = this.easeInOutCubic(t);
 
         // Interpolate each parameter
-        Object.entries(parameterState).forEach(([nodeId, nodeState]) => {
-          const node = this.editor.graph.nodes.find(n => n.id === nodeId);
-          const start = startState[nodeId];
+        targets.forEach(({ node, params, startParams }) => {
+          Object.entries(params).forEach(([paramName, endValue]) => {
+            const startValue = startParams[paramName];
 
-          if (node && start) {
-            Object.entries(nodeState.params).forEach(([paramName, endValue]) => {
-              const startValue = start.params[paramName];
-
-              // Interpolate based on type
-              if (typeof startValue === 'number' && typeof endValue === 'number') {
-                node.params[paramName] = startValue + (endValue - startValue) * eased;
-              } else if (Array.isArray(startValue) && Array.isArray(endValue)) {
-                node.params[paramName] = startValue.map((v, i) =>
-                  v + (endValue[i] - v) * eased
-                );
-              } else {
-                // Non-interpolatable types: switch at halfway point
-                if (t >= 0.5) {
-                  node.params[paramName] = endValue;
-                }
-              }
-            });
-          }
+            // Interpolate based on type
+            if (typeof startValue === 'number' && typeof endValue === 'number') {
+              this.writeNodeParameter(node, paramName, startValue + (endValue - startValue) * eased);
+            } else if (Array.isArray(startValue) && Array.isArray(endValue)) {
+              this.writeNodeParameter(node, paramName, startValue.map((v, i) =>
+                typeof v === 'number' && typeof endValue[i] === 'number'
+                  ? v + (endValue[i] - v) * eased
+                  : endValue[i]
+              ));
+            } else if (t >= 0.5) {
+              // Non-interpolatable types: switch at halfway point
+              this.writeNodeParameter(node, paramName, endValue);
+            }
+          });
         });
 
         // Trigger recompile
-        if (this.editor.onGraphChanged) {
-          this.editor.onGraphChanged();
-        }
+        this.commitParameterChanges(targets.map(target => target.node));
 
         if (t < 1) {
           requestAnimationFrame(animate);

@@ -1053,4 +1053,28 @@ describe('secondMonitorReceiver', () => {
     expect(win._audioEnvelopeHighs).toBeCloseTo(0.4, 5);
     expect(win._audioEnvelopeFull).toBeCloseTo(0.5, 5);
   });
+
+  it('dims both output surfaces to the editor\'s master fader', () => {
+    // The receiver renders its own frames, so the editor's canvas opacity never
+    // reached this window - the VJ master fader stopped at the editor. The level
+    // now arrives over the channel and applies to whichever surface is showing.
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    const ch = FakeBroadcastChannel.instances[0];
+
+    ch.emit({ type: MSG.MASTER_OPACITY, opacity: 0.25 });
+
+    expect(gpuCanvas.style.opacity).toBe('0.25');
+    expect(fbCanvas.style.opacity).toBe('0.25');
+  });
+
+  it('clamps a nonsense master opacity rather than blanking the output', () => {
+    initSecondMonitorReceiver(doc, win, { createRenderer: () => makeFakeRenderer() });
+    const ch = FakeBroadcastChannel.instances[0];
+
+    ch.emit({ type: MSG.MASTER_OPACITY, opacity: 4 });
+    expect(gpuCanvas.style.opacity).toBe('1');
+
+    ch.emit({ type: MSG.MASTER_OPACITY, opacity: undefined });
+    expect(gpuCanvas.style.opacity).toBe('1');
+  });
 });
