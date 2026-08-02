@@ -12,6 +12,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ComputeNodes } from '../src/codegen/compilers/ComputeNodes.js';
+import { getOutputFormat, setOutputFormat } from '../src/ui/OutputFormat.js';
 
 describe('registerDisconnectedComputeNodes', () => {
   let cn;
@@ -58,17 +59,46 @@ describe('registerDisconnectedComputeNodes', () => {
     expect(window.computeNodeRegistry.size).toBe(0);
   });
 
-  it('does not overwrite a compute node already registered by the main compile pass', () => {
-    // Simulate an output-reachable compute node registered during compileNodes.
-    const existing = { node: { id: '5', kind: 'ComputeBlur' }, wgslCode: 'ALREADY_COMPILED' };
-    window.computeNodeRegistry.set('5', existing);
+  it('does not overwrite a compute node already registered by this build\'s compile pass', () => {
+    // An output-reachable node goes through registerComputeNode during compileNodes, which is
+    // where the real getInput (its wired texture sources) is captured.
+    cn.beginBuild();
+    const getInput = () => 'WIRED_INPUT';
+    cn.registerComputeNode({ id: '5', kind: 'ComputeBlur', params: {} }, getInput, [800, 600]);
+    const existing = window.computeNodeRegistry.get('5');
 
     const graph = { nodes: [{ id: '5', kind: 'ComputeBlur', params: {} }], connections: [] };
     cn.registerDisconnectedComputeNodes(graph);
 
-    // Same entry object, untouched (not regenerated).
+    // Same entry object, untouched - re-registering here would replace getInput with a no-op.
     expect(window.computeNodeRegistry.get('5')).toBe(existing);
-    expect(window.computeNodeRegistry.get('5').wgslCode).toBe('ALREADY_COMPILED');
+    expect(window.computeNodeRegistry.get('5').getInput).toBe(getInput);
+  });
+
+  it('refreshes an entry left over from an earlier build so its resolution follows the composition', () => {
+    const restore = getOutputFormat();
+    try {
+      // Build 1: the node is disconnected, so it is registered here at the sim size of the day.
+      setOutputFormat(1280, 720, 'test');
+      cn.beginBuild();
+      const node = { id: '5', kind: 'ComputeNoise', params: {} };
+      cn.registerDisconnectedComputeNodes({ nodes: [node], connections: [] });
+      const first = window.computeNodeRegistry.get('5');
+      expect(first.resolution).toEqual([1280, 720]);
+
+      // Build 2 after the composition is resized. The registry survives across builds, so an
+      // "already present, leave it alone" rule freezes this entry forever: ComputeExecutor's reuse
+      // signature keys on the resolution, so the node would keep its old texture - old shape, old
+      // thumbnail ratio - until it happened to be wired into the output.
+      setOutputFormat(720, 1280, 'test');
+      cn.beginBuild();
+      cn.registerDisconnectedComputeNodes({ nodes: [node], connections: [] });
+
+      expect(window.computeNodeRegistry.get('5')).not.toBe(first);
+      expect(window.computeNodeRegistry.get('5').resolution).toEqual([720, 1280]);
+    } finally {
+      setOutputFormat(restore.width, restore.height, 'test');
+    }
   });
 
   it('skips nodes whose per-node preview is toggled off', () => {

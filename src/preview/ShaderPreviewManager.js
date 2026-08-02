@@ -114,6 +114,47 @@ export class ShaderPreviewManager {
   }
 
   /**
+   * Re-render every node's thumbnail from scratch.
+   *
+   * A thumbnail's SHAPE comes from the texture it was read back from, and that
+   * texture is sized from the composition — the fragment path through
+   * _fragmentPreviewSize, the compute path through the sim resolution its output
+   * texture was created at. Nothing about a node changes when the composition is
+   * resized, so no parameter/connection/graph event will ever invalidate those
+   * thumbnails: each one keeps the ratio it was last drawn at until something
+   * unrelated happens to re-render that particular node. This is the explicit
+   * "the composition moved, redraw everything" pass.
+   */
+  refreshAllThumbnails() {
+    const nodes = this.editor?.graph?.nodes;
+    if (!Array.isArray(nodes) || nodes.length === 0) return;
+
+    // Fragment previews render into a target sized from the output format, and the
+    // texture cache keys on that size — so after a resize every existing entry is
+    // unreachable. Drop them instead of leaving a full set of orphaned GPU textures
+    // behind on each resolution change.
+    this.fragmentRenderer?.clearCache();
+    this.shaderCache.clear();
+
+    const previewSystem = this.editor?.previewSystem;
+    for (const node of nodes) {
+      if (!node) continue;
+      try {
+        // generateNodePreview is the single GPU-vs-CPU funnel: it honours the
+        // per-node preview toggle and routes compute / fragment / numeric nodes to
+        // the right path. Fall back to the queue directly if it isn't wired yet.
+        if (previewSystem?.generateNodePreview) {
+          previewSystem.generateNodePreview(node);
+        } else {
+          this.requestNodePreview(node, true);
+        }
+      } catch {
+        // One node that can't preview must not stop the rest of the graph.
+      }
+    }
+  }
+
+  /**
    * Update preview for a single node
    * @param {object} node - The node to preview
    */

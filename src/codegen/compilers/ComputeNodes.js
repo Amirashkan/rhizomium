@@ -14,6 +14,19 @@ export class ComputeNodes {
     // Graph being compiled, used to resolve node references in parameter expressions
     // without relying on the ambient window.editor.graph (absent in the external viewer).
     this.graph = null;
+    // Registry keys this build already wrote - see beginBuild().
+    this.registeredThisBuild = new Set();
+  }
+
+  /**
+   * Start a fresh full build. registerDisconnectedComputeNodes() runs at the END of a build
+   * and has to tell two cases apart: an entry written by THIS build's compile pass (leave it,
+   * it carries the real getInput) and one left over from an EARLIER build (rewrite it, its
+   * resolution and generated WGSL are frozen at whatever they were then). window.computeNodeRegistry
+   * itself can't answer that - it survives across builds - so track it here.
+   */
+  beginBuild() {
+    this.registeredThisBuild.clear();
   }
 
   setUniformManager(manager) {
@@ -153,7 +166,7 @@ export class ComputeNodes {
       supportsFeedback,
       lastInputHash: null // For tracking when inputs change
     });
-
+    this.registeredThisBuild.add(registryKey);
   }
 
   /**
@@ -187,8 +200,17 @@ export class ComputeNodes {
       if (!node || !this.handles(node.kind)) continue;
 
       const registryKey = String(node.id).replace(/[^a-zA-Z0-9_]/g, "_");
-      // Already compiled (output-reachable) or registered on a previous build — leave it alone.
-      if (window.computeNodeRegistry.has(registryKey)) continue;
+      // Already compiled by this build (the node is output-reachable): that entry carries the real
+      // getInput, so leave it alone. An entry from an EARLIER build is deliberately NOT kept — it
+      // freezes the values captured when the node was first seen. Its `resolution` is the sim size
+      // at that moment, so after the composition is resized ComputeExecutor's reuse signature still
+      // matches and the node keeps its old texture: it renders at the old shape and its thumbnail
+      // keeps the old ratio until the node happens to be wired into the output. Its `wgslCode` is
+      // frozen the same way, so an enum parameter that is baked into the shader (a Pattern's type,
+      // a Gradient's type) would never take effect while the node is disconnected. Re-registering
+      // is cheap: identical WGSL and resolution produce an identical init signature, so
+      // ComputeExecutor reuses the existing manager and nothing is rebuilt.
+      if (this.registeredThisBuild.has(registryKey)) continue;
 
       // Respect the per-node preview toggle (green-dot button): no point dispatching a node whose
       // preview is hidden. Absent entry / undefined means the preview is on (the default).
@@ -2497,6 +2519,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   var uv = vec2<f32>(texCoord) / vec2<f32>(texSize);
+
+  // Apply aspect ratio correction so a cell is square whatever shape the
+  // composition has. Without it every cell inherits the frame's ratio: a
+  // checkerboard on a 16:9 output is built from 16:9 cells, dots are ellipses
+  // and the hexagons skew. Same correction the noise and gradient shaders
+  // already apply, and the same aspect space the Circle/Rectangle/Polygon
+  // shape nodes measure in. Recentring by (aspect - 1) * 0.5 keeps the domain
+  // centred on 0.5, so the rotation below still turns about the frame's middle.
+  let aspect = uniforms.resolution.x / uniforms.resolution.y;
+  uv = vec2<f32>(uv.x * aspect - (aspect - 1.0) * 0.5, uv.y);
 
   // Apply rotation
   uv = rotate2D(uv, uniforms.rotation);

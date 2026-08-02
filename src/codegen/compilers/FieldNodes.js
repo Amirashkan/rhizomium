@@ -166,6 +166,7 @@ export class FieldNodes {
         const height = this.getParam(node, 'height', 0.5);
         const centerX = this.getParam(node, 'centerX', 0.5);
         const centerY = this.getParam(node, 'centerY', 0.5);
+        const roundness = this.getParam(node, 'roundness', 0.0);
         // FIXED: Node definition has no 'scale' or 'rotation' parameters, use defaults
         const scale = 1.0;
         const rotation = 0.0;
@@ -176,11 +177,12 @@ export class FieldNodes {
         const heightExpr = this._coerceScalarParam(height);
         const centerXExpr = this._coerceScalarParam(centerX);
         const centerYExpr = this._coerceScalarParam(centerY);
+        const roundnessExpr = this._coerceScalarParam(roundness);
         const scaleExpr = scale;
         const rotationExpr = rotation;
         const smoothnessExpr = this._coerceScalarParam(smoothness);
 
-        paramExprs = `, ${widthExpr}, ${heightExpr}, ${centerXExpr}, ${centerYExpr}, ${scaleExpr}, ${rotationExpr}, ${smoothnessExpr}`;
+        paramExprs = `, ${widthExpr}, ${heightExpr}, ${centerXExpr}, ${centerYExpr}, ${roundnessExpr}, ${scaleExpr}, ${rotationExpr}, ${smoothnessExpr}`;
         break;
       }
       case 'Polygon': {
@@ -247,7 +249,7 @@ export class FieldNodes {
 generateRectangleFunction(node, nodeId, functionName) {
   const safeId = this.makeSafeIdentifier(nodeId);
 
-  return `fn ${functionName}(uv: vec2<f32>, width: f32, height: f32, centerX: f32, centerY: f32, scale: f32, rotation: f32, smoothness: f32) -> f32 {
+  return `fn ${functionName}(uv: vec2<f32>, width: f32, height: f32, centerX: f32, centerY: f32, roundness: f32, scale: f32, rotation: f32, smoothness: f32) -> f32 {
   // Distances in aspect space
   // FIXED: Don't clamp UV - allows transformed coordinates from Transform2D nodes
   var ${safeId}_uvA = uv;
@@ -258,15 +260,29 @@ generateRectangleFunction(node, nodeId, functionName) {
     centerX * u.aspect,
     centerY
   );
-  // size in aspect space (no additional aspect scaling needed)
+  // Half-size. 'width' is a fraction of the frame's WIDTH and 'height' a fraction of its
+  // HEIGHT, so the rectangle follows the composition: 1.0 x 1.0 fills the frame at any ratio
+  // and 0.5 x 0.5 covers the middle quarter of it. That is what two independent extents named
+  // Width and Height should mean - measuring both in y-units (the earlier behaviour) made
+  // width == height always draw a SQUARE, one that shrank away from its stated width as the
+  // composition got wider. Circle and Polygon keep their radius in y-units on purpose: they
+  // have a single extent and have to stay round. The x half-extent is scaled into aspect space
+  // below, where the frame spans [0, aspect], so the distance field stays isotropic - rotation
+  // is a true rotation and 'smoothness' is the same thickness on every edge.
   var ${safeId}_half = clamp(
     vec2<f32>(width, height),
     vec2<f32>(0.0),
     vec2<f32>(1.0)
   ) * 0.5;
+  ${safeId}_half.x *= u.aspect;
   // Zoom semantics: larger 'scale' => larger rect (scale half-size)
   let ${safeId}_s = max(scale, 0.0);
   ${safeId}_half *= ${safeId}_s;
+
+  // Corner radius, as a fraction of the shortest half-extent so 1.0 is the roundest the
+  // rectangle can get (a stadium / circle) and cannot invert the shape.
+  let ${safeId}_r = clamp(roundness, 0.0, 1.0)
+                  * min(${safeId}_half.x, ${safeId}_half.y);
 
   // rotate delta in aspect space (unique names; avoids clashes)
   var ${safeId}_dp = ${safeId}_uvA - ${safeId}_ctr;
@@ -277,9 +293,11 @@ generateRectangleFunction(node, nodeId, functionName) {
     ${safeId}_sr * ${safeId}_dp.x + ${safeId}_cr * ${safeId}_dp.y
   );
 
-  let ${safeId}_d = abs(${safeId}_dp) - ${safeId}_half;
+  // Rounded-box SDF: shrink the box by the corner radius, then grow the distance back by it.
+  let ${safeId}_d = abs(${safeId}_dp) - ${safeId}_half + vec2<f32>(${safeId}_r);
   let ${safeId}_dist = length(max(${safeId}_d, vec2<f32>(0.0)))
-                     + min(max(${safeId}_d.x, ${safeId}_d.y), 0.0);
+                     + min(max(${safeId}_d.x, ${safeId}_d.y), 0.0)
+                     - ${safeId}_r;
   let ${safeId}_eps = max(smoothness, 1e-4);
   return 1.0 - smoothstep(-${safeId}_eps, ${safeId}_eps, ${safeId}_dist);
 }`;
