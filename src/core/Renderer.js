@@ -70,6 +70,12 @@ export class Renderer {
     
     // PERFORMANCE: Cache wire colors to avoid repeated NodeDefs lookups
     this._wireColorCache = new Map();
+
+    // Backing-store size of the last committed frame. A change means the canvas was resized,
+    // which wipes it, so the next frame cannot be a partial redraw. Starts null so the first
+    // frame is always full.
+    this._lastCanvasWidth = null;
+    this._lastCanvasHeight = null;
   }
 
   render(graph, renderState) {
@@ -100,8 +106,32 @@ export class Renderer {
     // Handle precise invalidation regions
     const preciseDirtyRegions = renderState.preciseDirtyRegions;
     const needsFullRedraw = renderState.needsFullRedraw;
-    
-    const isPartialRedraw = !needsFullRedraw && Array.isArray(preciseDirtyRegions) && preciseDirtyRegions.length > 0;
+
+    // A partial redraw repaints only the dirty regions and trusts the rest of the canvas to
+    // still hold the pixels drawn on an earlier frame. That is only true while the premises
+    // those pixels were drawn under still hold:
+    //
+    //   * The viewport transform must not have moved. Zoom and pan relocate EVERY previously
+    //     painted pixel, so leftover content is at the old scale/offset. Repainting one node's
+    //     region on top of it leaves the rest of the graph stale for a frame, and the next frame
+    //     (usually a full redraw, since the invalidation set is empty again) snaps it back —
+    //     which reads as nodes and wires flickering out and back while zooming, worst at high
+    //     zoom where a single wheel notch displaces pixels the furthest.
+    //   * The backing store must not have been resized. Assigning canvas.width/height wipes the
+    //     canvas, so nothing survives from the previous frame at all.
+    //
+    // isViewportDirty() is the exact signal for the first: every viewport mutation raises it and
+    // markViewportClean() below lowers it once a frame has actually been committed.
+    const viewportMoved = typeof this.viewport?.isViewportDirty === 'function'
+      ? this.viewport.isViewportDirty()
+      : true;
+    const canvasResized = this._lastCanvasWidth !== ctx.canvas.width ||
+                          this._lastCanvasHeight !== ctx.canvas.height;
+    this._lastCanvasWidth = ctx.canvas.width;
+    this._lastCanvasHeight = ctx.canvas.height;
+
+    const isPartialRedraw = !needsFullRedraw && !viewportMoved && !canvasResized &&
+      Array.isArray(preciseDirtyRegions) && preciseDirtyRegions.length > 0;
 
     if (!isPartialRedraw) {
       // Full canvas clear
@@ -153,25 +183,23 @@ export class Renderer {
       }
     }
 
-    // Determine which nodes/connections to render based on dirty regions
-    const nodesToRender = needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0
-      ? graph.nodes
-      : this._filterNodesByRegions(graph.nodes, preciseDirtyRegions);
-    
-    const connectionsToRender = needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0
-      ? graph.connections
-      : this._filterConnectionsByRegions(graph.connections, nodeMap, preciseDirtyRegions);
+    // Determine which nodes/connections to render based on dirty regions. This MUST follow
+    // isPartialRedraw and nothing else: the canvas was either cleared whole (so everything has
+    // to be repainted) or only in the dirty regions (so only what overlaps them has to be).
+    // Filtering on a different condition than the clear is what empties the canvas for a frame.
+    const nodesToRender = isPartialRedraw
+      ? this._filterNodesByRegions(graph.nodes, preciseDirtyRegions)
+      : graph.nodes;
+
+    const connectionsToRender = isPartialRedraw
+      ? this._filterConnectionsByRegions(graph.connections, nodeMap, preciseDirtyRegions)
+      : graph.connections;
 
     // Render connections/wires
     this._renderConnections(connectionsToRender, nodeMap);
 
     // Render parameter reference lines (subtle lines for =node_X references)
-    // Only render if full redraw or if nodes are in dirty regions
-    if (needsFullRedraw || !preciseDirtyRegions || preciseDirtyRegions.length === 0) {
-      this._renderParameterReferences(graph.nodes, nodeMap);
-    } else {
-      this._renderParameterReferences(nodesToRender, nodeMap);
-    }
+    this._renderParameterReferences(nodesToRender, nodeMap);
 
     // Render drag wire if active
     if (renderState.dragWire) {
