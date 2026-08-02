@@ -19,7 +19,7 @@ function makeEventSystem() {
   };
 }
 
-function makeManager(events, addresses = []) {
+function makeManager(events, addresses = [], statusOverrides = {}) {
   return {
     eventSystem: events,
     url: 'ws://127.0.0.1:8767/ws',
@@ -30,8 +30,9 @@ function makeManager(events, addresses = []) {
       connected: true,
       url: 'ws://127.0.0.1:8767/ws',
       addressCount: addresses.length,
-      bridge: { udpHost: '0.0.0.0', udpPort: 9000 },
+      bridge: { udpHost: '0.0.0.0', udpPort: 9000, udpListening: true, udpError: null },
       lastError: null,
+      ...statusOverrides,
     }),
     getAddresses: () => addresses,
     isConnected: () => true,
@@ -76,6 +77,39 @@ describe('OSCSettingsPanel rendering', () => {
 
     expect(panel.panel.querySelector('#osc-bridge-info').textContent).toContain('9000');
     expect(panel.panel.querySelector('#osc-status').textContent).toBe('Connected');
+  });
+
+  it('does not claim to be working when the bridge cannot hear OSC', () => {
+    // Reaching the bridge while its UDP port is held by another application is
+    // the confusing case: the socket is fine but no OSC will ever arrive.
+    const manager = makeManager(makeEventSystem(), [], {
+      bridge: {
+        udpHost: '0.0.0.0',
+        udpPort: 9000,
+        udpListening: false,
+        udpError: 'Could not listen on UDP 0.0.0.0:9000 — Address already in use.',
+      },
+    });
+    panel = new OSCSettingsPanel(manager, makeBinding());
+    panel.show();
+
+    expect(panel.panel.querySelector('#osc-status').textContent).toBe('UDP port busy');
+    expect(panel.panel.querySelector('#osc-bridge-info').textContent)
+      .toContain('Address already in use');
+  });
+
+  it('names the command to run when the bridge is not there', () => {
+    const manager = makeManager(makeEventSystem(), [], {
+      connected: false,
+      enabled: true,
+      bridge: null,
+      lastError: 'Could not reach the OSC bridge at ws://127.0.0.1:8767/ws',
+    });
+    panel = new OSCSettingsPanel(manager, makeBinding());
+    panel.show();
+
+    expect(panel.panel.querySelector('#osc-bridge-info').textContent)
+      .toContain('python osc_bridge_server.py');
   });
 
   it('lists incoming addresses with their arguments', () => {

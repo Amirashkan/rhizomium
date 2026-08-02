@@ -266,14 +266,22 @@ export class OSCSettingsPanel {
       this.connectBtn.disabled = true;
       try {
         await this.oscManager.initialize();
-      } catch (error) {
+      } catch {
         // The manager keeps retrying in the background, so this is a status
-        // report rather than a dead end.
+        // report rather than a dead end. OSC needs a local bridge because
+        // browsers cannot open a UDP socket, so the fix is almost always "that
+        // process is not running" rather than anything about the sender — which
+        // is worth spelling out, since the sender is where people look first.
         await modalManager.alert(
           `Could not reach the OSC bridge at ${this.oscManager.url}.\n\n` +
-            `${error.message}\n\n` +
-            `Start it with: python rhizo_server.py`,
-          'OSC Bridge',
+            `The bridge is a local process that receives OSC over UDP and passes ` +
+            `it to the editor — a browser cannot listen for UDP itself. Until it ` +
+            `is running, nothing your OSC sender does will connect.\n\n` +
+            `Start it from the project folder:\n\n` +
+            `    python osc_bridge_server.py\n\n` +
+            `(python rhizo_server.py starts it too, along with the editor's server. ` +
+            `If that server was already running, restart it — the bridge is new.)`,
+          'OSC Bridge Not Running',
         );
       } finally {
         this.updateStatus();
@@ -417,13 +425,33 @@ export class OSCSettingsPanel {
     this.disconnectBtn.disabled = !status.enabled;
 
     this.bridgeInfoEl.replaceChildren();
+
     if (status.connected && status.bridge?.udpPort) {
-      this.bridgeInfoEl.appendChild(
-        el('div', null, `Listening for OSC on UDP ${status.bridge.udpHost ?? '0.0.0.0'}:${status.bridge.udpPort}`),
-      );
+      const { udpHost, udpPort, udpListening, udpError } = status.bridge;
+
+      if (udpListening === false) {
+        // Connected to the bridge, but it cannot hear OSC. Say which of the two
+        // is broken, because "connected" otherwise reads as "working".
+        this.statusEl.textContent = 'UDP port busy';
+        this.statusEl.style.color = '#f44336';
+        this.bridgeInfoEl.appendChild(
+          el('div', 'color: #f44336;', udpError || `UDP ${udpPort} is not available.`),
+        );
+        this.bridgeInfoEl.appendChild(
+          el('div', 'margin-top: 4px;', 'Close whatever is using the port, or start the bridge on another one with --udp-port.'),
+        );
+      } else {
+        this.bridgeInfoEl.appendChild(
+          el('div', null, `Listening for OSC on UDP ${udpHost ?? '0.0.0.0'}:${udpPort}`),
+        );
+      }
     }
+
     if (!status.connected && status.lastError) {
       this.bridgeInfoEl.appendChild(el('div', 'color: #f44336;', status.lastError));
+      this.bridgeInfoEl.appendChild(
+        el('div', 'margin-top: 4px;', 'Start it with:  python osc_bridge_server.py'),
+      );
     }
   }
 

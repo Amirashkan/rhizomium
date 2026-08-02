@@ -222,7 +222,18 @@ export class OSCManager {
         udpHost: data.udp_host ?? null,
         udpPort: data.udp_port ?? null,
         version: data.server_version ?? null,
+        // Reaching the bridge is not the same as the bridge hearing OSC: its
+        // UDP port can be held by another application. Older bridges do not
+        // report this, so absence means "assume it is listening".
+        udpListening: data.udp_listening ?? true,
+        udpError: data.udp_error ?? null,
       };
+
+      if (this.bridgeInfo.udpError) {
+        this.lastError = this.bridgeInfo.udpError;
+        this._emit('OSC_ERROR', { message: this.bridgeInfo.udpError, url: this.url });
+      }
+
       this._emit('OSC_BRIDGE_INFO', this.bridgeInfo);
       return;
     }

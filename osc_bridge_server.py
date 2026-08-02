@@ -120,6 +120,10 @@ class OSCBridgeServer:
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # Why the UDP socket is not open, if it is not. Reported to the editor
+        # so the panel can name the real problem instead of guessing.
+        self.udp_error: Optional[str] = None
+
         # Each client gets its own bounded queue and a task draining it.
         self.clients: Dict[web.WebSocketResponse, asyncio.Queue] = {}
         self._writer_tasks: Set[asyncio.Task] = set()
@@ -144,7 +148,16 @@ class OSCBridgeServer:
     # ------------------------------------------------------------------
 
     async def start(self):
-        """Start the WebSocket server and open the UDP socket."""
+        """
+        Start the WebSocket server, then open the UDP socket.
+
+        A UDP bind failure is kept non-fatal on purpose. The usual cause is
+        another OSC application already holding the port, and if that took the
+        WebSocket down with it the editor would report "could not reach the
+        bridge" — pointing at the wrong end of the problem entirely. Instead the
+        bridge stays up and hands the editor the real reason, which it can show
+        the artist.
+        """
         self.loop = asyncio.get_running_loop()
         self.started_at = time.time()
 
@@ -153,14 +166,36 @@ class OSCBridgeServer:
         site = web.TCPSite(self.runner, self.ws_host, self.ws_port)
         await site.start()
 
-        self.transport, _ = await self.loop.create_datagram_endpoint(
-            lambda: _OSCDatagramProtocol(self._handle_packet),
-            local_addr=(self.udp_host, self.udp_port),
-            reuse_port=False,
-        )
-
-        logger.info(f'OSC bridge listening for OSC on UDP {self.udp_host}:{self.udp_port}')
         logger.info(f'OSC bridge WebSocket at ws://{self.ws_host}:{self.ws_port}/ws')
+
+        await self.bind_udp()
+
+    async def bind_udp(self):
+        """
+        Open the UDP socket, recording rather than raising a bind failure.
+
+        @returns True when listening, False when the port could not be bound.
+        """
+        if self.transport:
+            return True
+
+        try:
+            self.transport, _ = await self.loop.create_datagram_endpoint(
+                lambda: _OSCDatagramProtocol(self._handle_packet),
+                local_addr=(self.udp_host, self.udp_port),
+                reuse_port=False,
+            )
+        except OSError as exc:
+            self.udp_error = (
+                f'Could not listen on UDP {self.udp_host}:{self.udp_port} — {exc.strerror or exc}. '
+                f'Another application is probably using that port.'
+            )
+            logger.error(self.udp_error)
+            return False
+
+        self.udp_error = None
+        logger.info(f'OSC bridge listening for OSC on UDP {self.udp_host}:{self.udp_port}')
+        return True
 
     async def stop(self):
         """Close the UDP socket and disconnect every client."""
@@ -265,6 +300,8 @@ class OSCBridgeServer:
             'server_version': SERVER_VERSION,
             'udp_host': self.udp_host,
             'udp_port': self.udp_port,
+            'udp_listening': self.transport is not None,
+            'udp_error': self.udp_error,
         })
 
         try:
@@ -321,6 +358,8 @@ class OSCBridgeServer:
             'uptime': time.time() - self.started_at if self.started_at else 0,
             'udp_host': self.udp_host,
             'udp_port': self.udp_port,
+            'udp_listening': self.transport is not None,
+            'udp_error': self.udp_error,
         })
 
 

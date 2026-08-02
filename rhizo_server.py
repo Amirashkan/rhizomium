@@ -387,10 +387,11 @@ def start_osc_bridge_server():
             print("[rhizo_server] OSC bridge started")
             osc_bridge_loop.run_forever()
         except OSError as e:
-            # The usual cause is another OSC receiver already holding the port.
-            # The editor is perfectly usable without OSC, so this is reported
-            # and stepped over rather than taken as fatal.
-            print(f"[rhizo_server] OSC bridge could not bind UDP {OSC_UDP_PORT}: {e}")
+            # A busy UDP port is handled inside the bridge, which stays up and
+            # reports it to the editor. Reaching here means the WebSocket port
+            # itself is taken. The editor is usable without OSC, so this is
+            # reported and stepped over rather than taken as fatal.
+            print(f"[rhizo_server] OSC bridge could not start on port {OSC_WS_PORT}: {e}")
             osc_bridge_server = None
         except Exception as e:
             print(f"[rhizo_server] OSC bridge error: {e}")

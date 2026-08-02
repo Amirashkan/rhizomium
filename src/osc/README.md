@@ -165,9 +165,33 @@ matters. `/stats` on the bridge reports the drop count.
 
 ## Troubleshooting
 
-**Panel says "Connecting..." and never connects** — the bridge is not running.
-Start `python rhizo_server.py` and check its log for a UDP bind error, which
-usually means another OSC receiver already holds port 9000.
+**"Could not reach the OSC bridge"** — the bridge process is not running. This
+is about the editor↔bridge WebSocket, not about your sender: no OSC
+configuration will fix it. Start the bridge:
+
+```bash
+python osc_bridge_server.py
+```
+
+`python rhizo_server.py` starts it too — but if that server was already running
+from before the OSC feature existed, restart it, or it has no bridge in it.
+
+Note that the bridge is a *local* process. The desktop app (`npm run
+tauri:dev`) and the Vite dev server (`npm run dev`) do not start any Python, so
+the bridge has to be run alongside them. On the static web deploy there is no
+way to run it at all, which makes OSC a local-only feature like the external
+viewer.
+
+**Panel says "UDP port busy"** — the bridge is running and reachable, but
+another application already holds the UDP port, so no OSC can arrive. The panel
+names the port. Close whatever is using it, or move the bridge:
+
+```bash
+python osc_bridge_server.py --udp-port 9001
+```
+
+This is worth checking if your sender can also *receive* OSC: some hosts bind
+the port they are configured with even when only sending.
 
 **Connected, but no addresses appear** — the sender is aimed somewhere else.
 Check the machine's LAN IP (not `localhost`, if the sender is a phone), confirm

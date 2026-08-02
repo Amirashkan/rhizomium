@@ -239,6 +239,33 @@ describe('OSCManager message handling', () => {
     expect(events.of('OSC_BRIDGE_INFO')).toHaveLength(1);
   });
 
+  it('reports a bridge that is reachable but cannot hear OSC', async () => {
+    // Another application holding the UDP port is not a connection failure —
+    // the socket is fine, so this has to be surfaced separately or "connected"
+    // reads as "working".
+    const events = makeEventSystem();
+    const { manager, socket } = await connected(events);
+
+    socket.receive(JSON.stringify({
+      type: 'welcome',
+      udp_port: 9000,
+      udp_listening: false,
+      udp_error: 'Could not listen on UDP 0.0.0.0:9000 — Address already in use.',
+    }));
+
+    expect(manager.getStatus().bridge.udpListening).toBe(false);
+    expect(manager.getStatus().connected).toBe(true);
+    expect(events.of('OSC_ERROR')[0].message).toMatch(/Address already in use/);
+  });
+
+  it('assumes an older bridge that omits the field is listening', async () => {
+    const { manager, socket } = await connected(makeEventSystem());
+
+    socket.receive(JSON.stringify({ type: 'welcome', udp_port: 9000 }));
+
+    expect(manager.getStatus().bridge.udpListening).toBe(true);
+  });
+
   it('ignores unparseable text without disturbing the stream', async () => {
     const { manager, socket } = await connected(makeEventSystem());
 
