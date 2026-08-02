@@ -53,6 +53,7 @@ import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
 import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
+import { startCompositionFormatSync } from "./src/core/CompositionFormatSync.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
 // import { getThreadSeparationManager } from './src/core/ThreadSeparationManager.js';
 // import { getBrowserAudioCapture } from './src/audio/BrowserAudioCapture.js';
@@ -582,6 +583,15 @@ async function initialize() {
 
     await checkAutosaveRecovery();
     await updateShaderFromGraph();
+
+    // Resizing the composition has to reach the graph, not just the canvas:
+    // compute textures are sized at initialize() and thumbnails keep the shape
+    // they were last rendered at, so without this a resolution change only
+    // showed up in the node band on some later, unrelated edit.
+    startCompositionFormatSync({
+      rebuild: () => updateShaderFromGraph(),
+      refreshThumbnails: () => window.shaderPreviewManager?.refreshAllThumbnails?.(),
+    });
 
     // Show welcome window at startup if not dismissed
     if (welcomeWindow) {

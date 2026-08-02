@@ -63,6 +63,10 @@ export function buildWGSL(graph, options = {}) {
     if (compiler.compilers.transform && compiler.compilers.transform.clearHelperCache) {
       compiler.compilers.transform.clearHelperCache();
     }
+
+    // Lets registerDisconnectedComputeNodes (below) tell an entry this build wrote from one
+    // left over by an earlier build, whose resolution and WGSL are stale.
+    compiler.compilers.compute?.beginBuild?.();
   }
 
   // Set the compilation mode on the compiler so child compilers can avoid side effects
