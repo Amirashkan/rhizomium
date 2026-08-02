@@ -265,9 +265,39 @@
 }
 
 .vj-playlist-details {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
-  margin-top: 2px;
+  margin-top: 4px;
+}
+
+/* Inline per-row controls: hold time and incoming transition */
+.vj-input-tiny,
+.vj-select-tiny {
+  padding: 2px 4px;
+  background: rgba(58, 58, 62, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #ffffff;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.vj-input-tiny {
+  width: 52px;
+}
+
+.vj-select-tiny {
+  cursor: pointer;
+  max-width: 100px;
+}
+
+.vj-input-tiny:focus,
+.vj-select-tiny:focus {
+  outline: none;
+  border-color: rgba(0, 122, 255, 0.8);
 }
 
 .vj-playlist-actions {

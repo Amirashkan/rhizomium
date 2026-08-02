@@ -13,6 +13,39 @@ import { BeatSyncManager } from './BeatSyncManager.js';
 import { setMasterOpacity } from './MasterOutput.js';
 import { makeDraggable } from '../ui/utils/draggable.js';
 
+// Siblings of SceneManager's 'rhizomium.vj.scenes'.
+const PRESETS_STORAGE_KEY = 'rhizomium.vj.presets';
+const PLAYLIST_STORAGE_KEY = 'rhizomium.vj.playlist';
+
+function readStoredJSON(key) {
+  try {
+    const json = localStorage.getItem(key);
+    return json ? JSON.parse(json) : null;
+  } catch {
+    // Unreadable or corrupt storage should not stop the panel from opening.
+    return null;
+  }
+}
+
+function writeStoredJSON(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    // Quota exceeded, or storage blocked entirely.
+    return false;
+  }
+}
+
+// Values match TransitionManager.TRANSITIONS. Shared by the scenes tab's
+// default-transition picker and the per-item picker on each playlist row.
+const TRANSITION_TYPES = [
+  { value: 'crossfade', label: 'Crossfade' },
+  { value: 'cut', label: 'Cut' },
+  { value: 'fade_black', label: 'Fade Black' },
+  { value: 'fade_white', label: 'Fade White' }
+];
+
 export class VJControlPanel {
   constructor(editor) {
     this.editor = editor;
@@ -156,10 +189,10 @@ export class VJControlPanel {
     // Transition type select
     this.transitionTypeSelect = document.createElement('select');
     this.transitionTypeSelect.className = 'vj-select';
-    ['Crossfade', 'Cut', 'Fade Black', 'Fade White'].forEach(type => {
+    TRANSITION_TYPES.forEach(({ value, label }) => {
       const option = document.createElement('option');
-      option.value = type.toLowerCase().replace(/\s+/g, '_');
-      option.textContent = type;
+      option.value = value;
+      option.textContent = label;
       this.transitionTypeSelect.appendChild(option);
     });
     transitionRow.appendChild(this.transitionTypeSelect);
@@ -193,7 +226,7 @@ export class VJControlPanel {
 
     const loadBtn = this.createButton('📁 Load Scene', 'Load scene from file', () => this.loadSceneFromFile());
     const captureBtn = this.createButton('📸 Capture Current', 'Capture current state as scene', () => this.captureCurrentScene());
-    const saveAllBtn = this.createButton('💾 Save All', 'Save all scenes', () => this.saveAllScenes());
+    const saveAllBtn = this.createButton('💾 Save All', 'Save scenes, presets and playlist', () => this.saveAllScenes());
 
     buttonGroup.appendChild(loadBtn);
     buttonGroup.appendChild(captureBtn);
@@ -377,7 +410,11 @@ export class VJControlPanel {
     this.bpmInput.max = '300';
     this.bpmInput.value = '120';
     this.bpmInput.onchange = () => {
-      this.beatSyncManager.setBPM(parseFloat(this.bpmInput.value));
+      // Reject out-of-range entries by snapping the field back, rather than
+      // leaving it showing a tempo the clock never took.
+      if (!this.beatSyncManager.setBPM(parseFloat(this.bpmInput.value))) {
+        this.bpmInput.value = String(this.beatSyncManager.bpm);
+      }
     };
     bpmGroup.appendChild(this.bpmInput);
 
@@ -677,9 +714,48 @@ export class VJControlPanel {
       itemName.textContent = item.sceneName;
       itemInfo.appendChild(itemName);
 
+      // How long the scene holds and how it arrives are the two things a set
+      // gets built out of, so they are editable per row - PlaylistManager has
+      // always had updatePlaylistItem, nothing ever called it.
       const itemDetails = document.createElement('div');
       itemDetails.className = 'vj-playlist-details';
-      itemDetails.textContent = `${item.duration}s · ${item.transitionType}`;
+
+      const durationInput = document.createElement('input');
+      durationInput.type = 'number';
+      durationInput.className = 'vj-input-tiny';
+      durationInput.min = '0.1';
+      durationInput.step = '0.5';
+      durationInput.value = String(item.duration);
+      durationInput.title = 'Seconds to hold this scene';
+      durationInput.onchange = () => {
+        const seconds = parseFloat(durationInput.value);
+        if (!Number.isFinite(seconds) || seconds <= 0) {
+          durationInput.value = String(item.duration);
+          return;
+        }
+        this.playlistManager.updatePlaylistItem(index, { duration: seconds });
+      };
+      itemDetails.appendChild(durationInput);
+
+      const unit = document.createElement('span');
+      unit.textContent = 's';
+      itemDetails.appendChild(unit);
+
+      const transitionSelect = document.createElement('select');
+      transitionSelect.className = 'vj-select-tiny';
+      transitionSelect.title = 'Transition into this scene';
+      TRANSITION_TYPES.forEach(({ value, label }) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        transitionSelect.appendChild(option);
+      });
+      transitionSelect.value = item.transitionType;
+      transitionSelect.onchange = () => {
+        this.playlistManager.updatePlaylistItem(index, { transitionType: transitionSelect.value });
+      };
+      itemDetails.appendChild(transitionSelect);
+
       itemInfo.appendChild(itemDetails);
 
       itemCard.appendChild(itemInfo);
@@ -716,11 +792,12 @@ export class VJControlPanel {
 
       itemCard.appendChild(actions);
 
-      // Click to jump to item
+      // Click to jump to item - but not when the click was meant for the row's
+      // own controls, or setting a duration would also load the scene.
       itemCard.onclick = (e) => {
-        if (!e.target.closest('.vj-playlist-actions')) {
-          this.playlistManager.jumpTo(index);
-        }
+        if (e.target.closest('.vj-playlist-actions')) return;
+        if (e.target.closest('.vj-playlist-details')) return;
+        this.playlistManager.jumpTo(index);
       };
 
       this.playlistItems.appendChild(itemCard);
@@ -774,11 +851,14 @@ export class VJControlPanel {
   }
 
   /**
-   * Save all scenes
+   * Save the whole VJ set - scenes, presets and playlist.
    */
   saveAllScenes() {
-    this.sceneManager.saveToLocalStorage();
-    alert('Scenes saved to browser storage');
+    if (this.saveToStorage()) {
+      alert('Scenes, presets and playlist saved to browser storage');
+    } else {
+      alert('Could not save the VJ set - browser storage is full or unavailable.');
+    }
   }
 
   /**
@@ -849,7 +929,12 @@ export class VJControlPanel {
     }
 
     const transitionType = this.transitionTypeSelect.value;
-    const transitionDuration = parseFloat(this.transitionDurationInput.value) || 1.0;
+    // `|| 1.0` here turned a deliberate 0 back into a one-second fade, so an
+    // instant change could not be queued at all.
+    const parsedDuration = parseFloat(this.transitionDurationInput.value);
+    const transitionDuration = Number.isFinite(parsedDuration) && parsedDuration >= 0
+      ? parsedDuration
+      : 1.0;
 
     const added = this.playlistManager.addToPlaylist(
       scene.id,
@@ -926,6 +1011,13 @@ export class VJControlPanel {
    */
   syncPlaylistUI() {
     if (!this.visible || this.activeTab !== 'playlist') return;
+
+    // Rebuilding the rows destroys their inputs. If one is focused the user is
+    // part-way through setting a duration or transition - leave it alone and
+    // let the next refresh pick the change up.
+    const focused = document.activeElement;
+    if (focused && this.playlistItems.contains(focused)) return;
+
     this.refreshPlaylist();
   }
 
@@ -1064,6 +1156,10 @@ export class VJControlPanel {
     this.visible = true;
     this.container.style.display = 'flex';
     this.switchTab(this.activeTab);
+
+    // The beat clock was never started, so BPM and tap tempo drove nothing and
+    // the indicator sat blank. Run it while the panel is open.
+    this.beatSyncManager.start();
   }
 
   /**
@@ -1072,6 +1168,9 @@ export class VJControlPanel {
   hide() {
     this.visible = false;
     this.container.style.display = 'none';
+
+    // No need to burn a frame callback on an indicator nobody can see.
+    this.beatSyncManager.pause();
   }
 
   /**
@@ -1086,16 +1185,35 @@ export class VJControlPanel {
   }
 
   /**
-   * Load from storage
+   * Load from storage.
+   *
+   * Scenes were the only thing ever restored, so presets and playlists - which
+   * take a set apart and rebuild it - vanished on every reload.
    */
   loadFromStorage() {
     this.sceneManager.loadFromLocalStorage();
+
+    const presets = readStoredJSON(PRESETS_STORAGE_KEY);
+    if (presets) this.presetManager.importPresets(presets);
+
+    const playlist = readStoredJSON(PLAYLIST_STORAGE_KEY);
+    if (playlist) {
+      this.playlistManager.importPlaylist(playlist);
+      if (this.playlistLoopCheck) {
+        this.playlistLoopCheck.checked = this.playlistManager.loop;
+      }
+    }
   }
 
   /**
-   * Save to storage
+   * Save to storage. Returns false if any part could not be written, so the
+   * caller can tell the user rather than claiming a save that did not happen.
    */
   saveToStorage() {
-    this.sceneManager.saveToLocalStorage();
+    const scenesSaved = this.sceneManager.saveToLocalStorage();
+    const presetsSaved = writeStoredJSON(PRESETS_STORAGE_KEY, this.presetManager.exportPresets());
+    const playlistSaved = writeStoredJSON(PLAYLIST_STORAGE_KEY, this.playlistManager.exportPlaylist());
+
+    return scenesSaved && presetsSaved && playlistSaved;
   }
 }

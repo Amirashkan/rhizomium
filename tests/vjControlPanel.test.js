@@ -18,11 +18,21 @@ import { PresetManager } from '../src/vj/PresetManager.js';
 import { TransitionManager } from '../src/vj/TransitionManager.js';
 import { resetOutputOpacity, getOutputOpacity } from '../src/vj/MasterOutput.js';
 
-// happy-dom has no rAF budget of its own worth waiting on; run callbacks
-// immediately so the fade/interpolation loops finish inside the test.
-function runAnimationFramesInline() {
+/**
+ * Run frame callbacks inline against a virtual clock.
+ *
+ * The clock has to move with the frames: against the real one, a loop running
+ * to a 10ms duration recurses thousands of times before it is done and blows
+ * the stack on a fast machine. Stepping time per frame ends every loop here in
+ * a handful of frames, deterministically.
+ */
+function runAnimationFramesInline({ stepMs = 8 } = {}) {
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+
   globalThis.requestAnimationFrame = (cb) => {
-    cb(performance.now());
+    now += stepMs;
+    cb(now);
     return 0;
   };
   globalThis.cancelAnimationFrame = () => {};
@@ -94,6 +104,10 @@ describe('VJ panel stacking', () => {
 describe('VJ presets', () => {
   beforeEach(() => {
     runAnimationFramesInline();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('recompiles the shader when a preset is applied', () => {
@@ -182,6 +196,7 @@ describe('VJ transitions', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     resetOutputOpacity();
     document.body.innerHTML = '';
   });
@@ -233,14 +248,27 @@ describe('VJ control panel', () => {
   let panel;
 
   beforeEach(() => {
-    runAnimationFramesInline();
+    // The beat clock is a rAF loop; inline frames would spin it forever, so
+    // hand these tests a no-op scheduler and drive the clock explicitly.
+    globalThis.requestAnimationFrame = () => 0;
+    globalThis.cancelAnimationFrame = () => {};
+    window.requestAnimationFrame = globalThis.requestAnimationFrame;
+    window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
+
+    localStorage.clear();
     resetOutputOpacity();
     gpuCanvas();
     panel = new VJControlPanel(makeEditor());
     panel.show();
+    // These cover playlist and transport behaviour, not fades - cut straight to
+    // each scene so no frame-driven animation is involved. Fades have their own
+    // describe above.
+    panel.transitionDurationInput.value = '0';
   });
 
   afterEach(() => {
+    panel.hide();
+    localStorage.clear();
     resetOutputOpacity();
     delete window.renderLoop;
     delete window.floatingPreview;
@@ -361,6 +389,114 @@ describe('VJ control panel', () => {
 
     expect(panel.container.style.left).not.toBe('16px');
     expect(panel.container.style.top).not.toBe('100px');
+  });
+
+  it('sets a playlist item duration without jumping to that scene', () => {
+    const a = addScene(panel, 'A');
+    panel.addSceneToPlaylist(a);
+    panel.switchTab('playlist');
+
+    const row = panel.playlistItems.querySelector('.vj-playlist-item');
+    const durationInput = row.querySelector('.vj-input-tiny');
+    // Scenes carry their own duration; this one has no timeline, so 10.
+    expect(durationInput.value).toBe('10');
+
+    const jumpTo = vi.spyOn(panel.playlistManager, 'jumpTo');
+
+    durationInput.value = '8';
+    durationInput.dispatchEvent(new Event('change', { bubbles: true }));
+    durationInput.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(panel.playlistManager.playlist[0].duration).toBe(8);
+    expect(jumpTo).not.toHaveBeenCalled();
+  });
+
+  it('changes a playlist item transition without jumping to that scene', () => {
+    const a = addScene(panel, 'A');
+    panel.addSceneToPlaylist(a);
+    panel.switchTab('playlist');
+
+    const select = panel.playlistItems.querySelector('.vj-select-tiny');
+    expect(select.value).toBe('crossfade');
+
+    const jumpTo = vi.spyOn(panel.playlistManager, 'jumpTo');
+
+    select.value = 'fade_black';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    select.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(panel.playlistManager.playlist[0].transitionType).toBe('fade_black');
+    expect(jumpTo).not.toHaveBeenCalled();
+  });
+
+  it('rejects a nonsense duration and puts the field back', () => {
+    const a = addScene(panel, 'A');
+    panel.addSceneToPlaylist(a);
+    panel.switchTab('playlist');
+
+    const durationInput = panel.playlistItems.querySelector('.vj-input-tiny');
+    durationInput.value = '-4';
+    durationInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(panel.playlistManager.playlist[0].duration).toBe(10);
+    expect(durationInput.value).toBe('10');
+  });
+
+  it('does not rebuild the rows while a field is being edited', () => {
+    const a = addScene(panel, 'A');
+    panel.addSceneToPlaylist(a);
+    panel.switchTab('playlist');
+
+    const durationInput = panel.playlistItems.querySelector('.vj-input-tiny');
+    durationInput.focus();
+
+    panel.syncPlaylistUI();
+
+    // Same element, not a replacement built underneath the caret.
+    expect(panel.playlistItems.querySelector('.vj-input-tiny')).toBe(durationInput);
+  });
+
+  it('runs the beat clock while open and stops it when closed', () => {
+    expect(panel.beatSyncManager.isPlaying).toBe(true);
+
+    panel.hide();
+    expect(panel.beatSyncManager.isPlaying).toBe(false);
+
+    panel.show();
+    expect(panel.beatSyncManager.isPlaying).toBe(true);
+  });
+
+  it('lights the beat indicator from the clock', () => {
+    panel.beatSyncManager.syncToBeat(2);
+    expect(panel.beatIndicator.textContent).toBe('○○●○');
+  });
+
+  it('snaps the BPM field back when given an impossible tempo', () => {
+    panel.bpmInput.value = '900';
+    panel.bpmInput.onchange();
+
+    expect(panel.beatSyncManager.bpm).toBe(120);
+    expect(panel.bpmInput.value).toBe('120');
+  });
+
+  it('saves and restores presets and the playlist', () => {
+    const a = addScene(panel, 'A');
+    panel.addSceneToPlaylist(a);
+    panel.playlistManager.updatePlaylistItem(0, { duration: 12 });
+    panel.presetManager.capturePreset('Drop');
+    panel.playlistManager.loop = false;
+
+    expect(panel.saveToStorage()).toBe(true);
+
+    // A fresh panel is what a page reload gives you.
+    const reloaded = new VJControlPanel(makeEditor());
+
+    expect(reloaded.presetManager.getAllPresets().map(p => p.name)).toEqual(['Drop']);
+    expect(reloaded.playlistManager.getPlaylist().map(i => i.duration)).toEqual([12]);
+    expect(reloaded.playlistManager.loop).toBe(false);
+    expect(reloaded.playlistLoopCheck.checked).toBe(false);
+
+    reloaded.container.remove();
   });
 
   it('does not start a drag from the close button', () => {
