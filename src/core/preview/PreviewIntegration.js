@@ -36,29 +36,55 @@ export class PreviewIntegration {
           // Convert realTime from seconds to milliseconds for timestamp comparison
           const timestamp = frameInfo.realTime * 1000;
           // OPTIMIZATION: Only update time nodes if enough time has passed
-          // Limit to 60 FPS max for time updates (16.67ms between updates)
-          if (timestamp - this.lastTimeUpdate >= 16.67) {
+          // Limit to 60 FPS max for time updates (16.67ms between updates).
+          // While a parameter is being dragged this pass still runs (see the condition below)
+          // but at half rate, so an animated graph keeps moving without the drag paying the
+          // full per-frame thumbnail cost.
+          const minInterval = this.editor._parameterDragging ? 33.34 : 16.67;
+          if (timestamp - this.lastTimeUpdate >= minInterval) {
             this.updateTimeNodes();
             // Re-render real GPU thumbnails for animated visual nodes at the render cadence (the
-            // 16.67ms gate above is the only frame cap; the GPU preview queue self-limits on load).
+            // interval gate above is the only frame cap; the GPU preview queue self-limits on load).
             this.updateAnimatedFragmentPreviews();
             this.lastTimeUpdate = timestamp;
           }
         },
         PRIORITY.NORMAL,
         {
-          // Condition: only execute if preview is enabled, system exists, and not during parameter drag
+          // Condition: only execute if preview is enabled, the system exists, and the loop
+          // isn't paused. A parameter drag no longer suppresses it outright — see below.
           condition: (frameInfo) => {
-            return (
-              this.editor.isPreviewEnabled &&
-              this.previewSystem &&
-              !this.editor._parameterDragging &&
-              !frameInfo.paused // Skip if render loop is paused
-            );
+            if (!this.editor.isPreviewEnabled || !this.previewSystem || frameInfo.paused) {
+              return false;
+            }
+            // A parameter drag used to skip this pass entirely to keep the drag smooth. But this
+            // pass is the ONLY thing that advances time/audio-driven node VALUES and re-reads the
+            // GPU thumbnails of animated nodes, so skipping it froze every audio-reactive preview
+            // for the whole drag while the main output kept reacting to the music — the shader
+            // reads g.audioEnvelope straight from the globals buffer, which gpuRenderer refreshes
+            // every frame regardless of dragging. Keep the pass alive whenever the graph animates
+            // on its own; it runs at half cadence during a drag (above) and the preview throttler
+            // is already in 'edit' mode, so the drag stays responsive.
+            if (this.editor._parameterDragging && !this._graphIsAnimated()) {
+              return false;
+            }
+            return true;
           }
         }
       );
     }
+  }
+
+  // True when something in the graph advances on its own clock rather than only on edits:
+  // live audio playback, a self-animated/time-referencing compute node, a 3D field mapper, or a
+  // time/audio parameter expression. Mirrors the `graphIsAnimated` check in main.js's render frame
+  // so both drag escape hatches agree on what "animated" means. Every branch is a cheap flag read
+  // or a small node scan, which is what lets this run in a per-frame RAF condition.
+  _graphIsAnimated() {
+    if (window.audioCapture?.getIsPlaying?.()) return true;
+    if (window.computeExecutor?.isGraphAnimated?.()) return true;
+    if (window.fieldMapperIntegration?.fieldMappers?.size > 0) return true;
+    return !!this.editor?.hasActiveAnimations?.();
   }
 
   updateAllPreviews() {
