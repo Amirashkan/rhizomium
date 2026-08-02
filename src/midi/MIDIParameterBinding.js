@@ -1,5 +1,12 @@
 // src/midi/MIDIParameterBinding.js
 
+import {
+  applyControlValue,
+  mapNormalizedValue,
+  refreshEditorForControlChange,
+  writeParameterUniform,
+} from '../parameters/ExternalParameterControl.js';
+
 /**
  * MIDIParameterBinding - Maps MIDI CC messages to node parameters
  * Allows real-time parameter control via MIDI controllers
@@ -163,33 +170,13 @@ export class MIDIParameterBinding {
    * Update a parameter based on MIDI CC value
    */
   updateParameter(binding, normalizedValue) {
-    const { nodeId, paramName, min, max, curve, inverted } = binding;
+    const { nodeId, paramName } = binding;
 
     const node = this.graph.nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    // Apply curve transformation
-    let transformedValue = normalizedValue;
-
-    if (inverted) {
-      transformedValue = 1 - transformedValue;
-    }
-
-    switch (curve) {
-      case 'exponential':
-        transformedValue = Math.pow(transformedValue, 2);
-        break;
-      case 'logarithmic':
-        transformedValue = Math.sqrt(transformedValue);
-        break;
-      case 'linear':
-      default:
-        // No transformation
-        break;
-    }
-
-    // Map to parameter range
-    const paramValue = min + transformedValue * (max - min);
+    // Curve + range mapping is shared with OSC (see ExternalParameterControl).
+    const paramValue = mapNormalizedValue(normalizedValue, binding);
 
     // For real-time MIDI, directly update the parameter value (bypass undo tracking)
     this.setParameterValueDirect(node, paramName, paramValue);
@@ -198,14 +185,7 @@ export class MIDIParameterBinding {
     this.triggerImmediateUpdate(node, paramName, paramValue);
 
     // Mark dirty and redraw canvas to update labels immediately
-    if (window.editor) {
-      if (window.editor.markDirty) {
-        window.editor.markDirty('midi-parameter-update');
-      }
-      if (window.editor.draw) {
-        window.editor.draw();
-      }
-    }
+    refreshEditorForControlChange('midi-parameter-update');
 
     // Emit parameter update event
     this.eventSystem.emit('PARAMETER_CHANGED', {
@@ -395,21 +375,8 @@ export class MIDIParameterBinding {
    * Set parameter value directly without undo tracking (for real-time MIDI)
    */
   setParameterValueDirect(node, paramName, value) {
-    // Directly set the value on the node. node.params is the source of truth read by codegen.
-    // NOTE: ConstVec component params named 'x'/'y'/'z' must NOT be written to node.x/node.y/node.z —
-    // node.x/node.y are the node's canvas position, so writing them would move the node when a
-    // MIDI-controlled component value changed. Only 'value' has a legacy top-level field (node.value).
-    if (paramName === 'value') {
-      node.value = value;
-      if (!node.params) node.params = {};
-      node.params.value = value;
-    } else {
-      // Store in both params and props for compatibility
-      if (!node.params) node.params = {};
-      node.params[paramName] = value;
-      if (!node.props) node.props = {};
-      node.props[paramName] = value;
-    }
+    // Shared with OSC so the ConstVec x/y/z position rule lives in one place.
+    applyControlValue(node, paramName, value);
   }
 
   /**
@@ -433,24 +400,7 @@ export class MIDIParameterBinding {
    * Update a uniform value in the GPU buffer (NO recompilation!)
    */
   updateUniformValue(nodeId, paramName, value) {
-    const uniformManager = window.nodeCompiler?.uniformManager;
-    if (!uniformManager) {
-      return;
-    }
-
-    const paramKey = `${nodeId}.${paramName}`;
-
-    // Update the uniform value in the map
-    uniformManager.uniformValues.set(paramKey, value);
-
-    // Write to GPU buffer immediately
-    if (window.gpuRenderer) {
-      window.gpuRenderer._updateParameterUniforms();
-      // Trigger render to show the visual change
-      if (window.gpuRenderer.render) {
-        window.gpuRenderer.render();
-      }
-    }
+    writeParameterUniform(nodeId, paramName, value);
   }
 
   /**

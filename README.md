@@ -106,6 +106,8 @@ the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.j
 - **[QUICKSTART.md](QUICKSTART.md)** - Get started in 3 steps
 - **[RHIZOMIUM_VIEWER_SETUP.md](RHIZOMIUM_VIEWER_SETUP.md)** - External viewer setup
 - **[DEPLOYMENT_NOTES.md](DEPLOYMENT_NOTES.md)** - Cloud vs local deployment
+- **[src/osc/README.md](src/osc/README.md)** - OSC receiver and bridge
+- **[src/midi/README.md](src/midi/README.md)** - MIDI controller integration
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## ✨ Features
@@ -114,7 +116,20 @@ the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.j
 - **Node Editor** - Visual shader programming
 - **External Viewer** - IPC-based frame streaming to secondary displays
 - **Audio Reactivity** - Audio envelope integration
+- **MIDI Control** - Map hardware controllers to any parameter
+- **OSC Control** - Map TouchOSC, Max, SuperCollider and friends to any parameter
 - **Save/Load** - Project management with backups
+
+## 🎛️ OSC Control
+
+OSC arrives over UDP, which a browser cannot listen for, so `rhizo_server.py`
+runs a bridge that forwards it to the editor. Start the server, open
+**Tools → OSC Receiver**, click **Connect**, and point your sender at
+`udp://<this machine>:9000`.
+
+To map a control: select a node, click the parameter field, click **Start OSC
+Learn**, then move the control. Full details — input ranges, multi-argument
+messages, network exposure — are in [src/osc/README.md](src/osc/README.md).
 
 ## 🎨 Using the External Viewer
 
@@ -143,6 +158,7 @@ This is a non-negotiable requirement. If you see any 30 FPS throttling, frame sk
 ```
 rhizomium/
 ├── rhizo_server.py          ← Integrated web server + API
+├── osc_bridge_server.py     ← OSC bridge (UDP → WebSocket)
 ├── rhizo_viewer.py          ← External viewer application
 ├── GPUCanvas.py             ← GPU renderer with IPC
 ├── ipc_protocol.py          ← IPC protocol definitions
@@ -153,6 +169,8 @@ rhizomium/
 └── src/                     ← Source modules
     ├── gpu/
     ├── core/
+    ├── midi/
+    ├── osc/
     └── ui/
 ```
 

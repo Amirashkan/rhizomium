@@ -21,6 +21,9 @@ import { getAudioSettingsPanel } from './src/ui/AudioSettingsPanel.js';
 import { MIDIManager } from './src/midi/MIDIManager.js';
 import { MIDIParameterBinding } from './src/midi/MIDIParameterBinding.js';
 import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
+import { OSCManager } from './src/osc/OSCManager.js';
+import { OSCParameterBinding } from './src/osc/OSCParameterBinding.js';
+import { getOSCSettingsPanel } from './src/ui/OSCSettingsPanel.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
@@ -474,6 +477,26 @@ async function initialize() {
       editor.midiSettingsPanel = midiSettingsPanel;
     } catch (error) {
       console.error("ERROR creating MIDI system:", error);
+      console.error("Error stack:", error.stack);
+    }
+
+    // Create OSC system. Unlike MIDI this opens no socket until the artist
+    // connects from the OSC panel — the bridge may not be running, and a failed
+    // connection on every startup would be noise.
+    try {
+      const oscManager = new OSCManager(editor.eventSystem);
+      window.oscManager = oscManager;
+      editor.oscManager = oscManager;
+
+      const oscBinding = new OSCParameterBinding(graph, editor.eventSystem, oscManager);
+      window.oscBinding = oscBinding;
+      editor.oscBinding = oscBinding;
+
+      const oscSettingsPanel = getOSCSettingsPanel(oscManager, oscBinding);
+      window.oscSettingsPanel = oscSettingsPanel;
+      editor.oscSettingsPanel = oscSettingsPanel;
+    } catch (error) {
+      console.error("ERROR creating OSC system:", error);
       console.error("Error stack:", error.stack);
     }
 
@@ -1227,6 +1250,49 @@ function setupUIEventHandlers() {
     });
   } else {
     console.error('[main.js] MIDI settings button NOT found in DOM!');
+  }
+
+  // OSC Settings Panel
+  const oscSettingsBtn = removeExistingHandlers("btn-osc-settings");
+
+  if (oscSettingsBtn) {
+    oscSettingsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      try {
+        const oscPanel = window.oscSettingsPanel;
+
+        if (oscPanel && typeof oscPanel.toggle === 'function') {
+          oscPanel.toggle();
+
+          if (oscPanel.visible) {
+            oscSettingsBtn.textContent = "OSC Receiver ✓";
+            oscSettingsBtn.style.backgroundColor = "rgba(74, 74, 78, 0.8)";
+            oscSettingsBtn.style.borderColor = "rgba(102, 170, 255, 0.4)";
+          } else {
+            oscSettingsBtn.textContent = "OSC Receiver";
+            oscSettingsBtn.style.backgroundColor = "";
+            oscSettingsBtn.style.borderColor = "";
+          }
+
+          if (typeof updateStatus === "function") {
+            updateStatus(oscPanel.visible ? "OSC receiver opened" : "OSC receiver closed");
+          }
+        } else {
+          console.error('[main.js] OSC panel is invalid:', oscPanel);
+          if (typeof updateStatus === "function") {
+            updateStatus("OSC panel failed to load", "error");
+          }
+        }
+      } catch (error) {
+        console.error('[main.js] Error opening OSC settings:', error);
+        if (typeof updateStatus === "function") {
+          updateStatus("Error opening OSC settings: " + error.message, "error");
+        }
+      }
+    });
+  } else {
+    console.error('[main.js] OSC settings button NOT found in DOM!');
   }
 
   // Timeline Panel

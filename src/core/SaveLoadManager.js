@@ -308,6 +308,9 @@ exportProject(options = {}) {
       // MIDI bindings
       midiBindings: this.exportMIDIBindings(),
 
+      // OSC bindings
+      oscBindings: this.exportOSCBindings(),
+
       // Editor state
       ...(includeViewport && {
         viewport: this.exportViewport(),
@@ -428,6 +431,16 @@ exportMIDIBindings() {
   return null;
 }
 
+/**
+ * Export OSC bindings
+ */
+exportOSCBindings() {
+  if (window.oscBinding) {
+    return window.oscBinding.serialize();
+  }
+  return null;
+}
+
 
 async importProject(projectData, options = {}) {
   try {
@@ -514,6 +527,11 @@ async importProject(projectData, options = {}) {
     // Restore MIDI bindings
     if (projectData.midiBindings) {
       this.importMIDIBindings(projectData.midiBindings);
+    }
+
+    // Restore OSC bindings
+    if (projectData.oscBindings) {
+      this.importOSCBindings(projectData.oscBindings);
     }
 
     // Restore previews if requested
@@ -2202,6 +2220,25 @@ importConnections(connectionData) {
 
       window.errorHandler?.handleError(error, {
         component: 'midi-import'
+      });
+    }
+  }
+
+  /**
+   * Import OSC bindings
+   */
+  importOSCBindings(oscData) {
+    try {
+      if (!window.oscBinding) {
+
+        return;
+      }
+
+      window.oscBinding.deserialize(oscData);
+    } catch (error) {
+
+      window.errorHandler?.handleError(error, {
+        component: 'osc-import'
       });
     }
   }

@@ -2,7 +2,8 @@
 """
 Rhizomium Integrated Server
 Serves static files (editor UI) and provides API endpoints for viewer management.
-Includes WebSocket frame streaming for dual-screen support.
+Includes WebSocket frame streaming for dual-screen support and an OSC bridge
+for external control.
 """
 
 import time
@@ -16,6 +17,13 @@ from werkzeug.security import safe_join
 
 # Import frame streaming server
 from frame_stream_server import FrameStreamServer, get_server
+
+# Import OSC bridge (UDP -> WebSocket, so the browser can hear OSC at all)
+from osc_bridge_server import (
+    OSCBridgeServer,
+    DEFAULT_UDP_PORT as OSC_UDP_PORT,
+    DEFAULT_WS_PORT as OSC_WS_PORT,
+)
 
 # Get the directory where this script is located
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -227,7 +235,7 @@ def health():
 @app.route('/api/status', methods=['GET'])
 def status():
     """Get server status and configuration."""
-    global frame_stream_server
+    global frame_stream_server, osc_bridge_server
     return jsonify({
         'status': 'running',
         'base_dir': BASE_DIR,
@@ -237,6 +245,13 @@ def status():
             'viewers': len(frame_stream_server.viewers) if frame_stream_server else 0,
             'fps': round(frame_stream_server.fps, 2) if frame_stream_server else 0,
             'url': 'ws://localhost:8766/ws'
+        },
+        'osc': {
+            'enabled': osc_bridge_server is not None,
+            'clients': len(osc_bridge_server.clients) if osc_bridge_server else 0,
+            'packets': osc_bridge_server.packet_count if osc_bridge_server else 0,
+            'udp_port': OSC_UDP_PORT,
+            'url': f'ws://localhost:{OSC_WS_PORT}/ws'
         },
         'endpoints': {
             'static': ['/', '/studio', '/editor', '/viewer.html'],
@@ -311,6 +326,10 @@ frame_stream_server = None
 frame_stream_loop = None
 frame_stream_thread = None
 
+osc_bridge_server = None
+osc_bridge_loop = None
+osc_bridge_thread = None
+
 
 def start_frame_stream_server():
     """Start the WebSocket frame streaming server in a separate thread"""
@@ -351,13 +370,53 @@ def start_frame_stream_server():
     return thread
 
 
+def start_osc_bridge_server():
+    """Start the OSC bridge (UDP receiver + WebSocket fan-out) in its own thread."""
+    global osc_bridge_server, osc_bridge_loop
+
+    def run_server():
+        global osc_bridge_server, osc_bridge_loop
+
+        osc_bridge_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(osc_bridge_loop)
+
+        osc_bridge_server = OSCBridgeServer()
+
+        try:
+            osc_bridge_loop.run_until_complete(osc_bridge_server.start())
+            print("[rhizo_server] OSC bridge started")
+            osc_bridge_loop.run_forever()
+        except OSError as e:
+            # The usual cause is another OSC receiver already holding the port.
+            # The editor is perfectly usable without OSC, so this is reported
+            # and stepped over rather than taken as fatal.
+            print(f"[rhizo_server] OSC bridge could not bind UDP {OSC_UDP_PORT}: {e}")
+            osc_bridge_server = None
+        except Exception as e:
+            print(f"[rhizo_server] OSC bridge error: {e}")
+            import traceback
+            traceback.print_exc()
+            osc_bridge_server = None
+        finally:
+            if osc_bridge_server:
+                osc_bridge_loop.run_until_complete(osc_bridge_server.stop())
+            osc_bridge_loop.close()
+
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+
+    time.sleep(1)
+
+    return thread
+
+
 # ============================================================================
 # Main Entry Point
 # ============================================================================
 
 def main():
     """Start the Rhizomium integrated server."""
-    global frame_stream_thread
+    global frame_stream_thread, osc_bridge_thread
 
     print("=" * 70)
     print("🌿 Rhizomium Integrated Server with Frame Streaming")
@@ -369,6 +428,10 @@ def main():
     print("Starting WebSocket frame streaming server...")
     frame_stream_thread = start_frame_stream_server()
 
+    # Start OSC bridge
+    print("Starting OSC bridge...")
+    osc_bridge_thread = start_osc_bridge_server()
+
     print()
     print("Available URLs:")
     print("  Landing Page:  http://127.0.0.1:5000/")
@@ -378,6 +441,10 @@ def main():
     print()
     print("WebSocket:")
     print("  Frame Stream:  ws://127.0.0.1:8766/ws")
+    print(f"  OSC Bridge:    ws://127.0.0.1:{OSC_WS_PORT}/ws")
+    print()
+    print("OSC:")
+    print(f"  Send OSC to:   udp://<this machine>:{OSC_UDP_PORT}")
     print()
     print("API Endpoints:")
     print("  POST /api/stream-frame  - Send frame to viewers")
