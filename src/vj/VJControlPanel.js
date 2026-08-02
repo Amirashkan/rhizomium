@@ -16,6 +16,7 @@ import { makeDraggable } from '../ui/utils/draggable.js';
 // Siblings of SceneManager's 'rhizomium.vj.scenes'.
 const PRESETS_STORAGE_KEY = 'rhizomium.vj.presets';
 const PLAYLIST_STORAGE_KEY = 'rhizomium.vj.playlist';
+const SETTINGS_STORAGE_KEY = 'rhizomium.vj.settings';
 
 function readStoredJSON(key) {
   try {
@@ -64,6 +65,7 @@ export class VJControlPanel {
     // Performance controls
     this.masterOpacity = 1.0;
     this.playbackSpeed = 1.0;
+    this.beatSyncEnabled = true;
 
     this.createUI();
     this.attachEventListeners();
@@ -399,8 +401,18 @@ export class VJControlPanel {
     const bpmGroup = document.createElement('div');
     bpmGroup.className = 'vj-control-group-inline';
 
+    // Beat sync is a performance aid, not something every set wants running -
+    // this switches the whole clock off, indicator included.
     const bpmLabel = document.createElement('label');
-    bpmLabel.textContent = 'BPM:';
+    bpmLabel.title = 'Enable beat sync';
+    this.beatEnabledCheck = document.createElement('input');
+    this.beatEnabledCheck.type = 'checkbox';
+    this.beatEnabledCheck.checked = this.beatSyncEnabled;
+    this.beatEnabledCheck.onchange = () => {
+      this.setBeatSyncEnabled(this.beatEnabledCheck.checked);
+    };
+    bpmLabel.appendChild(this.beatEnabledCheck);
+    bpmLabel.appendChild(document.createTextNode(' BPM:'));
     bpmGroup.appendChild(bpmLabel);
 
     this.bpmInput = document.createElement('input');
@@ -418,9 +430,9 @@ export class VJControlPanel {
     };
     bpmGroup.appendChild(this.bpmInput);
 
-    const tapBtn = this.createButton('👆 Tap', 'Tap tempo', () => this.tapTempo());
-    tapBtn.className = 'vj-btn-small';
-    bpmGroup.appendChild(tapBtn);
+    this.tapBtn = this.createButton('👆 Tap', 'Tap tempo', () => this.tapTempo());
+    this.tapBtn.className = 'vj-btn-small';
+    bpmGroup.appendChild(this.tapBtn);
 
     // Beat indicator
     this.beatIndicator = document.createElement('div');
@@ -429,6 +441,8 @@ export class VJControlPanel {
     bpmGroup.appendChild(this.beatIndicator);
 
     footer.appendChild(bpmGroup);
+
+    this.updateBeatSyncControls();
 
     // Quick controls separator
     const separator = document.createElement('div');
@@ -564,6 +578,21 @@ export class VJControlPanel {
       sceneInfo.className = 'vj-scene-info';
       sceneInfo.textContent = `${scene.duration}s`;
       sceneCard.appendChild(sceneInfo);
+
+      // Cue note: what this scene is for, when to fire it. Saved on the scene,
+      // so it rides along with the rest of the set into storage.
+      const notes = document.createElement('textarea');
+      notes.className = 'vj-scene-notes';
+      notes.rows = 2;
+      notes.placeholder = 'Notes…';
+      notes.title = 'Notes for this scene';
+      notes.value = scene.notes || '';
+      notes.onchange = () => {
+        this.sceneManager.updateSceneMetadata(scene.id, { notes: notes.value });
+      };
+      // The card switches scene on click; typing a note must not load it.
+      notes.onclick = (e) => e.stopPropagation();
+      sceneCard.appendChild(notes);
 
       const actions = document.createElement('div');
       actions.className = 'vj-scene-actions';
@@ -1025,8 +1054,43 @@ export class VJControlPanel {
    * Tap tempo
    */
   tapTempo() {
+    if (!this.beatSyncEnabled) return;
     this.beatSyncManager.tap();
     this.bpmInput.value = this.beatSyncManager.bpm;
+  }
+
+  /**
+   * Turn beat sync on or off. Off stops the clock outright rather than just
+   * hiding it, so nothing is running behind a set that does not use it.
+   */
+  setBeatSyncEnabled(enabled) {
+    this.beatSyncEnabled = !!enabled;
+
+    if (this.beatEnabledCheck) {
+      this.beatEnabledCheck.checked = this.beatSyncEnabled;
+    }
+
+    if (this.beatSyncEnabled) {
+      if (this.visible) this.beatSyncManager.start();
+    } else {
+      this.beatSyncManager.stop();
+      this.beatSyncManager.resetTap();
+    }
+
+    this.updateBeatSyncControls();
+    return this.beatSyncEnabled;
+  }
+
+  /** Grey out the tempo controls and blank the indicator while sync is off. */
+  updateBeatSyncControls() {
+    const off = !this.beatSyncEnabled;
+
+    if (this.bpmInput) this.bpmInput.disabled = off;
+    if (this.tapBtn) this.tapBtn.disabled = off;
+    if (this.beatIndicator) {
+      this.beatIndicator.classList.toggle('disabled', off);
+      if (off) this.beatIndicator.textContent = '○○○○';
+    }
   }
 
   /**
@@ -1145,6 +1209,7 @@ export class VJControlPanel {
    * Update beat indicator
    */
   updateBeatIndicator(currentBeat) {
+    if (!this.beatSyncEnabled) return;
     const indicators = ['●○○○', '○●○○', '○○●○', '○○○●'];
     this.beatIndicator.textContent = indicators[currentBeat % 4];
   }
@@ -1158,8 +1223,9 @@ export class VJControlPanel {
     this.switchTab(this.activeTab);
 
     // The beat clock was never started, so BPM and tap tempo drove nothing and
-    // the indicator sat blank. Run it while the panel is open.
-    this.beatSyncManager.start();
+    // the indicator sat blank. Run it while the panel is open - unless the user
+    // has switched beat sync off.
+    if (this.beatSyncEnabled) this.beatSyncManager.start();
   }
 
   /**
@@ -1203,6 +1269,16 @@ export class VJControlPanel {
         this.playlistLoopCheck.checked = this.playlistManager.loop;
       }
     }
+
+    const settings = readStoredJSON(SETTINGS_STORAGE_KEY);
+    if (settings) {
+      if (Number.isFinite(settings.bpm) && this.beatSyncManager.setBPM(settings.bpm)) {
+        this.bpmInput.value = String(this.beatSyncManager.bpm);
+      }
+      if (settings.beatSyncEnabled !== undefined) {
+        this.setBeatSyncEnabled(settings.beatSyncEnabled);
+      }
+    }
   }
 
   /**
@@ -1213,7 +1289,12 @@ export class VJControlPanel {
     const scenesSaved = this.sceneManager.saveToLocalStorage();
     const presetsSaved = writeStoredJSON(PRESETS_STORAGE_KEY, this.presetManager.exportPresets());
     const playlistSaved = writeStoredJSON(PLAYLIST_STORAGE_KEY, this.playlistManager.exportPlaylist());
+    const settingsSaved = writeStoredJSON(SETTINGS_STORAGE_KEY, {
+      version: 1,
+      beatSyncEnabled: this.beatSyncEnabled,
+      bpm: this.beatSyncManager.bpm
+    });
 
-    return scenesSaved && presetsSaved && playlistSaved;
+    return scenesSaved && presetsSaved && playlistSaved && settingsSaved;
   }
 }

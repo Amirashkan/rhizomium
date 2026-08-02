@@ -156,6 +156,32 @@
   margin-bottom: 8px;
 }
 
+.vj-scene-notes {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  resize: vertical;
+}
+
+.vj-scene-notes::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.vj-scene-notes:focus {
+  outline: none;
+  border-color: rgba(0, 122, 255, 0.8);
+  background: rgba(0, 0, 0, 0.4);
+}
+
 .vj-scene-actions {
   display: flex;
   gap: 4px;
@@ -453,6 +479,15 @@
 
 .vj-btn:active {
   transform: scale(0.97);
+}
+
+.vj-beat-indicator.disabled {
+  opacity: 0.35;
+}
+
+.vj-input-small:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .vj-btn:disabled,

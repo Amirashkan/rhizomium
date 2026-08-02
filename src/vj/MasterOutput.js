@@ -21,6 +21,22 @@ const state = {
   transition: 1
 };
 
+// Surfaces that are not DOM elements in this document - the second-monitor
+// window renders its own copy of the output in a separate JS context, so it
+// has to be told the level rather than inheriting it from a style.
+const listeners = new Set();
+
+/**
+ * Follow the effective output opacity.
+ * @param {(opacity: number) => void} callback
+ * @returns {() => void} unsubscribe
+ */
+export function onOutputOpacityChange(callback) {
+  if (typeof callback !== 'function') return () => {};
+  listeners.add(callback);
+  return () => listeners.delete(callback);
+}
+
 /**
  * The on-screen surfaces the output is drawn to. #gpu-canvas is reparented into
  * the floating preview when that panel is open, so looking it up by id each time
@@ -41,6 +57,15 @@ function applyOutputOpacity() {
   getOutputSurfaces().forEach(surface => {
     surface.style.opacity = String(opacity);
   });
+
+  listeners.forEach(listener => {
+    try {
+      listener(opacity);
+    } catch {
+      // A mirror that cannot take the level must not stall the local fade.
+    }
+  });
+
   return opacity;
 }
 

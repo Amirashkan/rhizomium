@@ -16,7 +16,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { VJControlPanel } from '../src/vj/VJControlPanel.js';
 import { PresetManager } from '../src/vj/PresetManager.js';
 import { TransitionManager } from '../src/vj/TransitionManager.js';
-import { resetOutputOpacity, getOutputOpacity } from '../src/vj/MasterOutput.js';
+import {
+  resetOutputOpacity,
+  getOutputOpacity,
+  setMasterOpacity,
+  setTransitionOpacity,
+  onOutputOpacityChange,
+} from '../src/vj/MasterOutput.js';
 
 /**
  * Run frame callbacks inline against a virtual clock.
@@ -241,6 +247,50 @@ describe('VJ transitions', () => {
     expect(Number(canvas.style.opacity)).toBeCloseTo(0.4, 5);
 
     panel.container.remove();
+  });
+});
+
+describe('VJ master fader reaching the second monitor', () => {
+  // The mirror window renders its own frames from broadcast state, so the
+  // editor's canvas opacity never applied to it - the fader stopped at the
+  // editor. The level now travels over the channel.
+  beforeEach(() => {
+    runAnimationFramesInline();
+    resetOutputOpacity();
+    gpuCanvas();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetOutputOpacity();
+    document.body.innerHTML = '';
+  });
+
+  it('notifies subscribers of the effective output level', () => {
+    const seen = [];
+    const unsubscribe = onOutputOpacityChange((v) => seen.push(v));
+
+    setMasterOpacity(0.5);
+    setTransitionOpacity(0.5);
+
+    // Master × transition, not either one alone.
+    expect(seen).toEqual([0.5, 0.25]);
+
+    unsubscribe();
+    setMasterOpacity(1);
+    expect(seen).toHaveLength(2);
+  });
+
+  it('keeps notifying through a fade so the mirror tracks it frame by frame', () => {
+    const seen = [];
+    const unsubscribe = onOutputOpacityChange((v) => seen.push(v));
+
+    setMasterOpacity(0.8);
+    setTransitionOpacity(0);
+    setTransitionOpacity(1);
+
+    expect(seen).toEqual([0.8, 0, 0.8]);
+    unsubscribe();
   });
 });
 
@@ -496,6 +546,103 @@ describe('VJ control panel', () => {
     expect(reloaded.playlistManager.loop).toBe(false);
     expect(reloaded.playlistLoopCheck.checked).toBe(false);
 
+    reloaded.container.remove();
+  });
+
+  it('keeps a note against each scene', () => {
+    addScene(panel, 'A');
+    addScene(panel, 'B');
+    panel.switchTab('scenes');
+
+    const cards = [...panel.scenesArea.querySelectorAll('.vj-scene-card')];
+    const notes = cards.map(c => c.querySelector('.vj-scene-notes'));
+    expect(notes.filter(Boolean)).toHaveLength(2);
+
+    const switchToScene = vi.spyOn(panel, 'switchToScene');
+
+    notes[0].value = 'build - drop at 2:10';
+    notes[0].dispatchEvent(new Event('change', { bubbles: true }));
+    notes[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(panel.sceneManager.getScene('scene_A').notes).toBe('build - drop at 2:10');
+    // Typing in the note must not load the scene the card belongs to.
+    expect(switchToScene).not.toHaveBeenCalled();
+  });
+
+  it('shows a saved note when the scene list is redrawn', () => {
+    const a = addScene(panel, 'A');
+    panel.sceneManager.updateSceneMetadata(a, { notes: 'strobe heavy' });
+    panel.switchTab('scenes');
+
+    const note = panel.scenesArea.querySelector('.vj-scene-notes');
+    expect(note.value).toBe('strobe heavy');
+  });
+
+  it('carries scene notes through a save and reload', () => {
+    const a = addScene(panel, 'A');
+    panel.sceneManager.updateSceneMetadata(a, { notes: 'opener' });
+    expect(panel.saveToStorage()).toBe(true);
+
+    const reloaded = new VJControlPanel(makeEditor());
+    expect(reloaded.sceneManager.getScene(a).notes).toBe('opener');
+    reloaded.container.remove();
+  });
+
+  it('stops the beat clock when beat sync is switched off', () => {
+    expect(panel.beatSyncManager.isPlaying).toBe(true);
+
+    panel.beatEnabledCheck.checked = false;
+    panel.beatEnabledCheck.onchange();
+
+    expect(panel.beatSyncManager.isPlaying).toBe(false);
+    expect(panel.bpmInput.disabled).toBe(true);
+    expect(panel.tapBtn.disabled).toBe(true);
+    expect(panel.beatIndicator.textContent).toBe('○○○○');
+    expect(panel.beatIndicator.classList.contains('disabled')).toBe(true);
+  });
+
+  it('leaves the clock off across close and reopen while disabled', () => {
+    panel.setBeatSyncEnabled(false);
+
+    panel.hide();
+    panel.show();
+
+    expect(panel.beatSyncManager.isPlaying).toBe(false);
+  });
+
+  it('ignores tap tempo while beat sync is off', () => {
+    panel.setBeatSyncEnabled(false);
+    const tap = vi.spyOn(panel.beatSyncManager, 'tap');
+
+    panel.tapTempo();
+
+    expect(tap).not.toHaveBeenCalled();
+  });
+
+  it('brings the clock back when beat sync is switched on again', () => {
+    panel.setBeatSyncEnabled(false);
+    panel.setBeatSyncEnabled(true);
+
+    expect(panel.beatSyncManager.isPlaying).toBe(true);
+    expect(panel.bpmInput.disabled).toBe(false);
+    expect(panel.beatIndicator.classList.contains('disabled')).toBe(false);
+  });
+
+  it('remembers the beat sync switch and tempo across a reload', () => {
+    panel.bpmInput.value = '141';
+    panel.bpmInput.onchange();
+    panel.setBeatSyncEnabled(false);
+    expect(panel.saveToStorage()).toBe(true);
+
+    const reloaded = new VJControlPanel(makeEditor());
+    reloaded.show();
+
+    expect(reloaded.beatSyncEnabled).toBe(false);
+    expect(reloaded.beatSyncManager.bpm).toBe(141);
+    expect(reloaded.beatSyncManager.isPlaying).toBe(false);
+    expect(reloaded.bpmInput.value).toBe('141');
+
+    reloaded.hide();
     reloaded.container.remove();
   });
 
