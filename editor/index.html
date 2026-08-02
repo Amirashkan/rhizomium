@@ -10,10 +10,19 @@
       omitting 'unsafe-eval' here makes that a rule the platform enforces, so a
       future eval() shortcut fails loudly instead of silently reopening the hole.
       'unsafe-inline' is still required by the inline bootstrap script below.
+
+      connect-src carries the Tauri IPC endpoints (`ipc:` on macOS/Linux,
+      `http://ipc.localhost` on Windows/Android) because invoke() reaches the
+      Rust side with fetch(). A <meta> policy is enforced *on top of* the header
+      Tauri injects from tauri.conf.json — the browser takes the intersection,
+      and the stricter one wins — so leaving them out here blocks IPC no matter
+      what the config says, and Tauri silently degrades to the slower
+      postMessage bridge. Keep this list in sync with the `csp` field in
+      src-tauri/tauri.conf.json.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://art.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://art.tenderworld.org ws://localhost:8765 http://localhost:8765 ws://127.0.0.1:8766; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
     />
     <title>GLSL Node Editor</title>
     <link rel="stylesheet" href="./style.css" />
