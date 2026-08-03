@@ -26,18 +26,25 @@ OSC sender ──UDP:9000──> osc_bridge_server.py ──WebSocket:8767──
 
 ## Quick start
 
-1. Start the server — the bridge starts with it:
+1. Start the editor whichever way you normally do — the bridge comes with it:
 
-   ```bash
-   python rhizo_server.py
-   ```
+   | How you run the editor | Bridge |
+   | --- | --- |
+   | `python rhizo_server.py` | started by the server |
+   | `npm run dev` | started by the Vite dev server |
+   | `npm run tauri:dev` | same — the desktop app runs that dev server |
+   | a built desktop binary | run `npm run osc` alongside it |
+   | static web deploy (Vercel) | not possible — OSC is local-only |
 
-   It prints the UDP port to aim at:
+   Each prints the UDP port to aim at:
 
    ```
    OSC:
      Send OSC to:   udp://<this machine>:9000
    ```
+
+   Set `RHIZO_NO_OSC=1` to stop the dev server starting one, and it will leave
+   an already-running bridge alone rather than fighting it for the port.
 
 2. Open the editor and choose **Tools → OSC Receiver**, then click **Connect**.
    Incoming addresses appear as soon as anything arrives, which is the fastest
@@ -170,17 +177,13 @@ is about the editor↔bridge WebSocket, not about your sender: no OSC
 configuration will fix it. Start the bridge:
 
 ```bash
-python osc_bridge_server.py
+npm run osc          # or: python osc_bridge_server.py
 ```
 
-`python rhizo_server.py` starts it too — but if that server was already running
-from before the OSC feature existed, restart it, or it has no bridge in it.
-
-Note that the bridge is a *local* process. The desktop app (`npm run
-tauri:dev`) and the Vite dev server (`npm run dev`) do not start any Python, so
-the bridge has to be run alongside them. On the static web deploy there is no
-way to run it at all, which makes OSC a local-only feature like the external
-viewer.
+Whatever starts the editor normally starts one too (see the table above), so
+the usual cause is a server that was already running from before OSC existed —
+restart it. The other cause is Python or `aiohttp` missing, in which case the
+dev server prints `OSC: not started` rather than failing.
 
 **Panel says "UDP port busy"** — the bridge is running and reachable, but
 another application already holds the UDP port, so no OSC can arrive. The panel

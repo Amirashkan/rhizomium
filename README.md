@@ -122,10 +122,14 @@ the desktop path additionally checks for the Tauri globals (`src/utils/isTauri.j
 
 ## 🎛️ OSC Control
 
-OSC arrives over UDP, which a browser cannot listen for, so `rhizo_server.py`
-runs a bridge that forwards it to the editor. Start the server, open
-**Tools → OSC Receiver**, click **Connect**, and point your sender at
-`udp://<this machine>:9000`.
+OSC arrives over UDP, which a browser cannot listen for, so a small local
+bridge forwards it to the editor. It starts automatically with
+`python rhizo_server.py`, `npm run dev` and `npm run tauri:dev`; alongside a
+built desktop binary, run `npm run osc`. Then open **Tools → OSC Receiver**,
+click **Connect**, and point your sender at `udp://<this machine>:9000`.
+
+Because the bridge is a local process, OSC is a local-only feature like the
+external viewer — it cannot work on the static web deploy.
 
 To map a control: select a node, click the parameter field, click **Start OSC
 Learn**, then move the control. Full details — input ranges, multi-argument

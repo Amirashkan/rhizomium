@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import { resolve, sep } from 'node:path'
 import { cpSync, existsSync, readFileSync } from 'node:fs'
 import { generate as generateDocsMeta } from './scripts/docs-meta.mjs'
+import { oscBridge } from './scripts/osc-bridge-plugin.mjs'
 
 // Single source of truth for the version the app reports about itself (see
 // src/utils/appVersion.js) - read from package.json so it cannot drift.
@@ -41,7 +42,7 @@ function copyDocs() {
 // landing page and the editor as multi-page entries.
 export default defineConfig({
   clearScreen: false,
-  plugins: [copyDocs()],
+  plugins: [copyDocs(), oscBridge()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
