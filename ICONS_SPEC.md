@@ -9,8 +9,12 @@ what placeholder it currently replaces.
 
 ## 1. Design constraints (match the existing sprite)
 
-The app already ships one icon set: `src/assets/category-icons.svg`, mirrored inline in
-`src/ui/RadialMenu.js:9-20`. New icons must be drop-in compatible with it.
+All icons live in one sprite: **`src/assets/icons-sprite.svg`**, injected once by
+`src/ui/iconSprite.js`. New icons must be drop-in compatible with the constraints below.
+
+*(Historical: the set began as `src/assets/category-icons.svg` with a duplicate copy
+inlined in `src/ui/RadialMenu.js`. Both are gone — the duplicate is what let the sprite
+and the node registry appear to drift. There is now exactly one copy.)*
 
 | Constraint | Value |
 | --- | --- |
@@ -37,30 +41,43 @@ The app already ships one icon set: `src/assets/category-icons.svg`, mirrored in
 
 ---
 
-## 2. Node category icons — 12 total (highest priority)
+## 2. Node category icons — 12, all already drawn (no work needed)
 
-These drive the radial node-creation menu. **The current sprite is out of sync with the
-node registry.** Canonical list is `NodeCategories` in `src/data/nodes/NodeTypes.js:10-22`.
+> **Correction.** An earlier draft of this spec claimed the category sprite had drifted
+> from the node registry, and asked for four new category glyphs. That was wrong, and the
+> claim is retracted. Verified by driving the running app: all 12 categories render a
+> glyph and none fall back to a text label.
 
-### 2a. Keep as-is (8) — already drawn, no work needed
-`icon-input`, `icon-output`, `icon-math`, `icon-vector`, `icon-transform`,
-`icon-utility`, `icon-blend`, `icon-texture`
+The categories that drive the radial menu come from each NodeDef's **`cat`** field — see
+`getNodeCategories()` in `src/data/NodeDefs.js:85`. They are:
 
-### 2b. Missing — must be drawn (4)
+| Category | Nodes | Glyph |
+| --- | --- | --- |
+| Math | 43 | `icon-math` |
+| Generators | 17 | `icon-generators` |
+| Input | 14 | `icon-input` |
+| Utility | 12 | `icon-utility` |
+| Modifiers | 11 | `icon-modifiers` |
+| Transform | 10 | `icon-transform` |
+| Vector | 7 | `icon-vector` |
+| Blend | 7 | `icon-blend` |
+| Simulation | 5 | `icon-simulation` |
+| Effects | 4 | `icon-effects` |
+| Texture | 2 | `icon-texture` |
+| Output | 1 | `icon-output` |
 
-| Sprite id | Category | Meaning | Direction |
-| --- | --- | --- | --- |
-| `icon-pattern` | Pattern | Gradients, shapes, procedural patterns | Repeating geometric motif — e.g. checker/tile grid or concentric rings |
-| `icon-noise` | Noise | Perlin, Simplex, Voronoi | Irregular cellular/organic field — Voronoi cells or a scattered-dot cloud |
-| `icon-color` | Color | Color ops, HSV, palettes | Overlapping color discs or a gradient ramp bar (monochrome-safe: use stroke density, not hue) |
-| `icon-compute` | Compute | GPU compute nodes | Grid of dispatch cells / chip motif. Currently falls back to a *text label* (`RadialMenu.js:773`) — the only category without a glyph |
+All 12 have shipped since before this spec. **`icon-simulation`, `icon-generators`,
+`icon-effects` and `icon-modifiers` are live and must not be removed.**
 
-### 2c. Stale — in the sprite but not real categories (4)
-`icon-simulation`, `icon-generators`, `icon-effects`, `icon-modifiers`
+The misreading came from `NodeCategories` in `src/data/nodes/NodeTypes.js:10-22`, which
+lists Pattern / Noise / Color / Compute. That enum is **dead code — nothing imports it**.
+It does not describe the running app.
 
-These render for nothing today. Design agent should treat them as **available for
-reuse/retirement**, not as a spec to match. `icon-simulation` may be worth keeping as a
-starting point for `icon-compute`.
+`icon-pattern`, `icon-noise`, `icon-color` and `icon-compute` were drawn against the bad
+spec and are kept in the sprite as ordinary application icons (`icon-compute` suits the
+compute profiler). They are **not** categories. If a category is ever added to `cat`, add
+a matching `icon-<lowercased-name>` symbol or it silently degrades to a text label
+(`RadialMenu.js:773`).
 
 ---
 
@@ -78,7 +95,7 @@ Currently drawn as raw text glyphs on the canvas at ~10px, `src/core/Renderer.js
 
 ---
 
-## 4. Menu bar — 44
+## 4. Menu bar — 53
 
 Structure from `editor/index.html:217-425`. All items are text-only today; icons go to the
 left of the label in dropdowns.
@@ -241,9 +258,9 @@ No toolbar exists yet; these are for one. `src/core/EventHandler.js`, `src/core/
 
 | Group | Count |
 | --- | --- |
-| 2. Node categories (4 new + 8 existing) | 4 new |
+| 2. Node categories | 0 — all 12 already shipped |
 | 3. Node title-bar controls *(+16px variant)* | 5 |
-| 4. Menu bar | 44 |
+| 4. Menu bar | 53 |
 | 5. Window chrome | 7 |
 | 6. Transport & timeline | 8 |
 | 7. VJ panel | 11 |
@@ -253,16 +270,43 @@ No toolbar exists yet; these are for one. `src/core/EventHandler.js`, `src/core/
 | 11. Preview / viewport / GPU | 11 |
 | 12. Graph canvas tools | 9 |
 | 13. Audio & MIDI | 7 |
-| **Total new icons** | **138** |
+| **Total new icons** | **147** |
 
-### Suggested phasing
+### Delivery status — complete
 
-1. **Phase 1 (12)** — the 4 missing categories + 5 node title-bar controls + 3 chrome
-   (`close`, `expand`, `collapse`). These fix actual gaps: `Compute` has no glyph, and node
-   controls are unreadable text glyphs.
-2. **Phase 2 (37)** — every surface that currently renders an emoji: VJ panel, file
-   manager, transport, status. Emoji render inconsistently across platforms and ignore theme color.
-3. **Phase 3 (89)** — menu bar, parameter panel, viewport, canvas tools, audio/MIDI.
+All 147 icons were delivered and integrated (plus 5 extra 16x16 variants of the node
+title-bar controls = 152 new symbols). Merged with the 12 pre-existing category glyphs,
+the shipped sprite is **164 symbols**.
+
+| | |
+| --- | --- |
+| Sprite | `src/assets/icons-sprite.svg` (164 symbols) |
+| Loader | `src/ui/iconSprite.js` — `ensureIconSprite()` / `createIcon(id, opts)` |
+| Injected at | `main.js` `initialize()`, and defensively on radial-menu open |
+
+Usage:
+
+```js
+import { createIcon } from './src/ui/iconSprite.js';
+button.prepend(createIcon('play', { size: 16, label: 'Play' }));
+```
+
+or in markup, once the sprite is injected:
+
+```html
+<svg width="16" height="16" viewBox="0 0 24 24"><use href="#icon-play"/></svg>
+```
+
+Verified: build inlines all 164 symbols, 906/906 tests pass, lint clean, and the radial
+menu renders 12 glyphs with 0 unresolved `<use>` refs and 0 text fallbacks.
+
+### Remaining work — adoption
+
+The sprite is wired up, but **only the radial menu consumes it so far**. Every other
+surface still renders its emoji or text glyph. Swapping them is mechanical and can be
+done surface by surface; the highest-value ones are the emoji-based panels (VJ control,
+file manager, transport) since emoji render inconsistently across platforms and ignore
+theme color.
 
 ### Out of scope
 

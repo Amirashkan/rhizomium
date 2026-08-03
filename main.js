@@ -24,6 +24,7 @@ import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
+import { ensureIconSprite } from './src/ui/iconSprite.js';
 import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
 import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
 import { ComputeProfiler } from './src/gpu/ComputeProfiler.js';
@@ -158,6 +159,10 @@ if (typeof window.render !== "function") {
 }
 
 async function initialize() {
+  // Icons are <use> references into a document-level <symbol> sprite; inject it
+  // before any panel renders so the first paint already has its glyphs.
+  ensureIconSprite();
+
   const errorHandler = new ErrorHandler();
   window.errorHandler = errorHandler;
 
