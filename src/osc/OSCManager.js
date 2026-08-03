@@ -217,11 +217,14 @@ export class OSCManager {
 
     if (!data || typeof data !== 'object') return;
 
-    if (data.type === 'welcome') {
+    // 'welcome' on connect, 'status' whenever the bridge's UDP state changes
+    // (it retries a busy port in the background, so this can arrive at any
+    // time — including good news).
+    if (data.type === 'welcome' || data.type === 'status') {
       this.bridgeInfo = {
         udpHost: data.udp_host ?? null,
         udpPort: data.udp_port ?? null,
-        version: data.server_version ?? null,
+        version: data.server_version ?? this.bridgeInfo?.version ?? null,
         // Reaching the bridge is not the same as the bridge hearing OSC: its
         // UDP port can be held by another application. Older bridges do not
         // report this, so absence means "assume it is listening".
@@ -232,6 +235,8 @@ export class OSCManager {
       if (this.bridgeInfo.udpError) {
         this.lastError = this.bridgeInfo.udpError;
         this._emit('OSC_ERROR', { message: this.bridgeInfo.udpError, url: this.url });
+      } else if (this.bridgeInfo.udpListening) {
+        this.lastError = null;
       }
 
       this._emit('OSC_BRIDGE_INFO', this.bridgeInfo);
@@ -316,6 +321,25 @@ export class OSCManager {
       this._closeSocket();
       this.connect().catch(() => {});
     }
+  }
+
+  /**
+   * Ask the bridge to listen on a different UDP port.
+   *
+   * 9000 is the OSC convention, which also makes it the port other OSC
+   * software grabs first. When it is taken, moving the bridge has to be
+   * possible from here — the bridge is usually started automatically, so
+   * there is no command line to add a flag to.
+   *
+   * @returns {boolean} whether the request could be sent
+   */
+  setUdpPort(port) {
+    const parsed = Number(port);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) return false;
+    if (!this.isConnected()) return false;
+
+    this.ws.send(JSON.stringify({ type: 'set_udp_port', port: parsed }));
+    return true;
   }
 
   /** Latest value at an address, as a number. */

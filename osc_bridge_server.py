@@ -53,6 +53,10 @@ DEFAULT_UDP_PORT = 9000
 # the UDP receiver or growing without bound.
 CLIENT_QUEUE_SIZE = 256
 
+# How often to retry a UDP port that was busy, so the bridge recovers by itself
+# once the other application lets go of it.
+UDP_RETRY_SECONDS = 3.0
+
 SERVER_VERSION = '1.0.0'
 
 
@@ -123,6 +127,7 @@ class OSCBridgeServer:
         # Why the UDP socket is not open, if it is not. Reported to the editor
         # so the panel can name the real problem instead of guessing.
         self.udp_error: Optional[str] = None
+        self._retry_task: Optional[asyncio.Task] = None
 
         # Each client gets its own bounded queue and a task draining it.
         self.clients: Dict[web.WebSocketResponse, asyncio.Queue] = {}
@@ -170,6 +175,21 @@ class OSCBridgeServer:
 
         await self.bind_udp()
 
+    async def _open_udp(self, port: int):
+        """Open a datagram endpoint on `port`, or raise OSError."""
+        transport, _ = await self.loop.create_datagram_endpoint(
+            lambda: _OSCDatagramProtocol(self._handle_packet),
+            local_addr=(self.udp_host, port),
+            reuse_port=False,
+        )
+        return transport
+
+    def _busy_message(self, port: int, exc: OSError) -> str:
+        return (
+            f'Could not listen on UDP {self.udp_host}:{port} — {exc.strerror or exc}. '
+            f'Another application is probably using that port.'
+        )
+
     async def bind_udp(self):
         """
         Open the UDP socket, recording rather than raising a bind failure.
@@ -180,28 +200,130 @@ class OSCBridgeServer:
             return True
 
         try:
-            self.transport, _ = await self.loop.create_datagram_endpoint(
-                lambda: _OSCDatagramProtocol(self._handle_packet),
-                local_addr=(self.udp_host, self.udp_port),
-                reuse_port=False,
-            )
+            self.transport = await self._open_udp(self.udp_port)
         except OSError as exc:
-            self.udp_error = (
-                f'Could not listen on UDP {self.udp_host}:{self.udp_port} — {exc.strerror or exc}. '
-                f'Another application is probably using that port.'
-            )
+            self.udp_error = self._busy_message(self.udp_port, exc)
             logger.error(self.udp_error)
+            # Keep trying, so the bridge heals by itself when the other
+            # application lets the port go.
+            self._start_retrying()
             return False
 
         self.udp_error = None
         logger.info(f'OSC bridge listening for OSC on UDP {self.udp_host}:{self.udp_port}')
         return True
 
-    async def stop(self):
-        """Close the UDP socket and disconnect every client."""
+    async def set_udp_port(self, port: int):
+        """
+        Move to a different UDP port at the editor's request.
+
+        The port the bridge starts on is a guess — 9000 is the convention, but
+        that is exactly why other OSC software grabs it first. When it is taken
+        the artist needs a way out that is not "edit a command line and
+        restart", especially since the bridge is usually started for them.
+
+        The new port is opened *before* the old one is released: closing a
+        datagram transport is not synchronous, so releasing first leaves a
+        window where the old port cannot be re-bound either, and a refused
+        request would strand a bridge that had been working.
+
+        @returns True when now listening on `port`.
+        """
+        if not isinstance(port, int) or not (1 <= port <= 65535):
+            raise ValueError(f'invalid UDP port {port!r}')
+
+        if port == self.udp_port and self.transport:
+            return True
+
+        self._stop_retrying()
+
+        try:
+            transport = await self._open_udp(port)
+        except OSError as exc:
+            self.udp_error = self._busy_message(port, exc)
+            logger.error(self.udp_error)
+            # A working socket is kept rather than given up for a port that
+            # refused us. Only retry when there is nothing to fall back to.
+            if self.transport is None:
+                self._start_retrying()
+            await self._broadcast_status()
+            return False
+
+        self._close_udp()
+        self.transport = transport
+        self.udp_port = port
+        self.udp_error = None
+        logger.info(f'OSC bridge moved to UDP {self.udp_host}:{port}')
+
+        await self._broadcast_status()
+        return True
+
+    def _close_udp(self):
         if self.transport:
             self.transport.close()
             self.transport = None
+
+    def _start_retrying(self):
+        """
+        Keep trying to bind, so the bridge heals when the other app closes.
+
+        Without this a port conflict is sticky: the artist quits whatever held
+        the port and the bridge stays deaf until they think to restart it.
+        """
+        if self._retry_task and not self._retry_task.done():
+            return
+        self._retry_task = asyncio.create_task(self._retry_bind())
+
+    def _stop_retrying(self):
+        if self._retry_task:
+            self._retry_task.cancel()
+            self._retry_task = None
+
+    async def _retry_bind(self):
+        try:
+            while self.transport is None:
+                await asyncio.sleep(UDP_RETRY_SECONDS)
+                if self.transport is not None:
+                    return
+                # bind_udp() would recurse into _start_retrying() on failure;
+                # this task IS that retry, so open the endpoint directly.
+                try:
+                    self.transport = await self._open_udp(self.udp_port)
+                except OSError:
+                    continue
+
+                self.udp_error = None
+                logger.info(
+                    f'OSC bridge recovered UDP {self.udp_host}:{self.udp_port}'
+                )
+                await self._broadcast_status()
+                return
+        except asyncio.CancelledError:
+            raise
+
+    def _udp_status(self) -> Dict:
+        return {
+            'udp_host': self.udp_host,
+            'udp_port': self.udp_port,
+            'udp_listening': self.transport is not None,
+            'udp_error': self.udp_error,
+        }
+
+    async def _broadcast_status(self):
+        """Tell every connected editor about a change in the UDP state."""
+        payload = {'type': 'status', **self._udp_status()}
+        for ws in list(self.clients):
+            if ws.closed:
+                continue
+            try:
+                await ws.send_json(payload)
+            except Exception as exc:
+                logger.debug(f'Could not send status to a client: {exc}')
+
+    async def stop(self):
+        """Close the UDP socket and disconnect every client."""
+        self._stop_retrying()
+        self._close_udp()
 
         for task in list(self._writer_tasks):
             task.cancel()
@@ -298,17 +420,14 @@ class OSCBridgeServer:
         await ws.send_json({
             'type': 'welcome',
             'server_version': SERVER_VERSION,
-            'udp_host': self.udp_host,
-            'udp_port': self.udp_port,
-            'udp_listening': self.transport is not None,
-            'udp_error': self.udp_error,
+            **self._udp_status(),
         })
 
         try:
-            # Nothing is expected from the editor; the loop just keeps the
-            # connection open until it closes.
             async for msg in ws:
-                if msg.type == aiohttp.WSMsgType.ERROR:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    await self._handle_client_message(ws, msg.data)
+                elif msg.type == aiohttp.WSMsgType.ERROR:
                     logger.error(f'WebSocket error from {client_id}: {ws.exception()}')
         except asyncio.CancelledError:
             raise
@@ -319,6 +438,32 @@ class OSCBridgeServer:
             logger.info(f'Editor disconnected: {client_id} (remaining: {len(self.clients)})')
 
         return ws
+
+    async def _handle_client_message(self, ws: web.WebSocketResponse, raw: str):
+        """
+        Handle a control message from the editor.
+
+        The only thing the editor may ask for is a different UDP port on this
+        same host. That is deliberately narrow: this socket is loopback-only and
+        origin-checked, but it is still reachable from a webview, so it must not
+        become a way to open arbitrary sockets on arbitrary interfaces.
+        """
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+
+        if not isinstance(data, dict) or data.get('type') != 'set_udp_port':
+            return
+
+        try:
+            await self.set_udp_port(int(data.get('port')))
+        except (TypeError, ValueError) as exc:
+            await ws.send_json({
+                'type': 'status',
+                **self._udp_status(),
+                'udp_error': f'Invalid UDP port requested: {exc}',
+            })
 
     async def handle_index(self, request: web.Request):
         html = f"""

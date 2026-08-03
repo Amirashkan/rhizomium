@@ -38,6 +38,7 @@ function makeManager(events, addresses = [], statusOverrides = {}) {
     isConnected: () => true,
     initialize: vi.fn(),
     disable: vi.fn(),
+    setUdpPort: vi.fn(() => true),
   };
 }
 
@@ -96,6 +97,41 @@ describe('OSCSettingsPanel rendering', () => {
     expect(panel.panel.querySelector('#osc-status').textContent).toBe('UDP port busy');
     expect(panel.panel.querySelector('#osc-bridge-info').textContent)
       .toContain('Address already in use');
+  });
+
+  it('offers a way out of a busy port instead of just reporting it', () => {
+    const manager = makeManager(makeEventSystem(), [], {
+      bridge: { udpHost: '0.0.0.0', udpPort: 9000, udpListening: false, udpError: 'busy' },
+    });
+    panel = new OSCSettingsPanel(manager, makeBinding());
+    panel.show();
+
+    expect(panel.panel.querySelector('#osc-udp-row').style.display).toBe('flex');
+    expect(panel.panel.querySelector('#osc-udp-port').value).toBe('9000');
+
+    panel.panel.querySelector('#osc-udp-port').value = '9001';
+    panel.panel.querySelector('#osc-udp-apply').click();
+
+    expect(manager.setUdpPort).toHaveBeenCalledWith('9001');
+  });
+
+  it('does not call a refused port move a success', () => {
+    // Listening, but carrying an error: the move was refused and the bridge
+    // stayed put. Showing only where it listens would read as if it worked.
+    const manager = makeManager(makeEventSystem(), [], {
+      bridge: {
+        udpHost: '0.0.0.0',
+        udpPort: 9001,
+        udpListening: true,
+        udpError: 'Could not listen on UDP 0.0.0.0:9000 — Address already in use.',
+      },
+    });
+    panel = new OSCSettingsPanel(manager, makeBinding());
+    panel.show();
+
+    const info = panel.panel.querySelector('#osc-bridge-info').textContent;
+    expect(info).toContain('9001');
+    expect(info).toContain('Address already in use');
   });
 
   it('names the command to run when the bridge is not there', () => {

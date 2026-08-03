@@ -33,11 +33,11 @@ function portInUse(port) {
 }
 
 /** Start `command` on the bridge script, resolving null if it cannot run. */
-function tryPython(command, root) {
+function tryPython(command, root, udpPort) {
   return new Promise((resolve) => {
     let child
     try {
-      child = spawn(command, [SCRIPT], {
+      child = spawn(command, [SCRIPT, ...(udpPort ? ['--udp-port', udpPort] : [])], {
         cwd: root,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
@@ -93,8 +93,13 @@ export function oscBridge() {
         return
       }
 
-      child = (await tryPython('python3', server.config.root))
-        ?? (await tryPython('python', server.config.root))
+      // 9000 is the OSC convention, and therefore the port other OSC software
+      // grabs first. The panel can move the bridge at runtime; this is for
+      // anyone who already knows 9000 is taken on their machine.
+      const udpPort = process.env.RHIZO_OSC_UDP_PORT || ''
+
+      child = (await tryPython('python3', server.config.root, udpPort))
+        ?? (await tryPython('python', server.config.root, udpPort))
 
       if (!child) {
         log(`not started — run "npm run osc" for OSC support (needs Python + aiohttp)`)
@@ -115,7 +120,7 @@ export function oscBridge() {
         child = null
       })
 
-      log(`listening for OSC on udp://0.0.0.0:9000`)
+      log(`listening for OSC on udp://0.0.0.0:${udpPort || 9000}`)
 
       const stop = () => {
         if (!child) return

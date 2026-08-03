@@ -258,6 +258,51 @@ describe('OSCManager message handling', () => {
     expect(events.of('OSC_ERROR')[0].message).toMatch(/Address already in use/);
   });
 
+  it('follows the bridge recovering a busy port on its own', async () => {
+    // The bridge retries in the background, so good news arrives unprompted.
+    const events = makeEventSystem();
+    const { manager, socket } = await connected(events);
+
+    socket.receive(JSON.stringify({
+      type: 'welcome', udp_port: 9000, udp_listening: false, udp_error: 'busy',
+    }));
+    expect(manager.getStatus().bridge.udpListening).toBe(false);
+
+    socket.receive(JSON.stringify({
+      type: 'status', udp_port: 9000, udp_listening: true, udp_error: null,
+    }));
+
+    expect(manager.getStatus().bridge.udpListening).toBe(true);
+    expect(manager.getStatus().lastError).toBeNull();
+  });
+
+  it('asks the bridge to move to another UDP port', async () => {
+    const { manager, socket } = await connected(makeEventSystem());
+    socket.sent = [];
+    socket.send = (data) => socket.sent.push(data);
+
+    expect(manager.setUdpPort(9001)).toBe(true);
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: 'set_udp_port', port: 9001 });
+  });
+
+  it('refuses to ask for a port that is not one', async () => {
+    const { manager, socket } = await connected(makeEventSystem());
+    socket.sent = [];
+    socket.send = (data) => socket.sent.push(data);
+
+    for (const bad of [0, 70000, -1, 'nine', null, 1.5]) {
+      expect(manager.setUdpPort(bad)).toBe(false);
+    }
+    expect(socket.sent).toHaveLength(0);
+  });
+
+  it('cannot move the port while disconnected', async () => {
+    const { manager } = await connected(makeEventSystem());
+    manager.disable();
+
+    expect(manager.setUdpPort(9001)).toBe(false);
+  });
+
   it('assumes an older bridge that omits the field is listening', async () => {
     const { manager, socket } = await connected(makeEventSystem());
 

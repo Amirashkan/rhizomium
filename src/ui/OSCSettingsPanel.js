@@ -136,6 +136,28 @@ export class OSCSettingsPanel {
           " disabled>Disconnect</button>
         </div>
         <div id="osc-bridge-info" style="margin-top: 8px; font-size: 11px; color: #888;"></div>
+        <div id="osc-udp-row" style="margin-top: 8px; display: none; align-items: center; gap: 6px;">
+          <span style="font-size: 11px; color: #aaa;">UDP port</span>
+          <input id="osc-udp-port" type="number" min="1" max="65535" style="
+            width: 80px;
+            padding: 4px 6px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #ddd;
+            font-family: monospace;
+            font-size: 11px;
+          " />
+          <button id="osc-udp-apply" style="
+            padding: 4px 10px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+          ">Move</button>
+        </div>
       </div>
 
       <!-- Incoming addresses -->
@@ -244,6 +266,9 @@ export class OSCSettingsPanel {
     this.connectBtn = this.panel.querySelector('#osc-connect-btn');
     this.disconnectBtn = this.panel.querySelector('#osc-disconnect-btn');
 
+    this.udpRow = this.panel.querySelector('#osc-udp-row');
+    this.udpPortInput = this.panel.querySelector('#osc-udp-port');
+
     this.urlInput.value = this.oscManager.url;
     this.addressesList.appendChild(placeholder('No OSC messages received'));
     this.bindingsList.appendChild(placeholder('No bindings configured'));
@@ -296,6 +321,17 @@ export class OSCSettingsPanel {
 
     this.urlInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') this.connectBtn.click();
+    });
+
+    const applyUdpPort = () => {
+      if (this.oscManager.setUdpPort(this.udpPortInput.value)) {
+        // The bridge answers with a status message, which refreshes the panel.
+        this.udpPortInput.blur();
+      }
+    };
+    this.panel.querySelector('#osc-udp-apply').addEventListener('click', applyUdpPort);
+    this.udpPortInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') applyUdpPort();
     });
 
     this.learnButton.addEventListener('click', () => {
@@ -425,9 +461,16 @@ export class OSCSettingsPanel {
     this.disconnectBtn.disabled = !status.enabled;
 
     this.bridgeInfoEl.replaceChildren();
+    this.udpRow.style.display = 'none';
 
     if (status.connected && status.bridge?.udpPort) {
       const { udpHost, udpPort, udpListening, udpError } = status.bridge;
+
+      // Keep the field showing the bridge's actual port, except while the
+      // artist is typing a new one into it.
+      if (document.activeElement !== this.udpPortInput) {
+        this.udpPortInput.value = String(udpPort);
+      }
 
       if (udpListening === false) {
         // Connected to the bridge, but it cannot hear OSC. Say which of the two
@@ -438,12 +481,27 @@ export class OSCSettingsPanel {
           el('div', 'color: #f44336;', udpError || `UDP ${udpPort} is not available.`),
         );
         this.bridgeInfoEl.appendChild(
-          el('div', 'margin-top: 4px;', 'Close whatever is using the port, or start the bridge on another one with --udp-port.'),
+          el(
+            'div',
+            'margin-top: 4px;',
+            'Usually your OSC sender holding the same port: it should send TO this port ' +
+              'from a different one, not listen on it. Free it and the bridge picks it up ' +
+              'within a few seconds — or move the bridge here and point your sender at the new port.',
+          ),
         );
+        // Only offer the control when it is the answer to something.
+        this.udpRow.style.display = 'flex';
       } else {
         this.bridgeInfoEl.appendChild(
           el('div', null, `Listening for OSC on UDP ${udpHost ?? '0.0.0.0'}:${udpPort}`),
         );
+        // Listening, but carrying an error: a request to move ports was
+        // refused and the bridge stayed where it was. Saying only where it is
+        // listening would read as if the move had worked.
+        if (udpError) {
+          this.bridgeInfoEl.appendChild(el('div', 'color: #FF9800; margin-top: 4px;', udpError));
+        }
+        this.udpRow.style.display = 'flex';
       }
     }
 

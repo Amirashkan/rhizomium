@@ -186,15 +186,36 @@ restart it. The other cause is Python or `aiohttp` missing, in which case the
 dev server prints `OSC: not started` rather than failing.
 
 **Panel says "UDP port busy"** — the bridge is running and reachable, but
-another application already holds the UDP port, so no OSC can arrive. The panel
-names the port. Close whatever is using it, or move the bridge:
+something else already holds the UDP port, so no OSC can arrive.
 
-```bash
-python osc_bridge_server.py --udp-port 9001
+The usual culprit is your own OSC sender. A sender and a receiver cannot both
+hold the same UDP port on one machine, and many hosts — VCV Rack modules,
+TouchOSC, Max — have a *receive* port setting sitting right next to the send
+one. If both are set to 9000, the sender binds it and the bridge cannot.
+Set the sender's **destination/output** port to 9000 and its **receive/input**
+port to something else, or turn its receive side off.
+
+To find the holder:
+
+```powershell
+netstat -ano -p UDP | findstr :9000        # Windows — note the PID
+tasklist /FI "PID eq <pid>"
 ```
 
-This is worth checking if your sender can also *receive* OSC: some hosts bind
-the port they are configured with even when only sending.
+```bash
+lsof -nP -iUDP:9000                        # macOS / Linux
+```
+
+Two ways out, both without restarting anything:
+
+- **Free the port.** Close whatever holds it; the bridge retries every few
+  seconds and picks it up on its own.
+- **Move the bridge.** Type a new port in the panel's *UDP port* field and
+  click **Move**, then point your sender at it. A port that is also refused
+  leaves the bridge on the one it already had rather than going deaf.
+
+To start on a different port every time, set `RHIZO_OSC_UDP_PORT=9001` (dev
+server) or pass `--udp-port 9001` (standalone).
 
 **Connected, but no addresses appear** — the sender is aimed somewhere else.
 Check the machine's LAN IP (not `localhost`, if the sender is a phone), confirm
