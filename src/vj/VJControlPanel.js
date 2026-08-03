@@ -11,6 +11,42 @@ import { PresetManager } from './PresetManager.js';
 import { TransitionManager } from './TransitionManager.js';
 import { PlaylistManager } from './PlaylistManager.js';
 import { BeatSyncManager } from './BeatSyncManager.js';
+import { setMasterOpacity } from './MasterOutput.js';
+import { makeDraggable } from '../ui/utils/draggable.js';
+
+// Siblings of SceneManager's 'rhizomium.vj.scenes'.
+const PRESETS_STORAGE_KEY = 'rhizomium.vj.presets';
+const PLAYLIST_STORAGE_KEY = 'rhizomium.vj.playlist';
+const SETTINGS_STORAGE_KEY = 'rhizomium.vj.settings';
+
+function readStoredJSON(key) {
+  try {
+    const json = localStorage.getItem(key);
+    return json ? JSON.parse(json) : null;
+  } catch {
+    // Unreadable or corrupt storage should not stop the panel from opening.
+    return null;
+  }
+}
+
+function writeStoredJSON(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    // Quota exceeded, or storage blocked entirely.
+    return false;
+  }
+}
+
+// Values match TransitionManager.TRANSITIONS. Shared by the scenes tab's
+// default-transition picker and the per-item picker on each playlist row.
+const TRANSITION_TYPES = [
+  { value: 'crossfade', label: 'Crossfade' },
+  { value: 'cut', label: 'Cut' },
+  { value: 'fade_black', label: 'Fade Black' },
+  { value: 'fade_white', label: 'Fade White' }
+];
 
 export class VJControlPanel {
   constructor(editor) {
@@ -30,11 +66,15 @@ export class VJControlPanel {
     // Performance controls
     this.masterOpacity = 1.0;
     this.playbackSpeed = 1.0;
+    this.beatSyncEnabled = true;
 
     this.createUI();
     this.attachEventListeners();
     this.loadFromStorage();
 
+    // Playback that advances on its own (auto-advance, next/previous, a scene
+    // that dropped out) has to be able to redraw the list.
+    this.playlistManager.onStateChange = () => this.syncPlaylistUI();
   }
 
   /**
@@ -90,6 +130,11 @@ export class VJControlPanel {
     header.appendChild(closeBtn);
 
     this.container.appendChild(header);
+    this.header = header;
+
+    // Drag by the header, like every other floating panel in the editor. The
+    // helper ignores mousedown on buttons, so × still closes.
+    this.cleanupDraggable = makeDraggable(this.container, header);
   }
 
   /**
@@ -147,10 +192,10 @@ export class VJControlPanel {
     // Transition type select
     this.transitionTypeSelect = document.createElement('select');
     this.transitionTypeSelect.className = 'vj-select';
-    ['Crossfade', 'Cut', 'Fade Black', 'Fade White'].forEach(type => {
+    TRANSITION_TYPES.forEach(({ value, label }) => {
       const option = document.createElement('option');
-      option.value = type.toLowerCase().replace(/\s+/g, '_');
-      option.textContent = type;
+      option.value = value;
+      option.textContent = label;
       this.transitionTypeSelect.appendChild(option);
     });
     transitionRow.appendChild(this.transitionTypeSelect);
@@ -184,7 +229,7 @@ export class VJControlPanel {
 
     const loadBtn = this.createButton('Load Scene', 'Load scene from file', () => this.loadSceneFromFile(), 'folder');
     const captureBtn = this.createButton('Capture Current', 'Capture current state as scene', () => this.captureCurrentScene(), 'capture');
-    const saveAllBtn = this.createButton('Save All', 'Save all scenes', () => this.saveAllScenes(), 'save-disk');
+    const saveAllBtn = this.createButton('Save All', 'Save scenes, presets and playlist', () => this.saveAllScenes(), 'save-disk');
 
     buttonGroup.appendChild(loadBtn);
     buttonGroup.appendChild(captureBtn);
@@ -288,11 +333,18 @@ export class VJControlPanel {
 
     this.playlistItems = playlistItems;
 
-    // Add to playlist button
+    // Add to playlist: pick any scene, loaded or not.
     const addGroup = document.createElement('div');
     addGroup.className = 'vj-button-group';
 
-    const addBtn = this.createButton('Add Active Scene', 'Add current scene to playlist', () => this.addActiveSceneToPlaylist(), 'add');
+    this.playlistSceneSelect = document.createElement('select');
+    this.playlistSceneSelect.className = 'vj-select';
+    this.playlistSceneSelect.title = 'Scene to add';
+    addGroup.appendChild(this.playlistSceneSelect);
+
+    const addBtn = this.createButton('Add', 'Add the selected scene to the playlist', () => {
+      this.addSceneToPlaylist(this.playlistSceneSelect.value);
+    }, 'add');
     const clearBtn = this.createButton('Clear Playlist', 'Clear all playlist items', () => this.clearPlaylist(), 'trash');
 
     addGroup.appendChild(addBtn);
@@ -300,6 +352,43 @@ export class VJControlPanel {
     tab.appendChild(addGroup);
 
     this.contentArea.appendChild(tab);
+  }
+
+  /**
+   * Keep the scene picker in step with the scene collection, holding the current
+   * choice where it still exists.
+   */
+  refreshPlaylistSceneOptions() {
+    if (!this.playlistSceneSelect) return;
+
+    const scenes = this.sceneManager.getAllScenes();
+    const previous = this.playlistSceneSelect.value;
+
+    this.playlistSceneSelect.innerHTML = '';
+
+    if (scenes.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No scenes available';
+      this.playlistSceneSelect.appendChild(option);
+      this.playlistSceneSelect.disabled = true;
+      return;
+    }
+
+    this.playlistSceneSelect.disabled = false;
+    scenes.forEach(scene => {
+      const option = document.createElement('option');
+      option.value = scene.id;
+      option.textContent = scene.name;
+      this.playlistSceneSelect.appendChild(option);
+    });
+
+    const keep = scenes.some(scene => scene.id === previous)
+      ? previous
+      : (this.sceneManager.activeSceneId && scenes.some(s => s.id === this.sceneManager.activeSceneId)
+        ? this.sceneManager.activeSceneId
+        : scenes[0].id);
+    this.playlistSceneSelect.value = keep;
   }
 
   /**
@@ -313,8 +402,18 @@ export class VJControlPanel {
     const bpmGroup = document.createElement('div');
     bpmGroup.className = 'vj-control-group-inline';
 
+    // Beat sync is a performance aid, not something every set wants running -
+    // this switches the whole clock off, indicator included.
     const bpmLabel = document.createElement('label');
-    bpmLabel.textContent = 'BPM:';
+    bpmLabel.title = 'Enable beat sync';
+    this.beatEnabledCheck = document.createElement('input');
+    this.beatEnabledCheck.type = 'checkbox';
+    this.beatEnabledCheck.checked = this.beatSyncEnabled;
+    this.beatEnabledCheck.onchange = () => {
+      this.setBeatSyncEnabled(this.beatEnabledCheck.checked);
+    };
+    bpmLabel.appendChild(this.beatEnabledCheck);
+    bpmLabel.appendChild(document.createTextNode(' BPM:'));
     bpmGroup.appendChild(bpmLabel);
 
     this.bpmInput = document.createElement('input');
@@ -324,13 +423,17 @@ export class VJControlPanel {
     this.bpmInput.max = '300';
     this.bpmInput.value = '120';
     this.bpmInput.onchange = () => {
-      this.beatSyncManager.setBPM(parseFloat(this.bpmInput.value));
+      // Reject out-of-range entries by snapping the field back, rather than
+      // leaving it showing a tempo the clock never took.
+      if (!this.beatSyncManager.setBPM(parseFloat(this.bpmInput.value))) {
+        this.bpmInput.value = String(this.beatSyncManager.bpm);
+      }
     };
     bpmGroup.appendChild(this.bpmInput);
 
-    const tapBtn = this.createButton('Tap', 'Tap tempo', () => this.tapTempo(), 'tap-tempo');
-    tapBtn.className = 'vj-btn-small';
-    bpmGroup.appendChild(tapBtn);
+    this.tapBtn = this.createButton('Tap', 'Tap tempo', () => this.tapTempo(), 'tap-tempo');
+    this.tapBtn.className = 'vj-btn-small';
+    bpmGroup.appendChild(this.tapBtn);
 
     // Beat indicator
     this.beatIndicator = document.createElement('div');
@@ -339,6 +442,8 @@ export class VJControlPanel {
     bpmGroup.appendChild(this.beatIndicator);
 
     footer.appendChild(bpmGroup);
+
+    this.updateBeatSyncControls();
 
     // Quick controls separator
     const separator = document.createElement('div');
@@ -361,8 +466,7 @@ export class VJControlPanel {
     this.opacitySlider.max = '100';
     this.opacitySlider.value = '100';
     this.opacitySlider.oninput = () => {
-      this.masterOpacity = parseFloat(this.opacitySlider.value) / 100;
-      this.opacityValue.textContent = `${this.opacitySlider.value}%`;
+      this.setMasterOpacity(parseFloat(this.opacitySlider.value) / 100);
     };
     opacityGroup.appendChild(this.opacitySlider);
 
@@ -388,9 +492,7 @@ export class VJControlPanel {
     this.speedSlider.max = '200';
     this.speedSlider.value = '100';
     this.speedSlider.oninput = () => {
-      this.playbackSpeed = parseFloat(this.speedSlider.value) / 100;
-      this.speedValue.textContent = `${(this.playbackSpeed).toFixed(2)}x`;
-      this.applyPlaybackSpeed();
+      this.setPlaybackSpeed(parseFloat(this.speedSlider.value) / 100);
     };
     speedGroup.appendChild(this.speedSlider);
 
@@ -448,6 +550,8 @@ export class VJControlPanel {
    */
   refreshScenes() {
     this.scenesArea.innerHTML = '';
+    // The playlist's scene picker reads from the same collection.
+    this.refreshPlaylistSceneOptions();
 
     const scenes = this.sceneManager.getAllScenes();
 
@@ -476,6 +580,21 @@ export class VJControlPanel {
       sceneInfo.textContent = `${scene.duration}s`;
       sceneCard.appendChild(sceneInfo);
 
+      // Cue note: what this scene is for, when to fire it. Saved on the scene,
+      // so it rides along with the rest of the set into storage.
+      const notes = document.createElement('textarea');
+      notes.className = 'vj-scene-notes';
+      notes.rows = 2;
+      notes.placeholder = 'Notes…';
+      notes.title = 'Notes for this scene';
+      notes.value = scene.notes || '';
+      notes.onchange = () => {
+        this.sceneManager.updateSceneMetadata(scene.id, { notes: notes.value });
+      };
+      // The card switches scene on click; typing a note must not load it.
+      notes.onclick = (e) => e.stopPropagation();
+      sceneCard.appendChild(notes);
+
       const actions = document.createElement('div');
       actions.className = 'vj-scene-actions';
 
@@ -484,6 +603,15 @@ export class VJControlPanel {
       });
       switchBtn.className = 'vj-btn-small';
       actions.appendChild(switchBtn);
+
+      // Queue straight from the scene list. Requiring a scene to be loaded
+      // before it could be queued meant building a playlist tore down the graph
+      // once per entry - and any scene that failed to load could never be added.
+      const queueBtn = this.createButton('＋', 'Add to playlist', () => {
+        this.addSceneToPlaylist(scene.id);
+      });
+      queueBtn.className = 'vj-btn-small';
+      actions.appendChild(queueBtn);
 
       const deleteBtn = this.createButton('×', 'Remove scene', () => {
         if (confirm(`Remove scene "${scene.name}"?`)) {
@@ -539,9 +667,7 @@ export class VJControlPanel {
       actions.className = 'vj-preset-actions';
 
       const applyBtn = this.createButton('Apply', 'Apply this preset', () => {
-        const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
-        this.presetManager.applyPreset(preset.id, transitionTime);
-        this.refreshPresets();
+        this.applyPreset(preset.id);
       });
       applyBtn.className = 'vj-btn-small';
       actions.appendChild(applyBtn);
@@ -560,9 +686,7 @@ export class VJControlPanel {
       // Click to apply
       presetCard.onclick = (e) => {
         if (!e.target.closest('.vj-preset-actions')) {
-          const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
-          this.presetManager.applyPreset(preset.id, transitionTime);
-          this.refreshPresets();
+          this.applyPreset(preset.id);
         }
       };
 
@@ -571,9 +695,23 @@ export class VJControlPanel {
   }
 
   /**
+   * Apply a preset, then redraw so the active marker lands on it. The redraw
+   * waits for the transition to finish - an interpolated preset only becomes
+   * the active one once it has arrived.
+   */
+  async applyPreset(presetId) {
+    const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
+    const applied = await this.presetManager.applyPreset(presetId, transitionTime);
+    this.refreshPresets();
+    return applied;
+  }
+
+  /**
    * Refresh playlist display
    */
   refreshPlaylist() {
+    this.refreshPlaylistSceneOptions();
+    this.updateTransportButtons();
     this.playlistItems.innerHTML = '';
 
     const playlist = this.playlistManager.getPlaylist();
@@ -606,9 +744,48 @@ export class VJControlPanel {
       itemName.textContent = item.sceneName;
       itemInfo.appendChild(itemName);
 
+      // How long the scene holds and how it arrives are the two things a set
+      // gets built out of, so they are editable per row - PlaylistManager has
+      // always had updatePlaylistItem, nothing ever called it.
       const itemDetails = document.createElement('div');
       itemDetails.className = 'vj-playlist-details';
-      itemDetails.textContent = `${item.duration}s · ${item.transitionType}`;
+
+      const durationInput = document.createElement('input');
+      durationInput.type = 'number';
+      durationInput.className = 'vj-input-tiny';
+      durationInput.min = '0.1';
+      durationInput.step = '0.5';
+      durationInput.value = String(item.duration);
+      durationInput.title = 'Seconds to hold this scene';
+      durationInput.onchange = () => {
+        const seconds = parseFloat(durationInput.value);
+        if (!Number.isFinite(seconds) || seconds <= 0) {
+          durationInput.value = String(item.duration);
+          return;
+        }
+        this.playlistManager.updatePlaylistItem(index, { duration: seconds });
+      };
+      itemDetails.appendChild(durationInput);
+
+      const unit = document.createElement('span');
+      unit.textContent = 's';
+      itemDetails.appendChild(unit);
+
+      const transitionSelect = document.createElement('select');
+      transitionSelect.className = 'vj-select-tiny';
+      transitionSelect.title = 'Transition into this scene';
+      TRANSITION_TYPES.forEach(({ value, label }) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        transitionSelect.appendChild(option);
+      });
+      transitionSelect.value = item.transitionType;
+      transitionSelect.onchange = () => {
+        this.playlistManager.updatePlaylistItem(index, { transitionType: transitionSelect.value });
+      };
+      itemDetails.appendChild(transitionSelect);
+
       itemInfo.appendChild(itemDetails);
 
       itemCard.appendChild(itemInfo);
@@ -645,11 +822,12 @@ export class VJControlPanel {
 
       itemCard.appendChild(actions);
 
-      // Click to jump to item
+      // Click to jump to item - but not when the click was meant for the row's
+      // own controls, or setting a duration would also load the scene.
       itemCard.onclick = (e) => {
-        if (!e.target.closest('.vj-playlist-actions')) {
-          this.playlistManager.jumpTo(index);
-        }
+        if (e.target.closest('.vj-playlist-actions')) return;
+        if (e.target.closest('.vj-playlist-details')) return;
+        this.playlistManager.jumpTo(index);
       };
 
       this.playlistItems.appendChild(itemCard);
@@ -708,11 +886,14 @@ export class VJControlPanel {
   }
 
   /**
-   * Save all scenes
+   * Save the whole VJ set - scenes, presets and playlist.
    */
   saveAllScenes() {
-    this.sceneManager.saveToLocalStorage();
-    alert('Scenes saved to browser storage');
+    if (this.saveToStorage()) {
+      alert('Scenes, presets and playlist saved to browser storage');
+    } else {
+      alert('Could not save the VJ set - browser storage is full or unavailable.');
+    }
   }
 
   /**
@@ -723,16 +904,26 @@ export class VJControlPanel {
     const transitionDuration = parseFloat(this.transitionDurationInput.value) || 0;
 
     const scene = this.sceneManager.getScene(sceneId);
-    if (!scene) return;
+    if (!scene) return false;
 
-    await this.transitionManager.startTransition(
-      scene.data,
-      transitionType,
-      transitionDuration
-    );
+    try {
+      await this.transitionManager.startTransition(
+        scene.data,
+        transitionType,
+        transitionDuration
+      );
+    } catch (error) {
+      // Surface the failure instead of leaving an unhandled rejection behind a
+      // panel that looks like it did nothing.
+      alert(`Failed to load scene "${scene.name}": ${error?.message || error}`);
+      this.refreshScenes();
+      return false;
+    }
 
     this.sceneManager.activeSceneId = sceneId;
+    scene.lastUsed = Date.now();
     this.refreshScenes();
+    return true;
   }
 
   /**
@@ -757,27 +948,38 @@ export class VJControlPanel {
   }
 
   /**
-   * Add active scene to playlist
+   * Add a scene to the playlist.
+   *
+   * Any scene can be queued, whether or not it is the one currently loaded -
+   * a playlist is a list of scenes to come, so demanding that each be loaded
+   * first made building one impossible past the first entry.
    */
-  addActiveSceneToPlaylist() {
-    const activeSceneId = this.sceneManager.activeSceneId;
-    if (!activeSceneId) {
-      alert('No active scene. Switch to a scene first.');
-      return;
+  addSceneToPlaylist(sceneId) {
+    const id = sceneId || this.sceneManager.activeSceneId;
+    const scene = id ? this.sceneManager.getScene(id) : null;
+
+    if (!scene) {
+      alert('No scene to add. Capture or load a scene first.');
+      return false;
     }
 
     const transitionType = this.transitionTypeSelect.value;
-    const transitionDuration = parseFloat(this.transitionDurationInput.value) || 1.0;
-    const scene = this.sceneManager.getScene(activeSceneId);
+    // `|| 1.0` here turned a deliberate 0 back into a one-second fade, so an
+    // instant change could not be queued at all.
+    const parsedDuration = parseFloat(this.transitionDurationInput.value);
+    const transitionDuration = Number.isFinite(parsedDuration) && parsedDuration >= 0
+      ? parsedDuration
+      : 1.0;
 
-    this.playlistManager.addToPlaylist(
-      activeSceneId,
-      scene?.duration || 30,
+    const added = this.playlistManager.addToPlaylist(
+      scene.id,
+      scene.duration || 30,
       transitionType,
       transitionDuration
     );
 
     this.refreshPlaylist();
+    return added;
   }
 
   /**
@@ -798,15 +1000,17 @@ export class VJControlPanel {
 
     if (status.isPlaying) {
       this.playlistManager.pause();
-      setIcon(this.playlistPlayBtn, 'play', { label: 'Play playlist' });
+    } else if (status.playlistLength === 0) {
+      // Nothing queued - don't claim to be playing.
+      this.updateTransportButtons();
+      return;
+    } else if (status.currentIndex < 0) {
+      await this.playlistManager.play(0);
     } else {
-      if (status.currentIndex < 0) {
-        await this.playlistManager.play(0);
-      } else {
-        this.playlistManager.resume();
-      }
-      setIcon(this.playlistPlayBtn, 'pause', { label: 'Pause playlist' });
+      await this.playlistManager.resume();
     }
+
+    this.updateTransportButtons();
   }
 
   /**
@@ -814,7 +1018,41 @@ export class VJControlPanel {
    */
   stopPlaylist() {
     this.playlistManager.stop();
-    setIcon(this.playlistPlayBtn, 'play', { label: 'Play playlist' });
+    this.refreshPlaylist();
+  }
+
+  /**
+   * Transport buttons reflect real playback state, whoever changed it - the
+   * play button used to be flipped by hand and would lie as soon as playback
+   * ended, looped out, or ran off the end of a non-looping playlist.
+   */
+  updateTransportButtons() {
+    const status = this.playlistManager.getStatus();
+    const empty = status.playlistLength === 0;
+
+    if (this.playlistPlayBtn) {
+      setIcon(this.playlistPlayBtn, status.isPlaying ? 'pause' : 'play');
+      this.playlistPlayBtn.title = status.isPlaying ? 'Pause playlist' : 'Play playlist';
+      this.playlistPlayBtn.disabled = empty;
+    }
+    if (this.playlistStopBtn) this.playlistStopBtn.disabled = empty;
+    if (this.playlistPrevBtn) this.playlistPrevBtn.disabled = empty;
+    if (this.playlistNextBtn) this.playlistNextBtn.disabled = empty;
+  }
+
+  /**
+   * Redraw the playlist tab in response to playback state changes. Only when
+   * that tab is on screen - rebuilding hidden DOM mid-show is wasted work.
+   */
+  syncPlaylistUI() {
+    if (!this.visible || this.activeTab !== 'playlist') return;
+
+    // Rebuilding the rows destroys their inputs. If one is focused the user is
+    // part-way through setting a duration or transition - leave it alone and
+    // let the next refresh pick the change up.
+    const focused = document.activeElement;
+    if (focused && this.playlistItems.contains(focused)) return;
+
     this.refreshPlaylist();
   }
 
@@ -822,19 +1060,111 @@ export class VJControlPanel {
    * Tap tempo
    */
   tapTempo() {
+    if (!this.beatSyncEnabled) return;
     this.beatSyncManager.tap();
     this.bpmInput.value = this.beatSyncManager.bpm;
   }
 
   /**
+   * Turn beat sync on or off. Off stops the clock outright rather than just
+   * hiding it, so nothing is running behind a set that does not use it.
+   */
+  setBeatSyncEnabled(enabled) {
+    this.beatSyncEnabled = !!enabled;
+
+    if (this.beatEnabledCheck) {
+      this.beatEnabledCheck.checked = this.beatSyncEnabled;
+    }
+
+    if (this.beatSyncEnabled) {
+      if (this.visible) this.beatSyncManager.start();
+    } else {
+      this.beatSyncManager.stop();
+      this.beatSyncManager.resetTap();
+    }
+
+    this.updateBeatSyncControls();
+    return this.beatSyncEnabled;
+  }
+
+  /** Grey out the tempo controls and blank the indicator while sync is off. */
+  updateBeatSyncControls() {
+    const off = !this.beatSyncEnabled;
+
+    if (this.bpmInput) this.bpmInput.disabled = off;
+    if (this.tapBtn) this.tapBtn.disabled = off;
+    if (this.beatIndicator) {
+      this.beatIndicator.classList.toggle('disabled', off);
+      if (off) this._renderBeat(-1);
+    }
+  }
+
+  /**
+   * Master opacity fader.
+   *
+   * Goes through MasterOutput rather than writing the canvas directly, so a
+   * scene transition running at the same time composes with the fader instead of
+   * one overwriting the other.
+   */
+  setMasterOpacity(opacity) {
+    const clamped = Math.min(1, Math.max(0, Number.isFinite(opacity) ? opacity : 1));
+    this.masterOpacity = clamped;
+
+    const percent = Math.round(clamped * 100);
+    if (this.opacitySlider && this.opacitySlider.value !== String(percent)) {
+      this.opacitySlider.value = String(percent);
+    }
+    if (this.opacityValue) this.opacityValue.textContent = `${percent}%`;
+
+    setMasterOpacity(clamped);
+    return clamped;
+  }
+
+  /**
+   * Playback speed fader - drives the render loop's time scale.
+   */
+  setPlaybackSpeed(speed) {
+    const clamped = Math.min(4, Math.max(0, Number.isFinite(speed) ? speed : 1));
+    this.playbackSpeed = clamped;
+
+    const percent = Math.round(clamped * 100);
+    if (this.speedSlider && this.speedSlider.value !== String(percent)) {
+      this.speedSlider.value = String(percent);
+    }
+    if (this.speedValue) this.speedValue.textContent = `${clamped.toFixed(2)}x`;
+
+    this.applyPlaybackSpeed();
+    return clamped;
+  }
+
+  /**
    * Apply playback speed
+   *
+   * Preview settings own the render loop's time scale, so route through them
+   * where possible - that keeps the settings window's own speed control in sync
+   * and reuses the code path that already refreshes the preview. The fallback
+   * covers the panel running before the floating preview exists.
    */
   applyPlaybackSpeed() {
-    // This would need to be integrated with the timeline manager
-    if (this.editor.timelineManager) {
-      // Modify time scale
-      // This is a placeholder - actual implementation would depend on
-      // how the timeline manager handles playback speed
+    const scale = this.playbackSpeed;
+
+    const previewSettings = typeof window !== 'undefined' ? window.floatingPreview?.settings : null;
+    if (previewSettings && typeof previewSettings.updateSetting === 'function') {
+      previewSettings.updateSetting('timeScale', scale);
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.timeScale = scale;
+      if (window.expressionSystem) {
+        window.expressionSystem.timeScale = scale;
+      }
+      window.renderLoop?.setTimeScale?.(scale);
+      window.renderLoop?.renderNow?.({ advance: false });
+    }
+
+    if (this.editor) {
+      this.editor.timeScale = scale;
     }
   }
 
@@ -868,8 +1198,7 @@ export class VJControlPanel {
           e.preventDefault();
           const presets = this.presetManager.getAllPresets();
           if (presets[fNum - 1]) {
-            const transitionTime = parseFloat(this.presetTransitionInput.value) || 0;
-            this.presetManager.applyPreset(presets[fNum - 1].id, transitionTime);
+            this.applyPreset(presets[fNum - 1].id);
           }
         }
       }
@@ -886,6 +1215,7 @@ export class VJControlPanel {
    * Update beat indicator
    */
   updateBeatIndicator(currentBeat) {
+    if (!this.beatSyncEnabled) return;
     this._renderBeat(currentBeat % 4);
   }
 
@@ -916,6 +1246,11 @@ export class VJControlPanel {
     this.visible = true;
     this.container.style.display = 'flex';
     this.switchTab(this.activeTab);
+
+    // The beat clock was never started, so BPM and tap tempo drove nothing and
+    // the indicator sat blank. Run it while the panel is open - unless the user
+    // has switched beat sync off.
+    if (this.beatSyncEnabled) this.beatSyncManager.start();
   }
 
   /**
@@ -924,6 +1259,9 @@ export class VJControlPanel {
   hide() {
     this.visible = false;
     this.container.style.display = 'none';
+
+    // No need to burn a frame callback on an indicator nobody can see.
+    this.beatSyncManager.pause();
   }
 
   /**
@@ -938,16 +1276,50 @@ export class VJControlPanel {
   }
 
   /**
-   * Load from storage
+   * Load from storage.
+   *
+   * Scenes were the only thing ever restored, so presets and playlists - which
+   * take a set apart and rebuild it - vanished on every reload.
    */
   loadFromStorage() {
     this.sceneManager.loadFromLocalStorage();
+
+    const presets = readStoredJSON(PRESETS_STORAGE_KEY);
+    if (presets) this.presetManager.importPresets(presets);
+
+    const playlist = readStoredJSON(PLAYLIST_STORAGE_KEY);
+    if (playlist) {
+      this.playlistManager.importPlaylist(playlist);
+      if (this.playlistLoopCheck) {
+        this.playlistLoopCheck.checked = this.playlistManager.loop;
+      }
+    }
+
+    const settings = readStoredJSON(SETTINGS_STORAGE_KEY);
+    if (settings) {
+      if (Number.isFinite(settings.bpm) && this.beatSyncManager.setBPM(settings.bpm)) {
+        this.bpmInput.value = String(this.beatSyncManager.bpm);
+      }
+      if (settings.beatSyncEnabled !== undefined) {
+        this.setBeatSyncEnabled(settings.beatSyncEnabled);
+      }
+    }
   }
 
   /**
-   * Save to storage
+   * Save to storage. Returns false if any part could not be written, so the
+   * caller can tell the user rather than claiming a save that did not happen.
    */
   saveToStorage() {
-    this.sceneManager.saveToLocalStorage();
+    const scenesSaved = this.sceneManager.saveToLocalStorage();
+    const presetsSaved = writeStoredJSON(PRESETS_STORAGE_KEY, this.presetManager.exportPresets());
+    const playlistSaved = writeStoredJSON(PLAYLIST_STORAGE_KEY, this.playlistManager.exportPlaylist());
+    const settingsSaved = writeStoredJSON(SETTINGS_STORAGE_KEY, {
+      version: 1,
+      beatSyncEnabled: this.beatSyncEnabled,
+      bpm: this.beatSyncManager.bpm
+    });
+
+    return scenesSaved && presetsSaved && playlistSaved && settingsSaved;
   }
 }

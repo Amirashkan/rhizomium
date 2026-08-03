@@ -4,6 +4,8 @@
  * Handles transitions between scenes with various effects.
  */
 
+import { setTransitionOpacity, clearTransitionOpacity } from './MasterOutput.js';
+
 export class TransitionManager {
   constructor(editor) {
     this.editor = editor;
@@ -18,6 +20,11 @@ export class TransitionManager {
     this.toSceneData = null;
     this.transitionStartTime = null;
 
+    // Bumped whenever a transition starts or is cancelled. A running fade
+    // compares against it every frame and bails out the moment it is no longer
+    // the current transition, so a superseded animation can't keep writing
+    // opacity underneath its replacement.
+    this.transitionToken = 0;
   }
 
   /**
@@ -37,8 +44,12 @@ export class TransitionManager {
    * @param {number} duration - Transition duration in seconds
    */
   async startTransition(targetSceneData, type = 'crossfade', duration = 1.0) {
+    // A transition already running is not a reason to refuse: a VJ retriggering
+    // a scene mid-fade expects the new one to take over. Cancelling also means a
+    // transition that threw part-way (a bad project file, say) can never leave
+    // the manager latched and silently swallow every later scene change.
     if (this.isTransitioning) {
-      return false;
+      this.cancelTransition();
     }
 
     this.transitionType = type;
@@ -47,95 +58,96 @@ export class TransitionManager {
     this.transitionProgress = 0;
     this.transitionStartTime = performance.now();
 
+    const token = ++this.transitionToken;
 
-    // Handle instant transitions
-    if (type === TransitionManager.TRANSITIONS.CUT || duration === 0) {
-      await this.editor.saveLoadManager.importProject(targetSceneData);
-      this.completeTransition();
-      return true;
-    }
-
-    // Handle animated transitions
-    switch (type) {
-      case TransitionManager.TRANSITIONS.CROSSFADE:
-        await this.executeCrossfade(targetSceneData);
-        break;
-
-      case TransitionManager.TRANSITIONS.FADE_BLACK:
-      case TransitionManager.TRANSITIONS.FADE_WHITE:
-        await this.executeFade(targetSceneData, type);
-        break;
-
-      default:
+    try {
+      // Handle instant transitions
+      if (type === TransitionManager.TRANSITIONS.CUT || duration === 0) {
         await this.editor.saveLoadManager.importProject(targetSceneData);
-    }
+        return true;
+      }
 
-    this.completeTransition();
-    return true;
+      // Handle animated transitions
+      switch (type) {
+        case TransitionManager.TRANSITIONS.CROSSFADE:
+          await this.executeCrossfade(targetSceneData, token);
+          break;
+
+        case TransitionManager.TRANSITIONS.FADE_BLACK:
+        case TransitionManager.TRANSITIONS.FADE_WHITE:
+          await this.executeFade(targetSceneData, type, token);
+          break;
+
+        default:
+          await this.editor.saveLoadManager.importProject(targetSceneData);
+      }
+
+      return true;
+    } finally {
+      // Only the transition that is still current gets to tidy up - a
+      // superseded one would otherwise clear the flag its replacement set.
+      if (token === this.transitionToken) {
+        this.completeTransition();
+      }
+    }
   }
 
   /**
    * Execute crossfade transition
    */
-  async executeCrossfade(targetSceneData) {
-
-    const gpuCanvas = document.getElementById('gpu-canvas');
-    if (!gpuCanvas) {
-      await this.editor.saveLoadManager.importProject(targetSceneData);
-      return;
-    }
-
+  async executeCrossfade(targetSceneData, token) {
     // Fade out current scene
-    await this.fadeCanvas(gpuCanvas, 1.0, 0.0, this.transitionDuration / 2);
+    await this.fadeOutput(1.0, 0.0, this.transitionDuration / 2, token);
 
     // Load new scene at 0 opacity
     await this.editor.saveLoadManager.importProject(targetSceneData);
 
     // Fade in new scene
-    await this.fadeCanvas(gpuCanvas, 0.0, 1.0, this.transitionDuration / 2);
+    await this.fadeOutput(0.0, 1.0, this.transitionDuration / 2, token);
   }
 
   /**
    * Execute fade through color transition
    */
-  async executeFade(targetSceneData, type) {
+  async executeFade(targetSceneData, type, token) {
     const color = type === TransitionManager.TRANSITIONS.FADE_BLACK ? 'black' : 'white';
 
-    const gpuCanvas = document.getElementById('gpu-canvas');
-    if (!gpuCanvas) {
-      await this.editor.saveLoadManager.importProject(targetSceneData);
-      return;
-    }
-
     // Fade to color
-    await this.fadeToColor(gpuCanvas, color, 0.0, 1.0, this.transitionDuration / 2);
+    await this.fadeToColor(color, 0.0, 1.0, this.transitionDuration / 2, token);
 
     // Load new scene while color overlay is visible
     await this.editor.saveLoadManager.importProject(targetSceneData);
 
     // Fade from color
-    await this.fadeToColor(gpuCanvas, color, 1.0, 0.0, this.transitionDuration / 2);
+    await this.fadeToColor(color, 1.0, 0.0, this.transitionDuration / 2, token);
   }
 
   /**
-   * Fade canvas opacity
+   * Fade the rendered output. Goes through MasterOutput so the master fader in
+   * the VJ panel keeps its say over the final opacity.
    */
-  async fadeCanvas(canvas, fromOpacity, toOpacity, duration) {
+  async fadeOutput(fromOpacity, toOpacity, duration, token = this.transitionToken) {
     const startTime = performance.now();
 
     return new Promise(resolve => {
       const animate = () => {
+        if (token !== this.transitionToken) {
+          resolve();
+          return;
+        }
+
         const elapsed = (performance.now() - startTime) / 1000;
-        const t = Math.min(elapsed / duration, 1);
+        const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1;
         const eased = this.easeInOutCubic(t);
 
         const opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
-        canvas.style.opacity = opacity.toString();
+        setTransitionOpacity(opacity);
+        this.transitionProgress = t;
 
         if (t < 1) {
           requestAnimationFrame(animate);
         } else {
-          canvas.style.opacity = toOpacity.toString();
+          setTransitionOpacity(toOpacity);
           resolve();
         }
       };
@@ -147,7 +159,7 @@ export class TransitionManager {
   /**
    * Fade to/from a color overlay
    */
-  async fadeToColor(canvas, color, fromOpacity, toOpacity, duration) {
+  async fadeToColor(color, fromOpacity, toOpacity, duration, token = this.transitionToken) {
     // Create overlay if it doesn't exist
     let overlay = document.getElementById('vj-transition-overlay');
     if (!overlay) {
@@ -172,12 +184,18 @@ export class TransitionManager {
 
     return new Promise(resolve => {
       const animate = () => {
+        if (token !== this.transitionToken) {
+          resolve();
+          return;
+        }
+
         const elapsed = (performance.now() - startTime) / 1000;
-        const t = Math.min(elapsed / duration, 1);
+        const t = duration > 0 ? Math.min(elapsed / duration, 1) : 1;
         const eased = this.easeInOutCubic(t);
 
         const opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
         overlay.style.opacity = opacity.toString();
+        this.transitionProgress = t;
 
         if (t < 1) {
           requestAnimationFrame(animate);
@@ -199,52 +217,6 @@ export class TransitionManager {
   }
 
   /**
-   * Animate opacity over time
-   */
-  async animateOpacity(fromOpacity, toOpacity, duration, startTime) {
-    return new Promise(resolve => {
-      const animate = () => {
-        const elapsed = (performance.now() - startTime) / 1000;
-        const t = Math.min(elapsed / duration, 1);
-        const eased = this.easeInOutCubic(t);
-
-        // Update transition progress
-        this.transitionProgress = t;
-
-        // Calculate current opacity
-        const opacity = fromOpacity + (toOpacity - fromOpacity) * eased;
-
-        // Apply opacity to all output nodes
-        // Note: This is a simplified approach - in production you'd want
-        // to modify the shader output directly
-        this.applyMasterOpacity(opacity);
-
-        if (t < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          resolve();
-        }
-      };
-
-      animate();
-    });
-  }
-
-  /**
-   * Apply master opacity (placeholder - needs shader integration)
-   */
-  applyMasterOpacity(_opacity) {
-    // This would need to be integrated with the GPU renderer
-    // For now, this is a placeholder that could modify canvas alpha
-    // or inject an opacity uniform into the shader
-
-    if (this.editor.gpuCanvas) {
-      // Placeholder: Would need actual GPU implementation
-      // Could add a post-processing pass or modify output alpha
-    }
-  }
-
-  /**
    * Easing function
    */
   easeInOutCubic(t) {
@@ -261,6 +233,15 @@ export class TransitionManager {
     this.toSceneData = null;
     this.transitionStartTime = null;
 
+    // Hand the output back to the master fader. Without this, a transition that
+    // ended (or threw) mid-fade would leave the render stuck at whatever
+    // opacity the last animation frame wrote.
+    clearTransitionOpacity();
+
+    const overlay = document.getElementById('vj-transition-overlay');
+    if (overlay) {
+      overlay.style.opacity = '0';
+    }
   }
 
   /**
@@ -269,6 +250,9 @@ export class TransitionManager {
   cancelTransition() {
     if (!this.isTransitioning) return;
 
+    // Invalidate the running animation before clearing state so its next frame
+    // stops instead of fading the output that the next transition now owns.
+    this.transitionToken++;
     this.completeTransition();
   }
 

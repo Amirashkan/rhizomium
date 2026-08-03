@@ -37,6 +37,7 @@
 
 import { isTauri } from '../utils/isTauri.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
+import { getOutputOpacity, onOutputOpacityChange } from '../vj/MasterOutput.js';
 import {
   SecondMonitorMessage as MSG,
   SecondMonitorTier as TIER,
@@ -75,6 +76,7 @@ export class TauriSecondMonitorViewer {
     this._unlistenMainClose = null; // editor close-requested unlisten (close child with editor)
     this._channel = null;        // BroadcastChannel to the receiver page
     this._onChannelMessage = null;
+    this._unsubscribeOpacity = null; // VJ master fader subscription
     this._stateTap = null;       // handler registered on the renderer's state tap
     this._frameTap = null;       // handler registered on the renderer's frame tap (fallback)
     this._mode = null;           // 'native' | 'fallback', decided per shader
@@ -134,6 +136,12 @@ export class TauriSecondMonitorViewer {
       this._channel = channel;
       this._onChannelMessage = (e) => this._handleChannelMessage(e);
       channel.addEventListener('message', this._onChannelMessage);
+
+      // The receiver renders its own frames, so the master fader's effect on the
+      // editor's canvas never reaches it. Follow the level and send it across.
+      this._unsubscribeOpacity = onOutputOpacityChange((opacity) => {
+        this._broadcastMasterOpacity(opacity);
+      });
 
       await this._createWindow();
     } catch (err) {
@@ -213,6 +221,10 @@ export class TauriSecondMonitorViewer {
     if (this._channel && this._onChannelMessage) {
       try { this._channel.removeEventListener('message', this._onChannelMessage); } catch { /* ignore */ }
     }
+    if (typeof this._unsubscribeOpacity === 'function') {
+      try { this._unsubscribeOpacity(); } catch { /* ignore */ }
+    }
+    this._unsubscribeOpacity = null;
     try { this._channel?.close(); } catch { /* ignore */ }
     if (typeof this._unlistenMainClose === 'function') {
       try { this._unlistenMainClose(); } catch { /* ignore */ }
@@ -260,7 +272,19 @@ export class TauriSecondMonitorViewer {
           displayMaxDim: this._displayMaxDim,
         });
       } catch { /* ignore */ }
+      // A mirror opened mid-set has to start at the level already on the fader,
+      // not full brightness.
+      this._broadcastMasterOpacity(getOutputOpacity());
     }
+  }
+
+  /** Send the current output level (master fader × any running transition). */
+  _broadcastMasterOpacity(opacity) {
+    if (!this._channel) return;
+    const level = Number.isFinite(opacity) ? Math.min(1, Math.max(0, opacity)) : 1;
+    try {
+      this._channel.postMessage({ type: MSG.MASTER_OPACITY, opacity: level });
+    } catch { /* ignore */ }
   }
 
   /**

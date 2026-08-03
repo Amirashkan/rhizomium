@@ -590,6 +590,21 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
     if (leavingCompute) clearComputeRuntime();
   }
 
+  /**
+   * Apply the editor's master fader (× any running scene transition) to this
+   * window's output. We render our own frames, so the editor's canvas opacity
+   * never reaches us - the level arrives over the channel instead. The page
+   * behind is black, so this fades to black exactly as the editor's does, and
+   * it covers both the native and fallback surfaces at once.
+   */
+  function applyMasterOpacity(value) {
+    const n = Number(value);
+    const level = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+    [gpuCanvas, fbCanvas].forEach(canvas => {
+      if (canvas && canvas.style) canvas.style.opacity = String(level);
+    });
+  }
+
   // --- channel handling ----------------------------------------------------
   function onMessage(e) {
     const d = e?.data;
@@ -643,6 +658,9 @@ export function initSecondMonitorReceiver(doc = document, win = window, opts = {
         break;
       case MSG.FRAME:
         if (d.bitmap) setLatest(d.bitmap, d.sw, d.sh);
+        break;
+      case MSG.MASTER_OPACITY:
+        applyMasterOpacity(d.opacity);
         break;
       case MSG.RENDER_RES:
         setComputeMaxDim(d.maxDim);
