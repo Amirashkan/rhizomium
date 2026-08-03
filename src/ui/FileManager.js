@@ -1,5 +1,6 @@
 // src/ui/FileManager.js - Cloud File Manager for TenderWorld
 import { modalManager } from './ModalManager.js';
+import { iconMarkup } from './iconSprite.js';
 
 export class FileManager {
   constructor(saveLoadManager) {
@@ -41,26 +42,26 @@ export class FileManager {
       <div class="file-manager-dialog">
         <div class="file-manager-header">
           <div class="file-manager-header-content">
-            <h3>📁 File Manager</h3>
+            <h3>${iconMarkup('folder', { size: 16 })} File Manager</h3>
             <div class="file-manager-user-info" id="file-manager-user-info">
               <span class="user-loading">Checking authentication...</span>
             </div>
           </div>
-          <button class="file-manager-close-btn" title="Close">×</button>
+          <button class="file-manager-close-btn" title="Close">${iconMarkup('close', { size: 14, label: 'Close' })}</button>
         </div>
         
         <div class="file-manager-toolbar">
           <button id="file-manager-save-btn" class="file-manager-toolbar-btn file-manager-toolbar-btn-save" title="Save Current Project">
-            <span>💾</span> Save
+            ${iconMarkup('save-disk')} Save
           </button>
           <button id="file-manager-refresh-btn" class="file-manager-toolbar-btn" title="Refresh">
-            <span>↻</span> Refresh
+            ${iconMarkup('refresh')} Refresh
           </button>
           <button id="file-manager-upload-btn" class="file-manager-toolbar-btn file-manager-toolbar-btn-primary" title="Upload File">
-            <span>⬆</span> Upload
+            ${iconMarkup('upload')} Upload
           </button>
           <button id="file-manager-new-folder-btn" class="file-manager-toolbar-btn" title="New Folder">
-            <span>+</span> New Folder
+            ${iconMarkup('folder-new')} New Folder
           </button>
           <div class="file-manager-path">
             <span class="path-label">Path:</span>
@@ -651,14 +652,17 @@ export class FileManager {
     }
 
     const html = this.files.map(file => {
-      const icon = file.type === 'folder' ? '📁' : this.getFileIcon(file.name);
+      const icon = iconMarkup(
+        file.type === 'folder' ? 'folder' : this.getFileIcon(file.name),
+        { size: 28 },
+      );
       const size = file.size ? this.formatFileSize(file.size) : '';
       const date = file.modified ? new Date(file.modified).toLocaleDateString() : '';
 
       return `
         <div class="file-manager-item" data-file-path="${file.path}" data-file-type="${file.type}">
           <div class="file-manager-item-actions">
-            <button class="file-manager-item-action-btn" data-action="delete" title="Delete">🗑</button>
+            <button class="file-manager-item-action-btn" data-action="delete" title="Delete">${iconMarkup('trash', { size: 14, label: 'Delete' })}</button>
           </div>
           <div class="file-manager-item-icon">${icon}</div>
           <div class="file-manager-item-name" title="${file.name}">${file.name}</div>
@@ -694,18 +698,19 @@ export class FileManager {
 
   getFileIcon(filename) {
     const ext = filename.split('.').pop()?.toLowerCase();
+    // Values are sprite ids (src/ui/iconSprite.js), resolved by the caller.
     const iconMap = {
-      'json': '📄',
-      'rz': '🎨',
-      'glsl': '💻',
-      'wgsl': '⚡',
-      'png': '🖼',
-      'jpg': '🖼',
-      'jpeg': '🖼',
-      'webp': '🖼',
-      'gif': '🖼',
+      'json': 'file',
+      'rz': 'file-shader',
+      'glsl': 'file-shader',
+      'wgsl': 'file-shader',
+      'png': 'file-image',
+      'jpg': 'file-image',
+      'jpeg': 'file-image',
+      'webp': 'file-image',
+      'gif': 'file-image',
     };
-    return iconMap[ext] || '📄';
+    return iconMap[ext] || 'file';
   }
 
   formatFileSize(bytes) {
@@ -880,7 +885,7 @@ export class FileManager {
       // Show success message in the dialog
       const infoEl = this.dialog.querySelector("#file-manager-info");
       const originalText = infoEl.textContent;
-      infoEl.textContent = `✓ Saved ${finalFileName} successfully`;
+      infoEl.textContent = `Saved ${finalFileName} successfully`;
       infoEl.style.color = '#4ecdc4';
       
       setTimeout(() => {

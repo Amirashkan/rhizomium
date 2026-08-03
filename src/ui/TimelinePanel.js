@@ -1,3 +1,4 @@
+import { setIcon } from './iconSprite.js';
 /**
  * TimelinePanel.js
  *
@@ -73,8 +74,8 @@ export class TimelinePanel {
     this.controls = document.createElement('div');
     this.controls.className = 'timeline-controls';
 
-    this.playButton = this.createButton('▶', 'Play/Pause', () => this.togglePlay());
-    this.stopButton = this.createButton('■', 'Stop', () => this.stop());
+    this.playButton = this.createButton('', 'Play/Pause', () => this.togglePlay(), 'play');
+    this.stopButton = this.createButton('', 'Stop', () => this.stop(), 'stop');
     this.loopButton = this.createButton('⟲', 'Toggle Loop', () => this.toggleLoop());
 
     this.controls.appendChild(this.playButton);
@@ -220,10 +221,11 @@ export class TimelinePanel {
   /**
    * Create a button element
    */
-  createButton(text, title, onClick) {
+  createButton(text, title, onClick, icon = null) {
     const button = document.createElement('button');
     button.className = 'timeline-button';
-    button.textContent = text;
+    if (icon) setIcon(button, icon, { text, label: text ? null : title });
+    else button.textContent = text;
     button.title = title;
     button.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -286,7 +288,9 @@ export class TimelinePanel {
     };
 
     this.timelineManager.onPlayStateChange = (playing) => {
-      this.playButton.textContent = playing ? '⏸' : '▶';
+      setIcon(this.playButton, playing ? 'pause' : 'play', {
+      label: playing ? 'Pause' : 'Play',
+    });
       this.playButton.title = playing ? 'Pause' : 'Play';
     };
   }

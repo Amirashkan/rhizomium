@@ -54,7 +54,9 @@ export function createIcon(iconId, { size = 16, label = null, className = '' } =
   svg.setAttribute('width', size);
   svg.setAttribute('height', size);
   svg.setAttribute('viewBox', '0 0 24 24');
-  if (className) svg.setAttribute('class', className);
+  // `rz-icon` carries the shared alignment/spacing rules — always apply it, or
+  // icons built here won't match the stylesheet the way iconMarkup() output does.
+  svg.setAttribute('class', className ? `rz-icon ${className}` : 'rz-icon');
 
   if (label) {
     svg.setAttribute('role', 'img');
@@ -72,4 +74,38 @@ export function createIcon(iconId, { size = 16, label = null, className = '' } =
   svg.appendChild(use);
 
   return svg;
+}
+
+/**
+ * Same as createIcon() but returns markup, for the panels that build their DOM
+ * from template literals. Callers must have injected the sprite already —
+ * ensureIconSprite() runs at startup, so that holds for anything user-visible.
+ */
+export function iconMarkup(iconId, { size = 16, label = null, className = '' } = {}) {
+  const id = iconId.startsWith('icon-') ? iconId : `icon-${iconId}`;
+  const a11y = label
+    ? `role="img"><title>${label}</title`
+    : 'aria-hidden="true"';
+  return (
+    `<svg class="rz-icon ${className}" width="${size}" height="${size}" ` +
+    `viewBox="0 0 24 24" ${a11y}><use href="#${id}"/></svg>`
+  );
+}
+
+/**
+ * Replace an element's contents with an icon plus optional text. Used by the
+ * panels that previously assigned an emoji straight to textContent.
+ */
+export function setIcon(el, iconId, { size = 16, text = '', label = null } = {}) {
+  if (!el) return el;
+  el.textContent = '';
+  // No implicit label: an icon id is not an accessible name. Icon-only controls
+  // should pass `label`, or carry a `title`/aria-label on the element itself.
+  el.appendChild(createIcon(iconId, { size, label }));
+  if (text) {
+    const span = document.createElement('span');
+    span.textContent = text;
+    el.appendChild(span);
+  }
+  return el;
 }

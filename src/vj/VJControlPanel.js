@@ -6,6 +6,7 @@
  */
 
 import { SceneManager } from './SceneManager.js';
+import { setIcon } from '../ui/iconSprite.js';
 import { PresetManager } from './PresetManager.js';
 import { TransitionManager } from './TransitionManager.js';
 import { PlaylistManager } from './PlaylistManager.js';
@@ -78,7 +79,7 @@ export class VJControlPanel {
 
     const title = document.createElement('div');
     title.className = 'vj-title';
-    title.textContent = '🎭 VJ Control';
+    setIcon(title, 'vj', { text: 'VJ Control', size: 16 });
     header.appendChild(title);
 
     const closeBtn = document.createElement('button');
@@ -99,15 +100,15 @@ export class VJControlPanel {
     tabNav.className = 'vj-tab-nav';
 
     const tabs = [
-      { id: 'scenes', label: '🎬 Scenes', title: 'Scene management' },
-      { id: 'presets', label: '⚡ Presets', title: 'Parameter presets' },
-      { id: 'playlist', label: '📋 Playlist', title: 'Playlist & sequencing' }
+      { id: 'scenes', label: 'Scenes', icon: 'scenes', title: 'Scene management' },
+      { id: 'presets', label: 'Presets', icon: 'presets', title: 'Parameter presets' },
+      { id: 'playlist', label: 'Playlist', icon: 'playlist', title: 'Playlist & sequencing' }
     ];
 
     tabs.forEach(tab => {
       const btn = document.createElement('button');
       btn.className = 'vj-tab-btn';
-      btn.textContent = tab.label;
+      setIcon(btn, tab.icon, { text: tab.label, size: 14 });
       btn.title = tab.title;
       btn.dataset.tab = tab.id;
       btn.onclick = () => this.switchTab(tab.id);
@@ -181,9 +182,9 @@ export class VJControlPanel {
     const buttonGroup = document.createElement('div');
     buttonGroup.className = 'vj-button-group';
 
-    const loadBtn = this.createButton('📁 Load Scene', 'Load scene from file', () => this.loadSceneFromFile());
-    const captureBtn = this.createButton('📸 Capture Current', 'Capture current state as scene', () => this.captureCurrentScene());
-    const saveAllBtn = this.createButton('💾 Save All', 'Save all scenes', () => this.saveAllScenes());
+    const loadBtn = this.createButton('Load Scene', 'Load scene from file', () => this.loadSceneFromFile(), 'folder');
+    const captureBtn = this.createButton('Capture Current', 'Capture current state as scene', () => this.captureCurrentScene(), 'capture');
+    const saveAllBtn = this.createButton('Save All', 'Save all scenes', () => this.saveAllScenes(), 'save-disk');
 
     buttonGroup.appendChild(loadBtn);
     buttonGroup.appendChild(captureBtn);
@@ -233,8 +234,8 @@ export class VJControlPanel {
     const buttonGroup = document.createElement('div');
     buttonGroup.className = 'vj-button-group';
 
-    const captureBtn = this.createButton('📸 Capture Preset', 'Capture current parameters', () => this.capturePreset());
-    const clearBtn = this.createButton('🗑️ Clear All', 'Clear all presets', () => this.clearPresets());
+    const captureBtn = this.createButton('Capture Preset', 'Capture current parameters', () => this.capturePreset(), 'capture');
+    const clearBtn = this.createButton('Clear All', 'Clear all presets', () => this.clearPresets(), 'trash');
 
     buttonGroup.appendChild(captureBtn);
     buttonGroup.appendChild(clearBtn);
@@ -256,10 +257,10 @@ export class VJControlPanel {
     const playlistControls = document.createElement('div');
     playlistControls.className = 'vj-playlist-controls';
 
-    this.playlistPlayBtn = this.createButton('▶', 'Play playlist', () => this.togglePlaylist());
-    this.playlistStopBtn = this.createButton('■', 'Stop playlist', () => this.stopPlaylist());
-    this.playlistPrevBtn = this.createButton('⏮', 'Previous scene', () => this.playlistManager.previous());
-    this.playlistNextBtn = this.createButton('⏭', 'Next scene', () => this.playlistManager.next());
+    this.playlistPlayBtn = this.createButton('', 'Play playlist', () => this.togglePlaylist(), 'play');
+    this.playlistStopBtn = this.createButton('', 'Stop playlist', () => this.stopPlaylist(), 'stop');
+    this.playlistPrevBtn = this.createButton('', 'Previous scene', () => this.playlistManager.previous(), 'skip-prev');
+    this.playlistNextBtn = this.createButton('', 'Next scene', () => this.playlistManager.next(), 'skip-next');
 
     const loopLabel = document.createElement('label');
     loopLabel.style.marginLeft = '8px';
@@ -291,8 +292,8 @@ export class VJControlPanel {
     const addGroup = document.createElement('div');
     addGroup.className = 'vj-button-group';
 
-    const addBtn = this.createButton('➕ Add Active Scene', 'Add current scene to playlist', () => this.addActiveSceneToPlaylist());
-    const clearBtn = this.createButton('🗑️ Clear Playlist', 'Clear all playlist items', () => this.clearPlaylist());
+    const addBtn = this.createButton('Add Active Scene', 'Add current scene to playlist', () => this.addActiveSceneToPlaylist(), 'add');
+    const clearBtn = this.createButton('Clear Playlist', 'Clear all playlist items', () => this.clearPlaylist(), 'trash');
 
     addGroup.appendChild(addBtn);
     addGroup.appendChild(clearBtn);
@@ -327,14 +328,14 @@ export class VJControlPanel {
     };
     bpmGroup.appendChild(this.bpmInput);
 
-    const tapBtn = this.createButton('👆 Tap', 'Tap tempo', () => this.tapTempo());
+    const tapBtn = this.createButton('Tap', 'Tap tempo', () => this.tapTempo(), 'tap-tempo');
     tapBtn.className = 'vj-btn-small';
     bpmGroup.appendChild(tapBtn);
 
     // Beat indicator
     this.beatIndicator = document.createElement('div');
     this.beatIndicator.className = 'vj-beat-indicator';
-    this.beatIndicator.textContent = '○○○○';
+    this._renderBeat(-1);
     bpmGroup.appendChild(this.beatIndicator);
 
     footer.appendChild(bpmGroup);
@@ -615,7 +616,7 @@ export class VJControlPanel {
       const actions = document.createElement('div');
       actions.className = 'vj-playlist-actions';
 
-      const upBtn = this.createButton('▲', 'Move up', () => {
+      const upBtn = this.createButton('', 'Move up', () => {
         if (index > 0) {
           this.playlistManager.movePlaylistItem(index, index - 1);
           this.refreshPlaylist();
@@ -625,7 +626,7 @@ export class VJControlPanel {
       upBtn.disabled = index === 0;
       actions.appendChild(upBtn);
 
-      const downBtn = this.createButton('▼', 'Move down', () => {
+      const downBtn = this.createButton('', 'Move down', () => {
         if (index < playlist.length - 1) {
           this.playlistManager.movePlaylistItem(index, index + 1);
           this.refreshPlaylist();
@@ -658,10 +659,15 @@ export class VJControlPanel {
   /**
    * Helper to create button
    */
-  createButton(text, title, onClick) {
+  createButton(text, title, onClick, icon = null) {
     const btn = document.createElement('button');
     btn.className = 'vj-btn';
-    btn.textContent = text;
+    if (icon) {
+      // Icon-only buttons (transport) get their accessible name from `title`.
+      setIcon(btn, icon, { text, label: text ? null : title });
+    } else {
+      btn.textContent = text;
+    }
     btn.title = title;
     btn.onclick = onClick;
     return btn;
@@ -792,14 +798,14 @@ export class VJControlPanel {
 
     if (status.isPlaying) {
       this.playlistManager.pause();
-      this.playlistPlayBtn.textContent = '▶';
+      setIcon(this.playlistPlayBtn, 'play', { label: 'Play playlist' });
     } else {
       if (status.currentIndex < 0) {
         await this.playlistManager.play(0);
       } else {
         this.playlistManager.resume();
       }
-      this.playlistPlayBtn.textContent = '⏸';
+      setIcon(this.playlistPlayBtn, 'pause', { label: 'Pause playlist' });
     }
   }
 
@@ -808,7 +814,7 @@ export class VJControlPanel {
    */
   stopPlaylist() {
     this.playlistManager.stop();
-    this.playlistPlayBtn.textContent = '▶';
+    setIcon(this.playlistPlayBtn, 'play', { label: 'Play playlist' });
     this.refreshPlaylist();
   }
 
@@ -880,8 +886,27 @@ export class VJControlPanel {
    * Update beat indicator
    */
   updateBeatIndicator(currentBeat) {
-    const indicators = ['●○○○', '○●○○', '○○●○', '○○○●'];
-    this.beatIndicator.textContent = indicators[currentBeat % 4];
+    this._renderBeat(currentBeat % 4);
+  }
+
+  /**
+   * Paint the four-beat indicator, filling the beat at `activeIndex` (-1 = none).
+   */
+  _renderBeat(activeIndex) {
+    if (!this.beatIndicator) return;
+    // Four state dots, not icons — `icon-beat` is a single glyph containing the
+    // whole row, so it can't express which beat is active. Plain CSS circles can.
+    this.beatIndicator.textContent = '';
+    this.beatIndicator.style.display = 'flex';
+    this.beatIndicator.style.alignItems = 'center';
+    this.beatIndicator.style.gap = '6px';
+    for (let i = 0; i < 4; i++) {
+      const dot = document.createElement('span');
+      dot.style.cssText =
+        'width:8px;height:8px;border-radius:50%;background:currentColor;' +
+        `opacity:${i === activeIndex ? '1' : '0.25'}`;
+      this.beatIndicator.appendChild(dot);
+    }
   }
 
   /**

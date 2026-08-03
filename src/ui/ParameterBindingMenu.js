@@ -1,3 +1,4 @@
+import { createIcon, setIcon } from './iconSprite.js';
 // src/ui/ParameterBindingMenu.js
 export class ParameterBindingMenu {
   constructor(bindingSystem, paramPanel) {
@@ -88,7 +89,7 @@ export class ParameterBindingMenu {
     this.menu.appendChild(header);
 
     // Copy as reference
-    const copyItem = this.createMenuItem('Copy as Reference', '📋', () => {
+    const copyItem = this.createMenuItem('Copy as Reference', 'copy-value', () => {
       this.bindingSystem.clipboard = {
         nodeId: node.id,
         parameterName: paramName,
@@ -107,7 +108,7 @@ export class ParameterBindingMenu {
       
       const pasteItem = this.createMenuItem(
         'Paste Reference', 
-        '📎', 
+        'attach', 
         () => {
           this.pasteReference();
         },
@@ -135,7 +136,7 @@ export class ParameterBindingMenu {
 
     // Remove binding (if bound)
     if (bindingInfo.isBound) {
-      const removeItem = this.createMenuItem('Remove Binding', '🔗', () => {
+      const removeItem = this.createMenuItem('Remove Binding', 'unlink', () => {
         this.removeBinding();
       });
       removeItem.style.color = '#f44336';
@@ -156,7 +157,7 @@ export class ParameterBindingMenu {
 
     // Remove all targets (if has targets)
     if (bindingInfo.hasTargets) {
-      const removeAllItem = this.createMenuItem('Remove All Target Bindings', '💥', () => {
+      const removeAllItem = this.createMenuItem('Remove All Target Bindings', 'trash', () => {
         this.removeAllTargetBindings();
       });
       removeAllItem.style.color = '#f44336';
@@ -178,13 +179,13 @@ export class ParameterBindingMenu {
     this.menu.appendChild(this.createSeparator());
 
     // Show all bindings
-    const showAllItem = this.createMenuItem('Show All Bindings', '🔍', () => {
+    const showAllItem = this.createMenuItem('Show All Bindings', 'search', () => {
       this.showAllBindings();
     });
     this.menu.appendChild(showAllItem);
 
     // Debug bindings
-    const debugItem = this.createMenuItem('Debug Bindings', '🐛', () => {
+    const debugItem = this.createMenuItem('Debug Bindings', 'console', () => {
       this.bindingSystem.debugPrintBindings();
       this.hide();
     });
@@ -217,9 +218,10 @@ export class ParameterBindingMenu {
       item.addEventListener('click', onClick);
     }
 
+    // `icon` is a sprite id (see src/ui/iconSprite.js), not a glyph.
     const iconSpan = document.createElement('span');
-    iconSpan.textContent = icon;
-    iconSpan.style.width = '16px';
+    iconSpan.style.cssText = 'width:16px;height:16px;flex:none;display:flex';
+    iconSpan.appendChild(createIcon(icon, { size: 16 }));
 
     const textSpan = document.createElement('span');
     textSpan.textContent = text;
@@ -356,7 +358,7 @@ export class ParameterBindingMenu {
     title.textContent = `Parameter Bindings (${bindings.length})`;
 
     const closeBtn = document.createElement('button');
-    closeBtn.textContent = '×';
+    setIcon(closeBtn, 'close', { size: 12, label: 'Close' });
     closeBtn.style.cssText = `
       background: none;
       border: none;
@@ -507,7 +509,7 @@ export class BindingVisualizer {
   createToggleButton() {
     const button = document.createElement('button');
     button.id = 'toggle-bindings-btn';
-    button.textContent = '🔗';
+    setIcon(button, 'link', { size: 12, label: 'Bindings' });
     button.title = 'Toggle parameter binding visualization';
     button.style.cssText = `
       position: fixed;

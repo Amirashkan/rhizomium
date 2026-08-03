@@ -158,11 +158,13 @@ if (typeof window.render !== "function") {
   window.render = () => {};
 }
 
-async function initialize() {
-  // Icons are <use> references into a document-level <symbol> sprite; inject it
-  // before any panel renders so the first paint already has its glyphs.
-  ensureIconSprite();
+// Icons are <use> references into a document-level <symbol> sprite. The editor's
+// markup contains <use> refs that are parsed before any of this runs, so inject
+// at module evaluation (this script is deferred - document.body exists) rather
+// than inside initialize(), which is async and would land after first paint.
+ensureIconSprite();
 
+async function initialize() {
   const errorHandler = new ErrorHandler();
   window.errorHandler = errorHandler;
 

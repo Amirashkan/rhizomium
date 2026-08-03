@@ -1073,3 +1073,23 @@ body {
     transform: rotate(360deg);
   }
 }
+
+/* --- Icon sprite (src/ui/iconSprite.js) --------------------------------- */
+/* Icons are monochrome <use> refs that inherit `currentColor`, so they tint
+   with whatever control they sit in. */
+.rz-icon {
+  display: inline-block;
+  vertical-align: -0.15em;
+  flex: none;
+  color: inherit;
+}
+/* Controls that pair an icon with a label: setIcon() appends the text in a
+   <span>, so space them without affecting icon-only controls. Applies to any
+   container (buttons, panel titles, menu items), not just <button>. */
+.rz-icon + span {
+  margin-left: 6px;
+}
+.menu-caret {
+  opacity: 0.55;
+  vertical-align: 0;
+}
