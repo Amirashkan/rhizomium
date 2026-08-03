@@ -295,6 +295,83 @@ describe('OSC learn', () => {
     expect(binding.getBinding('/degrees', 0).inputMax).toBe(270);
   });
 
+  it('ignores channels that are merely streaming, and takes the one that moves', () => {
+    // A modular rack sends every channel continuously. Binding whatever
+    // arrives next would map an essentially random channel, microseconds after
+    // arming, with nothing to do with what the artist touched.
+    const manager = {
+      getAddresses: () => [
+        { address: '/vcv/ch0', args: [0.20] },
+        { address: '/vcv/ch1', args: [0.50] },
+        { address: '/vcv/ch2', args: [0.80] },
+      ],
+    };
+    const withRack = new OSCParameterBinding(graph, events, manager);
+
+    withRack.startLearning('n1', 'radius');
+
+    // Idle traffic: same values as when learn was armed.
+    send('/vcv/ch0', [0.20]);
+    send('/vcv/ch2', [0.80]);
+    expect(withRack.getAllBindings()).toHaveLength(0);
+    expect(withRack.learningMode).toBe(true);
+
+    // The artist turns ch1.
+    send('/vcv/ch1', [0.65]);
+
+    expect(withRack.getBinding('/vcv/ch1', 0)).toMatchObject({ paramName: 'radius' });
+    expect(withRack.getAllBindings()).toHaveLength(1);
+  });
+
+  it('tolerates the jitter of a streaming channel', () => {
+    const manager = { getAddresses: () => [{ address: '/noisy', args: [0.5] }] };
+    const withRack = new OSCParameterBinding(graph, events, manager);
+    withRack.startLearning('n1', 'radius');
+
+    send('/noisy', [0.5005]);           // noise, not a gesture
+    expect(withRack.getAllBindings()).toHaveLength(0);
+
+    send('/noisy', [0.7]);              // an actual move
+    expect(withRack.getAllBindings()).toHaveLength(1);
+  });
+
+  it('scales the movement threshold to the range the channel sends', () => {
+    // A 0-127 source moving by 1 is noise; the same delta on a 0-1 fader is a
+    // real gesture.
+    const manager = { getAddresses: () => [{ address: '/cc', args: [64] }] };
+    const withRack = new OSCParameterBinding(graph, events, manager);
+    withRack.startLearning('n1', 'radius');
+
+    send('/cc', [64.5]);
+    expect(withRack.getAllBindings()).toHaveLength(0);
+
+    send('/cc', [90]);
+    expect(withRack.getAllBindings()).toHaveLength(1);
+  });
+
+  it('keeps driving existing bindings while learn waits for a move', () => {
+    const manager = { getAddresses: () => [{ address: '/vcv/ch0', args: [0.2] }] };
+    const withRack = new OSCParameterBinding(graph, events, manager);
+    withRack.createBinding('/vcv/ch0', 0, 'n1', 'radius', { min: 0, max: 10 });
+    withRack.startLearning('n1', 'radius');
+
+    send('/vcv/ch0', [0.2]);            // idle repeat
+
+    expect(node.params.radius).toBe(2);
+  });
+
+  it('still binds the first message from a sender that stays quiet until touched', () => {
+    // TouchOSC and friends send nothing until a control moves, so there is no
+    // baseline to compare against and the first message is the gesture.
+    const manager = { getAddresses: () => [] };
+    const quiet = new OSCParameterBinding(graph, events, manager);
+    quiet.startLearning('n1', 'radius');
+
+    send('/touch/fader', [0.4]);
+
+    expect(quiet.getBinding('/touch/fader', 0)).toBeTruthy();
+  });
+
   it('stays armed between channels in continuous mode', () => {
     node.params.rotation = 0;
     binding.setContinuousLearn(true);

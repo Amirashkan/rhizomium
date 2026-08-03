@@ -321,6 +321,132 @@ describe('OSCSettingsPanel rendering', () => {
     );
   });
 
+  it('keeps channels in a stable order however they arrive', () => {
+    // getAddresses() returns most-recently-active first, which reshuffles
+    // constantly with a rack running. The list has to stay put or you can
+    // never find the channel you were looking at.
+    const addresses = [
+      { address: '/vcv/ch10', types: 'f', args: [1], value: 1, count: 1, lastSeen: 9 },
+      { address: '/vcv/ch2', types: 'f', args: [1], value: 1, count: 1, lastSeen: 5 },
+      { address: '/vcv/ch1', types: 'f', args: [1], value: 1, count: 1, lastSeen: 1 },
+    ];
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem(), addresses), makeBinding());
+    panel.show();
+
+    const order = () =>
+      Array.from(panel.panel.querySelectorAll('#osc-addresses-list .osc-channel-address'))
+        .map((el) => el.textContent);
+
+    // Numeric, so ch2 sorts before ch10.
+    expect(order()).toEqual(['/vcv/ch1', '/vcv/ch2', '/vcv/ch10']);
+
+    // Activity changes the manager's ordering; the panel's must not move.
+    addresses.reverse();
+    panel.updateAddressesList();
+    expect(order()).toEqual(['/vcv/ch1', '/vcv/ch2', '/vcv/ch10']);
+  });
+
+  it('does not rebuild rows when only values change', () => {
+    // Re-appending a row between mousedown and mouseup swallows the click,
+    // which left Bind dead for exactly the senders this list is for.
+    const addresses = [
+      { address: '/vcv/ch1', types: 'f', args: [0.1], value: 0.1, count: 1, lastSeen: 1 },
+    ];
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem(), addresses), makeBinding());
+    panel.show();
+
+    const before = panel.panel.querySelector('#osc-addresses-list button');
+    addresses[0].args = [0.9];
+    panel.updateAddressesList();
+
+    expect(panel.panel.querySelector('#osc-addresses-list button')).toBe(before);
+    expect(panel.panel.querySelector('#osc-addresses-list').textContent).toContain('0.9');
+  });
+
+  it('shows what each channel is driving', () => {
+    window.editor = { graph: { nodes: [{ id: 'n1', kind: 'CircleField' }] } };
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/lfo', types: 'f', args: [0.5], value: 0.5, count: 1, lastSeen: 1 },
+      { address: '/spare', types: 'f', args: [0.5], value: 0.5, count: 1, lastSeen: 2 },
+    ]);
+    panel = new OSCSettingsPanel(manager, makeBinding([
+      binding({ address: '/lfo', paramName: 'radius' }),
+      binding({ address: '/lfo', paramName: 'rotation' }),
+    ]));
+    panel.show();
+
+    const rows = Array.from(panel.panel.querySelectorAll('#osc-addresses-list > div'));
+    const lfoRow = rows.find((r) => r.textContent.includes('/lfo'));
+    const spareRow = rows.find((r) => r.textContent.includes('/spare'));
+
+    expect(lfoRow.textContent).toContain('CircleField.radius');
+    expect(lfoRow.textContent).toContain('CircleField.rotation');
+    expect(spareRow.textContent).not.toContain('CircleField');
+  });
+
+  it('labels the argument slot when a channel drives several parameters', () => {
+    window.editor = { graph: { nodes: [{ id: 'n1', kind: 'CircleField' }] } };
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/xy', types: 'ff', args: [0.3, 0.7], value: 0.3, count: 1, lastSeen: 1 },
+    ]);
+    panel = new OSCSettingsPanel(manager, makeBinding([
+      binding({ address: '/xy', argIndex: 1, paramName: 'rotation' }),
+    ]));
+    panel.show();
+
+    expect(panel.panel.querySelector('#osc-addresses-list').textContent)
+      .toContain('[1] → CircleField.rotation');
+  });
+
+  it('lets Bind win over an armed learn instead of racing it', () => {
+    selectParameter('CircleField', 'n1', 'radius');
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/vcv/ch1', types: 'f', args: [0.5], value: 0.5, count: 1, lastSeen: 1 },
+    ]);
+    const bindings = makeBinding();
+    bindings.learningMode = true;
+    panel = new OSCSettingsPanel(manager, bindings);
+    panel.show();
+
+    panel.panel.querySelector('#osc-addresses-list button').click();
+
+    expect(bindings.cancelLearning).toHaveBeenCalled();
+    expect(bindings.createBinding).toHaveBeenCalledWith(
+      '/vcv/ch1', 0, 'n1', 'radius', expect.any(Object),
+    );
+  });
+
+  it('still binds after focus leaves the parameter field', () => {
+    // Clicking Bind blurs the Parameter Panel input, and that panel reads its
+    // selection from what is focused.
+    selectParameter('CircleField', 'n1', 'radius');
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/vcv/ch1', types: 'f', args: [0.5], value: 0.5, count: 1, lastSeen: 1 },
+    ]);
+    const bindings = makeBinding();
+    panel = new OSCSettingsPanel(manager, bindings);
+    panel.show();          // captures the selection
+
+    // Focus moved: the panel now reports nothing selected.
+    window.editor.paramPanel.getSelectedParameter = () => null;
+    panel.panel.querySelector('#osc-addresses-list button').click();
+
+    expect(bindings.createBinding).toHaveBeenCalledWith(
+      '/vcv/ch1', 0, 'n1', 'radius', expect.any(Object),
+    );
+  });
+
+  it('forgets a sticky target whose node was deleted', () => {
+    selectParameter('CircleField', 'n1', 'radius');
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), makeBinding());
+    panel.show();
+
+    window.editor.paramPanel.getSelectedParameter = () => null;
+    window.editor.graph.nodes = [];
+
+    expect(panel.currentTarget()).toBeNull();
+  });
+
   it('filters a long channel list', () => {
     const manager = makeManager(makeEventSystem(), [
       { address: '/vcv/ch1', types: 'f', args: [1], value: 1, count: 1, lastSeen: 2 },

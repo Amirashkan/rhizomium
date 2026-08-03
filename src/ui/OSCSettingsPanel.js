@@ -40,6 +40,17 @@ function placeholder(text) {
   return div;
 }
 
+/**
+ * Order channels by address, numerically where they end in digits.
+ *
+ * A rack's channels are '/vcv/ch1'…'/vcv/ch10', and plain string order puts
+ * ch10 between ch1 and ch2 — which reads as a bug when you are looking down a
+ * list for the one you want.
+ */
+function compareAddresses(a, b) {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
 function el(tag, style, text) {
   const node = document.createElement(tag);
   if (style) node.style.cssText = style;
@@ -89,9 +100,11 @@ export class OSCSettingsPanel {
     this.addressRows = new Map();
     this.addressesRAF = null;
     this.addressFilter = '';
+    this.addressOrderKey = '';
 
     this.targetTimer = null;
     this.lastTargetKey = null;
+    this.stickyTarget = null;
 
     this.createPanel();
     this.setupEventListeners();
@@ -102,8 +115,8 @@ export class OSCSettingsPanel {
     this.panel.id = 'osc-settings-panel';
     this.panel.style.cssText = `
       position: fixed;
-      top: 60px;
-      right: 340px;
+      top: 96px;
+      right: 372px;
       width: 360px;
       max-height: 84vh;
       background: rgba(30, 30, 30, 0.95);
@@ -113,7 +126,9 @@ export class OSCSettingsPanel {
       color: #fff;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 13px;
-      z-index: 1000;
+      /* Above the MIDI panel, which otherwise sits at the same spot with the
+         same z-index — two stacked panels look like one misbehaving panel. */
+      z-index: 1001;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
       display: none;
       overflow-y: auto;
@@ -172,8 +187,10 @@ export class OSCSettingsPanel {
           <span id="osc-target" style="font-family: monospace; font-size: 11px; color: #FF9800;">nothing selected</span>
         </div>
         <p style="margin: 0 0 8px 0; font-size: 11px; color: #888;">
-          Click a parameter in the Parameter Panel, then either press
-          <strong>Bind</strong> on a channel below, or learn it by moving the control.
+          Click a parameter in the Parameter Panel, then press <strong>Bind</strong>
+          on a channel below. Or start learn and <em>move</em> a control — channels
+          sitting still are ignored, so a rack streaming all its outputs will not
+          grab the mapping.
         </p>
         <div style="display: flex; gap: 8px; align-items: center;">
           <button id="osc-learn-btn" style="
@@ -382,10 +399,35 @@ export class OSCSettingsPanel {
   // Mapping target
   // --------------------------------------------------------------------
 
-  /** The parameter a bind would land on right now, or null. */
+  /**
+   * The parameter a bind would land on, or null.
+   *
+   * Falls back to the last parameter seen selected. Clicking Bind moves focus
+   * out of the Parameter Panel's input, and the panel reads its selection from
+   * what is focused — so asking at click time can come back empty for a
+   * parameter the artist has plainly just chosen.
+   */
   currentTarget() {
+    const live = this.liveTarget();
+    if (live) {
+      this.stickyTarget = live;
+      return live;
+    }
+
+    // Only reuse it while the node is still in the graph.
+    const sticky = this.stickyTarget;
+    if (sticky && window.editor?.graph?.nodes?.some((n) => n.id === sticky.node.id)) {
+      return sticky;
+    }
+
+    this.stickyTarget = null;
+    return null;
+  }
+
+  /** What the Parameter Panel says is selected right now. */
+  liveTarget() {
     const paramPanel = window.editor?.paramPanel;
-    if (!paramPanel?.isVisible?.() || !paramPanel.selectedNode) return null;
+    if (!paramPanel?.selectedNode) return null;
 
     const param = paramPanel.getSelectedParameter?.();
     if (!param?.name) return null;
@@ -442,6 +484,11 @@ export class OSCSettingsPanel {
 
   /** Bind an address (and argument slot) to whatever is selected. */
   async bindAddress(address, argIndex) {
+    // Pressing Bind is an explicit choice about which channel to map, so it
+    // wins over an armed learn rather than racing it — otherwise the next
+    // message to arrive would map a different channel to the same parameter.
+    if (this.oscBinding.learningMode) this.oscBinding.cancelLearning();
+
     const target = this.currentTarget();
     if (!target) {
       await modalManager.alert(
@@ -471,14 +518,14 @@ export class OSCSettingsPanel {
       // node.kind comes out of the patch file, so build the markup instead of
       // interpolating it into innerHTML.
       learnStatus.replaceChildren(
-        document.createTextNode('Waiting for OSC input...'),
+        document.createTextNode('Move a control to map it…'),
         document.createElement('br'),
         Object.assign(document.createElement('strong'), {
           textContent: `${target.node.kind}.${target.paramName}`,
         }),
       );
     } else {
-      learnStatus.textContent = 'Waiting for OSC input...';
+      learnStatus.textContent = 'Move a control to map it…';
     }
 
     learnStatus.style.display = 'block';
@@ -586,13 +633,23 @@ export class OSCSettingsPanel {
   /**
    * Refresh the channel list.
    *
-   * Rows are reused and only their values rewritten. A rack sends continuously,
-   * so rebuilding this list per message would be the most expensive thing on
-   * screen — and it would also fight the artist for the buttons they are
-   * trying to click.
+   * Two rules here, both learned the hard way.
+   *
+   * Rows are sorted by address and their DOM order is only touched when the
+   * set of channels actually changes. Sorting by recency meant a running rack
+   * reshuffled the list continuously, so a channel was never where you last
+   * saw it — and re-appending a row between mousedown and mouseup cancels the
+   * click, which left the Bind buttons dead for exactly the senders this list
+   * exists to serve.
+   *
+   * Rows are reused and only their values rewritten, because rebuilding this
+   * list per message would be the most expensive thing on screen.
    */
   updateAddressesList() {
-    const entries = this.oscManager.getAddresses().filter((e) => this.matchesFilter(e.address));
+    const entries = this.oscManager
+      .getAddresses()
+      .filter((e) => this.matchesFilter(e.address))
+      .sort((a, b) => compareAddresses(a.address, b.address));
     const total = this.oscManager.getStatus().addressCount;
 
     this.addressCountEl.textContent = total
@@ -601,6 +658,7 @@ export class OSCSettingsPanel {
 
     if (entries.length === 0) {
       this.addressRows.clear();
+      this.addressOrderKey = '';
       this.addressesList.replaceChildren(
         placeholder(total ? 'No channels match the filter' : 'No OSC messages received'),
       );
@@ -616,10 +674,9 @@ export class OSCSettingsPanel {
       }
     }
 
-    const boundKeys = new Set(
-      this.oscBinding.getAllBindings().map((b) => `${b.address}:${b.argIndex}`),
-    );
+    const targetsByKey = this.bindingTargetsByChannel();
 
+    let rebuilt = false;
     for (const entry of entries) {
       let row = this.addressRows.get(entry.address);
 
@@ -634,12 +691,34 @@ export class OSCSettingsPanel {
       if (!row) {
         row = this.buildAddressRow(entry);
         this.addressRows.set(entry.address, row);
+        rebuilt = true;
       }
 
-      this.refreshAddressRow(row, entry, boundKeys);
-      // Re-append to reflect most-recently-active ordering.
-      this.addressesList.appendChild(row.root);
+      this.refreshAddressRow(row, entry, targetsByKey);
     }
+
+    // Only reorder when the membership changed — which is when a channel is
+    // first heard, not on every message.
+    const orderKey = entries.map((e) => e.address).join(' ');
+    if (rebuilt || orderKey !== this.addressOrderKey) {
+      this.addressOrderKey = orderKey;
+      this.addressesList.replaceChildren(
+        ...entries.map((e) => this.addressRows.get(e.address).root),
+      );
+    }
+  }
+
+  /** "address:argIndex" -> the parameters that slot drives. */
+  bindingTargetsByChannel() {
+    const byKey = new Map();
+    for (const binding of this.oscBinding.getAllBindings()) {
+      const key = `${binding.address}:${binding.argIndex}`;
+      const node = window.editor?.graph?.nodes?.find((n) => n.id === binding.nodeId);
+      const label = `${node ? node.kind : 'Unknown'}.${binding.paramName}`;
+      if (byKey.has(key)) byKey.get(key).push(label);
+      else byKey.set(key, [label]);
+    }
+    return byKey;
   }
 
   buildAddressRow(entry) {
@@ -657,6 +736,7 @@ export class OSCSettingsPanel {
       'font-family: monospace; font-size: 11px; color: #fff; word-break: break-all;',
       entry.address,
     );
+    addressEl.className = 'osc-channel-address';
     const valueEl = el('div', 'font-family: monospace; font-size: 10px; color: #8ecbff; white-space: nowrap;');
     top.append(addressEl, valueEl);
 
@@ -669,24 +749,40 @@ export class OSCSettingsPanel {
       bindButtons.push(button);
     }
 
-    root.append(top, controls);
-    return { root, valueEl, bindButtons, argCount };
+    // What this channel currently drives. Without it the only way to answer
+    // "is this one already doing something, and what?" is to read the bindings
+    // list and match addresses by eye.
+    const targetsEl = el('div', 'margin-top: 4px; font-size: 10px; color: #a5d6a7;');
+
+    root.append(top, controls, targetsEl);
+    return { root, valueEl, targetsEl, bindButtons, argCount };
   }
 
-  refreshAddressRow(row, entry, boundKeys) {
+  refreshAddressRow(row, entry, targetsByKey) {
     row.valueEl.textContent = entry.args.length
       ? entry.args.map(formatOSCArg).join('  ')
       : '(no args)';
 
     // Mark which slots are already driving something, so a rack of channels
     // shows at a glance what is left to map.
+    const lines = [];
     row.bindButtons.forEach((button, i) => {
-      const bound = boundKeys.has(`${entry.address}:${i}`);
+      const targets = targetsByKey.get(`${entry.address}:${i}`);
+      const bound = !!targets?.length;
+
       button.style.background = bound ? 'rgba(76, 175, 80, 0.25)' : 'rgba(33, 150, 243, 0.25)';
       button.style.borderColor = bound ? 'rgba(76, 175, 80, 0.5)' : 'rgba(33, 150, 243, 0.5)';
       button.style.color = bound ? '#a5d6a7' : '#8ecbff';
       button.title = bound ? 'Already mapped — bind again to drive another parameter' : '';
+
+      if (bound) {
+        const prefix = row.bindButtons.length > 1 ? `[${i}] ` : '';
+        lines.push(`${prefix}→ ${targets.join(', ')}`);
+      }
     });
+
+    // Node kinds and parameter names, so build the text rather than markup.
+    row.targetsEl.replaceChildren(...lines.map((line) => el('div', null, line)));
   }
 
   // --------------------------------------------------------------------

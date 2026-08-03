@@ -169,11 +169,22 @@ export class OSCParameterBinding {
     // no target, and incoming channels must drive their existing bindings
     // rather than be swallowed by the armed learn.
     if (this.learningMode && this.learningTarget?.nodeId) {
-      // Learn from the first argument that actually carries a number, so a
-      // leading label string in the message does not become the source.
-      const argIndex = args.findIndex((arg) => typeof arg === 'number' || typeof arg === 'boolean');
-      this.completeLearning(address, argIndex >= 0 ? argIndex : 0, args);
-      return;
+      // Learn from the first argument that carries a number *and has moved*,
+      // so a leading label string does not become the source and a rack
+      // streaming idle channels does not bind one at random.
+      const argIndex = args.findIndex(
+        (arg, i) =>
+          (typeof arg === 'number' || typeof arg === 'boolean') &&
+          this.movedSinceLearnStarted(address, i, oscArgToNumber(arg)),
+      );
+
+      if (argIndex >= 0) {
+        this.completeLearning(address, argIndex, args);
+        return;
+      }
+
+      // Nothing moved: this is idle traffic. Fall through so it still drives
+      // whatever it is already bound to.
     }
 
     for (let argIndex = 0; argIndex < Math.max(args.length, 1); argIndex++) {
@@ -218,8 +229,53 @@ export class OSCParameterBinding {
   startLearning(nodeId, paramName, callback) {
     this.learningMode = true;
     this.learningTarget = { nodeId, paramName, callback };
+    this.snapshotForLearn();
 
     this.eventSystem?.emit('OSC_LEARN_STARTED', { nodeId, paramName });
+  }
+
+  /**
+   * Record what every channel is currently sending, so learn can wait for one
+   * to *move*.
+   *
+   * Without this, learn binds whatever arrives next — which is fine for a
+   * sender that only transmits when you touch a control, and useless for a
+   * modular rack or a DAW that streams every channel continuously. There the
+   * next message is microseconds away and has nothing to do with the artist's
+   * intent, so learn would bind an essentially random channel.
+   */
+  snapshotForLearn() {
+    this.learnBaseline = new Map();
+
+    for (const entry of this.oscManager?.getAddresses?.() ?? []) {
+      entry.args?.forEach((arg, argIndex) => {
+        this.learnBaseline.set(
+          OSCParameterBinding.makeKey(entry.address, argIndex),
+          oscArgToNumber(arg),
+        );
+      });
+    }
+  }
+
+  /**
+   * Has this argument slot moved enough since learn was armed to count as the
+   * control the artist just touched?
+   *
+   * The threshold is relative so it holds for a 0-1 fader and a 0-127 or
+   * 0-360 source alike, with an absolute floor for channels sitting at zero.
+   */
+  movedSinceLearnStarted(address, argIndex, value) {
+    // Nothing to compare against (no manager, or a channel first heard now):
+    // treat it as movement, which is the old behaviour and the right one for
+    // a sender that stays quiet until touched.
+    if (!this.learnBaseline?.size) return true;
+
+    const key = OSCParameterBinding.makeKey(address, argIndex);
+    if (!this.learnBaseline.has(key)) return true;
+
+    const baseline = this.learnBaseline.get(key);
+    const threshold = Math.max(0.01, Math.abs(baseline) * 0.02);
+    return Math.abs(value - baseline) > threshold;
   }
 
   /**
@@ -236,6 +292,9 @@ export class OSCParameterBinding {
     }
 
     this.learningTarget = { ...this.learningTarget, nodeId, paramName };
+    // Fresh baseline: the next map should wait for a new move, not inherit
+    // whatever drifted while the artist was picking this parameter.
+    this.snapshotForLearn();
     this.eventSystem?.emit('OSC_LEARN_STARTED', { nodeId, paramName });
     return true;
   }
@@ -265,6 +324,7 @@ export class OSCParameterBinding {
       // channel to move cannot overwrite it while the artist picks the next
       // target.
       this.learningTarget = { nodeId: null, paramName: null, callback };
+      this.snapshotForLearn();
       this.eventSystem?.emit('OSC_LEARN_AWAITING_TARGET', {});
       return;
     }

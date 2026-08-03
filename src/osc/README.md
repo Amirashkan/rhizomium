@@ -65,14 +65,29 @@ touches a channel it appears in *Channels* with its live value, so a rack shows
 up as `/vcv/ch0`…`/vcv/ch7` and you map by reading rather than by wiggling
 controls one at a time to find out which is which. A **Bind** button on each
 channel maps it to whatever parameter is selected; the button turns green once
-that channel drives something, so you can see what is left to do. Use the
-filter box when the list gets long.
+that channel drives something, and each channel lists the parameters it is
+driving underneath. Use the filter box when the list gets long.
+
+The list is ordered by address and stays put — sorted numerically, so `ch2`
+comes before `ch10`. It does not reshuffle by activity, because a channel you
+are reaching for should not move while you reach for it.
+
+**Learn waits for movement, not for traffic.** A modular rack or a DAW streams
+every channel continuously, so binding whatever arrives next would map a random
+channel microseconds after arming. Learn snapshots what each channel is sending
+when you arm it and ignores anything holding still — the channel you *move* is
+the one that binds. The threshold scales with the values a channel sends, so it
+works the same for a 0-1 fader and a 0-127 source. Senders that stay quiet until
+touched (TouchOSC and friends) still bind on their first message, since there is
+nothing to hold still.
 
 **Keep armed** turns learn continuous. Arm it once, then: select a parameter,
 move a control, select the next parameter, move the next control. Between maps
 the panel shows *"Mapped. Select the next parameter…"*, and channels arriving in
-that gap drive their existing bindings instead of being swallowed by the armed
-learn — which matters, because a running rack never stops sending.
+that gap drive their existing bindings instead of being swallowed.
+
+**Bind wins over learn.** Pressing Bind while learn is armed cancels the learn
+and maps the channel you pressed — the two are alternatives, not a race.
 
 **One channel can drive several parameters.** Bind it again to another
 parameter; both follow it. The bindings list groups them under the channel and
