@@ -5,7 +5,7 @@
 // validation - so adding a new format version only requires bumping
 // SAVE_FORMAT_VERSION and adding a migration step here.
 
-export const SAVE_FORMAT_VERSION = 6;
+export const SAVE_FORMAT_VERSION = 7;
 
 // Kinds whose multiple channel output pins (RGBA/RGB/R/G/B/A) were collapsed
 // into a single Color output in v4. A node kind is considered collapsed when it
@@ -183,6 +183,14 @@ const migrations = {
 
     return changed ? { ...data, nodes: migratedNodes } : data;
   },
+
+  // v6 -> v7: projects gained OSC bindings alongside the MIDI ones. Older
+  // saves simply have none, so normalize the section the way v2 did for MIDI
+  // and let importers rely on the key existing.
+  6: (data) => ({
+    ...data,
+    oscBindings: data.oscBindings ?? null,
+  }),
 };
 
 export function migrateProjectData(data) {

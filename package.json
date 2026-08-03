@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "osc": "python3 osc_bridge_server.py",
     "build:web": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
