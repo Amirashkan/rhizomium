@@ -141,16 +141,22 @@ export class OSCParameterBinding {
 
     const key = OSCParameterBinding.makeKey(source.address, source.argIndex);
     const atKey = this.bindings.get(key);
+    let removed = null;
     if (atKey) {
       const remaining = atKey.filter(
         (b) => !(b.nodeId === nodeId && b.paramName === paramName),
       );
+      removed = atKey.find((b) => b.nodeId === nodeId && b.paramName === paramName) ?? null;
       if (remaining.length) this.bindings.set(key, remaining);
       else this.bindings.delete(key);
     }
 
     this.parameterToOSC.delete(paramKey);
     this.oscParameters.delete(paramKey);
+
+    // Announced like any other removal so the panels showing this mapping —
+    // the OSC list, the parameter panel's OSC badge — drop it straight away.
+    this.eventSystem?.emit('OSC_BINDING_REMOVED', removed ?? { ...source, nodeId, paramName });
     return true;
   }
 

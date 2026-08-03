@@ -88,6 +88,54 @@ export function writeParameterUniform(nodeId, paramName, value) {
 }
 
 /**
+ * Describe every external controller currently driving a parameter.
+ *
+ * A parameter driven from outside the graph looks exactly like a hand-set one
+ * in the parameter panel — the value simply moves on its own — so the UI needs
+ * a way to ask "who owns this?". MIDI and OSC keep independent maps and neither
+ * clears the other's binding, so a parameter can genuinely be claimed by both;
+ * the array keeps that visible instead of hiding one behind the other.
+ *
+ * @returns {Array<{type: 'midi'|'osc', label: string, source: string,
+ *                  enabled: boolean, binding: object}>} empty when unmapped
+ */
+export function describeExternalControls(nodeId, paramName) {
+  if (typeof window === 'undefined') return [];
+
+  const controls = [];
+
+  const midi = window.editor?.midiBinding ?? window.midiBinding;
+  const midiBinding = midi?.getBindingForParameter?.(nodeId, paramName);
+  if (midiBinding) {
+    controls.push({
+      type: 'midi',
+      label: 'MIDI',
+      // Channels are stored 0-based and shown 1-based, as everywhere else.
+      source: `CC${midiBinding.cc} (Ch${(midiBinding.channel ?? 0) + 1})`,
+      enabled: midiBinding.enabled !== false,
+      binding: midiBinding,
+    });
+  }
+
+  const osc = window.editor?.oscBinding ?? window.oscBinding;
+  const oscBinding = osc?.getBindingForParameter?.(nodeId, paramName);
+  if (oscBinding) {
+    controls.push({
+      type: 'osc',
+      label: 'OSC',
+      // Argument slot only shown when it isn't the usual first one.
+      source: oscBinding.argIndex > 0
+        ? `${oscBinding.address} [${oscBinding.argIndex}]`
+        : oscBinding.address,
+      enabled: oscBinding.enabled !== false,
+      binding: oscBinding,
+    });
+  }
+
+  return controls;
+}
+
+/**
  * Refresh the canvas so parameter labels track the controller.
  *
  * @param {string} reason passed through to markDirty for invalidation tracing
