@@ -110,6 +110,9 @@ _isValidExpression(value) {
     input.className = "param-input";
     input.dataset.param = param.name;
     input.dataset.paramType = param.type;
+    if (node?.id !== undefined && node?.id !== null) {
+      input.dataset.nodeId = String(node.id);
+    }
     input.style.cssText = `
       flex: 1;
       padding: 6px 8px;
