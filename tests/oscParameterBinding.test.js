@@ -187,6 +187,89 @@ describe('per-argument bindings', () => {
   });
 });
 
+describe('one channel driving several parameters', () => {
+  it('fans one address out to several parameters', () => {
+    // One LFO opening a radius while it tilts a rotation — ordinary in a live
+    // set, and previously the second mapping replaced the first.
+    node.params.rotation = 0;
+    binding.createBinding('/lfo', 0, 'n1', 'radius', { min: 0, max: 10 });
+    binding.createBinding('/lfo', 0, 'n1', 'rotation', { min: 0, max: 360 });
+
+    send('/lfo', [0.5]);
+
+    expect(node.params.radius).toBe(5);
+    expect(node.params.rotation).toBe(180);
+    expect(binding.getAllBindings()).toHaveLength(2);
+  });
+
+  it('fans out across different nodes', () => {
+    const other = { id: 'n2', kind: 'CircleField', params: { radius: 0 }, x: 0, y: 0 };
+    graph.nodes.push(other);
+
+    binding.createBinding('/lfo', 0, 'n1', 'radius', { min: 0, max: 1 });
+    binding.createBinding('/lfo', 0, 'n2', 'radius', { min: 0, max: 100 });
+
+    send('/lfo', [1]);
+
+    expect(node.params.radius).toBe(1);
+    expect(other.params.radius).toBe(100);
+  });
+
+  it('removes one target without disturbing its siblings', () => {
+    node.params.rotation = 0;
+    binding.createBinding('/lfo', 0, 'n1', 'radius', { min: 0, max: 10 });
+    binding.createBinding('/lfo', 0, 'n1', 'rotation', { min: 0, max: 360 });
+
+    binding.removeBindingForParameter('n1', 'radius');
+    send('/lfo', [1]);
+
+    expect(node.params.radius).toBe(0);
+    expect(node.params.rotation).toBe(360);
+    expect(binding.shouldUseUniform('n1', 'radius')).toBe(false);
+    expect(binding.shouldUseUniform('n1', 'rotation')).toBe(true);
+  });
+
+  it('edits one range without moving its siblings', () => {
+    node.params.rotation = 0;
+    binding.createBinding('/lfo', 0, 'n1', 'radius', { min: 0, max: 10 });
+    binding.createBinding('/lfo', 0, 'n1', 'rotation', { min: 0, max: 360 });
+
+    binding.updateBindingForParameter('n1', 'radius', { max: 2 });
+    send('/lfo', [1]);
+
+    expect(node.params.radius).toBe(2);
+    expect(node.params.rotation).toBe(360);
+  });
+
+  it('keeps each target separate through a save/load round trip', () => {
+    node.params.rotation = 0;
+    binding.createBinding('/lfo', 0, 'n1', 'radius', { min: 0, max: 10 });
+    binding.createBinding('/lfo', 0, 'n1', 'rotation', { min: 0, max: 360 });
+
+    const events2 = makeEventSystem();
+    const restored = new OSCParameterBinding(graph, events2, null);
+    restored.deserialize(JSON.parse(JSON.stringify(binding.serialize())));
+
+    expect(restored.getAllBindings()).toHaveLength(2);
+    events2.emit('OSC_MESSAGE', { address: '/lfo', args: [0.5], types: '' });
+    expect(node.params.radius).toBe(5);
+    expect(node.params.rotation).toBe(180);
+  });
+
+  it('drops a whole node without orphaning a shared address', () => {
+    const other = { id: 'n2', kind: 'CircleField', params: { radius: 0 }, x: 0, y: 0 };
+    graph.nodes.push(other);
+    binding.createBinding('/lfo', 0, 'n1', 'radius', { min: 0, max: 1 });
+    binding.createBinding('/lfo', 0, 'n2', 'radius', { min: 0, max: 1 });
+
+    binding.cleanupNodeBindings('n1');
+
+    expect(binding.getAllBindings()).toHaveLength(1);
+    send('/lfo', [1]);
+    expect(other.params.radius).toBe(1);
+  });
+});
+
 describe('OSC learn', () => {
   it('binds the next message that arrives', () => {
     binding.startLearning('n1', 'radius');
@@ -210,6 +293,46 @@ describe('OSC learn', () => {
     send('/degrees', [270]);
 
     expect(binding.getBinding('/degrees', 0).inputMax).toBe(270);
+  });
+
+  it('stays armed between channels in continuous mode', () => {
+    node.params.rotation = 0;
+    binding.setContinuousLearn(true);
+
+    binding.startLearning('n1', 'radius');
+    send('/ch1', [0.5]);
+    expect(binding.getBinding('/ch1', 0)).toBeTruthy();
+    expect(binding.learningMode).toBe(true);
+
+    // Next parameter, no re-arming.
+    binding.retargetLearning('n1', 'rotation');
+    send('/ch2', [0.5]);
+    expect(binding.getBinding('/ch2', 0)).toBeTruthy();
+    expect(binding.getAllBindings()).toHaveLength(2);
+  });
+
+  it('does not steal a channel while waiting for the next target', () => {
+    // Between two maps there is no target. A channel arriving then must drive
+    // the binding it already has rather than be swallowed by the armed learn —
+    // with a rack running, other channels keep arriving throughout mapping.
+    node.params.rotation = 0;
+    binding.setContinuousLearn(true);
+    binding.createBinding('/already', 0, 'n1', 'radius', { min: 0, max: 10 });
+
+    binding.startLearning('n1', 'rotation');
+    send('/ch1', [0.5]);          // maps ch1 -> rotation, now awaiting a target
+
+    send('/already', [1]);        // must drive radius, not rebind it
+    expect(node.params.radius).toBe(10);
+    expect(binding.getBindingForParameter('n1', 'radius').address).toBe('/already');
+    expect(binding.getAllBindings()).toHaveLength(2);
+  });
+
+  it('disarms after one map when continuous is off', () => {
+    binding.startLearning('n1', 'radius');
+    send('/ch1', [0.5]);
+
+    expect(binding.learningMode).toBe(false);
   });
 
   it('can be cancelled without binding anything', () => {

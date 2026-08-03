@@ -26,7 +26,12 @@ export class OSCParameterBinding {
     this.eventSystem = eventSystem;
     this.oscManager = oscManager;
 
-    // "address:argIndex" -> binding config
+    // "address:argIndex" -> binding configs sharing that source.
+    //
+    // A list rather than a single binding because one OSC channel driving
+    // several parameters at once is ordinary in a live set — one LFO opening a
+    // radius while it tilts a rotation — and keying one-to-one meant the second
+    // mapping silently replaced the first.
     this.bindings = new Map();
 
     // "nodeId.paramName" -> { address, argIndex }
@@ -37,6 +42,10 @@ export class OSCParameterBinding {
 
     this.learningMode = false;
     this.learningTarget = null;
+
+    // Keep listening after a successful learn, so mapping a rack of channels
+    // is wiggle-click-wiggle rather than re-arming between every one.
+    this.continuousLearn = false;
 
     this.setupEventListeners();
   }
@@ -86,7 +95,11 @@ export class OSCParameterBinding {
       enabled: options.enabled !== undefined ? options.enabled : true,
     };
 
-    this.bindings.set(OSCParameterBinding.makeKey(address, argIndex), binding);
+    const key = OSCParameterBinding.makeKey(address, argIndex);
+    const atKey = this.bindings.get(key);
+    if (atKey) atKey.push(binding);
+    else this.bindings.set(key, [binding]);
+
     this.parameterToOSC.set(`${nodeId}.${paramName}`, { address, argIndex });
     this.oscParameters.add(`${nodeId}.${paramName}`);
 
@@ -98,26 +111,44 @@ export class OSCParameterBinding {
     return true;
   }
 
+  /** Remove every binding fed by this address and argument slot. */
   removeBinding(address, argIndex) {
     const key = OSCParameterBinding.makeKey(address, argIndex);
-    const binding = this.bindings.get(key);
-    if (!binding) return false;
+    const atKey = this.bindings.get(key);
+    if (!atKey?.length) return false;
 
-    const paramKey = `${binding.nodeId}.${binding.paramName}`;
     this.bindings.delete(key);
-    this.parameterToOSC.delete(paramKey);
-    this.oscParameters.delete(paramKey);
-
-    this.eventSystem?.emit('OSC_BINDING_REMOVED', binding);
+    for (const binding of atKey) {
+      const paramKey = `${binding.nodeId}.${binding.paramName}`;
+      this.parameterToOSC.delete(paramKey);
+      this.oscParameters.delete(paramKey);
+      this.eventSystem?.emit('OSC_BINDING_REMOVED', binding);
+    }
     return true;
   }
 
+  /**
+   * Remove the binding driving one parameter.
+   *
+   * A parameter follows at most one source, so this identifies a single
+   * binding even when several share an address — which is what the panel's
+   * Remove needs now that they can.
+   */
   removeBindingForParameter(nodeId, paramName) {
     const paramKey = `${nodeId}.${paramName}`;
     const source = this.parameterToOSC.get(paramKey);
     if (!source) return false;
 
-    this.bindings.delete(OSCParameterBinding.makeKey(source.address, source.argIndex));
+    const key = OSCParameterBinding.makeKey(source.address, source.argIndex);
+    const atKey = this.bindings.get(key);
+    if (atKey) {
+      const remaining = atKey.filter(
+        (b) => !(b.nodeId === nodeId && b.paramName === paramName),
+      );
+      if (remaining.length) this.bindings.set(key, remaining);
+      else this.bindings.delete(key);
+    }
+
     this.parameterToOSC.delete(paramKey);
     this.oscParameters.delete(paramKey);
     return true;
@@ -134,7 +165,10 @@ export class OSCParameterBinding {
     const { address, args = [] } = data || {};
     if (!address) return;
 
-    if (this.learningMode && this.learningTarget) {
+    // While continuous learn waits for the next parameter to be picked there is
+    // no target, and incoming channels must drive their existing bindings
+    // rather than be swallowed by the armed learn.
+    if (this.learningMode && this.learningTarget?.nodeId) {
       // Learn from the first argument that actually carries a number, so a
       // leading label string in the message does not become the source.
       const argIndex = args.findIndex((arg) => typeof arg === 'number' || typeof arg === 'boolean');
@@ -143,9 +177,12 @@ export class OSCParameterBinding {
     }
 
     for (let argIndex = 0; argIndex < Math.max(args.length, 1); argIndex++) {
-      const binding = this.bindings.get(OSCParameterBinding.makeKey(address, argIndex));
-      if (binding?.enabled) {
-        this.updateParameter(binding, oscArgToNumber(args[argIndex]));
+      const atKey = this.bindings.get(OSCParameterBinding.makeKey(address, argIndex));
+      if (!atKey) continue;
+
+      const raw = oscArgToNumber(args[argIndex]);
+      for (const binding of atKey) {
+        if (binding.enabled) this.updateParameter(binding, raw);
       }
     }
   }
@@ -185,6 +222,24 @@ export class OSCParameterBinding {
     this.eventSystem?.emit('OSC_LEARN_STARTED', { nodeId, paramName });
   }
 
+  /**
+   * Point an armed learn at a different parameter without disarming.
+   *
+   * What makes mapping a rack tedious is the round trip: arm, wiggle, arm
+   * again. With continuous learn on, the panel retargets as the artist selects
+   * the next parameter and the next channel binds straight away.
+   */
+  retargetLearning(nodeId, paramName) {
+    if (!this.learningMode) return false;
+    if (this.learningTarget?.nodeId === nodeId && this.learningTarget?.paramName === paramName) {
+      return false;
+    }
+
+    this.learningTarget = { ...this.learningTarget, nodeId, paramName };
+    this.eventSystem?.emit('OSC_LEARN_STARTED', { nodeId, paramName });
+    return true;
+  }
+
   completeLearning(address, argIndex, args = []) {
     if (!this.learningTarget) return;
 
@@ -205,7 +260,22 @@ export class OSCParameterBinding {
       this.eventSystem?.emit('OSC_LEARN_COMPLETED', { address, argIndex, nodeId, paramName });
     }
 
+    if (this.continuousLearn && success) {
+      // Stay armed, but stop pointing at the parameter just mapped so the next
+      // channel to move cannot overwrite it while the artist picks the next
+      // target.
+      this.learningTarget = { nodeId: null, paramName: null, callback };
+      this.eventSystem?.emit('OSC_LEARN_AWAITING_TARGET', {});
+      return;
+    }
+
     this.cancelLearning();
+  }
+
+  /** Turn continuous learn on or off. */
+  setContinuousLearn(enabled) {
+    this.continuousLearn = !!enabled;
+    this.eventSystem?.emit('OSC_LEARN_MODE_CHANGED', { continuous: this.continuousLearn });
   }
 
   cancelLearning() {
@@ -214,22 +284,38 @@ export class OSCParameterBinding {
     this.eventSystem?.emit('OSC_LEARN_CANCELLED', {});
   }
 
+  /** First binding at this source (see getBindingsAt for all of them). */
   getBinding(address, argIndex) {
-    return this.bindings.get(OSCParameterBinding.makeKey(address, argIndex));
+    return this.bindings.get(OSCParameterBinding.makeKey(address, argIndex))?.[0];
+  }
+
+  /** Every binding fed by this address and argument slot. */
+  getBindingsAt(address, argIndex) {
+    return this.bindings.get(OSCParameterBinding.makeKey(address, argIndex))?.slice() ?? [];
   }
 
   getBindingForParameter(nodeId, paramName) {
     const source = this.parameterToOSC.get(`${nodeId}.${paramName}`);
     if (!source) return null;
-    return this.bindings.get(OSCParameterBinding.makeKey(source.address, source.argIndex)) ?? null;
+
+    const atKey = this.bindings.get(
+      OSCParameterBinding.makeKey(source.address, source.argIndex),
+    );
+    return atKey?.find((b) => b.nodeId === nodeId && b.paramName === paramName) ?? null;
   }
 
   getAllBindings() {
-    return Array.from(this.bindings.values());
+    return Array.from(this.bindings.values()).flat();
   }
 
-  updateBinding(address, argIndex, options) {
-    const binding = this.bindings.get(OSCParameterBinding.makeKey(address, argIndex));
+  /**
+   * Change a binding's mapping.
+   *
+   * Targeted by parameter rather than by source: several bindings can share an
+   * address now, and editing one range should not move the others.
+   */
+  updateBindingForParameter(nodeId, paramName, options) {
+    const binding = this.getBindingForParameter(nodeId, paramName);
     if (!binding) return false;
 
     for (const key of ['min', 'max', 'inputMin', 'inputMax', 'curve', 'inverted', 'enabled']) {
@@ -237,6 +323,17 @@ export class OSCParameterBinding {
     }
 
     this.eventSystem?.emit('OSC_BINDING_UPDATED', binding);
+    return true;
+  }
+
+  /** Change every binding fed by this source. */
+  updateBinding(address, argIndex, options) {
+    const atKey = this.getBindingsAt(address, argIndex);
+    if (!atKey.length) return false;
+
+    for (const binding of atKey) {
+      this.updateBindingForParameter(binding.nodeId, binding.paramName, options);
+    }
     return true;
   }
 
@@ -248,7 +345,8 @@ export class OSCParameterBinding {
   cleanupNodeBindings(nodeId) {
     for (const binding of this.getAllBindings()) {
       if (binding.nodeId === nodeId) {
-        this.removeBinding(binding.address, binding.argIndex);
+        // By parameter, so a sibling binding sharing the address survives.
+        this.removeBindingForParameter(nodeId, binding.paramName);
       }
     }
   }
@@ -274,7 +372,11 @@ export class OSCParameterBinding {
       const argIndex = binding.argIndex ?? 0;
       const restored = { ...binding, argIndex };
 
-      this.bindings.set(OSCParameterBinding.makeKey(binding.address, argIndex), restored);
+      const key = OSCParameterBinding.makeKey(binding.address, argIndex);
+      const atKey = this.bindings.get(key);
+      if (atKey) atKey.push(restored);
+      else this.bindings.set(key, [restored]);
+
       this.parameterToOSC.set(`${binding.nodeId}.${binding.paramName}`, {
         address: binding.address,
         argIndex,

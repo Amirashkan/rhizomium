@@ -35,6 +35,8 @@ function makeManager(events, addresses = [], statusOverrides = {}) {
       ...statusOverrides,
     }),
     getAddresses: () => addresses,
+    getValue: (address, argIndex = 0) =>
+      addresses.find((a) => a.address === address)?.args?.[argIndex] ?? 0,
     isConnected: () => true,
     initialize: vi.fn(),
     disable: vi.fn(),
@@ -45,10 +47,45 @@ function makeManager(events, addresses = [], statusOverrides = {}) {
 function makeBinding(bindings = []) {
   return {
     learningMode: false,
+    continuousLearn: false,
     getAllBindings: () => bindings,
     removeBinding: vi.fn(),
+    removeBindingForParameter: vi.fn(),
+    updateBindingForParameter: vi.fn(),
+    createBinding: vi.fn(),
     startLearning: vi.fn(),
+    retargetLearning: vi.fn(),
     cancelLearning: vi.fn(),
+    setContinuousLearn: vi.fn(),
+  };
+}
+
+function binding(overrides = {}) {
+  return {
+    address: '/a',
+    argIndex: 0,
+    nodeId: 'n1',
+    paramName: 'radius',
+    min: 0,
+    max: 1,
+    inputMin: 0,
+    inputMax: 1,
+    curve: 'linear',
+    inverted: false,
+    enabled: true,
+    ...overrides,
+  };
+}
+
+/** Stand in for a node selected in the Parameter Panel. */
+function selectParameter(kind, nodeId, paramName) {
+  window.editor = {
+    paramPanel: {
+      isVisible: () => true,
+      selectedNode: { id: nodeId, kind },
+      getSelectedParameter: () => ({ name: paramName }),
+    },
+    graph: { nodes: [{ id: nodeId, kind }] },
   };
 }
 
@@ -202,25 +239,15 @@ describe('OSCSettingsPanel rendering', () => {
   });
 
   it('removes a binding through the Remove button', () => {
-    const binding = makeBinding([{
-      address: '/a',
-      argIndex: 2,
-      nodeId: 'n1',
-      paramName: 'radius',
-      min: 0,
-      max: 1,
-      inputMin: 0,
-      inputMax: 1,
-      curve: 'linear',
-      inverted: false,
-      enabled: true,
-    }]);
-    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), binding);
+    // By parameter, not by address: several bindings can share one channel, so
+    // removing by address would take its siblings with it.
+    const bindings = makeBinding([binding({ argIndex: 2 })]);
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), bindings);
     panel.show();
 
     panel.panel.querySelector('#osc-bindings-list button').click();
 
-    expect(binding.removeBinding).toHaveBeenCalledWith('/a', 2);
+    expect(bindings.removeBindingForParameter).toHaveBeenCalledWith('n1', 'radius');
   });
 
   it('shows placeholders when there is nothing to list', () => {
@@ -240,6 +267,163 @@ describe('OSCSettingsPanel rendering', () => {
     expect(panel.isVisible()).toBe(true);
     panel.toggle();
     expect(panel.isVisible()).toBe(false);
+  });
+
+  it('binds a channel straight from the list, no wiggling required', () => {
+    selectParameter('CircleField', 'n1', 'radius');
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/vcv/ch1', types: 'f', args: [0.5], value: 0.5, count: 1, lastSeen: 1 },
+    ]);
+    const bindings = makeBinding();
+    panel = new OSCSettingsPanel(manager, bindings);
+    panel.show();
+
+    panel.panel.querySelector('#osc-addresses-list button').click();
+
+    expect(bindings.createBinding).toHaveBeenCalledWith(
+      '/vcv/ch1', 0, 'n1', 'radius', expect.any(Object),
+    );
+  });
+
+  it('offers one Bind per argument on a multi-value channel', () => {
+    selectParameter('CircleField', 'n1', 'radius');
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/xy', types: 'ff', args: [0.3, 0.7], value: 0.3, count: 1, lastSeen: 1 },
+    ]);
+    const bindings = makeBinding();
+    panel = new OSCSettingsPanel(manager, bindings);
+    panel.show();
+
+    const buttons = panel.panel.querySelectorAll('#osc-addresses-list button');
+    expect(buttons).toHaveLength(2);
+
+    buttons[1].click();
+    expect(bindings.createBinding).toHaveBeenCalledWith(
+      '/xy', 1, 'n1', 'radius', expect.any(Object),
+    );
+  });
+
+  it('seeds the input range from what the channel actually sends', () => {
+    // A 0-127 source bound blind would arrive clamped to 1.
+    selectParameter('CircleField', 'n1', 'radius');
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/cc', types: 'f', args: [127], value: 127, count: 1, lastSeen: 1 },
+    ]);
+    manager.getValue = () => 127;
+    const bindings = makeBinding();
+    panel = new OSCSettingsPanel(manager, bindings);
+    panel.show();
+
+    panel.panel.querySelector('#osc-addresses-list button').click();
+
+    expect(bindings.createBinding).toHaveBeenCalledWith(
+      '/cc', 0, 'n1', 'radius', { inputMax: 127 },
+    );
+  });
+
+  it('filters a long channel list', () => {
+    const manager = makeManager(makeEventSystem(), [
+      { address: '/vcv/ch1', types: 'f', args: [1], value: 1, count: 1, lastSeen: 2 },
+      { address: '/other/thing', types: 'f', args: [1], value: 1, count: 1, lastSeen: 1 },
+    ]);
+    panel = new OSCSettingsPanel(manager, makeBinding());
+    panel.show();
+
+    panel.filterInput.value = 'vcv';
+    panel.filterInput.dispatchEvent(new Event('input'));
+
+    const text = panel.panel.querySelector('#osc-addresses-list').textContent;
+    expect(text).toContain('/vcv/ch1');
+    expect(text).not.toContain('/other/thing');
+  });
+
+  it('groups several targets under the channel that drives them', () => {
+    window.editor = { graph: { nodes: [{ id: 'n1', kind: 'CircleField' }] } };
+    panel = new OSCSettingsPanel(
+      makeManager(makeEventSystem()),
+      makeBinding([
+        binding({ address: '/lfo', paramName: 'radius' }),
+        binding({ address: '/lfo', paramName: 'rotation' }),
+      ]),
+    );
+    panel.show();
+
+    const text = panel.panel.querySelector('#osc-bindings-list').textContent;
+    expect(text).toContain('2 targets');
+    expect(text).toContain('CircleField.radius');
+    expect(text).toContain('CircleField.rotation');
+    // One heading for the shared channel, not one per target.
+    expect(text.match(/\/lfo/g)).toHaveLength(1);
+  });
+
+  it('edits a range without touching the channel siblings', () => {
+    window.editor = { graph: { nodes: [{ id: 'n1', kind: 'CircleField' }] } };
+    const bindings = makeBinding([binding({ max: 1 })]);
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), bindings);
+    panel.show();
+
+    const numbers = panel.panel.querySelectorAll('#osc-bindings-list input[type="number"]');
+    expect(numbers).toHaveLength(4); // inputMin, inputMax, min, max
+
+    numbers[3].value = '10';
+    numbers[3].dispatchEvent(new Event('change'));
+
+    expect(bindings.updateBindingForParameter).toHaveBeenCalledWith('n1', 'radius', { max: 10 });
+  });
+
+  it('ignores a range edit that is not a number', () => {
+    window.editor = { graph: { nodes: [{ id: 'n1', kind: 'CircleField' }] } };
+    const bindings = makeBinding([binding({ max: 1 })]);
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), bindings);
+    panel.show();
+
+    const numbers = panel.panel.querySelectorAll('#osc-bindings-list input[type="number"]');
+    numbers[3].value = 'abc';
+    numbers[3].dispatchEvent(new Event('change'));
+
+    expect(bindings.updateBindingForParameter).not.toHaveBeenCalled();
+    expect(numbers[3].value).toBe('1');
+  });
+
+  it('turns continuous learn on for mapping a rack', () => {
+    const bindings = makeBinding();
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), bindings);
+    panel.show();
+
+    panel.continuousBox.checked = true;
+    panel.continuousBox.dispatchEvent(new Event('change'));
+
+    expect(bindings.setContinuousLearn).toHaveBeenCalledWith(true);
+  });
+
+  it('shows which parameter a bind would land on', () => {
+    selectParameter('CircleField', 'n1', 'radius');
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), makeBinding());
+    panel.show();
+
+    expect(panel.panel.querySelector('#osc-target').textContent).toBe('CircleField.radius');
+  });
+
+  it('says so when nothing is selected to bind to', () => {
+    window.editor = undefined;
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), makeBinding());
+    panel.show();
+
+    expect(panel.panel.querySelector('#osc-target').textContent).toBe('nothing selected');
+  });
+
+  it('retargets an armed continuous learn as the selection moves', () => {
+    selectParameter('CircleField', 'n1', 'radius');
+    const bindings = makeBinding();
+    bindings.learningMode = true;
+    bindings.continuousLearn = true;
+    panel = new OSCSettingsPanel(makeManager(makeEventSystem()), bindings);
+    panel.show();
+
+    selectParameter('CircleField', 'n1', 'rotation');
+    panel.refreshTarget();
+
+    expect(bindings.retargetLearning).toHaveBeenCalledWith('n1', 'rotation');
   });
 
   it('prefills the bridge URL so it can be pointed elsewhere', () => {

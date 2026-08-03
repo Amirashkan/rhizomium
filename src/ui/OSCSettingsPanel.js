@@ -7,15 +7,31 @@ import { formatOSCArg } from '../osc/OSCDecoder.js';
 /**
  * OSCSettingsPanel - UI for the OSC bridge connection and address mappings.
  *
- * Laid out to match MIDISettingsPanel so the two feel like one system, with one
- * deliberate difference: every string that came off the network (addresses,
- * argument values, the bridge's own error text) is written with textContent
- * rather than interpolated into innerHTML. Device names in the MIDI panel come
- * from hardware the user plugged in; OSC addresses come from anything that can
- * reach the port.
+ * Laid out to match MIDISettingsPanel so the two feel like one system, with two
+ * deliberate differences.
+ *
+ * First, everything that came off the network — addresses, argument values, the
+ * bridge's own error text — is written with textContent rather than
+ * interpolated into innerHTML. Device names in the MIDI panel come from
+ * hardware the user plugged in; OSC addresses come from anything that can reach
+ * the port.
+ *
+ * Second, this is built for mapping a rack rather than a knob. A MIDI
+ * controller has a handful of CCs and you learn them one at a time; an OSC
+ * source sends a dozen channels at once and they are all visible in the address
+ * list before you map any of them. So a channel can be bound by clicking it,
+ * learn stays armed across consecutive maps, and one channel can drive several
+ * parameters.
  */
 
 const PLACEHOLDER_STYLE = 'color: #888; font-size: 12px; font-style: italic;';
+
+// How often to re-read the Parameter Panel's selection. There is no selection
+// event to listen for, and the "current target" readout is only honest if it
+// tracks what the artist last clicked.
+const TARGET_POLL_MS = 250;
+
+const CURVES = ['linear', 'exponential', 'logarithmic'];
 
 function placeholder(text) {
   const div = document.createElement('div');
@@ -30,6 +46,27 @@ function el(tag, style, text) {
   if (text !== undefined) node.textContent = text;
   return node;
 }
+
+const SMALL_INPUT = `
+  width: 46px;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #ddd;
+  font-family: monospace;
+  font-size: 10px;
+`;
+
+const CHIP_BUTTON = `
+  padding: 3px 8px;
+  background: rgba(33, 150, 243, 0.25);
+  color: #8ecbff;
+  border: 1px solid rgba(33, 150, 243, 0.5);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+`;
 
 export class OSCSettingsPanel {
   constructor(oscManager, oscBinding) {
@@ -46,9 +83,15 @@ export class OSCSettingsPanel {
     this.pendingActivityData = null;
     this.activityRAF = null;
 
-    // The address list is rebuilt wholesale, so it gets the same treatment.
-    this.addressesDirty = false;
+    // Address rows are built once and their values updated in place. With a
+    // rack running, rebuilding the list on every message would be the most
+    // expensive thing the editor does.
+    this.addressRows = new Map();
     this.addressesRAF = null;
+    this.addressFilter = '';
+
+    this.targetTimer = null;
+    this.lastTargetKey = null;
 
     this.createPanel();
     this.setupEventListeners();
@@ -61,8 +104,8 @@ export class OSCSettingsPanel {
       position: fixed;
       top: 60px;
       right: 340px;
-      width: 340px;
-      max-height: 80vh;
+      width: 360px;
+      max-height: 84vh;
       background: rgba(30, 30, 30, 0.95);
       border: 1px solid #555;
       border-radius: 8px;
@@ -80,153 +123,107 @@ export class OSCSettingsPanel {
       <div id="osc-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h3 style="margin: 0; font-size: 16px; font-weight: 600;">OSC Receiver</h3>
         <button id="osc-close-btn" style="
-          background: none;
-          border: none;
-          color: #aaa;
-          font-size: 20px;
-          cursor: pointer;
-          padding: 0;
-          width: 24px;
-          height: 24px;
-          line-height: 24px;
-          text-align: center;
+          background: none; border: none; color: #aaa; font-size: 20px;
+          cursor: pointer; padding: 0; width: 24px; height: 24px;
+          line-height: 24px; text-align: center;
         ">&times;</button>
       </div>
 
       <!-- Connection -->
-      <div style="margin-bottom: 16px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
+      <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <span style="font-weight: 500;">Bridge:</span>
           <span id="osc-status" style="font-family: monospace; color: #888;">Disconnected</span>
         </div>
         <input id="osc-url" type="text" spellcheck="false" style="
-          width: 100%;
-          box-sizing: border-box;
-          margin-bottom: 8px;
-          padding: 6px 8px;
-          background: rgba(0, 0, 0, 0.4);
-          border: 1px solid #555;
-          border-radius: 4px;
-          color: #ddd;
-          font-family: monospace;
-          font-size: 11px;
+          width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px;
+          background: rgba(0, 0, 0, 0.4); border: 1px solid #555; border-radius: 4px;
+          color: #ddd; font-family: monospace; font-size: 11px;
         " />
         <div style="display: flex; gap: 8px;">
           <button id="osc-connect-btn" style="
-            flex: 1;
-            padding: 8px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 500;
+            flex: 1; padding: 8px; background: #4CAF50; color: white; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
           ">Connect</button>
           <button id="osc-disconnect-btn" style="
-            flex: 1;
-            padding: 8px;
-            background: #f44336;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 500;
+            flex: 1; padding: 8px; background: #f44336; color: white; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
           " disabled>Disconnect</button>
         </div>
         <div id="osc-bridge-info" style="margin-top: 8px; font-size: 11px; color: #888;"></div>
         <div id="osc-udp-row" style="margin-top: 8px; display: none; align-items: center; gap: 6px;">
           <span style="font-size: 11px; color: #aaa;">UDP port</span>
           <input id="osc-udp-port" type="number" min="1" max="65535" style="
-            width: 80px;
-            padding: 4px 6px;
-            background: rgba(0, 0, 0, 0.4);
-            border: 1px solid #555;
-            border-radius: 4px;
-            color: #ddd;
-            font-family: monospace;
-            font-size: 11px;
+            width: 80px; padding: 4px 6px; background: rgba(0, 0, 0, 0.4);
+            border: 1px solid #555; border-radius: 4px; color: #ddd;
+            font-family: monospace; font-size: 11px;
           " />
           <button id="osc-udp-apply" style="
-            padding: 4px 10px;
-            background: #2196F3;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 11px;
+            padding: 4px 10px; background: #2196F3; color: white; border: none;
+            border-radius: 3px; cursor: pointer; font-size: 11px;
           ">Move</button>
         </div>
       </div>
 
-      <!-- Incoming addresses -->
-      <div style="margin-bottom: 16px;">
-        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">Incoming Addresses</h4>
+      <!-- Mapping target + learn -->
+      <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+          <span style="font-weight: 500; font-size: 12px;">Mapping to:</span>
+          <span id="osc-target" style="font-family: monospace; font-size: 11px; color: #FF9800;">nothing selected</span>
+        </div>
+        <p style="margin: 0 0 8px 0; font-size: 11px; color: #888;">
+          Click a parameter in the Parameter Panel, then either press
+          <strong>Bind</strong> on a channel below, or learn it by moving the control.
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="osc-learn-btn" style="
+            flex: 1; padding: 9px; background: #2196F3; color: white; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;
+          ">Start OSC Learn</button>
+          <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #aaa; cursor: pointer;">
+            <input id="osc-continuous" type="checkbox" style="cursor: pointer;" />
+            keep armed
+          </label>
+        </div>
+        <div id="osc-learn-status" style="
+          margin-top: 8px; padding: 8px; background: rgba(33, 150, 243, 0.2);
+          border: 1px solid #2196F3; border-radius: 4px; font-size: 11px;
+          color: #2196F3; display: none;
+        ">Waiting for OSC input...</div>
+      </div>
+
+      <!-- Incoming channels -->
+      <div style="margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px;">
+          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #aaa; white-space: nowrap;">
+            Channels <span id="osc-address-count" style="color: #666; font-weight: 400;"></span>
+          </h4>
+          <input id="osc-filter" type="text" placeholder="filter…" spellcheck="false" style="
+            flex: 1; min-width: 0; padding: 3px 6px; background: rgba(0, 0, 0, 0.4);
+            border: 1px solid #555; border-radius: 3px; color: #ddd;
+            font-family: monospace; font-size: 10px;
+          " />
+        </div>
         <div id="osc-addresses-list" style="
-          background: rgba(0, 0, 0, 0.3);
-          border-radius: 4px;
-          padding: 8px;
-          min-height: 60px;
-          max-height: 150px;
-          overflow-y: auto;
+          background: rgba(0, 0, 0, 0.3); border-radius: 4px; padding: 8px;
+          min-height: 60px; max-height: 190px; overflow-y: auto;
         "></div>
       </div>
 
-      <!-- OSC Learn -->
-      <div style="margin-bottom: 16px;">
-        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">OSC Learn</h4>
-        <div style="padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
-          <p style="margin: 0 0 8px 0; font-size: 11px; color: #888;">
-            1. Select a parameter in the Parameter Panel<br>
-            2. Click "Start OSC Learn" below<br>
-            3. Move a control on your OSC sender to assign it
-          </p>
-          <button id="osc-learn-btn" style="
-            width: 100%;
-            padding: 10px;
-            background: #2196F3;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-          ">Start OSC Learn</button>
-          <div id="osc-learn-status" style="
-            margin-top: 8px;
-            padding: 8px;
-            background: rgba(33, 150, 243, 0.2);
-            border: 1px solid #2196F3;
-            border-radius: 4px;
-            font-size: 11px;
-            color: #2196F3;
-            display: none;
-          ">Waiting for OSC input...</div>
-        </div>
-      </div>
-
       <!-- Active bindings -->
-      <div style="margin-bottom: 16px;">
+      <div style="margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #aaa;">Active Bindings</h4>
+          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #aaa;">
+            Bindings <span id="osc-binding-count" style="color: #666; font-weight: 400;"></span>
+          </h4>
           <button id="osc-clear-all-btn" style="
-            padding: 4px 8px;
-            background: #f44336;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 10px;
+            padding: 4px 8px; background: #f44336; color: white; border: none;
+            border-radius: 3px; cursor: pointer; font-size: 10px;
           ">Clear All</button>
         </div>
         <div id="osc-bindings-list" style="
-          background: rgba(0, 0, 0, 0.3);
-          border-radius: 4px;
-          padding: 8px;
-          min-height: 80px;
-          max-height: 200px;
-          overflow-y: auto;
+          background: rgba(0, 0, 0, 0.3); border-radius: 4px; padding: 8px;
+          min-height: 60px; max-height: 240px; overflow-y: auto;
         "></div>
       </div>
 
@@ -234,22 +231,16 @@ export class OSCSettingsPanel {
       <div style="margin-bottom: 8px;">
         <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">OSC Activity</h4>
         <div id="osc-activity" style="
-          background: rgba(0, 0, 0, 0.3);
-          border-radius: 4px;
-          padding: 8px;
-          min-height: 40px;
-          font-family: monospace;
-          font-size: 11px;
-          color: #888;
+          background: rgba(0, 0, 0, 0.3); border-radius: 4px; padding: 8px;
+          min-height: 40px; font-family: monospace; font-size: 11px; color: #888;
           word-break: break-all;
         ">No recent activity</div>
       </div>
 
       <div style="font-size: 11px; color: #666; border-top: 1px solid #444; padding-top: 12px;">
         <p style="margin: 0;">
-          OSC arrives over UDP, so it reaches the editor through the bridge
-          started with <code>rhizo_server.py</code>. Point your sender at the
-          bridge's UDP port shown above.
+          One channel can drive several parameters — bind it again to another.
+          Ranges below the arrow map the incoming value onto the parameter.
         </p>
       </div>
     `;
@@ -259,34 +250,38 @@ export class OSCSettingsPanel {
     this.urlInput = this.panel.querySelector('#osc-url');
     this.statusEl = this.panel.querySelector('#osc-status');
     this.bridgeInfoEl = this.panel.querySelector('#osc-bridge-info');
-    this.addressesList = this.panel.querySelector('#osc-addresses-list');
-    this.bindingsList = this.panel.querySelector('#osc-bindings-list');
-    this.activityEl = this.panel.querySelector('#osc-activity');
-    this.learnButton = this.panel.querySelector('#osc-learn-btn');
-    this.connectBtn = this.panel.querySelector('#osc-connect-btn');
-    this.disconnectBtn = this.panel.querySelector('#osc-disconnect-btn');
-
     this.udpRow = this.panel.querySelector('#osc-udp-row');
     this.udpPortInput = this.panel.querySelector('#osc-udp-port');
+    this.targetEl = this.panel.querySelector('#osc-target');
+    this.addressesList = this.panel.querySelector('#osc-addresses-list');
+    this.addressCountEl = this.panel.querySelector('#osc-address-count');
+    this.bindingsList = this.panel.querySelector('#osc-bindings-list');
+    this.bindingCountEl = this.panel.querySelector('#osc-binding-count');
+    this.activityEl = this.panel.querySelector('#osc-activity');
+    this.learnButton = this.panel.querySelector('#osc-learn-btn');
+    this.continuousBox = this.panel.querySelector('#osc-continuous');
+    this.filterInput = this.panel.querySelector('#osc-filter');
+    this.connectBtn = this.panel.querySelector('#osc-connect-btn');
+    this.disconnectBtn = this.panel.querySelector('#osc-disconnect-btn');
 
     this.urlInput.value = this.oscManager.url;
     this.addressesList.appendChild(placeholder('No OSC messages received'));
     this.bindingsList.appendChild(placeholder('No bindings configured'));
 
     const header = this.panel.querySelector('#osc-header');
-    if (header) {
-      this.cleanupDraggable = makeDraggable(this.panel, header);
-    }
+    if (header) this.cleanupDraggable = makeDraggable(this.panel, header);
   }
+
+  // --------------------------------------------------------------------
+  // Wiring
+  // --------------------------------------------------------------------
 
   setupEventListeners() {
     this.panel.querySelector('#osc-close-btn').addEventListener('click', () => this.hide());
 
     this.connectBtn.addEventListener('click', async () => {
       const url = this.urlInput.value.trim();
-      if (url && url !== this.oscManager.url) {
-        this.oscManager.url = url;
-      }
+      if (url && url !== this.oscManager.url) this.oscManager.url = url;
 
       this.connectBtn.disabled = true;
       try {
@@ -295,8 +290,8 @@ export class OSCSettingsPanel {
         // The manager keeps retrying in the background, so this is a status
         // report rather than a dead end. OSC needs a local bridge because
         // browsers cannot open a UDP socket, so the fix is almost always "that
-        // process is not running" rather than anything about the sender — which
-        // is worth spelling out, since the sender is where people look first.
+        // process is not running" rather than anything about the sender —
+        // which is worth spelling out, since the sender is where people look.
         await modalManager.alert(
           `Could not reach the OSC bridge at ${this.oscManager.url}.\n\n` +
             `The bridge is a local process that receives OSC over UDP and passes ` +
@@ -324,10 +319,7 @@ export class OSCSettingsPanel {
     });
 
     const applyUdpPort = () => {
-      if (this.oscManager.setUdpPort(this.udpPortInput.value)) {
-        // The bridge answers with a status message, which refreshes the panel.
-        this.udpPortInput.blur();
-      }
+      if (this.oscManager.setUdpPort(this.udpPortInput.value)) this.udpPortInput.blur();
     };
     this.panel.querySelector('#osc-udp-apply').addEventListener('click', applyUdpPort);
     this.udpPortInput.addEventListener('keydown', (event) => {
@@ -335,16 +327,24 @@ export class OSCSettingsPanel {
     });
 
     this.learnButton.addEventListener('click', () => {
-      if (this.oscBinding.learningMode) {
-        this.oscBinding.cancelLearning();
-      } else {
-        this.startOSCLearn();
-      }
+      if (this.oscBinding.learningMode) this.oscBinding.cancelLearning();
+      else this.startOSCLearn();
+    });
+
+    this.continuousBox.addEventListener('change', () => {
+      this.oscBinding.setContinuousLearn(this.continuousBox.checked);
+    });
+
+    this.filterInput.addEventListener('input', () => {
+      this.addressFilter = this.filterInput.value.trim().toLowerCase();
+      this.updateAddressesList();
     });
 
     this.panel.querySelector('#osc-clear-all-btn').addEventListener('click', async () => {
+      const count = this.oscBinding.getAllBindings().length;
+      if (!count) return;
       const confirmed = await modalManager.confirm(
-        'Remove all OSC bindings?',
+        `Remove all ${count} OSC binding${count === 1 ? '' : 's'}?`,
         'Clear All Bindings',
         { danger: true, confirmLabel: 'Clear All' },
       );
@@ -364,35 +364,66 @@ export class OSCSettingsPanel {
       this.scheduleAddressesUpdate();
     });
 
+    // Structural changes only: re-rendering on every OSC_BINDING_UPDATED would
+    // tear out the range field being typed into.
     events.on('OSC_BINDING_CREATED', () => this.updateBindingsList());
     events.on('OSC_BINDING_REMOVED', () => this.updateBindingsList());
-    events.on('OSC_BINDING_UPDATED', () => this.updateBindingsList());
 
     events.on('OSC_LEARN_STARTED', () => this.showLearnMode());
+    events.on('OSC_LEARN_AWAITING_TARGET', () => this.showLearnMode());
     events.on('OSC_LEARN_COMPLETED', () => {
-      this.hideLearnMode();
       this.updateBindingsList();
+      if (!this.oscBinding.learningMode) this.hideLearnMode();
     });
     events.on('OSC_LEARN_CANCELLED', () => this.hideLearnMode());
   }
 
-  async startOSCLearn() {
+  // --------------------------------------------------------------------
+  // Mapping target
+  // --------------------------------------------------------------------
+
+  /** The parameter a bind would land on right now, or null. */
+  currentTarget() {
     const paramPanel = window.editor?.paramPanel;
+    if (!paramPanel?.isVisible?.() || !paramPanel.selectedNode) return null;
 
-    if (!paramPanel || !paramPanel.isVisible() || !paramPanel.selectedNode) {
-      await modalManager.alert(
-        'Please select a node first by clicking on it, then open the Parameter Panel.',
-        'OSC Learn',
-      );
-      return;
+    const param = paramPanel.getSelectedParameter?.();
+    if (!param?.name) return null;
+
+    return { node: paramPanel.selectedNode, paramName: param.name };
+  }
+
+  /**
+   * Refresh the target readout, and retarget an armed continuous learn.
+   *
+   * There is no selection event to subscribe to, so this is polled while the
+   * panel is open and does nothing unless the selection actually changed.
+   */
+  refreshTarget() {
+    const target = this.currentTarget();
+    const key = target ? `${target.node.id}.${target.paramName}` : null;
+    if (key === this.lastTargetKey) return;
+    this.lastTargetKey = key;
+
+    if (target) {
+      this.targetEl.textContent = `${target.node.kind}.${target.paramName}`;
+      this.targetEl.style.color = '#4CAF50';
+      if (this.oscBinding.continuousLearn && this.oscBinding.learningMode) {
+        this.oscBinding.retargetLearning(target.node.id, target.paramName);
+      }
+    } else {
+      this.targetEl.textContent = 'nothing selected';
+      this.targetEl.style.color = '#FF9800';
     }
+  }
 
-    const selectedParam = paramPanel.getSelectedParameter();
-    if (!selectedParam?.name) {
+  async startOSCLearn() {
+    const target = this.currentTarget();
+    if (!target) {
       await modalManager.alert(
-        'Please click on a parameter input field first.\n\nSteps:\n1. Click on a node to select it\n' +
-          '2. Click any parameter field in the Parameter Panel\n3. Click "Start OSC Learn" here\n' +
-          '4. Move a control on your OSC sender',
+        'Pick a parameter first.\n\n1. Click a node to select it\n' +
+          '2. Click the parameter field you want to drive\n' +
+          '3. Then start learn, or press Bind on a channel',
         'OSC Learn',
       );
       return;
@@ -406,23 +437,44 @@ export class OSCSettingsPanel {
       return;
     }
 
-    this.oscBinding.startLearning(paramPanel.selectedNode.id, selectedParam.name);
+    this.oscBinding.startLearning(target.node.id, target.paramName);
+  }
+
+  /** Bind an address (and argument slot) to whatever is selected. */
+  async bindAddress(address, argIndex) {
+    const target = this.currentTarget();
+    if (!target) {
+      await modalManager.alert(
+        'Pick a parameter first — click a node, then the parameter field you want this channel to drive.',
+        'Bind Channel',
+      );
+      return;
+    }
+
+    // Seed the input range from what this channel is actually sending, the way
+    // learn does, so a 0-127 or 0-360 source does not arrive clamped to 1.
+    const observed = this.oscManager.getValue(address, argIndex);
+    const options = {};
+    if (observed > 1) options.inputMax = observed;
+    else if (observed < 0) options.inputMin = observed;
+
+    this.oscBinding.createBinding(address, argIndex, target.node.id, target.paramName, options);
   }
 
   showLearnMode() {
     const learnStatus = this.panel.querySelector('#osc-learn-status');
-    const paramPanel = window.editor?.paramPanel;
-    const selectedParam = paramPanel?.getSelectedParameter();
-    const node = paramPanel?.selectedNode;
+    const target = this.currentTarget();
 
-    if (selectedParam && node) {
+    if (this.oscBinding.continuousLearn && !this.oscBinding.learningTarget?.nodeId) {
+      learnStatus.textContent = 'Mapped. Select the next parameter…';
+    } else if (target) {
       // node.kind comes out of the patch file, so build the markup instead of
       // interpolating it into innerHTML.
       learnStatus.replaceChildren(
         document.createTextNode('Waiting for OSC input...'),
         document.createElement('br'),
         Object.assign(document.createElement('strong'), {
-          textContent: `${node.kind}.${selectedParam.name}`,
+          textContent: `${target.node.kind}.${target.paramName}`,
         }),
       );
     } else {
@@ -430,7 +482,7 @@ export class OSCSettingsPanel {
     }
 
     learnStatus.style.display = 'block';
-    this.learnButton.textContent = 'Cancel';
+    this.learnButton.textContent = 'Stop Learning';
     this.learnButton.style.background = '#f44336';
   }
 
@@ -439,6 +491,10 @@ export class OSCSettingsPanel {
     this.learnButton.textContent = 'Start OSC Learn';
     this.learnButton.style.background = '#2196F3';
   }
+
+  // --------------------------------------------------------------------
+  // Connection status
+  // --------------------------------------------------------------------
 
   updateStatus() {
     const status = this.oscManager.getStatus();
@@ -489,8 +545,6 @@ export class OSCSettingsPanel {
               'within a few seconds — or move the bridge here and point your sender at the new port.',
           ),
         );
-        // Only offer the control when it is the answer to something.
-        this.udpRow.style.display = 'flex';
       } else {
         this.bridgeInfoEl.appendChild(
           el('div', null, `Listening for OSC on UDP ${udpHost ?? '0.0.0.0'}:${udpPort}`),
@@ -501,8 +555,8 @@ export class OSCSettingsPanel {
         if (udpError) {
           this.bridgeInfoEl.appendChild(el('div', 'color: #FF9800; margin-top: 4px;', udpError));
         }
-        this.udpRow.style.display = 'flex';
       }
+      this.udpRow.style.display = 'flex';
     }
 
     if (!status.connected && status.lastError) {
@@ -513,6 +567,10 @@ export class OSCSettingsPanel {
     }
   }
 
+  // --------------------------------------------------------------------
+  // Channels
+  // --------------------------------------------------------------------
+
   scheduleAddressesUpdate() {
     if (this.addressesRAF) return;
     this.addressesRAF = requestAnimationFrame(() => {
@@ -521,42 +579,123 @@ export class OSCSettingsPanel {
     });
   }
 
-  updateAddressesList() {
-    const addresses = this.oscManager.getAddresses();
-    this.addressesList.replaceChildren();
+  matchesFilter(address) {
+    return !this.addressFilter || address.toLowerCase().includes(this.addressFilter);
+  }
 
-    if (addresses.length === 0) {
-      this.addressesList.appendChild(placeholder('No OSC messages received'));
+  /**
+   * Refresh the channel list.
+   *
+   * Rows are reused and only their values rewritten. A rack sends continuously,
+   * so rebuilding this list per message would be the most expensive thing on
+   * screen — and it would also fight the artist for the buttons they are
+   * trying to click.
+   */
+  updateAddressesList() {
+    const entries = this.oscManager.getAddresses().filter((e) => this.matchesFilter(e.address));
+    const total = this.oscManager.getStatus().addressCount;
+
+    this.addressCountEl.textContent = total
+      ? (entries.length === total ? `(${total})` : `(${entries.length}/${total})`)
+      : '';
+
+    if (entries.length === 0) {
+      this.addressRows.clear();
+      this.addressesList.replaceChildren(
+        placeholder(total ? 'No channels match the filter' : 'No OSC messages received'),
+      );
       return;
     }
 
-    for (const entry of addresses.slice(0, 40)) {
-      const row = el(
-        'div',
-        `padding: 6px 8px;
-         margin-bottom: 4px;
-         background: rgba(255, 255, 255, 0.05);
-         border-radius: 4px;
-         border-left: 3px solid #4CAF50;`,
-      );
+    // Drop rows that no longer belong (filtered out, or evicted).
+    const wanted = new Set(entries.map((e) => e.address));
+    for (const [address, row] of this.addressRows) {
+      if (!wanted.has(address)) {
+        row.root.remove();
+        this.addressRows.delete(address);
+      }
+    }
 
-      row.appendChild(
-        el('div', 'font-family: monospace; font-size: 11px; color: #fff;', entry.address),
-      );
-      row.appendChild(
-        el(
-          'div',
-          'font-size: 10px; color: #888; margin-top: 2px;',
-          entry.args.length > 0 ? entry.args.map(formatOSCArg).join(', ') : '(no arguments)',
-        ),
-      );
+    const boundKeys = new Set(
+      this.oscBinding.getAllBindings().map((b) => `${b.address}:${b.argIndex}`),
+    );
 
-      this.addressesList.appendChild(row);
+    for (const entry of entries) {
+      let row = this.addressRows.get(entry.address);
+
+      // Argument count decides the row's controls, so a message that grows or
+      // shrinks needs its row rebuilt rather than refreshed.
+      if (row && row.argCount !== Math.max(entry.args.length, 1)) {
+        row.root.remove();
+        this.addressRows.delete(entry.address);
+        row = null;
+      }
+
+      if (!row) {
+        row = this.buildAddressRow(entry);
+        this.addressRows.set(entry.address, row);
+      }
+
+      this.refreshAddressRow(row, entry, boundKeys);
+      // Re-append to reflect most-recently-active ordering.
+      this.addressesList.appendChild(row.root);
     }
   }
 
+  buildAddressRow(entry) {
+    const argCount = Math.max(entry.args.length, 1);
+
+    const root = el(
+      'div',
+      `padding: 6px 8px; margin-bottom: 5px; background: rgba(255, 255, 255, 0.05);
+       border-radius: 4px; border-left: 3px solid #4CAF50;`,
+    );
+
+    const top = el('div', 'display: flex; justify-content: space-between; gap: 8px; align-items: baseline;');
+    const addressEl = el(
+      'div',
+      'font-family: monospace; font-size: 11px; color: #fff; word-break: break-all;',
+      entry.address,
+    );
+    const valueEl = el('div', 'font-family: monospace; font-size: 10px; color: #8ecbff; white-space: nowrap;');
+    top.append(addressEl, valueEl);
+
+    const controls = el('div', 'display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; align-items: center;');
+    const bindButtons = [];
+    for (let i = 0; i < argCount; i++) {
+      const button = el('button', CHIP_BUTTON, argCount === 1 ? 'Bind' : `Bind ${i}`);
+      button.addEventListener('click', () => this.bindAddress(entry.address, i));
+      controls.appendChild(button);
+      bindButtons.push(button);
+    }
+
+    root.append(top, controls);
+    return { root, valueEl, bindButtons, argCount };
+  }
+
+  refreshAddressRow(row, entry, boundKeys) {
+    row.valueEl.textContent = entry.args.length
+      ? entry.args.map(formatOSCArg).join('  ')
+      : '(no args)';
+
+    // Mark which slots are already driving something, so a rack of channels
+    // shows at a glance what is left to map.
+    row.bindButtons.forEach((button, i) => {
+      const bound = boundKeys.has(`${entry.address}:${i}`);
+      button.style.background = bound ? 'rgba(76, 175, 80, 0.25)' : 'rgba(33, 150, 243, 0.25)';
+      button.style.borderColor = bound ? 'rgba(76, 175, 80, 0.5)' : 'rgba(33, 150, 243, 0.5)';
+      button.style.color = bound ? '#a5d6a7' : '#8ecbff';
+      button.title = bound ? 'Already mapped — bind again to drive another parameter' : '';
+    });
+  }
+
+  // --------------------------------------------------------------------
+  // Bindings
+  // --------------------------------------------------------------------
+
   updateBindingsList() {
     const bindings = this.oscBinding.getAllBindings();
+    this.bindingCountEl.textContent = bindings.length ? `(${bindings.length})` : '';
     this.bindingsList.replaceChildren();
 
     if (bindings.length === 0) {
@@ -564,68 +703,176 @@ export class OSCSettingsPanel {
       return;
     }
 
+    // Group by channel so a source driving several parameters reads as one
+    // thing rather than as repeated rows.
+    const byChannel = new Map();
     for (const binding of bindings) {
-      const node = window.editor?.graph?.nodes?.find((n) => n.id === binding.nodeId);
-      const nodeName = node ? node.kind : 'Unknown';
+      const key = `${binding.address}:${binding.argIndex}`;
+      if (!byChannel.has(key)) byChannel.set(key, []);
+      byChannel.get(key).push(binding);
+    }
 
-      const row = el(
-        'div',
-        `padding: 8px;
-         margin-bottom: 6px;
-         background: rgba(255, 255, 255, 0.05);
-         border-radius: 4px;
-         border-left: 3px solid ${binding.enabled ? '#2196F3' : '#666'};
-         display: flex;
-         justify-content: space-between;
-         align-items: flex-start;`,
-      );
-
-      const details = el('div', 'flex: 1; min-width: 0;');
-      details.appendChild(
-        el(
-          'div',
-          'font-weight: 500; font-size: 11px; color: #2196F3; font-family: monospace; word-break: break-all;',
-          binding.argIndex > 0 ? `${binding.address} [${binding.argIndex}]` : binding.address,
-        ),
-      );
-      details.appendChild(
-        el('div', 'font-size: 11px; color: #fff; margin-top: 2px;', `${nodeName}.${binding.paramName}`),
-      );
-      details.appendChild(
-        el(
-          'div',
-          'font-size: 10px; color: #888; margin-top: 2px;',
-          `In ${binding.inputMin} – ${binding.inputMax} → ` +
-            `${binding.min.toFixed(2)} – ${binding.max.toFixed(2)}` +
-            (binding.curve !== 'linear' ? ` (${binding.curve})` : '') +
-            (binding.inverted ? ' inverted' : ''),
-        ),
-      );
-
-      const removeBtn = el(
-        'button',
-        `padding: 4px 8px;
-         margin-left: 8px;
-         background: #f44336;
-         color: white;
-         border: none;
-         border-radius: 3px;
-         cursor: pointer;
-         font-size: 10px;
-         flex: none;`,
-        'Remove',
-      );
-      // A listener rather than an inline onclick: the address is attacker-shaped
-      // text and must never be spliced into code.
-      removeBtn.addEventListener('click', () => {
-        this.removeBinding(binding.address, binding.argIndex);
-      });
-
-      row.appendChild(details);
-      row.appendChild(removeBtn);
-      this.bindingsList.appendChild(row);
+    for (const [, group] of byChannel) {
+      this.bindingsList.appendChild(this.buildChannelGroup(group));
     }
   }
+
+  buildChannelGroup(group) {
+    const [first] = group;
+    const wrapper = el(
+      'div',
+      `margin-bottom: 8px; padding: 7px 8px; background: rgba(255, 255, 255, 0.05);
+       border-radius: 4px; border-left: 3px solid #2196F3;`,
+    );
+
+    const heading = el('div', 'display: flex; justify-content: space-between; align-items: baseline; gap: 8px;');
+    heading.appendChild(
+      el(
+        'div',
+        'font-weight: 500; font-size: 11px; color: #2196F3; font-family: monospace; word-break: break-all;',
+        first.argIndex > 0 ? `${first.address} [${first.argIndex}]` : first.address,
+      ),
+    );
+    if (group.length > 1) {
+      heading.appendChild(
+        el('div', 'font-size: 10px; color: #888; white-space: nowrap;', `${group.length} targets`),
+      );
+    }
+    wrapper.appendChild(heading);
+
+    for (const binding of group) wrapper.appendChild(this.buildBindingRow(binding));
+    return wrapper;
+  }
+
+  buildBindingRow(binding) {
+    const node = window.editor?.graph?.nodes?.find((n) => n.id === binding.nodeId);
+    const nodeName = node ? node.kind : 'Unknown';
+
+    const row = el('div', 'margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.07);');
+
+    const header = el('div', 'display: flex; justify-content: space-between; align-items: center; gap: 6px;');
+    header.appendChild(
+      el('div', 'font-size: 11px; color: #fff; flex: 1; min-width: 0;', `${nodeName}.${binding.paramName}`),
+    );
+
+    const enableBox = document.createElement('input');
+    enableBox.type = 'checkbox';
+    enableBox.checked = binding.enabled !== false;
+    enableBox.title = 'Enabled';
+    enableBox.style.cssText = 'cursor: pointer; flex: none;';
+    enableBox.addEventListener('change', () => {
+      this.oscBinding.updateBindingForParameter(binding.nodeId, binding.paramName, {
+        enabled: enableBox.checked,
+      });
+    });
+    header.appendChild(enableBox);
+
+    const removeBtn = el(
+      'button',
+      `padding: 2px 7px; background: #f44336; color: white; border: none;
+       border-radius: 3px; cursor: pointer; font-size: 10px; flex: none;`,
+      '×',
+    );
+    removeBtn.title = 'Remove this binding';
+    // A listener rather than an inline onclick: the address is attacker-shaped
+    // text and must never be spliced into code.
+    removeBtn.addEventListener('click', () => {
+      this.oscBinding.removeBindingForParameter(binding.nodeId, binding.paramName);
+      this.updateBindingsList();
+    });
+    header.appendChild(removeBtn);
+    row.appendChild(header);
+
+    row.appendChild(this.buildRangeControls(binding));
+    return row;
+  }
+
+  buildRangeControls(binding) {
+    const controls = el(
+      'div',
+      'display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; font-size: 10px; color: #888;',
+    );
+
+    const field = (key, title) => {
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.step = 'any';
+      input.value = String(binding[key]);
+      input.title = title;
+      input.style.cssText = SMALL_INPUT;
+      const commit = () => {
+        const value = parseFloat(input.value);
+        if (!Number.isFinite(value)) {
+          input.value = String(binding[key]);
+          return;
+        }
+        this.oscBinding.updateBindingForParameter(binding.nodeId, binding.paramName, {
+          [key]: value,
+        });
+      };
+      input.addEventListener('change', commit);
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') input.blur();
+      });
+      return input;
+    };
+
+    controls.append(
+      el('span', null, 'in'),
+      field('inputMin', 'Lowest value this channel sends'),
+      field('inputMax', 'Highest value this channel sends'),
+      el('span', 'color: #666;', '→'),
+      field('min', 'Parameter value at the low end'),
+      field('max', 'Parameter value at the high end'),
+    );
+
+    const curve = document.createElement('select');
+    curve.style.cssText = `${SMALL_INPUT} width: auto;`;
+    curve.title = 'Response curve';
+    for (const name of CURVES) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name.slice(0, 3);
+      if (binding.curve === name) option.selected = true;
+      curve.appendChild(option);
+    }
+    curve.addEventListener('change', () => {
+      this.oscBinding.updateBindingForParameter(binding.nodeId, binding.paramName, {
+        curve: curve.value,
+      });
+    });
+    controls.appendChild(curve);
+
+    const invert = document.createElement('input');
+    invert.type = 'checkbox';
+    invert.checked = !!binding.inverted;
+    invert.title = 'Invert';
+    invert.style.cssText = 'cursor: pointer;';
+    invert.addEventListener('change', () => {
+      this.oscBinding.updateBindingForParameter(binding.nodeId, binding.paramName, {
+        inverted: invert.checked,
+      });
+    });
+    controls.append(invert, el('span', null, 'inv'));
+
+    return controls;
+  }
+
+  clearAllBindings() {
+    for (const binding of this.oscBinding.getAllBindings()) {
+      this.oscBinding.removeBindingForParameter(binding.nodeId, binding.paramName);
+    }
+    this.updateBindingsList();
+  }
+
+  removeBinding(address, argIndex) {
+    this.oscBinding.removeBinding(address, argIndex);
+    this.updateBindingsList();
+  }
+
+  // --------------------------------------------------------------------
+  // Activity
+  // --------------------------------------------------------------------
 
   updateActivity(data) {
     this.pendingActivityData = data;
@@ -665,31 +912,34 @@ export class OSCSettingsPanel {
     this.lastActivityUpdate = performance.now();
   }
 
-  removeBinding(address, argIndex) {
-    this.oscBinding.removeBinding(address, argIndex);
-    this.updateBindingsList();
-  }
-
-  clearAllBindings() {
-    for (const binding of this.oscBinding.getAllBindings()) {
-      this.oscBinding.removeBinding(binding.address, binding.argIndex);
-    }
-    this.updateBindingsList();
-  }
+  // --------------------------------------------------------------------
+  // Visibility
+  // --------------------------------------------------------------------
 
   show() {
     if (!this.panel) return;
     this.panel.style.display = 'block';
     this.visible = true;
+    this.continuousBox.checked = !!this.oscBinding.continuousLearn;
     this.updateStatus();
     this.updateAddressesList();
     this.updateBindingsList();
+
+    this.lastTargetKey = undefined;
+    this.refreshTarget();
+    if (!this.targetTimer) {
+      this.targetTimer = setInterval(() => this.refreshTarget(), TARGET_POLL_MS);
+    }
   }
 
   hide() {
     if (!this.panel) return;
     this.panel.style.display = 'none';
     this.visible = false;
+    if (this.targetTimer) {
+      clearInterval(this.targetTimer);
+      this.targetTimer = null;
+    }
   }
 
   toggle() {
@@ -702,6 +952,7 @@ export class OSCSettingsPanel {
   }
 
   destroy() {
+    this.hide();
     if (this.activityRAF) cancelAnimationFrame(this.activityRAF);
     if (this.addressesRAF) cancelAnimationFrame(this.addressesRAF);
     this.cleanupDraggable?.();

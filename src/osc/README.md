@@ -50,11 +50,41 @@ OSC sender ──UDP:9000──> osc_bridge_server.py ──WebSocket:8767──
    Incoming addresses appear as soon as anything arrives, which is the fastest
    way to confirm your sender is pointed at the right machine.
 
-3. Map a control:
-   - click a node to select it,
-   - click the parameter field you want to drive in the Parameter Panel,
-   - click **Start OSC Learn**,
-   - move the control on your sender.
+3. Map a control. Select a node, click the parameter field you want to drive,
+   then either:
+   - press **Bind** next to the channel in the panel's *Channels* list, or
+   - click **Start OSC Learn** and move the control on your sender.
+
+## Mapping several channels
+
+A MIDI controller has a handful of CCs you learn one at a time. An OSC source
+sends a rack of channels at once, and the panel is built for that.
+
+**Every channel is visible before you map anything.** As soon as your sender
+touches a channel it appears in *Channels* with its live value, so a rack shows
+up as `/vcv/ch0`…`/vcv/ch7` and you map by reading rather than by wiggling
+controls one at a time to find out which is which. A **Bind** button on each
+channel maps it to whatever parameter is selected; the button turns green once
+that channel drives something, so you can see what is left to do. Use the
+filter box when the list gets long.
+
+**Keep armed** turns learn continuous. Arm it once, then: select a parameter,
+move a control, select the next parameter, move the next control. Between maps
+the panel shows *"Mapped. Select the next parameter…"*, and channels arriving in
+that gap drive their existing bindings instead of being swallowed by the armed
+learn — which matters, because a running rack never stops sending.
+
+**One channel can drive several parameters.** Bind it again to another
+parameter; both follow it. The bindings list groups them under the channel and
+marks it *"2 targets"*. Removing one leaves the others running.
+
+**A multi-value message gets one Bind per argument.** `/xy 0.3 0.7` shows
+**Bind 0** and **Bind 1** so each half can drive a different parameter.
+
+**Ranges are editable in place.** Each binding row carries
+`in [min] [max] → [min] [max]`, a curve, and an invert box, so a channel that
+turned out to send 0–127 or −5…5 can be corrected without going near the
+console.
 
 The bridge can also be run on its own, on other ports:
 
@@ -122,6 +152,19 @@ routinely carries several values:
 // '/xy 0.3 0.7' driving two parameters
 oscBinding.createBinding('/xy', 0, nodeId, 'centerX');
 oscBinding.createBinding('/xy', 1, nodeId, 'centerY');
+
+// the same channel driving two parameters, each with its own range
+oscBinding.createBinding('/lfo', 0, nodeId, 'radius',   { min: 0, max: 10 });
+oscBinding.createBinding('/lfo', 0, otherId, 'rotation', { min: 0, max: 360 });
+```
+
+A parameter follows at most one source, so bindings are removed and edited by
+their target rather than by their address:
+
+```javascript
+oscBinding.updateBindingForParameter(nodeId, 'radius', { max: 4 });
+oscBinding.removeBindingForParameter(nodeId, 'radius');   // sibling keeps running
+oscBinding.removeBinding('/lfo', 0);                      // drops every target
 ```
 
 ## Argument types
