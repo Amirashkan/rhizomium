@@ -24,6 +24,7 @@ import { getMIDISettingsPanel } from './src/ui/MIDISettingsPanel.js';
 import { TimelineManager } from './src/core/TimelineManager.js';
 import { TimelinePanel } from './src/ui/TimelinePanel.js';
 import { VJControlPanel } from './src/vj/VJControlPanel.js';
+import { ensureIconSprite } from './src/ui/iconSprite.js';
 import { ComputeShaderTest } from './src/test/ComputeShaderTest.js';
 import { ComputeExecutor } from './src/gpu/ComputeExecutor.js';
 import { ComputeProfiler } from './src/gpu/ComputeProfiler.js';
@@ -156,6 +157,12 @@ window.previewPerfMonitor = previewPerfMonitor;
 if (typeof window.render !== "function") {
   window.render = () => {};
 }
+
+// Icons are <use> references into a document-level <symbol> sprite. The editor's
+// markup contains <use> refs that are parsed before any of this runs, so inject
+// at module evaluation (this script is deferred - document.body exists) rather
+// than inside initialize(), which is async and would land after first paint.
+ensureIconSprite();
 
 async function initialize() {
   const errorHandler = new ErrorHandler();

@@ -1,3 +1,4 @@
+import { setIcon } from './iconSprite.js';
 /**
  * ComputeProfilerOverlay - Visual overlay for displaying compute performance metrics
  *
@@ -70,7 +71,7 @@ export class ComputeProfilerOverlay {
 
     // Expand/collapse button
     this.expandButton = document.createElement('button');
-    this.expandButton.textContent = '+';
+    setIcon(this.expandButton, 'expand', { size: 12, label: 'Expand' });
     this.expandButton.style.cssText = `
       background: rgba(0, 255, 0, 0.2);
       color: #00ff00;
@@ -89,7 +90,7 @@ export class ComputeProfilerOverlay {
 
     // Close button
     const closeButton = document.createElement('button');
-    closeButton.textContent = '×';
+    setIcon(closeButton, 'close', { size: 12, label: 'Close' });
     closeButton.style.cssText = `
       background: rgba(255, 0, 0, 0.2);
       color: #ff4444;
@@ -378,11 +379,11 @@ export class ComputeProfilerOverlay {
 
     if (this.expanded) {
       this.detailsSection.style.display = 'block';
-      this.expandButton.textContent = '−';
-      this.footer.textContent = 'Press Ctrl+P to toggle | − to collapse';
+      setIcon(this.expandButton, 'collapse', { size: 12, label: 'Collapse' });
+      this.footer.textContent = 'Press Ctrl+P to toggle';
     } else {
       this.detailsSection.style.display = 'none';
-      this.expandButton.textContent = '+';
+      setIcon(this.expandButton, 'expand', { size: 12, label: 'Expand' });
       this.footer.textContent = 'Press Ctrl+P to toggle | + for details';
     }
   }

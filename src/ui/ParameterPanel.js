@@ -1,6 +1,7 @@
 // src/ui/ParameterPanel.js - Clean implementation with binding support
 
 import { ExpressionTextInputHandler, ExpressionParameterValueManager, expressionSystem, expressionStyles } from '../utils/ParameterExpressionSystem.js';
+import { setIcon, iconMarkup } from './iconSprite.js';
 import { SelectInputHandler } from './components/SelectInputHandler.js';
 import { FileInputHandler } from './components/FileInputHandler.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
@@ -1019,7 +1020,7 @@ case 'flip2d':
       letter-spacing: 0.5px;
     `;
     const caret = document.createElement('span');
-    caret.textContent = collapsed ? '▸' : '▾';
+    setIcon(caret, collapsed ? 'chevron-right' : 'chevron-down', { size: 12 });
     const label = document.createElement('span');
     label.textContent = groupName;
     header.appendChild(caret);
@@ -1041,7 +1042,7 @@ case 'flip2d':
       collapsed = !collapsed;
       this._collapsedGroups.set(key, collapsed);
       body.style.display = collapsed ? 'none' : 'block';
-      caret.textContent = collapsed ? '▸' : '▾';
+      setIcon(caret, collapsed ? 'chevron-right' : 'chevron-down', { size: 12 });
     });
 
     section.appendChild(header);
@@ -1461,7 +1462,7 @@ case 'flip2d':
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'binding-btn copy-ref-btn';
-    copyBtn.innerHTML = '📋';
+    setIcon(copyBtn, 'copy-value', { size: 12, label: 'Copy as reference' });
     copyBtn.title = 'Copy as reference (Ctrl+Shift+C)';
     copyBtn.style.cssText = `
       width: 18px;
@@ -1481,13 +1482,13 @@ case 'flip2d':
       e.stopPropagation();
       this.copyParameterReference(node, param);
       // Confirm right at the icon. The corner toast renders top-right, away from where the user is
-      // looking in the panel, so flash the button to ✅ and pop a small "Copied!" label anchored to
+      // looking in the panel, so flash the button to a checkmark and pop a small "Copied!" label anchored to
       // the icon as unmistakable feedback next to the parameter.
-      copyBtn.innerHTML = '✅';
+      setIcon(copyBtn, 'status-success', { size: 12, label: 'Copied' });
       copyBtn.title = `Copied ${node.kind}.${param.name} as reference`;
       clearTimeout(this._copyFlashTimer);
       this._copyFlashTimer = setTimeout(() => {
-        copyBtn.innerHTML = '📋';
+        setIcon(copyBtn, 'copy-value', { size: 12, label: 'Copy as reference' });
         copyBtn.title = 'Copy as reference (Ctrl+Shift+C)';
       }, 1000);
       this.showAnchoredMessage(copyBtn, 'Copied!');
@@ -1497,7 +1498,7 @@ case 'flip2d':
     const pasteBtn = document.createElement('button');
     pasteBtn.type = 'button';
     pasteBtn.className = 'binding-btn paste-ref-btn';
-    pasteBtn.innerHTML = '📎';
+    setIcon(pasteBtn, 'attach', { size: 12, label: 'Paste reference' });
     pasteBtn.title = 'Paste reference (Ctrl+Shift+V)';
     pasteBtn.style.cssText = `
       width: 18px;
@@ -1527,7 +1528,7 @@ case 'flip2d':
       const unbindBtn = document.createElement('button');
       unbindBtn.type = 'button';
       unbindBtn.className = 'binding-btn unbind-btn';
-      unbindBtn.innerHTML = '🔗';
+      setIcon(unbindBtn, 'unlink', { size: 12, label: 'Remove binding' });
       unbindBtn.title = 'Remove binding';
       unbindBtn.style.cssText = `
         width: 18px;
@@ -1561,7 +1562,7 @@ case 'flip2d':
     const keyframeBtn = document.createElement('button');
     keyframeBtn.type = 'button';
     keyframeBtn.className = 'keyframe-btn';
-    keyframeBtn.innerHTML = '◆';
+    setIcon(keyframeBtn, 'record', { size: 12, label: 'Add keyframe' });
     keyframeBtn.title = 'Add keyframe at current time';
 
     // Check if parameter has keyframes
@@ -1648,7 +1649,7 @@ case 'flip2d':
 
       const boundLine = document.createElement('div');
       boundLine.innerHTML = `
-        <span style="color: #ff9800;">⬅ Bound to:</span>
+        <span style="color: #ff9800;">${iconMarkup('link', { size: 12 })} Bound to:</span>
         <span style="color: #fff; text-decoration: underline dotted;">${sourceLabel}</span>
       `;
       if (sourceNode) {
@@ -1668,7 +1669,7 @@ case 'flip2d':
       
       const targetInfo = document.createElement('div');
       targetInfo.innerHTML = `
-        <span style="color: #4CAF50;">➡ Controls:</span> 
+        <span style="color: #4CAF50;">${iconMarkup('wire', { size: 12 })} Controls:</span> 
         <span style="color: #fff;">${targetsText}</span>
       `;
       
@@ -1681,7 +1682,7 @@ case 'flip2d':
     return status;
   }
 
-  // Select a bound parameter's source node and show its parameters, so "⬅ Bound to: …" is a way to
+  // Select a bound parameter's source node and show its parameters, so "Bound to: …" is a way to
   // jump straight to the driver. Selection is a plain Set of node ids on the graph.
   focusSourceNode(sourceNode) {
     if (!sourceNode) return;

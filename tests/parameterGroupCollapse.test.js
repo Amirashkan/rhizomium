@@ -99,13 +99,16 @@ describe('collapsible parameter groups', () => {
     render(panel, 'AudioAnalysis');
     const header = headerFor(panel, 'Triggers');
 
+    // The caret is an icon-sprite <use> reference, not a text glyph.
+    const caretIcon = () => header.firstChild.querySelector('use')?.getAttribute('href');
+
     click(header);
     expect(sections(panel)[0].open).toBe(false);
-    expect(header.firstChild.textContent).toBe('▸');
+    expect(caretIcon()).toBe('#icon-chevron-right');
 
     click(header);
     expect(sections(panel)[0].open).toBe(true);
-    expect(header.firstChild.textContent).toBe('▾');
+    expect(caretIcon()).toBe('#icon-chevron-down');
   });
 
   it('remembers collapsed state across the re-render that follows a parameter edit', () => {

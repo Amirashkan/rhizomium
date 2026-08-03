@@ -83,6 +83,14 @@ function buttonTitled(root, title) {
   return [...root.querySelectorAll('button')].find(b => b.title === title);
 }
 
+// The play/pause button renders a sprite icon, not a text glyph.
+const playIcon = (panel) =>
+  panel.playlistPlayBtn.querySelector('use')?.getAttribute('href');
+
+// The beat indicator is four dots; the lit one is at full opacity. -1 = none lit.
+const litBeat = (panel) =>
+  [...panel.beatIndicator.children].findIndex((d) => d.style.opacity === '1');
+
 describe('VJ panel stacking', () => {
   // happy-dom does not do stacking contexts, so assert the invariant at the
   // source: the panel has to out-rank the floating GPU preview. They were both
@@ -371,7 +379,7 @@ describe('VJ control panel', () => {
     await panel.togglePlaylist();
 
     expect(panel.playlistManager.isPlaying).toBe(false);
-    expect(panel.playlistPlayBtn.textContent).toBe('▶');
+    expect(playIcon(panel)).toBe('#icon-play');
     expect(panel.playlistPlayBtn.disabled).toBe(true);
   });
 
@@ -518,7 +526,7 @@ describe('VJ control panel', () => {
 
   it('lights the beat indicator from the clock', () => {
     panel.beatSyncManager.syncToBeat(2);
-    expect(panel.beatIndicator.textContent).toBe('○○●○');
+    expect(litBeat(panel)).toBe(2);
   });
 
   it('snaps the BPM field back when given an impossible tempo', () => {
@@ -597,7 +605,7 @@ describe('VJ control panel', () => {
     expect(panel.beatSyncManager.isPlaying).toBe(false);
     expect(panel.bpmInput.disabled).toBe(true);
     expect(panel.tapBtn.disabled).toBe(true);
-    expect(panel.beatIndicator.textContent).toBe('○○○○');
+    expect(litBeat(panel)).toBe(-1);
     expect(panel.beatIndicator.classList.contains('disabled')).toBe(true);
   });
 
