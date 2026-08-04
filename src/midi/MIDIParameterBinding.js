@@ -126,9 +126,13 @@ export class MIDIParameterBinding {
 
     if (midiSource) {
       const midiKey = `${midiSource.deviceId}:${midiSource.channel}:${midiSource.cc}`;
+      const removed = this.bindings.get(midiKey);
       this.bindings.delete(midiKey);
       this.parameterToMIDI.delete(paramKey);
 
+      // Announced like any other removal so panels showing this mapping — the
+      // MIDI list, the parameter panel's MIDI badge — drop it straight away.
+      this.eventSystem?.emit('MIDI_BINDING_REMOVED', removed ?? { ...midiSource, nodeId, paramName });
       return true;
     }
 

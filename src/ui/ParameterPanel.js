@@ -12,6 +12,20 @@ import { GLSLCodeInputHandler } from './components/GLSLCodeInputHandler.js';
 import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
 import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
 import { NodeDefs } from '../data/NodeDefs.js';
+import { describeExternalControls } from '../parameters/ExternalParameterControl.js';
+
+// Colours for parameters driven from outside the graph. Deliberately away from
+// the greens/oranges the in-graph binding UI already owns, so "a controller is
+// moving this" never reads as "another node is driving this".
+const EXTERNAL_CONTROL_COLORS = {
+  midi: '#b388ff',
+  osc: '#4dd0e1',
+};
+
+const EXTERNAL_CONTROL_ICONS = {
+  midi: 'midi-port',
+  osc: 'wire',
+};
 
 export class ParameterPanel {
   constructor(eventSystem, undoManager, graph) {
@@ -327,6 +341,21 @@ export class ParameterPanel {
             (this.selectedNode.id === data.sourceNodeId || this.selectedNode.id === data.targetNodeId)) {
           this.renderParameters(this.selectedNode);
         }
+      });
+
+      // Keep the MIDI/OSC indicators honest. Mapping happens over in the MIDI
+      // and OSC panels (or by wiggling a control in learn mode), so without
+      // this the badge only appears after the node is reselected.
+      const externalControlEvents = [
+        'MIDI_BINDING_CREATED', 'MIDI_BINDING_REMOVED', 'MIDI_BINDING_UPDATED',
+        'OSC_BINDING_CREATED', 'OSC_BINDING_REMOVED', 'OSC_BINDING_UPDATED',
+      ];
+      externalControlEvents.forEach((eventName) => {
+        this.eventSystem.on(eventName, (data) => {
+          if (this.selectedNode && this.selectedNode.id === data?.nodeId) {
+            this.renderParameters(this.selectedNode);
+          }
+        });
       });
     }
 
@@ -1159,12 +1188,24 @@ case 'flip2d':
     // doing nothing right now" while still letting the value be set up before switching modes.
     const active = this._isParameterActive(param, node);
 
+    // MIDI/OSC drive a parameter without touching the input, so an externally
+    // controlled value is otherwise indistinguishable from one typed by hand.
+    // Mark it: colour on the edge and the name, a badge, and the source below.
+    const externalControls = describeExternalControls(node.id, param.name);
+    const externalColor = externalControls.length
+      ? EXTERNAL_CONTROL_COLORS[externalControls[0].type]
+      : null;
+
+    // In-graph bindings keep their existing orange — that relationship is
+    // editable from this panel, so it stays the louder of the two.
+    const accentColor = bindingInfo.isBound ? '#ff9800' : (externalColor || '#4CAF50');
+
     paramContainer.style.cssText = `
       margin-bottom: 12px;
       padding: 8px;
       background: ${bindingInfo.isBound ? '#2a2a4a' : '#333'};
       border-radius: 4px;
-      border-left: 3px solid ${active ? (bindingInfo.isBound ? '#ff9800' : '#4CAF50') : '#555'};
+      border-left: 3px solid ${active ? accentColor : '#555'};
       position: relative;
       opacity: ${active ? '1' : '0.45'};
     `;
@@ -1180,7 +1221,17 @@ case 'flip2d':
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 6px;
       margin-bottom: 4px;
+    `;
+
+    // Name and badges travel together on the left; the buttons stay right.
+    const labelGroup = document.createElement('div');
+    labelGroup.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
     `;
 
     const label = document.createElement('label');
@@ -1188,14 +1239,20 @@ case 'flip2d':
     label.textContent = param.displayName || param.name;
     label.style.cssText = `
       font-weight: bold;
-      color: ${bindingInfo.isBound ? '#ff9800' : '#ccc'};
+      color: ${bindingInfo.isBound || externalColor ? accentColor : '#ccc'};
     `;
 
     if (param.description) {
       label.title = param.description;
     }
 
-    labelContainer.appendChild(label);
+    labelGroup.appendChild(label);
+
+    for (const control of externalControls) {
+      labelGroup.appendChild(this.createExternalControlBadge(control));
+    }
+
+    labelContainer.appendChild(labelGroup);
 
     // Controls container for binding and keyframe buttons
     const controlsContainer = document.createElement('div');
@@ -1223,6 +1280,11 @@ case 'flip2d':
     if (this.bindingSystem && (bindingInfo.isBound || bindingInfo.hasTargets)) {
       const bindingStatus = this.createBindingStatus(param, node, bindingInfo);
       paramContainer.appendChild(bindingStatus);
+    }
+
+    // Which CC / which address — the badge says "external", this says "which".
+    if (externalControls.length) {
+      paramContainer.appendChild(this.createExternalControlStatus(externalControls));
     }
 
     // Input container
@@ -1680,6 +1742,93 @@ case 'flip2d':
     }
 
     return status;
+  }
+
+  /**
+   * Small "MIDI"/"OSC" pill sitting next to the parameter name.
+   *
+   * This is the at-a-glance half of the indicator: scanning the panel should
+   * answer "what in here is on a controller?" without reading any detail lines.
+   * Clicking it opens the settings panel that owns the mapping, which is where
+   * the range or the mapping itself can actually be changed.
+   */
+  createExternalControlBadge(control) {
+    const color = EXTERNAL_CONTROL_COLORS[control.type] || '#999';
+
+    const badge = document.createElement('span');
+    badge.className = `external-control-badge external-control-badge--${control.type}`;
+    badge.setAttribute('data-external-control', control.type);
+    badge.textContent = control.label;
+    badge.style.cssText = `
+      flex: none;
+      font-size: 9px;
+      font-weight: bold;
+      letter-spacing: 0.4px;
+      line-height: 1;
+      padding: 2px 4px;
+      border: 1px solid ${color};
+      border-radius: 3px;
+      color: ${color};
+      background: rgba(0,0,0,0.25);
+      cursor: pointer;
+      opacity: ${control.enabled ? '1' : '0.45'};
+    `;
+    badge.title = control.enabled
+      ? `Driven by ${control.label}: ${control.source}. Click to open ${control.label} settings.`
+      : `${control.label} mapping (${control.source}) is disabled. Click to open ${control.label} settings.`;
+
+    badge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openExternalControlSettings(control.type);
+    });
+
+    return badge;
+  }
+
+  /**
+   * Detail line naming the controller source, styled to match "Bound to: …".
+   */
+  createExternalControlStatus(controls) {
+    const status = document.createElement('div');
+    status.className = 'external-control-status';
+    status.style.cssText = `
+      font-size: 9px;
+      margin-bottom: 4px;
+      padding: 2px 4px;
+      border-radius: 2px;
+      background: rgba(0,0,0,0.2);
+    `;
+
+    controls.forEach((control) => {
+      const color = EXTERNAL_CONTROL_COLORS[control.type] || '#999';
+      const icon = EXTERNAL_CONTROL_ICONS[control.type] || 'wire';
+
+      const line = document.createElement('div');
+      line.style.cssText = `opacity: ${control.enabled ? '1' : '0.5'};`;
+      line.innerHTML = `
+        <span style="color: ${color};">${iconMarkup(icon, { size: 12 })} ${control.label}:</span>
+        <span style="color: #fff;">${this.escapeHtml(control.source)}</span>
+        ${control.enabled ? '' : '<span style="color: #888;">(disabled)</span>'}
+      `;
+      status.appendChild(line);
+    });
+
+    return status;
+  }
+
+  /** Open the MIDI or OSC settings panel, where mappings are edited. */
+  openExternalControlSettings(type) {
+    const panel = type === 'midi'
+      ? (window.editor?.midiSettingsPanel ?? window.midiSettingsPanel)
+      : (window.editor?.oscSettingsPanel ?? window.oscSettingsPanel);
+
+    panel?.show?.();
+  }
+
+  escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
   }
 
   // Select a bound parameter's source node and show its parameters, so "Bound to: …" is a way to
