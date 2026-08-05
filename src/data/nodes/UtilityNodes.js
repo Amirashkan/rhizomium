@@ -10,6 +10,9 @@ export const UtilityNodes = {
     inputs: 2,
     pinsIn: ["a", "b"],
     pinsOut: [{ label: "out", type: "f32" }],
+    // Extra pins continue the a/b naming (c, d, …) and are addressable by that name in the
+    // expression itself.
+    dynamicInputs: { min: 1, max: 8, labelStyle: "lowerLetter" },
     params: [
       { name: "expr", type: "expression", default: "a", label: "Expression" },
     ],
@@ -76,6 +79,9 @@ export const UtilityNodes = {
     inputs: 4,
     pinsIn: ["A", "B", "C", "D"],
     pinsOut: [{ label: "out", type: "f32" }],
+    // Extra pins continue the A/B/C/D naming (E, F, …). `select` addresses pins by index, so its
+    // upper bound follows the live pin count (see maxFromInputCount).
+    dynamicInputs: { min: 2, max: 8, labelStyle: "upperLetter" },
     params: [
       {
         name: "select",
@@ -83,6 +89,7 @@ export const UtilityNodes = {
         default: 0,
         min: 0,
         max: 3,
+        maxFromInputCount: true,
         label: "Select"
       },
       {
@@ -101,12 +108,15 @@ export const UtilityNodes = {
     inputs: 4,
     pinsIn: ["Input 0", "Input 1", "Input 2", "Input 3"],
     pinsOut: [{ label: "out", type: "f32" }],
+    // Extra pins continue the numbering ("Input 4", …) and are referenced as input4, input5, … in
+    // the code. Capped at 8 so `input1` can never be a prefix of a two-digit input name.
+    dynamicInputs: { min: 1, max: 8, labelStyle: "index0", labelPrefix: "Input " },
     params: [
-      { 
-        name: "code", 
-        type: "glsl", 
-        default: "// Custom GLSL/WGSL code\n// Use input0, input1, input2, input3 to reference inputs\n// Example: sin(input0) * 2.0\ninput0", 
-        label: "Code" 
+      {
+        name: "code",
+        type: "glsl",
+        default: "// Custom GLSL/WGSL code\n// Use input0, input1, input2, input3 to reference inputs\n// Example: sin(input0) * 2.0\ninput0",
+        label: "Code"
       },
       {
         name: "outputType",

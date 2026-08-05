@@ -58,9 +58,13 @@ export function socketRowCount(inCount, outCount) {
   return Math.max(inCount || 0, outCount || 0, 1);
 }
 
-/** Minimum node height that fits the header, the optional preview band and every socket row. */
-export function nodeMinHeight(node, inCount, outCount, previewH) {
-  const rows = socketRowCount(inCount, outCount);
+/**
+ * Minimum node height that fits the header, the optional preview band and every socket row.
+ * `extraRows` reserves further grid rows below the sockets — a node with expandable inputs uses one
+ * for its "+ / −" chips, so those chips get their own row instead of overlapping the last pin.
+ */
+export function nodeMinHeight(node, inCount, outCount, previewH, extraRows = 0) {
+  const rows = socketRowCount(inCount, outCount) + Math.max(0, extraRows);
   const headerAndPreview =
     previewH > 0
       ? HEADER_H + PREVIEW_TOP_GAP + previewH + ROW_GRID_TOP_GAP
@@ -72,6 +76,34 @@ export function nodeMinHeight(node, inCount, outCount, previewH) {
  * Full port geometry for a node. `inputs[i]` / `outputs[i]` are the {x, y} centres of the input /
  * output ports — input i and output i share row i, so they sit at the same height.
  */
+/** Chip size for the expandable-input "+ / −" buttons, matching the title-bar control chips. */
+export const IO_CHIP_W = 14;
+export const IO_CHIP_H = 12;
+
+/**
+ * Hit/draw rectangles for a node's expandable-input controls. They occupy the grid row directly
+ * below the last socket row (the row nodeMinHeight reserved via `extraRows`), left-aligned with the
+ * input labels so they read as "…and one more pin here".
+ *
+ * Shared by the renderer and the event handler so the drawn chip and its click target are the same
+ * rectangle by construction.
+ */
+export function dynamicInputButtons(node, inCount, outCount, previewH) {
+  const cy = rowCenterY(node, previewH, socketRowCount(inCount, outCount));
+  const top = Math.round(cy - IO_CHIP_H / 2);
+  const left = (node.x || 0) + EDGE_INSET - 5;
+  return {
+    add: { x: left, y: top, w: IO_CHIP_W, h: IO_CHIP_H },
+    remove: { x: left + IO_CHIP_W + 4, y: top, w: IO_CHIP_W, h: IO_CHIP_H },
+    centerY: cy,
+  };
+}
+
+/** Whether a point is inside one of the rectangles dynamicInputButtons returns. */
+export function hitChip(chip, x, y) {
+  return !!chip && x >= chip.x && x <= chip.x + chip.w && y >= chip.y && y <= chip.y + chip.h;
+}
+
 export function nodePinPositions(node, inCount, outCount, previewH) {
   const x = node.x || 0;
   const w = node.w || 100;

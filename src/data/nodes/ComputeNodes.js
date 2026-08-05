@@ -467,6 +467,9 @@ export const ComputeNodes = {
     inputs: 2,
     pinsIn: ["Input A", "Input B"],
     pinsOut: ["Texture"],
+    // Extra texture pins continue the A/B naming ("Input C", …). Each one is blended onto the
+    // running result in pin order, so Mix composites a whole stack in a single node.
+    dynamicInputs: { min: 2, max: 8, labelStyle: "upperLetter", labelPrefix: "Input " },
     params: [
       { name: 'mode', type: 'select', options: ['Mix', 'Add', 'Multiply', 'Screen', 'Overlay', 'Difference', 'Exclusion', 'Lighten', 'Darken'], default: 'Mix' },
       { name: 'amount', type: 'float', default: 0.5, min: 0.0, max: 1.0 },

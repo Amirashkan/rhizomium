@@ -3,6 +3,7 @@ import { UnifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { getBrowserAudioCapture } from '../audio/BrowserAudioCapture.js';
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
+import { getInputCount } from '../data/nodeInputs.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
 
 export class PreviewComputer {
@@ -983,17 +984,23 @@ export class PreviewComputer {
 
             // Utility Nodes
             case "Expr": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
               const expr = (node.expr || "a").toString();
+
+              // One scope entry per input pin (a, b, c, …). The pin list is expandable, so the
+              // scope must follow the node's live count or the CPU preview would disagree with the
+              // shader about what `c` means.
+              const scope = { u_time: this.animationTime };
+              const exprInputCount = Math.max(1, getInputCount(node));
+              for (let i = 0; i < exprInputCount; i++) {
+                scope[String.fromCharCode(97 + i)] = node.inputs?.[i]
+                  ? this._toF32(this._resolveInputValue(node, i, values))
+                  : 0;
+              }
 
               try {
                 // Math functions come from the evaluator's builtin table, so the
                 // scope only carries this node's values.
-                result = this.expressionSystem.evaluateCPUOrThrow(expr, {
-                  a, b,
-                  u_time: this.animationTime,
-                });
+                result = this.expressionSystem.evaluateCPUOrThrow(expr, scope);
                 if (!Number.isFinite(result)) result = 0;
               } catch (error) {
                 window.errorHandler?.handleError(error, {

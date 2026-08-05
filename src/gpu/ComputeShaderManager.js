@@ -33,6 +33,12 @@ export class ComputeShaderManager {
     this.inputSampler = null;
     this.warpFieldTexture = null; // For ComputeWarp's second input
 
+    // Third and later input textures, for nodes whose input pins are expandable (ComputeMix). Pin
+    // 0 binds at 2 and pin 1 at 4 as always; extraInputTextures[i] is pin i+2 and binds at 5+i,
+    // matching ComputeNodes.mixInputBinding() in the compiler.
+    this.extraInputCount = 0;
+    this.extraInputTextures = [];
+
     // Track previous texture references to avoid unnecessary bind group recreation
     this._previousInputTexture = null;
     this._previousWarpFieldTexture = null;
@@ -150,11 +156,15 @@ export class ComputeShaderManager {
   /**
    * Initialize compute shader with WGSL source code
    */
-  async initialize(wgslSource, width, height, supportsFeedback = false, needsInput = false) {
+  async initialize(wgslSource, width, height, supportsFeedback = false, needsInput = false, extraInputCount = 0) {
     this.textureWidth = width;
     this.textureHeight = height;
     this.supportsFeedback = supportsFeedback;
     this.needsInput = needsInput;
+    // Input pins past the first two (expandable Mix). Must match the number of extra input
+    // bindings the generated WGSL declares, or pipeline creation fails.
+    this.extraInputCount = Math.max(0, extraInputCount);
+    this.extraInputTextures = new Array(this.extraInputCount).fill(null);
 
     // Calculate dispatch size based on workgroup size
     this.dispatchSize.x = Math.ceil(width / this.workgroupSize.x);
@@ -533,6 +543,16 @@ export class ComputeShaderManager {
       }
     }
 
+    // Third and later input textures for expandable-input nodes, appended at 5, 6, … (bindings 2
+    // and 4 are already taken by the first two inputs).
+    for (let i = 0; i < this.extraInputCount; i++) {
+      entries.push({
+        binding: 5 + i,
+        visibility: GPUShaderStage.COMPUTE,
+        texture: { sampleType: 'float', viewDimension: '2d' }
+      });
+    }
+
     // Create bind group layout
     const bindGroupLayout = this.device.createBindGroupLayout({
       label: 'Compute Bind Group Layout',
@@ -798,6 +818,15 @@ export class ComputeShaderManager {
       }
     }
 
+    // Bindings 5+: the third and later inputs of an expandable-input node. An unwired pin binds the
+    // 1x1 fallback so the bind group is always complete; the generated shader leaves such a pin out
+    // of its blend, so the fallback's contents never reach the output.
+    for (let i = 0; i < this.extraInputCount; i++) {
+      const texture = this.extraInputTextures[i] || this.fallbackInputTexture;
+      if (!texture) continue;
+      entries.push({ binding: 5 + i, resource: texture.createView() });
+    }
+
     this.bindGroup = this.device.createBindGroup({
       label: 'Compute Bind Group',
       layout: this.bindGroupLayout,
@@ -838,6 +867,20 @@ export class ComputeShaderManager {
     this.warpFieldTexture = texture;
     // Mark that bind group needs recreation if texture reference changed
     this._bindGroupNeedsUpdate = (texture !== this._previousWarpFieldTexture);
+  }
+
+  /**
+   * Set one of the third-and-later input textures of an expandable-input node (ComputeMix's
+   * Input C, D, …). `index` is 0-based over the EXTRA inputs, i.e. pin index - 2.
+   *
+   * Unlike setInputTexture/setWarpFieldTexture this only ever raises the update flag, so a later
+   * unchanged pin can't clear an earlier pin's pending change.
+   */
+  setExtraInputTexture(index, texture) {
+    if (index < 0 || index >= this.extraInputCount) return;
+    if (this.extraInputTextures[index] === texture) return;
+    this.extraInputTextures[index] = texture;
+    this._bindGroupNeedsUpdate = true;
   }
 
   /**

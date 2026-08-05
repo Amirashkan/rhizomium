@@ -26,6 +26,7 @@ import { ComputeNodeBase } from './ComputeNodeBase.js';
 import { FragmentTextureRenderer } from './FragmentTextureRenderer.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
+import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 import { MAX_SIM_EDGE, fitToLongEdge, resolveResolution } from '../ui/OutputFormat.js';
 
 export class ComputeExecutor {
@@ -366,7 +367,14 @@ export class ComputeExecutor {
     // shapes the GPU pipeline/textures is identical. Parameters that map to
     // uniforms (decay, scale, offset, …) don't appear here because they don't
     // change the WGSL, so tweaking them no longer wipes the feedback buffer.
-    const initSignature = `${node.kind}|${width}x${height}|fb${supportsFeedback ? 1 : 0}|in${needsInput ? 1 : 0}|${wgslCode}`;
+    // Input pins past the first two, for nodes whose inputs are expandable (ComputeMix). They add
+    // bindings to the bind-group layout, so a change here has to rebuild the pipeline — hence its
+    // presence in the reuse signature below.
+    const extraInputCount = getDynamicInputSpec(node)
+      ? Math.max(0, getInputCount(node) - 2)
+      : 0;
+
+    const initSignature = `${node.kind}|${width}x${height}|fb${supportsFeedback ? 1 : 0}|in${needsInput ? 1 : 0}|xin${extraInputCount}|${wgslCode}`;
 
     // Reuse an unchanged node's manager during a reinitialize() pass.
     const reuseContext = this._reuseContext;
@@ -386,7 +394,7 @@ export class ComputeExecutor {
 
     // Create compute shader manager with node reference for parameters
     const manager = new ComputeShaderManager(this.device, node);
-    await manager.initialize(wgslCode, width, height, supportsFeedback, needsInput);
+    await manager.initialize(wgslCode, width, height, supportsFeedback, needsInput, extraInputCount);
     manager._initSignature = initSignature;
 
     // Store manager
@@ -682,6 +690,25 @@ export class ComputeExecutor {
         if (manager.recreateBindGroup) {
           manager.recreateBindGroup();
         }
+      }
+    }
+
+    // Third and later pins of an expandable-input node (ComputeMix's Input C, D, …). Same
+    // disconnect handling as above: an emptied pin must clear its stale texture reference, which
+    // setExtraInputTexture(null) does by falling the binding back to the 1x1 fallback.
+    if (manager.setExtraInputTexture && manager.extraInputCount > 0) {
+      let changed = false;
+      const pinCount = getInputCount(node);
+      for (let pin = 2; pin < pinCount; pin++) {
+        const sourceId = inputs.length > pin ? inputs[pin] : null;
+        const texture = (sourceId !== null && sourceId !== undefined)
+          ? this.nodeOutputs.get(sourceId) || null
+          : null;
+        if (manager.extraInputTextures[pin - 2] !== texture) changed = true;
+        manager.setExtraInputTexture(pin - 2, texture);
+      }
+      if (changed && manager.recreateBindGroup) {
+        manager.recreateBindGroup();
       }
     }
   }

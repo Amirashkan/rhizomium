@@ -4,6 +4,7 @@
 import { UnifiedParameterHandler } from '../../parameters/UnifiedParameterHandler.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { resolveResolution } from '../../ui/OutputFormat.js';
+import { getInputCount } from '../../data/nodeInputs.js';
 
 export class ComputeNodes {
   constructor() {
@@ -3110,15 +3111,61 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
 
   /**
-   * Generate mix/blend shader - composite two textures with blend modes
+   * Binding number for one of Mix's input textures.
+   *
+   * Pin 0 keeps binding 2 and pin 1 keeps binding 4 (binding 3 is the sampler), matching the
+   * layout Mix has always used, so the two-input case still lines up with the second-input slot
+   * ComputeShaderManager already had; pins 2+ are appended at 5, 6, … The manager builds its
+   * bind-group layout from this same rule, so the two must be changed together.
+   */
+  static mixInputBinding(pin) {
+    if (pin === 0) return 2;
+    if (pin === 1) return 4;
+    return 3 + pin; // pin 2 -> 5, pin 3 -> 6, …
+  }
+
+  /**
+   * Generate mix/blend shader - composite N textures with blend modes.
+   *
+   * Inputs are folded in pin order: the running result starts at Input A and each later input is
+   * blended onto it with the selected mode, then `amount` and `opacity` mix the result back
+   * against Input A. For the two-input case this is exactly the original A-over-B blend.
+   *
+   * An unconnected pin past Input B is skipped entirely rather than blended: its binding falls back
+   * to the executor's 1x1 black texture, which would darken (or with Multiply, erase) the result.
+   * Input B keeps its historical behaviour of blending even when unconnected so existing
+   * compositions render unchanged.
    */
   generateMixShader(node, __getInput) {
     const mode = this.getParam(node, 'mode', 'Mix');
 
     const modeIndex = this.getBlendModeIndex(mode);
+    const inputCount = Math.max(2, getInputCount(node));
+
+    // Pins whose result actually participates in the fold (see the note above).
+    const activePins = [];
+    for (let pin = 1; pin < inputCount; pin++) {
+      if (pin === 1 || node.inputs?.[pin]) activePins.push(pin);
+    }
+
+    const inputDecls = [];
+    for (let pin = 1; pin < inputCount; pin++) {
+      inputDecls.push(
+        `@group(0) @binding(${ComputeNodes.mixInputBinding(pin)}) var inputTexture${pin}: texture_2d<f32>;`
+      );
+    }
+
+    const sampleLines = activePins.map(
+      (pin) =>
+        `  let color${pin} = sampleTexture(inputTexture${pin}, uv, textureDimensions(inputTexture${pin}));`
+    );
+
+    const blendCalls = activePins
+      .map((pin) => `    blended = blendPair(blended, color${pin}.rgb);`)
+      .join('\n');
 
     const shader = `
-// Compute Mix/Blend Shader - Mode: ${mode}
+// Compute Mix/Blend Shader - Mode: ${mode}, Inputs: ${inputCount}
 struct Uniforms {
   resolution: vec2<f32>,
   time: f32,
@@ -3131,7 +3178,7 @@ struct Uniforms {
 @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(2) var inputTextureA: texture_2d<f32>;
 @group(0) @binding(3) var texSampler: sampler;
-@group(0) @binding(4) var inputTextureB: texture_2d<f32>;
+${inputDecls.join('\n')}
 
 // Sample texture with boundary clamping using textureLoad
 fn sampleTexture(tex: texture_2d<f32>, uv: vec2<f32>, texSize: vec2<u32>) -> vec4<f32> {
@@ -3193,11 +3240,35 @@ fn blendDarken(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
   return min(base, blend);
 }
 
+const BLEND_MODE: i32 = ${modeIndex}; // 0=Mix, 1=Add, 2=Multiply, 3=Screen, 4=Overlay, 5=Difference, 6=Exclusion, 7=Lighten, 8=Darken
+
+// One blend step: fold the next input onto the running result.
+fn blendPair(base: vec3<f32>, blend: vec3<f32>) -> vec3<f32> {
+  if (BLEND_MODE == 0) {
+    // Mix mode - simple linear interpolation
+    return mix(base, blend, uniforms.amount);
+  } else if (BLEND_MODE == 1) {
+    return blendAdd(base, blend);
+  } else if (BLEND_MODE == 2) {
+    return blendMultiply(base, blend);
+  } else if (BLEND_MODE == 3) {
+    return blendScreen(base, blend);
+  } else if (BLEND_MODE == 4) {
+    return blendOverlay(base, blend);
+  } else if (BLEND_MODE == 5) {
+    return blendDifference(base, blend);
+  } else if (BLEND_MODE == 6) {
+    return blendExclusion(base, blend);
+  } else if (BLEND_MODE == 7) {
+    return blendLighten(base, blend);
+  }
+  return blendDarken(base, blend);
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let texCoord = vec2<i32>(global_id.xy);
   let texSizeA = textureDimensions(inputTextureA);
-  let texSizeB = textureDimensions(inputTextureB);
 
   if (texCoord.x >= i32(texSizeA.x) || texCoord.y >= i32(texSizeA.y)) {
     return;
@@ -3205,49 +3276,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let uv = vec2<f32>(texCoord) / vec2<f32>(texSizeA);
 
-  // Sample both input textures
+  // Input A is the base; every further input is folded onto it in pin order.
   let colorA = sampleTexture(inputTextureA, uv, texSizeA);
-  let colorB = sampleTexture(inputTextureB, uv, texSizeB);
+${sampleLines.join('\n')}
 
-  var blendedColor: vec3<f32>;
-  let blendMode = ${modeIndex}; // 0=Mix, 1=Add, 2=Multiply, 3=Screen, 4=Overlay, 5=Difference, 6=Exclusion, 7=Lighten, 8=Darken
+  var blended = colorA.rgb;
+${blendCalls}
 
-  if (blendMode == 0) {
-    // Mix mode - simple linear interpolation
-    blendedColor = mix(colorA.rgb, colorB.rgb, uniforms.amount);
-  } else if (blendMode == 1) {
-    // Add mode
-    blendedColor = blendAdd(colorA.rgb, colorB.rgb);
-  } else if (blendMode == 2) {
-    // Multiply mode
-    blendedColor = blendMultiply(colorA.rgb, colorB.rgb);
-  } else if (blendMode == 3) {
-    // Screen mode
-    blendedColor = blendScreen(colorA.rgb, colorB.rgb);
-  } else if (blendMode == 4) {
-    // Overlay mode
-    blendedColor = blendOverlay(colorA.rgb, colorB.rgb);
-  } else if (blendMode == 5) {
-    // Difference mode
-    blendedColor = blendDifference(colorA.rgb, colorB.rgb);
-  } else if (blendMode == 6) {
-    // Exclusion mode
-    blendedColor = blendExclusion(colorA.rgb, colorB.rgb);
-  } else if (blendMode == 7) {
-    // Lighten mode
-    blendedColor = blendLighten(colorA.rgb, colorB.rgb);
-  } else {
-    // Darken mode
-    blendedColor = blendDarken(colorA.rgb, colorB.rgb);
-  }
-
-  // Apply amount (for non-Mix modes, amount controls blend intensity)
-  if (blendMode != 0) {
-    blendedColor = mix(colorA.rgb, blendedColor, uniforms.amount);
+  // Apply amount (for non-Mix modes, amount controls blend intensity - Mix already used it)
+  if (BLEND_MODE != 0) {
+    blended = mix(colorA.rgb, blended, uniforms.amount);
   }
 
   // Apply opacity
-  let finalColor = mix(colorA.rgb, blendedColor, uniforms.opacity);
+  let finalColor = mix(colorA.rgb, blended, uniforms.opacity);
 
   textureStore(outputTexture, vec2<u32>(texCoord), vec4<f32>(finalColor, colorA.a));
 }`;
