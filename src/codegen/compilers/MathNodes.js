@@ -19,6 +19,8 @@ export class MathNodes {
       'Smoothstep', 'Step', 'Mix', 'Lerp', 'InverseLerp', 'Saturate',
       // Utilities
       'OneMinus', 'Negate', 'Reciprocal',
+      // Boolean logic
+      'And', 'Or', 'Xor', 'Not', 'Nand', 'Nor', 'Xnor',
       // Vector operations
       'Dot', 'Cross', 'Normalize', 'Length', 'Distance', 'Reflect', 'Refract'
     ];
@@ -117,7 +119,19 @@ export class MathNodes {
         return this.compileNegate(nodeId, getInput);
       case 'Reciprocal':
         return this.compileReciprocal(nodeId, getInput);
-        
+
+      // Boolean Logic Gates
+      case 'And':
+      case 'Or':
+      case 'Xor':
+      case 'Nand':
+      case 'Nor':
+      case 'Xnor':
+        return this.compileLogicGate(nodeId, node, getInput, resolveParam);
+      case 'Not':
+        return this.compileNot(nodeId, node, getInput, resolveParam);
+
+
       // Vector Operations
       case 'Dot':
         return this.compileDot(nodeId, getInput);
@@ -531,8 +545,117 @@ coerceToType(expr, fromType, toType) {
     };
   }
   
+  // === BOOLEAN LOGIC ===
+
+  /**
+   * Turn a parameter value into a valid WGSL float literal.
+   *
+   * getParam() normally hands back a uniform reference (u_params._4_threshold) which is already
+   * an f32 and passes through untouched. When the compiler runs without a parameter resolver the
+   * raw default comes back instead, and a whole number would otherwise be emitted as an integer
+   * literal ("1"), which cannot be mixed with f32/vecN arguments in WGSL.
+   */
+  toFloatLiteral(value, fallback = '0.5') {
+    if (typeof value === 'number') {
+      if (!isFinite(value)) return fallback;
+      return Number.isInteger(value) ? `${value}.0` : `${value}`;
+    }
+
+    const str = String(value ?? '').trim();
+    if (!str) return fallback;
+    if (/^[+-]?\d+$/.test(str)) return `${str}.0`;
+    return str;
+  }
+
+  /**
+   * Threshold an expression into a per-component boolean mask (0.0 / 1.0).
+   * step(edge, x) is component-wise in WGSL and yields 1.0 when x >= edge.
+   */
+  booleanize(expr, thresholdExpr) {
+    return `step(${thresholdExpr}, ${expr})`;
+  }
+
+  /**
+   * Shared setup for the logic gates: both operands are brought to a common width, thresholded
+   * into 0/1 masks, and the threshold itself is widened to match.
+   */
+  prepareLogicOperands(nodeId, node, getInput, getParam, inputCount) {
+    const aInfo = getInput(0, null, null);
+    const bInfo = inputCount > 1 ? getInput(1, null, null) : { code: null, type: null };
+
+    // A drives the output width; B is coerced to match so the component-wise ops stay uniform.
+    const outputType = aInfo.type || bInfo.type || 'f32';
+
+    const threshold = this.toFloatLiteral(getParam('threshold', 0.5));
+    const thresholdExpr = this.coerceToType(threshold, 'f32', outputType);
+
+    // An unconnected input reads as false (0.0), matching the CPU preview.
+    const a = aInfo.code
+      ? this.coerceToType(aInfo.code, aInfo.type || outputType, outputType)
+      : this.getDefaultForType(outputType);
+    const b = bInfo.code
+      ? this.coerceToType(bInfo.code, bInfo.type || outputType, outputType)
+      : this.getDefaultForType(outputType);
+
+    return {
+      outputType,
+      one: this.getOneForType(outputType),
+      aMask: `logicA_${nodeId}`,
+      bMask: `logicB_${nodeId}`,
+      aMaskLine: `let logicA_${nodeId} = ${this.booleanize(a, thresholdExpr)};`,
+      bMaskLine: `let logicB_${nodeId} = ${this.booleanize(b, thresholdExpr)};`
+    };
+  }
+
+  /**
+   * Compile the two-input logic gates (type-aware, component-wise).
+   *
+   * Inputs are treated as booleans by thresholding (true when >= Threshold), and the result is
+   * always 0.0 or 1.0 so a gate can feed a mask, a Mix factor, a Select condition or another gate.
+   * The arithmetic below is the branch-free form of each truth table and is component-wise, so the
+   * same expression works for f32 and vecN alike.
+   */
+  compileLogicGate(nodeId, node, getInput, getParam) {
+    const { outputType, one, aMask, bMask, aMaskLine, bMaskLine } =
+      this.prepareLogicOperands(nodeId, node, getInput, getParam, 2);
+
+    let expr;
+    switch (node.kind) {
+      case 'And':  expr = `${aMask} * ${bMask}`; break;
+      case 'Or':   expr = `max(${aMask}, ${bMask})`; break;
+      case 'Xor':  expr = `abs(${aMask} - ${bMask})`; break;
+      case 'Nand': expr = `${one} - (${aMask} * ${bMask})`; break;
+      case 'Nor':  expr = `${one} - max(${aMask}, ${bMask})`; break;
+      case 'Xnor': expr = `${one} - abs(${aMask} - ${bMask})`; break;
+      default:     expr = `${aMask} * ${bMask}`;
+    }
+
+    return {
+      line: `
+  ${aMaskLine}
+  ${bMaskLine}
+  let node_${nodeId} = ${expr};`,
+      outputType: outputType
+    };
+  }
+
+  /**
+   * Compile NOT (type-aware, component-wise): 1.0 where the input is below the threshold.
+   */
+  compileNot(nodeId, node, getInput, getParam) {
+    const { outputType, one, aMask, aMaskLine } =
+      this.prepareLogicOperands(nodeId, node, getInput, getParam, 1);
+
+    return {
+      line: `
+  ${aMaskLine}
+  let node_${nodeId} = ${one} - ${aMask};`,
+      outputType: outputType
+    };
+  }
+
   // === VECTOR OPERATIONS ===
-  
+
   /**
    * Compile dot product (always returns scalar)
    */
