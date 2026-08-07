@@ -1,4 +1,9 @@
 // src/data/nodes/InputNodes.js
+import {
+  TRIGGER_MODES,
+  TRIGGER_MODE_THRESHOLD,
+  TRIGGER_DEFAULT_MIN_CHANGE,
+} from '../../core/triggerMode.js';
 
 /**
  * Input node definitions for constants, data sources, and textures
@@ -122,8 +127,19 @@ export const InputNodes = {
     inputs: 1,
     pinsIn: [{ label: "value", type: "f32" }],
     pinsOut: [{ label: "pulse", type: "f32" }],
+    // Two ways to turn a continuous signal into a pulse (see core/triggerMode.js):
+    //   "Threshold"       - 1 while the input sits at or above `threshold`, else 0. Stateless, so
+    //                       it compiles straight to WGSL.
+    //   "On value change" - 1 on any frame the input DIFFERS from the previous frame by more than
+    //                       `minChange`, whatever its level — useful for reacting to a stepped
+    //                       source (a Count, a held value, a MIDI/OSC-bound param) rather than to
+    //                       it crossing a level. A fragment shader has no memory of the previous
+    //                       frame, so this mode runs on the CPU in TriggerNodeProcessor and is
+    //                       streamed in as a per-frame uniform, like Hold and Count.
     params: [
-      { name: "threshold", type: "float", default: 0.5, label: "Threshold" }
+      { name: "mode", type: "select", options: TRIGGER_MODES, default: TRIGGER_MODE_THRESHOLD, label: "Mode" },
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+      { name: "minChange", type: "float", default: TRIGGER_DEFAULT_MIN_CHANGE, label: "Min Change" }
     ],
   },
 

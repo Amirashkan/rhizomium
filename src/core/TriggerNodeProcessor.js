@@ -1,25 +1,31 @@
-// src/core/HoldNodeProcessor.js
+// src/core/TriggerNodeProcessor.js
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { audioAnalysisPinValue } from './audioAnalysisPins.js';
-import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
+import { isTriggerChangeMode, triggerChangePulse, TRIGGER_DEFAULT_MIN_CHANGE } from './triggerMode.js';
 
 /**
- * Drives the Hold (sample-and-hold) node.
+ * Drives the Trigger node's "On value change" mode.
  *
- * A fragment shader has no memory between frames, so a true sample-and-hold can't be expressed in
- * GLSL/WGSL alone. Instead the held value lives on the CPU: every frame this evaluates the node's
- * `value` and `pulse` inputs, runs the latch, and writes the result into the `<nodeId>.hold`
- * uniform that the Hold node compiles down to (see compilers/InputNodes.js). `_updateParameterUniforms`
- * in the GPU renderer then streams it to the shader each frame.
+ * The node's default "Threshold" mode is stateless — `input >= threshold` compiles straight to
+ * WGSL — but "On value change" has to compare this frame's input against the PREVIOUS frame's, and
+ * a fragment shader has no memory between frames (the same reason Hold and Count need CPU helpers).
+ * So the comparison lives here: every frame this evaluates the node's `value` input, compares it to
+ * the value it last fired on, and writes a 0/1 pulse into the `<nodeId>.pulse` uniform that a
+ * change-mode Trigger compiles down to (see compilers/InputNodes.js). The GPU renderer's
+ * `_updateParameterUniforms` then streams it to the shader each frame.
  *
- * Behaviour (fixes the old `select(0, value, pulse >= threshold)` that snapped back to 0):
- *   - The held value persists after the pulse falls below the threshold (it no longer drops to 0).
- *   - "Continuous"        re-samples `value` every frame the pulse is high.
- *   - "Once per trigger"  samples `value` once, on the rising edge of each pulse, then holds.
+ * Behaviour:
+ *   - The pulse is 1 on any frame the input moved by more than `minChange`, whatever its level —
+ *     a stepped source (a Count, a held value, a MIDI/OSC-bound param) fires one pulse per step.
+ *   - `minChange` is a DEADBAND, not a per-frame comparison: the reference value only advances when
+ *     the pulse fires, so a signal creeping by less than `minChange` each frame still fires once it
+ *     has drifted that far in total, rather than never firing at all.
+ *   - The first frame a node is seen only seeds the reference value, so adding a node or loading a
+ *     patch never fires a spurious pulse.
  */
-export class HoldNodeProcessor {
+export class TriggerNodeProcessor {
   constructor() {
-    // nodeId -> { held, prevHigh }
+    // nodeId -> { prevValue, pulse }
     this._state = new Map();
   }
 
@@ -32,8 +38,8 @@ export class HoldNodeProcessor {
   update(graph, { time = 0, uniformManager } = {}) {
     if (!graph?.nodes?.length) return;
 
-    const holdNodes = graph.nodes.filter((n) => n?.kind === 'Hold');
-    if (holdNodes.length === 0) {
+    const changeNodes = graph.nodes.filter((n) => isTriggerChangeMode(n));
+    if (changeNodes.length === 0) {
       if (this._state.size) this._state.clear();
       return;
     }
@@ -41,45 +47,39 @@ export class HoldNodeProcessor {
     const ctx = this._buildContext(time);
     const live = new Set();
 
-    for (const node of holdNodes) {
+    for (const node of changeNodes) {
       live.add(node.id);
 
-      const valueSrc = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
-      const pulseSrc = node.inputs?.[1] ? graph.getNode?.(node.inputs[1]) : null;
+      const src = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
+      const inPin = this._sourcePin(graph, node.id, 0);
+      const value = src ? this._evalSignal(src, graph, ctx, 0, inPin) : 0;
+      // Negative/NaN deadbands would make every frame (or no frame) fire; clamp to a sane magnitude.
+      const rawMinChange = this._numericParam(node, 'minChange', TRIGGER_DEFAULT_MIN_CHANGE, ctx);
+      const minChange = Number.isFinite(rawMinChange) ? Math.abs(rawMinChange) : TRIGGER_DEFAULT_MIN_CHANGE;
 
-      const valuePin = this._sourcePin(graph, node.id, 0);
-      const pulsePin = this._sourcePin(graph, node.id, 1);
-      const value = valueSrc
-        ? this._evalSignal(valueSrc, graph, ctx, 0, valuePin)
-        : this._numericParam(node, 'value', 0, ctx);
-      const pulse = pulseSrc ? this._evalSignal(pulseSrc, graph, ctx, 0, pulsePin) : 0;
-      const threshold = this._numericParam(node, 'threshold', 0.5, ctx);
-      const risingEdgeOnly = (node.params?.mode || 'Continuous') === 'Once per trigger';
-
-      const high = pulse >= threshold;
       let st = this._state.get(node.id);
       if (!st) {
-        st = { held: 0, prevHigh: false };
+        // Seed only: a node that just appeared (added, or a patch just loaded) has no previous
+        // frame to differ from, so it must not fire on its first update.
+        st = { prevValue: value, pulse: 0 };
         this._state.set(node.id, st);
+      } else if (Math.abs(value - st.prevValue) > minChange) {
+        st.prevValue = value; // only advance on a fire, so `minChange` acts as a deadband
+        st.pulse = 1;
+      } else {
+        st.pulse = 0;
       }
-
-      if (risingEdgeOnly) {
-        if (high && !st.prevHigh) st.held = value; // sample once per trigger
-      } else if (high) {
-        st.held = value; // continuously track while the pulse is high
-      }
-      // When the pulse is low we deliberately do nothing: the value stays held.
-      st.prevHigh = high;
 
       // Expose to the CPU preview (PreviewComputer reads this for the thumbnail) and to the GPU.
-      node.__holdValue = st.held;
-      const key = `${node.id}.hold`;
+      node.__triggerPulse = st.pulse;
+      const key = `${node.id}.pulse`;
       if (uniformManager?.uniformValues?.has(key)) {
-        uniformManager.uniformValues.set(key, st.held);
+        uniformManager.uniformValues.set(key, st.pulse);
       }
     }
 
-    // Drop state for Hold nodes that were deleted so it doesn't leak across edits.
+    // Drop state for Trigger nodes that were deleted (or switched back to Threshold mode) so it
+    // doesn't leak across edits — and so switching modes twice starts from a clean reference.
     if (this._state.size > live.size) {
       for (const id of this._state.keys()) {
         if (!live.has(id)) this._state.delete(id);
@@ -91,8 +91,8 @@ export class HoldNodeProcessor {
     return {
       time,
       frame: Math.floor(time * 60),
-      // Read the same audio globals the GPU `g` uniform is fed from, so a held =audioEnvelope
-      // value matches what the shader would have sampled.
+      // Read the same audio globals the GPU `g` uniform is fed from, so a =audioEnvelope-driven
+      // minChange matches what the shader would have sampled.
       audioEnvelope: window._audioEnvelopeValue || 0,
       audioEnvelopeBass: window._audioEnvelopeBass || 0,
       audioEnvelopeMids: window._audioEnvelopeMids || 0,
@@ -117,10 +117,11 @@ export class HoldNodeProcessor {
   }
 
   /**
-   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a Hold
-   * (constants, time, triggers, nested holds, audio analysis); anything else falls back to the
-   * node's last preview value so the latch still does something sensible.
-   * `outPin` selects which output of a multi-output source is being read (see _sourcePin).
+   * Evaluate a scalar driver node on the CPU. Covers the kinds that realistically feed a Trigger's
+   * value input (constants, time, random, other triggers, holds, counts, audio analysis); anything
+   * else falls back to the node's last preview value so the change detection still does something
+   * sensible. Mirrors CountNodeProcessor. `outPin` selects which output of a multi-output source is
+   * being read (see _sourcePin).
    */
   _evalSignal(node, graph, ctx, depth, outPin = 0) {
     if (!node || depth > 32) return 0;
@@ -143,8 +144,8 @@ export class HoldNodeProcessor {
         return Math.PI;
 
       case 'Trigger': {
-        // "On value change" mode has no shader/stateless form: its pulse is advanced every frame
-        // by TriggerNodeProcessor (which runs before this one), so read the value it computed.
+        // A change-mode Trigger upstream: reuse the pulse computed for it this frame (graph order
+        // permitting) rather than re-deriving it, so a chain of them stays consistent.
         if (isTriggerChangeMode(node)) return triggerChangePulse(node);
         const src = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
         const inPin = this._sourcePin(graph, node.id, 0);
@@ -153,17 +154,16 @@ export class HoldNodeProcessor {
         return input >= threshold ? 1.0 : 0.0;
       }
 
-      case 'Hold': {
-        // Nested hold: reuse the already-latched value computed earlier this frame.
+      case 'Hold':
         return typeof node.__holdValue === 'number' ? node.__holdValue : 0;
-      }
 
       case 'Count':
         return typeof node.__countValue === 'number' ? node.__countValue : 0;
 
       case 'AudioAnalysis':
-        // Live CPU-computed outputs streamed each frame by AudioAnalysisProcessor. The pin order is
-        // shared with the node definition and the compiler; see core/audioAnalysisPins.js.
+        // Live CPU-computed outputs streamed each frame by AudioAnalysisProcessor. The pin
+        // order is shared with the node definition and the compiler; see
+        // core/audioAnalysisPins.js.
         return audioAnalysisPinValue(node, outPin);
 
       default:

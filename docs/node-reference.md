@@ -144,8 +144,12 @@ Converts a continuous value into a pulse trigger.
 - **Outputs**:
   - `pulse` (f32) - Trigger pulse output (0 or 1)
 - **Parameters**:
-  - `Threshold` (float, default: 0.5) - Activation threshold
-- **Description**: Outputs a pulse when the input crosses the threshold, useful for creating discrete events from continuous signals. Pairs naturally with Hold, Count, and the Reset pin on the Feedback nodes.
+  - `Mode` (select: Threshold/On value change, default: Threshold) - What makes it fire
+  - `Threshold` (float, default: 0.5) - Activation threshold (Threshold mode)
+  - `Min Change` (float, default: 0.0001) - Smallest movement that counts as a change (On value change mode)
+- **Description**: Turns a continuous signal into a pulse, useful for creating discrete events. Pairs naturally with Hold, Count, and the Reset pin on the Feedback nodes.
+  - **Threshold** — outputs 1 while the input sits at or above `Threshold`, else 0. Stateless, evaluated directly in the shader.
+  - **On value change** — outputs 1 on any frame the input *differs* from the previous frame by more than `Min Change`, whatever its level. Use it to react to a stepped source (a Count, a held value, a MIDI/OSC-bound parameter) rather than to a level crossing. `Min Change` is a deadband, not a per-frame comparison: the reference value only advances when the pulse fires, so a signal creeping by less than `Min Change` per frame still fires once it has drifted that far in total. A fragment shader has no memory of the previous frame, so this mode is computed on the CPU and streamed into the shader as a per-frame uniform, like Hold and Count.
 
 #### Hold
 Samples and holds an input value when triggered.
@@ -2085,7 +2089,7 @@ Numeric parameters also accept [parameter expressions](parameter-expressions.md)
 
 5. **SDF Workflow**: Use shape generators to create basic shapes, then combine them with Blend nodes to create complex geometry through constructive solid geometry operations.
 
-6. **Signal Workflow**: Trigger → Hold / Count / Reset pins form a small event system: Trigger converts continuous signals (audio, time, mouse) into pulses; Hold latches values, Count steps through values, and the Feedback nodes' Reset pins clear their state.
+6. **Signal Workflow**: Trigger → Hold / Count / Reset pins form a small event system: Trigger converts continuous signals (audio, time, mouse) into pulses — on a level crossing in **Threshold** mode, or on any movement of the input in **On value change** mode; Hold latches values, Count steps through values, and the Feedback nodes' Reset pins clear their state.
 
 7. **Color Grading**: Use the Color Adjust compute node for brightness/contrast/saturation/hue/gamma/exposure in a single pass.
 
