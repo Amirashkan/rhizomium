@@ -3,6 +3,7 @@
 
 import { PRIORITY } from '../UnifiedRAFManager.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../audioAnalysisPins.js';
+import { isTriggerChangeMode } from '../triggerMode.js';
 
 export class PreviewIntegration {
   constructor(editor, previewSystem) {
@@ -178,8 +179,12 @@ updateTimeNodes() {
       // freeze at a stale value. Audio Analysis is driven by the live audio signal (its level/kick/
       // trig outputs are advanced every frame by AudioAnalysisProcessor), so it belongs here too —
       // otherwise a downstream numeric thumbnail/label fed by one of its pins freezes.
+      // A Trigger in "On value change" mode is the same story: its pulse is CPU-side state
+      // advanced every frame by TriggerNodeProcessor (node.__triggerPulse) and can flip without any
+      // param or input edit this pass would notice. A threshold-mode Trigger is stateless and stays
+      // off this list, so the common case costs nothing.
       return kind === 'time' || kind === 'hold' || kind === 'count' || kind === 'randomvalue'
-        || kind === 'audioanalysis';
+        || kind === 'audioanalysis' || isTriggerChangeMode(node);
     })
     .map(node => node.id);
 

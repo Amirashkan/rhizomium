@@ -20,6 +20,7 @@
 import { NodeDefs } from '../data/NodeDefs.js';
 import { shaderModuleCache, hashWGSL } from './ShaderModuleCache.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValues } from '../core/audioAnalysisPins.js';
+import { isTriggerChangeMode } from '../core/triggerMode.js';
 
 export class FragmentTextureRenderer {
   constructor(device) {
@@ -220,6 +221,12 @@ export class FragmentTextureRenderer {
       // default and any node that references the Hold (e.g. a Circle whose radius is `=node_<hold>`)
       // renders a frozen value even though its CPU readout tracks the latch.
       this._syncHoldUniforms(uniformManager);
+
+      // Same for a Trigger in "On value change" mode: its pulse is CPU-side state advanced every
+      // frame by TriggerNodeProcessor into the MAIN renderer's uniform manager, so without this the
+      // preview's own `<id>.pulse` uniform would sit at its compile-time default and any node
+      // referencing the Trigger would render a thumbnail that never pulses.
+      this._syncTriggerUniforms(uniformManager);
 
       // Same for Audio Analysis: its level/kick/trig outputs are advanced on the CPU every frame by
       // AudioAnalysisProcessor and written into the MAIN renderer's uniform manager. This preview
@@ -1068,6 +1075,31 @@ export class FragmentTextureRenderer {
       const held = node?.__holdValue;
       if (typeof held === 'number' && isFinite(held)) {
         values.set(key, held);
+      }
+    }
+  }
+
+  /**
+   * Overwrite each `<id>.pulse` entry in a (detached) uniform snapshot with the live pulse from its
+   * Trigger node (node.__triggerPulse, advanced every frame by TriggerNodeProcessor). Only
+   * "On value change" Triggers compile to such a uniform — the threshold mode is stateless and
+   * evaluated in the shader — so the kind/mode check keeps this from touching anything else.
+   * Map.set on an existing key preserves insertion order, so the Float32Array _updateUniforms builds
+   * from uniformValues.values() still matches the compiled ParamUniforms struct layout.
+   * @private
+   */
+  _syncTriggerUniforms(uniformManager) {
+    const values = uniformManager?.uniformValues;
+    if (!values || values.size === 0) return;
+    for (const key of values.keys()) {
+      if (!key.endsWith('.pulse')) continue;
+      const nodeId = key.slice(0, -'.pulse'.length);
+      const node = window.graph?.getNode?.(nodeId)
+        || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
+      if (!isTriggerChangeMode(node)) continue;
+      const pulse = node.__triggerPulse;
+      if (typeof pulse === 'number' && isFinite(pulse)) {
+        values.set(key, pulse);
       }
     }
   }

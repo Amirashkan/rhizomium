@@ -436,13 +436,42 @@ endDrag() {
 
     this.dragging = null;
   } catch (error) {
-    window.errorHandler?.handleError(error, { 
-      component: 'drag-end' 
+    window.errorHandler?.handleError(error, {
+      component: 'drag-end'
     });
     // Reset dragging state even if error occurs
     this.dragging = null;
   }
 }
+
+  /**
+   * End a drag by putting every dragged node back where it started, with nothing recorded for
+   * undo. Used when the release means something other than a move — dropping a node on a
+   * parameter field to reference it, for instance.
+   */
+  cancelDrag() {
+    try {
+      if (!this.dragging) return;
+
+      const draggedNodes = this.dragging.nodes || [];
+      for (const node of draggedNodes) {
+        if (!node || !node.id) continue;
+
+        const originalPos = this.dragging.orig[node.id];
+        if (!originalPos) continue;
+
+        node.x = originalPos.x;
+        node.y = originalPos.y;
+      }
+
+      this.dragging = null;
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'drag-cancel'
+      });
+      this.dragging = null;
+    }
+  }
 
   selectAll() {
     try {

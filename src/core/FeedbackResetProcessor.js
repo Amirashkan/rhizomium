@@ -2,6 +2,7 @@
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
 import { audioAnalysisPinValue } from './audioAnalysisPins.js';
+import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
 
 /**
  * Drives the Feedback nodes' Reset input pin.
@@ -137,6 +138,11 @@ export class FeedbackResetProcessor {
         return Math.PI;
 
       case 'Trigger': {
+        // "On value change" mode has no shader/stateless form: its pulse is advanced every frame
+        // by TriggerNodeProcessor (which runs before this one), so read the value it computed.
+        // A change-mode Trigger wired into a Reset pin therefore clears the feedback whenever its
+        // input moves, not when the input crosses a level.
+        if (isTriggerChangeMode(node)) return triggerChangePulse(node);
         const src = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
         const inPin = this._sourcePin(graph, node.id, 0);
         const input = src ? this._evalSignal(src, graph, ctx, depth + 1, inPin) : 0;

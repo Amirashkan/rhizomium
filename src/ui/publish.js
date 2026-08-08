@@ -3,13 +3,21 @@
  *
  * Reached from File → Publish. Both entry points capture at the 'export' role's
  * size (see OutputFormat.js), upload the file and open the gallery's publish
- * page for the uploaded asset.
+ * page for the uploaded asset. An animation can carry the loaded audio track
+ * along with it (see ../audio/recordingAudio.js).
  */
 
 import { modalManager } from './ModalManager.js';
 import { resolveResolution } from './OutputFormat.js';
 import { serializePatch, patchFilename, checkPatchSize } from '../core/patchSerializer.js';
 import { APP_VERSION } from '../utils/appVersion.js';
+import {
+  AUDIO_BITRATE,
+  applyFrameRate,
+  hasRecordableAudio,
+  openAudioTap,
+  selectRecordingMimeType,
+} from '../audio/recordingAudio.js';
 
 const UPLOAD_ENDPOINT = 'https://art.tenderworld.org/api/rhizo-upload';
 const GALLERY_ORIGIN = 'https://art.tenderworld.org';
@@ -315,7 +323,13 @@ export async function publishImage() {
   }
 }
 
-/** Record an animation at the export resolution and publish it to the gallery. */
+/**
+ * Record an animation at the export resolution and publish it to the gallery.
+ *
+ * When an audio file is loaded, the recording can carry it: the track is tapped
+ * from the same audio graph the reactive nodes read (see recordingAudio.js), so
+ * the published video plays the music its visuals are moving to.
+ */
 export async function publishAnimation() {
   const preview = getPreview();
   const canvas = preview?.gpuCanvas;
@@ -380,27 +394,36 @@ export async function publishAnimation() {
 
   const duration = Math.min(300, Math.max(1, Number(durationInput)));
 
-  // Prefer MP4/H.264, fall back to WebM where it is unavailable.
-  const mimeCandidates = [
-    'video/mp4;codecs=avc1.42E01E',
-    'video/mp4;codecs=avc1.4D001E',
-    'video/mp4;codecs=avc1.64001E',
-    'video/mp4;codecs=h264',
-    'video/mp4;codecs=avc1',
-    'video/mp4',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ];
-  const mimeType = mimeCandidates.find((candidate) => {
-    try {
-      return MediaRecorder.isTypeSupported(candidate);
-    } catch {
-      return false;
+  // Offer the loaded audio track. Only asked when there is one: an artist with
+  // no audio in the patch should not have to dismiss a question about it.
+  const audioCapture = window.audioCapture;
+  let audioTap = null;
+  if (hasRecordableAudio(audioCapture)) {
+    const includeAudio = await modalManager.confirm(
+      'Record the loaded audio track with the animation?\n\n' +
+      'The video will carry the music your patch is reacting to. Playback starts from where the playhead sits now.',
+      'Audio',
+      { confirmLabel: 'Include Audio', cancelLabel: 'No Audio' }
+    );
+    if (includeAudio) {
+      try {
+        audioTap = await openAudioTap(audioCapture);
+      } catch (err) {
+        console.warn('Could not tap the audio graph, recording without sound:', err);
+      }
+      if (!audioTap) {
+        modalManager.toast('Audio could not be captured — recording video only.', 'warning', 'Audio');
+      }
     }
-  });
+  }
+
+  // Prefer MP4/H.264, fall back to WebM where it is unavailable. The container
+  // has to be chosen knowing whether an audio track is coming: a video-only
+  // mime type drops the track without a word.
+  const mimeType = selectRecordingMimeType({ withAudio: !!audioTap });
 
   if (!mimeType) {
+    audioTap?.stop();
     await modalManager.alert('No supported video encoder found for this browser.', 'Browser Compatibility');
     return;
   }
@@ -428,7 +451,9 @@ export async function publishAnimation() {
 
   const fpsMultiplier = Math.max(1, Math.sqrt(fps / 30));
   const estimatedBitrate = Math.floor(baseBitrate * fpsMultiplier);
-  const estimatedFileSizeMB = (estimatedBitrate * duration) / (8 * 1024 * 1024);
+  // The audio rides in the same file, so it comes out of the same budget.
+  const audioBitrate = audioTap ? AUDIO_BITRATE : 0;
+  const estimatedFileSizeMB = ((estimatedBitrate + audioBitrate) * duration) / (8 * 1024 * 1024);
   const maxTargetSizeMB = 50;
 
   let adaptiveBitrate = estimatedBitrate;
@@ -443,7 +468,10 @@ export async function publishAnimation() {
   // render. The graph does not change while recording, so this is the same
   // patch we would produce afterwards.
   const patch = await buildPatch();
-  if (patch?.cancelled) return;
+  if (patch?.cancelled) {
+    audioTap?.stop();
+    return;
+  }
 
   const progress = modalManager.showProgress('Publishing Animation', 'Preparing export...');
 
@@ -470,11 +498,12 @@ export async function publishAnimation() {
 
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    const estimatedSizeMB = ((adaptiveBitrate * duration) / (8 * 1024 * 1024)).toFixed(1);
+    const estimatedSizeMB = (((adaptiveBitrate + audioBitrate) * duration) / (8 * 1024 * 1024)).toFixed(1);
     progress.update(
       10,
       'Starting recording...',
-      `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS | Bitrate: ${(adaptiveBitrate / 1_000_000).toFixed(1)} Mbps | Est. size: ~${estimatedSizeMB} MB`
+      `Codec: ${mimeType.split(';')[0]} @ ${fps} FPS | Bitrate: ${(adaptiveBitrate / 1_000_000).toFixed(1)} Mbps` +
+        `${audioTap ? ' + audio' : ''} | Est. size: ~${estimatedSizeMB} MB`
     );
 
     const stream = canvas.captureStream(fps);
@@ -488,6 +517,9 @@ export async function publishAnimation() {
         console.warn('Could not set frame rate constraint:', err);
       }
     }
+
+    // The canvas stream is pixels only; the audio joins it here.
+    if (audioTap) stream.addTrack(audioTap.track);
 
     const chunks = [];
 
@@ -537,11 +569,11 @@ export async function publishAnimation() {
 
     let recorder;
     try {
-      const recorderOptions = { mimeType, videoBitsPerSecond: adaptiveBitrate };
-      const baseMimeType = mimeType.split(';')[0];
-      if (MediaRecorder.isTypeSupported(`${baseMimeType};framerate=${fps}`)) {
-        recorderOptions.mimeType = `${baseMimeType};framerate=${fps}`;
-      }
+      const recorderOptions = {
+        mimeType: applyFrameRate(mimeType, fps),
+        videoBitsPerSecond: adaptiveBitrate,
+      };
+      if (audioTap) recorderOptions.audioBitsPerSecond = AUDIO_BITRATE;
       recorder = new MediaRecorder(stream, recorderOptions);
     } catch (error) {
       isRecording = false;
@@ -562,6 +594,17 @@ export async function publishAnimation() {
       recorder.onerror = (event) => reject(event.error || new Error('Recording error'));
       recorder.onstop = () => resolve();
     });
+
+    // Roll the music last: started any earlier, the seconds spent resizing the
+    // canvas and warming up frames would play out before the recorder is
+    // listening, and the video would open mid-phrase.
+    if (audioTap) {
+      try {
+        await audioTap.startPlayback();
+      } catch (err) {
+        console.warn('Could not start audio playback for the recording:', err);
+      }
+    }
 
     recorder.start(100);
 
@@ -688,5 +731,11 @@ export async function publishAnimation() {
     canvas.style.height = originalStyleHeight;
     preview?.updateSize?.();
     throw err;
+  } finally {
+    // Covers every way out of the block above, including the early returns for
+    // an empty recording or a declined oversize upload: the tap must never
+    // outlive the recording, and the playhead goes back where the artist
+    // left it.
+    audioTap?.stop();
   }
 }

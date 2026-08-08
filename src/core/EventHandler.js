@@ -3,6 +3,7 @@ import { getInteractionStateManager } from '../utils/InteractionStateManager.js'
 import { logRedrawTriggerEvent } from '../utils/RedrawDiagnostics.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
 import { modalManager } from '../ui/ModalManager.js';
+import { NodeReferenceDrop } from '../ui/NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { dynamicInputButtons, hitChip, nodePreviewHeight } from './pinLayout.js';
 import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
@@ -58,6 +59,17 @@ export class EventHandler {
       isCanvasInteracting: false,
       valid: false, // Indicates if cache is valid for current frame
     };
+
+    // Dropping a dragged node on a parameter field writes a `node_<id>` reference into it —
+    // the pointer equivalent of typing that identifier by hand.
+    this.nodeReferenceDrop = new NodeReferenceDrop({
+      onDrop: ({ token, paramName }) => {
+        this.paramPanel?.showToast?.(
+          paramName ? `Inserted ${token} into ${paramName}` : `Inserted ${token}`,
+          'success',
+        );
+      },
+    });
 
     this._setupEvents();
     // Setup focus/visibility handlers to warm up when window regains focus
@@ -720,7 +732,10 @@ export class EventHandler {
 
       // Start node drag
       this.selection.startDrag(clicked.id, pos.x, pos.y);
-      
+
+      // Measure the parameter fields this node could be dropped on, once per gesture.
+      this.nodeReferenceDrop.begin(clicked);
+
       // CRITICAL: Reset drag update count to force immediate updates for first drag movements
       this._nodeDragUpdateCount = 0;
       
@@ -846,6 +861,8 @@ export class EventHandler {
           if (this.selection.getDragging()) {
             this._markCanvasInteracting('node-drag');
             this.selection.updateDrag(pos.x, pos.y);
+            // Highlight the parameter field under the cursor, if any (cached rect test)
+            this.nodeReferenceDrop.update(e.clientX, e.clientY);
             this._requestDraw('node-drag');
             // Track drag update count for performance monitoring
             this._nodeDragUpdateCount++;
@@ -905,8 +922,16 @@ export class EventHandler {
         this._requestDraw('box-select-end');
       }
 
-      // End node dragging
-      this.selection.endDrag();
+      // End node dragging. Releasing over a parameter field means "reference this node here",
+      // not "move the node behind the panel", so the reference drop restores the node to where
+      // the drag started (which also keeps the no-op move out of the undo history).
+      const droppedAsReference = this.nodeReferenceDrop.finish(e.clientX, e.clientY);
+      if (droppedAsReference) {
+        this.selection.cancelDrag();
+        this._requestDraw('node-reference-drop');
+      } else {
+        this.selection.endDrag();
+      }
 
       // Notify shader preview manager of drag end (for throttling)
       if (this.editor?.shaderPreviewManager) {

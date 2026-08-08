@@ -56,6 +56,15 @@ register(registry) {
     'negate': (ctx, node) => this.renderUnaryMath(ctx, node, "-x", "#ef4444"),
     'reciprocal': (ctx, node) => this.renderUnaryMath(ctx, node, "1/x", "#f97316"),
     
+    // Boolean logic
+    'and': (ctx, node) => this.renderMath(ctx, node, "AND", "#22c55e"),
+    'or': (ctx, node) => this.renderMath(ctx, node, "OR", "#4ade80"),
+    'xor': (ctx, node) => this.renderMath(ctx, node, "XOR", "#84cc16"),
+    'not': (ctx, node) => this.renderUnaryMath(ctx, node, "NOT", "#ef4444"),
+    'nand': (ctx, node) => this.renderMath(ctx, node, "NAND", "#f97316"),
+    'nor': (ctx, node) => this.renderMath(ctx, node, "NOR", "#fb923c"),
+    'xnor': (ctx, node) => this.renderMath(ctx, node, "XNOR", "#eab308"),
+
     // Vector operations
     'dot': (ctx, node) => this.renderVectorOp(ctx, node, "dot", "#14b8a6"),
     'cross': (ctx, node) => this.renderVectorOp(ctx, node, "×", "#06b6d4"),

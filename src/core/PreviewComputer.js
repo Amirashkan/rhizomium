@@ -5,6 +5,7 @@ import { getInteractionStateManager } from '../utils/InteractionStateManager.js'
 import { NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount } from '../data/nodeInputs.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
+import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
 
 export class PreviewComputer {
   constructor() {
@@ -394,6 +395,14 @@ export class PreviewComputer {
               break;
 
             case "Trigger": {
+              if (isTriggerChangeMode(node)) {
+                // "On value change" compares against the PREVIOUS frame, which this preview pass —
+                // throttled to ~10fps — can't track on its own. TriggerNodeProcessor advances the
+                // pulse every frame on the CPU; mirror its value so the node readout matches what
+                // the shader renders (same arrangement as Hold and Count below).
+                result = triggerChangePulse(node);
+                break;
+              }
               const inputValue = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
               const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
               result = inputValue >= threshold ? 1.0 : 0.0;
@@ -805,6 +814,43 @@ export class PreviewComputer {
             case "Reciprocal": {
               const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
               result = x !== 0 ? 1.0 / x : 0;
+              break;
+            }
+
+            // Math Nodes - Boolean logic
+            // Mirrors compileLogicGate()/compileNot(): inputs are thresholded into booleans
+            // (true when >= threshold) and the gate outputs exactly 0.0 or 1.0. An unconnected
+            // input reads as false, same as the shader's default of 0.0.
+            case "And":
+            case "Or":
+            case "Xor":
+            case "Nand":
+            case "Nor":
+            case "Xnor": {
+              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+              const boolA = a >= threshold;
+              const boolB = b >= threshold;
+
+              let gate;
+              switch (node.kind) {
+                case "And":  gate = boolA && boolB; break;
+                case "Or":   gate = boolA || boolB; break;
+                case "Xor":  gate = boolA !== boolB; break;
+                case "Nand": gate = !(boolA && boolB); break;
+                case "Nor":  gate = !(boolA || boolB); break;
+                case "Xnor": gate = boolA === boolB; break;
+                default:     gate = boolA && boolB;
+              }
+              result = gate ? 1 : 0;
+              break;
+            }
+
+            case "Not": {
+              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              result = x >= threshold ? 0 : 1;
               break;
             }
 

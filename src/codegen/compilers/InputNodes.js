@@ -2,6 +2,7 @@
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
 import { buildScalarRefMapping } from '../processors/scalarRef.js';
 import { isDisplayMode, getDisplayResolution } from '../../utils/resolutionMode.js';
+import { isTriggerChangeMode } from '../../core/triggerMode.js';
 
 export class InputNodes {
   constructor() {
@@ -178,6 +179,19 @@ export class InputNodes {
         };
 
       case 'Trigger': {
+        if (isTriggerChangeMode(node)) {
+          // "On value change" compares this frame's input against the previous frame's, which a
+          // fragment shader has no memory for. TriggerNodeProcessor does the comparison on the CPU
+          // every frame and writes the 0/1 pulse into the "pulse" uniform getParam registers
+          // (node.id + ".pulse"); the shader just reads it. Same arrangement as Hold and Count.
+          const pulseRef = getParam ? getParam('pulse', 0.0) : null;
+          if (pulseRef) {
+            return { line: `let node_${nodeId} = ${pulseRef};`, outputType: "f32" };
+          }
+          // Fallback (uniform registration unavailable): with no cross-frame memory there is no
+          // change to detect, so emit 0 rather than failing to compile.
+          return { line: `let node_${nodeId} = 0.0;`, outputType: "f32" };
+        }
         const input = getInput(0, 'f32', '0.0');
         const threshold = resolveParam('threshold', '0.5');
         return {

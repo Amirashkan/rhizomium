@@ -12,6 +12,7 @@ import { BooleanInputHandler } from './components/BooleanInputHandler.js';
 import { GLSLCodeInputHandler } from './components/GLSLCodeInputHandler.js';
 import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
 import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
+import { nodeReferenceDropStyles } from './NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { describeExternalControls } from '../parameters/ExternalParameterControl.js';
 
@@ -309,7 +310,7 @@ export class ParameterPanel {
     if (!document.getElementById('expression-styles')) {
       const styleElement = document.createElement('style');
       styleElement.id = 'expression-styles';
-      styleElement.textContent = expressionStyles;
+      styleElement.textContent = expressionStyles + nodeReferenceDropStyles;
       document.head.appendChild(styleElement);
     }
   }
@@ -1387,6 +1388,7 @@ case 'flip2d':
     input.className = 'param-input expression-capable has-expression';
     input.setAttribute('data-param', param.name);
     input.setAttribute('data-param-type', param.type);
+    input.setAttribute('data-node-id', String(node.id));
     input.setAttribute('rows', '1');
     input.autocomplete = 'off';
     input.autocapitalize = 'off';
@@ -1465,6 +1467,9 @@ case 'flip2d':
     });
     input.addEventListener('click', (e) => e.stopPropagation());
     input.addEventListener('blur', commit);
+    // Programmatic edits (a node dropped on the field to insert its reference) arrive as a
+    // change event rather than typing followed by a blur.
+    input.addEventListener('change', commit);
 
     container.appendChild(input);
     container.appendChild(resultDisplay);
@@ -2091,9 +2096,11 @@ getInputHandler(param) {
         • Start with <code>=</code> to create expressions<br>
         • Use <code>sin(x)</code>, <code>cos(x)</code>, <code>sqrt(x)</code>, etc.<br>
         • Access other parameters: <code>=radius * 2</code><br>
+        • Reference another node: <code>=node_5</code> — or drag that node from the graph
+          and drop it on this field<br>
         • Use constants: <code>PI</code>, <code>E</code><br>
         • Utility functions: <code>clamp(x, 0, 1)</code>, <code>lerp(a, b, t)</code><br><br>
-        
+
         <strong>Examples:</strong><br>
         • <code>=sin(nodeX * 0.1) * 10</code><br>
         • <code>=clamp(radius * 2, 0, 100)</code><br>

@@ -1,6 +1,7 @@
 // src/core/CountNodeProcessor.js
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { audioAnalysisPinValue } from './audioAnalysisPins.js';
+import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
 
 /**
  * Drives the Count node.
@@ -180,6 +181,9 @@ export class CountNodeProcessor {
         return Math.PI;
 
       case 'Trigger': {
+        // "On value change" mode has no shader/stateless form: its pulse is advanced every frame
+        // by TriggerNodeProcessor (which runs before this one), so read the value it computed.
+        if (isTriggerChangeMode(node)) return triggerChangePulse(node);
         const src = node.inputs?.[0] ? graph.getNode?.(node.inputs[0]) : null;
         const inPin = this._sourcePin(graph, node.id, 0);
         const input = src ? this._evalSignal(src, graph, ctx, depth + 1, inPin) : 0;

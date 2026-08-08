@@ -28,6 +28,9 @@ export class NodeValueComputer {
         kind === 'resolution' ||
         kind === 'randomvalue' ||
         kind === 'count' ||
+        // Hold's latched value is advanced on the CPU each frame like Count's, so it changes
+        // without any input/param edit the cache keys off — it must skip the cache too.
+        kind === 'hold' ||
         kind === 'stripe' ||
         kind === 'stripefield' ||
         kind === 'checker' ||
@@ -151,6 +154,20 @@ case "checkerfield": {
           result = m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];
           break;
         }
+
+        // Count and Hold have memory across frames, which no shader (and no pure function of
+        // params/inputs) can express: the running count and the latched value are advanced on the
+        // CPU every frame by CountNodeProcessor / HoldNodeProcessor and stashed on the node.
+        // Without these cases both fell to `default: 0`, so a `=node_<id>` reference resolved
+        // through this computer — the Fragment Texture renderer and the Field Mapper both do —
+        // read a constant 0 no matter what the node was actually counting or holding.
+        case "count":
+          result = typeof node.__countValue === "number" ? node.__countValue : 0;
+          break;
+
+        case "hold":
+          result = typeof node.__holdValue === "number" ? node.__holdValue : 0;
+          break;
 
 
         case "multiply": {

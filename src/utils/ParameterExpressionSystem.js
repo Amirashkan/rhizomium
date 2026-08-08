@@ -907,6 +907,11 @@ isIncomplete(value) {
     input.className = 'param-input expression-capable';
     input.setAttribute('data-param', param.name);
     input.setAttribute('data-param-type', param.type);
+    // Owning node id — lets a node dragged onto this field skip it when it is the node's own
+    // parameter (a self-reference the expression system cannot resolve).
+    if (node?.id !== undefined && node?.id !== null) {
+      input.setAttribute('data-node-id', String(node.id));
+    }
     input.setAttribute('rows', '1');
     input.autocomplete = 'off';
     input.autocapitalize = 'off';
@@ -1555,7 +1560,17 @@ setValue(node, paramName, value) {
     // Check if this is a compute node - they need full shader recompilation
     const isComputeNode = node.kind && node.kind.toLowerCase().startsWith('compute');
 
-    if (isComputeNode) {
+    // An expression is not delivered as a uniform: the compiler inlines it into the generated
+    // WGSL (a `=node_<id> == 0 ? a : b` width becomes a `select(...)` reading that node's
+    // variable). So switching a parameter to, away from, or between expressions changes the
+    // SHADER TEXT, and without a recompile the old code keeps running — the parameter panel's
+    // evaluated readout updates while the render stays frozen on the previous value. Plain
+    // numeric writes still skip the rebuild: those ARE uniforms, read live every frame, and
+    // recompiling on each one would stall MIDI/OSC and slider drags.
+    const changesShaderCode =
+      this.expressionSystem.isExpression(value) || this.expressionSystem.isExpression(oldValue);
+
+    if (isComputeNode || changesShaderCode) {
       // Trigger a full shader recompile so the new parameter takes effect.
       //
       // Do NOT pre-delete the registry entry or destroy the compute manager here.
@@ -1568,11 +1583,17 @@ setValue(node, paramName, value) {
       // edit (the original drag-release reset). When a param genuinely changes the
       // WGSL (e.g. a baked enum), the reuse signature differs and initialize()
       // recreates the manager on its own, so the explicit teardown is redundant.
+      // An expression edit also has to refresh this node's preview — the recompile only covers
+      // the render, not the node band's thumbnail/readout.
+      if (!isComputeNode) {
+        this.updateNodePreview(node);
+      }
       if (window.editor && window.editor.onChange) {
-        window.editor.onChange(`Compute node parameter change: ${node.kind}.${paramName}`);
+        window.editor.onChange(`Parameter change: ${node.kind}.${paramName}`);
       }
     } else {
-      // For non-compute nodes, just update preview
+      // Numeric edit on a non-compute node: the value rides in as a uniform, so the running
+      // shader already picks it up — only the preview needs refreshing.
       this.updateNodePreview(node);
     }
 
