@@ -807,6 +807,43 @@ export class PreviewComputer {
               break;
             }
 
+            // Math Nodes - Boolean logic
+            // Mirrors compileLogicGate()/compileNot(): inputs are thresholded into booleans
+            // (true when >= threshold) and the gate outputs exactly 0.0 or 1.0. An unconnected
+            // input reads as false, same as the shader's default of 0.0.
+            case "And":
+            case "Or":
+            case "Xor":
+            case "Nand":
+            case "Nor":
+            case "Xnor": {
+              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+              const boolA = a >= threshold;
+              const boolB = b >= threshold;
+
+              let gate;
+              switch (node.kind) {
+                case "And":  gate = boolA && boolB; break;
+                case "Or":   gate = boolA || boolB; break;
+                case "Xor":  gate = boolA !== boolB; break;
+                case "Nand": gate = !(boolA && boolB); break;
+                case "Nor":  gate = !(boolA || boolB); break;
+                case "Xnor": gate = boolA === boolB; break;
+                default:     gate = boolA && boolB;
+              }
+              result = gate ? 1 : 0;
+              break;
+            }
+
+            case "Not": {
+              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+              result = x >= threshold ? 0 : 1;
+              break;
+            }
+
             // Vector Nodes
             case "Dot": {
               const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];

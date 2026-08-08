@@ -17,7 +17,7 @@ information about inputs, outputs, parameters, and usage.
 4. Output Nodes (1 node)
 5. Input Nodes (14 nodes)
 6. Field Nodes (21 nodes)
-7. Math Nodes (43 nodes)
+7. Math Nodes (50 nodes)
 8. Utility Nodes (13 nodes)
 9. Transform Nodes (11 nodes)
 10. Blend Nodes (7 nodes)
@@ -1384,6 +1384,154 @@ Outputs:
 Usage: Inverts value. Be careful of division by zero.
 
 --------------------------------------------------------------------------------
+BOOLEAN LOGIC GATES
+--------------------------------------------------------------------------------
+The logic gates (AND, OR, XOR, NOT, NAND, NOR, XNOR) treat their inputs as
+booleans: a value counts as TRUE when it is >= Threshold (default 0.5). Each
+gate outputs exactly 0.0 or 1.0, so the result can drive a mask, a Mix factor,
+a Select condition or another gate.
+
+They are type-aware and work component-wise: feeding two vec3 masks in gives a
+vec3 mask out (each channel gated independently). If the two inputs have
+different widths, B is coerced to A's width. An unconnected input reads as
+FALSE (0.0).
+
+--------------------------------------------------------------------------------
+And (AND)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Logical AND - true only when both inputs are true
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): 1.0 when A and B are both >= Threshold, else 0.0
+
+Parameters:
+  - threshold (float): Value at or above which an input counts as true
+                       [default: 0.5]
+
+Usage: Intersect two masks - only the region where both are on survives.
+       Example: Circle AND Stripes = striped circle.
+
+--------------------------------------------------------------------------------
+Or (OR)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Logical OR - true when either input is true
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): 1.0 when A or B is >= Threshold, else 0.0
+
+Parameters:
+  - threshold (float): Value at or above which an input counts as true
+                       [default: 0.5]
+
+Usage: Union of two masks - the region where either is on.
+
+--------------------------------------------------------------------------------
+Xor (XOR)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Logical exclusive OR - true when exactly one input is true
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): 1.0 when exactly one of A/B is >= Threshold, else 0.0
+
+Parameters:
+  - threshold (float): Value at or above which an input counts as true
+                       [default: 0.5]
+
+Usage: Symmetric difference of two masks - the overlap is punched out. Good for
+       checkerboard-style interference between two patterns.
+
+--------------------------------------------------------------------------------
+Not (NOT)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Logical negation - inverts a boolean
+
+Inputs:
+  - x: Input value
+
+Outputs:
+  - out (dynamic): 1.0 when x < Threshold, else 0.0
+
+Parameters:
+  - threshold (float): Value at or above which the input counts as true
+                       [default: 0.5]
+
+Usage: Inverts a mask to a hard 0/1 result. Unlike OneMinus (which inverts
+       continuously) NOT first thresholds, so the output is always 0 or 1.
+
+--------------------------------------------------------------------------------
+Nand (NAND)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Logical NAND - inverted AND
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): 0.0 only when A and B are both >= Threshold, else 1.0
+
+Parameters:
+  - threshold (float): Value at or above which an input counts as true
+                       [default: 0.5]
+
+Usage: Everything except the overlap of the two masks.
+
+--------------------------------------------------------------------------------
+Nor (NOR)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Logical NOR - inverted OR
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): 1.0 only when both A and B are < Threshold, else 0.0
+
+Parameters:
+  - threshold (float): Value at or above which an input counts as true
+                       [default: 0.5]
+
+Usage: The background - everything neither mask covers.
+
+--------------------------------------------------------------------------------
+Xnor (XNOR)
+--------------------------------------------------------------------------------
+Category: Math
+Description: Logical XNOR - inverted XOR (equality)
+
+Inputs:
+  - A: First value
+  - B: Second value
+
+Outputs:
+  - out (dynamic): 1.0 when A and B agree (both true or both false), else 0.0
+
+Parameters:
+  - threshold (float): Value at or above which an input counts as true
+                       [default: 0.5]
+
+Usage: Where two masks agree. Useful for comparing two patterns for a match.
+
+--------------------------------------------------------------------------------
 Dot (Dot Product)
 --------------------------------------------------------------------------------
 Category: Math
@@ -2087,13 +2235,13 @@ Usage: Creates smooth cutout effect. Higher smoothness = smoother edges on the c
                               NODE SUMMARY
 ================================================================================
 
-Total Nodes: 110
+Total Nodes: 117
 
 By Category:
   - Output:    1 node   - Final rendering output
   - Input:     14 nodes - Constants, runtime data, textures
   - Field:     21 nodes - Gradients, patterns, noise, shapes
-  - Math:      43 nodes - Arithmetic, trigonometry, vector operations
+  - Math:      50 nodes - Arithmetic, trigonometry, vector ops, boolean logic
   - Utility:   13 nodes - Data manipulation, color operations
   - Transform: 11 nodes - UV coordinate transformations
   - Blend:     7 nodes  - SDF operations for combining shapes

@@ -349,6 +349,87 @@ export const MathNodes = {
     params: [],
   },
 
+  // === BOOLEAN LOGIC ===
+  // Gates treat their inputs as booleans: a component is "true" when it is >= Threshold.
+  // They output 0.0 / 1.0 (per component for vector inputs), so a gate can drive a mask,
+  // a Mix factor, a Select condition or another gate.
+  And: {
+    label: "AND",
+    cat: "Math",
+    inputs: 2,
+    pinsIn: ["A", "B"],
+    pinsOut: [{ label: "out", type: "dynamic" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+    ],
+  },
+
+  Or: {
+    label: "OR",
+    cat: "Math",
+    inputs: 2,
+    pinsIn: ["A", "B"],
+    pinsOut: [{ label: "out", type: "dynamic" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+    ],
+  },
+
+  Xor: {
+    label: "XOR",
+    cat: "Math",
+    inputs: 2,
+    pinsIn: ["A", "B"],
+    pinsOut: [{ label: "out", type: "dynamic" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+    ],
+  },
+
+  Not: {
+    label: "NOT",
+    cat: "Math",
+    inputs: 1,
+    pinsIn: ["x"],
+    pinsOut: [{ label: "out", type: "dynamic" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+    ],
+  },
+
+  Nand: {
+    label: "NAND",
+    cat: "Math",
+    inputs: 2,
+    pinsIn: ["A", "B"],
+    pinsOut: [{ label: "out", type: "dynamic" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+    ],
+  },
+
+  Nor: {
+    label: "NOR",
+    cat: "Math",
+    inputs: 2,
+    pinsIn: ["A", "B"],
+    pinsOut: [{ label: "out", type: "dynamic" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+    ],
+  },
+
+  Xnor: {
+    label: "XNOR",
+    cat: "Math",
+    inputs: 2,
+    pinsIn: ["A", "B"],
+    pinsOut: [{ label: "out", type: "dynamic" }],
+    params: [
+      { name: "threshold", type: "float", default: 0.5, label: "Threshold" },
+    ],
+  },
+
   // === VECTOR MATH OPERATIONS ===
   Dot: {
     label: "Dot Product",
