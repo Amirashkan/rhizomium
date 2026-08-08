@@ -4,6 +4,9 @@ import { logRedrawTriggerEvent } from '../utils/RedrawDiagnostics.js';
 import { getPerfProbe } from '../utils/PerfProbe.js';
 import { modalManager } from '../ui/ModalManager.js';
 import { NodeReferenceDrop } from '../ui/NodeReferenceDrop.js';
+import { NodeDefs } from '../data/NodeDefs.js';
+import { dynamicInputButtons, hitChip, nodePreviewHeight } from './pinLayout.js';
+import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 
 export class EventHandler {
   constructor(options) {
@@ -639,6 +642,12 @@ export class EventHandler {
         return;
       }
 
+      // "+ / −" chips on nodes with expandable inputs (Mix, Switch, …). Checked before the pin and
+      // node hit-tests so clicking a chip adds a pin instead of starting a node drag.
+      if (this.checkDynamicInputClick(pos)) {
+        return;
+      }
+
       // Don't close menu if there's an active wire drag (user might be selecting a node to connect)
       const hasActiveWireDrag = this.connections?.getDragWire();
       if (!hasActiveWireDrag) {
@@ -1106,6 +1115,38 @@ export class EventHandler {
           this._requestDraw('cycle-preview-size');
         }
         return true; // Still consume click even if disabled
+      }
+    }
+
+    return false;
+  }
+
+  // Add/remove an input pin when the click lands on a node's "+ / −" chip. The rectangles come from
+  // the same pinLayout helper the renderer draws with, so the hit area is the drawn chip.
+  // Returns true when the click was consumed (including a click on a disabled chip, which must not
+  // fall through and start dragging the node).
+  checkDynamicInputClick(pos) {
+    if (!this.editor) return false;
+
+    for (const node of this.editor.graph.nodes) {
+      if (!getDynamicInputSpec(node)) continue;
+
+      const inCount = getInputCount(node);
+      const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
+      const { add, remove } = dynamicInputButtons(
+        node,
+        inCount,
+        outCount,
+        nodePreviewHeight(node)
+      );
+
+      if (hitChip(add, pos.x, pos.y)) {
+        this.editor.addNodeInput(node.id);
+        return true;
+      }
+      if (hitChip(remove, pos.x, pos.y)) {
+        this.editor.removeNodeInput(node.id);
+        return true;
       }
     }
 

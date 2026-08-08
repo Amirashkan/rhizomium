@@ -1,6 +1,7 @@
 // src/ui/ParameterPanel.js - Clean implementation with binding support
 
 import { ExpressionTextInputHandler, ExpressionParameterValueManager, expressionSystem, expressionStyles } from '../utils/ParameterExpressionSystem.js';
+import { getInputCount } from '../data/nodeInputs.js';
 import { setIcon, iconMarkup } from './iconSprite.js';
 import { SelectInputHandler } from './components/SelectInputHandler.js';
 import { FileInputHandler } from './components/FileInputHandler.js';
@@ -876,8 +877,28 @@ case 'flip2d':
         break;
         }
     }
-    
+
+    this._applyDynamicInputRanges(node, definitions);
+
     return definitions;
+  }
+
+  // A parameter that addresses input pins by index (Switch's `select`) has to follow the node's
+  // live pin count, which the node's "+" chip can grow past the definition's fixed maximum.
+  // Marked in the node definition with `maxFromInputCount: true`.
+  _applyDynamicInputRanges(node, definitions) {
+    const defParams = NodeDefs[node?.kind]?.params;
+    if (!Array.isArray(defParams)) return;
+
+    const dynamicNames = new Set(
+      defParams.filter((p) => p?.maxFromInputCount).map((p) => p.name)
+    );
+    if (dynamicNames.size === 0) return;
+
+    const lastPin = Math.max(0, getInputCount(node) - 1);
+    for (const definition of definitions) {
+      if (dynamicNames.has(definition.name)) definition.max = lastPin;
+    }
   }
 
   showNodeParameters(node) {

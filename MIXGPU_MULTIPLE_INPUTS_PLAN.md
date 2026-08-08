@@ -1,6 +1,16 @@
 # Plan: Add More Inputs to Nodes Like mixGPU
 
-Status: **PLAN / DESIGN ONLY — no code changed yet.**
+Status: **IMPLEMENTED.** Kept as the design record; the shipped version differs in
+two places:
+
+- **UI**: a "+ / −" chip pair on the node itself (its own grid row below the last
+  socket), not a context-menu entry — see `Renderer._renderDynamicInputControls`,
+  `pinLayout.dynamicInputButtons` and `EventHandler.checkDynamicInputClick`.
+- **Scope**: `dynamicInputs` is opt-in per node kind and is on four of them —
+  `ComputeMix`, `Switch`, `CustomGLSL` and `Expr` — not `ComputeMix` alone.
+
+The helper module landed as `src/data/nodeInputs.js` as designed. Tests:
+`tests/dynamicNodeInputs.test.js`.
 
 Goal: give the user an option to add (and remove) extra input pins on nodes
 that blend/combine multiple textures — starting with the GPU **Mix** node

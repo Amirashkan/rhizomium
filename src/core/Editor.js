@@ -3,6 +3,14 @@ import { EventHandler } from "./EventHandler.js";
 import { Renderer } from "./Renderer.js";
 import { MenuManager } from "../ui/MenuManager.js";
 import { defaultParameterValues, applyNodeParameterValue } from "../data/NodeDefs.js";
+import {
+  getInputCount,
+  canAddInput,
+  canRemoveInput,
+  addNodeInput,
+  removeNodeInput,
+  setInputCount,
+} from "../data/nodeInputs.js";
 import { ParameterPanel } from "../ui/ParameterPanel.js";
 import { SelectionManager } from "./SelectionManager.js";
 import { ConnectionManager } from "./ConnectionManager.js";
@@ -2235,6 +2243,124 @@ connectGPURenderer(renderFunction) {
     } catch (error) {
       window.errorHandler?.handleError(error, 'Toggle Node Bypass', 'warning');
     }
+  }
+
+  // ---- EXPANDABLE NODE INPUTS ----
+
+  // Add one input pin to a node whose definition allows it (Mix, Switch, Custom GLSL, Expression).
+  // Driven by the "+" chip on the node; the pin count changes the generated shader, so this
+  // recompiles and refreshes previews exactly like a wiring change does.
+  addNodeInput(nodeId) {
+    try {
+      const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+      if (!node || !canAddInput(node)) return false;
+
+      const before = getInputCount(node);
+      const pin = addNodeInput(node);
+      if (pin < 0) return false;
+
+      this.undoManager?.pushAction?.({
+        type: 'CHANGE_INPUT_COUNT',
+        timestamp: Date.now(),
+        nodeIds: [node.id],
+        undo: () => this._applyInputCount(node.id, before),
+        redo: () => this._applyInputCount(node.id, before + 1),
+      });
+
+      this._refreshAfterInputCountChange('Add Node Input');
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Add Node Input', 'warning');
+      return false;
+    }
+  }
+
+  // Remove the last input pin from an expandable node. Any wire landing on that pin is torn down
+  // first — dropping the pin while a connection still referenced it would leave an orphaned wire
+  // pointing at a socket that is no longer drawn or hit-tested.
+  removeNodeInput(nodeId) {
+    try {
+      const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+      if (!node || !canRemoveInput(node)) return false;
+
+      const before = getInputCount(node);
+      const pin = before - 1;
+
+      // Remember the wire so undo can put it back with the pin.
+      const doomed = this.graph?.connections?.find(
+        (c) => c.to?.nodeId === node.id && c.to?.pin === pin
+      );
+      const restore = doomed
+        ? { fromNodeId: doomed.from?.nodeId, fromPin: doomed.from?.pin || 0, pin }
+        : null;
+
+      if (doomed) {
+        this.connections?.removeConnection(node.id, pin);
+      }
+
+      if (removeNodeInput(node) < 0) return false;
+
+      this.undoManager?.pushAction?.({
+        type: 'CHANGE_INPUT_COUNT',
+        timestamp: Date.now(),
+        nodeIds: [node.id],
+        undo: () => {
+          this._applyInputCount(node.id, before);
+          if (restore) this._restoreConnection(node.id, restore);
+        },
+        redo: () => {
+          if (restore) this.connections?.removeConnection(node.id, restore.pin);
+          this._applyInputCount(node.id, before - 1);
+        },
+      });
+
+      this._refreshAfterInputCountChange('Remove Node Input');
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Remove Node Input', 'warning');
+      return false;
+    }
+  }
+
+  // Set a node's pin count and refresh — the shared body of the undo/redo callbacks above.
+  _applyInputCount(nodeId, count) {
+    const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+    if (!node) return;
+    setInputCount(node, count);
+    this._refreshAfterInputCountChange('Undo Input Count');
+  }
+
+  // Re-attach a wire that removeNodeInput tore down, once its pin exists again.
+  _restoreConnection(nodeId, { fromNodeId, fromPin, pin }) {
+    const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+    if (!node || fromNodeId === undefined || fromNodeId === null) return;
+    if (!this.graph.connections) this.graph.connections = [];
+    this.graph.connections.push({
+      from: { nodeId: fromNodeId, pin: fromPin },
+      to: { nodeId, pin },
+    });
+    if (!Array.isArray(node.inputs)) node.inputs = [];
+    node.inputs[pin] = fromNodeId;
+  }
+
+  // A pin-count change alters the compiled shader (and, for compute nodes, the bind-group layout),
+  // so it needs the same recompile + preview refresh a bypass toggle gets.
+  _refreshAfterInputCountChange(reason) {
+    try {
+      window.computeExecutor?.inputHashes?.clear?.();
+    } catch { /* cache objects are best-effort */ }
+
+    this.onChange(reason);
+    this.triggerShaderRebuild(reason);
+    if (this.previewIntegration?.updateAllPreviews) {
+      this.previewIntegration.updateAllPreviews();
+    }
+    // The open parameter panel may show a control whose range follows the pin count (Switch's
+    // Select), so re-render it while the node is still selected.
+    if (this.paramPanel?.selectedNode && this.paramPanel.renderParameters) {
+      this.paramPanel.renderParameters(this.paramPanel.selectedNode);
+    }
+    this.safeDraw();
   }
 
   // ---- PARAMETER RESET ----

@@ -1,6 +1,7 @@
 // src/codegen/compilers/UtilityNodes.js
 import { COLOR_FUNCTIONS_WGSL } from './ColorNodes.js';
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { getInputCount } from '../../data/nodeInputs.js';
 
 export class UtilityNodes {
   constructor() {
@@ -160,12 +161,19 @@ export class UtilityNodes {
   }
   
   compileExpression(node, getInput, nodeId) {
-    const a = getInput(0, "f32", "0.0");
-    const b = getInput(1, "f32", "0.0");
     let expr = (node.expr || "a").toString();
 
-    expr = expr.replace(/\ba\b/g, `(${a})`);
-    expr = expr.replace(/\bb\b/g, `(${b})`);
+    // One variable per input pin, named after the pin: a, b, c, … The pin list can be grown with
+    // the node's "+" chip, so the substitution follows the live count rather than a fixed a/b pair.
+    // Substituting longest-name-first is irrelevant here (all names are one char) but the order is
+    // still fixed so the emitted code is deterministic.
+    const inputCount = Math.max(1, getInputCount(node));
+    for (let i = 0; i < inputCount; i++) {
+      const name = String.fromCharCode(97 + i); // 'a', 'b', 'c', …
+      const value = getInput(i, "f32", "0.0");
+      expr = expr.replace(new RegExp(`\\b${name}\\b`, 'g'), `(${value})`);
+    }
+
     expr = expr.replace(/\bu_time\b/g, "g.time");
     expr = expr.replace(/\btime\b/g, "g.time");
     expr = expr.replace(/\baudioEnvelopeBass\b/g, "g.audioEnvelopeBass");
@@ -443,8 +451,10 @@ export class UtilityNodes {
 
     // Static select (constant): only evaluate the selected input to avoid compiling
     // unused node graphs. This significantly improves performance when switching
-    // between complex inputs.
-    const selectParam = Math.max(0, Math.min(3, Math.floor(Number(rawSelect) || 0)));
+    // between complex inputs. The range follows the node's live pin count, which the
+    // "+" chip can grow past the four pins the definition names.
+    const inputCount = Math.max(1, getInputCount(node));
+    const selectParam = Math.max(0, Math.min(inputCount - 1, Math.floor(Number(rawSelect) || 0)));
 
     // Only get the selected input - unselected inputs won't be evaluated
     const selectedIndex = selectParam;
@@ -495,7 +505,7 @@ export class UtilityNodes {
   }
 
   // Runtime selection for a dynamic `select` (driven by a node reference or expression).
-  // All four inputs are compiled and the active branch is chosen each frame, so a
+  // Every input is compiled and the active branch is chosen each frame, so a
   // referenced Float (fixed or animated, e.g. sin(time)) actually drives the switch
   // instead of compiling to a black vec3(0.0).
   compileSwitchDynamic(node, getInput, nodeId, getParam, getNodeOutputType) {
@@ -521,8 +531,10 @@ export class UtilityNodes {
       return node.inputs?.[index] ? (type || 'vec3') : null;
     };
 
+    const inputCount = Math.max(1, getInputCount(node));
+
     let commonRank = -1;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < inputCount; i++) {
       const t = inputTypeOf(i);
       if (t && typeRank[t] !== undefined) {
         commonRank = Math.max(commonRank, typeRank[t]);
@@ -532,18 +544,17 @@ export class UtilityNodes {
 
     // Second pass: fetch each input converted to the common type (string mode).
     const branch = (i) => getInput(i, commonType, defaultForType[commonType]);
-    const in0 = branch(0);
-    const in1 = branch(1);
-    const in2 = branch(2);
-    const in3 = branch(3);
+    const sel = `sel_${nodeId}`;
 
     // Resolve the select expression to a runtime scalar and clamp it to a valid index.
     const selectExpr = getParam('select', '0');
-    const sel = `sel_${nodeId}`;
 
-    // Nested select() picks in0 for index 0 (or out of range), in1/in2/in3 otherwise.
-    const chooser =
-      `select(select(select(${in0}, ${in1}, ${sel} == 1), ${in2}, ${sel} == 2), ${in3}, ${sel} == 3)`;
+    // Nested select() picks input 0 for index 0 (or out of range), input i otherwise. Built by
+    // folding so it covers however many pins the node currently has.
+    let chooser = branch(0);
+    for (let i = 1; i < inputCount; i++) {
+      chooser = `select(${chooser}, ${branch(i)}, ${sel} == ${i})`;
+    }
 
     return {
       line:
@@ -664,12 +675,6 @@ export class UtilityNodes {
       return null;
     };
 
-    // Determine expected types for each input
-    const input0Type = inferInputType(0);
-    const input1Type = inferInputType(1);
-    const input2Type = inferInputType(2);
-    const input3Type = inferInputType(3);
-
     // Get appropriate defaults based on inferred types
     const getDefaultForType = (type) => {
       switch (type) {
@@ -680,32 +685,28 @@ export class UtilityNodes {
       }
     };
 
-    // Get inputs with appropriate defaults
-    // When type is inferred, pass null as targetType to let getInput handle conversion
-    // but provide the correct default value
-    const input0Default = getDefaultForType(input0Type);
-    const input1Default = getDefaultForType(input1Type);
-    const input2Default = getDefaultForType(input2Type);
-    const input3Default = getDefaultForType(input3Type);
-    
-    const input0 = getInput(0, input0Type || null, input0Default);
-    const input1 = getInput(1, input1Type || null, input1Default);
-    const input2 = getInput(2, input2Type || null, input2Default);
-    const input3 = getInput(3, input3Type || null, input3Default);
+    // One input variable per pin. The pin list is expandable (the node's "+" chip), so the code
+    // substitutes however many the node currently has instead of a fixed input0..input3.
+    // When a type is inferred, pass null as targetType to let getInput handle conversion but
+    // provide the correct default value.
+    const inputCount = Math.max(1, getInputCount(node));
 
-    // Extract code strings from type-aware results
-    const input0Code = typeof input0 === 'object' && input0?.code !== undefined ? input0.code : input0;
-    const input1Code = typeof input1 === 'object' && input1?.code !== undefined ? input1.code : input1;
-    const input2Code = typeof input2 === 'object' && input2?.code !== undefined ? input2.code : input2;
-    const input3Code = typeof input3 === 'object' && input3?.code !== undefined ? input3.code : input3;
+    // Types are inferred from the ORIGINAL code, before any substitution rewrites the input names
+    // the inference patterns look for.
+    const inputCodes = [];
+    for (let i = 0; i < inputCount; i++) {
+      const inferredType = inferInputType(i);
+      const input = getInput(i, inferredType || null, getDefaultForType(inferredType));
+      inputCodes.push(typeof input === 'object' && input?.code !== undefined ? input.code : input);
+    }
 
-    // Replace input placeholders with actual input values
-    // Use word boundaries to avoid partial matches
-    code = code.replace(/\binput0\b/g, `(${input0Code})`);
-    code = code.replace(/\binput1\b/g, `(${input1Code})`);
-    code = code.replace(/\binput2\b/g, `(${input2Code})`);
-    code = code.replace(/\binput3\b/g, `(${input3Code})`);
-    
+    // Highest index first: the word boundaries already keep `input1` from matching inside
+    // `input10`, and this keeps that true even if the pattern is ever loosened.
+    for (let i = inputCount - 1; i >= 0; i--) {
+      code = code.replace(new RegExp(`\\binput${i}\\b`, 'g'), `(${inputCodes[i]})`);
+    }
+
+
     // Replace built-in variables with their shader equivalents
     code = code.replace(/\bu_time\b/g, "g.time");
     code = code.replace(/\btime\b/g, "g.time");

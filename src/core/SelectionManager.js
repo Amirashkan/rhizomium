@@ -1,5 +1,6 @@
 // src/core/SelectionManager.js - Updated with permanent undo integration and error handling
 import { NodeDefs, makeNode, updateNodeIdCounter } from "../data/NodeDefs.js";
+import { getInputCount, setInputCount } from "../data/nodeInputs.js";
 
 export class SelectionManager {
   constructor(graph, onChange) {
@@ -82,6 +83,12 @@ export class SelectionManager {
       }
       if (sourceNode.props) {
         newNode.props = JSON.parse(JSON.stringify(sourceNode.props));
+      }
+
+      // Expanded input pins are part of the node's shape, so a copy has to carry them — otherwise
+      // duplicating a 5-input Mix silently produces a 2-input one and drops the extra wires.
+      if (sourceNode.inputCount !== undefined) {
+        setInputCount(newNode, sourceNode.inputCount);
       }
 
       return newNode;
@@ -695,9 +702,9 @@ deleteSelected() {
       }
 
       const fromOutPins = fromDef.pinsOut || [];
-      const toInPins = toDef.pinsIn || [];
 
-      if (fromPin >= fromOutPins.length || toPin >= toInPins.length) {
+      // Live pin count: an expandable node can carry more pins than its definition names.
+      if (fromPin >= fromOutPins.length || toPin >= getInputCount(toNode)) {
         return false;
       }
 

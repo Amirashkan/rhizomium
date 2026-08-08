@@ -7,11 +7,19 @@ import {
   nodePinPositions,
   nodePreviewHeight,
   nodeMinHeight,
+  dynamicInputButtons,
   HEADER_H,
   PREVIEW_TOP_GAP,
   PREVIEW_SIDE_MARGIN,
   EDGE_INSET,
 } from "./pinLayout.js";
+import {
+  getDynamicInputSpec,
+  getInputCount,
+  getInputLabel,
+  canAddInput,
+  canRemoveInput,
+} from "../data/nodeInputs.js";
 
 // Integer-digit budget used when reserving node width for a numeric value tag. A node's width is
 // reserved from the value's SHAPE, not its live digits, so animating/dragged values up to this many
@@ -662,6 +670,9 @@ export class Renderer {
     // Render pins with enhanced styling
     this._renderNodePins(node);
 
+    // "+ / −" chips for nodes whose input list can grow (Mix, Switch, …)
+    this._renderDynamicInputControls(node);
+
     // PERFORMANCE: Removed expensive drop shadow - it requires creating a whole extra shape
     // The visual difference is minimal and the performance cost is significant
   }
@@ -943,6 +954,38 @@ export class Renderer {
       }
     }
 
+    ctx.restore();
+  }
+
+  // Draws the "+ / −" chips that add and remove input pins on an expandable node (Mix, Switch,
+  // Custom GLSL, Expression). They sit on their own grid row below the last socket, left-aligned
+  // with the input labels, and grey out at the spec's min/max so the limits are visible rather than
+  // discovered by clicking. Hit-testing uses the same rectangles (see EventHandler).
+  _renderDynamicInputControls(node) {
+    if (!getDynamicInputSpec(node)) return;
+
+    const ctx = this.ctx;
+    const def = NodeDefs[node.kind];
+    const inCount = getInputCount(node);
+    const outCount = (def?.pinsOut || []).length || 1;
+    const previewH = nodePreviewHeight(node);
+    const { add, remove } = dynamicInputButtons(node, inCount, outCount, previewH);
+
+    const chip = (rect, glyph, enabled) => {
+      ctx.fillStyle = enabled ? "rgba(68, 68, 68, 0.45)" : "rgba(40, 40, 40, 0.3)";
+      ctx.beginPath();
+      ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 2);
+      ctx.fill();
+
+      ctx.fillStyle = enabled ? "#9b9ca3" : "#3a3a3a";
+      ctx.fillText(glyph, rect.x + rect.w / 2, rect.y + rect.h - 3);
+    };
+
+    ctx.save();
+    ctx.font = this._cachedFonts.pinLabel;
+    ctx.textAlign = "center";
+    chip(add, "+", canAddInput(node));
+    chip(remove, "−", canRemoveInput(node));
     ctx.restore();
   }
 
@@ -1229,10 +1272,10 @@ export class Renderer {
 
   // An input pin's display label. pinsIn entries are usually plain strings, but a few nodes use the
   // object form `{ label, type }`; normalise both, returning "" when there's nothing to show.
+  // Pins added past the definition's list (the "+" chip) have no pinsIn entry, so the label comes
+  // from the node's dynamic-input spec — see data/nodeInputs.js.
   _inputLabel(node, i) {
-    const entry = NodeDefs[node.kind]?.pinsIn?.[i];
-    if (!entry) return "";
-    return typeof entry === "string" ? entry : entry.label || "";
+    return getInputLabel(node, i);
   }
 
   // An output pin's display name. pinsOut entries are either a plain string ("Texture") or the object
@@ -1260,17 +1303,26 @@ export class Renderer {
   // frame, and tracking down also self-heals any node saved while it was latched too wide.
   _ensureNodeSize(node) {
     const def = NodeDefs[node.kind];
-    const inCount = def?.inputs || 0;
+    const inCount = getInputCount(node);
     const outCount = (def?.pinsOut || []).length || 1;
     const previewH = nodePreviewHeight(node);
+    // An expandable node reserves one extra grid row at the bottom for its "+ / −" chips.
+    const extraRows = getDynamicInputSpec(node) ? 1 : 0;
 
-    node.h = nodeMinHeight(node, inCount, outCount, previewH);
+    node.h = nodeMinHeight(node, inCount, outCount, previewH, extraRows);
 
     const tagW = node.__valueTagW || 0;
     const hasPreview = previewH > 0;
-    if (node.__sizedForTagW !== tagW || node.__sizedForPreview !== hasPreview) {
+    // The pin count joins the re-measure key: adding an input can widen the widest input label
+    // ("Input A" → "Input H"), and removing one should let the node settle back down.
+    if (
+      node.__sizedForTagW !== tagW ||
+      node.__sizedForPreview !== hasPreview ||
+      node.__sizedForInCount !== inCount
+    ) {
       node.__sizedForTagW = tagW;
       node.__sizedForPreview = hasPreview;
+      node.__sizedForInCount = inCount;
       // _minNodeWidth already floors at 160, so this never collapses a node too far.
       node.w = this._minNodeWidth(node, inCount, outCount, hasPreview, tagW);
     }
@@ -1316,7 +1368,10 @@ export class Renderer {
     // PERFORMANCE: Cache pin positions per frame - they only change when the node's box does.
     // This prevents recalculating positions multiple times per frame for the same node (e.g. when
     // rendering multiple connections from/to it). The cache is cleared at the start of every frame.
-    const cacheKey = `${node.id}_${node.x}_${node.y}_${node.w}`;
+    // The pin count is part of the key: an expandable node's box doesn't have to move for its pin
+    // list to change, and a stale entry would leave the new pin undrawn until the node is dragged.
+    const inCount = getInputCount(node);
+    const cacheKey = `${node.id}_${node.x}_${node.y}_${node.w}_${inCount}`;
     const cached = this._nodePinCache.get(cacheKey);
     if (cached) {
       return { inputPins: cached.inputPins, outputPins: cached.outputPins };
@@ -1324,7 +1379,6 @@ export class Renderer {
 
     // Geometry comes from the shared socket-row layout: header → optional preview band → fixed rows,
     // ports centred on their row and on the node edge (see pinLayout.js).
-    const inCount = NodeDefs[node.kind]?.inputs || 0;
     const outCount = (NodeDefs[node.kind]?.pinsOut || []).length || 1;
     const previewH = nodePreviewHeight(node);
     const { inputs, outputs } = nodePinPositions(node, inCount, outCount, previewH);

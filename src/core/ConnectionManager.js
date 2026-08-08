@@ -1,6 +1,7 @@
 // src/core/ConnectionManager.js - Fixed preview updates
 import { NodeDefs } from "../data/NodeDefs.js";
 import { nodePinPositions, nodePreviewHeight } from "./pinLayout.js";
+import { getInputCount } from "../data/nodeInputs.js";
 
 export class ConnectionManager {
   constructor(graph, onChange) {
@@ -384,7 +385,9 @@ export class ConnectionManager {
 
       // Geometry comes from the shared socket-row layout so hit-testing always matches the
       // renderer: header → optional preview band → fixed-height rows (see pinLayout.js).
-      const inputCount = nodeDef.inputs || 0;
+      // Live pin count, not the definition's: an expandable node (Mix, Switch, …) may show more
+      // pins than its definition names, and every one of them must be connectable.
+      const inputCount = getInputCount(n);
       const outCount = (nodeDef.pinsOut || []).length || 1;
       const previewH = nodePreviewHeight(n);
       const { inputs, outputs } = nodePinPositions(n, inputCount, outCount, previewH);
@@ -424,9 +427,8 @@ export class ConnectionManager {
       }
 
       const fromOutPins = fromDef.pinsOut || [];
-      const toInPins = toDef.pinsIn || [];
 
-      if (fromPin >= fromOutPins.length || toPin >= toInPins.length) {
+      if (fromPin >= fromOutPins.length || toPin >= getInputCount(toNode)) {
         return false;
       }
 
