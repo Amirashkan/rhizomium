@@ -907,6 +907,11 @@ isIncomplete(value) {
     input.className = 'param-input expression-capable';
     input.setAttribute('data-param', param.name);
     input.setAttribute('data-param-type', param.type);
+    // Owning node id — lets a node dragged onto this field skip it when it is the node's own
+    // parameter (a self-reference the expression system cannot resolve).
+    if (node?.id !== undefined && node?.id !== null) {
+      input.setAttribute('data-node-id', String(node.id));
+    }
     input.setAttribute('rows', '1');
     input.autocomplete = 'off';
     input.autocapitalize = 'off';
