@@ -766,7 +766,15 @@ export class TauriSecondMonitorViewer {
       const exprs = [];
       for (const k in n.params) {
         const v = n.params[k];
-        if (typeof v === 'string' && (v.trim().startsWith('=') || /time|audioEnvelope/i.test(v))) {
+        if (typeof v !== 'string') continue;
+        const trimmed = v.trim();
+        // Expressions compile into the WGSL, so they need a receiver-side rebuild. So does any
+        // other NON-NUMERIC string param — a select like the Trigger node's Mode or the Resolution
+        // node's Mode picks which code the compiler emits, and unlike a numeric param it never
+        // streams via FRAGMENT_UNIFORMS, so without it the receiver would keep running the shader
+        // built for the old mode.
+        const isExpr = trimmed.startsWith('=') || /time|audioEnvelope/i.test(trimmed);
+        if (isExpr || !Number.isFinite(parseFloat(trimmed))) {
           exprs.push(`${k}=${v}`);
         }
       }

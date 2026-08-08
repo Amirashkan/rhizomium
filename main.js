@@ -52,6 +52,7 @@ import { modalManager } from './src/ui/ModalManager.js';
 import { PreviewPerfMonitor } from "./src/utils/PreviewPerfMonitor.js";
 import { getPerfProbe } from "./src/utils/PerfProbe.js";
 import { installPerfBench } from "./src/utils/PerfBenchPatch.js";
+import { TriggerNodeProcessor } from "./src/core/TriggerNodeProcessor.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
@@ -73,6 +74,8 @@ window.updateNodeIdCounter = updateNodeIdCounter;
 const perfProbe = getPerfProbe();
 installPerfBench();
 
+// Drives the Trigger node's "On value change" mode each frame. See TriggerNodeProcessor.
+const triggerNodeProcessor = new TriggerNodeProcessor();
 // Drives the Hold (sample-and-hold) node's CPU-side latch each frame. See HoldNodeProcessor.
 const holdNodeProcessor = new HoldNodeProcessor();
 // Drives the Count node's CPU-side counter each frame. See CountNodeProcessor.
@@ -3413,6 +3416,13 @@ function handleRenderFrame(frameState) {
       // (level/kick/trig) feed the Hold/Count/Feedback processors below, so refreshing them here
       // means those consumers read this frame's values rather than the previous frame's.
       audioKickProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
+      });
+      // Then the Trigger node's "On value change" pulses, before the consumers below: a
+      // change-mode Trigger's pulse is CPU-only state (node.__triggerPulse), and Hold / Count /
+      // the Feedback reset pin all read it, so it has to be this frame's value not last frame's.
+      triggerNodeProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         uniformManager: window.nodeCompiler.uniformManager,
       });
