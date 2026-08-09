@@ -1,6 +1,7 @@
 // src/ui/MenuManager.js
 import { NodeDefs, makeNode, updateNodeIdCounter } from "../data/NodeDefs.js";
 import { RadialMenu } from "./RadialMenu.js";
+import { nodeDisplayName, hasCustomNodeName } from "../core/nodeName.js";
 
 export class MenuManager {
   constructor(graph, onChange) {
@@ -141,12 +142,12 @@ export class MenuManager {
 
     const editor = window.editor;
     const nodeType = NodeDefs[node.kind]?.cat || "Misc";
-    const nodeLabel = NodeDefs[node.kind]?.label || node.kind;
-    const header = this._createMenuHeader(nodeLabel);
+    const header = this._createMenuHeader(nodeDisplayName(node));
     header.setAttribute("data-category", nodeType);
     el.appendChild(header);
 
-    // Edit Parameters — open the parameter panel for the clicked node (same target as double-click).
+    // Edit Parameters — open the parameter panel for the clicked node (same target as
+    // double-clicking the node body).
     const paramPanel = editor?.paramPanel;
     if (paramPanel && (paramPanel.showNodeParameters || paramPanel.show)) {
       el.appendChild(
@@ -158,6 +159,36 @@ export class MenuManager {
             } else {
               paramPanel.show(node, clientX, clientY);
             }
+            this.hide();
+          },
+          nodeType,
+        ),
+      );
+    }
+
+    // Rename — same inline title-bar field as double-clicking the title, or F2. Acts on the
+    // clicked node only, even inside a multi-selection: one field, one name.
+    if (editor?.beginNodeRename) {
+      el.appendChild(
+        this._createMenuItem(
+          "Rename…",
+          () => {
+            this.hide();
+            editor.beginNodeRename(node.id);
+          },
+          nodeType,
+        ),
+      );
+    }
+
+    // Reset Name — back to the node kind's own label. Offered only on a node that actually carries
+    // a custom name, so it never appears as a dead entry (same rule as Reset Parameters below).
+    if (editor?.renameNode && hasCustomNodeName(node)) {
+      el.appendChild(
+        this._createMenuItem(
+          "Reset Name",
+          () => {
+            editor.renameNode(node.id, "");
             this.hide();
           },
           nodeType,
@@ -517,6 +548,11 @@ export class MenuManager {
         }
         if (n.props) {
           clone.props = JSON.parse(JSON.stringify(n.props));
+        }
+        // A custom title is part of what the artist made, so a duplicate keeps it (the #id beside
+        // the name still tells the two apart). Matches SelectionManager.cloneNodeProperly.
+        if (n.name) {
+          clone.name = n.name;
         }
 
         clones.push(clone);

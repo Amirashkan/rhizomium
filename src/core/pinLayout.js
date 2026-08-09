@@ -72,6 +72,37 @@ export function nodeMinHeight(node, inCount, outCount, previewH, extraRows = 0) 
   return headerAndPreview + rows * ROW_H + BOTTOM_PAD;
 }
 
+/** Left inset of the title text inside the header, and the width of the control-chip strip. */
+export const TITLE_X_INSET = 10;
+export const HEADER_CONTROLS_W = 65; // bypass / preview / size chips, measured from the right edge
+export const HEADER_CONTROLS_GAP = 6; // gap between that strip and whatever sits left of it
+
+/**
+ * The clickable title area of a node: the header, minus the control-chip strip on its right.
+ *
+ * Double-clicking it opens the inline rename field, so the renderer (which clips the drawn title to
+ * this width) and the event handler (which hit-tests it) have to agree on the same rectangle. It
+ * stops short of the chips deliberately — a double-click that just misses the eye button should do
+ * nothing, not rename the node.
+ */
+export function nodeTitleRect(node) {
+  const x = node?.x || 0;
+  const y = node?.y || 0;
+  const w = node?.w || 160;
+  return {
+    x,
+    y,
+    w: Math.max(0, w - HEADER_CONTROLS_W - HEADER_CONTROLS_GAP),
+    h: HEADER_H,
+  };
+}
+
+/** Whether a point in node space is inside a node's title area. */
+export function hitNodeTitle(node, x, y) {
+  const rect = nodeTitleRect(node);
+  return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+}
+
 /**
  * Full port geometry for a node. `inputs[i]` / `outputs[i]` are the {x, y} centres of the input /
  * output ports — input i and output i share row i, so they sit at the same height.

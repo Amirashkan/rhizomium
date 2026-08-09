@@ -12,7 +12,11 @@ import {
   PREVIEW_TOP_GAP,
   PREVIEW_SIDE_MARGIN,
   EDGE_INSET,
+  TITLE_X_INSET,
+  HEADER_CONTROLS_W,
+  HEADER_CONTROLS_GAP,
 } from "./pinLayout.js";
+import { nodeDisplayName } from "./nodeName.js";
 import {
   getDynamicInputSpec,
   getInputCount,
@@ -30,6 +34,11 @@ const VALUE_TAG_INT_DIGITS = 3;
 
 // Gap between an output pin's name and the value tag to its right, on the same socket row.
 const OUT_NAME_GAP = 6;
+
+// Widest a node's title is allowed to push the node box. A renamed node grows to fit its title, but
+// only this far — past it the title is drawn ellipsized instead, so one long name can't inflate a
+// node until it covers its neighbours.
+const MAX_TITLE_W = 220;
 
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
@@ -644,12 +653,36 @@ export class Renderer {
     ctx.fillStyle = categoryColor;
     ctx.fillRect(node.x, node.y + 8, 4, node.h - 16);
 
-    // Draw node label with better typography
+    // The node ID (drawn below) is right-aligned just left of the control buttons; measure it first
+    // so the title knows how much header room is left over for it.
+    // PERFORMANCE: Use cached font string
+    ctx.font = this._cachedFonts.nodeId;
+    const idText = `#${node.id}`;
+    const idW = ctx.measureText(idText).width;
+    const idRight = node.x + node.w - HEADER_CONTROLS_W - HEADER_CONTROLS_GAP;
+
+    // Draw the node's title — its custom name when it has one, otherwise its definition's label.
+    // Clipped to the space left of the #id so a long name is ellipsized rather than drawn through
+    // the id and the control chips.
     // PERFORMANCE: Use cached font string
     ctx.fillStyle = "#e8e8e8";
     ctx.font = this._cachedFonts.nodeLabel;
-    const label = NodeDefs[node.kind]?.label || node.kind;
-    ctx.fillText(label, node.x + 10, node.y + 18);
+    const titleX = node.x + TITLE_X_INSET;
+    const titleMaxW = Math.max(0, idRight - idW - 8 - titleX);
+    const title = nodeDisplayName(node);
+    // PERFORMANCE: the fitted title only changes when the name, the header room or the zoom does,
+    // so it is cached on the node — otherwise _fitText re-measures every node on every frame.
+    if (
+      node.__fitTitleFor !== title ||
+      node.__fitTitleMaxW !== titleMaxW ||
+      node.__fitTitleScale !== this._cachedFonts.lastScale
+    ) {
+      node.__fitTitleFor = title;
+      node.__fitTitleMaxW = titleMaxW;
+      node.__fitTitleScale = this._cachedFonts.lastScale;
+      node.__fitTitle = this._fitText(title, titleMaxW);
+    }
+    ctx.fillText(node.__fitTitle, titleX, node.y + 18);
 
     // Render enhanced thumbnail (before ID so ID is on top)
     this._renderNodeThumbnail(node);
@@ -657,15 +690,12 @@ export class Renderer {
     // Render preview controls
     this._renderPreviewControls(node);
 
-    // Draw node ID (for referencing in expressions) in the title bar, right-aligned just left of
-    // the control buttons. Keeping it on the title row (not the bottom) avoids colliding with the
-    // last output pin / its value tag on multi-output nodes. Baseline matches the label and buttons.
-    // PERFORMANCE: Use cached font string
+    // Draw node ID (for referencing in expressions) in the title bar. Keeping it on the title row
+    // (not the bottom) avoids colliding with the last output pin / its value tag on multi-output
+    // nodes. Baseline matches the label and buttons.
     ctx.fillStyle = "#888";
     ctx.font = this._cachedFonts.nodeId;
-    const idText = `#${node.id}`;
-    const idRight = node.x + node.w - 65 - 6; // 65 = control-button strip, 6 = gap
-    ctx.fillText(idText, idRight - ctx.measureText(idText).width, node.y + 18);
+    ctx.fillText(idText, idRight - idW, node.y + 18);
 
     // Render pins with enhanced styling
     this._renderNodePins(node);
@@ -675,6 +705,25 @@ export class Renderer {
 
     // PERFORMANCE: Removed expensive drop shadow - it requires creating a whole extra shape
     // The visual difference is minimal and the performance cost is significant
+  }
+
+  // Shorten `text` with a trailing ellipsis until it fits `maxWidth` in the context's current font.
+  // Measures once for the common case (it fits) and only then walks the string back, so ordinary
+  // titles cost a single measureText per node per frame.
+  _fitText(text, maxWidth) {
+    const ctx = this.ctx;
+    if (!text) return "";
+    if (maxWidth <= 0) return "";
+    if (ctx.measureText(text).width <= maxWidth) return text;
+
+    const ellipsis = "…";
+    if (ctx.measureText(ellipsis).width > maxWidth) return "";
+
+    let end = text.length - 1;
+    while (end > 0 && ctx.measureText(text.slice(0, end) + ellipsis).width > maxWidth) {
+      end--;
+    }
+    return text.slice(0, end).trimEnd() + ellipsis;
   }
 
   _renderPreviewControls(node) {
@@ -1313,16 +1362,21 @@ export class Renderer {
 
     const tagW = node.__valueTagW || 0;
     const hasPreview = previewH > 0;
+    const title = nodeDisplayName(node);
     // The pin count joins the re-measure key: adding an input can widen the widest input label
-    // ("Input A" → "Input H"), and removing one should let the node settle back down.
+    // ("Input A" → "Input H"), and removing one should let the node settle back down. So does the
+    // title, so a rename resizes the box to the new name immediately — and back down when the name
+    // is cleared.
     if (
       node.__sizedForTagW !== tagW ||
       node.__sizedForPreview !== hasPreview ||
-      node.__sizedForInCount !== inCount
+      node.__sizedForInCount !== inCount ||
+      node.__sizedForTitle !== title
     ) {
       node.__sizedForTagW = tagW;
       node.__sizedForPreview = hasPreview;
       node.__sizedForInCount = inCount;
+      node.__sizedForTitle = title;
       // _minNodeWidth already floors at 160, so this never collapses a node too far.
       node.w = this._minNodeWidth(node, inCount, outCount, hasPreview, tagW);
     }
@@ -1332,14 +1386,16 @@ export class Renderer {
   // (input label inside-left + output value tag inside-right), and a landscape preview band.
   _minNodeWidth(node, inCount, outCount, hasPreview, tagW) {
     const ctx = this.ctx;
-    const def = NodeDefs[node.kind];
 
-    // Header: label + gap + #id + gap + the fixed control-chip cluster (~65px from the right edge).
+    // Header: title + gap + #id + gap + the fixed control-chip cluster (~65px from the right edge).
+    // The title's contribution is capped at MAX_TITLE_W: a node grows to fit the name the artist
+    // gave it, but a very long name is ellipsized by _fitText instead of widening the box forever.
     ctx.font = this._cachedFonts.nodeLabel || "600 13px sans-serif";
-    const titleW = ctx.measureText(def?.label || node.kind).width;
+    const titleW = Math.min(ctx.measureText(nodeDisplayName(node)).width, MAX_TITLE_W);
     ctx.font = this._cachedFonts.nodeId || "10px monospace";
     const idW = ctx.measureText(`#${node.id}`).width;
-    const headerW = 10 + titleW + 8 + idW + 8 + 65 + 6;
+    const headerW =
+      TITLE_X_INSET + titleW + 8 + idW + 8 + HEADER_CONTROLS_W + HEADER_CONTROLS_GAP;
 
     // Widest socket row: an input label (inside, right of its port) plus the output pin's name and
     // value tag (inside, left of its port). Inputs and outputs can share a row, so reserve room for

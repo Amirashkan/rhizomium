@@ -91,6 +91,12 @@ export class SelectionManager {
         setInputCount(newNode, sourceNode.inputCount);
       }
 
+      // Same for a custom title: duplicating "bloom mask" and getting an anonymous "Remap" back
+      // loses what the artist wrote. The copies stay distinguishable by the #id beside the name.
+      if (sourceNode.name) {
+        newNode.name = sourceNode.name;
+      }
+
       return newNode;
     } catch (error) {
       window.errorHandler?.handleError(error, {

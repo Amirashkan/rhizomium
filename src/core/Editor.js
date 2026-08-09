@@ -12,6 +12,8 @@ import {
   setInputCount,
 } from "../data/nodeInputs.js";
 import { ParameterPanel } from "../ui/ParameterPanel.js";
+import { NodeNameEditor } from "../ui/NodeNameEditor.js";
+import { customNodeName, normalizeNodeName } from "./nodeName.js";
 import { SelectionManager } from "./SelectionManager.js";
 import { ConnectionManager } from "./ConnectionManager.js";
 import { ViewportManager } from "./ViewportManager.js";
@@ -816,6 +818,14 @@ connectGPURenderer(renderFunction) {
 
   initializeEventHandling() {
     try {
+      // Inline title-bar rename field. Created before the EventHandler, which opens it on a
+      // double-click on a node's title.
+      this.nodeNameEditor = new NodeNameEditor({
+        canvas: this.canvas,
+        viewport: this.viewport,
+        editor: this,
+      });
+
       this.eventHandler = new EventHandler({
         // Make eventHandler globally available for warmup calls
         // This allows other components to trigger warmup when needed
@@ -2360,6 +2370,73 @@ connectGPURenderer(renderFunction) {
     if (this.paramPanel?.selectedNode && this.paramPanel.renderParameters) {
       this.paramPanel.renderParameters(this.paramPanel.selectedNode);
     }
+    this.safeDraw();
+  }
+
+  // ---- NODE NAMES ----
+
+  // Open the inline rename field over a node's title bar. Driven by a double-click on the title,
+  // the node menu's "Rename…" entry and F2 — all three land here so the gesture is the same one.
+  beginNodeRename(nodeId) {
+    try {
+      const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+      if (!node || !this.nodeNameEditor) return false;
+      return this.nodeNameEditor.open(node);
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Begin Node Rename', 'warning');
+      return false;
+    }
+  }
+
+  // Give a node a custom title, or clear it back to its definition's label when `name` normalizes
+  // to empty. Purely a display change — the name is not read by codegen, wiring or expressions, so
+  // there is nothing to recompile here, just a redraw and the open panel's heading.
+  renameNode(nodeId, name) {
+    try {
+      const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+      if (!node) return false;
+
+      const next = normalizeNodeName(name, node);
+      const previous = customNodeName(node);
+      if (next === previous) return false;
+
+      this._applyNodeName(node.id, next);
+
+      // UndoManager has no action type for a rename, so it rides along as custom undo/redo
+      // callbacks (its default branch invokes them), like the parameter reset above.
+      this.undoManager?.pushAction?.({
+        type: 'RENAME_NODE',
+        timestamp: Date.now(),
+        nodeIds: [node.id],
+        undo: () => this._applyNodeName(node.id, previous),
+        redo: () => this._applyNodeName(node.id, next),
+      });
+
+      return true;
+    } catch (error) {
+      window.errorHandler?.handleError(error, 'Rename Node', 'warning');
+      return false;
+    }
+  }
+
+  // Write a name onto a node and refresh what shows it — the shared body of renameNode and its
+  // undo/redo callbacks. An empty name removes the property entirely rather than storing "", so a
+  // node that was renamed and then cleared saves identically to one that never was.
+  _applyNodeName(nodeId, name) {
+    const node = this.graph?.nodes?.find((n) => n.id === nodeId);
+    if (!node) return;
+
+    if (name) node.name = name;
+    else delete node.name;
+
+    this.onChange(`Rename Node: ${nodeId}`);
+
+    // The panel heading names the node it is editing, so it has to follow the rename.
+    if (this.paramPanel?.selectedNode?.id === node.id && this.paramPanel.renderParameters) {
+      this.paramPanel.renderParameters(node);
+    }
+
+    this.markDirty?.('node-rename');
     this.safeDraw();
   }
 

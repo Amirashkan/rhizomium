@@ -14,6 +14,7 @@ import { WGSLCodeInputHandler } from './components/WGSLCodeInputHandler.js';
 import { GraphProcessor } from '../codegen/processors/GraphProcessor.js';
 import { nodeReferenceDropStyles } from './NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
+import { nodeDisplayName } from '../core/nodeName.js';
 import { describeExternalControls } from '../parameters/ExternalParameterControl.js';
 
 // Colours for parameters driven from outside the graph. Deliberately away from
@@ -965,13 +966,20 @@ case 'flip2d':
     const parameterDefinitions = this.getParameterDefinitions(node);
 
     if (!parameterDefinitions || parameterDefinitions.length === 0) {
-      this.panelContent.innerHTML = `
-        <div class="no-parameters">
-          <h3>${node.kind}</h3>
-          <p>No parameters available for this node type.</p>
-          <p>Node ID: ${node.id}</p>
-        </div>
-      `;
+      // Built element-by-element rather than as an innerHTML template: the heading carries the
+      // node's name, which the artist typed, and must never be parsed as markup.
+      const empty = document.createElement('div');
+      empty.className = 'no-parameters';
+      const heading = document.createElement('h3');
+      heading.textContent = nodeDisplayName(node);
+      const note = document.createElement('p');
+      note.textContent = 'No parameters available for this node type.';
+      const idLine = document.createElement('p');
+      idLine.textContent = `Node ID: ${node.id}`;
+      empty.append(heading, note, idLine);
+
+      this.panelContent.innerHTML = '';
+      this.panelContent.appendChild(empty);
       return;
     }
 
@@ -987,7 +995,10 @@ case 'flip2d':
 
     const title = document.createElement('div');
     title.className = 'panel-title';
-    title.textContent = `${node.kind} Parameters`;
+    // The node's name, which is its kind's label until the artist renames it. Renaming a node is
+    // how a patch full of Remaps becomes readable, so the panel has to answer "which one is this?"
+    // with the same title the node draws on the canvas.
+    title.textContent = `${nodeDisplayName(node)} Parameters`;
     title.style.cssText = `
       font-weight: bold;
       margin-bottom: 12px;

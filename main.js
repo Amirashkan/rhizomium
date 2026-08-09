@@ -3221,8 +3221,10 @@ async function updateShaderFromGraph() {
       return;
     }
 
+    // kind/type only — `node.name` is the artist's display title (see src/core/nodeName.js) and
+    // must never decide what a node IS, or renaming one "output final mix" would hijack the sink.
     const outputNode = graph.nodes.find(
-      (node) => node && /OutputFinal/i.test(node.kind || node.type || node.name || "")
+      (node) => node && /OutputFinal/i.test(node.kind || node.type || "")
     );
 
     if (!outputNode) {
