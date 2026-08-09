@@ -240,11 +240,13 @@ validateForCompilation(graph) {
         return null;
       }
 
-      const nodes = graph.nodes.filter(n => n && (n.kind || n.type || n.name));
-      
+      // Matched on kind/type only. `node.name` is the artist's display title (see core/nodeName.js)
+      // and must never decide what a node IS — a node called "outputfinal levels" is not the sink.
+      const nodes = graph.nodes.filter(n => n && (n.kind || n.type));
+
       const outputs = nodes.filter((n) => {
         try {
-          const identifier = n.kind || n.type || n.name || "";
+          const identifier = n.kind || n.type || "";
           return /OutputFinal/i.test(identifier);
         } catch {
 

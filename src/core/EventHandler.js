@@ -5,7 +5,7 @@ import { getPerfProbe } from '../utils/PerfProbe.js';
 import { modalManager } from '../ui/ModalManager.js';
 import { NodeReferenceDrop } from '../ui/NodeReferenceDrop.js';
 import { NodeDefs } from '../data/NodeDefs.js';
-import { dynamicInputButtons, hitChip, nodePreviewHeight } from './pinLayout.js';
+import { dynamicInputButtons, hitChip, hitNodeTitle, nodePreviewHeight } from './pinLayout.js';
 import { getDynamicInputSpec, getInputCount } from '../data/nodeInputs.js';
 
 export class EventHandler {
@@ -713,8 +713,17 @@ export class EventHandler {
         return;
       }
 
-      // Handle double-click for parameter panel
+      // Handle double-click: on the title bar it renames the node, anywhere else on the node it
+      // opens the parameter panel. Splitting it by region keeps both gestures on the same node
+      // without a modifier — the title is where the name is, so that is where you edit it.
       if (e.detail === 2) {
+        if (hitNodeTitle(clicked, pos.x, pos.y) && this.editor?.beginNodeRename) {
+          this.editor.beginNodeRename(clicked.id);
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+
         this.paramPanelJustOpened = true;
         setTimeout(() => {
           this.paramPanelJustOpened = false;
@@ -983,6 +992,21 @@ export class EventHandler {
         this.selection.deleteSelected();
         this._requestDraw('delete-selected');
         e.preventDefault();
+      }
+
+      // F2: rename the selected node — the desktop-standard rename key, and the discoverable way
+      // in for anyone who never tries double-clicking a title. Only with exactly one node selected;
+      // there is one field and it belongs to one node.
+      if (
+        e.key === "F2" &&
+        !e.ctrlKey && !e.metaKey && !e.altKey &&
+        !this._isEditableTarget(document.activeElement)
+      ) {
+        const ids = this.editor?.graph?.selection;
+        if (ids && ids.size === 1 && this.editor?.beginNodeRename) {
+          this.editor.beginNodeRename([...ids][0]);
+          e.preventDefault();
+        }
       }
 
       // H: hide/show the thumbnails of every selected node at once (no modifiers, so it never
