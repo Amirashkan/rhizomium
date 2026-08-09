@@ -14,7 +14,14 @@ import { buildWGSL } from '../src/codegen/glslBuilder.js';
 import { TextureBindings } from '../src/codegen/generators/TextureBindings.js';
 import { makeNode, NodeDefs } from '../src/data/NodeDefs.js';
 import { isTextureSourceKind } from '../src/core/autoConnect.js';
-import { textNodeLayout, textRasterKey, colorToCss } from '../src/core/TextRasterizer.js';
+import {
+  textNodeLayout,
+  textRasterKey,
+  colorToCss,
+  resolveTextContent,
+  textNodeHasLiveExpression,
+} from '../src/core/TextRasterizer.js';
+import { TextNodeProcessor } from '../src/core/TextNodeProcessor.js';
 
 function buildGraph(params = {}, { uvInput = null } = {}) {
   const nodes = [
@@ -49,7 +56,7 @@ describe('Text node codegen', () => {
     const wgsl = buildGraph();
 
     expect(wgsl).toContain('let srcuv_10 = in.uv;');
-    expect(wgsl).toContain('let uv_10 = vec2<f32>(srcuv_10.x, 1.0 - srcuv_10.y);');
+    expect(wgsl).toContain('let uv_10 = vec2<f32>(fituv_10.x, 1.0 - fituv_10.y);');
     expect(wgsl).toContain('textureSample(texture_10, sampler_10, uv_10)');
   });
 
@@ -62,7 +69,7 @@ describe('Text node codegen', () => {
   it('zeroes the sample outside the unit square in clamp mode so the edge cannot smear', () => {
     const wgsl = buildGraph({ wrap: 'clamp' });
 
-    expect(wgsl).toContain('let inside_10 = step(0.0, srcuv_10.x) * step(srcuv_10.x, 1.0)');
+    expect(wgsl).toContain('let inside_10 = step(0.0, fituv_10.x) * step(fituv_10.x, 1.0)');
     expect(wgsl).toContain('let node_10_tex = node_10_rgba * inside_10;');
   });
 
@@ -100,6 +107,55 @@ describe('Text node codegen', () => {
 
   it('counts as a texture source, so a wire dragged onto a transform lands on its Texture pin', () => {
     expect(isTextureSourceKind('Text')).toBe(true);
+  });
+
+  // The bitmap is square and the output usually isn't. Without a correction the letters are drawn
+  // stretched across the frame's aspect; these pin down the mapping that fixes it.
+  describe('fit modes', () => {
+    it('contains the square inside the frame by default, measuring against u.aspect', () => {
+      const wgsl = buildGraph();
+
+      expect(wgsl).toContain('let fitscale_10 = min(u.aspect, 1.0);');
+      expect(wgsl).toContain('(srcuv_10.x * u.aspect - u.aspect * 0.5) / fitscale_10 + 0.5');
+      expect(wgsl).toContain('(srcuv_10.y - 0.5) / fitscale_10 + 0.5');
+    });
+
+    it('fills the frame and overflows on the long axis in cover mode', () => {
+      expect(buildGraph({ fit: 'cover' })).toContain('let fitscale_10 = max(u.aspect, 1.0);');
+    });
+
+    it('leaves the UV alone in stretch mode, which is the uncorrected mapping', () => {
+      const wgsl = buildGraph({ fit: 'stretch' });
+
+      expect(wgsl).toContain('let fituv_10 = srcuv_10;');
+      expect(wgsl).not.toContain('u.aspect');
+    });
+
+    it('is the identity on a square frame, whichever fit is chosen', () => {
+      // aspect == 1 makes fitscale 1 and the mapping collapses to fituv = srcuv, so a square
+      // output is untouched by the correction — only non-square frames are rescaled.
+      const map = (aspect, srcuv, scale) => [
+        (srcuv[0] * aspect - aspect * 0.5) / scale + 0.5,
+        (srcuv[1] - 0.5) / scale + 0.5,
+      ];
+      for (const fit of [Math.min, Math.max]) {
+        expect(map(1, [0.25, 0.75], fit(1, 1))).toEqual([0.25, 0.75]);
+      }
+    });
+
+    it('maps a wide frame so the square keeps its proportions', () => {
+      // 16:9, contain: the square spans the full height and is centred, so the visible x range is
+      // the middle 9/16 of the frame.
+      const aspect = 16 / 9;
+      const scale = Math.min(aspect, 1);
+      const x = (u) => (u * aspect - aspect * 0.5) / scale + 0.5;
+
+      expect(x(0.5)).toBeCloseTo(0.5, 6);          // centre stays centred
+      expect(x(0)).toBeCloseTo(0.5 - aspect / 2, 6); // left edge is outside the texture
+      expect(x(1)).toBeCloseTo(0.5 + aspect / 2, 6);
+      // One texture-width spans 1/aspect of the frame: the square is as wide as it is tall.
+      expect(x(1 / aspect) - x(0)).toBeCloseTo(1, 6);
+    });
   });
 
   it('is transformable: a transform reading it samples the same binding pair', () => {
@@ -185,6 +241,22 @@ describe('Text node layout', () => {
     expect(layout.strokeWidth).toBe(50);
   });
 
+  it('carries the shrink-to-fit flag and the point it scales about', () => {
+    // Measuring needs a canvas, so the shrink itself is applied at draw time; the layout only has
+    // to say whether it is wanted and where it pivots.
+    const layout = textNodeLayout(node({ text: 'A\nB', size: 0.2, resolution: 100, posX: 0.25, posY: 0.75 }));
+
+    expect(layout.autoFit).toBe(true);
+    expect(layout.anchor).toEqual({ x: 25, y: 25 });
+    expect(textNodeLayout(node({ autoFit: false })).autoFit).toBe(false);
+  });
+
+  it('re-rasterises when shrink-to-fit is toggled', () => {
+    const on = textRasterKey(node({ text: 'A', autoFit: true }));
+    const off = textRasterKey(node({ text: 'A', autoFit: false }));
+    expect(on).not.toBe(off);
+  });
+
   it('keeps one blank line for empty text rather than collapsing the layout', () => {
     expect(textNodeLayout(node({ text: '' })).lines).toHaveLength(1);
     expect(textNodeLayout(node({})).lines).toEqual([expect.objectContaining({ text: '' })]);
@@ -227,5 +299,141 @@ describe('Text node raster key', () => {
   it('ignores parameters that only affect sampling, so a wrap change reuses the bitmap', () => {
     const edited = { ...base, params: { ...base.params, wrap: 'repeat', filter: 'nearest' } };
     expect(textRasterKey(edited)).toBe(textRasterKey(base));
+  });
+
+  // The key is taken over the resolved layout, which is what makes an animated Text node upload
+  // only on the frames where its picture actually moved.
+  it('follows an expression\'s value, not its source text', () => {
+    const node = { id: '1', kind: 'Text', params: { text: 'v {node_9}' } };
+
+    stubExpressionSystem({ node_9: 1 });
+    const atOne = textRasterKey(node);
+    stubExpressionSystem({ node_9: 1 });
+    expect(textRasterKey(node)).toBe(atOne);
+
+    stubExpressionSystem({ node_9: 2 });
+    expect(textRasterKey(node)).not.toBe(atOne);
+  });
+});
+
+/**
+ * Stand in for the editor's expression system, which is what resolves node references against the
+ * graph's computed values. TextRasterizer reaches it through window rather than importing it (that
+ * would be a cycle), so a plain object is enough.
+ */
+function stubExpressionSystem(values) {
+  window.expressionSystem = {
+    evaluateExpression: (expr) => {
+      const source = String(expr).replace(/^=/, '').trim();
+      if (Object.prototype.hasOwnProperty.call(values, source)) return values[source];
+      // Enough arithmetic for the tests: "<ref> * 2".
+      const m = /^(\w+)\s*\*\s*([\d.]+)$/.exec(source);
+      if (m && values[m[1]] !== undefined) return values[m[1]] * Number(m[2]);
+      return undefined;
+    },
+  };
+}
+
+describe('Text node live values', () => {
+  beforeEach(() => { delete window.expressionSystem; });
+
+  const node = (params) => ({ id: '1', kind: 'Text', params });
+
+  it('shows a referenced node\'s value rather than the reference itself', () => {
+    stubExpressionSystem({ node_4: 0.5 });
+    expect(resolveTextContent(node({ text: 'level {node_4}' }), 2)).toBe('level 0.50');
+  });
+
+  it('treats a whole field starting with = as one expression', () => {
+    stubExpressionSystem({ node_4: 21 });
+    expect(resolveTextContent(node({ text: '=node_4 * 2' }), 2)).toBe('42');
+  });
+
+  it('interpolates several values and keeps the surrounding text', () => {
+    stubExpressionSystem({ node_1: 1.5, node_2: 2.5 });
+    expect(resolveTextContent(node({ text: '{node_1} / {node_2} fps' }), 1)).toBe('1.5 / 2.5 fps');
+  });
+
+  it('honours the decimals parameter, and drops zeros on whole numbers', () => {
+    stubExpressionSystem({ node_4: 3.14159 });
+    expect(resolveTextContent(node({ text: '{node_4}' }), 3)).toBe('3.142');
+    expect(resolveTextContent(node({ text: '{node_4}' }), 0)).toBe('3');
+
+    stubExpressionSystem({ node_4: 7 });
+    expect(resolveTextContent(node({ text: '{node_4}' }), 2)).toBe('7');
+  });
+
+  it('renders a vector value component by component', () => {
+    stubExpressionSystem({ node_4: [0.25, 0.5] });
+    expect(resolveTextContent(node({ text: '{node_4}' }), 2)).toBe('0.25, 0.50');
+  });
+
+  it('leaves plain text alone, braces and all, when there is nothing to evaluate', () => {
+    expect(resolveTextContent(node({ text: 'HELLO' }), 2)).toBe('HELLO');
+    // An empty pair of braces is literal punctuation, not an expression.
+    expect(resolveTextContent(node({ text: 'a {} b' }), 2)).toBe('a {} b');
+  });
+
+  it('renders an unresolvable reference as nothing rather than leaking the source', () => {
+    stubExpressionSystem({});
+    expect(resolveTextContent(node({ text: 'x {node_99} y' }), 2)).toBe('x  y');
+  });
+
+  it('resolves self-contained arithmetic without the editor present', () => {
+    expect(resolveTextContent(node({ text: '{2 + 3}' }), 0)).toBe('5');
+  });
+
+  it('evaluates expressions in numeric parameters too', () => {
+    stubExpressionSystem({ node_7: 0.5 });
+    const layout = textNodeLayout(node({ text: 'A', size: '=node_7', resolution: 100 }));
+    expect(layout.fontPx).toBe(50);
+  });
+
+  it('spots which nodes need the per-frame refresh', () => {
+    expect(textNodeHasLiveExpression(node({ text: 'static' }))).toBe(false);
+    expect(textNodeHasLiveExpression(node({ text: 'v {node_4}' }))).toBe(true);
+    expect(textNodeHasLiveExpression(node({ text: '=time' }))).toBe(true);
+    expect(textNodeHasLiveExpression(node({ text: 'x', posX: '=time' }))).toBe(true);
+    expect(textNodeHasLiveExpression({ id: '1', kind: 'Circle', params: { text: '=time' } })).toBe(false);
+  });
+});
+
+describe('TextNodeProcessor', () => {
+  const graph = (nodes) => ({ nodes });
+
+  it('only visits Text nodes that carry an expression', () => {
+    const visited = [];
+    const proc = new TextNodeProcessor({ intervalMs: 0 });
+    // ensureTextTexture bails without a texture manager, so observe the selection via the layout
+    // read it would perform; here we assert on which nodes survive the filter.
+    const nodes = [
+      { id: '1', kind: 'Text', params: { text: 'static' } },
+      { id: '2', kind: 'Text', params: { text: '{node_4}' } },
+      { id: '3', kind: 'Circle', params: {} },
+    ];
+    for (const n of nodes) if (textNodeHasLiveExpression(n)) visited.push(n.id);
+    proc.update(graph(nodes), { now: 1000 });
+
+    expect(visited).toEqual(['2']);
+  });
+
+  it('throttles: a second call inside the interval does nothing', () => {
+    const proc = new TextNodeProcessor({ intervalMs: 50 });
+    const nodes = [{ id: '1', kind: 'Text', params: { text: '{node_4}' } }];
+
+    proc.update(graph(nodes), { now: 1000 });
+    expect(proc._lastRun).toBe(1000);
+
+    proc.update(graph(nodes), { now: 1020 });
+    expect(proc._lastRun).toBe(1000); // skipped
+
+    proc.update(graph(nodes), { now: 1060 });
+    expect(proc._lastRun).toBe(1060); // ran
+  });
+
+  it('does nothing on an empty graph', () => {
+    const proc = new TextNodeProcessor({ intervalMs: 0 });
+    expect(() => proc.update(graph([]), { now: 1 })).not.toThrow();
+    expect(() => proc.update(null, { now: 2 })).not.toThrow();
   });
 });

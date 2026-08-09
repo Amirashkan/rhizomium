@@ -81,21 +81,46 @@ export class TextureNodes {
     // because the upload is idempotent and triggers no render of its own.
     ensureTextTexture(node);
 
-    // Bound the incoming UV once: it can be a converted expression, and the clamp test below reads
-    // it four more times.
+    // Bound the incoming UV once: it can be a converted expression, and the fit and clamp maths
+    // below read it several more times.
     const uv = getInput(0, "vec2", "in.uv");
 
+    let line = `let srcuv_${nodeId} = ${uv};`;
+
+    // The bitmap is square; the output usually isn't. Sampling the unit square straight across a
+    // 16:9 frame is what stretches the letters, so measure in aspect space and map the square onto
+    // the frame at its own proportions:
+    //   contain  the whole square fits inside the frame (letterboxed) - the default, because text
+    //            that has been cropped is worse than text with margins
+    //   cover    the square fills the frame and overflows on the long axis
+    //   stretch  no correction: the square is distorted to fill, the old behaviour
+    // `u.aspect` is the same width/height the Circle/Rectangle/Polygon nodes measure against.
+    const fit = node.params?.fit ?? "contain";
+    if (fit === "stretch") {
+      line += `
+    let fituv_${nodeId} = srcuv_${nodeId};`;
+    } else {
+      const extent = fit === "cover" ? "max(u.aspect, 1.0)" : "min(u.aspect, 1.0)";
+      line += `
+    let fitscale_${nodeId} = ${extent};
+    let fituv_${nodeId} = vec2<f32>(
+      (srcuv_${nodeId}.x * u.aspect - u.aspect * 0.5) / fitscale_${nodeId} + 0.5,
+      (srcuv_${nodeId}.y - 0.5) / fitscale_${nodeId} + 0.5
+    );`;
+    }
+
     // Y flip matches Texture2D / Compute sampling, so the text reads the right way up.
-    let line = `let srcuv_${nodeId} = ${uv};
-    let uv_${nodeId} = vec2<f32>(srcuv_${nodeId}.x, 1.0 - srcuv_${nodeId}.y);
+    line += `
+    let uv_${nodeId} = vec2<f32>(fituv_${nodeId}.x, 1.0 - fituv_${nodeId}.y);
     let node_${nodeId}_rgba = textureSample(texture_${nodeId}, sampler_${nodeId}, uv_${nodeId});`;
 
-    // In clamp mode the texture's edge pixels would otherwise smear outward forever once a
-    // transform pushes the UV past the unit square. Zeroing outside it keeps the text confined to
-    // its own frame; repeat/mirror deliberately tile instead.
+    // In clamp mode the texture's edge pixels would otherwise smear outward forever once the fit
+    // or a transform pushes the coordinate past the unit square — including across the whole
+    // letterbox that "contain" creates. Zeroing outside it keeps the text confined to its own
+    // frame; repeat/mirror deliberately tile instead.
     if ((node.params?.wrap ?? "clamp") === "clamp") {
       line += `
-    let inside_${nodeId} = step(0.0, srcuv_${nodeId}.x) * step(srcuv_${nodeId}.x, 1.0) * step(0.0, srcuv_${nodeId}.y) * step(srcuv_${nodeId}.y, 1.0);
+    let inside_${nodeId} = step(0.0, fituv_${nodeId}.x) * step(fituv_${nodeId}.x, 1.0) * step(0.0, fituv_${nodeId}.y) * step(fituv_${nodeId}.y, 1.0);
     let node_${nodeId}_tex = node_${nodeId}_rgba * inside_${nodeId};`;
     } else {
       line += `

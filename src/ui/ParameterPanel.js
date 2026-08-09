@@ -5,6 +5,7 @@ import { getInputCount } from '../data/nodeInputs.js';
 import { setIcon, iconMarkup } from './iconSprite.js';
 import { SelectInputHandler } from './components/SelectInputHandler.js';
 import { FileInputHandler } from './components/FileInputHandler.js';
+import { FontInputHandler } from './components/FontInputHandler.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ColorStopInputHandler } from './components/ColorStopInputHandler.js';
 import { ColorInputHandler } from './components/ColorInputHandler.js';
@@ -82,6 +83,7 @@ export class ParameterPanel {
     );
     this.selectInputHandler = new SelectInputHandler(undoManager);
     this.fileInputHandler = new FileInputHandler(undoManager);
+    this.fontInputHandler = new FontInputHandler(undoManager);
     this.glslCodeInputHandler = new GLSLCodeInputHandler(undoManager);
     try {
       this.wgslCodeInputHandler = new WGSLCodeInputHandler(undoManager);
@@ -100,6 +102,7 @@ export class ParameterPanel {
       'wgsl-code': this.wgslCodeInputHandler,
       select: this.selectInputHandler,
       file: this.fileInputHandler,
+      font: this.fontInputHandler,
       colorstops: this.colorStopInputHandler,
       color: this.colorInputHandler,
       boolean: this.booleanInputHandler

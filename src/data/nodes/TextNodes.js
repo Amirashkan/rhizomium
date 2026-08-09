@@ -30,7 +30,19 @@ export const TextNodes = {
         type: "text",
         default: "TEXT",
         label: "Text",
-        description: "The string to draw. Shift+Enter adds a line break.",
+        description:
+          "The string to draw. Shift+Enter adds a line break. {…} shows a live value — "
+          + "\"BPM {node_4}\", \"{time}\" — and a whole field starting with = is one expression.",
+        group: "Content",
+      },
+      {
+        name: "decimals",
+        type: "int",
+        default: 2,
+        min: 0,
+        max: 8,
+        label: "Decimals",
+        description: "Decimal places for values shown by {…}; whole numbers drop the zeros",
         group: "Content",
       },
       {
@@ -39,6 +51,16 @@ export const TextNodes = {
         options: ["sans-serif", "serif", "monospace", "cursive", "fantasy"],
         default: "sans-serif",
         label: "Font",
+        description: "Used when no custom font is loaded",
+        group: "Content",
+      },
+      {
+        name: "fontData",
+        type: "font",
+        label: "Custom Font",
+        description:
+          "Load a .ttf/.otf/.woff from disk or pick one installed on this machine. The font is "
+          + "stored in the project, so a shared patch keeps its typeface.",
         group: "Content",
       },
       { name: "bold", type: "bool", default: false, label: "Bold", group: "Content" },
@@ -83,6 +105,16 @@ export const TextNodes = {
         group: "Layout",
       },
       {
+        name: "autoFit",
+        type: "bool",
+        default: true,
+        label: "Shrink to Fit",
+        description:
+          "Scale the text down when it would overrun the texture. Off gives you exactly the Size "
+          + "you set, and long lines are cut off at the edge.",
+        group: "Layout",
+      },
+      {
         name: "posX",
         type: "float",
         default: 0.5,
@@ -98,6 +130,17 @@ export const TextNodes = {
         min: 0.0,
         max: 1.0,
         label: "Position Y",
+        group: "Layout",
+      },
+      {
+        name: "fit",
+        type: "select",
+        options: ["contain", "cover", "stretch"],
+        default: "contain",
+        label: "Fit",
+        description:
+          "How the square text texture maps onto a non-square output. Contain fits it inside the "
+          + "frame, cover fills the frame and crops, stretch distorts to fill.",
         group: "Layout",
       },
 
