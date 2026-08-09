@@ -16,7 +16,7 @@ information about inputs, outputs, parameters, and usage.
 3. Node Categories
 4. Output Nodes (1 node)
 5. Input Nodes (14 nodes)
-6. Field Nodes (21 nodes)
+6. Field Nodes (22 nodes)
 7. Math Nodes (50 nodes)
 8. Utility Nodes (13 nodes)
 9. Transform Nodes (11 nodes)
@@ -830,6 +830,59 @@ Parameters:
 
 Usage: Creates distortion effects by offsetting UV coordinates. Use with noise
        for organic distortions.
+
+--------------------------------------------------------------------------------
+Text
+--------------------------------------------------------------------------------
+Category: Generators
+Description: Draws a string as a texture the graph can sample
+
+Glyphs cannot be generated procedurally in a shader, so the node rasterises its
+text on the CPU into a texture and samples that at the incoming UV. Downstream
+it behaves like a Texture 2D node.
+
+Inputs:
+  - UV: Sampling coordinates (defaults to the fragment UV)
+
+Outputs:
+  - Color (vec4): The rendered pixels, including the background
+  - Mask (f32): Glyph coverage (the alpha channel), for compositing
+
+Parameters:
+  - text (text): The string to draw; Shift+Enter adds a line break
+                 [default: "TEXT"]
+  - fontFamily (select): sans-serif | serif | monospace | cursive | fantasy
+                 [default: sans-serif]
+  - bold (bool): [default: false]
+  - italic (bool): [default: false]
+  - size (float): Font size as a fraction of the texture [default: 0.25]
+  - lineHeight (float): Line spacing, as a multiple of the font size
+                 [default: 1.2]
+  - letterSpacing (float): Extra space between characters, in em [default: 0.0]
+  - align (select): left | center | right [default: center]
+  - posX (float): Horizontal placement in the texture [default: 0.5]
+  - posY (float): Vertical placement, measured from the bottom [default: 0.5]
+  - color (color): Fill colour [default: white]
+  - outlineWidth (float): Outline thickness as a fraction of the font size;
+                 0 disables it [default: 0.0]
+  - outlineColor (color): [default: black]
+  - background (color): Fills the whole texture behind the text; alpha 0 leaves
+                 it transparent [default: transparent]
+  - resolution (int): Size of the rasterised texture, per side [default: 1024]
+  - wrap (select): clamp | repeat | mirror. clamp shows nothing outside the
+                 texture; the others tile it [default: clamp]
+  - filter (select): linear | nearest [default: linear]
+
+Usage: Titles, captions and typographic masks. Wire Mask into a Mix or a
+       Multiply to colour or composite the letters, or into a Displacement to
+       distort them. Position, scale and rotation of the result are left to the
+       Transform nodes - feed one into the UV input, or feed this node into a
+       transform's Texture pin.
+
+Note: Every parameter is baked into the texture rather than sent as a uniform,
+      so an edit redraws the bitmap. An expression (=time, =audioEnvelope) on
+      one of these parameters is evaluated when the texture is redrawn, not per
+      frame - drive a Transform node instead for animation.
 
 ================================================================================
                             7. MATH NODES

@@ -120,7 +120,9 @@ export class TransformNodes {
     if (inputNode.kind && inputNode.kind.startsWith('Compute')) {
       return { texture: `compute_node_${sid}`, sampler: `sampler_compute_node_${sid}` };
     }
-    if (inputNode.kind === 'Texture2D') {
+    // Text binds under the same `texture_<id>` / `sampler_<id>` pair as Texture2D, so a transform
+    // can rotate/scale rasterised text the same way it does an image.
+    if (inputNode.kind === 'Texture2D' || inputNode.kind === 'Text') {
       return { texture: `texture_${sid}`, sampler: `sampler_${sid}` };
     }
     return null;

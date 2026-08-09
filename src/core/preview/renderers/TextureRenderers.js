@@ -1,6 +1,7 @@
 // src/core/preview/renderers/TextureRenderers.js - Fixed with expression evaluation
 
 import { getNumericParam, PREVIEW_TIME } from '../../../utils/safeExpression.js';
+import { textNodeLayout, drawTextLayout } from '../../TextRasterizer.js';
 
 export class TextureRenderers {
   constructor(previewSystem) {
@@ -16,6 +17,7 @@ export class TextureRenderers {
       'rectangle': (ctx, node) => this.renderRectangle(ctx, node),
       'texture2d': (ctx, node) => this.renderTexture2D(ctx, node),
       'texturecube': (ctx, node) => this.renderTextureCube(ctx, node),
+      'text': (ctx, node) => this.renderText(ctx, node),
 'circle': (ctx, node) => {
   // Use the helper method that reads from uniform manager
   const radius = this.getParameterValue(node, 'radius', 0.25);
@@ -117,6 +119,32 @@ export class TextureRenderers {
       }
     });
     
+    ctx.restore();
+  }
+
+  /**
+   * Text node thumbnail: the same layout the GPU texture is rasterised from, drawn straight onto
+   * the (much smaller) thumbnail canvas. Sharing textNodeLayout/drawTextLayout with the rasteriser
+   * is what keeps the thumbnail honest — it cannot drift from what the shader samples.
+   */
+  renderText(ctx, node) {
+    const size = ctx.canvas.width;
+    const layout = textNodeLayout(node);
+
+    // The checkerboard reads through a transparent background, which is the default: without it a
+    // white-on-transparent thumbnail is indistinguishable from a blank one.
+    this._drawTransparencyChecker(ctx, size);
+    drawTextLayout(ctx, layout, size / layout.resolution);
+  }
+
+  _drawTransparencyChecker(ctx, size, cell = 8) {
+    ctx.save();
+    for (let y = 0; y < size; y += cell) {
+      for (let x = 0; x < size; x += cell) {
+        ctx.fillStyle = ((x / cell + y / cell) % 2 === 0) ? '#2a2a2a' : '#1e1e1e';
+        ctx.fillRect(x, y, cell, cell);
+      }
+    }
     ctx.restore();
   }
 

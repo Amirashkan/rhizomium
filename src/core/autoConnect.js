@@ -28,7 +28,8 @@ import { NodeDefs } from '../data/NodeDefs.js';
  * @returns {boolean}
  */
 export function isTextureSourceKind(kind) {
-  return kind === 'Texture2D' || (typeof kind === 'string' && kind.startsWith('Compute'));
+  return kind === 'Texture2D' || kind === 'Text'
+    || (typeof kind === 'string' && kind.startsWith('Compute'));
 }
 
 /** An input pin's label. pinsIn entries are usually plain strings, a few are `{ label, type }`. */
