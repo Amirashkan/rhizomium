@@ -32,6 +32,9 @@ export class ComputeShaderManager {
     this.fallbackInputTexture = null;
     this.inputSampler = null;
     this.warpFieldTexture = null; // For ComputeWarp's second input
+    // Neutral (mid-grey) stand-in bound to ComputeWarp's Warp Field pin while that
+    // pin is empty - see createNeutralFieldTexture().
+    this.neutralFieldTexture = null;
 
     // Third and later input textures, for nodes whose input pins are expandable (ComputeMix). Pin
     // 0 binds at 2 and pin 1 at 4 as always; extraInputTextures[i] is pin i+2 and binds at 5+i,
@@ -172,6 +175,7 @@ export class ComputeShaderManager {
 
     // Create fallback input texture if needed
     this.createFallbackInputTexture();
+    this.createNeutralFieldTexture();
 
     // Create sampler for input/feedback textures if needed
     if (this.needsInput || this.supportsFeedback) {
@@ -215,6 +219,42 @@ export class ComputeShaderManager {
       { width: 1, height: 1 }
     );
 
+  }
+
+  /**
+   * Create the 1x1 texture ComputeWarp binds to its Warp Field pin while nothing
+   * is connected there.
+   *
+   * The warp shader decodes the field as (value - 0.5) * 2, so the value that
+   * means "no displacement" is mid-grey, not black. Handing it the black fallback
+   * fed every mode a constant -1: Displace slid the whole image by -strength,
+   * while Bulge/Pinch/Wave scale by (strength + fieldValue * 0.5), which is
+   * exactly 0 at the default strength of 0.5 - the node became a pass-through and
+   * its centre/radius controls looked dead.
+   *
+   * rgba16float carries the neutral value exactly; the nearest rgba8unorm value
+   * (128/255 = 0.502) decodes to 0.004, which is still a visible shift in Displace
+   * at high strength.
+   */
+  createNeutralFieldTexture() {
+    if (this.node?.kind !== 'ComputeWarp') return;
+
+    // Half-float bit patterns: 0.5 is 0x3800, 1.0 is 0x3C00.
+    const neutralData = new Uint16Array([0x3800, 0x3800, 0x3800, 0x3C00]);
+
+    this.neutralFieldTexture = this.device.createTexture({
+      size: { width: 1, height: 1, depthOrArrayLayers: 1 },
+      format: 'rgba16float',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      label: 'Neutral Warp Field Texture'
+    });
+
+    this.device.queue.writeTexture(
+      { texture: this.neutralFieldTexture },
+      neutralData,
+      { bytesPerRow: 8 },
+      { width: 1, height: 1 }
+    );
   }
 
   /**
@@ -806,7 +846,9 @@ export class ComputeShaderManager {
     if (this.supportsFeedback) {
       // Special case: ComputeWarp, ComputeMix and ComputeParticles use binding 4 for second input texture, not feedback
       if (this.node?.kind === 'ComputeWarp' || this.node?.kind === 'ComputeMix' || this.node?.kind === 'ComputeParticles') {
-        const secondInputTexture = this.warpFieldTexture || this.fallbackInputTexture;
+        // neutralFieldTexture only exists for ComputeWarp, whose shader reads the
+        // field as a signed offset around 0.5 and so cannot use the black fallback.
+        const secondInputTexture = this.warpFieldTexture || this.neutralFieldTexture || this.fallbackInputTexture;
         entries.push({ binding: 4, resource: secondInputTexture.createView() });
       } else {
         const readTexture = this.currentWriteTexture === 'A' ? this.storageTextureB : this.storageTextureA;
@@ -1246,6 +1288,7 @@ export class ComputeShaderManager {
     this.uniformBuffer?.destroy();
     this.colorStopsBuffer?.destroy();
     this.fallbackInputTexture?.destroy();
+    this.neutralFieldTexture?.destroy();
 
     this.computePipeline = null;
     this.bindGroup = null;
@@ -1256,5 +1299,6 @@ export class ComputeShaderManager {
     this.uniformBuffer = null;
     this.colorStopsBuffer = null;
     this.fallbackInputTexture = null;
+    this.neutralFieldTexture = null;
   }
 }

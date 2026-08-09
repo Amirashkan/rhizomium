@@ -725,8 +725,10 @@ case 'transform2d':
     { name: 'scaleX', type: 'float', displayName: 'Scale X', default: 1.0, min: 0.01, description: 'Horizontal scale' },
     { name: 'scaleY', type: 'float', displayName: 'Scale Y', default: 1.0, min: 0.01, description: 'Vertical scale' },
     { name: 'rotation', type: 'float', displayName: 'Rotation (°)', default: 0.0, min: 0, max: 360, description: 'Rotation angle in degrees' },
-    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation center X' },
-    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation center Y' }
+    // The centre is the point rotation and scaling pivot around, so it cancels out exactly while
+    // there is neither: dimmed rather than left looking broken.
+    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation/scale center X', activeUnless: { rotation: 0, scaleX: 1, scaleY: 1 } },
+    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation/scale center Y', activeUnless: { rotation: 0, scaleX: 1, scaleY: 1 } }
   );
   break;
 
@@ -734,16 +736,16 @@ case 'scale2d':
   definitions.push(
     { name: 'scaleX', type: 'float', displayName: 'Scale X', default: 1.0, min: 0.01, description: 'Horizontal scale' },
     { name: 'scaleY', type: 'float', displayName: 'Scale Y', default: 1.0, min: 0.01, description: 'Vertical scale' },
-    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Scale center X' },
-    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Scale center Y' }
+    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Scale center X', activeUnless: { scaleX: 1, scaleY: 1 } },
+    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Scale center Y', activeUnless: { scaleX: 1, scaleY: 1 } }
   );
   break;
 
 case 'rotate2d':
   definitions.push(
     { name: 'rotation', type: 'float', displayName: 'Rotation (°)', default: 0.0, min: 0, max: 360, description: 'Rotation angle in degrees' },
-    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation center X' },
-    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation center Y' }
+    { name: 'centerX', type: 'float', displayName: 'Center X', default: 0.5, description: 'Rotation center X', activeUnless: { rotation: 0 } },
+    { name: 'centerY', type: 'float', displayName: 'Center Y', default: 0.5, description: 'Rotation center Y', activeUnless: { rotation: 0 } }
   );
   break;
 
@@ -795,6 +797,7 @@ case 'flip2d':
               group: param.group,
               groupCollapsed: param.groupCollapsed,
               activeWhen: param.activeWhen,
+              activeUnless: param.activeUnless,
               activeWhenConnected: param.activeWhenConnected,
               description: param.label || `${param.name} parameter`
             });
@@ -844,6 +847,7 @@ case 'flip2d':
               group: param.group, // Preserve the collapsible section this parameter belongs to
               groupCollapsed: param.groupCollapsed, // ...and whether that section starts closed
               activeWhen: param.activeWhen, // ...and the conditions under which it applies at all
+              activeUnless: param.activeUnless,
               activeWhenConnected: param.activeWhenConnected,
               description: param.label || param.description || `${param.name} parameter`
             });
@@ -1124,31 +1128,56 @@ case 'flip2d':
    * min/max pair but never both. Nothing distinguished those from the live ones, so the panel
    * offered controls that provably do nothing.
    *
-   * Two optional declarations express it:
+   * Three optional declarations express it:
    *   activeWhen: { mode: 'instances' }               - another parameter equals this value
    *   activeWhen: { type: ['Radial', 'Diamond'] }     - ...or any value in this list
+   *   activeUnless: { rotation: 0, scaleX: 1 }        - every one of these is at the listed value
    *   activeWhenConnected: 0                          - something is wired to this input pin
-   * Both must hold. A parameter that declares neither is always active, so nodes that say nothing
+   * All must hold. A parameter that declares none is always active, so nodes that say nothing
    * behave exactly as before.
+   *
+   * activeUnless covers the pivot case: a transform pivot is a mathematical no-op while there is
+   * no rotation and no scaling to pivot around, and only stops mattering when EVERY one of those
+   * is at rest - which the all-must-match activeWhen cannot say.
    */
   _isParameterActive(param, node) {
     if (param?.activeWhenConnected !== undefined) {
       const source = node?.inputs?.[param.activeWhenConnected];
       if (source === null || source === undefined) return false;
     }
+
+    if (this._isAtRest(param?.activeUnless, node)) return false;
+
     const conditions = param?.activeWhen;
     if (!conditions) return true;
 
     for (const [name, expected] of Object.entries(conditions)) {
-      const current = node?.params?.[name];
-      // An expression drives the value at frame time and cannot be resolved here. Leave the
-      // parameter alone rather than dimming a control that may well be live.
-      if (typeof current === 'string' && current.startsWith('=')) continue;
-      const actual = String(current ?? this._defaultOf(node, name) ?? '');
-      const allowed = (Array.isArray(expected) ? expected : [expected]).map(String);
-      if (!allowed.includes(actual)) return false;
+      if (!this._isConditionMet(name, expected, node)) return false;
     }
     return true;
+  }
+
+  /**
+   * Is every parameter named in an `activeUnless` block sitting at its listed resting value?
+   * An expression never counts as at rest: it is resolved per frame and could be anything, so a
+   * control it governs stays live rather than being dimmed on a guess.
+   */
+  _isAtRest(resting, node) {
+    if (!resting) return false;
+    return Object.entries(resting).every(([name, value]) => {
+      const current = node?.params?.[name];
+      if (typeof current === 'string' && current.startsWith('=')) return false;
+      return this._sameValue(current ?? this._defaultOf(node, name), value);
+    });
+  }
+
+  /** Compare a stored parameter against a declared value, tolerating "0" vs 0 and "1.0" vs 1. */
+  _sameValue(a, b) {
+    if (a === null || a === undefined || a === '') return false;
+    const na = Number(a);
+    const nb = Number(b);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb;
+    return String(a) === String(b);
   }
 
   /** Wording for the tooltip on a dimmed control: why it is doing nothing right now. */
@@ -1172,7 +1201,17 @@ case 'flip2d':
         : values[0];
       parts.push(`${label} is ${list}`);
     }
-    return parts.length ? `Only applies when ${parts.join(' and ')}` : '';
+    if (parts.length) return `Only applies when ${parts.join(' and ')}`;
+
+    if (this._isAtRest(param?.activeUnless, node)) {
+      const names = Object.entries(param.activeUnless)
+        .map(([name, value]) => `${this._parameterLabel(node, name)} is not ${value}`);
+      const list = names.length > 1
+        ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+        : names[0];
+      return `Only applies while ${list}`;
+    }
+    return '';
   }
 
   _isConditionMet(name, expected, node) {
@@ -1197,9 +1236,12 @@ case 'flip2d':
    */
   _controlsOtherParameters(node, changedName) {
     if (!node || !changedName) return false;
-    return (NodeDefs[node.kind]?.params || []).some(
-      p => p.activeWhen && Object.prototype.hasOwnProperty.call(p.activeWhen, changedName)
-    );
+    // The rendered definitions, not NodeDefs: transform nodes declare their availability rules in
+    // getParameterDefinitions rather than in the node definition.
+    return this.getParameterDefinitions(node).some(p => (
+      (p.activeWhen && Object.prototype.hasOwnProperty.call(p.activeWhen, changedName))
+      || (p.activeUnless && Object.prototype.hasOwnProperty.call(p.activeUnless, changedName))
+    ));
   }
 
   renderParameter(param, node) {

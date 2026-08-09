@@ -1561,11 +1561,11 @@ UV distortion and displacement effects.
 - **Parameters**:
   - `mode` (select: Displace/Twist/Bulge/Pinch/Wave, default: Displace) - Warp type
   - `strength` (float, default: 0.5, range: 0-5) - Effect strength
-  - `centerX` / `centerY` (float, default: 0.5) - Effect center
-  - `radius` (float, default: 0.5, range: 0-2) - Effect radius
-  - `frequency` (float, default: 4.0, range: 0.1-20) - Wave frequency
-  - `phase` (float, default: 0.0, range: 0-360) - Wave phase
-- **Description**: Distorts a texture with several warp modes; the Warp Field input allows another texture (e.g. noise) to drive the displacement.
+  - `centerX` / `centerY` (float, default: 0.5) - Effect center — Twist, Bulge and Pinch only
+  - `radius` (float, default: 0.5, range: 0-2) - Effect radius — Twist, Bulge and Pinch only
+  - `frequency` (float, default: 4.0, range: 0.1-20) - Wave frequency — Wave only
+  - `phase` (float, default: 0.0, range: 0-360) - Wave phase — Wave only
+- **Description**: Distorts a texture with several warp modes; the Warp Field input allows another texture (e.g. noise) to drive the displacement. Displace takes its whole direction from the Warp Field, so with that pin empty it passes the input straight through and the centre and radius have nothing to act on; the other four modes are parametric and work with or without a field.
 
 #### Kaleidoscope (Compute)
 
@@ -1853,7 +1853,7 @@ Translates, rotates, and scales a texture.
   - `translateX` / `translateY` (float, default: 0.0, range: -1 to 1) - Offset
   - `rotation` (float, default: 0.0, range: -180 to 180) - Rotation in degrees
   - `scaleX` / `scaleY` (float, default: 1.0, range: 0.1-5) - Scale
-  - `pivotX` / `pivotY` (float, default: 0.5) - Transform pivot
+  - `pivotX` / `pivotY` (float, default: 0.5) - Transform pivot; the point rotation and scale turn around, so it has no effect while rotation is 0 and both scales are 1
   - `wrapMode` (select: Repeat/Clamp/Mirror, default: Repeat) - Edge behavior
 - **Description**: Applies geometric transforms directly to a compute texture — use this when there is no downstream fragment texture sampler to receive transformed UVs.
 
