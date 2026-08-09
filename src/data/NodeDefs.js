@@ -10,6 +10,7 @@ import { ColorNodes } from './nodes/ColorNodes.js';
 import { UtilityNodes } from './nodes/UtilityNodes.js';
 import { BlendNodes } from './nodes/BlendNodes.js';
 import { TextureNodes } from './nodes/TextureNodes.js';
+import { TextNodes } from './nodes/TextNodes.js';
 import { ComputeNodes } from './nodes/ComputeNodes.js';
 
 let _nextId = 1;
@@ -76,6 +77,7 @@ export const NodeDefs = {
   ...UtilityNodes,
   ...BlendNodes,
   ...TextureNodes,
+  ...TextNodes,
   ...ComputeNodes,
 };
 

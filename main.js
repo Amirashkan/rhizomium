@@ -57,6 +57,7 @@ import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
 import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
+import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
 import { startCompositionFormatSync } from "./src/core/CompositionFormatSync.js";
 // TEMPORARILY REMOVED: Thread separation system imports (causing performance issues)
@@ -86,6 +87,8 @@ window.countNodeProcessor = countNodeProcessor;
 const feedbackResetProcessor = new FeedbackResetProcessor();
 // Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
 const audioKickProcessor = new AudioAnalysisProcessor();
+// Re-rasterises Text nodes whose string or layout reads a live expression. See TextNodeProcessor.
+const textNodeProcessor = new TextNodeProcessor();
 
 // Prevent default browser drag behavior globally
 function setupGlobalDragPrevention() {
@@ -3444,6 +3447,10 @@ function handleRenderFrame(frameState) {
         time: frameState.simTime,
         computeExecutor: window.computeExecutor,
       });
+      // Redraw Text nodes that read a live value ("{node_4}", "=time"). Last, so the string shows
+      // this frame's values from the processors above. Self-throttled and a no-op for Text nodes
+      // without an expression, unlike the per-frame uniform writes above — a raster is far heavier.
+      textNodeProcessor.update(window.editor.graph);
     } catch {
       // Never let the hold/count latch break the render loop.
     }

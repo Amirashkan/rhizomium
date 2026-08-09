@@ -51,7 +51,9 @@ export class TextureBindings {
         break;
       }
 
-      if (node.kind === "Texture2D") {
+      // Text rasterises its own bitmap into TextureManager under its node id (see
+      // src/core/TextRasterizer.js), so it binds exactly like a sampled image.
+      if (node.kind === "Texture2D" || node.kind === "Text") {
         const nodeId = this.sanitize(node.id);
 
         bindingCode += `

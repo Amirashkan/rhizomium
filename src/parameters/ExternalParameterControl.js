@@ -12,6 +12,8 @@
  * twice.
  */
 
+import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
+
 /**
  * Map a normalised 0-1 reading onto a parameter's range.
  *
@@ -57,6 +59,7 @@ export function applyControlValue(node, paramName, value) {
     node.value = value;
     if (!node.params) node.params = {};
     node.params.value = value;
+    refreshTextNodeTexture(node);
     return;
   }
 
@@ -65,6 +68,11 @@ export function applyControlValue(node, paramName, value) {
   node.params[paramName] = value;
   if (!node.props) node.props = {};
   node.props[paramName] = value;
+
+  // A Text node has no uniform for the controller to write into — its parameters live in the
+  // rasterised bitmap — so the equivalent of writeParameterUniform for it is re-rasterising.
+  // No-op for every other kind.
+  refreshTextNodeTexture(node);
 }
 
 /**

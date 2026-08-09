@@ -249,13 +249,20 @@ async injectExternalTexture(nodeId, bitmap) {
 
   removeTexture(nodeId) {
     try {
+      // gpuTextures is the map the renderer resolves `texture_<id>` against, so a texture left
+      // there outlives the node that owned it. Take both entries, and destroy whichever GPU
+      // texture they name (they normally share one).
       const textureInfo = this.textures.get(nodeId);
-      if (textureInfo) {
+      const gpuInfo = this.gpuTextures.get(nodeId);
+      if (textureInfo || gpuInfo) {
         // Cleanup WebGPU resources
-        if (textureInfo.texture && textureInfo.texture.destroy) {
-          textureInfo.texture.destroy();
+        for (const texture of new Set([textureInfo?.texture, gpuInfo?.texture])) {
+          if (texture && texture.destroy) {
+            texture.destroy();
+          }
         }
         this.textures.delete(nodeId);
+        this.gpuTextures.delete(nodeId);
 
         // Invalidate bind group
         this.bindGroup = null;

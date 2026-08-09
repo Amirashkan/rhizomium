@@ -19,6 +19,7 @@ import { ConnectionManager } from "./ConnectionManager.js";
 import { ViewportManager } from "./ViewportManager.js";
 import { PreviewSystem } from "./PreviewSystem.js";
 import { PreviewComputer } from "./PreviewComputer.js";
+import { releaseTextTexture } from "./TextRasterizer.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu } from '../ui/ParameterBindingMenu.js';
@@ -2782,6 +2783,9 @@ connectGPURenderer(renderFunction) {
       if (window.textureManager && typeof window.textureManager.removeTexture === 'function') {
         window.textureManager.removeTexture(nodeId);
       }
+      // ...and the Text node's raster cache, so an id reused by a later node rasterises fresh
+      // instead of matching the deleted node's cache key.
+      releaseTextTexture(nodeId);
 
       // 3. Clean up preview textures
       if (this.shaderPreviewManager && typeof this.shaderPreviewManager.destroyPreviewTexture === 'function') {

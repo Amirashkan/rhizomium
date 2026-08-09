@@ -4,6 +4,7 @@ import { getAudioEnvelope } from '../audio/BrowserAudioCapture.js';
 import { unifiedExpressionSystem } from './UnifiedExpressionSystem.js';
 import { MessagePriority } from '../core/AsyncQueueManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
+import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../core/audioAnalysisPins.js';
 
 export class ParameterExpressionSystem {
@@ -1596,6 +1597,12 @@ setValue(node, paramName, value) {
       // shader already picks it up — only the preview needs refreshing.
       this.updateNodePreview(node);
     }
+
+    // A Text node's parameters are baked into a rasterised bitmap rather than delivered as
+    // uniforms, so the uniform-write branch above cannot make an edit visible — the bitmap has to
+    // be redrawn. No-op for every other kind, and a cache-key comparison when the recompile branch
+    // already rasterised on its way through the compiler.
+    refreshTextNodeTexture(node);
 
     // Emit event
     if (this.eventSystem) {
