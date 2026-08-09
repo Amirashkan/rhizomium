@@ -6,6 +6,7 @@ import { NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount } from '../data/nodeInputs.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
+import { hasClockExpressionParam } from './clockExpression.js';
 
 export class PreviewComputer {
   constructor() {
@@ -16,6 +17,7 @@ export class PreviewComputer {
     this.lastComputedInputs = new Map(); // Track last known inputs per node
     this.lastParameterHashes = new Map(); // Track last known parameter hashes per node
     this._manualDirtyNodes = new Set(); // Dirty flags requested externally
+    this._lastClockDirtyTime = null; // animationTime at which clock-driven nodes were last dirtied
     this.graphStructureHash = null; // Track graph structure changes
     this._cachedTopologicalSort = null; // Cached topological sort result
     this._cachedSortStructureHash = null; // Structure hash when sort was cached
@@ -1135,7 +1137,13 @@ case "Rectangle": {
         this.lastComputedInputs = nextInputs;
       }
 
-      this._generateEnhancedThumbnails(graph.nodes, values);
+      // Thumbnails are a UI concern and cost a fresh canvas per node. The GPU uniform path calls in
+      // every frame purely for the numbers (see ComputeShaderManager.evaluateParam) and would
+      // otherwise redraw every thumbnail in the graph at frame rate; it passes skipThumbnails and
+      // leaves the redraw to PreviewIntegration's own cadence.
+      if (!options.skipThumbnails) {
+        this._generateEnhancedThumbnails(graph.nodes, values);
+      }
       if (parameterHashes) {
         this.lastParameterHashes = new Map(parameterHashes);
       }
@@ -1855,6 +1863,9 @@ _renderOutputThumbnail(ctx, size, color, node) {
     const manualDirtyNodes = new Set(this._manualDirtyNodes);
     this._manualDirtyNodes.clear();
 
+    const clockAdvanced = Number.isFinite(this.animationTime)
+      && this.animationTime !== this._lastClockDirtyTime;
+
     const structureChanged = currentStructureHash !== this.graphStructureHash;
     if (structureChanged) {
       this.graphStructureHash = currentStructureHash;
@@ -1903,6 +1914,27 @@ _renderOutputThumbnail(ctx, size, color, node) {
           this._invalidateNodeValueComputerCacheForNode(node.id);
         }
       }
+
+      // Same story for anything driven by the clock: a Time node, or a parameter expression like
+      // `sin(time)` on a Float. Its params and inputs are byte-for-byte identical every frame, so
+      // neither check above ever flags it and the early return in computePreviews() hands back the
+      // value it happened to have when something else last dirtied the graph. That value is what a
+      // downstream `=node_<id>` reference reads — and compute-node parameters resolve those
+      // references on the CPU (ComputeNodes.getParam registers them as uniforms rather than emitting
+      // shader code), so a compute Transform whose translate is `=node_<remap>` moved in visible
+      // steps: the whole Float -> Remap chain only advanced when PreviewIntegration.updateTimeNodes()
+      // forced it dirty, on its 100 ms UI throttle, while the render loop ran at frame rate.
+      // Re-dirty on every distinct animationTime so these values track whatever cadence the caller
+      // computes at (the GPU uniform path calls in every frame). A paused/unchanged clock repeats
+      // the same time and marks nothing, so a static graph still costs nothing.
+      if (clockAdvanced && this._isClockDrivenNode(node)) {
+        this._markNodeAndDependentsDirty(node.id, dependentsMap, dirtyNodes);
+        this._invalidateNodeValueComputerCacheForNode(node.id);
+      }
+    }
+
+    if (clockAdvanced) {
+      this._lastClockDirtyTime = this.animationTime;
     }
 
     if (structureChanged) {
@@ -1941,6 +1973,28 @@ _renderOutputThumbnail(ctx, size, color, node) {
       return [];
     }
     return node.inputs.map((input) => input ?? null);
+  }
+
+  /**
+   * True when a node's output advances with the clock rather than only on edits, so its cached
+   * value goes stale as soon as animationTime moves.
+   *
+   * Two sources, matching the compilers' own notion of a dynamic parameter
+   * (see InputNodes.resolveParam / ComputeNodes.getParam):
+   *   - Intrinsic generators, which read the clock with no expression at all.
+   *   - Any parameter holding a time/frame/audio expression. The `=` prefix is optional here on
+   *     purpose: the compilers accept a bare `sin(time)`, and ParameterExpressionSystem's
+   *     timeAnimatedNodes registry (which is what PreviewIntegration refreshes) does not — it keys
+   *     off isExpression(), so a bare `sin(time)` never registered and its CPU value never advanced
+   *     at all, while the shader-side value animated normally.
+   */
+  _isClockDrivenNode(node) {
+    const kind = node?.kind?.toLowerCase();
+    // Mouse is excluded deliberately: it is input-driven, not clock-driven, and is refreshed
+    // event-driven by PreviewIntegration.notifyMouseInput(). Matches Editor._hasIntrinsicTimeNodes.
+    if (kind === 'time' || kind === 'randomvalue') return true;
+
+    return hasClockExpressionParam(node);
   }
 
   _computeParameterHash(node) {

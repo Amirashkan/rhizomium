@@ -20,6 +20,7 @@ import { ViewportManager } from "./ViewportManager.js";
 import { PreviewSystem } from "./PreviewSystem.js";
 import { PreviewComputer } from "./PreviewComputer.js";
 import { releaseTextTexture } from "./TextRasterizer.js";
+import { hasClockExpressionParam } from "./clockExpression.js";
 import { expressionSystem } from '../utils/ParameterExpressionSystem.js';
 import { ParameterBindingSystem } from '../utils/ParameterBindingSystem.js';
 import { ParameterBindingMenu } from '../ui/ParameterBindingMenu.js';
@@ -409,14 +410,12 @@ connectGPURenderer(renderFunction) {
       return this.timeExpressionCache.hasTime;
     }
 
-    const hasTime = this.graph?.nodes?.some(node => {
-      if (!node.params) return false;
-      return Object.values(node.params).some(value => 
-        typeof value === 'string' && 
-        value.includes('time') && 
-        value.startsWith('=')
-      );
-    });
+    // The `=` prefix used to be required here. It isn't in the compilers — a bare `sin(time)` on a
+    // Float compiles to `sin(g.time)` just like `=sin(time)` does — so a graph whose only animation
+    // was written without the prefix was declared static, the loop stopped redrawing it, and it
+    // froze until something else forced a frame. hasClockExpressionParam matches what the compilers
+    // accept (and covers frame/audioEnvelope, which this check missed entirely).
+    const hasTime = this.graph?.nodes?.some(node => hasClockExpressionParam(node));
 
     this.timeExpressionCache = {
       hasTime,

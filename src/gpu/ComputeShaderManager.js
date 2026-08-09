@@ -116,7 +116,11 @@ export class ComputeShaderManager {
               // NOTE: This must remain synchronous because expression evaluation happens immediately after
               // and needs the computed values. This is in the GPU render path which is already async.
               if (!previewComputer._lastComputeTime || (now - previewComputer._lastComputeTime) > 1) {
-                previewComputer.computePreviews(window.editor.graph);
+                // skipThumbnails: this call runs at frame rate and only needs the numbers.
+                // Regenerating every node's canvas thumbnail here would put the whole UI preview
+                // cost in the render path; PreviewIntegration refreshes thumbnails on its own
+                // cadence.
+                previewComputer.computePreviews(window.editor.graph, { skipThumbnails: true });
                 previewComputer._lastComputeTime = now;
               }
             }
