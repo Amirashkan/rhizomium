@@ -12,6 +12,7 @@ import { BlendNodes } from '../compilers/BlendNodes.js';
 import { GradientNodes } from '../compilers/GradientNodes.js';
 import { ComputeNodes } from '../compilers/ComputeNodes.js';
 import { UnifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { buildParamRefMapping } from '../../utils/paramReferences.js';
 
 export class NodeCompiler {
   constructor() {
@@ -103,7 +104,7 @@ export class NodeCompiler {
    * @param {string} defaultValue - Default value if not a node reference
    * @returns {string} - WGSL code to use for this parameter
    */
-  resolveParameterValue(paramValue, defaultValue = '0.0') {
+  resolveParameterValue(paramValue, defaultValue = '0.0', ownerNode = null, ownerParamName = null) {
     // If it's a number, return it as-is
     if (typeof paramValue === 'number') {
       return paramValue.toFixed(6);
@@ -137,7 +138,15 @@ export class NodeCompiler {
     // Validate every node reference first: an unresolved identifier like "node_"
     // would otherwise be emitted verbatim and break the whole shader module.
     try {
-      const variableMapping = {};
+      // Identifiers naming another parameter of the same node bind to that parameter's uniform
+      // (see utils/paramReferences.js). Node references are resolved after, and win on a clash.
+      const variableMapping = ownerNode
+        ? buildParamRefMapping(ownerNode, expression, {
+            uniformManager: this.uniformManager,
+            excludeParam: ownerParamName,
+            graph: this.currentGraph,
+          })
+        : {};
       const refs = expression.match(/\bnode_\w*/g) || [];
       for (const ref of new Set(refs)) {
         const resolved = this.resolveNodeReference(ref);
@@ -344,8 +353,8 @@ export class NodeCompiler {
 
       // Check if it's an expression or node reference
       if (typeof paramValue === 'string' && paramValue.trim().startsWith('=')) {
-        // Handle expressions (like =sin(time) or =node_X) - use resolveParameterValue
-        return this.resolveParameterValue(paramValue, defaultValue);
+        // Handle expressions (like =sin(time), =node_X or =scaleX) - use resolveParameterValue
+        return this.resolveParameterValue(paramValue, defaultValue, node, paramName);
       }
 
       // Regular numeric parameters: register as uniform
@@ -353,7 +362,7 @@ export class NodeCompiler {
 
       // If registration succeeded, return uniform reference
       // Otherwise fall back to baked value (for edge cases)
-      return uniformRef || this.resolveParameterValue(paramValue, defaultValue);
+      return uniformRef || this.resolveParameterValue(paramValue, defaultValue, node, paramName);
     };
 
     // BYPASS: a bypassed node passes its first input straight through, skipping its own

@@ -6,6 +6,7 @@ import { NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount } from '../data/nodeInputs.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
+import { buildParamScope } from '../utils/paramReferences.js';
 
 export class PreviewComputer {
   constructor() {
@@ -21,6 +22,7 @@ export class PreviewComputer {
     this._cachedSortStructureHash = null; // Structure hash when sort was cached
     this._cachedSortById = null; // Map of node ID to index in cached sort
     this.expressionSystem = new UnifiedExpressionSystem(); // For CPU evaluation of expressions
+    this._paramScopeNode = null; // Node whose parameters _evaluateParam exposes to expressions
     
     // Worker support
     this.queueManager = null;
@@ -258,6 +260,9 @@ export class PreviewComputer {
         // Add other node values to context (handles split objects + numeric channel suffixes).
         this._addNodeRefsToContext(context, values);
 
+        // Add the owning node's own parameters, so a parameter can bind to a sibling.
+        Object.assign(context, buildParamScope(this._paramScopeNode, { baseContext: context }));
+
         // Remove = prefix if present
         const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
 
@@ -378,6 +383,11 @@ export class PreviewComputer {
         }
         processedCount++;
 
+        // Node whose parameters are being evaluated. _evaluateParam adds its parameters to the
+        // expression scope so one parameter can reference another on the same node (Scale Y =
+        // "=scaleX"), matching what the compiler emits for the shader.
+        this._paramScopeNode = node;
+
         let result = null;
 
         try {
@@ -488,6 +498,9 @@ export class PreviewComputer {
 
                     // Add other node values to context (handles split objects + numeric suffixes).
                     this._addNodeRefsToContext(context, values);
+
+                    // Add the owning node's own parameters, so a parameter can bind to a sibling.
+                    Object.assign(context, buildParamScope(node, { baseContext: context }));
 
                     // Remove = prefix if present before evaluation
                     const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;

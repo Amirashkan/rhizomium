@@ -6,6 +6,7 @@ import { MessagePriority } from '../core/AsyncQueueManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../core/audioAnalysisPins.js';
+import { buildParamScope, referencesParams } from './paramReferences.js';
 
 export class ParameterExpressionSystem {
   constructor() {
@@ -256,8 +257,12 @@ recordParameterChange(nodeId, parameterName, oldValue, newValue) {
       // Skip caching for expressions that change every frame: time/audio, AND any node reference —
       // the referenced node's value (e.g. an Audio Analysis level) isn't captured by the cache key,
       // so caching a =node_X reference would freeze the readout at its first value.
+      // A reference to a sibling parameter is uncached for the same reason: the source parameter's
+      // value isn't part of the cache key, so a cached binding would freeze at its first value
+      // (and the source may itself be driven by time or audio).
       const isTimeDep = cleanExpression.includes('time') || cleanExpression.includes('audioEnvelope')
-        || cleanExpression.includes('frame') || /\bnode_\d/.test(cleanExpression);
+        || cleanExpression.includes('frame') || /\bnode_\d/.test(cleanExpression)
+        || referencesParams(node, cleanExpression);
 
       // Check cache first (only for non-time-dependent expressions)
       if (!isTimeDep) {
@@ -471,17 +476,17 @@ buildEvaluationContext(context, node) {
     ...context
   };
 
-  // Add node parameters as variables
-  if (node?.params) {
-    Object.entries(node.params).forEach(([key, value]) => {
-      if (!this.isExpression(value)) {
-        evalContext[key] = this.parseValue(value);
-      }
-    });
-  }
-
   // Add node output values from the graph
   this._addNodeOutputReferences(evalContext, node);
+
+  // Add this node's own parameters as variables, so an expression can bind to a sibling
+  // parameter (Scale Y = "=scaleX"). A sibling that is itself an expression is evaluated
+  // recursively, with reference cycles resolving to nothing rather than looping. Added after the
+  // node references so a nested parameter expression can read them, and so a parameter can never
+  // shadow a node_<id> name.
+  if (node?.params) {
+    Object.assign(evalContext, buildParamScope(node, { baseContext: evalContext }));
+  }
 
   return evalContext;
 }

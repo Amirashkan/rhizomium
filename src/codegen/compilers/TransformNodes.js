@@ -14,6 +14,7 @@
 //   - Dynamic rotation (expressions / uniforms) uses GPU-side cos/sin.
 
 import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
+import { compilerParamRefMapping } from '../../utils/paramReferences.js';
 
 export class TransformNodes {
   constructor() {
@@ -75,11 +76,17 @@ export class TransformNodes {
     const value = this.getParam(node, name, defaultValue);
 
     if (typeof value === 'string' && value.startsWith('=')) {
-      try { return unifiedExpressionSystem.generateShader(value, {}, this.graph); } catch { return String(defaultValue); }
+      // An identifier naming another parameter of this node (Scale Y = "=scaleX") binds to that
+      // parameter's uniform instead of hitting the unknown-identifier guard and zeroing out.
+      const mapping = compilerParamRefMapping(this, node, value, name);
+      try { return unifiedExpressionSystem.generateShader(value, mapping, this.graph); } catch { return String(defaultValue); }
     }
 
     if (typeof value === 'string' && (/\btime\b/.test(value) || /audioEnvelope/.test(value))) {
-      try { return unifiedExpressionSystem.generateShader(value, {}, this.graph); } catch { return String(defaultValue); }
+      // An identifier naming another parameter of this node (Scale Y = "=scaleX") binds to that
+      // parameter's uniform instead of hitting the unknown-identifier guard and zeroing out.
+      const mapping = compilerParamRefMapping(this, node, value, name);
+      try { return unifiedExpressionSystem.generateShader(value, mapping, this.graph); } catch { return String(defaultValue); }
     }
 
     if (this.uniformManager) {
