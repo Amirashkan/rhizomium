@@ -921,9 +921,16 @@ export class UnifiedExpressionSystem {
           const speed = this._toFloatLiteral(Number(node.params?.speed) || 1.0);
           mapping[name] = `fract(sin(g.time * ${speed} * 12.9898) * 43758.5453)`;
         } else if (kind === 'wave') {
-          // Free-running LFO; mirror the wired-node formula in InputNodes.js. Like Random Value's
-          // speed, the wave's params aren't GPU globals here, so their current numeric values are
-          // baked into the expression (an `=expr` param falls back to its default).
+          // LFO; mirror the wired-node formula in InputNodes.js. Like Random Value's speed, the
+          // wave's params aren't GPU globals here, so their current numeric values are baked into
+          // the expression (an `=expr` param falls back to its default).
+          //
+          // The sync pin is deliberately ignored on this fallback path: the cycle origin moves on
+          // every pulse, so baking it would change the WGSL — and force a shader recompile — on
+          // every beat. This mapping only applies where the Wave was never declared in the shader
+          // (a per-node thumbnail compiled from a subgraph); everywhere the node IS compiled, the
+          // syncTime uniform carries the restart with no recompile. So a synced Wave free-runs in
+          // that one fallback rather than costing a recompile per pulse.
           mapping[name] = buildWaveExpression({
             shape: node.params?.shape,
             time: 'g.time',

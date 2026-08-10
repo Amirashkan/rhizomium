@@ -323,10 +323,12 @@ count is maintained on the CPU and streamed to the shader each frame.
 Wave
 --------------------------------------------------------------------------------
 Category: Input
-Description: A free-running LFO - one float animated by a sine, triangle, square,
-saw or ramp-down wave
+Description: An LFO - one float animated by a sine, triangle, square, saw or
+ramp-down wave, optionally locked to a beat
 
-Inputs: (none)
+Inputs:
+  - sync (f32): Pulse; each rising edge restarts the cycle. Leave it unwired to
+    free-run.
 
 Outputs:
   - out (f32): The current value of the wave
@@ -341,6 +343,8 @@ Parameters:
     [default: 0.0]
   - unipolar (bool): Output 0..1 instead of -1..1 [default: false]
   - pulseWidth (float): Square only - fraction of the cycle spent high
+    [default: 0.5]
+  - syncThreshold (float): Level the sync input must cross to restart the cycle
     [default: 0.5]
 
 Usage: The standard way to animate anything. Wire it into a parameter, or
@@ -364,6 +368,22 @@ emitted, so changing them rebuilds the shader.
 
 Two Waves at the same frequency, a quarter cycle apart (phase 0 and 0.25), give
 the sin/cos pair that drives circular motion.
+
+SYNC
+Wire a pulse into the sync pin - an Audio Analysis kickTrig, a Trigger, a Count,
+anything that crosses the threshold - and each rising edge restarts the cycle
+from Phase. That is what locks a wave to a beat: without it a 1 Hz wave and a
+120 BPM kick drift apart, with it the wave starts fresh on every hit.
+
+It restarts on the EDGE, not while the pulse is high, so a gate held open does
+not freeze the wave at its start. Between pulses it free-runs as normal, so if
+the pulses stop the wave simply keeps going from wherever it was last restarted.
+
+Detecting an edge means comparing against the previous frame, which a fragment
+shader cannot do, so this part runs on the CPU (WaveSyncProcessor) and the
+restart instant is streamed to the shader as a uniform - the same arrangement
+Hold and Count use. A Wave with nothing wired to sync compiles with no sync term
+at all, so free-running costs exactly what it did before.
 
 --------------------------------------------------------------------------------
 Random Value

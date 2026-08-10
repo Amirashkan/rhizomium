@@ -6,7 +6,12 @@
 //
 // One cycle is parameterised by a normalised phase p in [0, 1):
 //
-//     p = fract(time * frequency + phase)
+//     p = fract((time - syncTime) * frequency + phase)
+//
+// `syncTime` is when the cycle was last restarted by a pulse on the node's sync pin — 0 (and the
+// subtraction omitted entirely) when nothing is wired to it. Detecting that pulse needs memory of
+// the previous frame, which a fragment shader has none of, so WaveSyncProcessor tracks it on the
+// CPU and streams the time in as a uniform, exactly as Hold and Count do.
 //
 // and every shape returns a BIPOLAR value in [-1, 1], phase-aligned with the sine (all shapes
 // leave 0 rising at p = 0, peak at p = 0.25 and trough at p = 0.75) so switching shape keeps the
@@ -71,6 +76,7 @@ function shapeExpression(shapeKey, p, pulseWidth) {
  * @param {string} args.offset
  * @param {string} args.pulseWidth   - Square duty, 0..1
  * @param {boolean} args.unipolar    - remap [-1,1] to [0,1] before amplitude/offset
+ * @param {string} [args.syncTime]   - when the cycle was last restarted; omitted when unsynced
  * @returns {string} WGSL expression of type f32
  */
 export function buildWaveExpression({
@@ -82,8 +88,11 @@ export function buildWaveExpression({
   offset = '0.0',
   pulseWidth = '0.5',
   unipolar = false,
+  syncTime = null,
 }) {
-  const p = `fract((${time}) * (${frequency}) + (${phase}))`;
+  // An unsynced wave (the common case) emits no subtraction at all rather than `- 0.0`.
+  const clock = syncTime === null ? `(${time})` : `((${time}) - (${syncTime}))`;
+  const p = `fract(${clock} * (${frequency}) + (${phase}))`;
   const raw = shapeExpression(waveShapeKey(shape), p, pulseWidth);
   const shaped = unipolar ? `((${raw}) * 0.5 + 0.5)` : raw;
   return `((${shaped}) * (${amplitude}) + (${offset}))`;
@@ -105,9 +114,10 @@ export function evaluateWave({
   offset = 0,
   pulseWidth = 0.5,
   unipolar = false,
+  syncTime = 0,
 }) {
   const fract = (x) => x - Math.floor(x);
-  const p = fract(time * frequency + phase);
+  const p = fract((time - syncTime) * frequency + phase);
 
   let raw;
   switch (waveShapeKey(shape)) {
@@ -138,4 +148,23 @@ export function isWaveUnipolar(node) {
   const raw = node?.params?.unipolar;
   if (typeof raw === 'boolean') return raw;
   return String(raw ?? 'false').toLowerCase() === 'true';
+}
+
+/** Pin index of the Wave node's sync input, shared by the compiler and WaveSyncProcessor. */
+export const WAVE_SYNC_PIN = 0;
+
+/** True when something is wired to this Wave's sync pin — i.e. its phase is externally restarted. */
+export function isWaveSynced(node) {
+  const source = node?.inputs?.[WAVE_SYNC_PIN];
+  return source !== null && source !== undefined && source !== '';
+}
+
+/**
+ * When this Wave's cycle was last restarted, as advanced each frame by WaveSyncProcessor.
+ * 0 for an unsynced wave, which is also the free-running origin — so this is safe to use
+ * unconditionally on the CPU side.
+ */
+export function waveSyncTime(node) {
+  const t = node?.__waveSyncTime;
+  return typeof t === 'number' && Number.isFinite(t) ? t : 0;
 }

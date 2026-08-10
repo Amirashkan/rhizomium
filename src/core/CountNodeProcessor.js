@@ -2,7 +2,7 @@
 import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
-import { evaluateWave, isWaveUnipolar } from './waveform.js';
+import { evaluateWave, isWaveUnipolar, waveSyncTime } from './waveform.js';
 
 /**
  * Drives the Count node.
@@ -179,11 +179,13 @@ export class CountNodeProcessor {
       }
 
       case 'Wave':
-        // Free-running LFO, evaluated from the clock alone - same curve the shader gets
-        // (see core/waveform.js), so a Wave driving this node reads the same here as on screen.
+        // LFO evaluated from the clock - same curve the shader gets (see core/waveform.js), so a
+        // Wave driving this node reads the same here as on screen. waveSyncTime is the cycle
+        // origin WaveSyncProcessor advanced this frame (0 when nothing is wired to sync).
         return evaluateWave({
           shape: node.params?.shape,
           time: ctx.time,
+          syncTime: waveSyncTime(node),
           frequency: this._numericParam(node, 'frequency', 1.0, ctx),
           phase: this._numericParam(node, 'phase', 0.0, ctx),
           amplitude: this._numericParam(node, 'amplitude', 1.0, ctx),

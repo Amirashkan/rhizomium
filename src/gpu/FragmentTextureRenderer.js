@@ -235,6 +235,13 @@ export class FragmentTextureRenderer {
       // `=node_<id>_0` — renders a frozen thumbnail even while the main output reacts to the audio.
       this._syncAudioUniforms(uniformManager);
 
+      // Same for a Wave whose sync pin is wired: the instant its cycle was last restarted is
+      // CPU-side state advanced every frame by WaveSyncProcessor into the MAIN renderer's uniform
+      // manager. Without this the preview's own `<id>.syncTime` uniform would sit at its
+      // compile-time default, so a thumbnail of anything reading the Wave would run on a wave that
+      // never re-syncs while the main output snaps to the beat.
+      this._syncWaveUniforms(uniformManager);
+
       // Store node reference for parameter updates
       cached.node = node;
 
@@ -1131,6 +1138,31 @@ export class FragmentTextureRenderer {
       const v = node[prop];
       if (typeof v === 'number' && isFinite(v)) {
         values.set(key, v);
+      }
+    }
+  }
+
+  /**
+   * Overwrite each `<id>.syncTime` entry in a (detached) uniform snapshot with the live cycle
+   * origin from its Wave node (node.__waveSyncTime, advanced every frame by WaveSyncProcessor).
+   * Only a Wave with something wired to its sync pin compiles to such a uniform, so the kind check
+   * keeps this from touching anything else. Map.set on an existing key preserves insertion order,
+   * so the Float32Array _updateUniforms builds from uniformValues.values() still matches the
+   * compiled ParamUniforms struct layout.
+   * @private
+   */
+  _syncWaveUniforms(uniformManager) {
+    const values = uniformManager?.uniformValues;
+    if (!values || values.size === 0) return;
+    for (const key of values.keys()) {
+      if (!key.endsWith('.syncTime')) continue;
+      const nodeId = key.slice(0, -'.syncTime'.length);
+      const node = window.graph?.getNode?.(nodeId)
+        || window.editor?.graph?.nodes?.find(n => String(n.id) === nodeId);
+      if (node?.kind !== 'Wave') continue;
+      const syncTime = node.__waveSyncTime;
+      if (typeof syncTime === 'number' && isFinite(syncTime)) {
+        values.set(key, syncTime);
       }
     }
   }

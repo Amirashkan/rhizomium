@@ -7,19 +7,29 @@ import { describe, it, expect } from 'vitest';
 import {
   WAVE_SHAPES,
   DEFAULT_WAVE_SHAPE,
+  WAVE_SYNC_PIN,
   buildWaveExpression,
   evaluateWave,
   isWaveUnipolar,
+  isWaveSynced,
+  waveSyncTime,
 } from '../src/core/waveform.js';
 import { InputNodes as InputNodeCompiler } from '../src/codegen/compilers/InputNodes.js';
+import { WaveSyncProcessor } from '../src/core/WaveSyncProcessor.js';
 import { NodeDefs, makeNode } from '../src/data/NodeDefs.js';
 
 describe('Wave node definition', () => {
-  it('is a parameter-only Input node with a single f32 output', () => {
+  it('is an Input node with a sync pulse input and a single f32 output', () => {
     const def = NodeDefs.Wave;
     expect(def.cat).toBe('Input');
-    expect(def.inputs).toBe(0);
+    expect(def.inputs).toBe(1);
+    expect(def.pinsIn).toEqual([{ label: 'sync', type: 'f32' }]);
     expect(def.pinsOut).toEqual([{ label: 'out', type: 'f32' }]);
+  });
+
+  it('dims Sync Threshold until something is wired to the sync pin', () => {
+    const syncThreshold = NodeDefs.Wave.params.find(p => p.name === 'syncThreshold');
+    expect(syncThreshold.activeWhenConnected).toBe(WAVE_SYNC_PIN);
   });
 
   it('offers every waveform in the shape dropdown', () => {
@@ -179,6 +189,172 @@ describe('Wave node codegen', () => {
   });
 });
 
+describe('Wave sync', () => {
+  const compiler = new InputNodeCompiler();
+
+  it('restarts the cycle from Phase at the moment of the sync', () => {
+    // Free-running, a 1 Hz sine is at its trough at t = 0.75. Synced at t = 0.75, that instant
+    // becomes the new cycle origin, so it reads as if it were t = 0 — zero, rising.
+    expect(evaluateWave({ shape: 'Sine', time: 0.75 })).toBeCloseTo(-1, 6);
+    expect(evaluateWave({ shape: 'Sine', time: 0.75, syncTime: 0.75 })).toBeCloseTo(0, 6);
+    expect(evaluateWave({ shape: 'Sine', time: 1.0, syncTime: 0.75 })).toBeCloseTo(1, 6);
+    // Phase is honoured from the restart, not skipped by it.
+    expect(evaluateWave({ shape: 'Sine', time: 0.75, syncTime: 0.75, phase: 0.25 })).toBeCloseTo(1, 6);
+  });
+
+  it('leaves an unsynced wave exactly as it was', () => {
+    for (const t of [0, 0.3, 1.7]) {
+      expect(evaluateWave({ shape: 'Triangle', time: t, syncTime: 0 }))
+        .toBe(evaluateWave({ shape: 'Triangle', time: t }));
+    }
+  });
+
+  it('reads whether the sync pin is wired, and the origin the processor recorded', () => {
+    expect(isWaveSynced({ inputs: [null] })).toBe(false);
+    expect(isWaveSynced({ inputs: [] })).toBe(false);
+    expect(isWaveSynced({ inputs: ['3'] })).toBe(true);
+    expect(waveSyncTime({ __waveSyncTime: 2.5 })).toBe(2.5);
+    expect(waveSyncTime({})).toBe(0);          // never synced == the free-running origin
+    expect(waveSyncTime({ __waveSyncTime: NaN })).toBe(0);
+  });
+
+  describe('codegen', () => {
+    it('emits no sync subtraction at all when nothing is wired', () => {
+      const node = { id: '1', kind: 'Wave', inputs: [null], params: {} };
+      const line = compiler.compile(node, () => null, (name) => `u_params._1_${name}`).line;
+      expect(line).toContain('(g.time) * ');
+      expect(line).not.toContain('syncTime');
+    });
+
+    it('subtracts the CPU-advanced syncTime uniform when the pin is wired', () => {
+      const node = { id: '1', kind: 'Wave', inputs: ['9'], params: {} };
+      const line = compiler.compile(node, () => null, (name) => `u_params._1_${name}`).line;
+      expect(line).toContain('((g.time) - (u_params._1_syncTime))');
+    });
+
+    it('falls back to free-running when uniform registration is unavailable', () => {
+      // No getParam means no uniform to stream the restart through; a wave that still animates
+      // beats one that fails to compile.
+      const node = { id: '1', kind: 'Wave', inputs: ['9'], params: {} };
+      const line = compiler.compile(node, () => null, null).line;
+      expect(line).not.toContain('syncTime');
+      expect(line).toContain('g.time');
+    });
+  });
+
+  describe('WaveSyncProcessor', () => {
+    // A Wave whose sync pin is fed by a node the processor reads directly (a ConstFloat standing
+    // in for any pulse source), so the test drives the pulse by writing that node's value.
+    const makeGraph = (params = {}) => {
+      const pulse = { id: 'p', kind: 'ConstFloat', inputs: [], params: { value: 0 } };
+      const wave = { id: 'w', kind: 'Wave', inputs: ['p'], params };
+      return {
+        pulse,
+        wave,
+        graph: {
+          nodes: [pulse, wave],
+          connections: [{ from: { nodeId: 'p', pin: 0 }, to: { nodeId: 'w', pin: WAVE_SYNC_PIN } }],
+          getNode: (id) => (id === 'p' ? pulse : id === 'w' ? wave : null),
+        },
+      };
+    };
+
+    it('records the restart instant on a rising edge', () => {
+      const { pulse, wave, graph } = makeGraph();
+      const proc = new WaveSyncProcessor();
+
+      proc.update(graph, { time: 0 });
+      expect(wave.__waveSyncTime).toBe(0);
+
+      pulse.params.value = 1;
+      proc.update(graph, { time: 1.25 });
+      expect(wave.__waveSyncTime).toBe(1.25);
+    });
+
+    it('restarts once per edge, not every frame the pulse is held high', () => {
+      const { pulse, wave, graph } = makeGraph();
+      const proc = new WaveSyncProcessor();
+
+      proc.update(graph, { time: 0 });
+      pulse.params.value = 1;
+      proc.update(graph, { time: 1.0 });
+      expect(wave.__waveSyncTime).toBe(1.0);
+
+      // Still high three frames later: the wave must keep running from 1.0, not freeze at its start.
+      proc.update(graph, { time: 1.05 });
+      proc.update(graph, { time: 1.10 });
+      expect(wave.__waveSyncTime).toBe(1.0);
+
+      // Falls and rises again — a second restart.
+      pulse.params.value = 0;
+      proc.update(graph, { time: 1.2 });
+      pulse.params.value = 1;
+      proc.update(graph, { time: 1.5 });
+      expect(wave.__waveSyncTime).toBe(1.5);
+    });
+
+    it('does not fire on the first update, even if the pulse is already high', () => {
+      // Adding a node or loading a patch must not look like a rising edge.
+      const { pulse, wave, graph } = makeGraph();
+      pulse.params.value = 1;
+      const proc = new WaveSyncProcessor();
+
+      proc.update(graph, { time: 4.2 });
+      expect(wave.__waveSyncTime).toBe(0);
+    });
+
+    it('honours the sync threshold', () => {
+      const { pulse, wave, graph } = makeGraph({ syncThreshold: 0.8 });
+      const proc = new WaveSyncProcessor();
+
+      proc.update(graph, { time: 0 });
+      pulse.params.value = 0.7; // under the threshold — not a pulse
+      proc.update(graph, { time: 1.0 });
+      expect(wave.__waveSyncTime).toBe(0);
+
+      pulse.params.value = 0.9;
+      proc.update(graph, { time: 2.0 });
+      expect(wave.__waveSyncTime).toBe(2.0);
+    });
+
+    it('writes the restart into the uniform the shader reads', () => {
+      const { pulse, wave, graph } = makeGraph();
+      const uniformManager = { uniformValues: new Map([['w.syncTime', 0]]) };
+      const proc = new WaveSyncProcessor();
+
+      proc.update(graph, { time: 0, uniformManager });
+      pulse.params.value = 1;
+      proc.update(graph, { time: 3.5, uniformManager });
+
+      expect(uniformManager.uniformValues.get('w.syncTime')).toBe(3.5);
+      expect(wave.__waveSyncTime).toBe(3.5);
+    });
+
+    it('ignores a Wave with nothing wired to sync', () => {
+      const wave = { id: 'w', kind: 'Wave', inputs: [null], params: {} };
+      const graph = { nodes: [wave], connections: [], getNode: () => null };
+      const proc = new WaveSyncProcessor();
+
+      proc.update(graph, { time: 1.0 });
+      expect(wave.__waveSyncTime).toBeUndefined();
+    });
+
+    it('drops state for a wave whose sync was unwired, so re-wiring starts clean', () => {
+      const { pulse, wave, graph } = makeGraph();
+      const proc = new WaveSyncProcessor();
+
+      proc.update(graph, { time: 0 });
+      pulse.params.value = 1;
+      proc.update(graph, { time: 1.0 });
+      expect(proc._state.size).toBe(1);
+
+      wave.inputs[WAVE_SYNC_PIN] = null;
+      proc.update(graph, { time: 2.0 });
+      expect(proc._state.size).toBe(0);
+    });
+  });
+});
+
 describe('shader and CPU agreement', () => {
   // The whole point of sharing waveform.js: the expression the GPU runs and the number the node's
   // readout shows must be the same curve. Evaluate the emitted WGSL as JS (the operators and the
@@ -192,22 +368,32 @@ describe('shader and CPU agreement', () => {
   };
 
   for (const shape of WAVE_SHAPES) {
-    it(`matches between GPU and CPU for ${shape}`, () => {
-      const params = { frequency: '1.7', phase: '0.3', amplitude: '2.0', offset: '0.5', pulseWidth: '0.35' };
-      const expr = buildWaveExpression({ shape, ...params });
-      for (const time of [0, 0.1, 0.33, 0.5, 0.87, 1.4, 3.75]) {
-        const gpu = evalWgsl(expr, time);
-        const cpu = evaluateWave({
+    for (const syncTime of [0, 2.25]) {
+      it(`matches between GPU and CPU for ${shape}${syncTime ? ' (synced)' : ''}`, () => {
+        const expr = buildWaveExpression({
           shape,
-          time,
-          frequency: 1.7,
-          phase: 0.3,
-          amplitude: 2.0,
-          offset: 0.5,
-          pulseWidth: 0.35,
+          frequency: '1.7',
+          phase: '0.3',
+          amplitude: '2.0',
+          offset: '0.5',
+          pulseWidth: '0.35',
+          syncTime: syncTime ? String(syncTime) : null,
         });
-        expect(gpu).toBeCloseTo(cpu, 6);
-      }
-    });
+        for (const time of [0, 0.1, 0.33, 0.5, 0.87, 1.4, 3.75]) {
+          const gpu = evalWgsl(expr, time);
+          const cpu = evaluateWave({
+            shape,
+            time,
+            frequency: 1.7,
+            phase: 0.3,
+            amplitude: 2.0,
+            offset: 0.5,
+            pulseWidth: 0.35,
+            syncTime,
+          });
+          expect(gpu).toBeCloseTo(cpu, 6);
+        }
+      });
+    }
   }
 });

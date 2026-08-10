@@ -3,7 +3,7 @@ import { unifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js'
 import { buildScalarRefMapping } from '../processors/scalarRef.js';
 import { isDisplayMode, getDisplayResolution } from '../../utils/resolutionMode.js';
 import { isTriggerChangeMode } from '../../core/triggerMode.js';
-import { buildWaveExpression, isWaveUnipolar } from '../../core/waveform.js';
+import { buildWaveExpression, isWaveUnipolar, isWaveSynced } from '../../core/waveform.js';
 
 export class InputNodes {
   constructor() {
@@ -284,9 +284,18 @@ export class InputNodes {
         // uniform and an `=expr` is inlined — the wave can therefore be modulated by another node
         // without a recompile. `shape` and `unipolar` pick which formula is emitted, so they are
         // read straight off the node at compile time and cost nothing at runtime.
+        //
+        // The sync pin restarts the cycle on a rising edge, which needs memory of the previous
+        // frame that a fragment shader hasn't got. WaveSyncProcessor does the edge detection on the
+        // CPU each frame and writes the restart instant into the "syncTime" uniform getParam
+        // registers (node.id + ".syncTime"); the shader just subtracts it from the clock. Same
+        // arrangement as Hold and Count. A wave with nothing wired to sync gets no uniform and no
+        // subtraction at all, so the free-running case is untouched.
+        const syncRef = isWaveSynced(node) && getParam ? getParam('syncTime', 0.0) : null;
         const expression = buildWaveExpression({
           shape: node.params?.shape,
           time: 'g.time',
+          syncTime: syncRef,
           frequency: resolveParam('frequency', '1.0'),
           phase: resolveParam('phase', '0.0'),
           amplitude: resolveParam('amplitude', '1.0'),

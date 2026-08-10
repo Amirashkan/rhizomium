@@ -253,12 +253,17 @@ export const InputNodes = {
   Wave: {
     label: "Wave",
     cat: "Input",
-    inputs: 0,
-    pinsIn: [],
+    inputs: 1,
+    pinsIn: [{ label: "sync", type: "f32" }],
     pinsOut: [{ label: "out", type: "f32" }],
-    // A free-running LFO: one animated float, shaped by `shape`, driven by the GPU clock alone (no
-    // input to wire). The maths lives in core/waveform.js so the shader, the node's own readout and
-    // any CPU consumer (Hold/Count/Trigger) all follow the same curve.
+    // An LFO: one animated float, shaped by `shape`, driven by the GPU clock. Free-running with
+    // nothing wired in; a pulse on `sync` restarts the cycle from Phase, which is what locks it to
+    // a beat (an Audio Analysis kickTrig), a Trigger, or anything else that pulses. Restarting on a
+    // rising edge needs memory of the previous frame, so — like Hold and Count — that part runs on
+    // the CPU in WaveSyncProcessor and arrives as a per-frame uniform.
+    //
+    // The maths lives in core/waveform.js so the shader, the node's own readout and any CPU
+    // consumer (Hold/Count/Trigger) all follow the same curve.
     //
     // Every shape is bipolar (-1..1) and phase-aligned with the sine, so changing shape keeps the
     // motion in step. Most things a wave drives — a radius, a mix amount, a brightness — want a
@@ -275,6 +280,9 @@ export const InputNodes = {
       { name: "unipolar", type: "bool", default: false, label: "Unipolar (0..1)" },
       // Square only: the fraction of each cycle spent high.
       { name: "pulseWidth", type: "float", default: 0.5, min: 0.0, max: 1.0, label: "Pulse Width", activeWhen: { shape: "Square" } },
+      // Level the sync input has to cross for the cycle to restart. Nothing wired to sync means
+      // nothing to threshold, so the panel dims it until the pin is connected.
+      { name: "syncThreshold", type: "float", default: 0.5, min: 0.0, max: 1.0, label: "Sync Threshold", activeWhenConnected: 0 },
     ],
   },
 
