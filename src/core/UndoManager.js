@@ -341,7 +341,10 @@ export class UndoManager {
       inputs: node.inputs ? [...node.inputs] : [],
       parameters: node.parameters ? { ...node.parameters } : {},
       params: node.params ? { ...node.params } : {},
-      nodeIndex: this.graph.nodes.indexOf(node)
+      // Match by id, not identity: SelectionManager hands us a copy of the node carrying the
+      // connection snapshot, so indexOf() misses it and the node would come back at the end of
+      // the list (changing draw order) instead of where it was.
+      nodeIndex: this.graph.nodes.findIndex(n => n.id === node.id)
     };
 
     // Copy any other custom properties (excluding the connection snapshot)
@@ -659,55 +662,13 @@ export class UndoManager {
             }
           });
 
-          // Restore all connections after all nodes are restored
+          // Restore all connections after all nodes are restored, applying each recorded entry
+          // from its own endpoints (see restoreRecordedConnection)
           sortedNodes.forEach(nodeData => {
-            // Restore incoming connections
-            if (nodeData.incomingConnections) {
-              nodeData.incomingConnections.forEach(conn => {
-                const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
-                if (targetNode) {
-                  if (!targetNode.inputs) targetNode.inputs = [];
-                  while (targetNode.inputs.length <= conn.targetInput) {
-                    targetNode.inputs.push(null);
-                  }
-                  targetNode.inputs[conn.targetInput] = conn.sourceNodeId;
-                  
-                  // Also restore to graph.connections
-                  if (!this.graph.connections) this.graph.connections = [];
-                  this.graph.connections = this.graph.connections.filter(
-                    c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-                  );
-                  this.graph.connections.push({
-                    from: { nodeId: conn.sourceNodeId, pin: 0 },
-                    to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-                  });
-                }
-              });
-            }
-
-            // Restore outgoing connections
-            if (nodeData.outgoingConnections) {
-              nodeData.outgoingConnections.forEach(conn => {
-                const restoredNode = this.graph.nodes.find(n => n.id === nodeData.id);
-                if (restoredNode) {
-                  if (!restoredNode.inputs) restoredNode.inputs = [];
-                  while (restoredNode.inputs.length <= conn.targetInput) {
-                    restoredNode.inputs.push(null);
-                  }
-                  restoredNode.inputs[conn.targetInput] = conn.sourceNodeId;
-                  
-                  // Also restore to graph.connections
-                  if (!this.graph.connections) this.graph.connections = [];
-                  this.graph.connections = this.graph.connections.filter(
-                    c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-                  );
-                  this.graph.connections.push({
-                    from: { nodeId: conn.sourceNodeId, pin: 0 },
-                    to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-                  });
-                }
-              });
-            }
+            [
+              ...(nodeData.incomingConnections || []),
+              ...(nodeData.outgoingConnections || [])
+            ].forEach(conn => this.restoreRecordedConnection(conn));
           });
 
           if (this.onChange) {
@@ -1235,61 +1196,15 @@ export class UndoManager {
         this.graph.nodes.push(restoredNode);
       }
 
-      // Restore ALL connections involving this node
-      // 1. Restore incoming connections (connections TO this node)
-      if (action.incomingConnections) {
-        action.incomingConnections.forEach(conn => {
-          const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
-          if (targetNode) {
-            // Restore to node.inputs
-            if (!targetNode.inputs) targetNode.inputs = [];
-            while (targetNode.inputs.length <= conn.targetInput) {
-              targetNode.inputs.push(null);
-            }
-            targetNode.inputs[conn.targetInput] = conn.sourceNodeId;
-            
-            // Also restore to graph.connections for visual rendering
-            if (!this.graph.connections) this.graph.connections = [];
-            
-            // Remove any existing connection to this input
-            this.graph.connections = this.graph.connections.filter(
-              c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-            );
-            
-            // Add the connection
-            this.graph.connections.push({
-              from: { nodeId: conn.sourceNodeId, pin: 0 },
-              to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-            });
-          }
-        });
-      }
-
-      // 2. Restore outgoing connections (connections FROM this node)
-      if (action.outgoingConnections) {
-        action.outgoingConnections.forEach(conn => {
-          // Restore to this node's inputs
-          if (!restoredNode.inputs) restoredNode.inputs = [];
-          while (restoredNode.inputs.length <= conn.targetInput) {
-            restoredNode.inputs.push(null);
-          }
-          restoredNode.inputs[conn.targetInput] = conn.sourceNodeId;
-          
-          // Also restore to graph.connections for visual rendering
-          if (!this.graph.connections) this.graph.connections = [];
-          
-          // Remove any existing connection to this input
-          this.graph.connections = this.graph.connections.filter(
-            c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == conn.targetInput)
-          );
-          
-          // Add the connection
-          this.graph.connections.push({
-            from: { nodeId: conn.sourceNodeId, pin: 0 },
-            to: { nodeId: conn.targetNodeId, pin: conn.targetInput }
-          });
-        });
-      }
+      // Restore ALL connections involving this node - the ones into it and the ones out of it.
+      // Both lists are applied the same way, from the endpoints each entry carries: the recorded
+      // lists are not cleanly split by direction (see SelectionManager._findAllNodeConnections,
+      // which files the same wire under both headings), so assuming the restored node is the
+      // target of every "outgoing" entry wired it to itself.
+      [
+        ...(action.incomingConnections || []),
+        ...(action.outgoingConnections || [])
+      ].forEach(conn => this.restoreRecordedConnection(conn));
 
       return true;
 
@@ -1297,6 +1212,42 @@ export class UndoManager {
 
       return false;
     }
+  }
+
+  // Re-apply one recorded connection ({ sourceNodeId, targetNodeId, targetInput }) to both the
+  // target's inputs array and graph.connections. Endpoint-driven: the entry itself says which node
+  // is the source and which is the target, so it restores correctly whichever side of the wire the
+  // node being restored sits on. Both endpoints must exist, otherwise the graph would keep a wire
+  // to a node that isn't there.
+  restoreRecordedConnection(conn) {
+    if (!conn) return false;
+
+    const targetNode = this.graph.nodes.find(n => n.id == conn.targetNodeId);
+    const sourceNode = this.graph.nodes.find(n => n.id == conn.sourceNodeId);
+    if (!targetNode || !sourceNode) {
+      return false;
+    }
+
+    const pin = conn.targetInput || 0;
+
+    if (!targetNode.inputs) targetNode.inputs = [];
+    while (targetNode.inputs.length <= pin) {
+      targetNode.inputs.push(null);
+    }
+    targetNode.inputs[pin] = conn.sourceNodeId;
+
+    if (!this.graph.connections) this.graph.connections = [];
+
+    // An input takes one wire: drop whatever occupied it before re-adding
+    this.graph.connections = this.graph.connections.filter(
+      c => !(c.to && c.to.nodeId == conn.targetNodeId && c.to.pin == pin)
+    );
+    this.graph.connections.push({
+      from: { nodeId: conn.sourceNodeId, pin: 0 },
+      to: { nodeId: conn.targetNodeId, pin: pin }
+    });
+
+    return true;
   }
 
   // Undo connection creation (delete connection)
