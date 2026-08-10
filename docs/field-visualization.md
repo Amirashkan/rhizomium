@@ -47,6 +47,48 @@ Field visualization converts **compute shader outputs** (textures) into **3D geo
 
 ---
 
+## Multiple 3D Nodes
+
+Every 3D Field Visualizer in a graph is **independent**. Each one renders its
+own object, through its own camera, into its own output texture — so you can
+run several at once and feed them into different chains:
+
+```
+ComputeNoise   → 3D Field Visualizer (sphere) ─┐
+                                               ├→ Mix → OutputFinal
+ComputeVoronoi → 3D Field Visualizer (torus)  ─┘
+```
+
+The two nodes above output two different images. Nothing is shared between
+them: changing one node's shape, transform, spin or viewpoint has no effect on
+any other.
+
+### Which node the viewport shows
+
+The 3D viewport displays **one node at a time** — the focused one, named in the
+panel heading:
+
+- **Selecting** a 3D Field Visualizer in the graph points the viewport at it.
+- The **3D Node** dropdown in the viewport controls switches manually. A manual
+  pick sticks until you select a different node in the graph.
+
+The viewport's controls — orbit/pan/zoom, Shape, FOV, Spin, Reset Camera and
+the projection toggle — all act on the focused node alone.
+
+### Cameras are per node
+
+Each node remembers its own viewpoint: orbit angles, distance, target,
+projection, FOV and turntable spin. Orbiting while node A is focused re-frames
+A only; every other node keeps the framing you left it with, and an unfocused
+node set to spin keeps spinning in its own output.
+
+Camera state saves with the project, so a reloaded graph reopens with every 3D
+node framed the way you left it. A new 3D node adopts whatever view the
+viewport is currently showing, so it opens framed the way you are already
+looking.
+
+---
+
 ## Visualization Modes
 
 ### Point Cloud Mode

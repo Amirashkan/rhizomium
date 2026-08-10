@@ -66,7 +66,12 @@ export class ViewportPanel {
       color: #fff;
       font-size: 12px;
       font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     `;
+    // Each 3D node renders its own frame; the heading names the one on screen
+    this._titleElement = title;
 
     const headerBtnStyle = `
       background: none;
@@ -196,7 +201,23 @@ export class ViewportPanel {
       cursor: pointer;
     `;
 
-    // Shape selector - applies to every 3D Field Visualizer node in the graph
+    // Node selector - which 3D node this viewport is looking at. Every 3D
+    // node renders independently, so the viewport shows one at a time and the
+    // controls below act on that node alone.
+    const nodeLabel = document.createElement('span');
+    nodeLabel.textContent = '3D Node';
+    nodeLabel.style.cssText = labelStyle;
+
+    this.nodeSelect = document.createElement('select');
+    this.nodeSelect.style.cssText = selectStyle + 'max-width: 150px;';
+    this.nodeSelect.title = 'Which 3D Field Visualizer this viewport shows';
+    this.nodeSelect.onchange = () => {
+      window.fieldMapperIntegration?.setFocus?.(this.nodeSelect.value);
+      this.syncShapeSelect();
+      this.syncCameraControls();
+    };
+
+    // Shape selector - applies to the focused 3D Field Visualizer node
     const shapeLabel = document.createElement('span');
     shapeLabel.textContent = 'Shape';
     shapeLabel.style.cssText = labelStyle;
@@ -210,25 +231,19 @@ export class ViewportPanel {
       this.shapeSelect.appendChild(option);
     }
     this.shapeSelect.onchange = () => {
-      const graph = window.editor?.graph;
-      if (!graph?.nodes) return;
+      const node = this.getFocusedNode();
+      if (!node) return;
       const value = this.shapeSelect.value;
-      let changed = false;
-      for (const node of graph.nodes) {
-        if (node && node.kind === 'ComputeFieldMapper') {
-          node.params = node.params || {};
-          if (value === 'instances') {
-            node.params.mode = 'instances';
-          } else {
-            node.params.mode = 'surface';
-            node.params.shape = value;
-          }
-          changed = true;
-        }
+      node.params = node.params || {};
+      if (value === 'instances') {
+        node.params.mode = 'instances';
+      } else {
+        node.params.mode = 'surface';
+        node.params.shape = value;
       }
-      if (changed && typeof window.updateShaderFromGraph === 'function') {
+      if (typeof window.updateShaderFromGraph === 'function') {
         window.updateShaderFromGraph();
-      } else if (changed && typeof window.rebuild === 'function') {
+      } else if (typeof window.rebuild === 'function') {
         window.rebuild();
       }
     };
@@ -286,6 +301,8 @@ export class ViewportPanel {
       }
     };
 
+    this.controlsContainer.appendChild(nodeLabel);
+    this.controlsContainer.appendChild(this.nodeSelect);
     this.controlsContainer.appendChild(shapeLabel);
     this.controlsContainer.appendChild(this.shapeSelect);
     this.controlsContainer.appendChild(fovLabel);
@@ -297,12 +314,73 @@ export class ViewportPanel {
   }
 
   /**
-   * Reflect the current graph's field-mapper shape in the selector
+   * The graph node this viewport is currently showing
+   * @returns {Object|null}
+   */
+  getFocusedNode() {
+    const graph = window.editor?.graph;
+    if (!graph?.nodes) return null;
+    const focusedId = window.fieldMapperIntegration?.getFocusedNodeId?.();
+    if (focusedId !== null && focusedId !== undefined) {
+      const focused = graph.nodes.find((n) => n && String(n.id) === String(focusedId));
+      if (focused) return focused;
+    }
+    return graph.nodes.find((n) => n && n.kind === 'ComputeFieldMapper') || null;
+  }
+
+  /**
+   * Human-readable name for a 3D node, matching what the editor shows
+   * @param {Object} node
+   * @returns {string}
+   */
+  nodeDisplayName(node) {
+    return `${node?.name || '3D Field Visualizer'} #${node?.id}`;
+  }
+
+  /**
+   * Rebuild the 3D-node selector from the graph and mark the focused entry.
+   * The heading follows it, so the panel always says which node is on screen.
+   */
+  syncNodeSelect() {
+    if (!this.nodeSelect) return;
+    const nodes = (window.editor?.graph?.nodes || []).filter((n) => n && n.kind === 'ComputeFieldMapper');
+    const focused = this.getFocusedNode();
+    const focusedId = focused ? String(focused.id) : '';
+
+    // Rebuild only when the set of nodes (or their names) actually changed -
+    // this runs on every panel update
+    const signature = nodes.map((n) => `${n.id}:${n.name || ''}`).join('|');
+    if (signature !== this._nodeSelectSignature) {
+      this._nodeSelectSignature = signature;
+      this.nodeSelect.innerHTML = '';
+      for (const node of nodes) {
+        const option = document.createElement('option');
+        option.value = String(node.id);
+        option.textContent = this.nodeDisplayName(node);
+        this.nodeSelect.appendChild(option);
+      }
+    }
+
+    if (focusedId && this.nodeSelect.value !== focusedId) {
+      this.nodeSelect.value = focusedId;
+    }
+    this.nodeSelect.disabled = nodes.length < 2;
+
+    if (this._titleElement) {
+      const heading = focused ? `3D Viewport - ${this.nodeDisplayName(focused)}` : '3D Viewport';
+      // Only write when it changed - this runs on every frame the panel is open
+      if (this._titleElement.textContent !== heading) {
+        this._titleElement.textContent = heading;
+      }
+    }
+  }
+
+  /**
+   * Reflect the focused node's shape in the selector
    */
   syncShapeSelect() {
     if (!this.shapeSelect) return;
-    const graph = window.editor?.graph;
-    const mapper = graph?.nodes?.find?.((n) => n && n.kind === 'ComputeFieldMapper');
+    const mapper = this.getFocusedNode();
     if (mapper) {
       const params = mapper.params || {};
       const legacyPoints = params.shape === 'points' || (!params.shape && params.mappingMode === 'points');
@@ -313,6 +391,39 @@ export class ViewportPanel {
         this.shapeSelect.value = value;
       }
     }
+  }
+
+  /**
+   * Reflect the focused node's camera in the FOV / spin / projection widgets.
+   * Switching nodes loads that node's own camera into the controller, so the
+   * widgets have to follow it rather than keep the previous node's values.
+   */
+  syncCameraControls() {
+    const vp = this.viewport3D;
+    if (!vp) return;
+    const camera = vp.getCamera?.();
+    if (this._fovSlider && Number.isFinite(camera?.fov)) {
+      this._fovSlider.value = String(camera.fov);
+    }
+    if (this._cameraTypeBtn) {
+      this._cameraTypeBtn.textContent = vp.getCameraType?.() === 'orthographic' ? 'Orthographic' : 'Perspective';
+    }
+    if (this._spinCheckbox) {
+      this._spinCheckbox.checked = !!vp.autoRotate;
+    }
+    if (this._spinSpeedSlider && Number.isFinite(vp.autoRotateSpeed)) {
+      this._spinSpeedSlider.value = String(vp.autoRotateSpeed);
+    }
+  }
+
+  /**
+   * Called by FieldMapperIntegration when the viewport switches nodes
+   * @param {string|null} _nodeId
+   */
+  onFocusChanged(_nodeId) {
+    this.syncNodeSelect();
+    this.syncShapeSelect();
+    this.syncCameraControls();
   }
 
   /**
@@ -475,7 +586,9 @@ export class ViewportPanel {
     this.isVisible = true;
     this.panelElement.style.display = 'flex';
     this.panelElement.classList.remove('hidden');
+    this.syncNodeSelect();
     this.syncShapeSelect();
+    this.syncCameraControls();
 
     // The canvas had no layout while hidden; sync its backing size (and the
     // camera aspect) to the now-measurable container
@@ -574,6 +687,8 @@ export class ViewportPanel {
   update() {
     if (this.isVisible && this.viewport3D) {
       this.viewport3D.update();
+      // Nodes are added, deleted and renamed while the panel is open
+      this.syncNodeSelect();
     }
   }
 
@@ -665,6 +780,12 @@ export class ViewportPanel {
         if (this._spinCheckbox) this._spinCheckbox.checked = !!vp.autoRotate;
         if (this._spinSpeedSlider) this._spinSpeedSlider.value = String(vp.autoRotateSpeed);
       }
+
+      // The camera block above is panel-wide, but cameras belong to the 3D
+      // NODES now. Hand control back to them: the focused node re-asserts its
+      // own saved viewpoint, or - for a project saved before cameras were per
+      // node - the restored block becomes those nodes' camera.
+      window.fieldMapperIntegration?.onViewportStateRestored?.();
 
       // Apply visibility last so show()'s canvas-size sync runs against the
       // restored window geometry.

@@ -24,6 +24,7 @@ export { ComputeFieldMapperNode } from './nodes/ComputeFieldMapperNode.js';
 export { Scene } from './Scene.js';
 export { Viewport3D } from './Viewport3D.js';
 export { CameraController } from './CameraController.js';
+export { NodeCamera3D } from './NodeCamera3D.js';
 
 // Field Visualization
 export { FieldVisualizer } from './FieldVisualizer.js';

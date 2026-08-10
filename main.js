@@ -3504,26 +3504,28 @@ function handleRenderFrame(frameState) {
     }
     sceneRenderer3D.render(frameState.simTime);
 
-    // Publish the rendered frame as each mapper node's output texture so
-    // downstream nodes and the main canvas can consume the 3D view
+    // Publish each 3D node's OWN rendered frame as its output texture so
+    // downstream nodes and the main canvas consume that node's view alone
     if (hasFieldMappers) {
-      fieldMapperIntegration.publishOutputs(sceneRenderer3D.getSceneTexture?.());
+      fieldMapperIntegration.publishOutputs();
     }
 
-    // Mirror the rendered frame into the 3D node's editor thumbnail so it
-    // stays live. Throttled: a readback 4x/sec is imperceptible on the tiny
+    // Mirror each node's own frame into its editor thumbnail so it stays
+    // live. Throttled: a readback 4x/sec is imperceptible on the tiny
     // thumbnail but keeps GPU->CPU traffic negligible.
     const now = performance.now();
     if (now - (window.__fieldMapperThumbAt || 0) > 250) {
       window.__fieldMapperThumbAt = now;
       const previewManager = window.editor?.shaderPreviewManager;
       if (previewManager && graph?.nodes) {
-        // Pass a getter so the queue always downscales the CURRENT scene
-        // texture, not one destroyed by a resolution change while queued
-        const getSceneTexture = () => sceneRenderer3D?.getSceneTexture?.() ?? null;
         for (const node of graph.nodes) {
           if (node && node.kind === 'ComputeFieldMapper') {
-            previewManager.updateNodeThumbnailFromTexture(node, getSceneTexture);
+            // Pass a getter so the queue always downscales the CURRENT
+            // texture, not one retired by a resolution change while queued
+            previewManager.updateNodeThumbnailFromTexture(
+              node,
+              () => sceneRenderer3D?.getNodeTexture?.(node.id) ?? null
+            );
           }
         }
       }
