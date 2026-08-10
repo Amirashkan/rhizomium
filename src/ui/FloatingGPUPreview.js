@@ -5,6 +5,7 @@ import { letterboxRect } from "./letterbox.js";
 import { resolveResolution } from "./OutputFormat.js";
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
+import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI } from '../core/theme.js';
 
 // Panel chrome: the header strip plus the 1px border on each edge. The canvas
 // area is whatever is left, and the render is fitted into it.
@@ -908,15 +909,16 @@ async show() {
           position: absolute;
           top: 8px;
           right: 8px;
-          background: rgba(255, 165, 0, 0.9);
-          color: #000;
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 11px;
-          font-weight: bold;
+          background: rgba(245, 165, 36, 0.14);
+          border: 1px solid rgba(245, 165, 36, 0.35);
+          color: #f5a524;
+          padding: 4px 9px;
+          border-radius: 999px;
+          font-family: ${FONT_MONO};
+          font-size: 10px;
+          font-weight: 500;
           z-index: 1000;
           pointer-events: none;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
           animation: pulse 2s ease-in-out infinite;
         `;
         
@@ -958,13 +960,13 @@ async show() {
       right: 20px;
       width: ${panel.width}px;
       height: ${panel.height}px;
-      background: rgba(20, 20, 22, 0.98);
+      background: ${SURFACE.surface};
       /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
       /* backdrop-filter: blur(20px); */
       will-change: transform, opacity;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 12px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      border: 1px solid ${SURFACE.lineStrong};
+      border-radius: 14px;
+      box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.75), 0 4px 16px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 244, 230, 0.06);
       z-index: 500;
       overflow: hidden;
       opacity: 0;
@@ -991,13 +993,13 @@ async show() {
         top: ${this.position.y}px;
         width: ${panel.width}px;
         height: ${panel.height}px;
-        background: rgba(20, 20, 22, 0.98);
+        background: ${SURFACE.surface};
         /* PERFORMANCE: backdrop-filter disabled to prevent periodic FPS drops */
         /* backdrop-filter: blur(20px); */
         will-change: transform, opacity;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 12px;
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+        border: 1px solid ${SURFACE.lineStrong};
+        border-radius: 14px;
+        box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.75), 0 4px 16px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 244, 230, 0.06);
         z-index: 1000;
         overflow: hidden;
         min-width: ${MIN_PANEL_WIDTH}px;
@@ -1014,9 +1016,10 @@ async show() {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 12px;
-      background: rgba(255, 255, 255, 0.05);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0 10px;
+      gap: 9px;
+      background: linear-gradient(rgba(255, 244, 230, 0.05), rgba(255, 244, 230, 0.02));
+      border-bottom: 1px solid ${SURFACE.line};
       cursor: ${this.isDocked ? "default" : "move"};
       user-select: none;
       height: ${headerHeight}px;
@@ -1025,7 +1028,7 @@ async show() {
 
     const title = document.createElement("div");
     title.className = "preview-title";
-    title.style.cssText = "color: #fff; font-size: 13px; font-weight: 600;";
+    title.style.cssText = `color: ${TEXT.primary}; font-family: ${FONT_UI}; font-size: 12.5px; font-weight: 600;`;
 
     const controls = document.createElement("div");
     controls.style.cssText = "display: flex; gap: 4px;";
@@ -1080,7 +1083,7 @@ canvasWrapper.className = "preview-canvas-wrapper";
 canvasWrapper.style.cssText = `
   width: 100%; 
   height: calc(100% - ${headerHeight}px); 
-  background: #000; 
+  background: ${SURFACE.deep}; 
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -1094,13 +1097,14 @@ canvasWrapper.style.cssText = `
       position: absolute;
       top: 8px;
       left: 8px;
-      background: rgba(0, 0, 0, 0.7);
-      color: #00ff88;
+      background: rgba(10, 9, 8, 0.55);
+      backdrop-filter: blur(6px);
+      color: ${ACCENT.base};
       padding: 4px 8px;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 12px;
-      font-weight: bold;
+      border-radius: 7px;
+      font-family: ${FONT_MONO};
+      font-size: 11px;
+      font-weight: 500;
       z-index: 10;
       display: ${this.settings.settings.showFPS ? "block" : "none"};
       pointer-events: none;
@@ -1124,9 +1128,9 @@ canvasWrapper.style.cssText = `
       right: 0;
       width: 16px;
       height: 16px;
-      background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 60%);
+      background: linear-gradient(135deg, transparent 50%, rgba(255,244,230,0.28) 60%);
       cursor: se-resize;
-      border-radius: 0 0 12px 0;
+      border-radius: 0 0 14px 0;
       z-index: 20;
     `;
     canvasWrapper.appendChild(resizeHandle);
@@ -1144,18 +1148,27 @@ canvasWrapper.style.cssText = `
     btn.textContent = text;
     btn.className = className;
     btn.style.cssText = `
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      color: #fff;
+      background: transparent;
+      border: 1px solid transparent;
+      color: ${TEXT.tertiary};
       cursor: pointer;
+      font-family: ${FONT_UI};
       font-size: 10px;
-      padding: 3px 6px;
-      border-radius: 4px;
-      transition: background 0.15s ease;
+      padding: 3px 7px;
+      border-radius: 6px;
+      transition: background 0.15s ease, color 0.15s ease;
     `;
 
-    btn.onmouseenter = () => (btn.style.background = "rgba(255, 255, 255, 0.2)");
-    btn.onmouseleave = () => (btn.style.background = "rgba(255, 255, 255, 0.1)");
+    // Window controls stay near-invisible until pointed at — the render is the
+    // content, the chrome around it should not compete with it.
+    btn.onmouseenter = () => {
+      btn.style.background = SURFACE.hover;
+      btn.style.color = "#ffffff";
+    };
+    btn.onmouseleave = () => {
+      btn.style.background = "transparent";
+      btn.style.color = TEXT.tertiary;
+    };
 
     return btn;
   }

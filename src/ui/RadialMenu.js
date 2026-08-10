@@ -2,6 +2,15 @@
 import { makeNode, NodeDefs } from "../data/NodeDefs.js";
 import { pickAutoConnectInputPin } from "../core/autoConnect.js";
 import { ensureIconSprite } from "./iconSprite.js";
+import {
+  ACCENT,
+  SEMANTIC,
+  SURFACE,
+  TEXT,
+  FONT_UI,
+  categoryColor,
+  withAlpha,
+} from "../core/theme.js";
 
 // Category glyphs for the radial "Add Node" menu come from the shared app sprite
 // (src/assets/icons-sprite.svg, injected by ensureIconSprite). Monoline, 24x24,
@@ -341,14 +350,14 @@ export class RadialMenu {
       "stop",
     );
     stop1.setAttribute("offset", "0%");
-    stop1.setAttribute("stop-color", "#2a2a2a");
+    stop1.setAttribute("stop-color", SURFACE.raised);
 
     const stop2 = document.createElementNS(
       "http://www.w3.org/2000/svg",
       "stop",
     );
     stop2.setAttribute("offset", "100%");
-    stop2.setAttribute("stop-color", "#0a0a0a");
+    stop2.setAttribute("stop-color", SURFACE.deep);
 
     centerGradient.appendChild(stop1);
     centerGradient.appendChild(stop2);
@@ -365,10 +374,10 @@ export class RadialMenu {
     buttonGrad.setAttribute("y2", "100%");
 
     const bStops = [
-      { offset: "0%", color: "#2d2d2d" },
-      { offset: "15%", color: "#252525" },
-      { offset: "85%", color: "#1a1a1a" },
-      { offset: "100%", color: "#0f0f0f" },
+      { offset: "0%", color: "#241d18" },
+      { offset: "15%", color: SURFACE.nodeTop },
+      { offset: "85%", color: SURFACE.nodeBottom },
+      { offset: "100%", color: "#141009" },
     ];
 
     bStops.forEach((stop) => {
@@ -393,10 +402,10 @@ export class RadialMenu {
     pressedGrad.setAttribute("y2", "100%");
 
     const pStops = [
-      { offset: "0%", color: "#0f0f0f" },
-      { offset: "15%", color: "#1a1a1a" },
-      { offset: "85%", color: "#252525" },
-      { offset: "100%", color: "#2d2d2d" },
+      { offset: "0%", color: "#141009" },
+      { offset: "15%", color: SURFACE.nodeBottom },
+      { offset: "85%", color: SURFACE.nodeTop },
+      { offset: "100%", color: "#241d18" },
     ];
 
     pStops.forEach((stop) => {
@@ -429,7 +438,7 @@ export class RadialMenu {
     centerCircle.setAttribute("cy", centerY);
     centerCircle.setAttribute("r", this.innerRadius - 6);
     centerCircle.setAttribute("fill", "url(#centerGrad)");
-    centerCircle.setAttribute("stroke", "rgba(255,255,255,0.1)");
+    centerCircle.setAttribute("stroke", SURFACE.line);
     centerCircle.setAttribute("stroke-width", "2");
     this.svg.appendChild(centerCircle);
 
@@ -478,7 +487,7 @@ export class RadialMenu {
     name.setAttribute("fill", "#ffffff");
     name.setAttribute("font-size", "15");
     name.setAttribute("font-weight", "700");
-    name.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    name.setAttribute("font-family", FONT_UI);
     name.style.pointerEvents = "none";
     name.textContent = defaultName;
     this.svg.appendChild(name);
@@ -492,11 +501,11 @@ export class RadialMenu {
     caption.setAttribute("y", centerY + 14);
     caption.setAttribute("text-anchor", "middle");
     caption.setAttribute("dominant-baseline", "central");
-    caption.setAttribute("fill", "#7d838f");
+    caption.setAttribute("fill", TEXT.faint);
     caption.setAttribute("font-size", "8");
     caption.setAttribute("font-weight", "500");
     caption.setAttribute("letter-spacing", "0.16em");
-    caption.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    caption.setAttribute("font-family", FONT_UI);
     caption.style.pointerEvents = "none";
     caption.textContent = this.expandedCategory ? "SELECT NODE" : "CATEGORY";
     this.svg.appendChild(caption);
@@ -523,8 +532,8 @@ export class RadialMenu {
     helpBg.setAttribute("width", "360");
     helpBg.setAttribute("height", "50");
     helpBg.setAttribute("rx", "8");
-    helpBg.setAttribute("fill", "rgba(20,20,20,0.5)");
-    helpBg.setAttribute("stroke", "rgba(80,80,80,0.3)");
+    helpBg.setAttribute("fill", "rgba(16,13,11,0.72)");
+    helpBg.setAttribute("stroke", SURFACE.line);
     helpBg.setAttribute("stroke-width", "1");
     this.svg.appendChild(helpBg);
 
@@ -536,10 +545,10 @@ export class RadialMenu {
     helpText.setAttribute("y", boxY);
     helpText.setAttribute("text-anchor", "middle");
     helpText.setAttribute("dominant-baseline", "middle");
-    helpText.setAttribute("fill", "#999999");
+    helpText.setAttribute("fill", TEXT.tertiary);
     helpText.setAttribute("font-size", "11");
     helpText.setAttribute("font-weight", "400");
-    helpText.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    helpText.setAttribute("font-family", FONT_UI);
     helpText.style.pointerEvents = "none";
     helpText.textContent =
       "Type to search • Arrows to navigate • Enter to select • ESC/← to go back";
@@ -556,8 +565,8 @@ export class RadialMenu {
     searchBg.setAttribute("width", "160");
     searchBg.setAttribute("height", "30");
     searchBg.setAttribute("rx", "15");
-    searchBg.setAttribute("fill", "#1a1a1a");
-    searchBg.setAttribute("stroke", "rgba(255,255,255,0.4)");
+    searchBg.setAttribute("fill", SURFACE.well);
+    searchBg.setAttribute("stroke", withAlpha(ACCENT.base, 0.45));
     searchBg.setAttribute("stroke-width", "2");
     this.svg.appendChild(searchBg);
 
@@ -572,7 +581,7 @@ export class RadialMenu {
     searchText.setAttribute("fill", "#ffffff");
     searchText.setAttribute("font-size", "14");
     searchText.setAttribute("font-weight", "600");
-    searchText.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    searchText.setAttribute("font-family", FONT_UI);
     searchText.textContent = `Search: ${this.searchTerm}`;
     this.svg.appendChild(searchText);
   }
@@ -588,9 +597,9 @@ export class RadialMenu {
       noResults.setAttribute("x", centerX);
       noResults.setAttribute("y", centerY + 50);
       noResults.setAttribute("text-anchor", "middle");
-      noResults.setAttribute("fill", "#888");
+      noResults.setAttribute("fill", TEXT.tertiary);
       noResults.setAttribute("font-size", "16");
-      noResults.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+      noResults.setAttribute("font-family", FONT_UI);
       noResults.textContent = "No results found";
       this.svg.appendChild(noResults);
       return;
@@ -615,16 +624,16 @@ export class RadialMenu {
         segmentEndAngle,
       );
 
-      const categoryColor = this._getSubmenuBgColor(nodeItem.category);
+      const wedgeColor = this._getSubmenuBgColor(nodeItem.category);
       segment.setAttribute(
         "fill",
         isSelected
           ? this._getSubmenuHoverColor(nodeItem.category)
-          : categoryColor,
+          : wedgeColor,
       );
       segment.setAttribute(
         "stroke",
-        isSelected ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.3)",
+        isSelected ? ACCENT.base : SURFACE.line,
       );
       segment.setAttribute("stroke-width", isSelected ? "3" : "2");
       segment.style.cursor = "pointer";
@@ -651,7 +660,7 @@ export class RadialMenu {
       label.setAttribute("fill", "#ffffff");
       label.setAttribute("font-size", "14");
       label.setAttribute("font-weight", isSelected ? "700" : "600");
-      label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+      label.setAttribute("font-family", FONT_UI);
       label.style.pointerEvents = "none";
       label.textContent = nodeItem.label;
       this.svg.appendChild(label);
@@ -662,10 +671,10 @@ export class RadialMenu {
         badge.setAttribute("y", labelY + 13);
         badge.setAttribute("text-anchor", "middle");
         badge.setAttribute("dominant-baseline", "central");
-        badge.setAttribute("fill", "#7eb8f7");
+        badge.setAttribute("fill", SEMANTIC.info);
         badge.setAttribute("font-size", "9");
         badge.setAttribute("font-weight", "600");
-        badge.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+        badge.setAttribute("font-family", FONT_UI);
         badge.style.pointerEvents = "none";
         badge.textContent = "GPU";
         this.svg.appendChild(badge);
@@ -712,7 +721,7 @@ export class RadialMenu {
       );
       segment.setAttribute(
         "stroke",
-        isSelected ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.4)",
+        isSelected ? ACCENT.base : "rgba(0,0,0,0.35)",
       );
       segment.setAttribute("stroke-width", isSelected ? "3" : "2");
       segment.style.cursor = "pointer";
@@ -777,7 +786,7 @@ export class RadialMenu {
         );
         label.setAttribute("font-size", "11");
         label.setAttribute("font-weight", "600");
-        label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+        label.setAttribute("font-family", FONT_UI);
         label.style.pointerEvents = "none";
         label.textContent = category.name;
         this.svg.appendChild(label);
@@ -823,7 +832,7 @@ export class RadialMenu {
       );
       segment.setAttribute(
         "stroke",
-        isSelected ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.5)",
+        isSelected ? ACCENT.base : "rgba(0,0,0,0.45)",
       );
       segment.setAttribute("stroke-width", isSelected ? "3" : "2");
       segment.style.cursor = "pointer";
@@ -847,10 +856,10 @@ export class RadialMenu {
       label.setAttribute("y", labelY);
       label.setAttribute("text-anchor", "middle");
       label.setAttribute("dominant-baseline", "central");
-      label.setAttribute("fill", isSelected ? "#ffffff" : "#dddddd");
+      label.setAttribute("fill", isSelected ? "#ffffff" : TEXT.secondary);
       label.setAttribute("font-size", "14");
       label.setAttribute("font-weight", isSelected ? "700" : "500");
-      label.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+      label.setAttribute("font-family", FONT_UI);
       label.style.pointerEvents = "none";
       label.textContent = nodeItem.label;
       this.svg.appendChild(label);
@@ -861,10 +870,10 @@ export class RadialMenu {
         badge.setAttribute("y", labelY + 13);
         badge.setAttribute("text-anchor", "middle");
         badge.setAttribute("dominant-baseline", "central");
-        badge.setAttribute("fill", "#7eb8f7");
+        badge.setAttribute("fill", SEMANTIC.info);
         badge.setAttribute("font-size", "9");
         badge.setAttribute("font-weight", "600");
-        badge.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+        badge.setAttribute("font-family", FONT_UI);
         badge.style.pointerEvents = "none";
         badge.textContent = "GPU";
         this.svg.appendChild(badge);
@@ -950,8 +959,8 @@ export class RadialMenu {
     bg.setAttribute("cx", x);
     bg.setAttribute("cy", y);
     bg.setAttribute("r", "12");
-    bg.setAttribute("fill", "#1a1a1a");
-    bg.setAttribute("stroke", "rgba(255,255,255,0.2)");
+    bg.setAttribute("fill", SURFACE.raised);
+    bg.setAttribute("stroke", SURFACE.lineStrong);
     bg.setAttribute("stroke-width", "2");
 
     const arrow = document.createElementNS(
@@ -962,10 +971,10 @@ export class RadialMenu {
     arrow.setAttribute("y", y + 2);
     arrow.setAttribute("text-anchor", "middle");
     arrow.setAttribute("dominant-baseline", "middle");
-    arrow.setAttribute("fill", "#c0c0c0");
+    arrow.setAttribute("fill", TEXT.secondary);
     arrow.setAttribute("font-size", "14");
     arrow.setAttribute("font-weight", "600");
-    arrow.setAttribute("font-family", "Inter, -apple-system, sans-serif");
+    arrow.setAttribute("font-family", FONT_UI);
     arrow.style.pointerEvents = "none";
     arrow.textContent = text;
 
@@ -1000,61 +1009,20 @@ export class RadialMenu {
     this._renderMenu();
   }
 
+  // Node IDENTITY colours, shared with the canvas renderer and the chrome — a
+  // category's ring here is the same colour as the spine on the node it makes.
   _getCategoryColor(categoryName) {
-    return (
-      {
-        Transform: "#0f766e",
-        Input: "#1e40af",
-        Output: "#92400e",
-        Math: "#991b1b",
-        Vector: "#7c2d12",
-        Generators: "#047857",
-        Modifiers: "#c2410c",
-        Effects: "#9333ea",
-        Simulation: "#0891b2",
-        Utility: "#581c87",
-        Blend: "#be185d",
-        Texture: "#4338ca",
-      }[categoryName] || "#374151"
-    );
+    return categoryColor(categoryName);
   }
 
+  // The wedge behind a node name: its family's colour at low alpha, so the ring
+  // reads as one tinted surface rather than twelve saturated blocks.
   _getSubmenuBgColor(categoryName) {
-    return (
-      {
-        Transform: "#134e4a",
-        Input: "#1e3a8a",
-        Output: "#78350f",
-        Math: "#7f1d1d",
-        Vector: "#431407",
-        Generators: "#064e3b",
-        Modifiers: "#9a3412",
-        Effects: "#6b21a8",
-        Simulation: "#0e7490",
-        Utility: "#4c1d95",
-        Blend: "#9f1239",
-        Texture: "#3730a3",
-      }[categoryName] || "#2d3748"
-    );
+    return withAlpha(categoryColor(categoryName), 0.16);
   }
 
   _getSubmenuHoverColor(categoryName) {
-    return (
-      {
-        Transform: "#0d9488",
-        Input: "#2563eb",
-        Output: "#a16207",
-        Math: "#b91c1c",
-        Vector: "#9a3412",
-        Generators: "#065f46",
-        Modifiers: "#ea580c",
-        Effects: "#a855f7",
-        Simulation: "#06b6d4",
-        Utility: "#6d28d9",
-        Blend: "#db2777",
-        Texture: "#4f46e5",
-      }[categoryName] || "#374151"
-    );
+    return withAlpha(categoryColor(categoryName), 0.32);
   }
 
 _createNode(kind) {

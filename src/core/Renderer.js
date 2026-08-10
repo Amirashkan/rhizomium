@@ -18,6 +18,18 @@ import {
 } from "./pinLayout.js";
 import { nodeDisplayName } from "./nodeName.js";
 import {
+  ACCENT,
+  NODE_STYLE,
+  SEMANTIC,
+  SURFACE,
+  TEXT,
+  categoryColor,
+  typeColor,
+  withAlpha,
+  FONT_UI,
+  FONT_MONO,
+} from "./theme.js";
+import {
   getDynamicInputSpec,
   getInputCount,
   getInputLabel,
@@ -39,6 +51,10 @@ const OUT_NAME_GAP = 6;
 // only this far — past it the title is drawn ellipsized instead, so one long name can't inflate a
 // node until it covers its neighbours.
 const MAX_TITLE_W = 220;
+
+// Wire weight. Wires are the one thing on the canvas that must stay readable at every zoom level,
+// so they are drawn a touch heavier than the hairlines around them.
+const WIRE_WIDTH = 2.5;
 
 export class Renderer {
   constructor(ctx, viewport, schedulerConfig = null) {
@@ -352,45 +368,38 @@ export class Renderer {
     
     const gridCtx = this._gridCtx;
     gridCtx.clearRect(0, 0, tileSizePixels, tileSizePixels);
-    
-    // Draw grid lines on the tile (in screen pixels)
-    const drawLines = (spacing, alpha) => {
+
+    // A dot grid, not a line grid: dots mark the snap positions without drawing a cage around
+    // every node. Minor dots sit on each snap step; every fifth intersection gets a brighter dot so
+    // the eye can still count distance across a large patch.
+    const drawDots = (spacing, radius, alpha) => {
       if (!Number.isFinite(spacing) || spacing < 4) {
         return;
       }
 
+      gridCtx.fillStyle = `rgba(255, 240, 220, ${alpha})`;
       gridCtx.beginPath();
-      gridCtx.lineWidth = 1;
-      gridCtx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-
-      // Vertical lines
-      for (let x = 0; x <= tileSizePixels; x += spacing) {
-        const px = Math.round(x) + 0.5;
-        gridCtx.moveTo(px, 0);
-        gridCtx.lineTo(px, tileSizePixels);
-      }
-
-      // Horizontal lines
       for (let y = 0; y <= tileSizePixels; y += spacing) {
-        const py = Math.round(y) + 0.5;
-        gridCtx.moveTo(0, py);
-        gridCtx.lineTo(tileSizePixels, py);
+        for (let x = 0; x <= tileSizePixels; x += spacing) {
+          const px = Math.round(x) + 0.5;
+          const py = Math.round(y) + 0.5;
+          gridCtx.moveTo(px + radius, py);
+          gridCtx.arc(px, py, radius, 0, Math.PI * 2);
+        }
       }
-
-      gridCtx.stroke();
+      gridCtx.fill();
     };
 
-    // Draw both minor and major grid lines
-    drawLines(minorSpacing, 0.025);
-    drawLines(majorSpacing, 0.07);
-    
+    drawDots(minorSpacing, 1, 0.06);
+    drawDots(majorSpacing, 1.4, 0.11);
+
     // Store tile size in world space for drawing
     this._gridTileSizeWorld = tileSizePixels / scale;
   }
 
   _renderConnections(connections, nodeMap) {
     const ctx = this.ctx;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = WIRE_WIDTH;
 
     // PERFORMANCE: Always enable viewport culling - it's a real optimization
     // Only skips connections that are completely off-screen, improving performance significantly
@@ -506,9 +515,11 @@ export class Renderer {
 
     ctx.save();
 
-    // Use a barely visible dashed line style
+    // Barely visible, and violet rather than a data-type colour: a parameter reference is not a
+    // wire, so it must not read like one. Violet is the same tone bound/expression parameters use
+    // in the parameter panel.
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(150, 150, 200, 0.3)'; // Subtle purple-blue
+    ctx.strokeStyle = withAlpha(SEMANTIC.audio, 0.3);
     ctx.lineWidth = 1;
 
     // Draw a straight line (not Bezier) for parameter references
@@ -559,9 +570,14 @@ export class Renderer {
 
     const color = this._getWireColor(srcType);
 
+    // A wire being dragged has no destination yet, so it is drawn dashed — the same "dangling"
+    // treatment the design gives an unresolved connection. It goes solid the moment it lands.
+    ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = WIRE_WIDTH;
+    ctx.setLineDash([7, 5]);
     this._drawBezierCurve(fromPos.x, fromPos.y, dragWire.pos.x, dragWire.pos.y);
+    ctx.restore();
   }
 
   _renderNodes(nodes, selection) {
@@ -588,9 +604,12 @@ export class Renderer {
     // PERFORMANCE: Pre-calculate font strings once for all nodes
     const currentScale = this.viewport.scale;
     if (this._cachedFonts.lastScale !== currentScale) {
-      this._cachedFonts.nodeLabel = `${Math.max(10, 12 / currentScale)}px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`;
-      this._cachedFonts.nodeId = `${Math.max(8, 9 / currentScale)}px monospace`;
-      this._cachedFonts.pinLabel = `${Math.max(8, 9 / currentScale)}px ui-monospace, Consolas, monospace`;
+      // Titles are the UI face at 600; ids, pin labels and value tags are mono — the same split the
+      // chrome uses (see src/styles/tokens.css), so a value reads the same on the canvas as it does
+      // in the parameter panel.
+      this._cachedFonts.nodeLabel = `600 ${Math.max(10, 12 / currentScale)}px ${FONT_UI}`;
+      this._cachedFonts.nodeId = `${Math.max(8, 9 / currentScale)}px ${FONT_MONO}`;
+      this._cachedFonts.pinLabel = `${Math.max(8, 9 / currentScale)}px ${FONT_MONO}`;
       this._cachedFonts.lastScale = currentScale;
     }
     
@@ -623,35 +642,89 @@ export class Renderer {
     // Size the box to the shared node anatomy (header → optional preview band → fixed socket rows).
     this._ensureNodeSize(node);
 
-    // PERFORMANCE: Use solid color instead of gradient for better performance
-    // Gradients are expensive to create and render. Solid color looks almost identical.
-    ctx.fillStyle = "#252525"; // Use middle gradient color
-    // Bypassed nodes get an amber outline so it's clear their processing is skipped.
-    ctx.strokeStyle = isSelected ? "#66aaff" : (node.bypassed ? "#ffaa00" : "#404040");
-    ctx.lineWidth = (isSelected || node.bypassed) ? 2 : 1;
+    const R = NODE_STYLE.radius;
+    const cat = this._getCategoryColor(NodeDefs[node.kind]?.cat || "default");
 
-    // Draw the main node rectangle
+    // The card. A vertical gradient rather than a flat fill: it is what separates the node from the
+    // warm-charcoal canvas without needing a bright border to do it. Cached per size so the frame
+    // cost stays a lookup — createLinearGradient every node every frame is measurable at 100+ nodes.
+    ctx.fillStyle = this._nodeBodyGradient(node);
     ctx.beginPath();
-    ctx.roundRect(node.x, node.y, node.w, node.h, 8);
+    ctx.roundRect(node.x, node.y, node.w, node.h, R);
     ctx.fill();
+
+    // The category spine: 3px of identity colour down the card's left edge, clipped to the card so
+    // it follows the rounded corners instead of squaring them off.
+    ctx.save();
+    ctx.clip();
+    ctx.globalAlpha = node.bypassed ? 0.5 : 0.85;
+    ctx.fillStyle = cat;
+    ctx.fillRect(node.x, node.y, NODE_STYLE.spineWidth, node.h);
+    ctx.globalAlpha = 1;
+
+    // Header band, drawn inside the same clip so it can't overhang the corners. A bypassed node
+    // tints its header amber; otherwise it is the faintest lift off the body.
+    ctx.fillStyle = node.bypassed
+      ? withAlpha(SEMANTIC.warn, 0.06)
+      : "rgba(255, 244, 230, 0.035)";
+    ctx.fillRect(node.x, node.y, node.w, HEADER_H);
+    ctx.restore();
+
+    // Hairline under the header.
+    ctx.strokeStyle = "rgba(255, 244, 230, 0.07)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(node.x, node.y + HEADER_H + 0.5);
+    ctx.lineTo(node.x + node.w, node.y + HEADER_H + 0.5);
     ctx.stroke();
 
-    // PERFORMANCE: Simplified selected node highlight - no expensive shadow operations
-    if (isSelected) {
-      ctx.strokeStyle = "rgba(102, 170, 255, 0.5)";
+    // Border. Bypassed nodes keep their dashed amber outline (processing is skipped); everything
+    // else is a hairline.
+    ctx.save();
+    if (node.bypassed) {
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = withAlpha(SEMANTIC.warn, 0.45);
+      ctx.lineWidth = 1.5;
+    } else {
+      ctx.strokeStyle = "rgba(255, 244, 230, 0.09)";
       ctx.lineWidth = 1;
+    }
+    ctx.beginPath();
+    ctx.roundRect(node.x, node.y, node.w, node.h, R);
+    ctx.stroke();
+    ctx.restore();
+
+    // Selection is lime and independent of category — a selected Noise node and a selected Output
+    // node ring identically, so the ring always means "this is what the parameter panel is editing".
+    if (isSelected) {
+      ctx.strokeStyle = ACCENT.base;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.roundRect(node.x + 1, node.y + 1, node.w - 2, node.h - 2, 7);
+      ctx.roundRect(node.x - 1, node.y - 1, node.w + 2, node.h + 2, R + 1);
+      ctx.stroke();
+
+      // A single soft outer pass stands in for the design's 30px glow. Canvas shadows are far too
+      // expensive to turn on per node per frame, so this is a cheap second stroke instead.
+      ctx.strokeStyle = withAlpha(ACCENT.base, 0.22);
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.roundRect(node.x - 3, node.y - 3, node.w + 6, node.h + 6, R + 3);
       ctx.stroke();
     }
 
-    // Draw node category indicator (small colored bar on the left)
-    const categoryColor = this._getCategoryColor(
-      NodeDefs[node.kind]?.cat || "default",
+    // The category dot: identity, restated where the eye lands first.
+    ctx.fillStyle = cat;
+    ctx.globalAlpha = node.bypassed ? 0.6 : 1;
+    ctx.beginPath();
+    ctx.arc(
+      node.x + TITLE_X_INSET - 9,
+      node.y + HEADER_H / 2,
+      NODE_STYLE.headerDot,
+      0,
+      Math.PI * 2,
     );
-    // Left accent bar (4px) carries the node's category colour — the full-height edge marker.
-    ctx.fillStyle = categoryColor;
-    ctx.fillRect(node.x, node.y + 8, 4, node.h - 16);
+    ctx.fill();
+    ctx.globalAlpha = 1;
 
     // The node ID (drawn below) is right-aligned just left of the control buttons; measure it first
     // so the title knows how much header room is left over for it.
@@ -665,7 +738,7 @@ export class Renderer {
     // Clipped to the space left of the #id so a long name is ellipsized rather than drawn through
     // the id and the control chips.
     // PERFORMANCE: Use cached font string
-    ctx.fillStyle = "#e8e8e8";
+    ctx.fillStyle = node.bypassed ? TEXT.secondary : TEXT.primary;
     ctx.font = this._cachedFonts.nodeLabel;
     const titleX = node.x + TITLE_X_INSET;
     const titleMaxW = Math.max(0, idRight - idW - 8 - titleX);
@@ -693,7 +766,7 @@ export class Renderer {
     // Draw node ID (for referencing in expressions) in the title bar. Keeping it on the title row
     // (not the bottom) avoids colliding with the last output pin / its value tag on multi-output
     // nodes. Baseline matches the label and buttons.
-    ctx.fillStyle = "#888";
+    ctx.fillStyle = TEXT.faint;
     ctx.font = this._cachedFonts.nodeId;
     ctx.fillText(idText, idRight - idW, node.y + 18);
 
@@ -705,6 +778,25 @@ export class Renderer {
 
     // PERFORMANCE: Removed expensive drop shadow - it requires creating a whole extra shape
     // The visual difference is minimal and the performance cost is significant
+  }
+
+  // The node card's vertical body gradient (warm charcoal, light at the top).
+  //
+  // Canvas gradients are defined in user space, so one gradient can't be reused at a different y —
+  // hence the cache key. Node coordinates are WORLD coordinates, so panning and zooming leave them
+  // untouched and only an actually-moved node misses; the map is bounded so a long drag session
+  // can't grow it without limit.
+  _nodeBodyGradient(node) {
+    const key = `${node.y}_${node.h}`;
+    let grad = this._gradientCache.get(key);
+    if (!grad) {
+      if (this._gradientCache.size > 512) this._gradientCache.clear();
+      grad = this.ctx.createLinearGradient(0, node.y, 0, node.y + node.h);
+      grad.addColorStop(0, SURFACE.nodeTop);
+      grad.addColorStop(1, SURFACE.nodeBottom);
+      this._gradientCache.set(key, grad);
+    }
+    return grad;
   }
 
   // Shorten `text` with a trailing ellipsis until it fits `maxWidth` in the context's current font.
@@ -749,49 +841,40 @@ export class Renderer {
     // PERFORMANCE: Use cached font string
     ctx.font = this._cachedFonts.pinLabel;
 
+    // Each chip is a rounded well that only lights up when its state is ON: bypass in amber,
+    // preview in the accent lime. Off chips stay near-invisible so a row of them reads as chrome
+    // rather than as three competing indicators.
+    const chip = (x, glyph, tint, on, disabled) => {
+      ctx.fillStyle = on ? withAlpha(tint, 0.14) : SURFACE.fillSoft;
+      ctx.beginPath();
+      ctx.roundRect(x - 1, controlY - 8, buttonWidth, buttonHeight, 4);
+      ctx.fill();
+
+      ctx.fillStyle = disabled ? TEXT.disabled : on ? tint : TEXT.tertiary;
+      ctx.fillText(glyph, x + 3, controlY - 1);
+    };
+
     // Button 1: Bypass node - "X" (amber when the node is bypassed)
     const hideX = node.x + node.w - 65;
     const bypassed = !!node.bypassed;
-
-    ctx.fillStyle = bypassed
-      ? "rgba(255, 170, 0, 0.35)"
-      : "rgba(68, 68, 68, 0.3)";
-    ctx.beginPath();
-    ctx.roundRect(hideX - 1, controlY - 8, buttonWidth, buttonHeight, 2);
-    ctx.fill();
-
-    ctx.fillStyle = bypassed ? "#ffaa00" : "#888";
-    ctx.fillText("X", hideX + 3, controlY - 1);
+    chip(hideX, "X", SEMANTIC.warn, bypassed, false);
 
     // Button 2: Preview toggle - "•" when on, "○" when off
     const eyeX = node.x + node.w - 45;
-
-    ctx.fillStyle = isPreviewEnabled
-      ? "rgba(0, 255, 136, 0.2)"
-      : "rgba(68, 68, 68, 0.3)";
-    ctx.beginPath();
-    ctx.roundRect(eyeX - 1, controlY - 8, buttonWidth, buttonHeight, 2);
-    ctx.fill();
-
-    ctx.fillStyle = isPreviewEnabled ? "#00ff88" : "#666";
-    ctx.fillText(isPreviewEnabled ? "•" : "○", eyeX + 3, controlY - 1);
+    chip(
+      eyeX,
+      isPreviewEnabled ? "•" : "○",
+      ACCENT.base,
+      isPreviewEnabled,
+      false,
+    );
 
     // Button 3: Size cycle - "S/M/L" (disabled when preview off)
     const sizeX = node.x + node.w - 25;
     const currentSize = editor.nodePreviews.get(node.id)?.size || "large";
     const sizeLabel =
       currentSize === "small" ? "S" : currentSize === "medium" ? "M" : "L";
-    const sizeDisabled = !isPreviewEnabled;
-
-    ctx.fillStyle = sizeDisabled
-      ? "rgba(40, 40, 40, 0.3)"
-      : "rgba(68, 68, 68, 0.3)";
-    ctx.beginPath();
-    ctx.roundRect(sizeX - 1, controlY - 8, buttonWidth, buttonHeight, 2);
-    ctx.fill();
-
-    ctx.fillStyle = sizeDisabled ? "#333" : "#888";
-    ctx.fillText(sizeLabel, sizeX + 3, controlY - 1);
+    chip(sizeX, sizeLabel, ACCENT.base, false, !isPreviewEnabled);
 
     ctx.restore();
   }
@@ -823,24 +906,24 @@ export class Renderer {
 
     ctx.save();
 
-    // Enhanced thumbnail background with better contrast
-    ctx.fillStyle = "#000000"; // Darker background for better contrast
-    ctx.strokeStyle = "#555"; // Brighter border for visibility
-    ctx.lineWidth = 2; // Thicker border for clarity
+    // The band sits on the card as a recessed well: a near-black bed with a hairline, no heavy
+    // border. The render itself is the only bright thing in the node, so nothing should compete
+    // with it for attention.
+    const tr = NODE_STYLE.previewRadius;
+    ctx.fillStyle = SURFACE.deep;
     ctx.beginPath();
-    ctx.roundRect(thumbX - 2, thumbY - 2, thumbW + 4, thumbH + 4, 6);
+    ctx.roundRect(thumbX - 1, thumbY - 1, thumbW + 2, thumbH + 2, tr);
     ctx.fill();
-    ctx.stroke();
 
     // Clip to the band so the thumbnail content can't spill past the rounded corners.
     ctx.save();
     ctx.beginPath();
-    ctx.roundRect(thumbX, thumbY, thumbW, thumbH, 4);
+    ctx.roundRect(thumbX, thumbY, thumbW, thumbH, tr - 1);
     ctx.clip();
 
     // Fill the band black first so any area the (aspect-preserved) thumbnail doesn't cover shows as
     // a clean letterbox/pillarbox instead of a stretched image.
-    ctx.fillStyle = "#000000";
+    ctx.fillStyle = SURFACE.deep;
     ctx.fillRect(thumbX, thumbY, thumbW, thumbH);
 
     // Enable smooth scaling for high-quality thumbnails
@@ -886,11 +969,11 @@ export class Renderer {
     }
     ctx.restore(); // drop the band clip
 
-    // Enhanced inner border for better visibility
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+    // Hairline around the band, matching the card's own border weight.
+    ctx.strokeStyle = "rgba(255, 244, 230, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(thumbX, thumbY, thumbW, thumbH, 4);
+    ctx.roundRect(thumbX, thumbY, thumbW, thumbH, tr - 1);
     ctx.stroke();
 
     // ENHANCEMENT: Display numeric value overlay for scalar outputs (including audio envelope)
@@ -928,7 +1011,7 @@ export class Renderer {
 
     // Calculate font size based on the preview band height
     const fontSize = Math.max(8, Math.min(thumbH * 0.3, 14));
-    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.font = `600 ${fontSize}px ${FONT_MONO}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
 
@@ -942,12 +1025,14 @@ export class Renderer {
     const bgWidth = textWidth + padding * 2;
     const bgHeight = textHeight + padding * 2;
 
-    // Semi-transparent dark background for text
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+    // Semi-transparent dark background for text — the design's "glass chip" over a live render.
+    ctx.fillStyle = "rgba(10, 8, 7, 0.62)";
+    ctx.beginPath();
+    ctx.roundRect(bgX, bgY, bgWidth, bgHeight, 4);
+    ctx.fill();
 
     // Draw text with high contrast
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = TEXT.primary;
     ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
     ctx.shadowBlur = 2;
     ctx.fillText(displayText, thumbX + thumbW / 2, thumbY + thumbH - padding);
@@ -971,9 +1056,8 @@ export class Renderer {
       const pinType = NodeDefs[node.kind]?.pinsOut?.[i]?.type || "default";
       const pinColor = this._getWireColor(pinType);
 
-      // PERFORMANCE: Simplified pin rendering - removed expensive shadow operations
-      ctx.fillStyle = pinColor;
-      this._drawEnhancedPin(pos.x, pos.y, 5, "output");
+      // A source port is always live, so it draws solid in its data-type colour.
+      this._drawPort(pos.x, pos.y, NODE_STYLE.portRadius, pinColor, true);
 
       // The value tag reports where the pin's width ends so the name can be placed just left of it,
       // right-aligned on the same row: `name  value ●`. 0 means no tag was drawn this frame (previews
@@ -984,18 +1068,18 @@ export class Renderer {
 
     // Render input pins with enhanced styling
     for (const [i, pos] of inputPins.entries()) {
-      const connected = node.inputs && node.inputs[i];
-      // PERFORMANCE: Simplified pin rendering - removed expensive shadow operations
-      const pinColor = connected ? "#ff7a7a" : "#444";
-      ctx.fillStyle = pinColor;
-      this._drawEnhancedPin(pos.x, pos.y, 4, "input");
+      const connected = !!(node.inputs && node.inputs[i]);
+      // Inputs carry the same data-type colour as outputs, but an unconnected one is drawn hollow:
+      // the colour says what the socket ACCEPTS, and being filled says something is arriving.
+      const pinColor = this._getWireColor(this._inputPinType(node, i));
+      this._drawPort(pos.x, pos.y, NODE_STYLE.portRadiusIn, pinColor, connected);
 
       // Input label sits INSIDE the node, just right of its port and centred on the same row — so
       // port ↔ label stay locked together on the socket grid (mirrors the output value tag on the
       // right). A connected input is dimmer since its wire already identifies it.
       const inputLabel = this._inputLabel(node, i);
       if (inputLabel) {
-        ctx.fillStyle = connected ? "#777" : "#9b9ca3";
+        ctx.fillStyle = connected ? TEXT.tertiary : TEXT.secondary;
         ctx.font = this._cachedFonts.pinLabel;
         ctx.textAlign = "left";
         ctx.fillText(inputLabel, pos.x + 10, pos.y + 3);
@@ -1021,12 +1105,12 @@ export class Renderer {
     const { add, remove } = dynamicInputButtons(node, inCount, outCount, previewH);
 
     const chip = (rect, glyph, enabled) => {
-      ctx.fillStyle = enabled ? "rgba(68, 68, 68, 0.45)" : "rgba(40, 40, 40, 0.3)";
+      ctx.fillStyle = enabled ? SURFACE.hover : SURFACE.fillSoft;
       ctx.beginPath();
-      ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 2);
+      ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 4);
       ctx.fill();
 
-      ctx.fillStyle = enabled ? "#9b9ca3" : "#3a3a3a";
+      ctx.fillStyle = enabled ? TEXT.secondary : TEXT.disabled;
       ctx.fillText(glyph, rect.x + rect.w / 2, rect.y + rect.h - 3);
     };
 
@@ -1038,26 +1122,39 @@ export class Renderer {
     ctx.restore();
   }
 
-  _drawEnhancedPin(x, y, radius, _type) {
+  /**
+   * A port on the card edge: a disc in the pin's data-type colour with a 2px ring of node-body
+   * colour punched out of its rim, so the dot reads as a socket set INTO the card rather than a
+   * bead sitting on top of it. `live` (a connected input, or any output) draws at full strength and
+   * adds a soft halo; an unconnected input is drawn faint — the colour still says what the socket
+   * accepts, the strength says whether anything is arriving.
+   */
+  _drawPort(x, y, radius, color, live) {
     const ctx = this.ctx;
 
-    // Outer ring
-    ctx.beginPath();
-    ctx.arc(x, y, radius + 1, 0, Math.PI * 2);
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    if (live) {
+      // Stand-in for the design's 8px type-coloured glow — one extra stroke instead of a canvas
+      // shadow, which would cost a GPU composite per port per frame.
+      ctx.strokeStyle = withAlpha(color, 0.28);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
-    // Main pin
+    ctx.globalAlpha = live ? 1 : 0.45;
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1;
 
-    // Inner highlight
-    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    // The inset ring.
+    ctx.strokeStyle = NODE_STYLE.portRing;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(x - 1, y - 1, radius * 0.4, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(x, y, radius - 1, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   // Draws the live value tag for one output pin. Returns the drawn tag's width so the caller can
@@ -1232,12 +1329,14 @@ export class Renderer {
     // inside-and-right-aligned keeps each value visually attached to its pin and clear of the wire.
     const boxX = pinPos.x - 6 - textWidth;
 
-    // PERFORMANCE: Use solid color instead of gradient for better performance
-    ctx.fillStyle = "rgba(20, 20, 25, 0.95)";
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+    // The tag is a field well, tinted by the pin's data type at low alpha — the same "type badge"
+    // treatment the chrome uses (14%-alpha background, full-strength text).
+    const tagTint = this._getWireColor(pinType);
+    ctx.fillStyle = withAlpha(tagTint, 0.12);
+    ctx.strokeStyle = withAlpha(tagTint, 0.22);
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(boxX, pinPos.y - 8, textWidth, 12, 3);
+    ctx.roundRect(boxX, pinPos.y - 8, textWidth, 12, 5);
     ctx.fill();
     ctx.stroke();
 
@@ -1267,7 +1366,7 @@ export class Renderer {
     ctx.save();
     // Dimmer than the type-coloured value tag: the name identifies the pin, the value is what you
     // watch. With no tag this frame, right-align against the port instead.
-    ctx.fillStyle = "#9b9ca3";
+    ctx.fillStyle = TEXT.secondary;
     ctx.font = this._cachedFonts.pinLabel;
     ctx.textAlign = "right";
     const rightX = tagW ? pinPos.x - 6 - tagW - OUT_NAME_GAP : pinPos.x - 10;
@@ -1293,9 +1392,15 @@ export class Renderer {
     ctx.setLineDash([]);
     ctx.shadowColor = "transparent";
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "#66aaff";
+    ctx.strokeStyle = ACCENT.base;
     ctx.beginPath();
-    ctx.roundRect(node.x - 2, node.y - 2, node.w + 4, node.h + 4, 10);
+    ctx.roundRect(
+      node.x - 2,
+      node.y - 2,
+      node.w + 4,
+      node.h + 4,
+      NODE_STYLE.radius + 2,
+    );
     ctx.stroke();
     ctx.restore();
   }
@@ -1309,8 +1414,8 @@ export class Renderer {
 
     ctx.save();
     ctx.setLineDash([8, 4]);
-    ctx.strokeStyle = "#66aaff";
-    ctx.fillStyle = "rgba(102, 170, 255, 0.08)";
+    ctx.strokeStyle = ACCENT.base;
+    ctx.fillStyle = withAlpha(ACCENT.base, 0.08);
     ctx.lineWidth = 1.5;
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
@@ -1325,6 +1430,16 @@ export class Renderer {
   // from the node's dynamic-input spec — see data/nodeInputs.js.
   _inputLabel(node, i) {
     return getInputLabel(node, i);
+  }
+
+  // An input pin's declared data type, used to colour its port. Most pinsIn entries are plain label
+  // strings with no type at all, and pins added past the definition's list (the "+" chip) have no
+  // entry — both fall back to "default", which draws neutral rather than claiming a type the node
+  // never declared.
+  _inputPinType(node, i) {
+    const entry = NodeDefs[node.kind]?.pinsIn?.[i];
+    if (entry && typeof entry === "object" && entry.type) return entry.type;
+    return "default";
   }
 
   // An output pin's display name. pinsOut entries are either a plain string ("Texture") or the object
@@ -1463,39 +1578,17 @@ export class Renderer {
     return outputPins[pinIndex] || null;
   }
 
+  // The live-signal colour for a pin type: what wires, ports and value tags are painted with.
+  // See src/core/theme.js — this is deliberately a different system from the category colours
+  // below, so a wire never tells you what KIND of node it left, only what it carries.
   _getWireColor(type) {
-    switch (type) {
-      case "f32":
-        return "#ffd166"; // Yellow for floats
-      case "vec2":
-        return "#40c9b4"; // Teal for vec2
-      case "vec3":
-        return "#d06bff"; // Purple for vec3
-      case "vec4":
-        return "#ff6b9d"; // Pink for vec4
-      default:
-        return "#9aa0a6"; // Gray for default
-    }
+    return typeColor(type);
   }
 
+  // The identity colour for a node category: the card's left spine and header dot, and nothing that
+  // carries data.
   _getCategoryColor(category) {
-    // Colors that match the menu system categories
-    switch (category) {
-      case "Input":
-        return "#10b981"; // Emerald
-      case "Math":
-        return "#f59e0b"; // Amber
-      case "Field":
-        return "#8b5cf6"; // Violet
-      case "Utility":
-        return "#06b6d4"; // Cyan
-      case "Output":
-        return "#ef4444"; // Red
-      case "Misc":
-        return "#6b7280"; // Gray
-      default:
-        return "#6b7280"; // Gray
-    }
+    return categoryColor(category);
   }
 
   _drawBezierCurve(x1, y1, x2, y2) {

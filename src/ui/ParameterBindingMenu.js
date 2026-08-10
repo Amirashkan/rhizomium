@@ -20,8 +20,8 @@ export class ParameterBindingMenu {
     this.menu.className = 'parameter-binding-menu';
     this.menu.style.cssText = `
       position: fixed;
-      background: #2b2b2b;
-      border: 1px solid #555;
+      background: #141110;
+      border: 1px solid rgba(255,244,230,0.08);
       border-radius: 4px;
       padding: 4px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4);
@@ -80,10 +80,10 @@ export class ParameterBindingMenu {
     const header = document.createElement('div');
     header.style.cssText = `
       font-weight: bold;
-      color: #4CAF50;
+      color: #c6f24e;
       margin-bottom: 8px;
       padding-bottom: 4px;
-      border-bottom: 1px solid #555;
+      border-bottom: 1px solid rgba(255,244,230,0.08);
     `;
     header.textContent = `${node.kind}.${paramName}`;
     this.menu.appendChild(header);
@@ -120,7 +120,7 @@ export class ParameterBindingMenu {
         const clipboardInfo = document.createElement('div');
         clipboardInfo.style.cssText = `
           font-size: 10px;
-          color: #888;
+          color: #6f6559;
           margin: 2px 0;
           padding-left: 20px;
         `;
@@ -139,14 +139,14 @@ export class ParameterBindingMenu {
       const removeItem = this.createMenuItem('Remove Binding', 'unlink', () => {
         this.removeBinding();
       });
-      removeItem.style.color = '#f44336';
+      removeItem.style.color = '#f8615a';
       this.menu.appendChild(removeItem);
 
       // Show source info
       const sourceInfo = document.createElement('div');
       sourceInfo.style.cssText = `
         font-size: 10px;
-        color: #ff9800;
+        color: #f5a524;
         margin: 2px 0;
         padding-left: 20px;
       `;
@@ -160,14 +160,14 @@ export class ParameterBindingMenu {
       const removeAllItem = this.createMenuItem('Remove All Target Bindings', 'trash', () => {
         this.removeAllTargetBindings();
       });
-      removeAllItem.style.color = '#f44336';
+      removeAllItem.style.color = '#f8615a';
       this.menu.appendChild(removeAllItem);
 
       // Show targets info
       const targetsInfo = document.createElement('div');
       targetsInfo.style.cssText = `
         font-size: 10px;
-        color: #4CAF50;
+        color: #c6f24e;
         margin: 2px 0;
         padding-left: 20px;
       `;
@@ -198,7 +198,7 @@ export class ParameterBindingMenu {
     item.style.cssText = `
       padding: 6px 8px;
       cursor: ${disabled ? 'not-allowed' : 'pointer'};
-      color: ${disabled ? '#666' : '#fff'};
+      color: ${disabled ? 'rgba(255,244,230,0.13)' : '#f3ede4'};
       border-radius: 3px;
       display: flex;
       align-items: center;
@@ -208,7 +208,7 @@ export class ParameterBindingMenu {
 
     if (!disabled) {
       item.addEventListener('mouseenter', () => {
-        item.style.backgroundColor = '#3a3a3a';
+        item.style.backgroundColor = '#1a1611';
       });
 
       item.addEventListener('mouseleave', () => {
@@ -236,7 +236,7 @@ export class ParameterBindingMenu {
     const separator = document.createElement('div');
     separator.style.cssText = `
       height: 1px;
-      background: #555;
+      background: rgba(255,244,230,0.08);
       margin: 4px 0;
     `;
     return separator;
@@ -329,8 +329,8 @@ export class ParameterBindingMenu {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      background: #2b2b2b;
-      border: 1px solid #555;
+      background: #141110;
+      border: 1px solid rgba(255,244,230,0.08);
       border-radius: 8px;
       padding: 16px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
@@ -339,16 +339,16 @@ export class ParameterBindingMenu {
       max-height: 400px;
       overflow-y: auto;
       font-size: 12px;
-      color: #fff;
+      color: #f3ede4;
     `;
 
     const header = document.createElement('div');
     header.style.cssText = `
       font-weight: bold;
-      color: #4CAF50;
+      color: #c6f24e;
       margin-bottom: 12px;
       padding-bottom: 8px;
-      border-bottom: 1px solid #555;
+      border-bottom: 1px solid rgba(255,244,230,0.08);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -362,7 +362,7 @@ export class ParameterBindingMenu {
     closeBtn.style.cssText = `
       background: none;
       border: none;
-      color: #fff;
+      color: #f3ede4;
       font-size: 16px;
       cursor: pointer;
       padding: 0;
@@ -384,22 +384,22 @@ export class ParameterBindingMenu {
       bindingItem.style.cssText = `
         padding: 8px;
         margin-bottom: 8px;
-        background: #333;
+        background: #171310;
         border-radius: 4px;
-        border-left: 3px solid #4CAF50;
+        border-left: 3px solid #c6f24e;
       `;
 
       bindingItem.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <span style="color: #ff9800;">${sourceNode?.kind || 'Unknown'}</span>
-            <span style="color: #ccc;">.${binding.source.parameterName}</span>
-            <span style="color: #888;"> → </span>
-            <span style="color: #4CAF50;">${targetNode?.kind || 'Unknown'}</span>
-            <span style="color: #ccc;">.${binding.target.parameterName}</span>
+            <span style="color: #f5a524;">${sourceNode?.kind || 'Unknown'}</span>
+            <span style="color: #cabfb0;">.${binding.source.parameterName}</span>
+            <span style="color: #6f6559;"> → </span>
+            <span style="color: #c6f24e;">${targetNode?.kind || 'Unknown'}</span>
+            <span style="color: #cabfb0;">.${binding.target.parameterName}</span>
           </div>
           <button class="remove-binding-btn" style="
-            background: #f44336;
+            background: #f8615a;
             border: none;
             color: white;
             padding: 2px 6px;
@@ -517,8 +517,8 @@ export class BindingVisualizer {
       right: 10px;
       width: 40px;
       height: 40px;
-      background: ${this.showBindings ? '#4CAF50' : '#333'};
-      border: 1px solid #555;
+      background: ${this.showBindings ? '#c6f24e' : '#171310'};
+      border: 1px solid rgba(255,244,230,0.08);
       border-radius: 6px;
       color: white;
       cursor: pointer;
@@ -542,7 +542,7 @@ export class BindingVisualizer {
     
     const button = document.getElementById('toggle-bindings-btn');
     if (button) {
-      button.style.background = this.showBindings ? '#4CAF50' : '#333';
+      button.style.background = this.showBindings ? '#c6f24e' : '#171310';
     }
 
     if (this.showBindings) {
@@ -604,7 +604,7 @@ export class BindingVisualizer {
     const d = `M ${sourcePos.x} ${sourcePos.y} Q ${midX} ${midY} ${targetPos.x} ${targetPos.y}`;
     
     line.setAttribute('d', d);
-    line.setAttribute('stroke', '#ff9800');
+    line.setAttribute('stroke', '#f5a524');
     line.setAttribute('stroke-width', '2');
     line.setAttribute('fill', 'none');
     line.setAttribute('stroke-dasharray', '5,5');
@@ -633,7 +633,7 @@ export class BindingVisualizer {
     label.setAttribute('x', midX);
     label.setAttribute('y', midY);
     label.setAttribute('text-anchor', 'middle');
-    label.setAttribute('fill', '#fff');
+    label.setAttribute('fill', '#f3ede4');
     label.setAttribute('font-size', '10');
     label.setAttribute('font-family', 'Arial, sans-serif');
     label.style.textShadow = '1px 1px 2px rgba(0,0,0,0.8)';

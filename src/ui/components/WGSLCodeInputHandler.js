@@ -101,8 +101,8 @@ export class WGSLCodeInputHandler {
       justify-content: space-between;
       align-items: center;
       padding: 4px 8px;
-      background: #1e1e1e;
-      border: 1px solid #555;
+      background: #12100e;
+      border: 1px solid rgba(255, 244, 230, 0.08);
       border-radius: 4px;
       font-size: 11px;
     `;
@@ -110,8 +110,11 @@ export class WGSLCodeInputHandler {
     const title = document.createElement("span");
     title.textContent = "WGSL Compute Shader";
     title.style.cssText = `
-      color: #4CAF50;
-      font-weight: bold;
+      color: #8f867a;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
     `;
 
     const buttonGroup = document.createElement("div");
@@ -126,9 +129,9 @@ export class WGSLCodeInputHandler {
     compileBtn.type = "button";
     compileBtn.title = "Check shader compilation";
     compileBtn.style.cssText = `
-      background: #4CAF50;
-      border: none;
-      color: white;
+      background: rgba(198, 242, 78, 0.14);
+      border: 1px solid rgba(198, 242, 78, 0.3);
+      color: #c6f24e;
       padding: 4px 8px;
       border-radius: 3px;
       cursor: pointer;
@@ -150,9 +153,9 @@ export class WGSLCodeInputHandler {
     resetBtn.type = "button";
     resetBtn.title = "Reset to default shader";
     resetBtn.style.cssText = `
-      background: #ff9800;
-      border: none;
-      color: white;
+      background: rgba(245, 165, 36, 0.14);
+      border: 1px solid rgba(245, 165, 36, 0.3);
+      color: #f5a524;
       padding: 4px 8px;
       border-radius: 3px;
       cursor: pointer;
@@ -274,10 +277,10 @@ export class WGSLCodeInputHandler {
     errorDiv.className = "wgsl-error-display";
     errorDiv.style.cssText = `
       padding: 8px;
-      background: #2d1f1f;
-      border: 1px solid #f44336;
-      border-radius: 4px;
-      color: #ff6b6b;
+      background: rgba(248, 97, 90, 0.12);
+      border: 1px solid rgba(248, 97, 90, 0.4);
+      border-radius: 8px;
+      color: #f8a49f;
       font-size: 11px;
       font-family: 'Consolas', 'Monaco', monospace;
       white-space: pre-wrap;
@@ -483,7 +486,7 @@ export class WGSLCodeInputHandler {
 
         errorDisplay.textContent = `Compilation Error:\n${errorText}`;
         errorDisplay.style.display = 'block';
-        errorDisplay.style.borderColor = '#f44336';
+        errorDisplay.style.borderColor = 'rgba(248, 97, 90, 0.4)';
 
         return false;
       } else {
@@ -491,9 +494,9 @@ export class WGSLCodeInputHandler {
         if (showSuccess) {
           errorDisplay.textContent = '✓ Shader compiled successfully';
           errorDisplay.style.display = 'block';
-          errorDisplay.style.borderColor = '#4CAF50';
-          errorDisplay.style.background = '#1f2d1f';
-          errorDisplay.style.color = '#4CAF50';
+          errorDisplay.style.borderColor = 'rgba(198, 242, 78, 0.3)';
+          errorDisplay.style.background = 'rgba(198, 242, 78, 0.1)';
+          errorDisplay.style.color = '#c6f24e';
 
           // Hide success message after 2 seconds
           setTimeout(() => {
@@ -509,7 +512,7 @@ export class WGSLCodeInputHandler {
       // Compilation error
       errorDisplay.textContent = `Compilation Error:\n${error.message}`;
       errorDisplay.style.display = 'block';
-      errorDisplay.style.borderColor = '#f44336';
+      errorDisplay.style.borderColor = 'rgba(248, 97, 90, 0.4)';
       errorDisplay.style.background = '#2d1f1f';
       errorDisplay.style.color = '#ff6b6b';
 

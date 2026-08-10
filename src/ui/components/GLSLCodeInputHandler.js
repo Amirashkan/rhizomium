@@ -88,8 +88,8 @@ export class GLSLCodeInputHandler {
       position: relative;
       display: flex;
       width: 100%;
-      background: #1e1e1e;
-      border: 1px solid #555;
+      background: #12100e;
+      border: 1px solid rgba(255, 244, 230, 0.08);
       border-radius: 4px;
       overflow: hidden;
     `;
@@ -104,14 +104,14 @@ export class GLSLCodeInputHandler {
     lineNumbers.style.cssText = `
       flex-shrink: 0;
       padding: 8px 4px 8px 8px;
-      background: #252525;
-      color: #858585;
+      background: rgba(255, 244, 230, 0.03);
+      color: #6f6559;
       font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
       font-size: 12px;
       line-height: 1.5;
       text-align: right;
       user-select: none;
-      border-right: 1px solid #3a3a3a;
+      border-right: 1px solid rgba(255, 244, 230, 0.08);
       width: 45px;
       overflow: hidden;
       box-sizing: border-box;

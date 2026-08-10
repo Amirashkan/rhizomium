@@ -37,10 +37,10 @@ export class MIDISettingsPanel {
       width: 320px;
       max-height: 80vh;
       background: rgba(30, 30, 30, 0.95);
-      border: 1px solid #555;
+      border: 1px solid rgba(255,244,230,0.08);
       border-radius: 8px;
       padding: 16px;
-      color: #fff;
+      color: #f3ede4;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 13px;
       z-index: 1000;
@@ -55,7 +55,7 @@ export class MIDISettingsPanel {
         <button id="midi-close-btn" style="
           background: none;
           border: none;
-          color: #aaa;
+          color: #8f867a;
           font-size: 20px;
           cursor: pointer;
           padding: 0;
@@ -70,14 +70,14 @@ export class MIDISettingsPanel {
       <div style="margin-bottom: 16px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <span style="font-weight: 500;">MIDI Status:</span>
-          <span id="midi-status" style="font-family: monospace; color: #888;">Initializing...</span>
+          <span id="midi-status" style="font-family: monospace; color: #6f6559;">Initializing...</span>
         </div>
         <div style="display: flex; gap: 8px;">
           <button id="midi-enable-btn" style="
             flex: 1;
             padding: 8px;
-            background: #4CAF50;
-            color: white;
+            background: #c6f24e;
+            color: #14110a;
             border: none;
             border-radius: 4px;
             cursor: pointer;
@@ -87,7 +87,7 @@ export class MIDISettingsPanel {
           <button id="midi-disable-btn" style="
             flex: 1;
             padding: 8px;
-            background: #f44336;
+            background: #f8615a;
             color: white;
             border: none;
             border-radius: 4px;
@@ -100,7 +100,7 @@ export class MIDISettingsPanel {
 
       <!-- Connected Devices -->
       <div style="margin-bottom: 16px;">
-        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">Connected Devices</h4>
+        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #8f867a;">Connected Devices</h4>
         <div id="midi-devices-list" style="
           background: rgba(0, 0, 0, 0.3);
           border-radius: 4px;
@@ -109,15 +109,15 @@ export class MIDISettingsPanel {
           max-height: 150px;
           overflow-y: auto;
         ">
-          <div style="color: #888; font-size: 12px; font-style: italic;">No devices connected</div>
+          <div style="color: #6f6559; font-size: 12px; font-style: italic;">No devices connected</div>
         </div>
       </div>
 
       <!-- MIDI Learn -->
       <div style="margin-bottom: 16px;">
-        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">MIDI Learn</h4>
+        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #8f867a;">MIDI Learn</h4>
         <div style="padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
-          <p style="margin: 0 0 8px 0; font-size: 11px; color: #888;">
+          <p style="margin: 0 0 8px 0; font-size: 11px; color: #6f6559;">
             1. Select a parameter in the Parameter Panel<br>
             2. Click "Start MIDI Learn" below<br>
             3. Move any controller to assign it
@@ -125,8 +125,8 @@ export class MIDISettingsPanel {
           <button id="midi-learn-btn" style="
             width: 100%;
             padding: 10px;
-            background: #2196F3;
-            color: white;
+            background: #c6f24e;
+            color: #14110a;
             border: none;
             border-radius: 4px;
             cursor: pointer;
@@ -137,10 +137,10 @@ export class MIDISettingsPanel {
             margin-top: 8px;
             padding: 8px;
             background: rgba(33, 150, 243, 0.2);
-            border: 1px solid #2196F3;
+            border: 1px solid #c6f24e;
             border-radius: 4px;
             font-size: 11px;
-            color: #2196F3;
+            color: #c6f24e;
             display: none;
           ">
             Waiting for MIDI input...
@@ -151,10 +151,10 @@ export class MIDISettingsPanel {
       <!-- Active Bindings -->
       <div style="margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #aaa;">Active Bindings</h4>
+          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #8f867a;">Active Bindings</h4>
           <button id="midi-clear-all-btn" style="
             padding: 4px 8px;
-            background: #f44336;
+            background: #f8615a;
             color: white;
             border: none;
             border-radius: 3px;
@@ -170,13 +170,13 @@ export class MIDISettingsPanel {
           max-height: 200px;
           overflow-y: auto;
         ">
-          <div style="color: #888; font-size: 12px; font-style: italic;">No bindings configured</div>
+          <div style="color: #6f6559; font-size: 12px; font-style: italic;">No bindings configured</div>
         </div>
       </div>
 
       <!-- MIDI Activity Monitor -->
       <div style="margin-bottom: 8px;">
-        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">MIDI Activity</h4>
+        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #8f867a;">MIDI Activity</h4>
         <div id="midi-activity" style="
           background: rgba(0, 0, 0, 0.3);
           border-radius: 4px;
@@ -184,14 +184,14 @@ export class MIDISettingsPanel {
           min-height: 40px;
           font-family: monospace;
           font-size: 11px;
-          color: #888;
+          color: #6f6559;
         ">
           No recent activity
         </div>
       </div>
 
       <!-- Info -->
-      <div style="font-size: 11px; color: #666; border-top: 1px solid #444; padding-top: 12px;">
+      <div style="font-size: 11px; color: rgba(255,244,230,0.13); border-top: 1px solid #1a1611; padding-top: 12px;">
         <p style="margin: 0;">
           MIDI CC values (0-127) are automatically mapped to parameter ranges.
         </p>
@@ -356,14 +356,14 @@ export class MIDISettingsPanel {
 
     learnStatus.style.display = 'block';
     this.learnButton.textContent = 'Cancel';
-    this.learnButton.style.background = '#f44336';
+    this.learnButton.style.background = '#f8615a';
   }
 
   hideLearnMode() {
     const learnStatus = this.panel.querySelector('#midi-learn-status');
     learnStatus.style.display = 'none';
     this.learnButton.textContent = 'Start MIDI Learn';
-    this.learnButton.style.background = '#2196F3';
+    this.learnButton.style.background = '#c6f24e';
   }
 
   updateStatus() {
@@ -372,13 +372,13 @@ export class MIDISettingsPanel {
 
     if (!status.supported) {
       statusEl.textContent = 'Not Supported';
-      statusEl.style.color = '#f44336';
+      statusEl.style.color = '#f8615a';
     } else if (status.enabled) {
       statusEl.textContent = 'Connected';
-      statusEl.style.color = '#4CAF50';
+      statusEl.style.color = '#c6f24e';
     } else {
       statusEl.textContent = 'Disabled';
-      statusEl.style.color = '#FF9800';
+      statusEl.style.color = '#f5a524';
     }
   }
 
@@ -386,7 +386,7 @@ export class MIDISettingsPanel {
     const devices = this.midiManager.getInputDevices();
 
     if (devices.length === 0) {
-      this.devicesList.innerHTML = '<div style="color: #888; font-size: 12px; font-style: italic;">No devices connected</div>';
+      this.devicesList.innerHTML = '<div style="color: #6f6559; font-size: 12px; font-style: italic;">No devices connected</div>';
       return;
     }
 
@@ -396,10 +396,10 @@ export class MIDISettingsPanel {
         margin-bottom: 4px;
         background: rgba(255, 255, 255, 0.05);
         border-radius: 4px;
-        border-left: 3px solid ${device.state === 'connected' ? '#4CAF50' : '#f44336'};
+        border-left: 3px solid ${device.state === 'connected' ? '#c6f24e' : '#f8615a'};
       ">
         <div style="font-weight: 500; font-size: 12px;">${device.name}</div>
-        <div style="font-size: 10px; color: #888;">${device.manufacturer || 'Unknown'}</div>
+        <div style="font-size: 10px; color: #6f6559;">${device.manufacturer || 'Unknown'}</div>
       </div>
     `).join('');
   }
@@ -408,7 +408,7 @@ export class MIDISettingsPanel {
     const bindings = this.midiBinding.getAllBindings();
 
     if (bindings.length === 0) {
-      this.bindingsList.innerHTML = '<div style="color: #888; font-size: 12px; font-style: italic;">No bindings configured</div>';
+      this.bindingsList.innerHTML = '<div style="color: #6f6559; font-size: 12px; font-style: italic;">No bindings configured</div>';
       return;
     }
 
@@ -422,17 +422,17 @@ export class MIDISettingsPanel {
           margin-bottom: 6px;
           background: rgba(255, 255, 255, 0.05);
           border-radius: 4px;
-          border-left: 3px solid ${binding.enabled ? '#2196F3' : '#666'};
+          border-left: 3px solid ${binding.enabled ? '#c6f24e' : 'rgba(255,244,230,0.13)'};
         ">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
             <div style="flex: 1;">
-              <div style="font-weight: 500; font-size: 11px; color: #2196F3;">
+              <div style="font-weight: 500; font-size: 11px; color: #c6f24e;">
                 CC${binding.cc} (Ch${binding.channel + 1})
               </div>
-              <div style="font-size: 11px; color: #fff; margin-top: 2px;">
+              <div style="font-size: 11px; color: #f3ede4; margin-top: 2px;">
                 ${nodeName}.${binding.paramName}
               </div>
-              <div style="font-size: 10px; color: #888; margin-top: 2px;">
+              <div style="font-size: 10px; color: #6f6559; margin-top: 2px;">
                 Range: ${binding.min.toFixed(2)} - ${binding.max.toFixed(2)}
               </div>
             </div>
@@ -440,7 +440,7 @@ export class MIDISettingsPanel {
               onclick="window.editor.midiSettingsPanel.removeBinding('${binding.deviceId}', ${binding.channel}, ${binding.cc})"
               style="
                 padding: 4px 8px;
-                background: #f44336;
+                background: #f8615a;
                 color: white;
                 border: none;
                 border-radius: 3px;

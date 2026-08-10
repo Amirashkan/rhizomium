@@ -3330,13 +3330,16 @@ function updateStatus(message, type = "info") {
   const statusEl = document.getElementById("status");
   if (statusEl) {
     statusEl.textContent = message;
-    statusEl.className = type;
+    // Keep the layout class: it is what pushes the readout to the right of the
+    // menu bar and draws its live-state dot. Assigning `type` alone dropped it,
+    // leaving the status stranded next to the Help menu.
+    statusEl.className = type ? `menu-status ${type}` : "menu-status";
 
     if (type !== "error") {
       setTimeout(() => {
         if (statusEl.textContent === message) {
           statusEl.textContent = "Idle";
-          statusEl.className = "";
+          statusEl.className = "menu-status";
         }
       }, 3000);
     }

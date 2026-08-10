@@ -1,0 +1,227 @@
+/**
+ * RHIZOMIUM DESIGN TOKENS
+ *
+ * Single source of truth for the editor's visual language: warm charcoal
+ * surfaces, one electric-lime accent, and two INDEPENDENT colour systems —
+ *
+ *   • category colour  → node identity (calm, muted: left spine, header dot,
+ *                        palette rail, parameter-panel swatch)
+ *   • data-type colour → the live signal (bright: ports, wires, type badges)
+ *
+ * Never mix them. A node's category never colours a wire, and a wire's type
+ * never colours a node's spine.
+ *
+ * The canvas renderer cannot read CSS variables cheaply per frame, so the same
+ * palette is mirrored in JS in src/core/theme.js. Change a colour in BOTH or
+ * the DOM chrome and the drawn graph drift apart.
+ *
+ * This file only declares variables — it paints nothing on its own, so it is
+ * safe to load first and let every other stylesheet consume it.
+ */
+
+:root {
+  /* ---- Type ------------------------------------------------------------ */
+  /* Space Grotesk / JetBrains Mono are the intended faces. They are not
+     bundled (the editor's CSP is font-src 'self' data:, so a webfont has to be
+     vendored rather than pulled from a CDN); until they are, the stack falls
+     through to the closest system faces and the layout is unaffected. */
+  --rz-font-ui:
+    "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, sans-serif;
+  --rz-font-mono:
+    "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Consolas,
+    monospace;
+
+  /* ---- Surfaces -------------------------------------------------------- */
+  --rz-bg-app: #100d0b; /* canvas / app background */
+  --rz-bg-deep: #0a0807; /* behind everything, render areas */
+  --rz-bar-top: #191512; /* menu-bar gradient start */
+  --rz-bar-bottom: #161210; /* menu-bar gradient end */
+  --rz-panel-top: #171310; /* panel gradient start */
+  --rz-panel-bottom: #141110; /* panel gradient end */
+  --rz-surface: #141110; /* flat window body */
+  --rz-surface-raised: #1a1611; /* popovers, dropdowns */
+  --rz-well: #0f0c0a; /* input fields, wells */
+
+  /* ---- Hairlines & text ------------------------------------------------ */
+  --rz-line: rgba(255, 244, 230, 0.08);
+  --rz-line-strong: rgba(255, 244, 230, 0.13);
+  --rz-hover: rgba(255, 244, 230, 0.07);
+  --rz-hover-strong: rgba(255, 244, 230, 0.11);
+  --rz-fill-soft: rgba(255, 244, 230, 0.05);
+
+  --rz-text: #f3ede4;
+  --rz-text-2: #cabfb0;
+  --rz-text-3: #8f867a;
+  --rz-text-faint: #6f6559;
+  --rz-text-disabled: #5b5349;
+
+  /* ---- Accent (lime) --------------------------------------------------- */
+  --rz-accent: #c6f24e;
+  --rz-accent-hover: #d7f877;
+  --rz-accent-deep: #a9d63c;
+  --rz-accent-ink: #14110a; /* text/icons ON the accent */
+  --rz-accent-08: rgba(198, 242, 78, 0.08);
+  --rz-accent-10: rgba(198, 242, 78, 0.1);
+  --rz-accent-14: rgba(198, 242, 78, 0.14);
+  --rz-accent-30: rgba(198, 242, 78, 0.3);
+  --rz-accent-glow: 0 0 24px rgba(198, 242, 78, 0.32);
+
+  /* ---- Semantic -------------------------------------------------------- */
+  --rz-error: #f8615a;
+  --rz-error-soft: rgba(248, 97, 90, 0.14);
+  --rz-error-line: rgba(248, 97, 90, 0.4);
+  --rz-warn: #f5a524;
+  --rz-warn-soft: rgba(245, 165, 36, 0.14);
+  --rz-success: #46a883;
+  --rz-success-dot: #34d399;
+  --rz-success-soft: rgba(70, 168, 131, 0.1);
+  --rz-success-line: rgba(70, 168, 131, 0.24);
+  --rz-info: #22d3ee;
+  --rz-info-soft: rgba(34, 211, 238, 0.12);
+  --rz-audio: #a78bfa; /* expression / audio-bound parameters */
+  --rz-audio-soft: rgba(167, 139, 250, 0.14);
+  --rz-audio-line: rgba(167, 139, 250, 0.3);
+
+  /* ---- Category colours (node identity — muted) ------------------------
+     Named for the twelve `cat` values NodeDefs actually uses. See
+     src/core/theme.js for how the handoff's family names map onto them. */
+  --rz-cat-input: #46a883;
+  --rz-cat-output: #cf5f57;
+  --rz-cat-math: #c99a4a;
+  --rz-cat-vector: #5f80bf;
+  --rz-cat-generators: #cf6499;
+  --rz-cat-transform: #a074c9;
+  --rz-cat-modifiers: #46a89b;
+  --rz-cat-utility: #4aa6ba;
+  --rz-cat-blend: #6f9cc4;
+  --rz-cat-texture: #c2a94f;
+  --rz-cat-simulation: #c46f7d;
+  --rz-cat-effects: #8f7ec9;
+  --rz-cat-text: #b98a5e;
+  --rz-cat-default: #7f766a;
+
+  /* ---- Data-type colours (the live signal — bright) -------------------- */
+  --rz-type-tex: #22d3ee;
+  --rz-type-float: #f5a524;
+  --rz-type-vec: #c084fc;
+  --rz-type-color: #2dd4bf;
+  --rz-type-default: #9aa0a6;
+
+  /* ---- Radii ----------------------------------------------------------- */
+  --rz-r-field: 8px;
+  --rz-r-row: 10px;
+  --rz-r-card: 12px;
+  --rz-r-window: 14px;
+  --rz-r-modal: 18px;
+  --rz-r-pill: 999px;
+
+  /* ---- Shadows --------------------------------------------------------- */
+  --rz-shadow-pop:
+    0 20px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 244, 230, 0.06);
+  --rz-shadow-window:
+    0 24px 60px -12px rgba(0, 0, 0, 0.75), 0 4px 16px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 244, 230, 0.06);
+  --rz-shadow-modal:
+    0 40px 100px -24px rgba(0, 0, 0, 0.8),
+    inset 0 1px 0 rgba(255, 244, 230, 0.07);
+
+  /* Canvas grid — the dot variant from the handoff. Kept as variables so the
+     snap-size control can drive them (see main.js). */
+  --snap-grid-size: 20px;
+  --snap-grid-line: rgba(255, 240, 220, 0.04);
+  --snap-grid-line-strong: rgba(255, 240, 220, 0.07);
+}
+
+/* --- Shared motion ------------------------------------------------------ */
+@keyframes rzradial {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes rzpulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* --- Shared scrollbar ---------------------------------------------------
+   The lime "inset pill": a 2px transparent border with background-clip keeps
+   the thumb off the track edge without a painted track. Applied to the
+   scrolling surfaces the editor already had, so nothing new scrolls. */
+.rzscroll,
+.custom-scroll,
+.ctx-menu,
+.menu-submenu,
+#code,
+.param-panel,
+#param-panel {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(198, 242, 78, 0.32) transparent;
+}
+
+.rzscroll::-webkit-scrollbar,
+.custom-scroll::-webkit-scrollbar,
+.ctx-menu::-webkit-scrollbar,
+.menu-submenu::-webkit-scrollbar,
+#code::-webkit-scrollbar,
+.param-panel::-webkit-scrollbar,
+#param-panel::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.rzscroll::-webkit-scrollbar-track,
+.custom-scroll::-webkit-scrollbar-track,
+.ctx-menu::-webkit-scrollbar-track,
+.menu-submenu::-webkit-scrollbar-track,
+#code::-webkit-scrollbar-track,
+.param-panel::-webkit-scrollbar-track,
+#param-panel::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.rzscroll::-webkit-scrollbar-thumb,
+.custom-scroll::-webkit-scrollbar-thumb,
+.ctx-menu::-webkit-scrollbar-thumb,
+.menu-submenu::-webkit-scrollbar-thumb,
+#code::-webkit-scrollbar-thumb,
+.param-panel::-webkit-scrollbar-thumb,
+#param-panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    rgba(198, 242, 78, 0.3),
+    rgba(198, 242, 78, 0.18)
+  );
+  border-radius: var(--rz-r-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.rzscroll::-webkit-scrollbar-thumb:hover,
+.custom-scroll::-webkit-scrollbar-thumb:hover,
+.ctx-menu::-webkit-scrollbar-thumb:hover,
+.menu-submenu::-webkit-scrollbar-thumb:hover,
+#code::-webkit-scrollbar-thumb:hover,
+.param-panel::-webkit-scrollbar-thumb:hover,
+#param-panel::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    rgba(198, 242, 78, 0.5),
+    rgba(198, 242, 78, 0.32)
+  );
+  background-clip: padding-box;
+}
+
+::selection {
+  background: rgba(198, 242, 78, 0.28);
+}

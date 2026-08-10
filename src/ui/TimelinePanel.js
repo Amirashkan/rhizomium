@@ -1,4 +1,5 @@
 import { setIcon } from './iconSprite.js';
+import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
 /**
  * TimelinePanel.js
  *
@@ -716,7 +717,7 @@ export class TimelinePanel {
     const loopEndX = this.timeToX(loopEnd);
 
     // Draw semi-transparent overlay for loop region
-    this.ctx.fillStyle = 'rgba(70, 130, 180, 0.15)';
+    this.ctx.fillStyle = withAlpha(ACCENT.base, 0.07);
     this.ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, height);
 
     // Draw loop markers
@@ -724,7 +725,7 @@ export class TimelinePanel {
     const markerWidth = 8;
 
     // Loop start marker
-    this.ctx.fillStyle = this.isDraggingLoopStart ? '#4a90e2' : '#5aa7e2';
+    this.ctx.fillStyle = this.isDraggingLoopStart ? ACCENT.base : withAlpha(ACCENT.base, 0.7);
     this.ctx.beginPath();
     this.ctx.moveTo(loopStartX, 0);
     this.ctx.lineTo(loopStartX + markerWidth, 0);
@@ -742,7 +743,7 @@ export class TimelinePanel {
     this.ctx.stroke();
 
     // Loop end marker
-    this.ctx.fillStyle = this.isDraggingLoopEnd ? '#4a90e2' : '#5aa7e2';
+    this.ctx.fillStyle = this.isDraggingLoopEnd ? ACCENT.base : withAlpha(ACCENT.base, 0.7);
     this.ctx.beginPath();
     this.ctx.moveTo(loopEndX - markerWidth, 0);
     this.ctx.lineTo(loopEndX, 0);
@@ -769,12 +770,12 @@ export class TimelinePanel {
     const width = this.canvas.width / (window.devicePixelRatio || 1);
 
     // Background
-    this.ctx.fillStyle = '#2a2a2a';
+    this.ctx.fillStyle = 'rgba(255, 244, 230, 0.02)';
     this.ctx.fillRect(0, 0, width, this.rulerHeight);
 
     // Time markers
-    this.ctx.fillStyle = '#aaa';
-    this.ctx.font = '11px monospace';
+    this.ctx.fillStyle = TEXT.faint;
+    this.ctx.font = `9px ${FONT_MONO}`;
 
     const viewDuration = this.viewEnd - this.viewStart;
     const majorInterval = this.getMajorInterval(viewDuration);
@@ -786,7 +787,7 @@ export class TimelinePanel {
       this.ctx.beginPath();
       this.ctx.moveTo(x, this.rulerHeight - 10);
       this.ctx.lineTo(x, this.rulerHeight);
-      this.ctx.strokeStyle = '#666';
+      this.ctx.strokeStyle = SURFACE.lineStrong;
       this.ctx.stroke();
 
       // Time label
@@ -819,15 +820,15 @@ export class TimelinePanel {
       const y = this.rulerHeight + i * this.trackHeight;
 
       // Track background
-      this.ctx.fillStyle = i % 2 === 0 ? '#1e1e1e' : '#252525';
+      this.ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 244, 230, 0.02)' : 'transparent';
       this.ctx.fillRect(0, y, width, this.trackHeight);
 
       // Track label
       const node = this.editor.graph.nodes.find(n => n.id === track.nodeId);
       const label = node ? `${node.kind}.${track.paramName}` : `${track.nodeId}.${track.paramName}`;
 
-      this.ctx.fillStyle = '#aaa';
-      this.ctx.font = '11px monospace';
+      this.ctx.fillStyle = TEXT.secondary;
+      this.ctx.font = `11px ${FONT_UI}`;
       this.ctx.fillText(label, 5, y + this.trackHeight / 2 + 4);
 
       // Draw keyframes
@@ -857,10 +858,12 @@ export class TimelinePanel {
       this.ctx.lineTo(x - 5, centerY);
       this.ctx.closePath();
 
-      this.ctx.fillStyle = isHovered ? '#4af' : '#4a90e2';
+      // A keyframe is a value you placed, so it carries the accent; the one
+      // under the cursor fills white so the hit target is unambiguous.
+      this.ctx.fillStyle = isHovered ? TEXT.primary : ACCENT.base;
       this.ctx.fill();
 
-      this.ctx.strokeStyle = '#fff';
+      this.ctx.strokeStyle = isHovered ? ACCENT.base : SURFACE.deep;
       this.ctx.lineWidth = 1;
       this.ctx.stroke();
     }
@@ -873,15 +876,16 @@ export class TimelinePanel {
     const height = this.canvas.height / (window.devicePixelRatio || 1);
     const x = this.timeToX(this.timelineManager.getCurrentTime());
 
-    this.ctx.strokeStyle = '#f44';
-    this.ctx.lineWidth = 2;
+    // The playhead is lime, not red: red means error everywhere else in the app.
+    this.ctx.strokeStyle = ACCENT.base;
+    this.ctx.lineWidth = 1.5;
     this.ctx.beginPath();
     this.ctx.moveTo(x, 0);
     this.ctx.lineTo(x, height);
     this.ctx.stroke();
 
     // Playhead handle
-    this.ctx.fillStyle = '#f44';
+    this.ctx.fillStyle = ACCENT.base;
     this.ctx.beginPath();
     this.ctx.moveTo(x, 0);
     this.ctx.lineTo(x - 5, 10);

@@ -1,5 +1,7 @@
 // src/ui/components/FileInputHandler.js - Updated for expression system integration
 
+import { ACCENT, SEMANTIC, SURFACE, TEXT } from '../../core/theme.js';
+
 export class FileInputHandler {
   constructor(undoManager = null) {
     this.undoManager = undoManager;
@@ -26,9 +28,8 @@ export class FileInputHandler {
       fileLabel.className = "current-file";
       fileLabel.style.cssText = `
         font-size: 10px;
-        color: #4a90e2;
+        color: ${TEXT.tertiary};
         margin-bottom: 4px;
-        font-style: italic;
       `;
       fileLabel.textContent = `✓ ${textureInfo.file.name}`;
       div.appendChild(fileLabel);
@@ -50,11 +51,11 @@ export class FileInputHandler {
     const dropZone = document.createElement("div");
     dropZone.className = "file-drop-zone";
     dropZone.style.cssText = `
-      border: 2px dashed #666;
-      border-radius: 6px;
+      border: 1px dashed ${SURFACE.lineStrong};
+      border-radius: 10px;
       padding: 16px;
       text-align: center;
-      color: #aaa;
+      color: ${TEXT.tertiary};
       font-size: 11px;
       margin: 4px 0;
       cursor: pointer;
@@ -139,13 +140,13 @@ export class FileInputHandler {
   }
 
   _showDragHover(dropZone) {
-    dropZone.style.borderColor = "#4a90e2";
-    dropZone.style.backgroundColor = "rgba(74, 144, 226, 0.1)";
+    dropZone.style.borderColor = ACCENT.base;
+    dropZone.style.backgroundColor = "rgba(198, 242, 78, 0.1)";
     dropZone.style.transform = "scale(1.02)";
   }
 
   _hideDragHover(dropZone) {
-    dropZone.style.borderColor = "#666";
+    dropZone.style.borderColor = SURFACE.lineStrong;
     dropZone.style.backgroundColor = "rgba(255,255,255,0.02)";
     dropZone.style.transform = "scale(1)";
   }
@@ -206,24 +207,24 @@ await window.textureManager.uploadTexture(node.id, file);
 
   _showLoadingState(dropZone) {
     if (dropZone) {
-      dropZone.style.borderColor = "#f0ad4e";
+      dropZone.style.borderColor = SEMANTIC.warn;
       dropZone.innerHTML = "<div>Loading...</div>";
     }
   }
 
   _showSuccessState(dropZone, file) {
     if (dropZone) {
-      dropZone.style.borderColor = "#5cb85c";
+      dropZone.style.borderColor = ACCENT.base;
       // A filename is arbitrary text the user did not type here, so it goes in
       // as text rather than markup.
       const label = document.createElement("div");
-      label.style.color = "#5cb85c";
+      label.style.color = ACCENT.base;
       label.textContent = `✓ ${file.name}`;
       dropZone.replaceChildren(label);
 
       // Reset after a moment
       setTimeout(() => {
-        dropZone.style.borderColor = "#666";
+        dropZone.style.borderColor = SURFACE.lineStrong;
         dropZone.innerHTML = `
           <div>
             <div style="margin-bottom: 4px;">📁 Drop image here</div>
@@ -236,11 +237,11 @@ await window.textureManager.uploadTexture(node.id, file);
 
   _showErrorState(dropZone, _errorMessage) {
     if (dropZone) {
-      dropZone.style.borderColor = "#d9534f";
-      dropZone.innerHTML = '<div style="color: #d9534f;">❌ Load failed</div>';
+      dropZone.style.borderColor = SEMANTIC.error;
+      dropZone.innerHTML = `<div style="color: ${SEMANTIC.error};">Load failed</div>`;
 
       setTimeout(() => {
-        dropZone.style.borderColor = "#666";
+        dropZone.style.borderColor = SURFACE.lineStrong;
         dropZone.innerHTML = `
           <div>
             <div style="margin-bottom: 4px;">📁 Drop image here</div>

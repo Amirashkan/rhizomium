@@ -1,5 +1,7 @@
 // src/ui/components/SelectInputHandler.js - Updated for expression system integration
 
+import { SURFACE, TEXT, FONT_UI } from '../../core/theme.js';
+
 export class SelectInputHandler {
   constructor(undoManager = null) {
     this.undoManager = undoManager;
@@ -23,13 +25,14 @@ export class SelectInputHandler {
     
     select.style.cssText = `
       width: 100%;
-      padding: 6px;
+      padding: 7px 9px;
       margin: 4px 0;
-      background: #333;
-      color: #fff;
-      border: 1px solid #555;
-      border-radius: 4px;
-      font-size: 11px;
+      background: ${SURFACE.well};
+      color: ${TEXT.primary};
+      border: 1px solid ${SURFACE.line};
+      border-radius: 8px;
+      font-family: ${FONT_UI};
+      font-size: 12px;
       box-sizing: border-box;
     `;
     

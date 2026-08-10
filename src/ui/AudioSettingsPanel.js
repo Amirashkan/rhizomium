@@ -36,10 +36,10 @@ export class AudioSettingsPanel {
             right: 20px;
             width: 300px;
             background: rgba(30, 30, 30, 0.95);
-            border: 1px solid #555;
+            border: 1px solid rgba(255,244,230,0.08);
             border-radius: 8px;
             padding: 16px;
-            color: #fff;
+            color: #f3ede4;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             font-size: 13px;
             z-index: 1000;
@@ -53,7 +53,7 @@ export class AudioSettingsPanel {
                 <button id="audio-close-btn" style="
                     background: none;
                     border: none;
-                    color: #aaa;
+                    color: #8f867a;
                     font-size: 20px;
                     cursor: pointer;
                     padding: 0;
@@ -66,15 +66,15 @@ export class AudioSettingsPanel {
 
             <div style="margin-bottom: 12px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
                 <div style="margin-bottom: 8px;">
-                    <label style="display: block; margin-bottom: 4px; font-size: 11px; color: #888;">
+                    <label style="display: block; margin-bottom: 4px; font-size: 11px; color: #6f6559;">
                         Load Audio File (MP3, WAV, OGG)
                     </label>
                     <input type="file" id="audio-file-input" accept="audio/*" style="
                         width: 100%;
                         padding: 4px;
-                        background: #444;
-                        color: #fff;
-                        border: 1px solid #666;
+                        background: #1a1611;
+                        color: #f3ede4;
+                        border: 1px solid rgba(255,244,230,0.13);
                         border-radius: 4px;
                         font-size: 11px;
                         cursor: pointer;
@@ -84,8 +84,8 @@ export class AudioSettingsPanel {
                     <button id="audio-play-btn" style="
                         flex: 1;
                         padding: 6px;
-                        background: #4CAF50;
-                        color: white;
+                        background: #c6f24e;
+                        color: #14110a;
                         border: none;
                         border-radius: 4px;
                         cursor: pointer;
@@ -94,7 +94,7 @@ export class AudioSettingsPanel {
                     <button id="audio-pause-btn" style="
                         flex: 1;
                         padding: 6px;
-                        background: #FF9800;
+                        background: #f5a524;
                         color: white;
                         border: none;
                         border-radius: 4px;
@@ -104,7 +104,7 @@ export class AudioSettingsPanel {
                     <button id="audio-stop-btn" style="
                         flex: 1;
                         padding: 6px;
-                        background: #f44336;
+                        background: #f8615a;
                         color: white;
                         border: none;
                         border-radius: 4px;
@@ -116,8 +116,8 @@ export class AudioSettingsPanel {
                 <!-- Time Bar -->
                 <div style="margin-bottom: 12px; margin-top: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <span id="audio-current-time" style="font-family: monospace; font-size: 10px; color: #888;">0:00</span>
-                        <span id="audio-duration" style="font-family: monospace; font-size: 10px; color: #888;">0:00</span>
+                        <span id="audio-current-time" style="font-family: monospace; font-size: 10px; color: #6f6559;">0:00</span>
+                        <span id="audio-duration" style="font-family: monospace; font-size: 10px; color: #6f6559;">0:00</span>
                     </div>
                     <div id="audio-progress-container" style="
                         height: 6px;
@@ -130,7 +130,7 @@ export class AudioSettingsPanel {
                         <div id="audio-progress-bar" style="
                             height: 100%;
                             width: 0%;
-                            background: linear-gradient(90deg, #2196F3, #4CAF50);
+                            background: linear-gradient(90deg, #c6f24e, #c6f24e);
                             transition: width 0.1s;
                         "></div>
                     </div>
@@ -138,22 +138,22 @@ export class AudioSettingsPanel {
 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span style="font-weight: 500; font-size: 11px;">File:</span>
-                    <span id="audio-filename" style="font-size: 10px; color: #888; font-style: italic;">No file loaded</span>
+                    <span id="audio-filename" style="font-size: 10px; color: #6f6559; font-style: italic;">No file loaded</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-weight: 500;">Envelope:</span>
-                    <span id="audio-value" style="font-family: monospace; color: #4CAF50;">0.000</span>
+                    <span id="audio-value" style="font-family: monospace; color: #c6f24e;">0.000</span>
                 </div>
                 <div style="margin-top: 8px;">
                     <div style="height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden;">
-                        <div id="audio-value-bar" style="height: 100%; width: 0%; background: #4CAF50; transition: width 0.1s;"></div>
+                        <div id="audio-value-bar" style="height: 100%; width: 0%; background: #c6f24e; transition: width 0.1s;"></div>
                     </div>
                 </div>
             </div>
 
-            <div style="font-size: 11px; color: #666; border-top: 1px solid #444; padding-top: 12px;">
+            <div style="font-size: 11px; color: rgba(255,244,230,0.13); border-top: 1px solid #1a1611; padding-top: 12px;">
                 <p style="margin: 0 0 8px 0;">
-                    Use <code style="background: rgba(0, 0, 0, 0.3); padding: 2px 4px; border-radius: 2px; color: #4CAF50;">=audioEnvelope</code> in parameter expressions, or add an <strong>Audio Analysis</strong> node for kick / onset detection.
+                    Use <code style="background: rgba(0, 0, 0, 0.3); padding: 2px 4px; border-radius: 2px; color: #c6f24e;">=audioEnvelope</code> in parameter expressions, or add an <strong>Audio Analysis</strong> node for kick / onset detection.
                 </p>
                 <p style="margin: 0;">
                     Examples:<br>
@@ -191,14 +191,14 @@ export class AudioSettingsPanel {
                 try {
                     await this.audioClient.loadFile(file);
                     filenameEl.textContent = file.name;
-                    filenameEl.style.color = '#4CAF50';
+                    filenameEl.style.color = '#c6f24e';
                     playBtn.disabled = false;
                     pauseBtn.disabled = false;
                     stopBtn.disabled = false;
                 } catch {
 
                     filenameEl.textContent = 'Error loading file';
-                    filenameEl.style.color = '#f44336';
+                    filenameEl.style.color = '#f8615a';
                 }
             }
         });

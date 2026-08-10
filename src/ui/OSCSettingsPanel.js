@@ -24,7 +24,7 @@ import { formatOSCArg } from '../osc/OSCDecoder.js';
  * parameters.
  */
 
-const PLACEHOLDER_STYLE = 'color: #888; font-size: 12px; font-style: italic;';
+const PLACEHOLDER_STYLE = 'color: #6f6559; font-size: 12px; font-style: italic;';
 
 // How often to re-read the Parameter Panel's selection. There is no selection
 // event to listen for, and the "current target" readout is only honest if it
@@ -62,9 +62,9 @@ const SMALL_INPUT = `
   width: 46px;
   padding: 2px 4px;
   background: rgba(0, 0, 0, 0.4);
-  border: 1px solid #555;
+  border: 1px solid rgba(255,244,230,0.08);
   border-radius: 3px;
-  color: #ddd;
+  color: #cabfb0;
   font-family: monospace;
   font-size: 10px;
 `;
@@ -120,10 +120,10 @@ export class OSCSettingsPanel {
       width: 360px;
       max-height: 84vh;
       background: rgba(30, 30, 30, 0.95);
-      border: 1px solid #555;
+      border: 1px solid rgba(255,244,230,0.08);
       border-radius: 8px;
       padding: 16px;
-      color: #fff;
+      color: #f3ede4;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 13px;
       /* Above the MIDI panel, which otherwise sits at the same spot with the
@@ -138,7 +138,7 @@ export class OSCSettingsPanel {
       <div id="osc-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h3 style="margin: 0; font-size: 16px; font-weight: 600;">OSC Receiver</h3>
         <button id="osc-close-btn" style="
-          background: none; border: none; color: #aaa; font-size: 20px;
+          background: none; border: none; color: #8f867a; font-size: 20px;
           cursor: pointer; padding: 0; width: 24px; height: 24px;
           line-height: 24px; text-align: center;
         ">&times;</button>
@@ -148,33 +148,33 @@ export class OSCSettingsPanel {
       <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <span style="font-weight: 500;">Bridge:</span>
-          <span id="osc-status" style="font-family: monospace; color: #888;">Disconnected</span>
+          <span id="osc-status" style="font-family: monospace; color: #6f6559;">Disconnected</span>
         </div>
         <input id="osc-url" type="text" spellcheck="false" style="
           width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px;
-          background: rgba(0, 0, 0, 0.4); border: 1px solid #555; border-radius: 4px;
-          color: #ddd; font-family: monospace; font-size: 11px;
+          background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255,244,230,0.08); border-radius: 4px;
+          color: #cabfb0; font-family: monospace; font-size: 11px;
         " />
         <div style="display: flex; gap: 8px;">
           <button id="osc-connect-btn" style="
-            flex: 1; padding: 8px; background: #4CAF50; color: white; border: none;
+            flex: 1; padding: 8px; background: #c6f24e; color: #14110a; border: none;
             border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
           ">Connect</button>
           <button id="osc-disconnect-btn" style="
-            flex: 1; padding: 8px; background: #f44336; color: white; border: none;
+            flex: 1; padding: 8px; background: #f8615a; color: white; border: none;
             border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
           " disabled>Disconnect</button>
         </div>
-        <div id="osc-bridge-info" style="margin-top: 8px; font-size: 11px; color: #888;"></div>
+        <div id="osc-bridge-info" style="margin-top: 8px; font-size: 11px; color: #6f6559;"></div>
         <div id="osc-udp-row" style="margin-top: 8px; display: none; align-items: center; gap: 6px;">
-          <span style="font-size: 11px; color: #aaa;">UDP port</span>
+          <span style="font-size: 11px; color: #8f867a;">UDP port</span>
           <input id="osc-udp-port" type="number" min="1" max="65535" style="
             width: 80px; padding: 4px 6px; background: rgba(0, 0, 0, 0.4);
-            border: 1px solid #555; border-radius: 4px; color: #ddd;
+            border: 1px solid rgba(255,244,230,0.08); border-radius: 4px; color: #cabfb0;
             font-family: monospace; font-size: 11px;
           " />
           <button id="osc-udp-apply" style="
-            padding: 4px 10px; background: #2196F3; color: white; border: none;
+            padding: 4px 10px; background: #c6f24e; color: #14110a; border: none;
             border-radius: 3px; cursor: pointer; font-size: 11px;
           ">Move</button>
         </div>
@@ -184,9 +184,9 @@ export class OSCSettingsPanel {
       <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
           <span style="font-weight: 500; font-size: 12px;">Mapping to:</span>
-          <span id="osc-target" style="font-family: monospace; font-size: 11px; color: #FF9800;">nothing selected</span>
+          <span id="osc-target" style="font-family: monospace; font-size: 11px; color: #f5a524;">nothing selected</span>
         </div>
-        <p style="margin: 0 0 8px 0; font-size: 11px; color: #888;">
+        <p style="margin: 0 0 8px 0; font-size: 11px; color: #6f6559;">
           Click a parameter in the Parameter Panel, then press <strong>Bind</strong>
           on a channel below. Or start learn and <em>move</em> a control — channels
           sitting still are ignored, so a rack streaming all its outputs will not
@@ -194,30 +194,30 @@ export class OSCSettingsPanel {
         </p>
         <div style="display: flex; gap: 8px; align-items: center;">
           <button id="osc-learn-btn" style="
-            flex: 1; padding: 9px; background: #2196F3; color: white; border: none;
+            flex: 1; padding: 9px; background: #c6f24e; color: #14110a; border: none;
             border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;
           ">Start OSC Learn</button>
-          <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #aaa; cursor: pointer;">
+          <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8f867a; cursor: pointer;">
             <input id="osc-continuous" type="checkbox" style="cursor: pointer;" />
             keep armed
           </label>
         </div>
         <div id="osc-learn-status" style="
           margin-top: 8px; padding: 8px; background: rgba(33, 150, 243, 0.2);
-          border: 1px solid #2196F3; border-radius: 4px; font-size: 11px;
-          color: #2196F3; display: none;
+          border: 1px solid #c6f24e; border-radius: 4px; font-size: 11px;
+          color: #c6f24e; display: none;
         ">Waiting for OSC input...</div>
       </div>
 
       <!-- Incoming channels -->
       <div style="margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px;">
-          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #aaa; white-space: nowrap;">
-            Channels <span id="osc-address-count" style="color: #666; font-weight: 400;"></span>
+          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #8f867a; white-space: nowrap;">
+            Channels <span id="osc-address-count" style="color: rgba(255,244,230,0.13); font-weight: 400;"></span>
           </h4>
           <input id="osc-filter" type="text" placeholder="filter…" spellcheck="false" style="
             flex: 1; min-width: 0; padding: 3px 6px; background: rgba(0, 0, 0, 0.4);
-            border: 1px solid #555; border-radius: 3px; color: #ddd;
+            border: 1px solid rgba(255,244,230,0.08); border-radius: 3px; color: #cabfb0;
             font-family: monospace; font-size: 10px;
           " />
         </div>
@@ -230,11 +230,11 @@ export class OSCSettingsPanel {
       <!-- Active bindings -->
       <div style="margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #aaa;">
-            Bindings <span id="osc-binding-count" style="color: #666; font-weight: 400;"></span>
+          <h4 style="margin: 0; font-size: 13px; font-weight: 600; color: #8f867a;">
+            Bindings <span id="osc-binding-count" style="color: rgba(255,244,230,0.13); font-weight: 400;"></span>
           </h4>
           <button id="osc-clear-all-btn" style="
-            padding: 4px 8px; background: #f44336; color: white; border: none;
+            padding: 4px 8px; background: #f8615a; color: white; border: none;
             border-radius: 3px; cursor: pointer; font-size: 10px;
           ">Clear All</button>
         </div>
@@ -246,15 +246,15 @@ export class OSCSettingsPanel {
 
       <!-- Activity -->
       <div style="margin-bottom: 8px;">
-        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #aaa;">OSC Activity</h4>
+        <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #8f867a;">OSC Activity</h4>
         <div id="osc-activity" style="
           background: rgba(0, 0, 0, 0.3); border-radius: 4px; padding: 8px;
-          min-height: 40px; font-family: monospace; font-size: 11px; color: #888;
+          min-height: 40px; font-family: monospace; font-size: 11px; color: #6f6559;
           word-break: break-all;
         ">No recent activity</div>
       </div>
 
-      <div style="font-size: 11px; color: #666; border-top: 1px solid #444; padding-top: 12px;">
+      <div style="font-size: 11px; color: rgba(255,244,230,0.13); border-top: 1px solid #1a1611; padding-top: 12px;">
         <p style="margin: 0;">
           One channel can drive several parameters — bind it again to another.
           Ranges below the arrow map the incoming value onto the parameter.
@@ -449,13 +449,13 @@ export class OSCSettingsPanel {
 
     if (target) {
       this.targetEl.textContent = `${target.node.kind}.${target.paramName}`;
-      this.targetEl.style.color = '#4CAF50';
+      this.targetEl.style.color = '#c6f24e';
       if (this.oscBinding.continuousLearn && this.oscBinding.learningMode) {
         this.oscBinding.retargetLearning(target.node.id, target.paramName);
       }
     } else {
       this.targetEl.textContent = 'nothing selected';
-      this.targetEl.style.color = '#FF9800';
+      this.targetEl.style.color = '#f5a524';
     }
   }
 
@@ -530,13 +530,13 @@ export class OSCSettingsPanel {
 
     learnStatus.style.display = 'block';
     this.learnButton.textContent = 'Stop Learning';
-    this.learnButton.style.background = '#f44336';
+    this.learnButton.style.background = '#f8615a';
   }
 
   hideLearnMode() {
     this.panel.querySelector('#osc-learn-status').style.display = 'none';
     this.learnButton.textContent = 'Start OSC Learn';
-    this.learnButton.style.background = '#2196F3';
+    this.learnButton.style.background = '#c6f24e';
   }
 
   // --------------------------------------------------------------------
@@ -548,16 +548,16 @@ export class OSCSettingsPanel {
 
     if (!status.supported) {
       this.statusEl.textContent = 'Not Supported';
-      this.statusEl.style.color = '#f44336';
+      this.statusEl.style.color = '#f8615a';
     } else if (status.connected) {
       this.statusEl.textContent = 'Connected';
-      this.statusEl.style.color = '#4CAF50';
+      this.statusEl.style.color = '#c6f24e';
     } else if (status.enabled) {
       this.statusEl.textContent = 'Connecting...';
-      this.statusEl.style.color = '#FF9800';
+      this.statusEl.style.color = '#f5a524';
     } else {
       this.statusEl.textContent = 'Disconnected';
-      this.statusEl.style.color = '#888';
+      this.statusEl.style.color = '#6f6559';
     }
 
     this.connectBtn.disabled = status.connected;
@@ -579,9 +579,9 @@ export class OSCSettingsPanel {
         // Connected to the bridge, but it cannot hear OSC. Say which of the two
         // is broken, because "connected" otherwise reads as "working".
         this.statusEl.textContent = 'UDP port busy';
-        this.statusEl.style.color = '#f44336';
+        this.statusEl.style.color = '#f8615a';
         this.bridgeInfoEl.appendChild(
-          el('div', 'color: #f44336;', udpError || `UDP ${udpPort} is not available.`),
+          el('div', 'color: #f8615a;', udpError || `UDP ${udpPort} is not available.`),
         );
         this.bridgeInfoEl.appendChild(
           el(
@@ -600,14 +600,14 @@ export class OSCSettingsPanel {
         // refused and the bridge stayed where it was. Saying only where it is
         // listening would read as if the move had worked.
         if (udpError) {
-          this.bridgeInfoEl.appendChild(el('div', 'color: #FF9800; margin-top: 4px;', udpError));
+          this.bridgeInfoEl.appendChild(el('div', 'color: #f5a524; margin-top: 4px;', udpError));
         }
       }
       this.udpRow.style.display = 'flex';
     }
 
     if (!status.connected && status.lastError) {
-      this.bridgeInfoEl.appendChild(el('div', 'color: #f44336;', status.lastError));
+      this.bridgeInfoEl.appendChild(el('div', 'color: #f8615a;', status.lastError));
       this.bridgeInfoEl.appendChild(
         el('div', 'margin-top: 4px;', 'Start it with:  python osc_bridge_server.py'),
       );
@@ -727,13 +727,13 @@ export class OSCSettingsPanel {
     const root = el(
       'div',
       `padding: 6px 8px; margin-bottom: 5px; background: rgba(255, 255, 255, 0.05);
-       border-radius: 4px; border-left: 3px solid #4CAF50;`,
+       border-radius: 4px; border-left: 3px solid #c6f24e;`,
     );
 
     const top = el('div', 'display: flex; justify-content: space-between; gap: 8px; align-items: baseline;');
     const addressEl = el(
       'div',
-      'font-family: monospace; font-size: 11px; color: #fff; word-break: break-all;',
+      'font-family: monospace; font-size: 11px; color: #f3ede4; word-break: break-all;',
       entry.address,
     );
     addressEl.className = 'osc-channel-address';
@@ -770,8 +770,8 @@ export class OSCSettingsPanel {
       const targets = targetsByKey.get(`${entry.address}:${i}`);
       const bound = !!targets?.length;
 
-      button.style.background = bound ? 'rgba(76, 175, 80, 0.25)' : 'rgba(33, 150, 243, 0.25)';
-      button.style.borderColor = bound ? 'rgba(76, 175, 80, 0.5)' : 'rgba(33, 150, 243, 0.5)';
+      button.style.background = bound ? 'rgba(198, 242, 78, 0.25)' : 'rgba(33, 150, 243, 0.25)';
+      button.style.borderColor = bound ? 'rgba(198, 242, 78, 0.5)' : 'rgba(33, 150, 243, 0.5)';
       button.style.color = bound ? '#a5d6a7' : '#8ecbff';
       button.title = bound ? 'Already mapped — bind again to drive another parameter' : '';
 
@@ -818,20 +818,20 @@ export class OSCSettingsPanel {
     const wrapper = el(
       'div',
       `margin-bottom: 8px; padding: 7px 8px; background: rgba(255, 255, 255, 0.05);
-       border-radius: 4px; border-left: 3px solid #2196F3;`,
+       border-radius: 4px; border-left: 3px solid #c6f24e;`,
     );
 
     const heading = el('div', 'display: flex; justify-content: space-between; align-items: baseline; gap: 8px;');
     heading.appendChild(
       el(
         'div',
-        'font-weight: 500; font-size: 11px; color: #2196F3; font-family: monospace; word-break: break-all;',
+        'font-weight: 500; font-size: 11px; color: #c6f24e; font-family: monospace; word-break: break-all;',
         first.argIndex > 0 ? `${first.address} [${first.argIndex}]` : first.address,
       ),
     );
     if (group.length > 1) {
       heading.appendChild(
-        el('div', 'font-size: 10px; color: #888; white-space: nowrap;', `${group.length} targets`),
+        el('div', 'font-size: 10px; color: #6f6559; white-space: nowrap;', `${group.length} targets`),
       );
     }
     wrapper.appendChild(heading);
@@ -848,7 +848,7 @@ export class OSCSettingsPanel {
 
     const header = el('div', 'display: flex; justify-content: space-between; align-items: center; gap: 6px;');
     header.appendChild(
-      el('div', 'font-size: 11px; color: #fff; flex: 1; min-width: 0;', `${nodeName}.${binding.paramName}`),
+      el('div', 'font-size: 11px; color: #f3ede4; flex: 1; min-width: 0;', `${nodeName}.${binding.paramName}`),
     );
 
     const enableBox = document.createElement('input');
@@ -865,7 +865,7 @@ export class OSCSettingsPanel {
 
     const removeBtn = el(
       'button',
-      `padding: 2px 7px; background: #f44336; color: white; border: none;
+      `padding: 2px 7px; background: #f8615a; color: white; border: none;
        border-radius: 3px; cursor: pointer; font-size: 10px; flex: none;`,
       '×',
     );
@@ -886,7 +886,7 @@ export class OSCSettingsPanel {
   buildRangeControls(binding) {
     const controls = el(
       'div',
-      'display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; font-size: 10px; color: #888;',
+      'display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; font-size: 10px; color: #6f6559;',
     );
 
     const field = (key, title) => {
@@ -917,7 +917,7 @@ export class OSCSettingsPanel {
       el('span', null, 'in'),
       field('inputMin', 'Lowest value this channel sends'),
       field('inputMax', 'Highest value this channel sends'),
-      el('span', 'color: #666;', '→'),
+      el('span', 'color: rgba(255,244,230,0.13);', '→'),
       field('min', 'Parameter value at the low end'),
       field('max', 'Parameter value at the high end'),
     );
@@ -995,9 +995,9 @@ export class OSCSettingsPanel {
 
     this.activityEl.replaceChildren(
       el('div', null, new Date().toLocaleTimeString()),
-      el('div', 'color: #ddd;', data.address),
+      el('div', 'color: #cabfb0;', data.address),
       el('div', null, args),
-      el('div', 'color: #666;', `${this.oscManager.messageRate.toFixed(0)} msg/s`),
+      el('div', 'color: rgba(255,244,230,0.13);', `${this.oscManager.messageRate.toFixed(0)} msg/s`),
     );
 
     this.activityEl.style.opacity = '1';

@@ -42,6 +42,8 @@ function displayNameFor(fileName) {
   return String(fileName || 'Custom font').split(/[\\/]/).pop().replace(FONT_EXTENSIONS, '');
 }
 
+import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO } from '../../core/theme.js';
+
 export class FontInputHandler {
   constructor(undoManager = null) {
     this.undoManager = undoManager;
@@ -53,7 +55,7 @@ export class FontInputHandler {
 
     const status = document.createElement('div');
     status.className = 'font-input-status';
-    status.style.cssText = 'font-size: 10px; color: #4a90e2; font-style: italic; min-height: 13px;';
+    status.style.cssText = `font-size: 10px; color: ${TEXT.tertiary}; min-height: 13px;`;
     row.appendChild(status);
 
     const buttons = document.createElement('div');
@@ -109,15 +111,15 @@ export class FontInputHandler {
     btn.style.cssText = `
       flex: 1 1 auto;
       padding: 5px 8px;
-      background: #3a3a3a;
-      color: #eee;
-      border: 1px solid #555;
+      background: ${SURFACE.fillSoft};
+      color: ${TEXT.secondary};
+      border: 1px solid ${SURFACE.line};
       border-radius: 4px;
       font-size: 10px;
       cursor: pointer;
     `;
-    btn.addEventListener('mouseenter', () => { btn.style.background = '#484848'; });
-    btn.addEventListener('mouseleave', () => { btn.style.background = '#3a3a3a'; });
+    btn.addEventListener('mouseenter', () => { btn.style.background = SURFACE.hover; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = SURFACE.fillSoft; });
     return btn;
   }
 
@@ -125,16 +127,16 @@ export class FontInputHandler {
     const name = node?.params?.fontName;
     if (name) {
       status.textContent = `✓ ${name}`;
-      status.style.color = '#5cb85c';
+      status.style.color = ACCENT.base;
     } else {
       status.textContent = 'Using the Font dropdown';
-      status.style.color = '#888';
+      status.style.color = TEXT.tertiary;
     }
   }
 
   _setupDropZone(row, ctx) {
     const highlight = (on) => {
-      row.style.outline = on ? '1px dashed #4a90e2' : '';
+      row.style.outline = on ? `1px dashed ${ACCENT.base}` : '';
       row.style.outlineOffset = on ? '3px' : '';
     };
 
@@ -167,7 +169,7 @@ export class FontInputHandler {
     }
 
     ctx.status.textContent = 'Loading…';
-    ctx.status.style.color = '#f0ad4e';
+    ctx.status.style.color = SEMANTIC.warn;
     try {
       const dataUrl = await readAsDataUrl(file);
       this._commit(displayNameFor(file.name), dataUrl, ctx);
@@ -207,15 +209,16 @@ export class FontInputHandler {
     search.placeholder = `Filter ${fonts.length} fonts…`;
     search.className = 'param-input';
     search.style.cssText = `
-      width: 100%; padding: 5px; background: #333; color: #fff;
-      border: 1px solid #555; border-radius: 4px; font-size: 11px; box-sizing: border-box;
+      width: 100%; padding: 6px 8px; background: ${SURFACE.well}; color: ${TEXT.primary};
+      border: 1px solid ${SURFACE.line}; border-radius: 8px; font-family: ${FONT_MONO};
+      font-size: 11px; box-sizing: border-box;
     `;
     search.addEventListener('keydown', (e) => e.stopPropagation());
 
     const list = document.createElement('div');
     list.style.cssText = `
-      max-height: 160px; overflow-y: auto; border: 1px solid #444;
-      border-radius: 4px; background: #262626;
+      max-height: 160px; overflow-y: auto; border: 1px solid ${SURFACE.line};
+      border-radius: 8px; background: ${SURFACE.well};
     `;
 
     const render = () => {
@@ -229,8 +232,8 @@ export class FontInputHandler {
         const item = document.createElement('div');
         item.textContent = font.fullName || font.family;
         item.title = font.postscriptName || '';
-        item.style.cssText = 'padding: 4px 6px; font-size: 11px; color: #ddd; cursor: pointer;';
-        item.addEventListener('mouseenter', () => { item.style.background = '#3a3a3a'; });
+        item.style.cssText = `padding: 5px 7px; border-radius: 6px; font-size: 11px; color: ${TEXT.secondary}; cursor: pointer;`;
+        item.addEventListener('mouseenter', () => { item.style.background = SURFACE.hover; });
         item.addEventListener('mouseleave', () => { item.style.background = ''; });
         item.addEventListener('click', async (e) => {
           e.stopPropagation();
@@ -256,7 +259,7 @@ export class FontInputHandler {
    */
   async _applyInstalledFont(font, ctx) {
     ctx.status.textContent = 'Loading…';
-    ctx.status.style.color = '#f0ad4e';
+    ctx.status.style.color = SEMANTIC.warn;
     try {
       const blob = await font.blob();
       if (blob.size > MAX_FONT_BYTES) {
@@ -293,6 +296,6 @@ export class FontInputHandler {
 
   _fail(status, message) {
     status.textContent = `✕ ${message}`;
-    status.style.color = '#d9534f';
+    status.style.color = SEMANTIC.error;
   }
 }
