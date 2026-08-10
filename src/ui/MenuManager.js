@@ -2,6 +2,7 @@
 import { NodeDefs, makeNode, updateNodeIdCounter } from "../data/NodeDefs.js";
 import { RadialMenu } from "./RadialMenu.js";
 import { nodeDisplayName, hasCustomNodeName } from "../core/nodeName.js";
+import { cloneNode, cloneConnections } from "../core/cloneGraph.js";
 
 export class MenuManager {
   constructor(graph, onChange) {
@@ -523,37 +524,12 @@ export class MenuManager {
       const mapOldToNew = new Map();
       const clones = [];
 
-      // Clone nodes using proper cloning
+      // Clone nodes using the shared clone (same one SelectionManager's Cmd/Ctrl+D uses, so the two
+      // duplicate paths can't drift over what a copy carries).
       for (const n of this.graph.nodes) {
         if (!idSet.has(n.id)) continue;
 
-        // Use makeNode for proper initialization
-        const clone = makeNode(
-          n.kind,
-          (n.x || 0) + 20,
-          (n.y || 0) + 20
-        );
-
-        // Deep copy params to avoid shared references
-        if (n.params) {
-          clone.params = JSON.parse(JSON.stringify(n.params));
-        }
-
-        // Copy special properties
-        if (n.value !== undefined) {
-          clone.value = n.value;
-        }
-        if (n.expr !== undefined) {
-          clone.expr = n.expr;
-        }
-        if (n.props) {
-          clone.props = JSON.parse(JSON.stringify(n.props));
-        }
-        // A custom title is part of what the artist made, so a duplicate keeps it (the #id beside
-        // the name still tells the two apart). Matches SelectionManager.cloneNodeProperly.
-        if (n.name) {
-          clone.name = n.name;
-        }
+        const clone = cloneNode(n, 20, 20);
 
         clones.push(clone);
         mapOldToNew.set(n.id, clone.id);
@@ -562,18 +538,9 @@ export class MenuManager {
       // Add clones to graph
       this.graph.nodes.push(...clones);
 
-      // Clone connections between selected nodes
-      const newConns = [];
-      for (const c of this.graph.connections) {
-        const fromNew = mapOldToNew.get(c.from.nodeId);
-        const toNew = mapOldToNew.get(c.to.nodeId);
-        if (fromNew && toNew) {
-          newConns.push({
-            from: { nodeId: fromNew, pin: c.from.pin },
-            to: { nodeId: toNew, pin: c.to.pin },
-          });
-        }
-      }
+      // Clone connections between selected nodes. cloneConnections also mirrors each wire into the
+      // clones' `inputs`, without which the copies compile as disconnected.
+      const newConns = cloneConnections(this.graph.connections, mapOldToNew, clones);
 
       this.graph.connections.push(...newConns);
       this.graph.selection = new Set(clones.map((n) => n.id));
