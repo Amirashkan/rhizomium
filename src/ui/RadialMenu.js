@@ -1066,14 +1066,31 @@ _createNode(kind) {
     window.eventHandler._checkAndWarmupAfterInactivity();
   }
   
-  const node = makeNode(kind, this.canvasPos.x, this.canvasPos.y);
-  this.graph.nodes.push(node);
-  this.graph.selection = new Set([node.id]);
+  // Adding a node while dragging a wire is one user action, so it has to be one undo step.
+  // Without the transaction the node and the auto-connected wire land on the undo stack
+  // separately and the first Ctrl+Z only removes the wire.
+  const undoManager = window.undoManager || window.editor?.undoManager;
+  undoManager?.beginTransaction?.('add node');
 
-  // Record node creation for undo system
-  if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
-    window.onNodeCreated(node);
+  try {
+    const node = makeNode(kind, this.canvasPos.x, this.canvasPos.y);
+    this.graph.nodes.push(node);
+    this.graph.selection = new Set([node.id]);
+
+    // Record node creation for undo system
+    if (window.onNodeCreated && typeof window.onNodeCreated === 'function') {
+      window.onNodeCreated(node);
+    }
+
+    this._finishNodeCreation(node, kind);
+  } finally {
+    undoManager?.commitTransaction?.();
   }
+}
+
+// Second half of _createNode: wire the new node up to any wire being dragged and refresh the
+// editor. Split out so _createNode can run it inside an undo transaction.
+_finishNodeCreation(node, kind) {
 
   // Check if there's an active wire drag and connect the new node
   let shouldConnectToWire = false;

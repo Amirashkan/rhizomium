@@ -480,6 +480,12 @@ endDrag() {
   }
 
 deleteSelected() {
+  // Deleting a node also re-wires its neighbours around the gap (_autoReconnectWires), and that
+  // bypass wire is recorded too. Both go in one transaction, otherwise the first Ctrl+Z only
+  // removes the bypass wire and a second one is needed to bring the node back.
+  const undoManager = this.undoManager || window.undoManager;
+  undoManager?.beginTransaction?.('delete nodes');
+
   try {
     const ids = new Set(this.graph.selection);
     if (ids.size === 0) return;
@@ -542,10 +548,12 @@ deleteSelected() {
 
     if (this.onChange) this.onChange();
   } catch (error) {
-    window.errorHandler?.handleError(error, { 
+    window.errorHandler?.handleError(error, {
       component: 'node-deletion',
       selectedCount: this.graph.selection?.size || 0
     });
+  } finally {
+    undoManager?.commitTransaction?.();
   }
 }
 
