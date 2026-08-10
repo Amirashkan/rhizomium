@@ -15,7 +15,7 @@ information about inputs, outputs, parameters, and usage.
 2. Parameter Types
 3. Node Categories
 4. Output Nodes (1 node)
-5. Input Nodes (14 nodes)
+5. Input Nodes (15 nodes)
 6. Field Nodes (22 nodes)
 7. Math Nodes (50 nodes)
 8. Utility Nodes (13 nodes)
@@ -318,6 +318,52 @@ Usage: Counts pulses. Each time the pulse input crosses the threshold (a rising
 edge) the count increases by `step`. Enable Loop to make the count cycle within
 the [min, max] range (e.g. step through a fixed number of states). The running
 count is maintained on the CPU and streamed to the shader each frame.
+
+--------------------------------------------------------------------------------
+Wave
+--------------------------------------------------------------------------------
+Category: Input
+Description: A free-running LFO - one float animated by a sine, triangle, square,
+saw or ramp-down wave
+
+Inputs: (none)
+
+Outputs:
+  - out (f32): The current value of the wave
+
+Parameters:
+  - shape (select): Waveform [options: Sine, Triangle, Square, Saw, Ramp Down,
+    default: Sine]
+  - frequency (float): Cycles per second [default: 1.0]
+  - amplitude (float): Peak value of the wave [default: 1.0]
+  - offset (float): Added to the wave, to re-centre it [default: 0.0]
+  - phase (float): Phase offset in CYCLES, not radians - 0.25 is a quarter turn
+    [default: 0.0]
+  - unipolar (bool): Output 0..1 instead of -1..1 [default: false]
+  - pulseWidth (float): Square only - fraction of the cycle spent high
+    [default: 0.5]
+
+Usage: The standard way to animate anything. Wire it into a parameter, or
+reference it from an expression (`=node_<id>`), to make that value sweep on its
+own - no Time node and no hand-written sin() needed.
+
+By default the output runs -1 to 1 and every shape is phase-aligned with the
+sine (all of them cross zero rising at the start of the cycle), so switching
+shape keeps the motion in step. Saw and Ramp Down are the exception: a ramp is
+defined by its jump, so it runs -1 to 1 (or 1 to -1) across the cycle and starts
+at its extreme.
+
+Most things a wave drives - a radius, a mix amount, a brightness - want a
+positive value, so turn on Unipolar to get 0..1. The remap happens BEFORE
+amplitude and offset, so Amplitude means the same thing in either mode.
+
+Frequency, amplitude, offset, phase and pulse width are all live uniforms: they
+can be dragged, keyframed, MIDI/OSC-bound or driven by another node's expression
+without recompiling the shader. Shape and Unipolar select which formula is
+emitted, so changing them rebuilds the shader.
+
+Two Waves at the same frequency, a quarter cycle apart (phase 0 and 0.25), give
+the sin/cos pair that drives circular motion.
 
 --------------------------------------------------------------------------------
 Random Value

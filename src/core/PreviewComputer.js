@@ -6,6 +6,7 @@ import { NodeDefs } from '../data/NodeDefs.js';
 import { getInputCount } from '../data/nodeInputs.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
+import { evaluateWave, isWaveUnipolar } from './waveform.js';
 
 export class PreviewComputer {
   constructor() {
@@ -438,6 +439,21 @@ export class PreviewComputer {
                 type: 'split',
                 values: AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i)),
               };
+              break;
+            }
+
+            case "Wave": {
+              // Free-running LFO; same curve the shader gets (see core/waveform.js).
+              result = evaluateWave({
+                shape: node.params?.shape,
+                time: this.animationTime,
+                frequency: this._evaluateParam(node.params?.frequency, values, 1.0),
+                phase: this._evaluateParam(node.params?.phase, values, 0.0),
+                amplitude: this._evaluateParam(node.params?.amplitude, values, 1.0),
+                offset: this._evaluateParam(node.params?.offset, values, 0.0),
+                pulseWidth: this._evaluateParam(node.params?.pulseWidth, values, 0.5),
+                unipolar: isWaveUnipolar(node),
+              });
               break;
             }
 

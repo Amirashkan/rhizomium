@@ -3,6 +3,7 @@ import { unifiedExpressionSystem } from '../utils/UnifiedExpressionSystem.js';
 import { controlInputPinIndices } from '../data/NodeDefs.js';
 import { audioAnalysisPinValue } from './audioAnalysisPins.js';
 import { isTriggerChangeMode, triggerChangePulse } from './triggerMode.js';
+import { evaluateWave, isWaveUnipolar } from './waveform.js';
 
 /**
  * Drives the Feedback nodes' Reset input pin.
@@ -133,6 +134,20 @@ export class FeedbackResetProcessor {
         const s = Math.sin(ctx.time * speed * 12.9898) * 43758.5453;
         return s - Math.floor(s); // fract()
       }
+
+      case 'Wave':
+        // Free-running LFO, evaluated from the clock alone - same curve the shader gets
+        // (see core/waveform.js), so a Wave driving this node reads the same here as on screen.
+        return evaluateWave({
+          shape: node.params?.shape,
+          time: ctx.time,
+          frequency: this._numericParam(node, 'frequency', 1.0, ctx),
+          phase: this._numericParam(node, 'phase', 0.0, ctx),
+          amplitude: this._numericParam(node, 'amplitude', 1.0, ctx),
+          offset: this._numericParam(node, 'offset', 0.0, ctx),
+          pulseWidth: this._numericParam(node, 'pulseWidth', 0.5, ctx),
+          unipolar: isWaveUnipolar(node),
+        });
 
       case 'Pi':
         return Math.PI;

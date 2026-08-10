@@ -4,6 +4,7 @@ import {
   TRIGGER_MODE_THRESHOLD,
   TRIGGER_DEFAULT_MIN_CHANGE,
 } from '../../core/triggerMode.js';
+import { WAVE_SHAPES, DEFAULT_WAVE_SHAPE } from '../../core/waveform.js';
 
 /**
  * Input node definitions for constants, data sources, and textures
@@ -246,6 +247,34 @@ export const InputNodes = {
       { name: "release", type: "float", default: 120.0, label: "Release (ms)", group: "Meter Shape" },
       // Manual trim on top of the automatic gain, for material the auto-gain lands badly.
       { name: "gain", type: "float", default: 1.0, label: "Gain", group: "Meter Shape" },
+    ],
+  },
+
+  Wave: {
+    label: "Wave",
+    cat: "Input",
+    inputs: 0,
+    pinsIn: [],
+    pinsOut: [{ label: "out", type: "f32" }],
+    // A free-running LFO: one animated float, shaped by `shape`, driven by the GPU clock alone (no
+    // input to wire). The maths lives in core/waveform.js so the shader, the node's own readout and
+    // any CPU consumer (Hold/Count/Trigger) all follow the same curve.
+    //
+    // Every shape is bipolar (-1..1) and phase-aligned with the sine, so changing shape keeps the
+    // motion in step. Most things a wave drives — a radius, a mix amount, a brightness — want a
+    // positive value instead, which is what Unipolar is for: it remaps to 0..1 BEFORE amplitude and
+    // offset, so Amplitude stays the peak-to-... reading you'd expect in either mode.
+    params: [
+      { name: "shape", type: "select", options: WAVE_SHAPES, default: DEFAULT_WAVE_SHAPE, label: "Shape" },
+      { name: "frequency", type: "float", default: 1.0, min: 0.0, max: 20.0, label: "Frequency (Hz)" },
+      { name: "amplitude", type: "float", default: 1.0, label: "Amplitude" },
+      { name: "offset", type: "float", default: 0.0, label: "Offset" },
+      // In cycles, not radians: 0.25 is a quarter turn, 1.0 is a whole one. Two Waves at the same
+      // frequency and 0.25 apart give the quadrature pair that drives circular motion.
+      { name: "phase", type: "float", default: 0.0, min: 0.0, max: 1.0, label: "Phase (cycles)" },
+      { name: "unipolar", type: "bool", default: false, label: "Unipolar (0..1)" },
+      // Square only: the fraction of each cycle spent high.
+      { name: "pulseWidth", type: "float", default: 0.5, min: 0.0, max: 1.0, label: "Pulse Width", activeWhen: { shape: "Square" } },
     ],
   },
 

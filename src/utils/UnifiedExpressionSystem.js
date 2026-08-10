@@ -8,6 +8,8 @@
  * by CPU evaluator and shader codegen, causing desyncs for dynamic values.
  */
 
+import { buildWaveExpression, isWaveUnipolar } from '../core/waveform.js';
+
 // ============================================================================
 // AST Node Types
 // ============================================================================
@@ -901,7 +903,7 @@ export class UnifiedExpressionSystem {
 
     for (const node of graph.nodes) {
       const kind = node?.kind?.toLowerCase();
-      if (kind !== 'time' && kind !== 'mouse' && kind !== 'randomvalue') {
+      if (kind !== 'time' && kind !== 'mouse' && kind !== 'randomvalue' && kind !== 'wave') {
         continue;
       }
 
@@ -918,6 +920,20 @@ export class UnifiedExpressionSystem {
           // speed isn't available as a GPU global here, so use its numeric param default of 1.0.
           const speed = this._toFloatLiteral(Number(node.params?.speed) || 1.0);
           mapping[name] = `fract(sin(g.time * ${speed} * 12.9898) * 43758.5453)`;
+        } else if (kind === 'wave') {
+          // Free-running LFO; mirror the wired-node formula in InputNodes.js. Like Random Value's
+          // speed, the wave's params aren't GPU globals here, so their current numeric values are
+          // baked into the expression (an `=expr` param falls back to its default).
+          mapping[name] = buildWaveExpression({
+            shape: node.params?.shape,
+            time: 'g.time',
+            frequency: this._toFloatLiteral(this._numericParamValue(node, 'frequency', 1.0)),
+            phase: this._toFloatLiteral(this._numericParamValue(node, 'phase', 0.0)),
+            amplitude: this._toFloatLiteral(this._numericParamValue(node, 'amplitude', 1.0)),
+            offset: this._toFloatLiteral(this._numericParamValue(node, 'offset', 0.0)),
+            pulseWidth: this._toFloatLiteral(this._numericParamValue(node, 'pulseWidth', 0.5)),
+            unipolar: isWaveUnipolar(node),
+          });
         } else {
           // Mouse is the vec4 global g.mouse (iMouse layout: .xy position, .z held, .w click).
           // Map a component suffix (node_<id>_x / _y / _z / _w, or any xyzw/rgba swizzle) to the
@@ -938,6 +954,13 @@ export class UnifiedExpressionSystem {
 
   _toFloatLiteral(n) {
     return Number.isInteger(n) ? `${n}.0` : `${n}`;
+  }
+
+  /** A node param as a finite number, falling back to `def` for a missing or expression value. */
+  _numericParamValue(node, name, def) {
+    const raw = node?.params?.[name];
+    const value = typeof raw === 'number' ? raw : parseFloat(raw);
+    return Number.isFinite(value) ? value : def;
   }
 
   /**
