@@ -55,33 +55,18 @@ export function nodeReferenceToken(nodeId) {
 }
 
 /**
- * Insert a node reference into a parameter field.
+ * Write a node reference into a parameter field.
  *
- * A field already holding an expression gets the token spliced in at the caret (or appended
- * when it isn't focused), so `=sin(` + drop reads `=sin(node_5`. A field holding a plain
- * value is replaced outright with `=node_5` — splicing a reference into a literal like `0.5`
- * would produce `0.node_55`, which is not what anyone meant by the gesture.
+ * The drop replaces whatever the field currently holds with `=node_5`, whether that was a
+ * literal like `0.5` or an existing expression. The gesture reads as "this parameter is now
+ * driven by that node", so appending to what was already there — leaving `=sin(time) * node_5`
+ * or `0.node_55` behind — is never what was meant.
  *
  * @returns {string} the value written to the field.
  */
 export function insertNodeReference(input, token) {
-  const raw = String(input.value ?? '');
-  const isExpression = raw.trim().startsWith('=');
-
-  let next;
-  let caret;
-
-  if (isExpression) {
-    const focused = typeof document !== 'undefined' && document.activeElement === input;
-    const hasSelection = focused && Number.isFinite(input.selectionStart);
-    const start = hasSelection ? input.selectionStart : raw.length;
-    const end = hasSelection ? input.selectionEnd : raw.length;
-    next = raw.slice(0, start) + token + raw.slice(end);
-    caret = start + token.length;
-  } else {
-    next = `=${token}`;
-    caret = next.length;
-  }
+  const next = `=${token}`;
+  const caret = next.length;
 
   // Focus BEFORE writing the value. The expression input handler snapshots the field's
   // contents on focus as "the last committed value" and skips the commit when the value it
