@@ -1,20 +1,30 @@
 // Regression test: a Rectangle's Width and Height must mean what they say.
 //
-// Bug: "the rectangle is a 1:1 square with 16:9 ratio set, with a height and width much bigger
-// than its surface." The shape function measured BOTH half-extents in y-units after scaling x
-// into aspect space, so width == height always drew a square, and the drawn width shrank away
-// from the stated one as the composition got wider: on a 16:9 output `width = 0.5` covered 28%
-// of the frame, not half of it.
+// Bug (round 1): "the rectangle is a 1:1 square with 16:9 ratio set, with a height and width much
+// bigger than its surface." The shape function measured BOTH half-extents in y-units after scaling
+// x into aspect space, so width == height always drew a square, and the drawn width shrank away
+// from the stated one as the composition got wider: on a 16:9 output `width = 0.5` covered 28% of
+// the frame, not half of it.
 //
-// Contract: width is a fraction of the frame's width and height a fraction of its height, so
-// 1.0 x 1.0 fills the frame at any ratio. Circle and Polygon deliberately keep their radius in
-// y-units - one extent, and it has to stay round.
+// Bug (round 2): measuring width against the frame's width fixed the size but locked the SHAPE to
+// the composition. Half-and-half is then half the width and half the height, i.e. a 16:9 rectangle
+// on a 16:9 output - the two numbers no longer describe the shape's proportions, and no pair of
+// them can draw a square unless the composition is square.
 //
-// Also covers `roundness`: the parameter is in the node definition and the panel, but nothing
-// was ever passed to the shader, so the control did nothing.
+// Contract: the two readings are both legitimate and cannot both hold at once, so `sizeMode` picks.
+//   Frame (default)  width is a fraction of the frame's WIDTH, height a fraction of its HEIGHT, so
+//                    1.0 x 1.0 fills the frame at any ratio.
+//   Proportional     both are measured against the frame's HEIGHT, so width : height is the drawn
+//                    ratio and equal values are a true square at any composition ratio.
+// Circle and Polygon are always in y-units - one extent, and it has to stay round - which is
+// exactly the unit Proportional shares with them.
+//
+// Also covers `roundness`: the parameter is in the node definition and the panel, but nothing was
+// ever passed to the shader, so the control did nothing.
 
 import { describe, it, expect } from 'vitest';
-import { FieldNodes } from '../src/codegen/compilers/FieldNodes.js';
+import { FieldNodes, rectangleIsProportional } from '../src/codegen/compilers/FieldNodes.js';
+import { PatternNodes } from '../src/data/nodes/PatternNodes.js';
 
 const compileShape = (node) => {
   const fn = new FieldNodes();
@@ -24,10 +34,43 @@ const compileShape = (node) => {
 describe('Rectangle shape codegen', () => {
   const rect = (params = {}) => ({ id: '4', kind: 'Rectangle', params });
 
-  it('measures width against the frame width, not the frame height', () => {
-    const { functionDef } = compileShape(rect());
-    // The x half-extent is carried into aspect space, where the frame spans [0, aspect].
-    expect(functionDef).toMatch(/_half\.x \*= u\.aspect;/);
+  describe('Frame mode (the default)', () => {
+    it('measures width against the frame width, not the frame height', () => {
+      const { functionDef } = compileShape(rect());
+      // The x half-extent is carried into aspect space, where the frame spans [0, aspect].
+      expect(functionDef).toMatch(/_half\.x \*= u\.aspect;/);
+    });
+
+    it('is what an absent, empty or unrecognised sizeMode falls back to', () => {
+      for (const params of [{}, { sizeMode: '' }, { sizeMode: 'nonsense' }, { sizeMode: 42 }]) {
+        expect(compileShape(rect(params)).functionDef).toMatch(/_half\.x \*= u\.aspect;/);
+      }
+    });
+  });
+
+  describe('Proportional mode', () => {
+    it('leaves width in y-units so equal extents draw a real square', () => {
+      const { functionDef } = compileShape(rect({ sizeMode: 'Proportional' }));
+      // Aspect space already measures both axes in frame-heights: scaling x would be what
+      // makes the shape follow the composition instead of the numbers.
+      expect(functionDef).not.toMatch(/_half\.x \*= u\.aspect;/);
+    });
+
+    it('is matched case- and whitespace-insensitively', () => {
+      for (const sizeMode of ['proportional', 'PROPORTIONAL', ' Proportional ']) {
+        expect(rectangleIsProportional(rect({ sizeMode }))).toBe(true);
+      }
+      expect(rectangleIsProportional(rect({ sizeMode: 'Frame' }))).toBe(false);
+      expect(rectangleIsProportional(rect())).toBe(false);
+    });
+
+    it('still measures the point and the centre in aspect space', () => {
+      // Only the WIDTH's unit changes. Centring and the isotropy of the field must not:
+      // centerX 0.5 is the middle of the frame in both modes.
+      const { functionDef } = compileShape(rect({ sizeMode: 'Proportional' }));
+      expect(functionDef).toMatch(/_uvA\.x \*= u\.aspect;/);
+      expect(functionDef).toContain('centerX * u.aspect');
+    });
   });
 
   it('keeps the distance field isotropic so rotation and smoothness stay true', () => {
@@ -35,6 +78,14 @@ describe('Rectangle shape codegen', () => {
     // Both the point and the centre live in aspect space alongside the half-extents.
     expect(functionDef).toMatch(/_uvA\.x \*= u\.aspect;/);
     expect(functionDef).toContain('centerX * u.aspect');
+  });
+
+  it('floors the half-extents at zero but does not cap them at the frame', () => {
+    // A negative extent would turn the box inside out, so the floor stays. The old ceiling of
+    // 1.0 silently discarded anything above it - including the 2.0 the panel's slider allows.
+    const { functionDef } = compileShape(rect());
+    expect(functionDef).toMatch(/max\(vec2<f32>\(width, height\), vec2<f32>\(0\.0\)\)/);
+    expect(functionDef).not.toMatch(/clamp\(\s*vec2<f32>\(width, height\)/);
   });
 
   it('passes roundness to the shader and applies it as a corner radius', () => {
@@ -56,5 +107,14 @@ describe('Rectangle shape codegen', () => {
     // Their centres are still placed in aspect space, so 0.5, 0.5 is the middle of the frame.
     expect(circle.functionDef).toContain('centerX * u.aspect');
     expect(polygon.functionDef).toContain('centerX * u.aspect');
+  });
+
+  it('offers the mode on the node, defaulting to the behaviour patches were authored against', () => {
+    // Without this the control is unreachable and the compiler branch is dead code.
+    const sizeMode = PatternNodes.Rectangle.params.find((p) => p.name === 'sizeMode');
+    expect(sizeMode).toBeDefined();
+    expect(sizeMode.type).toBe('select');
+    expect(sizeMode.options).toEqual(['Frame', 'Proportional']);
+    expect(sizeMode.default).toBe('Frame');
   });
 });

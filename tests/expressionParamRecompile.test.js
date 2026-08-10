@@ -63,4 +63,38 @@ describe('ExpressionParameterValueManager.setValue shader recompilation', () => 
     expect(node.params.width).toBe('0.25');
     expect(reasons).toEqual([]);
   });
+
+  // The same argument reaches further than expressions. A `select` enum or a `bool` flag is
+  // baked into the generated WGSL - uniforms are floats, there is no way to hand the shader the
+  // string "Proportional" - so the uniform-only path leaves the old code running and the control
+  // does nothing at all. Rectangle's Size Mode was dead on arrival for exactly this reason.
+  describe('discrete controls baked into the shader', () => {
+    it('recompiles when a select enum changes', () => {
+      const node = makeNode({ sizeMode: 'Frame' });
+
+      manager.setValue(node, 'sizeMode', 'Proportional');
+
+      expect(node.params.sizeMode).toBe('Proportional');
+      expect(reasons).toHaveLength(1);
+    });
+
+    it('recompiles when a bool flag changes', () => {
+      // Number(false) is 0, so a boolean looks numeric to any value-shaped test - the node
+      // definition's declared TYPE is what separates a baked flag from a uniform.
+      const node = { id: '9', kind: 'Flip2D', params: { flipX: false }, inputs: [] };
+
+      manager.setValue(node, 'flipX', true);
+
+      expect(reasons).toHaveLength(1);
+    });
+
+    it('still skips the rebuild for the float on the same node', () => {
+      // The whole point of the numeric skip is drag performance; adding enums must not cost it.
+      const node = makeNode({ sizeMode: 'Frame', width: 0.5 });
+
+      manager.setValue(node, 'width', '0.75');
+
+      expect(reasons).toEqual([]);
+    });
+  });
 });

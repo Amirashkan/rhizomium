@@ -563,13 +563,30 @@ Outputs:
 Parameters:
   - centerX (float): Center X position [default: 0.5]
   - centerY (float): Center Y position [default: 0.5]
-  - width (float): Rectangle width [default: 0.5]
-  - height (float): Rectangle height [default: 0.5]
-  - roundness (float): Corner rounding [default: 0.0]
+  - width (float): Rectangle width, in the unit sizeMode selects [default: 0.5]
+  - height (float): Rectangle height, as a fraction of the frame's height [default: 0.5]
+  - sizeMode (select): What width is a fraction of - Frame or Proportional [default: Frame]
+  - roundness (float): Corner rounding, as a fraction of the shortest half-extent [default: 0.0]
   - smoothness (float): Edge smoothness [default: 0.01]
   - invert (bool): Invert the shape [default: false]
 
 Usage: Creates rectangular shapes. Set roundness > 0 for rounded corners.
+
+sizeMode decides what width is measured against, because the two useful answers cannot both
+be true at once:
+
+  Frame (default)  width is a fraction of the frame's WIDTH, height a fraction of its HEIGHT.
+                   1.0 x 1.0 fills the composition at any aspect ratio. The shape then carries
+                   the composition's proportions: on a 16:9 output width = height = 0.5 draws a
+                   16:9 rectangle covering half the width and half the height, never a square.
+
+  Proportional     width is measured against the frame's HEIGHT too, so width : height is the
+                   shape's real on-screen ratio and equal values draw a true square on any
+                   composition. These are the same y-units Circle and Polygon measure their
+                   radius in, so a Proportional rectangle of width and height 2r exactly
+                   circumscribes a Circle of radius r.
+
+Neither mode caps the extents, so a rectangle may be larger than the frame.
 
 --------------------------------------------------------------------------------
 Polygon
