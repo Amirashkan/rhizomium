@@ -12,7 +12,7 @@ import { BlendNodes } from '../compilers/BlendNodes.js';
 import { GradientNodes } from '../compilers/GradientNodes.js';
 import { ComputeNodes } from '../compilers/ComputeNodes.js';
 import { UnifiedExpressionSystem } from '../../utils/UnifiedExpressionSystem.js';
-import { buildParamRefMapping } from '../../utils/paramReferences.js';
+import { buildParamRefMapping, guardedResolve } from '../../utils/paramReferences.js';
 
 export class NodeCompiler {
   constructor() {
@@ -138,13 +138,17 @@ export class NodeCompiler {
     // Validate every node reference first: an unresolved identifier like "node_"
     // would otherwise be emitted verbatim and break the whole shader module.
     try {
-      // Identifiers naming another parameter of the same node bind to that parameter's uniform
-      // (see utils/paramReferences.js). Node references are resolved after, and win on a clash.
+      // Identifiers naming another parameter of the same node bind to that parameter (see
+      // utils/paramReferences.js). A sibling that is itself an expression re-enters this method,
+      // so it resolves its own node references through the type converter exactly as it does in
+      // its own field. Node references in THIS expression are resolved after, and win on a clash.
       const variableMapping = ownerNode
         ? buildParamRefMapping(ownerNode, expression, {
             uniformManager: this.uniformManager,
             excludeParam: ownerParamName,
             graph: this.currentGraph,
+            resolveSibling: (name) => guardedResolve(this, ownerNode, name, (n) =>
+              this.resolveParameterValue(ownerNode.params?.[n], null, ownerNode, n)),
           })
         : {};
       const refs = expression.match(/\bnode_\w*/g) || [];

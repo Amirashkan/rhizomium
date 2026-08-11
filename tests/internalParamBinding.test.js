@@ -12,9 +12,13 @@ import {
   buildParamScope,
   referencesParams,
   paramUniformField,
+  compilerParamRefMapping,
 } from '../src/utils/paramReferences.js';
 import { TransformNodes } from '../src/codegen/compilers/TransformNodes.js';
-import { ParameterExpressionSystem } from '../src/utils/ParameterExpressionSystem.js';
+import {
+  ParameterExpressionSystem,
+  ExpressionTextInputHandler,
+} from '../src/utils/ParameterExpressionSystem.js';
 
 function makeUniformManager() {
   return { uniformValues: new Map() };
@@ -90,6 +94,111 @@ describe('internal parameter binding - WGSL', () => {
     const node = makeTransformNode({ scaleX: 1, scaleY: '=time*2' });
 
     expect(compiler.getShaderParam(node, 'scaleY', 1.0)).toBe('(g.time * 2.0)');
+  });
+});
+
+describe('internal parameter binding - expression source parameters', () => {
+  // A sibling that is itself an expression must compile the way it compiles in its OWN field:
+  // through the caller's parameter resolver, so node references, scalar coercions and fallbacks
+  // are the ones that caller applies. Compiling the expression text standalone gets those wrong.
+  function fakeCompiler(node, resolved) {
+    const calls = [];
+    return {
+      calls,
+      graph: null,
+      uniformManager: { uniformValues: new Map() },
+      getShaderParam(n, name) {
+        calls.push(name);
+        return resolved[name] ?? null;
+      },
+      node,
+    };
+  }
+
+  it('compiles an expression sibling through the caller\'s own resolver', () => {
+    const node = makeTransformNode({ scaleX: '=node_7', scaleY: '=scaleX' });
+    const compiler = fakeCompiler(node, { scaleX: 'node_7_resolved' });
+
+    const mapping = compilerParamRefMapping(compiler, node, '=scaleX', 'scaleY');
+    expect(compiler.calls).toEqual(['scaleX']);
+    expect(mapping.scaleX).toBe('node_7_resolved');
+  });
+
+  it('drops the binding when the caller cannot resolve the source', () => {
+    const node = makeTransformNode({ scaleX: '=node_', scaleY: '=scaleX' });
+    const compiler = fakeCompiler(node, { scaleX: null });
+
+    expect(compilerParamRefMapping(compiler, node, '=scaleX', 'scaleY')).toEqual({});
+  });
+
+  it('does not re-enter the resolver for a parameter already being resolved', () => {
+    const node = makeTransformNode({ scaleX: '=scaleY', scaleY: '=scaleX' });
+    const compiler = {
+      graph: null,
+      uniformManager: { uniformValues: new Map() },
+      getShaderParam(n, name) {
+        // Mimics a real compiler: resolving a parameter resolves its references too.
+        const mapping = compilerParamRefMapping(this, n, n.params[name], name);
+        return mapping[name === 'scaleX' ? 'scaleY' : 'scaleX'] ?? null;
+      },
+    };
+
+    expect(() => compilerParamRefMapping(compiler, node, '=scaleX', 'scaleY')).not.toThrow();
+    expect(compilerParamRefMapping(compiler, node, '=scaleX', 'scaleY')).toEqual({});
+  });
+
+  it('still resolves a numeric sibling to its uniform, not through the resolver', () => {
+    const node = makeTransformNode({ scaleX: 2, scaleY: '=scaleX' });
+    const compiler = fakeCompiler(node, {});
+
+    expect(compilerParamRefMapping(compiler, node, '=scaleX', 'scaleY').scaleX)
+      .toBe(paramUniformField(4, 'scaleX'));
+    expect(compiler.calls).toEqual([]);
+  });
+});
+
+describe('internal parameter binding - readout during a drag', () => {
+  // The drag handler writes node.params and the GPU uniform on every mouse-move and only commits on
+  // release, so a field bound to the dragged parameter has no event of its own: its green evaluated
+  // readout used to sit at the pre-drag value while the render moved.
+  function mountField(handler, node, paramName) {
+    const input = document.createElement('textarea');
+    input.value = node.params[paramName];
+    const resultDisplay = document.createElement('div');
+    handler.activeInputs.set(`${node.id}_${paramName}`, {
+      input,
+      resultDisplay,
+      param: { name: paramName, type: 'float' },
+      node,
+      valueManager: null,
+    });
+    return { input, resultDisplay };
+  }
+
+  it('refreshes a bound field\'s readout from the current parameter value', () => {
+    const expressionSystem = new ParameterExpressionSystem();
+    const handler = new ExpressionTextInputHandler(null, expressionSystem);
+    const node = makeTransformNode({ scaleX: 2, scaleY: '=scaleX' });
+    const { resultDisplay } = mountField(handler, node, 'scaleY');
+
+    handler.refreshNodeExpressionDisplays(node.id, 'scaleX');
+    expect(resultDisplay.textContent).toBe('→ 2');
+
+    node.params.scaleX = '5.500'; // what a drag mouse-move writes
+    handler.refreshNodeExpressionDisplays(node.id, 'scaleX');
+    expect(resultDisplay.textContent).toBe('→ 5.5');
+  });
+
+  it('leaves plain numeric fields and other nodes alone', () => {
+    const expressionSystem = new ParameterExpressionSystem();
+    const handler = new ExpressionTextInputHandler(null, expressionSystem);
+    const node = makeTransformNode({ scaleX: 2, scaleY: '=scaleX' });
+    const numeric = mountField(handler, node, 'scaleX');
+    const other = mountField(handler, { id: 9, kind: 'Scale2D', params: { scaleY: '=scaleX' } }, 'scaleY');
+
+    handler.refreshNodeExpressionDisplays(node.id);
+    expect(numeric.resultDisplay.textContent).toBe('');
+    expect(other.resultDisplay.textContent).toBe('');
   });
 });
 

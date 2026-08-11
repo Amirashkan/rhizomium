@@ -84,16 +84,22 @@ export function referencesParams(node, expression, excludeParam = null) {
  *                                          itself.
  * @param {object} [options.graph]          Graph used to resolve node references nested inside a
  *                                          sibling's own expression.
+ * @param {Function} [options.resolveSibling] Compiles a sibling parameter that is ITSELF an
+ *                                          expression, given its name. Callers pass their own
+ *                                          parameter resolver here so a referenced expression
+ *                                          compiles exactly as it does in its own field — node
+ *                                          references included. Returns null when it cannot be
+ *                                          resolved (cycle, unknown node reference, ...).
  * @returns {object} mapping (empty when the expression references no sibling parameter)
  */
 export function buildParamRefMapping(node, expression, options = {}) {
-  const { uniformManager = null, excludeParam = null, graph = null } = options;
+  const { uniformManager = null, excludeParam = null, graph = null, resolveSibling = null } = options;
   const mapping = {};
   if (!node?.params || typeof expression !== 'string') return mapping;
 
   const visited = new Set(excludeParam ? [excludeParam] : []);
   for (const name of referencedParamNames(node, expression, excludeParam)) {
-    const wgsl = _resolveParamAsWGSL(node, name, { uniformManager, graph, visited });
+    const wgsl = _resolveParamAsWGSL(node, name, { uniformManager, graph, visited, resolveSibling });
     if (wgsl !== null) mapping[name] = wgsl;
   }
   return mapping;
@@ -103,13 +109,45 @@ export function buildParamRefMapping(node, expression, options = {}) {
  * buildParamRefMapping for a node compiler, taking the uniform manager and graph the compiler was
  * handed. Compilers all resolve parameter expressions the same way, so this keeps the call one line
  * at each getParam/getShaderParam site.
+ *
+ * A sibling that is itself an expression is compiled by re-entering the compiler's own parameter
+ * resolver, so `scaleY = "=scaleX"` emits whatever `scaleX` emits — including the node references
+ * and scalar coercions the compiler applies to its own fields, which a standalone compile of the
+ * expression text would get wrong. Re-entry is cycle-guarded per compiler.
  */
 export function compilerParamRefMapping(compiler, node, expression, paramName) {
+  const resolver = typeof compiler?.getShaderParam === 'function'
+    ? (name) => compiler.getShaderParam(node, name, 0)
+    : typeof compiler?.getParam === 'function'
+      ? (name) => compiler.getParam(node, name, 0)
+      : null;
+
   return buildParamRefMapping(node, expression, {
     uniformManager: compiler?.uniformManager ?? null,
     excludeParam: paramName,
     graph: compiler?.graph ?? null,
+    resolveSibling: resolver && ((name) => guardedResolve(compiler, node, name, resolver)),
   });
+}
+
+/**
+ * Run a re-entrant sibling resolution once per (node, parameter) at a time. A parameter chain that
+ * loops back on itself returns null instead of recursing until the stack blows.
+ */
+export function guardedResolve(owner, node, name, resolve) {
+  const stack = owner._paramRefStack || (owner._paramRefStack = new Set());
+  const key = `${node.id}.${name}`;
+  if (stack.has(key)) return null;
+  stack.add(key);
+  try {
+    const code = resolve(name);
+    if (code === null || code === undefined || code === '') return null;
+    return typeof code === 'number' ? floatLiteral(code) : String(code);
+  } catch {
+    return null;
+  } finally {
+    stack.delete(key);
+  }
 }
 
 function _resolveParamAsWGSL(node, name, ctx) {
@@ -117,6 +155,11 @@ function _resolveParamAsWGSL(node, name, ctx) {
   const raw = node.params[name];
 
   if (isExpressionValue(raw)) {
+    // Preferred: let the caller compile it the way it compiles its own parameter fields.
+    if (ctx.resolveSibling) {
+      return ctx.resolveSibling(name);
+    }
+
     const nested = { ...ctx, visited: new Set([...ctx.visited, name]) };
     const nestedMapping = {};
     for (const ref of referencedParamNames(node, raw, null)) {
