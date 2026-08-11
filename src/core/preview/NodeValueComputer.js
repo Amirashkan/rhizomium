@@ -53,10 +53,49 @@ export class NodeValueComputer {
     return false;
   }
 
+  /**
+   * PreviewComputer, when it is available and knows how to evaluate a node live.
+   * @private
+   */
+  _liveEvaluator() {
+    const previewComputer = this.editor?.previewComputer
+      || (typeof window !== 'undefined' ? window.editor?.previewComputer : null);
+    return (previewComputer && typeof previewComputer.evaluateNodeLive === 'function')
+      ? previewComputer
+      : null;
+  }
+
+  /**
+   * Field nodes evaluate to a descriptor object ({ type:'circle', radius, ... }) for the thumbnail
+   * renderers. This computer's callers want the one number a `=node_<id>` reference stands for, so
+   * reduce a descriptor to its defining scalar. Anything else (numbers, vectors, the multi-output
+   * split object a pin reference indexes into) passes through untouched.
+   * @private
+   */
+  _toReferenceValue(value) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (value.type === 'circle') return value.radius ?? 0;
+      if (value.type === 'rectangle') return value.width ?? 0;
+    }
+    return value;
+  }
+
   computeNodeValue(node, visited = new Set()) {
     try {
       if (!node || !node.id) {
         throw new Error('Invalid node for computation');
+      }
+
+      // Prefer PreviewComputer's evaluator: it covers every node kind (all the math, logic, vector,
+      // remap and expression nodes) and is the same code that produces the thumbnails and the GPU
+      // uniforms. The local switch below only ever grew a case at a time, so every kind it was
+      // missing resolved to 0 or — worse — to whatever the ~10 FPS preview pass last cached, which
+      // is what made values driven through a node reference move in steps instead of animating.
+      const previewComputer = this._liveEvaluator();
+      if (previewComputer) {
+        return this._toReferenceValue(previewComputer.evaluateNodeLive(node, {
+          graph: this.editor?.graph,
+        }));
       }
 
       if (visited.has(node.id)) {
@@ -97,12 +136,15 @@ export class NodeValueComputer {
 
       let result;
 
+      // Fallback evaluator, used only when there is no PreviewComputer to delegate to (unit tests,
+      // an editor built without the preview system). Covers a fraction of the node kinds — add new
+      // kinds to PreviewComputer._evaluateNodeKind, which every surface shares, not here.
       switch (node.kind.toLowerCase()) {
         case "stripe":
 case "stripefield": {
   const freq = this._getParameter(node, "frequency") || 5.0;
   const thick = this._getParameter(node, "thickness") || 0.5;
-  const val = Math.sin(Date.now() / 200 + freq) > (1.0 - thick) ? 1.0 : 0.0;
+  const val = Math.sin(this._simTime() * 5 + freq) > (1.0 - thick) ? 1.0 : 0.0;
   result = val;
   break;
 }
@@ -111,8 +153,8 @@ case "checker":
 case "checkerfield": {
   const sx = this._getParameter(node, "scaleX") || 8.0;
   const sy = this._getParameter(node, "scaleY") || 8.0;
-  const u = Math.floor((Date.now()/1000) * sx) % 2;
-  const v = Math.floor((Date.now()/1000) * sy) % 2;
+  const u = Math.floor(this._simTime() * sx) % 2;
+  const v = Math.floor(this._simTime() * sy) % 2;
   result = (u + v) % 2 === 0 ? 1.0 : 0.0;
   break;
 }
@@ -132,7 +174,11 @@ case "checkerfield": {
           break;
 
         case "time":
-          result = (Date.now() / 1000) % 1;
+          // The sim clock the shader's g.time runs on, unwrapped. It used to be
+          // `(Date.now() / 1000) % 1`: a sawtooth on the wall clock that snapped back to 0 every
+          // second and shared no phase with the animation, so anything reading a Time node through
+          // a reference jumped once a second instead of ramping.
+          result = this._simTime();
           break;
 
         case "uv":
@@ -367,6 +413,16 @@ case "rectanglefield": {
       });
       return {};
     }
+  }
+
+  /**
+   * The render loop's sim clock — the same time the shader gets as g.time — falling back to the
+   * wall clock when there is no render loop (tests, first frames).
+   * @private
+   */
+  _simTime() {
+    const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
+    return Number.isFinite(simTime) ? simTime : Date.now() / 1000;
   }
 
 _getParameter(node, name) {

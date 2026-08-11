@@ -275,6 +275,898 @@ export class PreviewComputer {
     return isNaN(parsed) ? defaultValue : parsed;
   }
 
+  /**
+   * Evaluate one node's value from its kind, parameters and the values already computed for the
+   * nodes feeding it. The single place any surface answers "what number is this node putting out"
+   * — the throttled preview pass below and the per-frame live path (evaluateNodeLive) both come
+   * through here, so a node reads the same on a thumbnail, in a =node_<id> reference and on the
+   * GPU.
+   * @param {Object} node - Node to evaluate
+   * @param {Map} values - node id -> already-computed value for this pass
+   * @returns {*} number, vector array, or a tagged object ({type:"split"|"circle"|"rectangle"})
+   */
+  _evaluateNodeKind(node, values) {
+    let result = null;
+    try {
+    switch (node.kind) {
+
+
+    // Input Nodes
+    case "UV":
+      result = [0.5, 0.5];
+      break;
+
+    case "Time":
+      result = this.animationTime;
+      break;
+
+    case "Trigger": {
+      if (isTriggerChangeMode(node)) {
+        // "On value change" compares against the PREVIOUS frame, which this preview pass —
+        // throttled to ~10fps — can't track on its own. TriggerNodeProcessor advances the
+        // pulse every frame on the CPU; mirror its value so the node readout matches what
+        // the shader renders (same arrangement as Hold and Count below).
+        result = triggerChangePulse(node);
+        break;
+      }
+      const inputValue = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+      result = inputValue >= threshold ? 1.0 : 0.0;
+      break;
+    }
+
+    case "Hold": {
+      // The sample-and-hold latch lives on the CPU in HoldNodeProcessor (it runs every
+      // frame and survives the pulse falling to 0, which this preview pass — throttled to
+      // ~10fps — can't track on its own). Mirror its held value here so the node thumbnail
+      // matches what the shader renders.
+      result = typeof node.__holdValue === 'number' ? node.__holdValue : 0.0;
+      break;
+    }
+
+    case "Count": {
+      // The running counter lives on the CPU in CountNodeProcessor (advanced every frame so
+      // brief pulses aren't missed). Mirror its current value here so the thumbnail matches
+      // the shader.
+      result = typeof node.__countValue === 'number' ? node.__countValue : 0.0;
+      break;
+    }
+
+    case "AudioAnalysis": {
+      // Many independent outputs (band meters, per-drum envelopes and triggers, spectral
+      // descriptors), advanced every frame on the CPU by AudioAnalysisProcessor. Exposed as
+      // a multi-output split — the same shape a Split node produces — so every downstream
+      // surface reads the RIGHT pin instead of collapsing to one value: the per-pin value
+      // tags (Renderer), a wire from any pin (_resolveInputValue indexes the split by source
+      // pin), and `=node_<id>_N` references (_addNodeRefsToContext unwraps the split). Pin 0
+      // (level) stays the node's on-canvas readout.
+      result = {
+        type: 'split',
+        values: AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i)),
+      };
+      break;
+    }
+
+    case "RandomValue": {
+      // Clock-driven pseudo-random noise in [0, 1]; mirror the shader's fract(sin(...)) hash.
+      const speed = this._evaluateParam(node.params?.speed, values, 1.0);
+      const s = Math.sin(this.animationTime * speed * 12.9898) * 43758.5453;
+      result = s - Math.floor(s);
+      break;
+    }
+
+    case "ConstFloat": {
+      // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
+      let value = node.params?.value ?? node.value;
+
+      // Check if value is an expression (with or without = prefix)
+      // The = prefix may have been stripped by ParameterExpressionSystem
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const isExpression = trimmed.startsWith('=') ||
+                            /[a-zA-Z_]/.test(trimmed) || // Contains letters (functions, variables)
+                            trimmed.includes('(');        // Contains function calls
+
+        if (isExpression) {
+          try {
+            // Get audio capture instance
+            let audioCapture = null;
+            try {
+              audioCapture = getBrowserAudioCapture();
+            } catch {
+              // Audio system not available
+            }
+
+            // Build context with time, frame, and audio envelope values
+            const context = {
+              time: this.animationTime,
+              frame: Math.floor(this.animationTime * 60),
+              // Get audio envelope values from audio system if available
+              audioEnvelope: audioCapture?.getValue?.() ?? 0,
+              audioEnvelopeBass: audioCapture?.getAudioEnvelopeBass?.() ?? 0,
+              audioEnvelopeMids: audioCapture?.getAudioEnvelopeMids?.() ?? 0,
+              audioEnvelopeHighs: audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
+              audioEnvelopeFull: audioCapture?.getAudioEnvelopeFull?.() ?? 0,
+              // Constants
+              PI: Math.PI,
+              E: Math.E,
+            };
+
+            // Add other node values to context (handles split objects + numeric suffixes).
+            this._addNodeRefsToContext(context, values);
+
+            // Remove = prefix if present before evaluation
+            const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
+
+            // Evaluate using UnifiedExpressionSystem (has proper math function support)
+            value = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
+          } catch {
+
+
+            value = 0;
+          }
+        } else {
+          // Not an expression, parse as number
+          const parsed = parseFloat(value);
+          value = isNaN(parsed) ? 0 : parsed;
+        }
+      }
+
+      // Ensure result is a number
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        result = isNaN(parsed) ? 0 : parsed;
+      } else {
+        result = value ?? 0;
+      }
+      break;
+    }
+
+    case "ConstVec2": {
+      const x = this._evaluateParam(node.params?.x, values, 0);
+      const y = this._evaluateParam(node.params?.y, values, 0);
+      result = [x, y];
+      break;
+    }
+
+    case "ConstVec3": {
+      const x = this._evaluateParam(node.params?.x, values, 0);
+      const y = this._evaluateParam(node.params?.y, values, 0);
+      const z = this._evaluateParam(node.params?.z, values, 0);
+      result = [x, y, z];
+      break;
+    }
+
+    case "ConstVec4": {
+      const x = this._evaluateParam(node.params?.x, values, 0);
+      const y = this._evaluateParam(node.params?.y, values, 0);
+      const z = this._evaluateParam(node.params?.z, values, 0);
+      const w = this._evaluateParam(node.params?.w, values, 1);
+      result = [x, y, z, w];
+      break;
+    }
+
+    case "Mouse": {
+      // Live cursor state tracked by the GPU renderer (iMouse layout):
+      // xy = position (normalized 0..1), z = held, w = click. Falls back
+      // to screen center, not pressed, before any input.
+      const m = (typeof window !== "undefined" && window._mousePosition) || null;
+      result = m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];
+      break;
+    }
+
+    case "Resolution":
+      result = [1920, 1080]; // Default resolution
+      break;
+
+    case "Pi":
+      result = Math.PI;
+      break;
+
+    // Math Nodes - Arithmetic
+    case "Add": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 0);
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 0);
+      result = a + b;
+      break;
+    }
+
+    case "Subtract": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 0);
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 0);
+      result = a - b;
+      break;
+    }
+
+    case "Multiply": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 1);
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 1);
+      result = a * b;
+      break;
+    }
+
+    case "Divide": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 1);
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 1);
+      result = b !== 0 ? a / b : 0;
+      break;
+    }
+
+    case "Power": {
+      const base = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.base, values, 1);
+      const exp = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.exp, values, 2);
+      result = Math.pow(base, exp);
+      break;
+    }
+
+    // Math Nodes - Trigonometry
+    case "Sin": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.sin(x);
+      break;
+    }
+
+    case "Cos": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.cos(x);
+      break;
+    }
+
+    case "Tan": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.tan(x);
+      break;
+    }
+
+    case "Asin": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.asin(Math.max(-1, Math.min(1, x)));
+      break;
+    }
+
+    case "Acos": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.acos(Math.max(-1, Math.min(1, x)));
+      break;
+    }
+
+    case "Atan": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.atan(x);
+      break;
+    }
+
+    case "Atan2": {
+      const y = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const x = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+      result = Math.atan2(y, x);
+      break;
+    }
+
+    // Math Nodes - Functions
+    case "Floor": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.floor(x);
+      break;
+    }
+
+    case "Ceil": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.ceil(x);
+      break;
+    }
+
+    case "Round": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.round(x);
+      break;
+    }
+
+    case "Fract": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = x - Math.floor(x);
+      break;
+    }
+
+    case "Abs": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.abs(x);
+      break;
+    }
+
+    case "Sqrt": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.sqrt(Math.max(0, x));
+      break;
+    }
+
+    case "Sign": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.sign(x);
+      break;
+    }
+
+    case "Mod": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+      result = y !== 0 ? x % y : 0;
+      break;
+    }
+
+    case "Exp": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.exp(x);
+      break;
+    }
+
+    case "Exp2": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.pow(2, x);
+      break;
+    }
+
+    case "Log": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
+      result = x > 0 ? Math.log(x) : 0;
+      break;
+    }
+
+    case "Log2": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
+      result = x > 0 ? Math.log2(x) : 0;
+      break;
+    }
+
+    // Math Nodes - Range/Comparison
+    case "Min": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      result = Math.min(a, b);
+      break;
+    }
+
+    case "Max": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      result = Math.max(a, b);
+      break;
+    }
+
+    case "Clamp": {
+      const value = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const min = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      const max = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 1;
+      result = Math.max(min, Math.min(max, value));
+      break;
+    }
+
+    // Math Nodes - Interpolation
+    case "Smoothstep": {
+      const edge0 = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const edge1 = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+      const x = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
+      const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(0.0001, edge1 - edge0)));
+      result = t * t * (3 - 2 * t);
+      break;
+    }
+
+    case "Step": {
+      const edge = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
+      const x = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      result = x < edge ? 0 : 1;
+      break;
+    }
+
+    case "Compare": {
+      // Mirror compileCompare(): output is select(0.0, 1.0, comparison),
+      // i.e. 1.0 when the comparison holds, 0.0 otherwise. Without this case
+      // Compare fell through to the default (result = 0), so the numeric pin
+      // preview always showed 0.00 even though the thumbnail rendered correctly.
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      const operator = node.params?.operator || "greater";
+      const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.001));
+
+      let comparison;
+      switch (operator) {
+        case "equal":        comparison = Math.abs(a - b) < epsilon; break;
+        case "notEqual":     comparison = Math.abs(a - b) >= epsilon; break;
+        case "greater":      comparison = a > b; break;
+        case "greaterEqual": comparison = a >= b; break;
+        case "less":         comparison = a < b; break;
+        case "lessEqual":    comparison = a <= b; break;
+        default:             comparison = a > b;
+      }
+      result = comparison ? 1 : 0;
+      break;
+    }
+
+    case "Mix":
+    case "Lerp": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+      const t = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
+      result = a * (1 - t) + b * t;
+      break;
+    }
+
+    case "InverseLerp": {
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+      const value = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
+      result = b !== a ? (value - a) / (b - a) : 0;
+      break;
+    }
+
+    case "Saturate": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = Math.max(0, Math.min(1, x));
+      break;
+    }
+
+    // Math Nodes - Utilities
+    case "OneMinus": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = 1.0 - x;
+      break;
+    }
+
+    case "Negate": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = -x;
+      break;
+    }
+
+    case "Reciprocal": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
+      result = x !== 0 ? 1.0 / x : 0;
+      break;
+    }
+
+    // Math Nodes - Boolean logic
+    // Mirrors compileLogicGate()/compileNot(): inputs are thresholded into booleans
+    // (true when >= threshold) and the gate outputs exactly 0.0 or 1.0. An unconnected
+    // input reads as false, same as the shader's default of 0.0.
+    case "And":
+    case "Or":
+    case "Xor":
+    case "Nand":
+    case "Nor":
+    case "Xnor": {
+      const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+      const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      const boolA = a >= threshold;
+      const boolB = b >= threshold;
+
+      let gate;
+      switch (node.kind) {
+        case "And":  gate = boolA && boolB; break;
+        case "Or":   gate = boolA || boolB; break;
+        case "Xor":  gate = boolA !== boolB; break;
+        case "Nand": gate = !(boolA && boolB); break;
+        case "Nor":  gate = !(boolA || boolB); break;
+        case "Xnor": gate = boolA === boolB; break;
+        default:     gate = boolA && boolB;
+      }
+      result = gate ? 1 : 0;
+      break;
+    }
+
+    case "Not": {
+      const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      result = x >= threshold ? 0 : 1;
+      break;
+    }
+
+    // Vector Nodes
+    case "Dot": {
+      const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
+      const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
+      result = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      break;
+    }
+
+    case "Cross": {
+      const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
+      const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
+      result = [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+      ];
+      break;
+    }
+
+    case "Normalize": {
+      const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
+      const length = Math.sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
+      result = length > 1e-6 ? [vec[0] / length, vec[1] / length, vec[2] / length] : [0, 0, 0];
+      break;
+    }
+
+    case "Length": {
+      const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+      result = Math.sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
+      break;
+    }
+
+    case "Distance": {
+      const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+      const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
+      const diff = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      result = Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
+      break;
+    }
+
+    case "Reflect": {
+      const incident = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, -1, 0];
+      const normal = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
+      const nLength = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+      const n = nLength > 1e-6 ? [normal[0] / nLength, normal[1] / nLength, normal[2] / nLength] : [0, 1, 0];
+      const dotNI = n[0] * incident[0] + n[1] * incident[1] + n[2] * incident[2];
+      result = [
+        incident[0] - 2 * dotNI * n[0],
+        incident[1] - 2 * dotNI * n[1],
+        incident[2] - 2 * dotNI * n[2],
+      ];
+      break;
+    }
+
+    case "Refract": {
+      const incident = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, -1, 0];
+      const normal = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
+      const eta = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 1.5;
+      const nLength = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+      const n = nLength > 1e-6 ? [normal[0] / nLength, normal[1] / nLength, normal[2] / nLength] : [0, 1, 0];
+      const iLength = Math.sqrt(incident[0] * incident[0] + incident[1] * incident[1] + incident[2] * incident[2]);
+      const i = iLength > 1e-6 ? [incident[0] / iLength, incident[1] / iLength, incident[2] / iLength] : [0, 0, 0];
+      const dotNI = n[0] * i[0] + n[1] * i[1] + n[2] * i[2];
+      const k = 1.0 - eta * eta * (1.0 - dotNI * dotNI);
+      if (k < 0.0) {
+        result = [0, 0, 0];
+      } else {
+        const sqrtK = Math.sqrt(k);
+        result = [
+          eta * i[0] - (eta * dotNI + sqrtK) * n[0],
+          eta * i[1] - (eta * dotNI + sqrtK) * n[1],
+          eta * i[2] - (eta * dotNI + sqrtK) * n[2],
+        ];
+      }
+      break;
+    }
+
+    case "Split2": {
+      const v = node.inputs?.[0] ? this._toVec2(this._resolveInputValue(node, 0, values)) : [0, 0];
+      result = { type: "split", values: v };
+      break;
+    }
+
+    case "Split3": {
+      const v = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+      result = { type: "split", values: v };
+      break;
+    }
+
+    case "Split4": {
+      const v = node.inputs?.[0] ? this._toVec4(this._resolveInputValue(node, 0, values)) : [0, 0, 0, 1];
+      result = { type: "split", values: v };
+      break;
+    }
+
+    case "Combine2": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      result = [x, y];
+      break;
+    }
+
+    case "Combine3": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      const z = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0;
+      result = [x, y, z];
+      break;
+    }
+
+    case "Combine4": {
+      const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
+      const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
+      const z = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0;
+      const w = node.inputs?.[3] ? this._toF32(this._resolveInputValue(node, 3, values)) : 1;
+      result = [x, y, z, w];
+      break;
+    }
+
+    case "VectorAdd": {
+      const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+      const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
+      result = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+      break;
+    }
+
+    case "VectorSubtract": {
+      const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+      const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
+      result = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+      break;
+    }
+
+    case "VectorMultiply": {
+      const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
+      const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [1, 1, 1];
+      result = [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
+      break;
+    }
+
+    case "VectorDivide": {
+      const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
+      const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [1, 1, 1];
+      result = [
+        b[0] !== 0 ? a[0] / b[0] : 0,
+        b[1] !== 0 ? a[1] / b[1] : 0,
+        b[2] !== 0 ? a[2] / b[2] : 0,
+      ];
+      break;
+    }
+
+    case "VectorScale": {
+      const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
+      const scale = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
+      result = [vec[0] * scale, vec[1] * scale, vec[2] * scale];
+      break;
+    }
+
+    case "Swizzle": {
+      const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
+      const pattern = node.params?.pattern || "xyz";
+      const swizzled = [];
+      for (const char of pattern) {
+        switch (char) {
+          case 'x': swizzled.push(vec[0]); break;
+          case 'y': swizzled.push(vec[1]); break;
+          case 'z': swizzled.push(vec[2]); break;
+          default: swizzled.push(0);
+        }
+      }
+      result = swizzled.slice(0, 3);
+      break;
+    }
+
+    // Utility Nodes
+    case "Expr": {
+      const expr = (node.expr || "a").toString();
+
+      // One scope entry per input pin (a, b, c, …). The pin list is expandable, so the
+      // scope must follow the node's live count or the CPU preview would disagree with the
+      // shader about what `c` means.
+      const scope = { u_time: this.animationTime };
+      const exprInputCount = Math.max(1, getInputCount(node));
+      for (let i = 0; i < exprInputCount; i++) {
+        scope[String.fromCharCode(97 + i)] = node.inputs?.[i]
+          ? this._toF32(this._resolveInputValue(node, i, values))
+          : 0;
+      }
+
+      try {
+        // Math functions come from the evaluator's builtin table, so the
+        // scope only carries this node's values.
+        result = this.expressionSystem.evaluateCPUOrThrow(expr, scope);
+        if (!Number.isFinite(result)) result = 0;
+      } catch (error) {
+        window.errorHandler?.handleError(error, {
+          component: 'expression-evaluation',
+          nodeId: node.id,
+          expression: expr,
+        });
+        result = 0;
+      }
+      break;
+    }
+
+    case "Remap": {
+      const input = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
+      const inMin = this._evaluateParam(node.params?.inMin, values, 0.0);
+      const inMax = this._evaluateParam(node.params?.inMax, values, 1.0);
+      const outMin = this._evaluateParam(node.params?.outMin, values, 0.0);
+      const outMax = this._evaluateParam(node.params?.outMax, values, 1.0);
+      const shouldClamp = node.params?.clamp ?? false;
+
+      // Remap formula: ((input - inMin) / (inMax - inMin)) * (outMax - outMin) + outMin
+      const inRange = Math.max(0.0001, inMax - inMin);
+      const normalized = (input - inMin) / inRange;
+      const remapped = normalized * (outMax - outMin) + outMin;
+
+      result = shouldClamp ? Math.max(outMin, Math.min(outMax, remapped)) : remapped;
+      break;
+    }
+
+    // Field Nodes
+    case "Circle": {
+      const radius = this._evaluateParam(node.params?.radius, values, 0.25);
+      const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
+      result = { type: "circle", radius, epsilon };
+      break;
+    }
+    case "Rectangle": {
+    const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
+    const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
+    const width = this._evaluateParam(node.params?.width, values, 0.5);
+    const height = this._evaluateParam(node.params?.height, values, 0.5);
+    const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
+    result = { type: "rectangle", centerX, centerY, width, height, epsilon };
+    break;
+    }
+    // Output
+    case "OutputFinal": {
+      const c = node.inputs?.[0] ? this._resolveInputValue(node, 0, values) : [0, 0, 0];
+      result = this._toVec3(c);
+      break;
+    }
+
+    default:
+      result = 0;
+    }
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'node-computation',
+        nodeType: node.kind,
+        nodeId: node.id
+      });
+      result = 0;
+    }
+    return result;
+  }
+
+  /**
+   * The sim clock the GPU shader runs on, falling back to the wall clock before the render loop
+   * exists (tests, the external viewer's first frames).
+   * @private
+   */
+  _currentSimTime() {
+    const simTime = (typeof window !== 'undefined') ? window.renderLoop?._simTime : undefined;
+    if (Number.isFinite(simTime)) return simTime;
+    return (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+  }
+
+  /**
+   * Identity of the frame a live evaluation belongs to, so repeated calls within one frame reuse
+   * their result. Keyed on the render loop's frame index rather than on sim time: a node whose
+   * value is advanced by a CPU processor (Count, Hold, Audio Analysis) keeps moving while the
+   * clock is paused, and a time key would freeze it.
+   * @private
+   */
+  _liveFrameKey() {
+    const frameIndex = (typeof window !== 'undefined') ? window.renderLoop?._frameIndex : undefined;
+    return Number.isFinite(frameIndex) ? `f${frameIndex}` : `t${this._currentSimTime()}`;
+  }
+
+  /**
+   * Node ids `node` needs evaluated before it can be: its wired inputs, plus anything a parameter
+   * expression references (`=node_7 * 2`), which is a dependency the wire list doesn't carry.
+   * @private
+   */
+  _liveDependencies(node, byStringId) {
+    const deps = [];
+    const seen = new Set();
+    const add = (rawId) => {
+      if (rawId === null || rawId === undefined) return;
+      const key = String(rawId);
+      if (seen.has(key) || !byStringId.has(key)) return;
+      seen.add(key);
+      deps.push(key);
+    };
+
+    for (const inputId of node?.inputs || []) add(inputId);
+
+    for (const value of Object.values(node?.params || {})) {
+      if (typeof value !== 'string' || !value.includes('node_')) continue;
+      for (const match of value.matchAll(/node_(\d+)/g)) add(match[1]);
+    }
+
+    return deps;
+  }
+
+  /**
+   * Value of one node RIGHT NOW, recomputing the chain that feeds it at the current sim time.
+   *
+   * computePreviews() is the throttled pass: dirty-tracked and run ~10 times a second, which is
+   * plenty for thumbnails. But every surface that resolves a `=node_<id>` reference into something
+   * the GPU draws — the fragment texture bridge, the 3D field mapper, Text nodes — reads the value
+   * cache that pass fills, on EVERY frame. A referenced value therefore only ever moved 10 times a
+   * second, so anything driven through a node reference stepped instead of animating. This path
+   * evaluates the node (and its upstream chain) through the same _evaluateNodeKind() the preview
+   * pass uses, at this frame's time, so a reference tracks the animation frame for frame and agrees
+   * with what the shader renders.
+   *
+   * Results land in lastComputedValues, the cache every reference consumer already reads.
+   *
+   * @param {Object} node - Node to evaluate
+   * @param {Object} [options] - `graph` to evaluate against, `time` to override the sim clock
+   * @returns {*} number, vector array, or a tagged object ({type:"split"|"circle"|"rectangle"})
+   */
+  evaluateNodeLive(node, options = {}) {
+    if (!node || node.id === undefined || node.id === null) return 0;
+
+    try {
+      const graph = options.graph
+        || this.editor?.graph
+        || (typeof window !== 'undefined' ? window.editor?.graph : null);
+
+      this.animationTime = Number.isFinite(options.time) ? options.time : this._currentSimTime();
+
+      // One evaluation per node per frame: a graph where several parameters reference the same
+      // chain would otherwise walk it once per reference.
+      const frameKey = this._liveFrameKey();
+      if (this._liveFrameKeyValue !== frameKey) {
+        this._liveFrameKeyValue = frameKey;
+        this._liveEvaluated = new Set();
+      }
+
+      // _resolveInputValue reads this to pick the right channel out of a multi-output source.
+      this._refreshInputSourcePins(graph);
+
+      const byStringId = new Map();
+      for (const graphNode of graph?.nodes || []) {
+        if (graphNode && graphNode.id !== undefined && graphNode.id !== null) {
+          byStringId.set(String(graphNode.id), graphNode);
+        }
+      }
+
+      const values = this.lastComputedValues;
+      const visiting = new Set();
+
+      const evaluate = (target) => {
+        const key = String(target.id);
+        // A cycle (feedback wiring) or a node already done this frame: use what the cache holds.
+        if (visiting.has(key) || this._liveEvaluated.has(key)) {
+          return values.get(target.id) ?? 0;
+        }
+
+        visiting.add(key);
+        try {
+          for (const depKey of this._liveDependencies(target, byStringId)) {
+            evaluate(byStringId.get(depKey));
+          }
+
+          const value = this._evaluateNodeKind(target, values);
+          values.set(target.id, value);
+          target.__preview = value;
+          this._liveEvaluated.add(key);
+          return value;
+        } finally {
+          visiting.delete(key);
+        }
+      };
+
+      return evaluate(node);
+    } catch (error) {
+      window.errorHandler?.handleError(error, {
+        component: 'node-live-evaluation',
+        nodeId: node?.id,
+        nodeType: node?.kind,
+      });
+      return this.lastComputedValues.get(node.id) ?? 0;
+    }
+  }
+
+  /**
+   * Rebuild the "<toNodeId>|<toPin>" -> fromPin lookup _resolveInputValue uses to read the right
+   * channel off a multi-output source. node.inputs[] only records the source node id, not the pin.
+   * @private
+   */
+  _refreshInputSourcePins(graph) {
+    this._inputSourcePins = new Map();
+    for (const connection of graph?.connections || []) {
+      const toId = connection?.to?.nodeId ?? connection?.toNode;
+      if (toId === null || toId === undefined) continue;
+      const toPin = connection?.to?.pin ?? connection?.toPin ?? 0;
+      const fromPin = connection?.from?.pin ?? connection?.fromPin ?? 0;
+      this._inputSourcePins.set(`${toId}|${toPin}`, fromPin);
+    }
+  }
+
   computePreviews(graph, options = {}) {
     try {
       const startTime = performance.now();
@@ -313,15 +1205,7 @@ export class PreviewComputer {
       // whole split object instead of the component. Rebuild the source-pin lookup from
       // the connection list (which does carry from.pin) so _resolveInputValue can index
       // the right channel. Keyed "<toNodeId>|<toPin>" -> fromPin.
-      this._inputSourcePins = new Map();
-      const _conns = graph?.connections || [];
-      for (const c of _conns) {
-        const toId = c?.to?.nodeId ?? c?.toNode;
-        if (toId == null) continue;
-        const toPin = c?.to?.pin ?? c?.toPin ?? 0;
-        const fromPin = c?.from?.pin ?? c?.fromPin ?? 0;
-        this._inputSourcePins.set(`${toId}|${toPin}`, fromPin);
-      }
+      this._refreshInputSourcePins(graph);
 
       // Evaluate dirty nodes first to determine what needs computation
       const { dirtyNodes, parameterHashes, structureChanged } = this._evaluateDirtyNodes(graph, nodesToProcess, byId);
@@ -379,737 +1263,8 @@ export class PreviewComputer {
         processedCount++;
 
         let result = null;
-
-        try {
-          if (needsRecompute) {
-            switch (node.kind) {
-
-
-            // Input Nodes
-            case "UV":
-              result = [0.5, 0.5];
-              break;
-
-            case "Time":
-              result = this.animationTime;
-              break;
-
-            case "Trigger": {
-              if (isTriggerChangeMode(node)) {
-                // "On value change" compares against the PREVIOUS frame, which this preview pass —
-                // throttled to ~10fps — can't track on its own. TriggerNodeProcessor advances the
-                // pulse every frame on the CPU; mirror its value so the node readout matches what
-                // the shader renders (same arrangement as Hold and Count below).
-                result = triggerChangePulse(node);
-                break;
-              }
-              const inputValue = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
-              result = inputValue >= threshold ? 1.0 : 0.0;
-              break;
-            }
-
-            case "Hold": {
-              // The sample-and-hold latch lives on the CPU in HoldNodeProcessor (it runs every
-              // frame and survives the pulse falling to 0, which this preview pass — throttled to
-              // ~10fps — can't track on its own). Mirror its held value here so the node thumbnail
-              // matches what the shader renders.
-              result = typeof node.__holdValue === 'number' ? node.__holdValue : 0.0;
-              break;
-            }
-
-            case "Count": {
-              // The running counter lives on the CPU in CountNodeProcessor (advanced every frame so
-              // brief pulses aren't missed). Mirror its current value here so the thumbnail matches
-              // the shader.
-              result = typeof node.__countValue === 'number' ? node.__countValue : 0.0;
-              break;
-            }
-
-            case "AudioAnalysis": {
-              // Many independent outputs (band meters, per-drum envelopes and triggers, spectral
-              // descriptors), advanced every frame on the CPU by AudioAnalysisProcessor. Exposed as
-              // a multi-output split — the same shape a Split node produces — so every downstream
-              // surface reads the RIGHT pin instead of collapsing to one value: the per-pin value
-              // tags (Renderer), a wire from any pin (_resolveInputValue indexes the split by source
-              // pin), and `=node_<id>_N` references (_addNodeRefsToContext unwraps the split). Pin 0
-              // (level) stays the node's on-canvas readout.
-              result = {
-                type: 'split',
-                values: AUDIO_ANALYSIS_PINS.map((_, i) => audioAnalysisPinValue(node, i)),
-              };
-              break;
-            }
-
-            case "RandomValue": {
-              // Clock-driven pseudo-random noise in [0, 1]; mirror the shader's fract(sin(...)) hash.
-              const speed = this._evaluateParam(node.params?.speed, values, 1.0);
-              const s = Math.sin(this.animationTime * speed * 12.9898) * 43758.5453;
-              result = s - Math.floor(s);
-              break;
-            }
-
-            case "ConstFloat": {
-              // Prefer params.value (where ParameterExpressionSystem stores it), fall back to node.value
-              let value = node.params?.value ?? node.value;
-
-              // Check if value is an expression (with or without = prefix)
-              // The = prefix may have been stripped by ParameterExpressionSystem
-              if (typeof value === 'string') {
-                const trimmed = value.trim();
-                const isExpression = trimmed.startsWith('=') ||
-                                    /[a-zA-Z_]/.test(trimmed) || // Contains letters (functions, variables)
-                                    trimmed.includes('(');        // Contains function calls
-
-                if (isExpression) {
-                  try {
-                    // Get audio capture instance
-                    let audioCapture = null;
-                    try {
-                      audioCapture = getBrowserAudioCapture();
-                    } catch {
-                      // Audio system not available
-                    }
-
-                    // Build context with time, frame, and audio envelope values
-                    const context = {
-                      time: this.animationTime,
-                      frame: Math.floor(this.animationTime * 60),
-                      // Get audio envelope values from audio system if available
-                      audioEnvelope: audioCapture?.getValue?.() ?? 0,
-                      audioEnvelopeBass: audioCapture?.getAudioEnvelopeBass?.() ?? 0,
-                      audioEnvelopeMids: audioCapture?.getAudioEnvelopeMids?.() ?? 0,
-                      audioEnvelopeHighs: audioCapture?.getAudioEnvelopeHighs?.() ?? 0,
-                      audioEnvelopeFull: audioCapture?.getAudioEnvelopeFull?.() ?? 0,
-                      // Constants
-                      PI: Math.PI,
-                      E: Math.E,
-                    };
-
-                    // Add other node values to context (handles split objects + numeric suffixes).
-                    this._addNodeRefsToContext(context, values);
-
-                    // Remove = prefix if present before evaluation
-                    const expressionWithoutPrefix = trimmed.startsWith('=') ? trimmed.slice(1) : trimmed;
-
-                    // Evaluate using UnifiedExpressionSystem (has proper math function support)
-                    value = this.expressionSystem.evaluateCPU(expressionWithoutPrefix, context);
-                  } catch {
-
-
-                    value = 0;
-                  }
-                } else {
-                  // Not an expression, parse as number
-                  const parsed = parseFloat(value);
-                  value = isNaN(parsed) ? 0 : parsed;
-                }
-              }
-
-              // Ensure result is a number
-              if (typeof value === 'string') {
-                const parsed = parseFloat(value);
-                result = isNaN(parsed) ? 0 : parsed;
-              } else {
-                result = value ?? 0;
-              }
-              break;
-            }
-
-            case "ConstVec2": {
-              const x = this._evaluateParam(node.params?.x, values, 0);
-              const y = this._evaluateParam(node.params?.y, values, 0);
-              result = [x, y];
-              break;
-            }
-
-            case "ConstVec3": {
-              const x = this._evaluateParam(node.params?.x, values, 0);
-              const y = this._evaluateParam(node.params?.y, values, 0);
-              const z = this._evaluateParam(node.params?.z, values, 0);
-              result = [x, y, z];
-              break;
-            }
-
-            case "ConstVec4": {
-              const x = this._evaluateParam(node.params?.x, values, 0);
-              const y = this._evaluateParam(node.params?.y, values, 0);
-              const z = this._evaluateParam(node.params?.z, values, 0);
-              const w = this._evaluateParam(node.params?.w, values, 1);
-              result = [x, y, z, w];
-              break;
-            }
-
-            case "Mouse": {
-              // Live cursor state tracked by the GPU renderer (iMouse layout):
-              // xy = position (normalized 0..1), z = held, w = click. Falls back
-              // to screen center, not pressed, before any input.
-              const m = (typeof window !== "undefined" && window._mousePosition) || null;
-              result = m ? [m[0], m[1], m[2] || 0, m[3] || 0] : [0.5, 0.5, 0, 0];
-              break;
-            }
-
-            case "Resolution":
-              result = [1920, 1080]; // Default resolution
-              break;
-
-            case "Pi":
-              result = Math.PI;
-              break;
-
-            // Math Nodes - Arithmetic
-            case "Add": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 0);
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 0);
-              result = a + b;
-              break;
-            }
-
-            case "Subtract": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 0);
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 0);
-              result = a - b;
-              break;
-            }
-
-            case "Multiply": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 1);
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 1);
-              result = a * b;
-              break;
-            }
-
-            case "Divide": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.a, values, 1);
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.b, values, 1);
-              result = b !== 0 ? a / b : 0;
-              break;
-            }
-
-            case "Power": {
-              const base = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : this._evaluateParam(node.params?.base, values, 1);
-              const exp = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : this._evaluateParam(node.params?.exp, values, 2);
-              result = Math.pow(base, exp);
-              break;
-            }
-
-            // Math Nodes - Trigonometry
-            case "Sin": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.sin(x);
-              break;
-            }
-
-            case "Cos": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.cos(x);
-              break;
-            }
-
-            case "Tan": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.tan(x);
-              break;
-            }
-
-            case "Asin": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.asin(Math.max(-1, Math.min(1, x)));
-              break;
-            }
-
-            case "Acos": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.acos(Math.max(-1, Math.min(1, x)));
-              break;
-            }
-
-            case "Atan": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.atan(x);
-              break;
-            }
-
-            case "Atan2": {
-              const y = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const x = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
-              result = Math.atan2(y, x);
-              break;
-            }
-
-            // Math Nodes - Functions
-            case "Floor": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.floor(x);
-              break;
-            }
-
-            case "Ceil": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.ceil(x);
-              break;
-            }
-
-            case "Round": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.round(x);
-              break;
-            }
-
-            case "Fract": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = x - Math.floor(x);
-              break;
-            }
-
-            case "Abs": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.abs(x);
-              break;
-            }
-
-            case "Sqrt": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.sqrt(Math.max(0, x));
-              break;
-            }
-
-            case "Sign": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.sign(x);
-              break;
-            }
-
-            case "Mod": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
-              result = y !== 0 ? x % y : 0;
-              break;
-            }
-
-            case "Exp": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.exp(x);
-              break;
-            }
-
-            case "Exp2": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.pow(2, x);
-              break;
-            }
-
-            case "Log": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
-              result = x > 0 ? Math.log(x) : 0;
-              break;
-            }
-
-            case "Log2": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
-              result = x > 0 ? Math.log2(x) : 0;
-              break;
-            }
-
-            // Math Nodes - Range/Comparison
-            case "Min": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              result = Math.min(a, b);
-              break;
-            }
-
-            case "Max": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              result = Math.max(a, b);
-              break;
-            }
-
-            case "Clamp": {
-              const value = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const min = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              const max = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 1;
-              result = Math.max(min, Math.min(max, value));
-              break;
-            }
-
-            // Math Nodes - Interpolation
-            case "Smoothstep": {
-              const edge0 = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const edge1 = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
-              const x = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
-              const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(0.0001, edge1 - edge0)));
-              result = t * t * (3 - 2 * t);
-              break;
-            }
-
-            case "Step": {
-              const edge = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
-              const x = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              result = x < edge ? 0 : 1;
-              break;
-            }
-
-            case "Compare": {
-              // Mirror compileCompare(): output is select(0.0, 1.0, comparison),
-              // i.e. 1.0 when the comparison holds, 0.0 otherwise. Without this case
-              // Compare fell through to the default (result = 0), so the numeric pin
-              // preview always showed 0.00 even though the thumbnail rendered correctly.
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              const operator = node.params?.operator || "greater";
-              const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.001));
-
-              let comparison;
-              switch (operator) {
-                case "equal":        comparison = Math.abs(a - b) < epsilon; break;
-                case "notEqual":     comparison = Math.abs(a - b) >= epsilon; break;
-                case "greater":      comparison = a > b; break;
-                case "greaterEqual": comparison = a >= b; break;
-                case "less":         comparison = a < b; break;
-                case "lessEqual":    comparison = a <= b; break;
-                default:             comparison = a > b;
-              }
-              result = comparison ? 1 : 0;
-              break;
-            }
-
-            case "Mix":
-            case "Lerp": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
-              const t = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
-              result = a * (1 - t) + b * t;
-              break;
-            }
-
-            case "InverseLerp": {
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
-              const value = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0.5;
-              result = b !== a ? (value - a) / (b - a) : 0;
-              break;
-            }
-
-            case "Saturate": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = Math.max(0, Math.min(1, x));
-              break;
-            }
-
-            // Math Nodes - Utilities
-            case "OneMinus": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = 1.0 - x;
-              break;
-            }
-
-            case "Negate": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = -x;
-              break;
-            }
-
-            case "Reciprocal": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 1;
-              result = x !== 0 ? 1.0 / x : 0;
-              break;
-            }
-
-            // Math Nodes - Boolean logic
-            // Mirrors compileLogicGate()/compileNot(): inputs are thresholded into booleans
-            // (true when >= threshold) and the gate outputs exactly 0.0 or 1.0. An unconnected
-            // input reads as false, same as the shader's default of 0.0.
-            case "And":
-            case "Or":
-            case "Xor":
-            case "Nand":
-            case "Nor":
-            case "Xnor": {
-              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
-              const a = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const b = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              const boolA = a >= threshold;
-              const boolB = b >= threshold;
-
-              let gate;
-              switch (node.kind) {
-                case "And":  gate = boolA && boolB; break;
-                case "Or":   gate = boolA || boolB; break;
-                case "Xor":  gate = boolA !== boolB; break;
-                case "Nand": gate = !(boolA && boolB); break;
-                case "Nor":  gate = !(boolA || boolB); break;
-                case "Xnor": gate = boolA === boolB; break;
-                default:     gate = boolA && boolB;
-              }
-              result = gate ? 1 : 0;
-              break;
-            }
-
-            case "Not": {
-              const threshold = this._evaluateParam(node.params?.threshold, values, 0.5);
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              result = x >= threshold ? 0 : 1;
-              break;
-            }
-
-            // Vector Nodes
-            case "Dot": {
-              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
-              result = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-              break;
-            }
-
-            case "Cross": {
-              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
-              result = [
-                a[1] * b[2] - a[2] * b[1],
-                a[2] * b[0] - a[0] * b[2],
-                a[0] * b[1] - a[1] * b[0],
-              ];
-              break;
-            }
-
-            case "Normalize": {
-              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 0, 0];
-              const length = Math.sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
-              result = length > 1e-6 ? [vec[0] / length, vec[1] / length, vec[2] / length] : [0, 0, 0];
-              break;
-            }
-
-            case "Length": {
-              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
-              result = Math.sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
-              break;
-            }
-
-            case "Distance": {
-              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
-              const diff = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-              result = Math.sqrt(diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]);
-              break;
-            }
-
-            case "Reflect": {
-              const incident = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, -1, 0];
-              const normal = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
-              const nLength = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
-              const n = nLength > 1e-6 ? [normal[0] / nLength, normal[1] / nLength, normal[2] / nLength] : [0, 1, 0];
-              const dotNI = n[0] * incident[0] + n[1] * incident[1] + n[2] * incident[2];
-              result = [
-                incident[0] - 2 * dotNI * n[0],
-                incident[1] - 2 * dotNI * n[1],
-                incident[2] - 2 * dotNI * n[2],
-              ];
-              break;
-            }
-
-            case "Refract": {
-              const incident = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, -1, 0];
-              const normal = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 1, 0];
-              const eta = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 1.5;
-              const nLength = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
-              const n = nLength > 1e-6 ? [normal[0] / nLength, normal[1] / nLength, normal[2] / nLength] : [0, 1, 0];
-              const iLength = Math.sqrt(incident[0] * incident[0] + incident[1] * incident[1] + incident[2] * incident[2]);
-              const i = iLength > 1e-6 ? [incident[0] / iLength, incident[1] / iLength, incident[2] / iLength] : [0, 0, 0];
-              const dotNI = n[0] * i[0] + n[1] * i[1] + n[2] * i[2];
-              const k = 1.0 - eta * eta * (1.0 - dotNI * dotNI);
-              if (k < 0.0) {
-                result = [0, 0, 0];
-              } else {
-                const sqrtK = Math.sqrt(k);
-                result = [
-                  eta * i[0] - (eta * dotNI + sqrtK) * n[0],
-                  eta * i[1] - (eta * dotNI + sqrtK) * n[1],
-                  eta * i[2] - (eta * dotNI + sqrtK) * n[2],
-                ];
-              }
-              break;
-            }
-
-            case "Split2": {
-              const v = node.inputs?.[0] ? this._toVec2(this._resolveInputValue(node, 0, values)) : [0, 0];
-              result = { type: "split", values: v };
-              break;
-            }
-
-            case "Split3": {
-              const v = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
-              result = { type: "split", values: v };
-              break;
-            }
-
-            case "Split4": {
-              const v = node.inputs?.[0] ? this._toVec4(this._resolveInputValue(node, 0, values)) : [0, 0, 0, 1];
-              result = { type: "split", values: v };
-              break;
-            }
-
-            case "Combine2": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              result = [x, y];
-              break;
-            }
-
-            case "Combine3": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              const z = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0;
-              result = [x, y, z];
-              break;
-            }
-
-            case "Combine4": {
-              const x = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0;
-              const y = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 0;
-              const z = node.inputs?.[2] ? this._toF32(this._resolveInputValue(node, 2, values)) : 0;
-              const w = node.inputs?.[3] ? this._toF32(this._resolveInputValue(node, 3, values)) : 1;
-              result = [x, y, z, w];
-              break;
-            }
-
-            case "VectorAdd": {
-              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
-              result = [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-              break;
-            }
-
-            case "VectorSubtract": {
-              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
-              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [0, 0, 0];
-              result = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-              break;
-            }
-
-            case "VectorMultiply": {
-              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
-              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [1, 1, 1];
-              result = [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
-              break;
-            }
-
-            case "VectorDivide": {
-              const a = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
-              const b = node.inputs?.[1] ? this._toVec3(this._resolveInputValue(node, 1, values)) : [1, 1, 1];
-              result = [
-                b[0] !== 0 ? a[0] / b[0] : 0,
-                b[1] !== 0 ? a[1] / b[1] : 0,
-                b[2] !== 0 ? a[2] / b[2] : 0,
-              ];
-              break;
-            }
-
-            case "VectorScale": {
-              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [1, 1, 1];
-              const scale = node.inputs?.[1] ? this._toF32(this._resolveInputValue(node, 1, values)) : 1;
-              result = [vec[0] * scale, vec[1] * scale, vec[2] * scale];
-              break;
-            }
-
-            case "Swizzle": {
-              const vec = node.inputs?.[0] ? this._toVec3(this._resolveInputValue(node, 0, values)) : [0, 0, 0];
-              const pattern = node.params?.pattern || "xyz";
-              const swizzled = [];
-              for (const char of pattern) {
-                switch (char) {
-                  case 'x': swizzled.push(vec[0]); break;
-                  case 'y': swizzled.push(vec[1]); break;
-                  case 'z': swizzled.push(vec[2]); break;
-                  default: swizzled.push(0);
-                }
-              }
-              result = swizzled.slice(0, 3);
-              break;
-            }
-
-            // Utility Nodes
-            case "Expr": {
-              const expr = (node.expr || "a").toString();
-
-              // One scope entry per input pin (a, b, c, …). The pin list is expandable, so the
-              // scope must follow the node's live count or the CPU preview would disagree with the
-              // shader about what `c` means.
-              const scope = { u_time: this.animationTime };
-              const exprInputCount = Math.max(1, getInputCount(node));
-              for (let i = 0; i < exprInputCount; i++) {
-                scope[String.fromCharCode(97 + i)] = node.inputs?.[i]
-                  ? this._toF32(this._resolveInputValue(node, i, values))
-                  : 0;
-              }
-
-              try {
-                // Math functions come from the evaluator's builtin table, so the
-                // scope only carries this node's values.
-                result = this.expressionSystem.evaluateCPUOrThrow(expr, scope);
-                if (!Number.isFinite(result)) result = 0;
-              } catch (error) {
-                window.errorHandler?.handleError(error, {
-                  component: 'expression-evaluation',
-                  nodeId: node.id,
-                  expression: expr,
-                });
-                result = 0;
-              }
-              break;
-            }
-
-            case "Remap": {
-              const input = node.inputs?.[0] ? this._toF32(this._resolveInputValue(node, 0, values)) : 0.5;
-              const inMin = this._evaluateParam(node.params?.inMin, values, 0.0);
-              const inMax = this._evaluateParam(node.params?.inMax, values, 1.0);
-              const outMin = this._evaluateParam(node.params?.outMin, values, 0.0);
-              const outMax = this._evaluateParam(node.params?.outMax, values, 1.0);
-              const shouldClamp = node.params?.clamp ?? false;
-
-              // Remap formula: ((input - inMin) / (inMax - inMin)) * (outMax - outMin) + outMin
-              const inRange = Math.max(0.0001, inMax - inMin);
-              const normalized = (input - inMin) / inRange;
-              const remapped = normalized * (outMax - outMin) + outMin;
-
-              result = shouldClamp ? Math.max(outMin, Math.min(outMax, remapped)) : remapped;
-              break;
-            }
-
-            // Field Nodes
-            case "Circle": {
-              const radius = this._evaluateParam(node.params?.radius, values, 0.25);
-              const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
-              result = { type: "circle", radius, epsilon };
-              break;
-            }
-case "Rectangle": {
-  const centerX = this._evaluateParam(node.params?.centerX, values, 0.5);
-  const centerY = this._evaluateParam(node.params?.centerY, values, 0.5);
-  const width = this._evaluateParam(node.params?.width, values, 0.5);
-  const height = this._evaluateParam(node.params?.height, values, 0.5);
-  const epsilon = Math.max(0.0001, this._evaluateParam(node.params?.epsilon, values, 0.02));
-  result = { type: "rectangle", centerX, centerY, width, height, epsilon };
-  break;
-}
-            // Output
-            case "OutputFinal": {
-              const c = node.inputs?.[0] ? this._resolveInputValue(node, 0, values) : [0, 0, 0];
-              result = this._toVec3(c);
-              break;
-            }
-
-            default:
-              result = 0;
-            }
-          }
-        } catch (error) {
-          window.errorHandler?.handleError(error, {
-            component: 'node-computation',
-            nodeType: node.kind,
-            nodeId: node.id
-          });
-          result = 0;
+        if (needsRecompute) {
+          result = this._evaluateNodeKind(node, values);
         }
 
         // Update cache immediately after computing each node
