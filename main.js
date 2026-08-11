@@ -56,6 +56,7 @@ import { TriggerNodeProcessor } from "./src/core/TriggerNodeProcessor.js";
 import { HoldNodeProcessor } from "./src/core/HoldNodeProcessor.js";
 import { CountNodeProcessor } from "./src/core/CountNodeProcessor.js";
 import { FeedbackResetProcessor } from "./src/core/FeedbackResetProcessor.js";
+import { WaveSyncProcessor } from "./src/core/WaveSyncProcessor.js";
 import { AudioAnalysisProcessor } from "./src/core/AudioAnalysisProcessor.js";
 import { TextNodeProcessor } from "./src/core/TextNodeProcessor.js";
 import { setupTauriFileAssociation } from "./src/core/tauriFileOpen.js";
@@ -85,6 +86,8 @@ const countNodeProcessor = new CountNodeProcessor();
 window.countNodeProcessor = countNodeProcessor;
 // Watches the Feedback nodes' Reset pin and clears feedback on a rising edge. See FeedbackResetProcessor.
 const feedbackResetProcessor = new FeedbackResetProcessor();
+// Restarts a Wave node's cycle when its sync pin sees a rising edge. See WaveSyncProcessor.
+const waveSyncProcessor = new WaveSyncProcessor();
 // Runs precise audio kick/onset detection each frame for Audio Analysis nodes. See AudioAnalysisProcessor.
 const audioKickProcessor = new AudioAnalysisProcessor();
 // Re-rasterises Text nodes whose string or layout reads a live expression. See TextNodeProcessor.
@@ -3428,6 +3431,14 @@ function handleRenderFrame(frameState) {
       // change-mode Trigger's pulse is CPU-only state (node.__triggerPulse), and Hold / Count /
       // the Feedback reset pin all read it, so it has to be this frame's value not last frame's.
       triggerNodeProcessor.update(window.editor.graph, {
+        time: frameState.simTime,
+        uniformManager: window.nodeCompiler.uniformManager,
+      });
+      // Then restart any Wave whose sync pin rose this frame, before the consumers below: a synced
+      // Wave's cycle origin is CPU-only state (node.__waveSyncTime), and Hold / Count / the Feedback
+      // reset pin can all read a Wave, so it has to be this frame's origin not last frame's. It
+      // runs after the Trigger pass for the same reason — a Trigger is a natural sync source.
+      waveSyncProcessor.update(window.editor.graph, {
         time: frameState.simTime,
         uniformManager: window.nodeCompiler.uniformManager,
       });
