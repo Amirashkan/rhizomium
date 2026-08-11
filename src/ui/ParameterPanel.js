@@ -700,9 +700,9 @@ case 'circlefield':
           {
             name: 'file',
             type: 'file',
-            displayName: 'Image File',
-            accept: 'image/*',
-            description: 'Texture image file'
+            displayName: 'Image / Video File',
+            accept: 'image/*,video/*',
+            description: 'Texture image or video file'
           },
           {
             name: 'scale',
@@ -712,6 +712,43 @@ case 'circlefield':
             min: 0.1,
             max: 10.0,
             description: 'Texture scale'
+          },
+          // Playback, for when the loaded file is a video. `sourceType` is written by the upload
+          // (see FileInputHandler), so these dim themselves for a still image. Mirrors the
+          // declaration in NodeDefs' Texture2D.
+          {
+            name: 'playing',
+            type: 'boolean',
+            displayName: 'Play',
+            default: true,
+            activeWhen: { sourceType: 'video' },
+            description: 'Run the video, or hold it on the current frame'
+          },
+          {
+            name: 'loop',
+            type: 'boolean',
+            displayName: 'Loop',
+            default: true,
+            activeWhen: { sourceType: 'video' },
+            description: 'Restart the video when it reaches the end'
+          },
+          {
+            name: 'playbackRate',
+            type: 'float',
+            displayName: 'Speed',
+            default: 1.0,
+            min: 0.0625,
+            max: 16.0,
+            activeWhen: { sourceType: 'video' },
+            description: 'Playback speed multiplier'
+          },
+          {
+            name: 'sound',
+            type: 'boolean',
+            displayName: 'Sound',
+            default: false,
+            activeWhen: { sourceType: 'video' },
+            description: "Unmute the video's audio track"
           }
         );
         break;
@@ -787,6 +824,7 @@ case 'flip2d':
         const nodeDef = NodeDefs[node.kind];
         if (nodeDef && nodeDef.params && Array.isArray(nodeDef.params)) {
           nodeDef.params.forEach(param => {
+            if (param.hidden) return; // node-maintained state, not a control (see below)
             definitions.push({
               name: param.name,
               type: param.type === 'bool' ? 'boolean' : param.type,
@@ -834,6 +872,10 @@ case 'flip2d':
         if (defaultNodeDef && defaultNodeDef.params && Array.isArray(defaultNodeDef.params)) {
           // Use parameter definitions from NodeDefs to preserve options arrays and metadata
           defaultNodeDef.params.forEach(param => {
+            // `hidden` parameters are state the node maintains for itself - Texture 2D records
+            // whether the loaded file is an image or a video there - declared so that an
+            // activeWhen can key off them, but with nothing for a person to set.
+            if (param.hidden) return;
             definitions.push({
               name: param.name,
               type: param.type === 'bool' ? 'boolean' : param.type,
@@ -2231,6 +2273,11 @@ updateNodePreview(node) {
 
 _processPreviewUpdate(node) {
   try {
+    // Video playback lives on the node's own <video> element, which no shader rebuild touches.
+    // Applying it here means Play/Loop/Speed/Sound respond immediately, including on a texture
+    // node that isn't wired to the output yet. A no-op for every other node.
+    window.textureManager?.applyVideoParams?.(node.id, node.params);
+
     if (window.editor?.previewSystem?.canvasManager) {
       window.editor.previewSystem.canvasManager.canvasCache.delete(node.id);
     }

@@ -11,12 +11,12 @@ Load, use, and manipulate image textures in your node graphs. Create rich, detai
 1. Right-click canvas → **Input** → **Texture 2D**
 2. Click to place the texture node
 
-### Step 2: Load an Image
+### Step 2: Load an Image or Video
 
 1. Click on the Texture 2D node
-2. Click **Choose File** or **Browse** button
-3. Select an image file (PNG, JPG, WebP supported)
-4. Image loads and appears in preview!
+2. Click **Choose File** or **Browse** button, or drop a file on the node's drop zone
+3. Select an image file (PNG, JPG, WebP) — or a video file (MP4, WebM, MOV, OGV)
+4. It loads and appears in preview! A video starts playing straight away.
 
 ### Step 3: Connect to Shader
 
@@ -47,6 +47,14 @@ Standard 2D image texture for flat images.
 - **Color** (vec4) - Full color with alpha channel
 
 To work with individual channels, feed the Color output into a **Split Vec4** node (x/y/z/w = R/G/B/A).
+
+**Video sources:** the same node takes video. A loaded video plays on its own clock and its
+current frame is uploaded to the node's texture every rendered frame, so everything downstream —
+transforms, blends, compute nodes, feedback — treats it exactly as it would a still image. There
+is no separate video node and nothing to wire differently.
+
+Videos are inlined into the saved patch like images are, up to 24 MB. Past that the patch keeps
+the file's name but not its bytes, and the node needs the file dropped on it again after loading.
 
 ### Texture Cube
 
@@ -105,6 +113,16 @@ Pixel-perfect, no interpolation
 
 **Settings:**
 - **Filter** - linear or nearest
+
+### Video Playback
+
+These appear on the Texture 2D node and apply once the loaded file is a video (they sit dimmed
+for a still image):
+
+- **Play** - run the video, or hold it on the frame it is showing
+- **Loop** - restart when it reaches the end (on by default; off leaves the last frame on screen)
+- **Speed** - playback rate, 0.0625× to 16×
+- **Sound** - unmute the video's audio track (muted by default)
 
 ---
 

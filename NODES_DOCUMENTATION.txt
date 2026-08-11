@@ -422,7 +422,15 @@ Outputs:
   - A (f32): Alpha channel
 
 Parameters:
-  - imageFile (file): Image file to load
+  - imageFile (file): Image or video file to load. A video (.mp4/.webm/.mov/.ogv)
+                 plays and is sampled live - the node behaves exactly like an
+                 image texture, its pixels just change every frame
+  - playing (bool): Run the video, or hold it on the current frame [default: true]
+                 Video only
+  - loop (bool): Restart when the video reaches the end [default: true] Video only
+  - playbackRate (float): Playback speed multiplier [0.0625..16, default: 1]
+                 Video only
+  - sound (bool): Unmute the video's audio track [default: false] Video only
   - wrapU (select): U wrapping mode [options: repeat, clamp, mirror, default: repeat]
   - wrapV (select): V wrapping mode [options: repeat, clamp, mirror, default: repeat]
   - filter (select): Filtering mode [options: linear, nearest, default: linear]

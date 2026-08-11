@@ -50,6 +50,10 @@ export class TextureNodes {
       window.editor?.previewIntegration?.onParameterChange?.(node);
     }
 
+    // A parameter change is what brings us back here, so this is where the video source (if this
+    // node holds one) picks up Play/Loop/Speed/Sound. No-op for a still image.
+    window.textureManager?.applyVideoParams?.(node.id, node.params);
+
     const uv = getInput(0, "vec2", "in.uv");
     const textureId = nodeId;
     

@@ -191,6 +191,22 @@ describe('parameters the node is not reading', () => {
     expect(dimmed(panel)).toEqual([]);
   });
 
+  it('dims Texture 2D playback controls until the loaded file is a video', () => {
+    render(panel, 'Texture2D', { sourceType: 'image' });
+    expect(dimmed(panel)).toEqual(['playing', 'loop', 'playbackRate', 'sound']);
+
+    render(panel, 'Texture2D', { sourceType: 'video' });
+    expect(dimmed(panel)).toEqual([]);
+  });
+
+  it('renders no control for the parameter a node maintains for itself', () => {
+    render(panel, 'Texture2D', { sourceType: 'video' });
+    const fields = Array.from(panel.panelContent.querySelectorAll('.parameter-container'))
+      .map((el) => el.getAttribute('data-param'));
+    expect(fields).not.toContain('sourceType');
+    expect(fields).toContain('playbackRate');
+  });
+
   it('dims a parameter whose input pin has nothing wired to it', () => {
     render(panel, 'ComputeGradient', { colorMode: 'Grayscale' }, [null]);
     expect(dimmed(panel)).toContain('inputMix');
