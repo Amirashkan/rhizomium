@@ -631,13 +631,13 @@ case 'rectangle':
       name: 'sizeMode',
       type: 'select',
       displayName: 'Size Mode',
-      options: ['Frame', 'Proportional'],
-      default: 'Frame',
+      options: ['Proportional', 'Frame'],
+      default: 'Proportional',
       description:
-        'Frame: Width and Height are fractions of the frame’s width and height — 1 × 1 fills ' +
-        'the composition, and the shape takes the composition’s ratio. Proportional: both are ' +
-        'measured against the frame’s height, so Width : Height is the shape’s real ratio and ' +
-        'equal values draw a square on any composition.'
+        'Proportional: Width and Height share one unit, so Width : Height is the shape’s real ' +
+        'ratio — 0.5 × 0.5 is a square at any render resolution. Frame: they are fractions of ' +
+        'the frame’s width and height, so 1 × 1 fills the composition, but the shape then takes ' +
+        'the composition’s ratio.'
     },
     {
       // Implemented in the shape function; it just had no control here.

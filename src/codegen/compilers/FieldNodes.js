@@ -15,25 +15,27 @@ import {
  * A Rectangle's two extents need a unit, and the two useful answers disagree, so the node
  * says which one it means:
  *
- *   "Frame"        Width is a fraction of the frame's WIDTH, Height a fraction of its HEIGHT.
- *                  1.0 x 1.0 fills the composition at any ratio. The shape then inherits the
- *                  composition's proportions - on a 16:9 output equal values draw a 16:9
- *                  rectangle, never a square.
- *   "Proportional" Both extents are measured against the frame's HEIGHT - the same y-units
- *                  Circle and Polygon measure their radius in. Width : Height is the shape's
- *                  true on-screen ratio, so equal values draw a real square whatever the
- *                  composition is, and Width 1.0 spans one frame-height rather than the frame.
+ *   "Proportional" (default) Both extents are measured against the frame's HEIGHT - the same
+ *                  y-units Circle and Polygon measure their radius in. Width : Height is the
+ *                  shape's true on-screen ratio, so 0.5 x 0.5 is a SQUARE at every render
+ *                  resolution and every aspect ratio. That is what a Rectangle's two numbers
+ *                  have to mean: the shape you type is the shape you get. To span a wide
+ *                  frame edge-to-edge, give Width the frame's aspect (1.78 on 16:9) - the
+ *                  half-extents have no ceiling.
+ *   "Frame"        Width is a fraction of the frame's WIDTH, Height a fraction of its HEIGHT,
+ *                  so 1.0 x 1.0 fills the composition at any ratio. The cost is that the shape
+ *                  inherits the composition's proportions - equal values draw a 16:9 rectangle
+ *                  on a 16:9 output - which is why it is no longer the default.
  *
- * Frame is the default: it is what the node has done since width and height were given their
- * own axes, so no existing patch changes appearance. The option list itself lives with the
- * node definition (src/data/nodes/PatternNodes.js); all the compiler needs is to recognise
- * the one mode that changes the generated code.
+ * The option list itself lives with the node definition (src/data/nodes/PatternNodes.js); all
+ * the compiler needs is to recognise the one mode that changes the generated code.
  *
- * Anything else - absent, empty, misspelled, a stale project file - falls back to Frame.
+ * Anything else - absent, empty, misspelled, a project saved before the mode existed - is
+ * Proportional, so the shape a patch was authored with is the shape it keeps.
  */
 export function rectangleIsProportional(node) {
   const raw = node?.params?.sizeMode ?? node?.props?.sizeMode;
-  return typeof raw === 'string' && raw.trim().toLowerCase() === 'proportional';
+  return !(typeof raw === 'string' && raw.trim().toLowerCase() === 'frame');
 }
 
 export class FieldNodes {
@@ -278,17 +280,18 @@ generateRectangleFunction(node, nodeId, functionName) {
   // Everything downstream - rotation, roundness, smoothness - operates on the half-extents
   // once they are in aspect space, so all of it is shared between the modes.
   const widthUnit = rectangleIsProportional(node)
-    ? `  // "Proportional": Width shares Height's unit, the frame's HEIGHT - the same y-units
-  // Circle and Polygon measure their radius in. Width : Height is therefore the shape's true
-  // on-screen ratio (equal values draw a real square at any composition ratio), and a
-  // Rectangle of width and height 2r exactly circumscribes a Circle of radius r. Nothing is
-  // scaled into x here: aspect space already measures both axes in frame-heights.`
+    ? `  // "Proportional" (default): Width shares Height's unit, the frame's HEIGHT - the same
+  // y-units Circle and Polygon measure their radius in. Width : Height is therefore the shape's
+  // true on-screen ratio: 0.5 x 0.5 is a square at every resolution and every aspect ratio, and
+  // a Rectangle of width and height 2r exactly circumscribes a Circle of radius r. Nothing is
+  // scaled into x here - aspect space already measures both axes in frame-heights, which is
+  // precisely what makes the two numbers describe the shape instead of the frame.`
     : `  // "Frame": Width is a fraction of the frame's WIDTH (Height is always a fraction of its
   // HEIGHT), so 1.0 x 1.0 fills the composition at any ratio and 0.5 x 0.5 covers its middle
   // quarter. The trade-off is that the shape inherits the composition's proportions - on a
-  // 16:9 output equal values draw a 16:9 rectangle, never a square; that is what the
-  // "Proportional" mode is for. Carrying the x half-extent into aspect space, where the frame
-  // spans [0, aspect], keeps the distance field isotropic either way - rotation stays a true
+  // 16:9 output equal values draw a 16:9 rectangle, never a square - which is why this is the
+  // opt-in mode. Carrying the x half-extent into aspect space, where the frame spans
+  // [0, aspect], keeps the distance field isotropic either way - rotation stays a true
   // rotation and 'smoothness' is the same thickness on every edge.
   ${safeId}_half.x *= u.aspect;`;
 

@@ -888,7 +888,7 @@ Generates a rectangular shape.
   - `Center Y` (float, default: 0.5) - Rectangle center Y
   - `Width` (float, default: 0.5) - Rectangle width, in the unit `Size Mode` selects
   - `Height` (float, default: 0.5) - Rectangle height, as a fraction of the frame's height
-  - `Size Mode` (select, default: `Frame`) - What `Width` is a fraction of
+  - `Size Mode` (select, default: `Proportional`) - What `Width` is a fraction of
   - `Roundness` (float, default: 0.0) - Corner rounding, as a fraction of the shortest half-extent
   - `Smoothness` (float, default: 0.01) - Edge softness
   - `Invert` (bool, default: false) - Invert inside/outside
@@ -899,16 +899,20 @@ cannot both be true at once:
 
 | Mode | `Width` is | `Width` = `Height` = 0.5 on a 16:9 output |
 | --- | --- | --- |
-| `Frame` (default) | a fraction of the frame's **width** | half the width × half the height, so a 16:9 rectangle |
-| `Proportional` | a fraction of the frame's **height**, like `Height` | a true **square**, 28% of the width × 50% of the height |
+| `Proportional` (default) | a fraction of the frame's **height**, like `Height` | a true **square**, 28% of the width × 50% of the height |
+| `Frame` | a fraction of the frame's **width** | half the width × half the height, so a 16:9 rectangle |
 
-Use `Frame` to lay a shape out against the composition — `1.0 × 1.0` fills it at any aspect
-ratio. Use `Proportional` when the shape's own proportions are what matter: `Width : Height`
-is then exactly the ratio you see, on any composition, and the units match Circle's and
-Polygon's `Radius` (a `Proportional` rectangle of width and height `2r` circumscribes a
-circle of radius `r`).
+`Proportional` is the default because it makes the two numbers describe the shape:
+`Width : Height` is exactly the ratio you see, so `0.5 × 0.5` is a square at **every render
+resolution and every aspect ratio**. The units match Circle's and Polygon's `Radius` too — a
+`Proportional` rectangle of width and height `2r` circumscribes a circle of radius `r`.
 
-Neither mode caps the extents, so a rectangle may be larger than the frame.
+Switch to `Frame` to lay a shape out against the composition instead: `1.0 × 1.0` fills it at
+any aspect ratio. The trade-off is that the shape then inherits the composition's proportions,
+so equal values are never square on a non-square output.
+
+Neither mode caps the extents, so a rectangle may be larger than the frame. In `Proportional`
+mode, give `Width` the frame's aspect ratio (1.78 on 16:9) to span it edge to edge.
 
 #### Polygon
 

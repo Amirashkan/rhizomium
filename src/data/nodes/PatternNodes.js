@@ -43,13 +43,13 @@ export const PatternNodes = {
       {
         name: "sizeMode",
         type: "select",
-        options: ["Frame", "Proportional"],
-        default: "Frame",
+        options: ["Proportional", "Frame"],
+        default: "Proportional",
         label: "Size Mode",
         description:
-          "Frame: Width and Height are fractions of the frame's width and height, so 1 x 1 fills " +
-          "the composition and the shape takes its ratio. Proportional: both are measured against " +
-          "the frame's height, so Width : Height is the shape's real ratio and equal values draw a square.",
+          "Proportional: Width and Height share one unit, so Width : Height is the shape's real " +
+          "ratio and 0.5 x 0.5 is a square at any resolution. Frame: they are fractions of the " +
+          "frame's width and height, so 1 x 1 fills the composition but the shape takes its ratio.",
       },
       { name: "roundness", type: "float", default: 0.0, label: "Roundness" },
       { name: "smoothness", type: "float", default: 0.01, label: "Smoothness" },

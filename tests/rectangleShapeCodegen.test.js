@@ -11,11 +11,12 @@
 // on a 16:9 output - the two numbers no longer describe the shape's proportions, and no pair of
 // them can draw a square unless the composition is square.
 //
-// Contract: the two readings are both legitimate and cannot both hold at once, so `sizeMode` picks.
-//   Frame (default)  width is a fraction of the frame's WIDTH, height a fraction of its HEIGHT, so
-//                    1.0 x 1.0 fills the frame at any ratio.
-//   Proportional     both are measured against the frame's HEIGHT, so width : height is the drawn
-//                    ratio and equal values are a true square at any composition ratio.
+// Contract: the two readings are both legitimate and cannot both hold at once, so `sizeMode` picks,
+// and the one that makes the numbers describe the SHAPE is the default:
+//   Proportional (default)  both extents are measured against the frame's HEIGHT, so width : height
+//                    is the drawn ratio and 0.5 x 0.5 is a true square at every render resolution.
+//   Frame            width is a fraction of the frame's WIDTH, height a fraction of its HEIGHT, so
+//                    1.0 x 1.0 fills the frame at any ratio, at the cost of the shape following it.
 // Circle and Polygon are always in y-units - one extent, and it has to stay round - which is
 // exactly the unit Proportional shares with them.
 //
@@ -34,34 +35,30 @@ const compileShape = (node) => {
 describe('Rectangle shape codegen', () => {
   const rect = (params = {}) => ({ id: '4', kind: 'Rectangle', params });
 
-  describe('Frame mode (the default)', () => {
-    it('measures width against the frame width, not the frame height', () => {
-      const { functionDef } = compileShape(rect());
-      // The x half-extent is carried into aspect space, where the frame spans [0, aspect].
-      expect(functionDef).toMatch(/_half\.x \*= u\.aspect;/);
-    });
-
-    it('is what an absent, empty or unrecognised sizeMode falls back to', () => {
-      for (const params of [{}, { sizeMode: '' }, { sizeMode: 'nonsense' }, { sizeMode: 42 }]) {
-        expect(compileShape(rect(params)).functionDef).toMatch(/_half\.x \*= u\.aspect;/);
-      }
-    });
-  });
-
-  describe('Proportional mode', () => {
+  describe('Proportional mode (the default)', () => {
     it('leaves width in y-units so equal extents draw a real square', () => {
       const { functionDef } = compileShape(rect({ sizeMode: 'Proportional' }));
-      // Aspect space already measures both axes in frame-heights: scaling x would be what
-      // makes the shape follow the composition instead of the numbers.
+      // Aspect space already measures both axes in frame-heights: scaling x is exactly what
+      // would make the shape follow the composition instead of the numbers.
       expect(functionDef).not.toMatch(/_half\.x \*= u\.aspect;/);
     });
 
-    it('is matched case- and whitespace-insensitively', () => {
+    it('is what an absent, empty or unrecognised sizeMode resolves to', () => {
+      // Including a project saved before the mode existed: a patch keeps the shape it was
+      // authored with rather than silently widening on the next open.
+      for (const params of [{}, { sizeMode: '' }, { sizeMode: 'nonsense' }, { sizeMode: 42 }]) {
+        expect(compileShape(rect(params)).functionDef).not.toMatch(/_half\.x \*= u\.aspect;/);
+      }
+    });
+
+    it('is matched case- and whitespace-insensitively, and so is opting out', () => {
       for (const sizeMode of ['proportional', 'PROPORTIONAL', ' Proportional ']) {
         expect(rectangleIsProportional(rect({ sizeMode }))).toBe(true);
       }
-      expect(rectangleIsProportional(rect({ sizeMode: 'Frame' }))).toBe(false);
-      expect(rectangleIsProportional(rect())).toBe(false);
+      for (const sizeMode of ['Frame', 'frame', ' FRAME ']) {
+        expect(rectangleIsProportional(rect({ sizeMode }))).toBe(false);
+      }
+      expect(rectangleIsProportional(rect())).toBe(true);
     });
 
     it('still measures the point and the centre in aspect space', () => {
@@ -73,11 +70,21 @@ describe('Rectangle shape codegen', () => {
     });
   });
 
+  describe('Frame mode', () => {
+    it('measures width against the frame width, so 1.0 x 1.0 fills the composition', () => {
+      const { functionDef } = compileShape(rect({ sizeMode: 'Frame' }));
+      // The x half-extent is carried into aspect space, where the frame spans [0, aspect].
+      expect(functionDef).toMatch(/_half\.x \*= u\.aspect;/);
+    });
+  });
+
   it('keeps the distance field isotropic so rotation and smoothness stay true', () => {
-    const { functionDef } = compileShape(rect());
-    // Both the point and the centre live in aspect space alongside the half-extents.
-    expect(functionDef).toMatch(/_uvA\.x \*= u\.aspect;/);
-    expect(functionDef).toContain('centerX * u.aspect');
+    for (const sizeMode of ['Proportional', 'Frame']) {
+      const { functionDef } = compileShape(rect({ sizeMode }));
+      // Both the point and the centre live in aspect space alongside the half-extents.
+      expect(functionDef).toMatch(/_uvA\.x \*= u\.aspect;/);
+      expect(functionDef).toContain('centerX * u.aspect');
+    }
   });
 
   it('floors the half-extents at zero but does not cap them at the frame', () => {
@@ -109,12 +116,15 @@ describe('Rectangle shape codegen', () => {
     expect(polygon.functionDef).toContain('centerX * u.aspect');
   });
 
-  it('offers the mode on the node, defaulting to the behaviour patches were authored against', () => {
-    // Without this the control is unreachable and the compiler branch is dead code.
+  it('offers the mode on the node, defaulting to the one whose numbers describe the shape', () => {
+    // Without this the control is unreachable and the compiler branch is dead code. The default
+    // has to agree with rectangleIsProportional's fallback, or a fresh node and a pre-mode
+    // project file would render differently from each other.
     const sizeMode = PatternNodes.Rectangle.params.find((p) => p.name === 'sizeMode');
     expect(sizeMode).toBeDefined();
     expect(sizeMode.type).toBe('select');
-    expect(sizeMode.options).toEqual(['Frame', 'Proportional']);
-    expect(sizeMode.default).toBe('Frame');
+    expect(sizeMode.options).toEqual(['Proportional', 'Frame']);
+    expect(sizeMode.default).toBe('Proportional');
+    expect(rectangleIsProportional(rect({ sizeMode: sizeMode.default }))).toBe(true);
   });
 });

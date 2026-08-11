@@ -325,7 +325,7 @@ export const ParameterDefinitions = {
     sizeMode: {
       type: ParameterTypes.SELECT,
       capabilities: ParameterCapabilities.STATIC_ONLY,
-      default: 'Frame'
+      default: 'Proportional'
     },
     roundness: {
       type: ParameterTypes.FLOAT,
