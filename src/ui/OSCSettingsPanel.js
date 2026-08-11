@@ -65,7 +65,7 @@ const SMALL_INPUT = `
   border: 1px solid rgba(255,244,230,0.08);
   border-radius: 3px;
   color: #cabfb0;
-  font-family: monospace;
+  font-family: var(--rz-font-mono);
   font-size: 10px;
 `;
 
@@ -124,7 +124,7 @@ export class OSCSettingsPanel {
       border-radius: 8px;
       padding: 16px;
       color: #f3ede4;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: var(--rz-font-ui);
       font-size: 13px;
       /* Above the MIDI panel, which otherwise sits at the same spot with the
          same z-index — two stacked panels look like one misbehaving panel. */
@@ -148,12 +148,12 @@ export class OSCSettingsPanel {
       <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <span style="font-weight: 500;">Bridge:</span>
-          <span id="osc-status" style="font-family: monospace; color: #6f6559;">Disconnected</span>
+          <span id="osc-status" style="font-family: var(--rz-font-mono); color: #6f6559;">Disconnected</span>
         </div>
         <input id="osc-url" type="text" spellcheck="false" style="
           width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px;
           background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255,244,230,0.08); border-radius: 4px;
-          color: #cabfb0; font-family: monospace; font-size: 11px;
+          color: #cabfb0; font-family: var(--rz-font-mono); font-size: 11px;
         " />
         <div style="display: flex; gap: 8px;">
           <button id="osc-connect-btn" style="
@@ -171,7 +171,7 @@ export class OSCSettingsPanel {
           <input id="osc-udp-port" type="number" min="1" max="65535" style="
             width: 80px; padding: 4px 6px; background: rgba(0, 0, 0, 0.4);
             border: 1px solid rgba(255,244,230,0.08); border-radius: 4px; color: #cabfb0;
-            font-family: monospace; font-size: 11px;
+            font-family: var(--rz-font-mono); font-size: 11px;
           " />
           <button id="osc-udp-apply" style="
             padding: 4px 10px; background: #c6f24e; color: #14110a; border: none;
@@ -184,7 +184,7 @@ export class OSCSettingsPanel {
       <div style="margin-bottom: 14px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
           <span style="font-weight: 500; font-size: 12px;">Mapping to:</span>
-          <span id="osc-target" style="font-family: monospace; font-size: 11px; color: #f5a524;">nothing selected</span>
+          <span id="osc-target" style="font-family: var(--rz-font-mono); font-size: 11px; color: #f5a524;">nothing selected</span>
         </div>
         <p style="margin: 0 0 8px 0; font-size: 11px; color: #6f6559;">
           Click a parameter in the Parameter Panel, then press <strong>Bind</strong>
@@ -218,7 +218,7 @@ export class OSCSettingsPanel {
           <input id="osc-filter" type="text" placeholder="filter…" spellcheck="false" style="
             flex: 1; min-width: 0; padding: 3px 6px; background: rgba(0, 0, 0, 0.4);
             border: 1px solid rgba(255,244,230,0.08); border-radius: 3px; color: #cabfb0;
-            font-family: monospace; font-size: 10px;
+            font-family: var(--rz-font-mono); font-size: 10px;
           " />
         </div>
         <div id="osc-addresses-list" style="
@@ -249,7 +249,7 @@ export class OSCSettingsPanel {
         <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: #8f867a;">OSC Activity</h4>
         <div id="osc-activity" style="
           background: rgba(0, 0, 0, 0.3); border-radius: 4px; padding: 8px;
-          min-height: 40px; font-family: monospace; font-size: 11px; color: #6f6559;
+          min-height: 40px; font-family: var(--rz-font-mono); font-size: 11px; color: #6f6559;
           word-break: break-all;
         ">No recent activity</div>
       </div>
@@ -733,11 +733,11 @@ export class OSCSettingsPanel {
     const top = el('div', 'display: flex; justify-content: space-between; gap: 8px; align-items: baseline;');
     const addressEl = el(
       'div',
-      'font-family: monospace; font-size: 11px; color: #f3ede4; word-break: break-all;',
+      'font-family: var(--rz-font-mono); font-size: 11px; color: #f3ede4; word-break: break-all;',
       entry.address,
     );
     addressEl.className = 'osc-channel-address';
-    const valueEl = el('div', 'font-family: monospace; font-size: 10px; color: #8ecbff; white-space: nowrap;');
+    const valueEl = el('div', 'font-family: var(--rz-font-mono); font-size: 10px; color: #8ecbff; white-space: nowrap;');
     top.append(addressEl, valueEl);
 
     const controls = el('div', 'display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; align-items: center;');
@@ -825,7 +825,7 @@ export class OSCSettingsPanel {
     heading.appendChild(
       el(
         'div',
-        'font-weight: 500; font-size: 11px; color: #c6f24e; font-family: monospace; word-break: break-all;',
+        'font-weight: 500; font-size: 11px; color: #c6f24e; font-family: var(--rz-font-mono); word-break: break-all;',
         first.argIndex > 0 ? `${first.address} [${first.argIndex}]` : first.address,
       ),
     );

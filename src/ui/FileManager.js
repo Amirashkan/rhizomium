@@ -283,7 +283,7 @@ export class FileManager {
         flex: 1;
         color: #f3ede4;
         font-size: 13px;
-        font-family: 'SF Mono', Monaco, monospace;
+        font-family: var(--rz-font-mono);
         padding: 6px 12px;
         background: rgba(0, 0, 0, 0.3);
         border-radius: 6px;

@@ -41,7 +41,7 @@ export class MIDISettingsPanel {
       border-radius: 8px;
       padding: 16px;
       color: #f3ede4;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: var(--rz-font-ui);
       font-size: 13px;
       z-index: 1000;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -70,7 +70,7 @@ export class MIDISettingsPanel {
       <div style="margin-bottom: 16px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <span style="font-weight: 500;">MIDI Status:</span>
-          <span id="midi-status" style="font-family: monospace; color: #6f6559;">Initializing...</span>
+          <span id="midi-status" style="font-family: var(--rz-font-mono); color: #6f6559;">Initializing...</span>
         </div>
         <div style="display: flex; gap: 8px;">
           <button id="midi-enable-btn" style="
@@ -182,7 +182,7 @@ export class MIDISettingsPanel {
           border-radius: 4px;
           padding: 8px;
           min-height: 40px;
-          font-family: monospace;
+          font-family: var(--rz-font-mono);
           font-size: 11px;
           color: #6f6559;
         ">

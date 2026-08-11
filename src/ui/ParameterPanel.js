@@ -1715,10 +1715,10 @@ case 'flip2d':
     pasteBtn.style.cssText = `
       width: 18px;
       height: 18px;
-      background: ${withAlpha(ACCENT.base, 0.14)};
-      border: 1px solid ${withAlpha(ACCENT.base, 0.3)};
+      background: ${SURFACE.fillSoft};
+      border: 1px solid ${SURFACE.line};
       border-radius: 5px;
-      color: ${ACCENT.base};
+      color: ${TEXT.secondary};
       cursor: pointer;
       font-size: 10px;
       display: flex;
@@ -2473,7 +2473,9 @@ updateDependentExpressions(_node) {
         
         if (validation.valid) {
           display.textContent = `→ ${validation.result}`;
-          display.style.color = ACCENT.base;
+          // A live value is not a success message — only the error state gets a
+          // colour, so a working expression stays quiet.
+          display.style.color = TEXT.tertiary;
         } else {
           display.textContent = `Error: ${validation.error}`;
           display.style.color = SEMANTIC.error;

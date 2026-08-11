@@ -106,7 +106,7 @@ export class GLSLCodeInputHandler {
       padding: 8px 4px 8px 8px;
       background: rgba(255, 244, 230, 0.03);
       color: #6f6559;
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-family: var(--rz-font-mono);
       font-size: 12px;
       line-height: 1.5;
       text-align: right;
@@ -132,7 +132,7 @@ export class GLSLCodeInputHandler {
       pointer-events: none;
       padding: 8px;
       margin: 0;
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-family: var(--rz-font-mono);
       font-size: 12px;
       line-height: 1.5;
       white-space: pre;
@@ -177,7 +177,7 @@ export class GLSLCodeInputHandler {
       color: transparent;
       border: none;
       outline: none;
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-family: var(--rz-font-mono);
       font-size: 12px;
       line-height: 1.5;
       resize: vertical;

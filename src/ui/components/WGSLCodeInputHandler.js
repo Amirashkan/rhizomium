@@ -215,7 +215,7 @@ export class WGSLCodeInputHandler {
       color: #d4d4d4;
       border: none;
       resize: none;
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-family: var(--rz-font-mono);
       font-size: 12px;
       line-height: 1.5;
       white-space: pre;
@@ -260,7 +260,7 @@ export class WGSLCodeInputHandler {
       background: transparent;
       color: transparent;
       border: none;
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-family: var(--rz-font-mono);
       font-size: 12px;
       line-height: 1.5;
       white-space: pre;
@@ -282,7 +282,7 @@ export class WGSLCodeInputHandler {
       border-radius: 8px;
       color: #f8a49f;
       font-size: 11px;
-      font-family: 'Consolas', 'Monaco', monospace;
+      font-family: var(--rz-font-mono);
       white-space: pre-wrap;
       display: none;
       max-height: 120px;

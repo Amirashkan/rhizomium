@@ -5,7 +5,8 @@ import { letterboxRect } from "./letterbox.js";
 import { resolveResolution } from "./OutputFormat.js";
 import { getInteractionStateManager } from '../utils/InteractionStateManager.js';
 import { PRIORITY } from '../core/UnifiedRAFManager.js';
-import { ACCENT, SURFACE, TEXT, FONT_MONO, FONT_UI } from '../core/theme.js';
+import { ACCENT, SEMANTIC, SURFACE, TEXT, FONT_MONO, FONT_UI, withAlpha } from '../core/theme.js';
+import { setIcon } from './iconSprite.js';
 
 // Panel chrome: the header strip plus the 1px border on each edge. The canvas
 // area is whatever is left, and the render is fitted into it.
@@ -758,13 +759,123 @@ async show() {
     }
   }
 
+  /**
+   * Chrome that only exists in fullscreen, injected once.
+   *
+   * The header carries an inline cssText (it is built in JS), so these state
+   * rules have to out-specify it with !important — they are a mode switch on
+   * top of that base, not a competing opinion about the windowed layout.
+   */
+  _ensureFullscreenChromeStyles() {
+    if (document.getElementById("rz-preview-fullscreen-styles")) return;
+    const style = document.createElement("style");
+    style.id = "rz-preview-fullscreen-styles";
+    style.textContent = `
+      /* In fullscreen the render IS the screen, so the window chrome stops
+         being a title bar across the top and becomes a small glass cluster in
+         the corner that fades out while the pointer is still. */
+      .floating-gpu-preview.is-fullscreen .preview-header {
+        position: absolute !important;
+        top: 14px !important;
+        right: 14px !important;
+        left: auto !important;
+        width: auto !important;
+        height: auto !important;
+        padding: 4px 5px !important;
+        gap: 2px !important;
+        justify-content: flex-end !important;
+        background: rgba(10, 9, 8, 0.55) !important;
+        backdrop-filter: blur(8px);
+        border: 1px solid ${SURFACE.line} !important;
+        border-radius: 999px !important;
+        z-index: 30;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+
+      .floating-gpu-preview.is-fullscreen.controls-visible .preview-header {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* The resolution readout belongs to the windowed title bar only. */
+      .floating-gpu-preview.is-fullscreen .preview-title {
+        display: none !important;
+      }
+
+      /* Collapsed: everything folds away behind the toggle, which stays as the
+         way back. */
+      .floating-gpu-preview.is-fullscreen.controls-collapsed
+        .preview-controls
+        > *:not(.btn-controls-toggle) {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  /** Fold the cluster down to its toggle, or unfold it. */
+  _setControlsCollapsed(collapsed) {
+    this._controlsCollapsed = collapsed;
+    this.container?.classList.toggle("controls-collapsed", collapsed);
+    const btn = this.container?.querySelector(".btn-controls-toggle");
+    if (btn) {
+      setIcon(btn, collapsed ? "expand" : "collapse", { size: 13 });
+      btn.title = collapsed ? "Show controls" : "Hide controls";
+      btn.setAttribute("aria-label", btn.title);
+    }
+    if (collapsed) this._revealControls();
+  }
+
+  /** Show the cluster, and restart the idle countdown that hides it again. */
+  _revealControls() {
+    if (!this.isFullscreen || !this.container) return;
+    this.container.classList.add("controls-visible");
+    clearTimeout(this._controlsHideTimer);
+    this._controlsHideTimer = setTimeout(() => {
+      this.container?.classList.remove("controls-visible");
+    }, 2400);
+  }
+
+  /** Start/stop the pointer watch that reveals the fullscreen cluster. */
+  _setFullscreenControlsActive(active) {
+    this.container?.classList.toggle("is-fullscreen", !!active);
+
+    if (active) {
+      this._ensureFullscreenChromeStyles();
+      if (!this._onFullscreenPointerMove) {
+        this._onFullscreenPointerMove = () => this._revealControls();
+      }
+      document.addEventListener("pointermove", this._onFullscreenPointerMove);
+      // Visible on entry, then it fades unless the pointer moves.
+      this._revealControls();
+    } else {
+      if (this._onFullscreenPointerMove) {
+        document.removeEventListener("pointermove", this._onFullscreenPointerMove);
+      }
+      clearTimeout(this._controlsHideTimer);
+      this.container?.classList.remove("controls-visible");
+      this._setControlsCollapsed(false);
+    }
+
+    const toggle = this.container?.querySelector(".btn-controls-toggle");
+    if (toggle) toggle.style.display = active ? "flex" : "none";
+  }
+
   async toggleFullscreen() {
     if (!this.isVisible || this.isDocked) return;
 
     const perfToken = this._getPerfMonitor()?.timeSection("previewFullscreen");
     this.isFullscreen = !this.isFullscreen;
     const btn = this.container.querySelector(".btn-fullscreen");
-    const hud = document.getElementById("hud");
+    // App chrome that has to get out of the way. #hud is the old toolbar (gone
+    // from the markup, kept here because a layout may still provide one);
+    // #top-menu-bar is today's menu bar, and it sits ABOVE the fullscreen panel
+    // in the stacking order — left visible it clipped the control cluster.
+    const chrome = ["hud", "top-menu-bar"]
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
 
     if (this.isFullscreen) {
       // Save original container styles before entering fullscreen
@@ -774,13 +885,11 @@ async show() {
         canvasHeight: this.gpuCanvas.height,
         canvasStyleWidth: this.gpuCanvas.style.width,
         canvasStyleHeight: this.gpuCanvas.style.height,
-        hudDisplay: hud ? hud.style.display : null,
+        chromeDisplay: chrome.map((el) => [el, el.style.display]),
       };
 
-      // Hide the HUD menu for true fullscreen experience
-      if (hud) {
-        hud.style.display = "none";
-      }
+      // Hide the app chrome for a true fullscreen experience.
+      for (const el of chrome) el.style.display = "none";
 
       // Fullscreen renders the preview role, letterboxed to the output aspect.
       const { width, height } = resolveResolution("preview");
@@ -810,9 +919,13 @@ async show() {
       this.gpuCanvas.style.height = fsHeight + "px";
 
       this.container.style.cssText +=
-        ";position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;border-radius:0!important;display:flex!important;align-items:center!important;justify-content:center!important;";
-      btn.textContent = "Exit FS";
+        ";position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;border-radius:0!important;border:none!important;display:flex!important;align-items:center!important;justify-content:center!important;";
+      this._setFullscreenControlsActive(true);
+      setIcon(btn, "fullscreen-exit", { size: 13 });
+      btn.title = "Exit fullscreen";
     } else {
+      this._setFullscreenControlsActive(false);
+
       // Restore original container and canvas styles
       if (this.originalFullscreenStyles) {
         this.container.style.cssText = this.originalFullscreenStyles.cssText;
@@ -833,13 +946,14 @@ async show() {
         this.gpuCanvas.style.width = this.originalFullscreenStyles.canvasStyleWidth;
         this.gpuCanvas.style.height = this.originalFullscreenStyles.canvasStyleHeight;
 
-        // Restore HUD visibility
-        if (hud && this.originalFullscreenStyles.hudDisplay !== null) {
-          hud.style.display = this.originalFullscreenStyles.hudDisplay;
+        // Restore the app chrome exactly as it was.
+        for (const [el, display] of this.originalFullscreenStyles.chromeDisplay || []) {
+          el.style.display = display;
         }
       }
 
-      btn.textContent = "Fullscreen";
+      setIcon(btn, "fullscreen-enter", { size: 13 });
+      btn.title = "Fullscreen";
       await this.updateSize();
     }
 
@@ -856,12 +970,14 @@ async show() {
     const lockBtn = this.container.querySelector(".btn-lock");
 
     if (this.isLocked) {
-      lockBtn.textContent = "Locked";
+      this._setButtonOn(lockBtn, true);
+      lockBtn.title = "Unlock position";
       this.container.style.pointerEvents = "none";
       this.container.querySelector(".preview-header").style.pointerEvents = "auto";
       this.container.style.opacity = "0.7";
     } else {
-      lockBtn.textContent = "Unlocked";
+      this._setButtonOn(lockBtn, false);
+      lockBtn.title = "Lock position (click-through)";
       this.container.style.pointerEvents = "auto";
       this.container.style.opacity = "1";
     }
@@ -1031,17 +1147,19 @@ async show() {
     title.style.cssText = `color: ${TEXT.primary}; font-family: ${FONT_UI}; font-size: 12.5px; font-weight: 600;`;
 
     const controls = document.createElement("div");
-    controls.style.cssText = "display: flex; gap: 4px;";
+    controls.className = "preview-controls";
+    controls.style.cssText = "display: flex; gap: 2px; align-items: center;";
 
-    const settingsBtn = this._createButton("Settings", "btn-settings");
+    const settingsBtn = this._createButton("Preview settings", "btn-settings", "preferences");
     settingsBtn.onclick = (e) => {
       e.stopPropagation();
       this.settings.showSettings();
     };
 
     const dockBtn = this._createButton(
-      this.isDocked ? "Float" : "Dock",
+      this.isDocked ? "Float this panel" : "Dock to the corner",
       "btn-dock",
+      this.isDocked ? "floating-windows" : "panel-preview",
     );
     dockBtn.onclick = (e) => {
       e.stopPropagation();
@@ -1052,8 +1170,12 @@ async show() {
     controls.appendChild(dockBtn);
 
     if (!this.isDocked) {
-      const lockBtn = this._createButton("Unlocked", "btn-lock");
-      const fullscreenBtn = this._createButton("Fullscreen", "btn-fullscreen");
+      const lockBtn = this._createButton(
+        "Lock position (click-through)", "btn-lock", "lock-param",
+      );
+      const fullscreenBtn = this._createButton(
+        "Fullscreen", "btn-fullscreen", "fullscreen-enter",
+      );
 
       lockBtn.onclick = (e) => {
         e.stopPropagation();
@@ -1068,12 +1190,27 @@ async show() {
       controls.appendChild(fullscreenBtn);
     }
 
-    const closeBtn = this._createButton("X", "btn-close");
+    const closeBtn = this._createButton("Close", "btn-close", "close", { danger: true });
     closeBtn.onclick = (e) => {
       e.stopPropagation();
       this.hide();
     };
     controls.appendChild(closeBtn);
+
+    // Collapses the cluster to just this chevron. Only meaningful in
+    // fullscreen, where the controls float over the render — hidden otherwise,
+    // since the windowed header has room for all of them.
+    const collapseBtn = this._createButton(
+      "Hide controls",
+      "btn-controls-toggle",
+      "collapse",
+    );
+    collapseBtn.style.display = "none";
+    collapseBtn.onclick = (e) => {
+      e.stopPropagation();
+      this._setControlsCollapsed(!this._controlsCollapsed);
+    };
+    controls.appendChild(collapseBtn);
 
     header.appendChild(title);
     header.appendChild(controls);
@@ -1143,18 +1280,34 @@ canvasWrapper.style.cssText = `
     return container;
   }
 
-  _createButton(text, className) {
+  /**
+   * A window control: a 22px icon button, quiet until pointed at.
+   *
+   * `icon` is a sprite id (src/assets/icons-sprite.js); `label` becomes the
+   * tooltip and the accessible name. Text labels made the header a row of words
+   * that read louder than the render they sit above — and in fullscreen they
+   * became a strip of buttons across the top of the image.
+   */
+  _createButton(label, className, icon, { danger = false } = {}) {
     const btn = document.createElement("button");
-    btn.textContent = text;
     btn.className = className;
+    btn.type = "button";
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.dataset.danger = danger ? "1" : "";
+    setIcon(btn, icon, { size: 13 });
     btn.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      flex: none;
       background: transparent;
-      border: 1px solid transparent;
+      border: none;
       color: ${TEXT.tertiary};
       cursor: pointer;
-      font-family: ${FONT_UI};
-      font-size: 10px;
-      padding: 3px 7px;
+      padding: 0;
       border-radius: 6px;
       transition: background 0.15s ease, color 0.15s ease;
     `;
@@ -1162,15 +1315,25 @@ canvasWrapper.style.cssText = `
     // Window controls stay near-invisible until pointed at — the render is the
     // content, the chrome around it should not compete with it.
     btn.onmouseenter = () => {
-      btn.style.background = SURFACE.hover;
-      btn.style.color = "#ffffff";
+      btn.style.background = danger
+        ? withAlpha(SEMANTIC.error, 0.18)
+        : SURFACE.hover;
+      btn.style.color = danger ? SEMANTIC.error : "#ffffff";
     };
     btn.onmouseleave = () => {
       btn.style.background = "transparent";
-      btn.style.color = TEXT.tertiary;
+      btn.style.color = btn.dataset.on === "1" ? ACCENT.base : TEXT.tertiary;
     };
 
     return btn;
+  }
+
+  /** Light a toggle button in the accent while its state is ON. */
+  _setButtonOn(btn, on) {
+    if (!btn) return;
+    btn.dataset.on = on ? "1" : "";
+    btn.style.color = on ? ACCENT.base : TEXT.tertiary;
+    btn.style.background = on ? withAlpha(ACCENT.base, 0.16) : "transparent";
   }
 
   _setupDragging() {

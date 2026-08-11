@@ -40,7 +40,7 @@ export class AudioSettingsPanel {
             border-radius: 8px;
             padding: 16px;
             color: #f3ede4;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: var(--rz-font-ui);
             font-size: 13px;
             z-index: 1000;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -116,8 +116,8 @@ export class AudioSettingsPanel {
                 <!-- Time Bar -->
                 <div style="margin-bottom: 12px; margin-top: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <span id="audio-current-time" style="font-family: monospace; font-size: 10px; color: #6f6559;">0:00</span>
-                        <span id="audio-duration" style="font-family: monospace; font-size: 10px; color: #6f6559;">0:00</span>
+                        <span id="audio-current-time" style="font-family: var(--rz-font-mono); font-size: 10px; color: #6f6559;">0:00</span>
+                        <span id="audio-duration" style="font-family: var(--rz-font-mono); font-size: 10px; color: #6f6559;">0:00</span>
                     </div>
                     <div id="audio-progress-container" style="
                         height: 6px;
@@ -142,7 +142,7 @@ export class AudioSettingsPanel {
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-weight: 500;">Envelope:</span>
-                    <span id="audio-value" style="font-family: monospace; color: #c6f24e;">0.000</span>
+                    <span id="audio-value" style="font-family: var(--rz-font-mono); color: #c6f24e;">0.000</span>
                 </div>
                 <div style="margin-top: 8px;">
                     <div style="height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden;">

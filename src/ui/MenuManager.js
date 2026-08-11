@@ -1,6 +1,6 @@
 // src/ui/MenuManager.js
-import { NodeDefs, makeNode, updateNodeIdCounter } from "../data/NodeDefs.js";
-import { RadialMenu } from "./RadialMenu.js";
+import { NodeDefs, updateNodeIdCounter } from "../data/NodeDefs.js";
+import { AddNodePalette } from "./AddNodePalette.js";
 import { nodeDisplayName, hasCustomNodeName } from "../core/nodeName.js";
 import { cloneNode, cloneConnections } from "../core/cloneGraph.js";
 
@@ -9,9 +9,8 @@ export class MenuManager {
     this.graph = graph;
     this.onChange = onChange;
     this.menuEl = null;
-    this.menuFilter = "";
     this.menuPos = { x: 0, y: 0 };
-    this.radialMenu = null;
+    this.palette = null;
     this.undoManager = null; // Set by Editor
   }
 
@@ -25,109 +24,47 @@ export class MenuManager {
       this.menuEl.remove();
       this.menuEl = null;
     }
-    if (this.radialMenu) {
-      this.radialMenu.hide();
-    }
+    this.palette?.hide();
   }
 
   contains(element) {
     return (
       (this.menuEl && this.menuEl.contains(element)) ||
-      (this.radialMenu &&
-        this.radialMenu.element &&
-        this.radialMenu.element.contains(element))
+      !!this.palette?.contains(element)
     );
   }
 
+  /**
+   * Whether the add-node palette is on screen. A wire being dragged must not be
+   * dropped while it is open — the wire is waiting for the node you are about
+   * to pick.
+   */
+  isAddMenuOpen() {
+    return !!this.palette?.isVisible;
+  }
+
+  /**
+   * Open the add-node palette at the cursor.
+   *
+   * Both entry points land here — the right-click on empty canvas, and the
+   * "Create Node…"/quick-search command. There used to be two different menus
+   * for those (a radial wheel and a search list); one search-first palette
+   * covers both, and the node lands at `canvasX/canvasY` either way.
+   */
   showCreateMenu(canvasX, canvasY, clientX, clientY) {
     this.menuPos = { x: canvasX, y: canvasY };
-    const el = this._createMenuRoot(clientX, clientY);
-    el.innerHTML = "";
-
-    // Search input
-    const input = document.createElement("input");
-    input.className = "ctx-search";
-    input.placeholder = "Search nodes…";
-    input.value = this.menuFilter;
-    input.addEventListener("input", () => {
-      this.menuFilter = input.value;
-      this._renderCreateList(el);
-    });
-
-    el.appendChild(input);
-    this._renderCreateList(el);
-
-    // Handle keyboard navigation
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        this._focusNextItem(el);
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        this._focusPrevItem(el);
-      }
-      if (e.key === "Enter") {
-        e.preventDefault();
-        this._activateFocusedItem(el);
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        this.hide();
-      }
-    });
-
-    input.focus();
+    if (!this.palette) {
+      this.palette = new AddNodePalette(this.graph, this.onChange);
+    }
+    this.palette.show(canvasX, canvasY, clientX, clientY);
   }
 
+  /**
+   * Kept as the name the canvas right-click and the dropped-wire handler call.
+   * The radial menu it used to open is gone; this is the palette.
+   */
   showRadialMenu(canvasX, canvasY, clientX, clientY) {
-    // Group categories
-    const categories = this._groupNodesByCategory();
-
-    if (!this.radialMenu) {
-      this.radialMenu = new RadialMenu(this.graph, this.onChange);
-    }
-
-    this.radialMenu.show(canvasX, canvasY, clientX, clientY, categories);
-  }
-
-  _groupNodesByCategory() {
-    const categories = new Map();
-    for (const [kind, def] of Object.entries(NodeDefs)) {
-      const cat = def.cat || "Misc";
-      if (!categories.has(cat)) {
-        categories.set(cat, []);
-      }
-      categories.get(cat).push({ kind, label: def.label || kind });
-    }
-
-    // Convert to array format expected by RadialMenu.
-    // primaryOrder matches the category-icon set's wheel order (Transform first).
-    const primaryOrder = [
-      "Transform",
-      "Input",
-      "Output",
-      "Math",
-      "Vector",
-      "Generators",
-      "Modifiers",
-      "Effects",
-      "Simulation",
-      "Utility",
-      "Blend",
-      "Texture",
-    ];
-    const orderedCategories = [
-      ...primaryOrder,
-      ...Array.from(categories.keys()).filter((c) => !primaryOrder.includes(c)),
-    ];
-
-    return orderedCategories
-      .map((categoryName) => ({
-        name: categoryName,
-        items: categories.get(categoryName) || [],
-      }))
-      .filter((cat) => cat.items.length > 0);
+    this.showCreateMenu(canvasX, canvasY, clientX, clientY);
   }
 
   showNodeMenu(node, clientX, clientY) {
@@ -377,137 +314,6 @@ export class MenuManager {
     const sep = document.createElement("div");
     sep.className = "ctx-separator";
     return sep;
-  }
-
-  _renderCreateList(el) {
-    // Remove existing items (keep search input)
-    const items = el.querySelectorAll(".ctx-header, .ctx-item");
-    items.forEach((item) => item.remove());
-
-    // Group nodes by category
-    const categories = new Map();
-    for (const [kind, def] of Object.entries(NodeDefs)) {
-      const cat = def.cat || "Misc";
-      if (!categories.has(cat)) {
-        categories.set(cat, []);
-      }
-      categories.get(cat).push({ kind, label: def.label || kind });
-    }
-
-    // Sort items within each category
-    for (const items of categories.values()) {
-      items.sort((a, b) => a.label.localeCompare(b.label));
-    }
-
-    // Filter items based on search
-    const filter = (this.menuFilter || "").trim().toLowerCase();
-    const matches = (item) => {
-      if (!filter) return true;
-      return (
-        item.label.toLowerCase().includes(filter) ||
-        item.kind.toLowerCase().includes(filter)
-      );
-    };
-
-    // Render categories in preferred order
-    const orderedCategories = [
-      "Input",
-      "Output",
-      "Math",
-      "Vector",
-      "Generators",
-      "Modifiers",
-      "Effects",
-      "Simulation",
-      "Utility",
-      "Blend",
-      "Texture",
-      ...Array.from(categories.keys()).filter(
-        (c) => !["Input", "Output", "Math", "Vector", "Generators", "Modifiers", "Effects", "Simulation", "Utility", "Blend", "Texture"].includes(c),
-      ),
-    ];
-
-    for (const categoryName of orderedCategories) {
-      const items = categories.get(categoryName);
-      if (!items) continue;
-
-      const visibleItems = items.filter(matches);
-      if (visibleItems.length === 0) continue;
-
-      // Add category header with color coding
-      const header = this._createMenuHeader(categoryName, categoryName);
-      el.appendChild(header);
-
-      // Add category items with color coding
-      for (const item of visibleItems) {
-        const menuItem = this._createMenuItem(
-          item.label,
-          () => {
-            this._createNode(item.kind);
-            this.hide();
-          },
-          categoryName,
-        );
-        el.appendChild(menuItem);
-      }
-    }
-
-    // If no results, show a message
-    if (filter && el.querySelectorAll(".ctx-item").length === 0) {
-      const noResults = document.createElement("div");
-      noResults.className = "ctx-item";
-      noResults.textContent = "No nodes found";
-      noResults.style.color = "#666";
-      noResults.style.fontStyle = "italic";
-      el.appendChild(noResults);
-    }
-  }
-
-  _focusNextItem(el) {
-    const items = Array.from(el.querySelectorAll('.ctx-item[tabindex="0"]'));
-    const current = document.activeElement;
-    const currentIndex = items.indexOf(current);
-
-    if (currentIndex < items.length - 1) {
-      items[currentIndex + 1].focus();
-    } else if (items.length > 0) {
-      items[0].focus(); // Wrap to first
-    }
-  }
-
-  _focusPrevItem(el) {
-    const items = Array.from(el.querySelectorAll('.ctx-item[tabindex="0"]'));
-    const current = document.activeElement;
-    const currentIndex = items.indexOf(current);
-
-    if (currentIndex > 0) {
-      items[currentIndex - 1].focus();
-    } else if (items.length > 0) {
-      items[items.length - 1].focus(); // Wrap to last
-    }
-  }
-
-  _activateFocusedItem(_el) {
-    const focused = document.activeElement;
-    if (focused && focused.classList.contains("ctx-item")) {
-      focused.click();
-    }
-  }
-
-  _createNode(kind) {
-    const node = makeNode(kind, this.menuPos.x, this.menuPos.y);
-    this.graph.nodes.push(node);
-    this.graph.selection = new Set([node.id]);
-
-    if (this.onChange) this.onChange();
-
-    // Trigger the new node's preview. Unlike RadialMenu._createNode and Editor.createNode, this
-    // "quick add" search menu otherwise does no per-node preview work, so the freshly added node
-    // renders as a placeholder until some unrelated event (a parameter edit, or wiring it into the
-    // chain that reaches the output) happens to recompute it. onNodeAdded debounces a full preview
-    // refresh through the GPU funnel, so the node shows its own output right away — even while it is
-    // still disconnected from the output.
-    window.editor?.previewIntegration?.onNodeAdded?.(node);
   }
 
   _duplicateSelected() {

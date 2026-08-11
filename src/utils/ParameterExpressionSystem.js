@@ -6,6 +6,7 @@ import { MessagePriority } from '../core/AsyncQueueManager.js';
 import { NodeDefs } from '../data/NodeDefs.js';
 import { refreshTextNodeTexture } from '../core/TextRasterizer.js';
 import { AUDIO_ANALYSIS_PINS, audioAnalysisPinValue } from '../core/audioAnalysisPins.js';
+import { SEMANTIC, SURFACE, TEXT, FONT_MONO } from '../core/theme.js';
 
 export class ParameterExpressionSystem {
   constructor() {
@@ -1363,36 +1364,39 @@ isIncomplete(value) {
     
     if (this.expressionSystem.isExpression(value)) {
       // Update input styling for expression
-      input.style.fontFamily = 'monospace';
-      input.style.backgroundColor = '#2a2a3e';
-      input.style.color = '#a8e6cf';
+      // An expression is violet, the same tone bound/audio parameters carry in
+      // the panel and parameter-reference lines carry on the canvas. Green here
+      // used to collide with "valid"/"success" everywhere else.
+      input.style.fontFamily = FONT_MONO;
+      input.style.backgroundColor = SURFACE.well;
+      input.style.color = '#c9b9f7';
       input.classList.add('has-expression');
       
       // Validate and show result
       const validation = this.expressionSystem.validateExpression(value, {}, node);
       
       if (validation.valid) {
-        input.style.borderColor = '#4CAF50';
+        input.style.borderColor = SEMANTIC.audio;
         resultDisplay.textContent = `→ ${validation.result}`;
-        resultDisplay.style.color = '#4CAF50';
+        resultDisplay.style.color = TEXT.tertiary;
       } else {
-        input.style.borderColor = '#f44336';
+        input.style.borderColor = SEMANTIC.error;
         resultDisplay.textContent = `Error: ${validation.error}`;
-        resultDisplay.style.color = '#f44336';
+        resultDisplay.style.color = SEMANTIC.error;
       }
     } else {
       // Reset styling for normal value
-      input.style.fontFamily = 'inherit';
-      input.style.backgroundColor = '#333';
-      input.style.color = '#fff';
-      input.style.borderColor = '#555';
+      input.style.fontFamily = FONT_MONO;
+      input.style.backgroundColor = SURFACE.well;
+      input.style.color = TEXT.primary;
+      input.style.borderColor = SURFACE.line;
       input.classList.remove('has-expression');
       
       // Show parsed value
       const parsed = this.expressionSystem.parseValue(value);
       if (parsed !== value) {
         resultDisplay.textContent = `→ ${parsed}`;
-        resultDisplay.style.color = '#888';
+        resultDisplay.style.color = TEXT.tertiary;
       } else {
         resultDisplay.textContent = '';
       }
@@ -1742,35 +1746,37 @@ export const expressionStyles = `
   margin-bottom: 4px;
 }
 
+/* Violet marks "this value is computed, not typed" — see updateExpressionDisplay. */
 .expression-capable.has-expression {
-  border-color: #4CAF50 !important;
-  box-shadow: 0 0 3px rgba(76, 175, 80, 0.3);
+  border-color: var(--rz-audio) !important;
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.14);
 }
 
 .expression-capable.has-expression:invalid {
-  border-color: #f44336 !important;
-  box-shadow: 0 0 3px rgba(244, 67, 54, 0.3);
+  border-color: var(--rz-error) !important;
+  box-shadow: 0 0 0 3px rgba(248, 97, 90, 0.14);
 }
 
 .expression-helper-btn {
-  background: #4CAF50;
-  border: none;
-  color: white;
+  background: var(--rz-audio-soft);
+  border: 1px solid var(--rz-audio-line);
+  color: var(--rz-audio);
   cursor: pointer;
+  font-family: var(--rz-font-mono);
   font-size: 9px;
-  font-weight: bold;
+  font-weight: 600;
   transition: background-color 0.2s;
 }
 
 .expression-helper-btn:hover {
-  background: #45a049;
+  background: rgba(167, 139, 250, 0.24);
 }
 
 .expression-result {
   font-size: 10px;
-  color: #888;
-  margin-top: 2px;
-  font-style: italic;
+  color: var(--rz-text-3);
+  font-family: var(--rz-font-mono);
+  margin-top: 3px;
   min-height: 12px;
   padding-left: 2px;
 }
@@ -1781,7 +1787,7 @@ export const expressionStyles = `
 
 .param-input:focus {
   outline: none;
-  box-shadow: 0 0 5px rgba(74, 144, 226, 0.3);
+  box-shadow: 0 0 0 3px var(--rz-accent-10);
 }
 
 /* Drag cursor for numeric inputs */

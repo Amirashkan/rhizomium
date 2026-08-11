@@ -635,7 +635,7 @@ export class BindingVisualizer {
     label.setAttribute('text-anchor', 'middle');
     label.setAttribute('fill', '#f3ede4');
     label.setAttribute('font-size', '10');
-    label.setAttribute('font-family', 'Arial, sans-serif');
+    label.style.fontFamily = 'var(--rz-font-ui)';
     label.style.textShadow = '1px 1px 2px rgba(0,0,0,0.8)';
     
     label.textContent = `${binding.source.parameterName} → ${binding.target.parameterName}`;
